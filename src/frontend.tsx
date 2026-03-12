@@ -4,15 +4,22 @@
  *
  * It is included in `src/index.html`.
  */
-
+import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { ThemeProvider } from "./context/ThemeContext";
+
+const fontsLink = document.createElement("link");
+fontsLink.rel = "stylesheet";
+fontsLink.href = "/fonts.css";
+document.head.appendChild(fontsLink);
 
 const elem = document.getElementById("root")!;
 const app = (
   <StrictMode>
-    <App />
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </StrictMode>
 );
 

@@ -6,6 +6,7 @@ COPY package.json .
 RUN bun install
 
 COPY src ./src
+COPY public ./public
 COPY styles ./styles
 COPY tsconfig.json .
 COPY components.json .

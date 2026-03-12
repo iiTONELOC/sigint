@@ -7,9 +7,16 @@ services:
       - NODE_ENV=development
     volumes:
       - ./src:/app/src
+      - ./public:/app/public
     command: bun --hot src/index.ts
     healthcheck:
-      test: ["CMD", "bun", "--eval", "const res = await fetch('http://localhost:3000'); process.exit(res.ok ? 0 : 1);"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "--eval",
+          "const res = await fetch('http://localhost:3000'); process.exit(res.ok ? 0 : 1);",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
