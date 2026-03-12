@@ -1,0 +1,17 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    restart: always
+    command: bun start
+    healthcheck:
+      test: ["CMD", "bun", "--eval", "const res = await fetch('http://localhost:3000'); process.exit(res.ok ? 0 : 1);"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
