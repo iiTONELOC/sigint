@@ -1,17 +1,28 @@
 {
-  "name": "bun-react-template",
+  "name": "sigint",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "author": "Anthony Tropeano",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iitoneloc/sigint.git"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun run build.ts",
     "docker:dev:up": "docker compose -f docker-compose.dev.yml up",
     "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
-    "docker:prod:up": "docker compose -f docker-compose.prod.yml up",
-    "docker:prod:down": "docker compose -f docker-compose.prod.yml down",
-    "docker:clean": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.prod.yml down -v && docker image rm sigint-web --force 2>/dev/null || true"
+    "docker:dev:clean": "docker compose -f docker-compose.dev.yml down -v",
+    "docker:prod:up": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml up",
+    "docker:prod:down": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml down",
+    "docker:prod:clean": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml down -v",
+    "docker:clean": "bun run docker:dev:clean",
+    "docker:clean:all": "bun run docker:dev:clean && bun run docker:prod:clean && docker image rm sigint-web --force 2>/dev/null || true"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.7",

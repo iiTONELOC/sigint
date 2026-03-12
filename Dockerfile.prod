@@ -1,0 +1,23 @@
+FROM oven/bun:1
+
+WORKDIR /app
+
+COPY package.json .
+RUN bun install
+
+COPY src ./src
+COPY public ./public
+COPY styles ./styles
+COPY tsconfig.json .
+COPY components.json .
+COPY bun-env.d.ts .
+COPY bunfig.toml .
+COPY build.ts .
+
+# Build frontend assets at image build time
+RUN bun run build.ts
+
+ENV NODE_ENV=production
+
+# Serve the built dist/ directory
+CMD ["bun", "src/index.prod.ts"]

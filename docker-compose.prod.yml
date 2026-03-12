@@ -2,15 +2,22 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
+      - PORT=${PORT:-3000}
     restart: always
-    command: bun start
+    command: bun src/index.prod.ts
     healthcheck:
-      test: ["CMD", "bun", "--eval", "const res = await fetch('http://localhost:3000'); process.exit(res.ok ? 0 : 1);"]
+      test:
+        [
+          "CMD",
+          "bun",
+          "--eval",
+          "const port = process.env.PORT; const res = await fetch('http://localhost:' + port); process.exit(res.ok ? 0 : 1);",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
