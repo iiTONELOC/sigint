@@ -33,6 +33,9 @@ export interface AircraftData {
   heading?: number;
   verticalRate?: number;
   originCountry?: string;
+  onGround?: boolean;
+  squawk?: string;
+  squawkStatus?: "normal" | "alert" | "emergency";
   audioStream?: string;
   airport?: string;
   frequency?: string;
@@ -56,6 +59,44 @@ export type DataPoint =
   | (BasePoint & { type: "aircraft"; data: AircraftData })
   | (BasePoint & { type: "events"; data: EventData })
   | (BasePoint & { type: "quakes"; data: QuakeData });
+
+export interface AircraftFilter {
+  enabled: boolean;
+  showAirborne: boolean;
+  showGround: boolean;
+  /** empty set = show all squawk codes */
+  squawks: Set<"7700" | "7600" | "7500" | "other">;
+  /** empty set = show all countries */
+  countries: Set<string>;
+}
+
+export function matchesAircraftFilter(
+  item: DataPoint,
+  f: AircraftFilter,
+): boolean {
+  if (!f.enabled) return false;
+  const d = (item as { data: AircraftData }).data;
+  const onGround: boolean = d?.onGround === true;
+  if (!f.showAirborne && !onGround) return false;
+  if (!f.showGround && onGround) return false;
+  if (f.squawks.size > 0) {
+    const sq: string = d?.squawk ?? "";
+    const bucket =
+      sq === "7700"
+        ? "7700"
+        : sq === "7600"
+          ? "7600"
+          : sq === "7500"
+            ? "7500"
+            : "other";
+    if (!f.squawks.has(bucket as "7700" | "7600" | "7500" | "other"))
+      return false;
+  }
+  if (f.countries.size > 0) {
+    if (!f.countries.has(d?.originCountry ?? "")) return false;
+  }
+  return true;
+}
 
 function rnd(a = 0, b = 1) {
   return Math.random() * (b - a) + a;

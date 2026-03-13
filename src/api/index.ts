@@ -1,7 +1,4 @@
-import { handleAircraftRequest } from "./aircraft";
-
 export const apiRoutes = {
-  "/api/aircraft": handleAircraftRequest,
   "/api/hello": {
     async GET() {
       return Response.json({

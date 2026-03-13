@@ -32,13 +32,35 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
     ],
     aircraft: [
       ["Callsign", (item as any).data?.callsign || ""],
-      ["Type", (item as any).data?.acType || ""],
+      ["ICAO24", (item as any).data?.icao24 || ""],
+      ["Origin", (item as any).data?.originCountry || ""],
       [
         "Altitude",
         `FL${Math.round(((item as any).data?.altitude || 0) / 100)}`,
       ],
       ["Speed", `${(item as any).data?.speed} kn`],
       ["Heading", `${(item as any).data?.heading}\u00B0`],
+      ["Status", (item as any).data?.onGround ? "ON GROUND" : "AIRBORNE"],
+      ...((item as any).data?.squawk
+        ? ([
+            [
+              "Squawk",
+              `${(item as any).data.squawk} \u2014 ${
+                (item as any).data.squawk === "7700"
+                  ? "EMERGENCY"
+                  : (item as any).data.squawk === "7600"
+                    ? "RADIO FAILURE"
+                    : (item as any).data.squawk === "7500"
+                      ? "HIJACK"
+                      : (item as any).data.squawk === "7000"
+                        ? "VFR"
+                        : (item as any).data.squawk === "2000"
+                          ? "IFR"
+                          : "NORMAL"
+              }`,
+            ],
+          ] as [string, string][])
+        : []),
     ],
     events: [
       ["Category", (item as any).data?.category || ""],
@@ -74,6 +96,7 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
         border: `1px solid ${C.border}`,
         padding: 14,
       }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div className="flex justify-between items-center mb-2.5">
         <div className="flex items-center gap-1.5">

@@ -2,14 +2,22 @@ import React, { useEffect, useRef } from "react";
 import { LAND } from "@/lib/land";
 import { useTheme } from "@/context/ThemeContext";
 import { type ThemeColors } from "@/config/theme";
-import { type DataPoint } from "@/lib/mockData";
+import {
+  type DataPoint,
+  type AircraftFilter,
+  matchesAircraftFilter,
+} from "@/lib/mockData";
 
 interface GlobeVisualizationProps {
   readonly flat?: boolean;
+  readonly autoRotate?: boolean;
+  readonly rotationSpeed?: number;
   readonly data: DataPoint[];
   readonly layers: Record<string, boolean>;
+  readonly aircraftFilter: AircraftFilter;
   readonly selected: DataPoint | null;
   readonly onSelect: (item: DataPoint | null) => void;
+  readonly onRawCanvasClick?: () => void;
 }
 
 interface Projected {
@@ -19,6 +27,35 @@ interface Projected {
 }
 
 type ProjFn = (lat: number, lon: number) => Projected;
+
+function getFlatMetrics(
+  W: number,
+  H: number,
+  zoom: number,
+  panX: number = 0,
+  panY: number = 0,
+) {
+  const mW = W * 0.92 * zoom;
+  const mH = H * 0.84 * zoom;
+  const mx = (W - mW) / 2 + panX;
+  const my = (H - mH) / 2 + panY;
+  const cx = W / 2 + panX;
+  const cy = H / 2 + panY;
+  return { mW, mH, mx, my, cx, cy };
+}
+
+function clampFlatPan(
+  cam: { zoomFlat: number; panX: number; panY: number },
+  W: number,
+  H: number,
+) {
+  const mW = W * 0.92 * cam.zoomFlat;
+  const mH = H * 0.84 * cam.zoomFlat;
+  const maxX = Math.max(0, (mW - W) / 2);
+  const maxY = Math.max(0, (mH - H) / 2);
+  cam.panX = Math.max(-maxX, Math.min(maxX, cam.panX));
+  cam.panY = Math.max(-maxY, Math.min(maxY, cam.panY));
+}
 
 function projGlobe(
   lat: number,
@@ -236,7 +273,31 @@ function drawLand(
     if (pts.length < 3) return;
 
     if (isFlat) {
-      simpleDraw(ctx, pts, colors.coastFill, colors.coast);
+      const segments: Projected[][] = [];
+      let seg: Projected[] = [];
+
+      // In flat mode, split polygons across big longitude jumps to avoid seam artifacts.
+      poly.forEach((coord, i) => {
+        const [lat, lon] = coord;
+        if (typeof lat !== "number" || typeof lon !== "number") return;
+
+        const prev = i > 0 ? poly[i - 1] : undefined;
+        if (prev) {
+          const [, prevLon] = prev;
+          if (typeof prevLon === "number" && Math.abs(lon - prevLon) > 120) {
+            if (seg.length >= 3) segments.push(seg);
+            seg = [];
+          }
+        }
+
+        seg.push(proj(lat, lon));
+      });
+
+      if (seg.length >= 3) segments.push(seg);
+
+      segments.forEach((s) =>
+        simpleDraw(ctx, s, colors.coastFill, colors.coast),
+      );
       return;
     }
 
@@ -347,6 +408,7 @@ function drawPoints(
   ctx: CanvasRenderingContext2D,
   data: DataPoint[],
   layers: Record<string, boolean>,
+  aircraftFilter: AircraftFilter,
   selected: DataPoint | null,
   projFn: ProjFn,
   t: number,
@@ -361,7 +423,11 @@ function drawPoints(
 
   const pts: Array<Projected & { item: DataPoint }> = [];
   data.forEach((item) => {
-    if (!layers[item.type]) return;
+    if (item.type === "aircraft") {
+      if (!matchesAircraftFilter(item, aircraftFilter)) return;
+    } else {
+      if (layers[item.type] === false) return;
+    }
     const p = projFn(item.lat, item.lon);
     if (p.z > 0) pts.push({ ...p, item });
   });
@@ -400,7 +466,17 @@ function drawPoints(
     }
 
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
+    if (item.type === "aircraft") {
+      const status = (item as any).data?.squawkStatus;
+      ctx.fillStyle =
+        status === "emergency"
+          ? "#ff3333"
+          : status === "alert"
+            ? "#ff8800"
+            : color;
+    } else {
+      ctx.fillStyle = color;
+    }
     if (item.type === "aircraft") {
       const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
       ctx.beginPath();
@@ -429,15 +505,28 @@ function drawPoints(
 
 export function GlobeVisualization({
   flat = false,
+  autoRotate = true,
+  rotationSpeed = 1,
   data,
   layers,
+  aircraftFilter,
   selected,
   onSelect,
+  onRawCanvasClick,
 }: Readonly<GlobeVisualizationProps>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const camRef = useRef({ rotY: 0, rotX: 0.3, vy: 0 });
+  const camRef = useRef({
+    rotY: 0,
+    rotX: 0.3,
+    vy: 0,
+    zoomGlobe: 1,
+    zoomFlat: 1,
+    panX: 0,
+    panY: 0,
+  });
   const dragRef = useRef({
     active: false,
+    interactive: false,
     lx: 0,
     ly: 0,
     dist: 0,
@@ -445,8 +534,28 @@ export function GlobeVisualization({
     sy: 0,
   });
   const sizeRef = useRef({ w: 800, h: 600 });
-  const propsRef = useRef({ data, layers, flat, selected, onSelect });
-  propsRef.current = { data, layers, flat, selected, onSelect };
+  const propsRef = useRef({
+    data,
+    layers,
+    aircraftFilter,
+    flat,
+    autoRotate,
+    rotationSpeed,
+    selected,
+    onSelect,
+    onRawCanvasClick,
+  });
+  propsRef.current = {
+    data,
+    layers,
+    aircraftFilter,
+    flat,
+    autoRotate,
+    rotationSpeed,
+    selected,
+    onSelect,
+    onRawCanvasClick,
+  };
 
   const { theme } = useTheme();
   const colorsRef = useRef(theme.colors);
@@ -469,20 +578,23 @@ export function GlobeVisualization({
       const {
         data: d,
         layers: ly,
+        aircraftFilter: af,
         flat: isFlat,
+        autoRotate: shouldRotate,
+        rotationSpeed: rotSpeed,
         selected: sel,
       } = propsRef.current;
       const C = colorsRef.current;
       const t = Date.now() * 0.003;
 
-      if (!isFlat && !drag.active) cam.rotY += 0.002;
+      if (!isFlat && !drag.active && shouldRotate) cam.rotY += 0.002 * rotSpeed;
       cam.rotY += cam.vy;
       cam.vy *= 0.95;
 
       ctx.clearRect(0, 0, W, H);
 
       if (!isFlat) {
-        const r = Math.min(W, H) * 0.4;
+        const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
         const proj: ProjFn = (lat, lon) =>
           projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
 
@@ -527,13 +639,18 @@ export function GlobeVisualization({
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        drawPoints(ctx, d, ly, sel, proj, t, C);
+        drawPoints(ctx, d, ly, af, sel, proj, t, C);
       } else {
-        const mW = W * 0.92,
-          mH = H * 0.84;
-        const mx = (W - mW) / 2,
-          my = (H - mH) / 2;
-        const proj: ProjFn = (lat, lon) => projFlat(lat, lon, cx, cy, mW, mH);
+        const {
+          mW,
+          mH,
+          mx,
+          my,
+          cx: flatCx,
+          cy: flatCy,
+        } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+        const proj: ProjFn = (lat, lon) =>
+          projFlat(lat, lon, flatCx, flatCy, mW, mH);
 
         ctx.fillStyle = "#081018";
         ctx.fillRect(mx, my, mW, mH);
@@ -554,7 +671,7 @@ export function GlobeVisualization({
           my,
           accentColor: C.accent,
         });
-        drawPoints(ctx, d, ly, sel, proj, t, C);
+        drawPoints(ctx, d, ly, af, sel, proj, t, C);
 
         ctx.restore();
 
@@ -570,7 +687,7 @@ export function GlobeVisualization({
         for (let lon = -120; lon <= 120; lon += 60) {
           ctx.fillText(
             `${Math.abs(lon)}\u00B0${lon >= 0 ? "E" : "W"}`,
-            cx + (lon / 180) * (mW / 2),
+            flatCx + (lon / 180) * (mW / 2),
             my + mH + 13,
           );
         }
@@ -579,7 +696,7 @@ export function GlobeVisualization({
           ctx.fillText(
             `${Math.abs(lat)}\u00B0${lat >= 0 ? "N" : "S"}`,
             mx - 5,
-            cy - (lat / 90) * (mH / 2) + 3,
+            flatCy - (lat / 90) * (mH / 2) + 3,
           );
         }
       }
@@ -610,7 +727,12 @@ export function GlobeVisualization({
     };
     resize();
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    const ro = new ResizeObserver(resize);
+    ro.observe(par);
+    return () => {
+      window.removeEventListener("resize", resize);
+      ro.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -622,7 +744,26 @@ export function GlobeVisualization({
     const onDown = (e: MouseEvent | TouchEvent) => {
       const p = "touches" in e ? e.touches[0] : e;
       if (!p) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = p.clientX - rect.left;
+      const my = p.clientY - rect.top;
+      const { w: W, h: H } = sizeRef.current;
+      const isFlat = propsRef.current.flat;
+      let interactive = false;
+      if (isFlat) {
+        const {
+          mW,
+          mH,
+          mx: ox,
+          my: oy,
+        } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+        interactive = mx >= ox && mx <= ox + mW && my >= oy && my <= oy + mH;
+      } else {
+        const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+        interactive = Math.hypot(mx - W / 2, my - H / 2) <= r;
+      }
       drag.active = true;
+      drag.interactive = interactive;
       drag.dist = 0;
       drag.lx = p.clientX;
       drag.ly = p.clientY;
@@ -631,6 +772,8 @@ export function GlobeVisualization({
     };
     const onMove = (e: MouseEvent | TouchEvent) => {
       if (!drag.active) return;
+      if (!drag.interactive) return;
+      canvas.style.cursor = "grabbing";
       const p = "touches" in e ? e.touches[0] : e;
       if (!p) return;
       const dx = p.clientX - drag.lx,
@@ -641,12 +784,27 @@ export function GlobeVisualization({
         cam.rotX += dy * 0.005;
         cam.rotX = Math.max(-1.2, Math.min(1.2, cam.rotX));
         cam.vy = dx * 0.001;
+      } else {
+        const { w: W, h: H } = sizeRef.current;
+        cam.panX += dx;
+        cam.panY += dy;
+        clampFlatPan(cam, W, H);
       }
       drag.lx = p.clientX;
       drag.ly = p.clientY;
     };
     const onUp = () => {
+      if (!drag.active) return;
       if (drag.dist < 6) {
+        canvas.style.cursor = "default";
+
+        if (!drag.interactive) {
+          propsRef.current.onRawCanvasClick?.();
+          drag.active = false;
+          drag.interactive = false;
+          return;
+        }
+
         const rect = canvas.getBoundingClientRect();
         const mx = drag.sx - rect.left,
           my = drag.sy - rect.top;
@@ -656,21 +814,38 @@ export function GlobeVisualization({
         const {
           data: d,
           layers: ly,
+          aircraftFilter: af,
           flat: isFlat,
           onSelect: sel,
         } = propsRef.current;
         let closest: DataPoint | null = null,
-          cd = 20;
+          cd = 10;
         d.forEach((item) => {
-          if (!ly[item.type]) return;
+          if (item.type === "aircraft") {
+            if (!matchesAircraftFilter(item, af)) return;
+          } else if (!ly[item.type]) return;
+          const flatMetrics = getFlatMetrics(
+            W,
+            H,
+            camRef.current.zoomFlat,
+            camRef.current.panX,
+            camRef.current.panY,
+          );
           const p = isFlat
-            ? projFlat(item.lat, item.lon, cxc, cyc, W * 0.92, H * 0.84)
+            ? projFlat(
+                item.lat,
+                item.lon,
+                flatMetrics.cx,
+                flatMetrics.cy,
+                flatMetrics.mW,
+                flatMetrics.mH,
+              )
             : projGlobe(
                 item.lat,
                 item.lon,
                 cxc,
                 cyc,
-                Math.min(W, H) * 0.4,
+                Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
                 camRef.current.rotY,
                 camRef.current.rotX,
               );
@@ -681,14 +856,107 @@ export function GlobeVisualization({
             closest = item;
           }
         });
-        sel(closest);
+        if (closest) {
+          sel(closest);
+        }
       }
       drag.active = false;
+      drag.interactive = false;
+      canvas.style.cursor = "default";
     };
 
+    const onHover = (e: MouseEvent) => {
+      if (drag.active) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const { w: W, h: H } = sizeRef.current;
+      const isFlat = propsRef.current.flat;
+      let insideGlobe = false;
+      if (isFlat) {
+        const {
+          mW,
+          mH,
+          mx: ox,
+          my: oy,
+        } = getFlatMetrics(
+          W,
+          H,
+          camRef.current.zoomFlat,
+          camRef.current.panX,
+          camRef.current.panY,
+        );
+        insideGlobe = mx >= ox && mx <= ox + mW && my >= oy && my <= oy + mH;
+      } else {
+        insideGlobe =
+          Math.hypot(mx - W / 2, my - H / 2) <=
+          Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
+      }
+      if (!insideGlobe) {
+        canvas.style.cursor = "default";
+        return;
+      }
+      const { data: d, layers: ly, aircraftFilter: af } = propsRef.current;
+      let hit = false;
+      d.forEach((item) => {
+        if (hit) return;
+        if (item.type === "aircraft") {
+          if (!matchesAircraftFilter(item, af)) return;
+        } else if (!ly[item.type]) return;
+        const flatMetrics = getFlatMetrics(
+          W,
+          H,
+          camRef.current.zoomFlat,
+          camRef.current.panX,
+          camRef.current.panY,
+        );
+        const p = isFlat
+          ? projFlat(
+              item.lat,
+              item.lon,
+              flatMetrics.cx,
+              flatMetrics.cy,
+              flatMetrics.mW,
+              flatMetrics.mH,
+            )
+          : projGlobe(
+              item.lat,
+              item.lon,
+              W / 2,
+              H / 2,
+              Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
+              camRef.current.rotY,
+              camRef.current.rotX,
+            );
+        if (p.z <= 0) return;
+        if (Math.hypot(p.x - mx, p.y - my) < 12) hit = true;
+      });
+      canvas.style.cursor = hit ? "pointer" : "grab";
+    };
     canvas.addEventListener("mousedown", onDown);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    canvas.addEventListener("mousemove", onHover);
+    const onWheel = (e: WheelEvent) => {
+      // Zoom around center; trackpad and wheel both report via deltaY.
+      e.preventDefault();
+      const camState = camRef.current;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      if (propsRef.current.flat) {
+        camState.zoomFlat = Math.max(
+          0.85,
+          Math.min(6.0, camState.zoomFlat * factor),
+        );
+        const { w: W, h: H } = sizeRef.current;
+        clampFlatPan(camState, W, H);
+      } else {
+        camState.zoomGlobe = Math.max(
+          0.55,
+          Math.min(3.8, camState.zoomGlobe * factor),
+        );
+      }
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("touchstart", onDown, { passive: true });
     canvas.addEventListener("touchmove", onMove as EventListener, {
       passive: true,
@@ -698,6 +966,8 @@ export function GlobeVisualization({
       canvas.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      canvas.removeEventListener("mousemove", onHover);
+      canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("touchstart", onDown);
       canvas.removeEventListener("touchmove", onMove as EventListener);
       canvas.removeEventListener("touchend", onUp);
@@ -708,7 +978,7 @@ export function GlobeVisualization({
     <canvas
       ref={canvasRef}
       className="w-full h-full"
-      style={{ cursor: "grab", display: "block" }}
+      style={{ cursor: "default", display: "block" }}
     />
   );
 }
