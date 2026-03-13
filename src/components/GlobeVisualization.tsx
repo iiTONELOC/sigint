@@ -372,9 +372,9 @@ function drawPoints(
     const alpha = 0.4 + z * 0.6;
     let s =
       item.type === "quakes"
-        ? 2.5 + parseFloat(item.magnitude || "0") * 1.1
+        ? 2.5 + parseFloat((item as any).data?.magnitude || "0") * 1.1
         : item.type === "events"
-          ? 3.5 + (item.severity || 0) * 0.8
+          ? 3.5 + ((item as any).data?.severity || 0) * 0.8
           : item.type === "aircraft"
             ? 4
             : 3;
@@ -383,7 +383,8 @@ function drawPoints(
 
     if (
       item.type === "events" ||
-      (item.type === "quakes" && parseFloat(item.magnitude || "0") > 3)
+      (item.type === "quakes" &&
+        parseFloat((item as any).data?.magnitude || "0") > 3)
     ) {
       const pulse =
         1 + Math.sin(t + (parseInt(item.id.slice(1)) || 0) * 0.7) * 0.35;
@@ -401,7 +402,7 @@ function drawPoints(
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
     if (item.type === "aircraft") {
-      const a = ((item.heading || 0) * Math.PI) / 180;
+      const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
       ctx.beginPath();
       ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
       ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);

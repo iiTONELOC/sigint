@@ -4,7 +4,8 @@ import { DetailPanel } from "@/components/DetailPanel";
 import { Ticker } from "@/components/Ticker";
 import { useTheme } from "@/context/ThemeContext";
 import { LAYER_TYPES } from "@/config/theme";
-import { generateMockData, type DataPoint } from "@/lib/mockData";
+import { type DataPoint } from "@/lib/mockData";
+import { useAircraftData } from "@/lib/useAircraftData";
 import "./index.css";
 
 export function App() {
@@ -20,12 +21,13 @@ export function App() {
   const { theme } = useTheme();
   const C = theme.colors;
 
+  // Fetch real aircraft data
+  const { data: allData, loading, error: aircraftError } = useAircraftData();
+
   useEffect(() => {
     const iv = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(iv);
   }, []);
-
-  const allData = useMemo(() => generateMockData(), []);
 
   const tickerItems = useMemo(
     () =>
@@ -240,7 +242,13 @@ export function App() {
             fontSize: "clamp(9px, 1.3vw, 13px)",
           }}
         >
-          <div>PROTOTYPE — SIMULATED DATA</div>
+          <div>
+            {loading
+              ? "🔄 UPDATING AIRCRAFT..."
+              : aircraftError
+                ? "⚠ LIVE DATA • FALLBACK"
+                : "🛰 LIVE DATA"}
+          </div>
           <div className="mt-px" style={{ color: C.accent }}>
             {activeCount} ACTIVE TRACKS
           </div>

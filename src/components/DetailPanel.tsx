@@ -1,4 +1,3 @@
-import React from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { LAYER_TYPES } from "@/config/theme";
 import { type DataPoint } from "@/lib/mockData";
@@ -25,27 +24,30 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
 
   const rowsByType: Record<string, [string, string][]> = {
     ships: [
-      ["Vessel", item.name || ""],
-      ["Type", item.vesselType || ""],
-      ["Flag", item.flag || ""],
-      ["Speed", `${item.speed} kn`],
-      ["Heading", `${item.heading}\u00B0`],
+      ["Vessel", (item as any).data?.name || ""],
+      ["Type", (item as any).data?.vesselType || ""],
+      ["Flag", (item as any).data?.flag || ""],
+      ["Speed", `${(item as any).data?.speed} kn`],
+      ["Heading", `${(item as any).data?.heading}\u00B0`],
     ],
     aircraft: [
-      ["Callsign", item.callsign || ""],
-      ["Type", item.acType || ""],
-      ["Altitude", `FL${Math.round((item.altitude || 0) / 100)}`],
-      ["Speed", `${item.speed} kn`],
-      ["Heading", `${item.heading}\u00B0`],
+      ["Callsign", (item as any).data?.callsign || ""],
+      ["Type", (item as any).data?.acType || ""],
+      [
+        "Altitude",
+        `FL${Math.round(((item as any).data?.altitude || 0) / 100)}`,
+      ],
+      ["Speed", `${(item as any).data?.speed} kn`],
+      ["Heading", `${(item as any).data?.heading}\u00B0`],
     ],
     events: [
-      ["Category", item.category || ""],
-      ["Headline", item.headline || ""],
-      ["Source", item.source || ""],
+      ["Category", (item as any).data?.category || ""],
+      ["Headline", (item as any).data?.headline || ""],
+      ["Source", (item as any).data?.source || ""],
       [
         "Severity",
-        "\u2588".repeat(item.severity || 0) +
-          "\u2591".repeat(5 - (item.severity || 0)),
+        "\u2588".repeat((item as any).data?.severity || 0) +
+          "\u2591".repeat(5 - ((item as any).data?.severity || 0)),
       ],
       [
         "Time",
@@ -53,9 +55,9 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
       ],
     ],
     quakes: [
-      ["Magnitude", `M${item.magnitude}`],
-      ["Depth", `${item.depth} km`],
-      ["Location", item.location || ""],
+      ["Magnitude", `M${(item as any).data?.magnitude}`],
+      ["Depth", `${(item as any).data?.depth} km`],
+      ["Location", (item as any).data?.location || ""],
       [
         "Time",
         item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : "",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { LAYER_TYPES } from "@/config/theme";
 import { type DataPoint } from "@/lib/mockData";
@@ -80,11 +80,13 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 fontSize: "clamp(10px, 1.4vw, 13px)",
               }}
             >
-              {e.type === "events" && e.headline}
-              {e.type === "quakes" && `M${e.magnitude} \u2014 ${e.location}`}
-              {e.type === "ships" && `${e.name} [${e.flag}] ${e.speed}kn`}
+              {e.type === "events" && (e as any).data?.headline}
+              {e.type === "quakes" &&
+                `M${(e as any).data?.magnitude} \u2014 ${(e as any).data?.location}`}
+              {e.type === "ships" &&
+                `${(e as any).data?.name} [${(e as any).data?.flag}] ${(e as any).data?.speed}kn`}
               {e.type === "aircraft" &&
-                `${e.callsign} ${e.acType} FL${Math.round((e.altitude || 0) / 100)}`}
+                `${(e as any).data?.callsign} ${(e as any).data?.acType} FL${Math.round(((e as any).data?.altitude || 0) / 100)}`}
             </div>
           </div>
         );
