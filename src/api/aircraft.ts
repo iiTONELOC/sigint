@@ -5,6 +5,9 @@ import type { DataPoint } from "@/lib/mockData";
 let openSkyCache: { data: DataPoint[]; timestamp: number } | null = null;
 const CACHE_DURATION = 55000; // 55 seconds (polls every 60 seconds)
 
+// Prevent concurrent upstream fetches
+let fetchInProgress: Promise<DataPoint[]> | null = null;
+
 async function fetchOpenSkyStates(): Promise<DataPoint[]> {
   try {
     const response = await fetch("https://opensky-network.org/api/states/all");
@@ -22,7 +25,7 @@ async function fetchOpenSkyStates(): Promise<DataPoint[]> {
     }
 
     // Map OpenSky state vectors to our DataPoint format
-    let aircraft: DataPoint[] = data.states
+    const aircraft: DataPoint[] = data.states
       .filter((state: any) => {
         return state[0] && state[5] !== null && state[6] !== null;
       })
@@ -49,7 +52,7 @@ async function fetchOpenSkyStates(): Promise<DataPoint[]> {
             originCountry,
             acType: callsign || "Unknown",
             altitude: altitude || 0,
-            speed: velocity ? Math.round(velocity * 1.944) : 0, // Convert m/s to knots
+            speed: velocity ? Math.round(velocity * 1.944) : 0, // m/s → knots
             heading: Math.round(heading || 0),
             verticalRate,
           },
@@ -67,15 +70,36 @@ async function fetchOpenSkyStates(): Promise<DataPoint[]> {
 async function getAircraftData(): Promise<DataPoint[]> {
   const now = Date.now();
 
+  // Fresh cache
   if (openSkyCache && now - openSkyCache.timestamp < CACHE_DURATION) {
-    console.log("Returning cached aircraft data");
     return openSkyCache.data;
   }
 
-  const aircraft = await fetchOpenSkyStates();
-  openSkyCache = { data: aircraft, timestamp: now };
+  // If another request already started the fetch, wait for it
+  if (fetchInProgress) {
+    return fetchInProgress;
+  }
 
-  return aircraft;
+  // Start fetch
+  fetchInProgress = fetchOpenSkyStates()
+    .then((aircraft) => {
+      openSkyCache = { data: aircraft, timestamp: Date.now() };
+      fetchInProgress = null;
+      return aircraft;
+    })
+    .catch((err) => {
+      fetchInProgress = null;
+      console.error("OpenSky update failed:", err);
+      return openSkyCache?.data ?? generateMockAircraft();
+    });
+
+  // If cache exists, return it immediately while refresh happens
+  if (openSkyCache) {
+    return openSkyCache.data;
+  }
+
+  // First request must wait
+  return fetchInProgress;
 }
 
 export async function handleAircraftRequest(): Promise<Response> {
