@@ -13,6 +13,22 @@ const serveFile = async (filePath: string): Promise<Response> => {
   return new Response("Not found", { status: 404 });
 };
 
+const serveGzipFile = async (
+  filePath: string,
+  contentType: string,
+): Promise<Response> => {
+  const file = Bun.file(filePath);
+  if (await file.exists())
+    return new Response(file, {
+      headers: {
+        "Content-Type": contentType,
+        "Content-Encoding": "gzip",
+      },
+    });
+  console.warn(`File not found: ${filePath}`);
+  return new Response("Not found", { status: 404 });
+};
+
 function safePath(base: string, urlPath: string): string | null {
   const decoded = decodeURIComponent(urlPath);
   const normalized = normalize(decoded);
@@ -29,11 +45,11 @@ const server = serve({
   idleTimeout: 30,
   routes: {
     "/ac-db.csv": async () => {
-      return serveFile(join(distDir, "ac-db.csv"));
+      return serveGzipFile(join(distDir, "ac-db.csv.gz"), "text/csv");
     },
 
     "/data/ac-db.csv": async () => {
-      return serveFile(join(distDir, "ac-db.csv"));
+      return serveGzipFile(join(distDir, "ac-db.csv.gz"), "text/csv");
     },
 
     "/fonts.css": async () => {
