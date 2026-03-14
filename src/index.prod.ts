@@ -28,6 +28,14 @@ const server = serve({
   development: false,
   idleTimeout: 30,
   routes: {
+    "/ac-db.csv": async () => {
+      return serveFile(join(distDir, "ac-db.csv"));
+    },
+
+    "/data/ac-db.csv": async () => {
+      return serveFile(join(distDir, "ac-db.csv"));
+    },
+
     "/fonts.css": async () => {
       return serveFile(join(publicDir, "fonts.css"));
     },

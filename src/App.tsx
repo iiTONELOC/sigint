@@ -1,23 +1,44 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { GlobeVisualization } from "@/components/GlobeVisualization";
-import { DetailPanel } from "@/components/DetailPanel";
-import { Ticker } from "@/components/Ticker";
-import { AircraftFilterControl } from "@/components/AircraftFilterControl";
-import { useTheme } from "@/context/ThemeContext";
-import { LAYER_TYPES } from "@/config/theme";
+import "./index.css";
 import {
-  type DataPoint,
-  type AircraftFilter,
-  matchesAircraftFilter,
-} from "@/lib/mockData";
-import { useAircraftData } from "@/lib/useAircraftData";
+  selectActiveCount,
+  selectLayerCounts,
+  selectAvailableAircraftCountries,
+} from "@/lib/uiSelectors";
 import {
   getInitialAircraftFilter,
   syncAircraftFilterToUrl,
-} from "@/lib/aircraftFilterUrl";
-import "./index.css";
+} from "@/lib/aircraft/aircraftFilterUrl";
+import { Ticker } from "@/components/Ticker";
+import { LAYER_TYPES } from "@/config/theme";
+import { useTheme } from "@/context/ThemeContext";
+import { buildTickerItems } from "@/lib/tickerFeed";
+import { DetailPanel } from "@/components/DetailPanel";
+import { useState, useMemo, useEffect, useRef } from "react";
+import type { DataPoint } from "@/domain/providers/base/types";
+import { useAircraftData } from "@/lib/aircraft/useAircraftData";
+import { GlobeVisualization } from "@/components/GlobeVisualization";
+import { AircraftFilterControl } from "@/components/AircraftFilterControl";
+import {
+  mono,
+  FONT_SM,
+  FONT_MD,
+  FONT_BTN,
+  FONT_ICON,
+  FONT_TITLE,
+  FONT_SUBTITLE,
+  FONT_CLOCK,
+} from "@/components/styles";
+import type { AircraftFilter } from "./domain/providers/aircraft/aircraftTypes";
 
 export function App() {
+  const { theme, mode } = useTheme();
+  const lastEnrichmentKeyRef = useRef("");
+  const [flat, setFlat] = useState(false);
+  const [time, setTime] = useState(new Date());
+  const [autoRotate, setAutoRotate] = useState(true);
+  const [rotationSpeed, setRotationSpeed] = useState(0.5);
+  const [chromeHidden, setChromeHidden] = useState(false);
+  const [selected, setSelected] = useState<DataPoint | null>(null);
   const [layers, setLayers] = useState<Record<string, boolean>>({
     ships: true,
     events: true,
@@ -27,17 +48,14 @@ export function App() {
     getInitialAircraftFilter(),
   );
 
-  const [flat, setFlat] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(true);
-  const [rotationSpeed, setRotationSpeed] = useState(1);
-  const [chromeHidden, setChromeHidden] = useState(false);
-  const [selected, setSelected] = useState<DataPoint | null>(null);
-  const [time, setTime] = useState(new Date());
-  const { theme, mode } = useTheme();
   const C = theme.colors;
 
-  // Fetch real aircraft data
-  const { data: allData, loading, error: aircraftError } = useAircraftData();
+  const {
+    loading,
+    data: allData,
+    error: aircraftError,
+    requestAircraftEnrichment,
+  } = useAircraftData();
 
   useEffect(() => {
     const iv = setInterval(() => setTime(new Date()), 1000);
@@ -45,47 +63,61 @@ export function App() {
   }, []);
 
   const tickerItems = useMemo(
-    () =>
-      allData
-        .filter(
-          (d) =>
-            d.type === "events" || d.type === "quakes" || Math.random() > 0.6,
-        )
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 24),
-    [allData],
+    () => buildTickerItems(allData, aircraftFilter, layers),
+    [allData, aircraftFilter, layers],
   );
 
+  const selectedCurrent = useMemo(() => {
+    if (!selected) return null;
+    const next = allData.find((item) => item.id === selected.id);
+    return next ?? selected;
+  }, [allData, selected]);
+
+  useEffect(() => {
+    const tickerIcao24 = tickerItems
+      .filter((item) => item.type === "aircraft")
+      .map((item) => item.data?.icao24 ?? "")
+      .filter(Boolean);
+
+    const selectedIcao24 =
+      selectedCurrent?.type === "aircraft"
+        ? [selectedCurrent.data?.icao24 ?? ""]
+        : [];
+
+    const targets = Array.from(new Set([...tickerIcao24, ...selectedIcao24]));
+    if (targets.length === 0) return;
+
+    const key = [...targets].sort().join(",");
+    if (!key || key === lastEnrichmentKeyRef.current) return;
+    lastEnrichmentKeyRef.current = key;
+
+    void requestAircraftEnrichment(targets);
+  }, [tickerItems, selectedCurrent, requestAircraftEnrichment]);
+
   const counts = useMemo(
-    () => ({
-      ships: allData.filter((d) => d.type === "ships").length,
-      aircraft: allData.filter(
-        (d) =>
-          d.type === "aircraft" && matchesAircraftFilter(d, aircraftFilter),
-      ).length,
-      events: allData.filter((d) => d.type === "events").length,
-      quakes: allData.filter((d) => d.type === "quakes").length,
-    }),
+    () => selectLayerCounts(allData, aircraftFilter),
     [allData, aircraftFilter],
   );
 
-  const activeCount =
-    allData.filter((d) => d.type !== "aircraft" && layers[d.type]).length +
-    allData.filter(
-      (d) => d.type === "aircraft" && matchesAircraftFilter(d, aircraftFilter),
-    ).length;
+  const activeCount = useMemo(
+    () => selectActiveCount(allData, layers, aircraftFilter),
+    [allData, layers, aircraftFilter],
+  );
+
+  const colorMap: Record<string, string> = {
+    ships: C.ships,
+    aircraft: C.aircraft,
+    events: C.events,
+    quakes: C.quakes,
+  };
 
   const toggleLayer = (key: string) => {
     setLayers((l) => ({ ...l, [key]: !l[key] }));
   };
 
   const handleSelect = (item: DataPoint | null) => {
-    // Empty globe/map clicks should be ignored; only point clicks select.
     if (!item) return;
-
-    // While chrome is hidden, globe clicks should not toggle UI.
     if (chromeHidden) return;
-
     setSelected(item);
   };
 
@@ -97,39 +129,19 @@ export function App() {
     });
   };
 
-  // Keep aircraft filter shareable via URL params.
   useEffect(() => {
     syncAircraftFilterToUrl(aircraftFilter);
   }, [aircraftFilter]);
 
-  // Derive countries sorted by count from live aircraft data
-  const availableCountries = useMemo(() => {
-    const counts = new Map<string, number>();
-    allData.forEach((d) => {
-      if (d.type === "aircraft") {
-        const c = (d as any).data?.originCountry;
-        if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
-      }
-    });
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([c]) => c);
-  }, [allData]);
-
-  const colorMap: Record<string, string> = {
-    ships: C.ships,
-    aircraft: C.aircraft,
-    events: C.events,
-    quakes: C.quakes,
-  };
+  const availableCountries = useMemo(
+    () => selectAvailableAircraftCountries(allData),
+    [allData],
+  );
 
   return (
     <div
       className="w-screen h-screen flex flex-col overflow-hidden"
-      style={{
-        background: C.bg,
-        fontFamily: "'JetBrains Mono', monospace",
-      }}
+      style={{ background: C.bg, fontFamily: "'JetBrains Mono', monospace" }}
     >
       {/* ── HEADER ── */}
       {!chromeHidden && (
@@ -137,7 +149,7 @@ export function App() {
           className="flex justify-between items-center px-4 py-2 shrink-0 z-20"
           style={{
             borderBottom: `1px solid ${C.border}`,
-            background: C.panel + "ee",
+            background: `${C.panel}ee`,
             minHeight: 44,
           }}
         >
@@ -152,14 +164,11 @@ export function App() {
             />
             <span
               className="font-bold tracking-[2.5px]"
-              style={{ color: C.bright, fontSize: "clamp(14px, 3vw, 24px)" }}
+              style={mono(C.bright, FONT_TITLE)}
             >
               SIGINT
             </span>
-            <span
-              className="font-light"
-              style={{ color: C.dim, fontSize: "clamp(10px, 1.8vw, 16px)" }}
-            >
+            <span className="font-light" style={mono(C.dim, FONT_SUBTITLE)}>
               OSINT LIVE FEED
             </span>
           </div>
@@ -167,7 +176,6 @@ export function App() {
           <div className="flex items-center gap-3">
             {/* Layer toggles */}
             <div className="flex gap-1 items-center">
-              {/* Non-aircraft layers */}
               {(
                 Object.entries(LAYER_TYPES) as [
                   string,
@@ -181,19 +189,18 @@ export function App() {
                     onClick={() => toggleLayer(key)}
                     className="flex items-center gap-1.5 px-2 py-0.5 rounded tracking-wide transition-all font-semibold"
                     style={{
+                      ...mono(
+                        layers[key] ? (colorMap[key] ?? C.dim) : C.dim,
+                        FONT_BTN,
+                      ),
                       background: layers[key]
-                        ? colorMap[key] + "15"
+                        ? `${colorMap[key]}15`
                         : "transparent",
-                      border: `1px solid ${layers[key] ? colorMap[key] + "50" : C.border}`,
-                      color: layers[key] ? colorMap[key] : C.dim,
-                      fontFamily: "inherit",
-                      fontSize: "clamp(10px, 1.5vw, 14px)",
+                      border: `1px solid ${layers[key] ? `${colorMap[key]}50` : C.border}`,
                       cursor: "pointer",
                     }}
                   >
-                    <span style={{ fontSize: "clamp(12px, 1.8vw, 16px)" }}>
-                      {cfg.icon}
-                    </span>
+                    <span style={{ fontSize: FONT_ICON }}>{cfg.icon}</span>
                     <span>{counts[key as keyof typeof counts]}</span>
                   </button>
                 ))}
@@ -219,11 +226,9 @@ export function App() {
               onClick={() => setFlat(!flat)}
               className="px-2.5 py-0.5 rounded tracking-wider font-semibold"
               style={{
+                ...mono(C.accent, FONT_BTN),
                 background: "transparent",
                 border: `1px solid ${C.border}`,
-                color: C.accent,
-                fontFamily: "inherit",
-                fontSize: "clamp(10px, 1.5vw, 14px)",
                 cursor: "pointer",
               }}
             >
@@ -235,11 +240,9 @@ export function App() {
               onClick={() => setAutoRotate((v) => !v)}
               className="px-2.5 py-0.5 rounded tracking-wider font-semibold"
               style={{
-                background: autoRotate ? C.accent + "18" : "transparent",
-                border: `1px solid ${autoRotate ? C.accent + "70" : C.border}`,
-                color: autoRotate ? C.accent : C.dim,
-                fontFamily: "inherit",
-                fontSize: "clamp(10px, 1.5vw, 14px)",
+                ...mono(autoRotate ? C.accent : C.dim, FONT_BTN),
+                background: autoRotate ? `${C.accent}18` : "transparent",
+                border: `1px solid ${autoRotate ? `${C.accent}70` : C.border}`,
                 cursor: "pointer",
               }}
             >
@@ -250,17 +253,13 @@ export function App() {
               className="flex items-center gap-1.5 px-2 py-0.5 rounded"
               style={{ border: `1px solid ${C.border}` }}
             >
-              <span
-                style={{ color: C.dim, fontSize: "clamp(9px, 1.2vw, 12px)" }}
-              >
-                SPD
-              </span>
+              <span style={mono(C.dim, FONT_SM)}>SPD</span>
               <input
                 type="range"
                 aria-label="Rotation speed"
                 title="Rotation speed"
-                min={0.2}
-                max={3}
+                min={0.1}
+                max={2}
                 step={0.1}
                 value={rotationSpeed}
                 onChange={(e) => setRotationSpeed(Number(e.target.value))}
@@ -272,17 +271,11 @@ export function App() {
             <div className="text-right">
               <div
                 className="font-semibold tracking-wider"
-                style={{
-                  color: C.accent,
-                  fontSize: "clamp(11px, 1.5vw, 15px)",
-                }}
+                style={mono(C.accent, FONT_CLOCK)}
               >
                 {time.toLocaleTimeString("en-US", { hour12: false })}
               </div>
-              <div
-                className="tracking-wide"
-                style={{ color: C.dim, fontSize: "clamp(9px, 1.2vw, 12px)" }}
-              >
+              <div className="tracking-wide" style={mono(C.dim, FONT_SM)}>
                 {time.toLocaleDateString("en-US", {
                   year: "numeric",
                   month: "short",
@@ -305,10 +298,13 @@ export function App() {
           rotationSpeed={rotationSpeed}
           onSelect={handleSelect}
           onRawCanvasClick={handleRawCanvasClick}
-          selected={selected}
+          selected={selectedCurrent}
         />
         {!chromeHidden && (
-          <DetailPanel item={selected} onClose={() => setSelected(null)} />
+          <DetailPanel
+            item={selectedCurrent}
+            onClose={() => setSelected(null)}
+          />
         )}
 
         {/* Layer legend */}
@@ -326,33 +322,22 @@ export function App() {
                     key={key}
                     className="flex items-center gap-1.5 px-2 py-0.5 rounded"
                     style={{
-                      background: C.panel + "bb",
+                      background: `${C.panel}bb`,
                       borderLeft: `2px solid ${colorMap[key]}`,
                     }}
                   >
-                    <span
-                      style={{
-                        color: colorMap[key],
-                        fontSize: "clamp(10px, 1.5vw, 14px)",
-                      }}
-                    >
+                    <span style={mono(colorMap[key] ?? C.dim, FONT_BTN)}>
                       {cfg.icon}
                     </span>
                     <span
                       className="tracking-wide"
-                      style={{
-                        color: C.dim,
-                        fontSize: "clamp(9px, 1.3vw, 13px)",
-                      }}
+                      style={mono(C.dim, FONT_MD)}
                     >
                       {cfg.label}
                     </span>
                     <span
                       className="font-bold"
-                      style={{
-                        color: colorMap[key],
-                        fontSize: "clamp(10px, 1.5vw, 14px)",
-                      }}
+                      style={mono(colorMap[key] ?? C.dim, FONT_BTN)}
                     >
                       {counts[key as keyof typeof counts]}
                     </span>
@@ -366,12 +351,7 @@ export function App() {
         {!chromeHidden && (
           <div
             className="absolute right-3 bottom-3 z-10 text-right rounded px-2 py-1"
-            style={{
-              color: C.dim,
-              background: C.panel + "99",
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: "clamp(9px, 1.3vw, 13px)",
-            }}
+            style={{ ...mono(C.dim, FONT_MD), background: `${C.panel}99` }}
           >
             <div>
               {loading
@@ -396,16 +376,12 @@ export function App() {
           className="shrink-0 px-3 pt-1 pb-2"
           style={{
             borderTop: `1px solid ${C.border}`,
-            background: C.panel + "ee",
+            background: `${C.panel}ee`,
           }}
         >
           <div
             className="tracking-wider mb-0.5 flex items-center gap-1.5"
-            style={{
-              color: C.dim,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: "clamp(9px, 1.3vw, 13px)",
-            }}
+            style={mono(C.dim, FONT_MD)}
           >
             <span style={{ color: C.danger, animation: "pulse 1.5s infinite" }}>
               ●
