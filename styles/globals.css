@@ -1,3 +1,25 @@
+.panel-container { /* Add container styles */ }
+.panel-header { /* Add header styles */ }
+.panel-row { /* Add row styles */ }
+.panel-label { /* Add label styles */ }
+.panel-value { /* Add value styles */ }
+.panel-button { /* Add button styles */ }
+.panel-button-text { font-size: clamp(12px, 1.8vw, 16px); }
+.panel-action { /* Add action button styles */ }
+.panel-input-row { /* Add input row styles */ }
+.panel-input-label { /* Add input label styles */ }
+.panel-input { /* Add input styles */ }
+.panel-input-error { /* Add input error styles */ }
+.panel-detail-row { /* Add detail row styles */ }
+.panel-detail-label { /* Add detail label styles */ }
+.panel-detail-value { /* Add detail value styles */ }
+.panel-detail-extra { /* Add detail extra styles */ }
+.panel-footer { /* Add footer styles */ }
+.panel-accent { color: var(--accent-color); }
+.panel-dim { color: var(--dim-color); }
+.panel-footer-row { /* Add footer row styles */ }
+.panel-footer-extra { /* Add footer extra styles */ }
+.panel-danger { color: var(--danger-color); animation: pulse 1.5s infinite; }
 @import "tailwindcss";
 @import "tw-animate-css";
 

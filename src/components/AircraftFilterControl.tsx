@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { LAYER_TYPES } from "@/config/theme";
-import { type AircraftFilter } from "@/lib/mockData";
+import { type AircraftFilter } from "@/data/mockData";
 
 interface FilterThemeColors {
   panel: string;

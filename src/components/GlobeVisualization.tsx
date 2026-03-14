@@ -1,12 +1,10 @@
-import React, { useEffect, useRef } from "react";
-import { LAND } from "@/lib/land";
+import { LAND } from "@/data/land";
+import { useEffect, useRef } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { type ThemeColors } from "@/config/theme";
-import {
-  type DataPoint,
-  type AircraftFilter,
-  matchesAircraftFilter,
-} from "@/lib/mockData";
+import type { DataPoint } from "@/domain/providers/base/types";
+import { matchesAircraftFilter } from "@/lib/aircraft/aircraftUtils";
+import type { AircraftFilter } from "@/domain/providers/aircraft/aircraftTypes";
 
 interface GlobeVisualizationProps {
   readonly flat?: boolean;
@@ -471,9 +469,11 @@ function drawPoints(
       ctx.fillStyle =
         status === "emergency"
           ? "#ff3333"
-          : status === "alert"
+          : status === "radio_failure"
             ? "#ff8800"
-            : color;
+            : status === "hijack"
+              ? "#cc44ff"
+              : color;
     } else {
       ctx.fillStyle = color;
     }

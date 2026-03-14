@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-import plugin from "bun-plugin-tailwind";
-import { existsSync } from "fs";
-import { rm } from "fs/promises";
 import path from "path";
+import { existsSync } from "fs";
+import plugin from "bun-plugin-tailwind";
+import { copyFile, mkdir, rm } from "fs/promises";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(`
@@ -13,7 +13,7 @@ Usage: bun run build.ts [options]
 Common Options:
   --outdir <path>          Output directory (default: "dist")
   --minify                 Enable minification (or --minify.whitespace, --minify.syntax, etc)
-  --sourcemap <type>      Sourcemap type: none|linked|inline|external
+  --sourcemap <type>       Sourcemap type: none|linked|inline|external
   --target <target>        Build target: browser|bun|node
   --format <format>        Output format: esm|cjs|iife
   --splitting              Enable code splitting
@@ -149,6 +149,12 @@ const result = await Bun.build({
 });
 
 const end = performance.now();
+
+const aircraftDbSource = path.resolve("src", "data", "ac-db.csv");
+if (existsSync(aircraftDbSource)) {
+  await mkdir(outdir, { recursive: true });
+  await copyFile(aircraftDbSource, path.join(outdir, "ac-db.csv"));
+}
 
 const outputTable = result.outputs.map((output) => ({
   File: path.relative(process.cwd(), output.path),

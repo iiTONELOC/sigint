@@ -1,4 +1,4 @@
-import { type AircraftFilter } from "@/lib/mockData";
+import { type AircraftFilter } from "@/data/mockData";
 
 export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   enabled: true,
