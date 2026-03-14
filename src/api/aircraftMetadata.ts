@@ -1,3 +1,8 @@
+import { gunzip } from "zlib";
+import { promisify } from "util";
+
+const gunzipAsync = promisify(gunzip);
+
 export type AircraftMetadata = {
   icao24: string;
   resolvedType: string;
@@ -22,7 +27,10 @@ const NULLISH_TEXT = new Set([
   "-unknown-",
 ]);
 
-const DB_FILE = Bun.file(new URL("../data/ac-db.csv", import.meta.url));
+const DB_FILE = Bun.file(new URL("../data/ac-db.csv.gz", import.meta.url));
+const DB_FILE_FALLBACK = Bun.file(
+  new URL("../data/ac-db.csv", import.meta.url),
+);
 let lookupPromise: Promise<Map<string, AircraftMetadata>> | null = null;
 
 function normalizeHeader(value: string): string {
@@ -74,7 +82,7 @@ function cleanText(value: string | undefined): string | undefined {
   if (!trimmed) return undefined;
   const lowered = trimmed.toLowerCase();
   if (NULLISH_TEXT.has(lowered)) return undefined;
-  return trimmed.replace(/â€“/g, "-");
+  return trimmed.replace(/â€"/g, "-");
 }
 
 function normalizeIcao24(value: string | undefined): string | null {
@@ -127,11 +135,26 @@ function qualityScore(parts: {
   return score;
 }
 
-async function buildLookup(): Promise<Map<string, AircraftMetadata>> {
-  const exists = await DB_FILE.exists();
-  if (!exists) return new Map();
+async function readCsvText(): Promise<string | null> {
+  // Try gzipped first
+  if (await DB_FILE.exists()) {
+    const compressed = await DB_FILE.arrayBuffer();
+    const decompressed = await gunzipAsync(Buffer.from(compressed));
+    return decompressed.toString("utf-8");
+  }
 
-  const csv = await DB_FILE.text();
+  // Fall back to uncompressed
+  if (await DB_FILE_FALLBACK.exists()) {
+    return DB_FILE_FALLBACK.text();
+  }
+
+  return null;
+}
+
+async function buildLookup(): Promise<Map<string, AircraftMetadata>> {
+  const csv = await readCsvText();
+  if (!csv) return new Map();
+
   const lines = csv.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) return new Map();
 
