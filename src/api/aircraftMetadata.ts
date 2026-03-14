@@ -1,8 +1,3 @@
-import { gunzip } from "zlib";
-import { promisify } from "util";
-
-const gunzipAsync = promisify(gunzip);
-
 export type AircraftMetadata = {
   icao24: string;
   resolvedType: string;
@@ -15,75 +10,50 @@ export type AircraftMetadata = {
   categoryDescription?: string;
 };
 
-const NULLISH_TEXT = new Set([
-  "",
-  "unknown",
-  "unknow",
-  "n/a",
-  "na",
-  "null",
-  "none",
-  "0",
-  "-unknown-",
-]);
+/**
+ * Points at the pre-built NDJSON (sorted by icao24, one JSON object per line).
+ * Generated at build time by scripts/build-aircraft-db.ts from the OpenSky CSV.
+ * No decompression needed — the file is committed uncompressed (~51 MB).
+ */
+const DB_FILE = Bun.file(new URL("../data/ac-db.ndjson", import.meta.url));
 
-const DB_FILE = Bun.file(new URL("../data/ac-db.csv.gz", import.meta.url));
-const DB_FILE_FALLBACK = Bun.file(
-  new URL("../data/ac-db.csv", import.meta.url),
-);
-let lookupPromise: Promise<Map<string, AircraftMetadata>> | null = null;
+// ---------------------------------------------------------------------------
+// Short-lived text cache – keeps the 51 MB string around for 60 s so that a
+// single enrichment cycle (single + batch lookup in quick succession) only
+// reads the file once.  After 60 s the string is released for GC.
+// ---------------------------------------------------------------------------
+const TEXT_TTL = 60_000;
+let cachedText: string | null = null;
+let cachedTextExpiry = 0;
+let inflightRead: Promise<string | null> | null = null;
 
-function normalizeHeader(value: string): string {
-  return value
-    .trim()
-    .replace(/^['"]|['"]$/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
+async function getText(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedText && now < cachedTextExpiry) return cachedText;
 
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let quoteChar: "'" | '"' | null = null;
+  if (inflightRead) return inflightRead;
 
-  for (let i = 0; i < line.length; i++) {
-    const { [i]: ch } = line;
-    if ((ch === '"' || ch === "'") && quoteChar === null) {
-      quoteChar = ch;
-      continue;
-    }
+  inflightRead = (async () => {
+    if (!(await DB_FILE.exists())) return null;
+    const text = await DB_FILE.text();
+    cachedText = text;
+    cachedTextExpiry = Date.now() + TEXT_TTL;
+    setTimeout(() => {
+      if (Date.now() >= cachedTextExpiry) cachedText = null;
+    }, TEXT_TTL + 1_000);
+    return text;
+  })();
 
-    if (quoteChar !== null && ch === quoteChar) {
-      const { [i + 1]: next } = line;
-      if (next === quoteChar) {
-        cur += quoteChar;
-        i++;
-      } else {
-        quoteChar = null;
-      }
-      continue;
-    }
-
-    if (ch === "," && quoteChar === null) {
-      out.push(cur);
-      cur = "";
-      continue;
-    }
-
-    cur += ch;
+  try {
+    return await inflightRead;
+  } finally {
+    inflightRead = null;
   }
-
-  out.push(cur);
-  return out.map((v) => v.trim().replace(/^['"]|['"]$/g, ""));
 }
 
-function cleanText(value: string | undefined): string | undefined {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed) return undefined;
-  const lowered = trimmed.toLowerCase();
-  if (NULLISH_TEXT.has(lowered)) return undefined;
-  return trimmed.replace(/â€"/g, "-");
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function normalizeIcao24(value: string | undefined): string | null {
   const normalized = (value ?? "")
@@ -95,140 +65,63 @@ function normalizeIcao24(value: string | undefined): string | null {
   return normalized.length < 6 ? normalized.padStart(6, "0") : normalized;
 }
 
-function resolveType(parts: {
-  typecode?: string;
-  manufacturerName?: string;
-  model?: string;
-  categoryDescription?: string;
-}): string {
-  const { typecode, manufacturerName, model, categoryDescription } = parts;
-  if (typecode) return typecode;
-  if (manufacturerName && model) return `${manufacturerName} ${model}`;
-  if (model) return model;
-  if (categoryDescription) return categoryDescription;
-  return "Unknown";
+/** Fast icao24 extraction without JSON.parse — every line starts with {"i":"…" */
+function extractIcao(text: string, lineStart: number): string | null {
+  const s = text.indexOf('"i":"', lineStart);
+  if (s === -1 || s > lineStart + 10) return null;
+  const vs = s + 5;
+  const ve = text.indexOf('"', vs);
+  if (ve === -1) return null;
+  return text.substring(vs, ve);
 }
 
-function qualityScore(parts: {
-  typecode?: string;
-  model?: string;
-  manufacturerName?: string;
-  registration?: string;
-  operatorIcao?: string;
-  categoryDescription?: string;
-}): number {
-  const {
-    typecode,
-    model,
-    manufacturerName,
-    registration,
-    operatorIcao,
-    categoryDescription,
-  } = parts;
-  let score = 0;
-  if (typecode) score += 6;
-  if (model) score += 4;
-  if (manufacturerName) score += 3;
-  if (registration) score += 2;
-  if (operatorIcao) score += 2;
-  if (categoryDescription) score += 1;
-  return score;
-}
-
-async function readCsvText(): Promise<string | null> {
-  // Try gzipped first
-  if (await DB_FILE.exists()) {
-    const compressed = await DB_FILE.arrayBuffer();
-    const decompressed = await gunzipAsync(Buffer.from(compressed));
-    return decompressed.toString("utf-8");
-  }
-
-  // Fall back to uncompressed
-  if (await DB_FILE_FALLBACK.exists()) {
-    return DB_FILE_FALLBACK.text();
-  }
-
-  return null;
-}
-
-async function buildLookup(): Promise<Map<string, AircraftMetadata>> {
-  const csv = await readCsvText();
-  if (!csv) return new Map();
-
-  const lines = csv.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return new Map();
-
-  const headers = splitCsvLine(lines[0] ?? "").map(normalizeHeader);
-  const idxIcao = headers.findIndex((h) => h === "icao24");
-  const idxTypecode = headers.findIndex((h) => h === "typecode");
-  const idxModel = headers.findIndex((h) => h === "model");
-  const idxManufacturer = headers.findIndex((h) => h === "manufacturername");
-  const idxRegistration = headers.findIndex((h) => h === "registration");
-  const idxOperator = headers.findIndex((h) => h === "operator");
-  const idxOperatorIcao = headers.findIndex((h) => h === "operatoricao");
-  const idxCategory = headers.findIndex((h) => h === "categorydescription");
-  if (idxIcao < 0) return new Map();
-
-  const map = new Map<string, AircraftMetadata>();
-  const scoreByIcao = new Map<string, number>();
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = splitCsvLine(lines[i] ?? "");
-    const icao24 = normalizeIcao24(cols[idxIcao]);
-    if (!icao24) continue;
-
-    const typecode = cleanText(cols[idxTypecode]);
-    const model = cleanText(cols[idxModel]);
-    const manufacturerName = cleanText(cols[idxManufacturer]);
-    const registration = cleanText(cols[idxRegistration]);
-    const operator = cleanText(cols[idxOperator]);
-    const operatorIcao = cleanText(cols[idxOperatorIcao]);
-    const categoryDescription = cleanText(cols[idxCategory]);
-
-    const resolvedType = resolveType({
-      typecode,
-      manufacturerName,
-      model,
-      categoryDescription,
-    });
-
-    const candidate: AircraftMetadata = {
-      icao24,
-      resolvedType,
-      typecode,
-      model,
-      manufacturerName,
-      registration,
-      operator,
-      operatorIcao,
-      categoryDescription,
+/** Full parse of one NDJSON line → AircraftMetadata */
+function parseRow(line: string): AircraftMetadata | null {
+  try {
+    const o = JSON.parse(line) as Record<string, string>;
+    if (!o.i) return null;
+    return {
+      icao24: o.i,
+      resolvedType: o.r ?? "Unknown",
+      typecode: o.tc,
+      model: o.md,
+      manufacturerName: o.mf,
+      registration: o.rg,
+      operator: o.op,
+      operatorIcao: o.oi,
+      categoryDescription: o.ca,
     };
-
-    const score = qualityScore(candidate);
-    const prevScore = scoreByIcao.get(icao24) ?? -1;
-    if (score < prevScore) continue;
-
-    map.set(icao24, candidate);
-    scoreByIcao.set(icao24, score);
+  } catch {
+    return null;
   }
-
-  return map;
 }
 
-async function getLookup(): Promise<Map<string, AircraftMetadata>> {
-  if (!lookupPromise) {
-    lookupPromise = buildLookup();
-  }
-  return lookupPromise;
-}
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function lookupAircraftMetadata(
   icao24: string,
 ): Promise<AircraftMetadata | null> {
   const key = normalizeIcao24(icao24);
   if (!key) return null;
-  const lookup = await getLookup();
-  return lookup.get(key) ?? null;
+
+  const text = await getText();
+  if (!text) return null;
+
+  let pos = 0;
+  while (pos < text.length) {
+    let end = text.indexOf("\n", pos);
+    if (end === -1) end = text.length;
+
+    const lineIcao = extractIcao(text, pos);
+    if (lineIcao === key) return parseRow(text.substring(pos, end));
+    if (lineIcao && lineIcao > key) return null; // sorted — bail early
+
+    pos = end + 1;
+  }
+
+  return null;
 }
 
 export async function lookupAircraftMetadataBatch(
@@ -237,14 +130,36 @@ export async function lookupAircraftMetadataBatch(
   const normalized = Array.from(
     new Set(
       icao24List
-        .map((value) => normalizeIcao24(value))
-        .filter((value): value is string => value !== null),
+        .map((v) => normalizeIcao24(v))
+        .filter((v): v is string => v !== null),
     ),
   );
   if (normalized.length === 0) return [];
 
-  const lookup = await getLookup();
-  return normalized
-    .map((icao24) => lookup.get(icao24))
-    .filter((item): item is AircraftMetadata => Boolean(item));
+  const text = await getText();
+  if (!text) return [];
+
+  normalized.sort();
+  const wanted = new Set(normalized);
+  const results: AircraftMetadata[] = [];
+  const maxKey = normalized[normalized.length - 1]!;
+
+  let pos = 0;
+  while (pos < text.length && wanted.size > 0) {
+    let end = text.indexOf("\n", pos);
+    if (end === -1) end = text.length;
+
+    const lineIcao = extractIcao(text, pos);
+    if (lineIcao && lineIcao > maxKey) break;
+
+    if (lineIcao && wanted.has(lineIcao)) {
+      const meta = parseRow(text.substring(pos, end));
+      if (meta) results.push(meta);
+      wanted.delete(lineIcao);
+    }
+
+    pos = end + 1;
+  }
+
+  return results;
 }

@@ -11,3 +11,4 @@ README.md
 .idea
 .claude
 bun.lock
+*.csv.gz

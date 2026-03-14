@@ -6,36 +6,6 @@ const server = serve({
   hostname: "0.0.0.0",
   port: 3000,
   routes: {
-    "/ac-db.csv": async () => {
-      const file = Bun.file("src/data/ac-db.csv.gz");
-
-      if (!(await file.exists())) {
-        return new Response("Not found", { status: 404 });
-      }
-
-      return new Response(file, {
-        headers: {
-          "Content-Type": "text/csv",
-          "Content-Encoding": "gzip",
-        },
-      });
-    },
-
-    "/data/ac-db.csv": async () => {
-      const file = Bun.file("src/data/ac-db.csv.gz");
-
-      if (!(await file.exists())) {
-        return new Response("Not found", { status: 404 });
-      }
-
-      return new Response(file, {
-        headers: {
-          "Content-Type": "text/csv",
-          "Content-Encoding": "gzip",
-        },
-      });
-    },
-
     "/fonts.css": async () => {
       const file = Bun.file("public/fonts.css");
 
