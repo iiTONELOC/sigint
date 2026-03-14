@@ -44,14 +44,6 @@ const server = serve({
   development: false,
   idleTimeout: 30,
   routes: {
-    "/ac-db.csv": async () => {
-      return serveGzipFile(join(distDir, "ac-db.csv.gz"), "text/csv");
-    },
-
-    "/data/ac-db.csv": async () => {
-      return serveGzipFile(join(distDir, "ac-db.csv.gz"), "text/csv");
-    },
-
     "/fonts.css": async () => {
       return serveFile(join(publicDir, "fonts.css"));
     },

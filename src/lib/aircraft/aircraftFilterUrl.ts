@@ -1,11 +1,11 @@
-import { type AircraftFilter } from "@/data/mockData";
+import type { AircraftFilter } from "@/domain/providers/aircraft/aircraftTypes";
 
 export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   enabled: true,
   showAirborne: true,
   showGround: true,
   squawks: new Set(),
-  countries: new Set(["United States"]),
+  countries: new Set(),
 };
 
 function parseBoolParam(

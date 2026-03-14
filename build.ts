@@ -150,12 +150,6 @@ const result = await Bun.build({
 
 const end = performance.now();
 
-const aircraftDbSource = path.resolve("src", "data", "ac-db.csv");
-if (existsSync(aircraftDbSource)) {
-  await mkdir(outdir, { recursive: true });
-  await copyFile(aircraftDbSource, path.join(outdir, "ac-db.csv"));
-}
-
 const outputTable = result.outputs.map((output) => ({
   File: path.relative(process.cwd(), output.path),
   Type: output.kind,

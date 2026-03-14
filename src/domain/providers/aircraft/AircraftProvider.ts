@@ -15,6 +15,16 @@ export type AircraftProviderConfig = {
   cacheKey?: string;
 };
 
+interface StoredMetadata {
+  resolvedType: string;
+  registration?: string;
+  manufacturerName?: string;
+  model?: string;
+  operator?: string;
+  operatorIcao?: string;
+  categoryDescription?: string;
+}
+
 function normalizeIcao24(value: string | undefined): string | null {
   const raw = (value ?? "").trim().toLowerCase();
   if (!raw) return null;
@@ -26,9 +36,16 @@ export class AircraftProvider implements DataProvider<DataPoint> {
   readonly id = "aircraft";
   private readonly cacheKey: string;
   private readonly cacheDurationMs: number;
-  private attemptedMetadataIcao = new Set<string>();
   private fetchInProgress: Promise<DataPoint[]> | null = null;
   private cache: { data: DataPoint[]; timestamp: number } | null = null;
+
+  /**
+   * Metadata is stored separately from position data so it survives
+   * OpenSky refreshes. Position data gets replaced every 4 min;
+   * metadata is accumulated over time and re-applied after each fetch.
+   */
+  private metadataByIcao = new Map<string, StoredMetadata>();
+  private attemptedMetadataIcao = new Set<string>();
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
@@ -91,6 +108,54 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       loading: false,
       error: null,
     };
+
+    // Rebuild the metadata map from persisted enriched data so we
+    // don't lose metadata that was already fetched in a previous session.
+    for (const entity of persisted.data) {
+      if (entity.type !== "aircraft") continue;
+      const key = normalizeIcao24(entity.data?.icao24);
+      if (!key) continue;
+      const d = entity.data;
+      if (d?.acType && d.acType !== "Unknown") {
+        this.metadataByIcao.set(key, {
+          resolvedType: d.acType,
+          registration: d.registration,
+          manufacturerName: d.manufacturerName,
+          model: d.model,
+          operator: d.operator,
+          operatorIcao: d.operatorIcao,
+          categoryDescription: d.categoryDescription,
+        });
+        this.attemptedMetadataIcao.add(key);
+      }
+    }
+  }
+
+  /** Apply all known metadata to a list of data points. */
+  private applyMetadata(entities: DataPoint[]): DataPoint[] {
+    if (this.metadataByIcao.size === 0) return entities;
+
+    return entities.map((entity) => {
+      if (entity.type !== "aircraft") return entity;
+      const key = normalizeIcao24(entity.data?.icao24);
+      if (!key) return entity;
+      const meta = this.metadataByIcao.get(key);
+      if (!meta) return entity;
+
+      return {
+        ...entity,
+        data: {
+          ...entity.data,
+          acType: meta.resolvedType || entity.data?.acType || "Unknown",
+          registration: meta.registration,
+          manufacturerName: meta.manufacturerName,
+          model: meta.model,
+          operator: meta.operator,
+          operatorIcao: meta.operatorIcao,
+          categoryDescription: meta.categoryDescription,
+        },
+      } as DataPoint;
+    });
   }
 
   private async fetchOpenSkyStates(): Promise<DataPoint[]> {
@@ -107,7 +172,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     }
 
     const filteredStates = raw.states.filter(
-      (s: any) => s[0] && s[5] !== null && s[6] !== null, // Must have icao24, lat, and lon
+      (s: any) => s[0] && s[5] !== null && s[6] !== null,
     );
 
     const aircraft = filteredStates.map((s: any) => {
@@ -126,8 +191,8 @@ export class AircraftProvider implements DataProvider<DataPoint> {
           callsign: s[1]?.trim() || "Unknown",
           originCountry: s[2] || "",
           acType: "Unknown",
-          altitude: typeof s[13] === "number" ? Math.round(s[13] * 3.28084) : 0, // Convert from meters to feet
-          speed: speedMps ? Math.round(speedMps * 1.944) : 0, // Convert from m/s to knots, rounded to nearest whole number
+          altitude: typeof s[13] === "number" ? Math.round(s[13] * 3.28084) : 0,
+          speed: speedMps ? Math.round(speedMps * 1.944) : 0,
           speedMps,
           heading: Math.round(s[10] ?? 0),
           verticalRate: s[11],
@@ -138,8 +203,10 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       } as DataPoint;
     });
 
-    this.persistCache(aircraft);
-    return aircraft;
+    // Re-apply any metadata we already have before caching
+    const enriched = this.applyMetadata(aircraft);
+    this.persistCache(enriched);
+    return enriched;
   }
 
   hydrate(): DataPoint[] | null {
@@ -225,37 +292,28 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       return null;
     }
 
-    const mergeMetadata = (entities: DataPoint[]): DataPoint[] =>
-      entities.map((entity) => {
-        if (entity.type !== "aircraft") return entity;
-        const key = normalizeIcao24(entity.data?.icao24);
-        if (!key) return entity;
-        const metadata = metadataByIcao.get(key);
-        if (!metadata) return entity;
-
-        return {
-          ...entity,
-          data: {
-            ...entity.data,
-            acType: metadata.resolvedType || entity.data?.acType || "Unknown",
-            registration: metadata.registration,
-            manufacturerName: metadata.manufacturerName,
-            model: metadata.model,
-            operator: metadata.operator,
-            operatorIcao: metadata.operatorIcao,
-            categoryDescription: metadata.categoryDescription,
-          },
-        } as DataPoint;
+    // Store metadata persistently so it survives position refreshes
+    for (const [icao, meta] of metadataByIcao) {
+      this.metadataByIcao.set(icao, {
+        resolvedType: meta.resolvedType,
+        registration: meta.registration,
+        manufacturerName: meta.manufacturerName,
+        model: meta.model,
+        operator: meta.operator,
+        operatorIcao: meta.operatorIcao,
+        categoryDescription: meta.categoryDescription,
       });
+    }
 
+    // Apply all known metadata (not just the new batch) to current data
     if (this.cache) {
-      this.cache = { ...this.cache, data: mergeMetadata(this.cache.data) };
+      this.cache = { ...this.cache, data: this.applyMetadata(this.cache.data) };
       this.persistCache(this.cache.data);
     }
 
     this.snapshot = {
       ...this.snapshot,
-      entities: mergeMetadata(this.snapshot.entities),
+      entities: this.applyMetadata(this.snapshot.entities),
       lastUpdatedAt: Date.now(),
     };
 
