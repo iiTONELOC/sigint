@@ -6,10 +6,4 @@ export type {
   TickerRendererProps,
 } from "./types";
 
-export type {
-  DataPoint,
-  DataType,
-  ShipData,
-  EventData,
-  QuakeData,
-} from "./dataPoints";
+export type { DataPoint, DataType, ShipData, EventData } from "./dataPoints";

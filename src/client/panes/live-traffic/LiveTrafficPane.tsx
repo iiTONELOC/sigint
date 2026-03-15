@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { AircraftFilter } from "@/features/aircraft";
+import type { AircraftFilter } from "@/features/tracking/aircraft";
 import {
   useAircraftData,
   getInitialAircraftFilter,
   syncAircraftFilterToUrl,
-} from "@/features/aircraft";
+} from "@/features/tracking/aircraft";
+import { useEarthquakeData } from "@/features/environmental/earthquake";
 import {
   selectActiveCount,
   selectLayerCounts,
@@ -18,7 +19,7 @@ import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { DetailPanel } from "@/components/DetailPanel";
 import { LayerLegend } from "@/components/LayerLegend";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, type SourceStatus } from "@/components/StatusBadge";
 import { Ticker } from "@/components/Ticker";
 
 export function LiveTrafficPane() {
@@ -48,18 +49,38 @@ export function LiveTrafficPane() {
 
   const {
     loading,
-    data: allData,
+    data: aircraftAndMockData,
     error: aircraftError,
     dataSource,
     requestAircraftEnrichment,
   } = useAircraftData();
+
+  const { data: earthquakeData, dataSource: earthquakeSource } =
+    useEarthquakeData();
+
+  // Merge aircraft+mock data with live earthquake data
+  const allData = useMemo(
+    () => [...aircraftAndMockData, ...earthquakeData],
+    [aircraftAndMockData, earthquakeData],
+  );
+
+  // ── Data source status for StatusBadge ──────────────────────────────
+  const dataSources = useMemo<SourceStatus[]>(
+    () => [
+      { id: "aircraft", label: "AIRCRAFT", status: dataSource },
+      { id: "quakes", label: "SEISMIC", status: earthquakeSource },
+      { id: "ships", label: "SHIPS", status: "mock" },
+      { id: "events", label: "EVENTS", status: "mock" },
+    ],
+    [dataSource, earthquakeSource],
+  );
 
   const filters = useMemo<Record<string, unknown>>(
     () => ({
       aircraft: aircraftFilter,
       ships: layers.ships ?? true,
       events: layers.events ?? true,
-      quakes: layers.quakes ?? true,
+      quakes: { enabled: layers.quakes ?? true, minMagnitude: 0 },
     }),
     [aircraftFilter, layers],
   );
@@ -226,11 +247,7 @@ export function LiveTrafficPane() {
         {!chromeHidden && <LayerLegend layers={layers} counts={counts} />}
 
         {!chromeHidden && (
-          <StatusBadge
-            loading={loading}
-            dataSource={dataSource}
-            activeCount={activeCount}
-          />
+          <StatusBadge dataSources={dataSources} activeCount={activeCount} />
         )}
       </div>
 

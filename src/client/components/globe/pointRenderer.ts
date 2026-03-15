@@ -3,11 +3,46 @@ import {
   getTrail,
   type TrailPoint,
 } from "@/lib/trailService";
-import { matchesAircraftFilter } from "@/features/aircraft";
-import type { AircraftFilter } from "@/features/aircraft";
+import { matchesAircraftFilter } from "@/features/tracking/aircraft";
+import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { ThemeColors } from "@/config/theme";
 import type { Projected, ProjFn, TrailHitTarget } from "./types";
+
+// ── Quake age helpers ─────────────────────────────────────────────────
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+function getQuakeAgeFactor(timestamp?: string): number {
+  if (!timestamp) return 0.5;
+  const age = Date.now() - new Date(timestamp).getTime();
+  if (age < HOUR_MS) return 1.0;
+  if (age < 6 * HOUR_MS) return 0.9;
+  if (age < DAY_MS) return 0.8;
+  if (age < 3 * DAY_MS) return 0.65;
+  return 0.5;
+}
+
+function getQuakeColor(ageFactor: number, baseColor: string): string {
+  if (ageFactor >= 0.9) return baseColor;
+  if (ageFactor >= 0.8) return "#44dd33";
+  if (ageFactor >= 0.65) return "#33aa33";
+  return "#2d8835";
+}
+
+function getQuakeSize(magnitude: number): number {
+  if (magnitude < 1) return 2;
+  if (magnitude < 2) return 2.5;
+  if (magnitude < 3) return 3.5;
+  if (magnitude < 4) return 5;
+  if (magnitude < 5) return 7;
+  if (magnitude < 6) return 9.5;
+  if (magnitude < 7) return 12;
+  return 15;
+}
+
+// ── Main draw function ────────────────────────────────────────────────
 
 export function drawPoints(
   ctx: CanvasRenderingContext2D,
@@ -149,38 +184,82 @@ export function drawPoints(
   ctx.globalAlpha = 1;
 
   pts.forEach(({ x, y, z, item }) => {
-    const color = colorMap[item.type] ?? colors.accent;
-    const alpha = 0.4 + z * 0.6;
-    let s =
-      item.type === "quakes"
-        ? 2.5 + parseFloat((item as any).data?.magnitude || "0") * 1.1
-        : item.type === "events"
-          ? 3.5 + ((item as any).data?.severity || 0) * 0.8
-          : item.type === "aircraft"
-            ? 4
-            : 3;
+    const baseColor = colorMap[item.type] ?? colors.accent;
+    const depthAlpha = 0.4 + z * 0.6;
     const isSel = selected?.id === item.id;
+
+    // ── Quake-specific rendering ──────────────────────────────────
+    if (item.type === "quakes") {
+      const mag = (item as any).data?.magnitude ?? 0;
+      const ageFactor = getQuakeAgeFactor(item.timestamp);
+      const quakeColor = getQuakeColor(ageFactor, baseColor);
+      let s = getQuakeSize(mag);
+      if (isSel) s *= 1.8;
+
+      // Pulse glow — scales with magnitude, fades with age
+      if (mag > 2.5) {
+        const pulseIntensity = Math.min(1, (mag - 2.5) / 4.5);
+        const pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) *
+            (0.15 + pulseIntensity * 0.35);
+        const gr = s * (3 + pulseIntensity * 2) * pulse;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, quakeColor + "50");
+        g.addColorStop(1, quakeColor + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * ageFactor * 0.7;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core dot
+      ctx.globalAlpha = depthAlpha * ageFactor;
+      ctx.fillStyle = quakeColor;
+      ctx.beginPath();
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Selection ring
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = quakeColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // ── Non-quake rendering (aircraft, ships, events) ─────────────
+    let s =
+      item.type === "events"
+        ? 3.5 + ((item as any).data?.severity || 0) * 0.8
+        : item.type === "aircraft"
+          ? 4
+          : 3;
     if (isSel) s *= 1.8;
 
-    if (
-      item.type === "events" ||
-      (item.type === "quakes" &&
-        parseFloat((item as any).data?.magnitude || "0") > 3)
-    ) {
+    // Event pulse glow
+    if (item.type === "events") {
       const pulse =
         1 + Math.sin(t + (parseInt(item.id.slice(1)) || 0) * 0.7) * 0.35;
       const gr = s * 4 * pulse;
       const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-      g.addColorStop(0, color + "40");
-      g.addColorStop(1, color + "00");
+      g.addColorStop(0, baseColor + "40");
+      g.addColorStop(1, baseColor + "00");
       ctx.fillStyle = g;
-      ctx.globalAlpha = alpha * 0.6;
+      ctx.globalAlpha = depthAlpha * 0.6;
       ctx.beginPath();
       ctx.arc(x, y, gr, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = depthAlpha;
     if (item.type === "aircraft") {
       const status = (item as any).data?.squawkStatus;
       ctx.fillStyle =
@@ -190,9 +269,9 @@ export function drawPoints(
             ? "#ff8800"
             : status === "hijack"
               ? "#cc44ff"
-              : color;
+              : baseColor;
     } else {
-      ctx.fillStyle = color;
+      ctx.fillStyle = baseColor;
     }
     if (item.type === "aircraft") {
       const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
@@ -210,7 +289,7 @@ export function drawPoints(
 
     if (isSel) {
       ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = baseColor;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);

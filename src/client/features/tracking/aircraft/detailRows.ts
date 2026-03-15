@@ -1,7 +1,9 @@
 import type { AircraftData } from "./types";
 import { getSquawkStatus, getSquawkStatusLabel } from "./lib/utils";
 
-export function buildAircraftDetailRows(data: AircraftData): [string, string][] {
+export function buildAircraftDetailRows(
+  data: AircraftData,
+): [string, string][] {
   const {
     squawk,
     acType,
@@ -60,6 +62,29 @@ export function buildAircraftDetailRows(data: AircraftData): [string, string][] 
   if (squawk) {
     const status = getSquawkStatusLabel(getSquawkStatus(squawk));
     rows.push(["Squawk", `${squawk} \u2014 ${status}`]);
+  }
+
+  // ── Intel links ─────────────────────────────────────────────────
+  const hasCallsign =
+    callsign && callsign !== "UNKNOWN" && callsign !== "Unknown";
+  const hasIcao = icao24 && icao24 !== "UNKNOWN" && icao24 !== "Unknown";
+
+  if (hasCallsign) {
+    rows.push([
+      "FlightAware",
+      `https://flightaware.com/live/flight/${callsign.trim()}`,
+    ]);
+    rows.push([
+      "FlightRadar24",
+      `https://www.flightradar24.com/${callsign.trim()}`,
+    ]);
+  }
+
+  if (hasIcao) {
+    rows.push([
+      "ADS-B Exchange",
+      `https://globe.adsbexchange.com/?icao=${icao24}`,
+    ]);
   }
 
   return rows;

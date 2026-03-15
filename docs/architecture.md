@@ -10,7 +10,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard applic
 
 ## 1. System Overview
 
-SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network) alongside mock ship, event, and seismic data onto an interactive globe or flat map projection. A single Bun process serves the bundled React SPA and a small set of API routes used for aircraft metadata enrichment.
+SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network) and live seismic data (via USGS) alongside mock ship and event data onto an interactive globe or flat map projection. A single Bun process serves the bundled React SPA and a small set of API routes used for aircraft metadata enrichment.
 
 ```mermaid
 graph TB
@@ -18,25 +18,30 @@ graph TB
         SPA["React SPA<br/>(App.tsx → LiveTrafficPane)"]
         Canvas["Canvas 2D<br/>Render Loop"]
         IDB["IndexedDB<br/>(sigint-cache)"]
-        Provider["AircraftProvider<br/>(provider.ts)"]
+        AircraftProv["AircraftProvider<br/>(provider.ts)"]
+        QuakeProv["EarthquakeProvider<br/>(provider.ts)"]
 
         SPA -->|"props via propsRef"| Canvas
-        SPA -->|"useAircraftData hook"| Provider
-        Provider -->|"hydrate / persist"| IDB
+        SPA -->|"useAircraftData hook"| AircraftProv
+        SPA -->|"useEarthquakeData hook"| QuakeProv
+        AircraftProv -->|"hydrate / persist"| IDB
+        QuakeProv -->|"hydrate / persist"| IDB
     end
 
     OpenSky["OpenSky Network API<br/>(anonymous, 400 cred/day)"]
+    USGS["USGS Earthquake API<br/>(free, no auth)"]
     BunServer["Bun Server<br/>/api/aircraft/metadata"]
     NDJSON["ac-db.ndjson<br/>(~180k records)"]
 
-    Provider -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
-    Provider -->|"GET /metadata/:icao24<br/>(enrichment)"| BunServer
+    AircraftProv -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
+    AircraftProv -->|"GET /metadata/:icao24<br/>(enrichment)"| BunServer
+    QuakeProv -->|"GET all_week.geojson<br/>(client-side fetch)"| USGS
     BunServer -->|"lookup"| NDJSON
 ```
 
 ### Why client-side fetching?
 
-The OpenSky Network API blocks requests from Heroku's IP ranges. All OpenSky calls are made directly from the browser. This means API keys cannot be used — only anonymous access at 400 credits/day. The server is involved only for aircraft metadata enrichment (model, registration, operator) via a local NDJSON database.
+The OpenSky Network API blocks requests from Heroku's IP ranges. All OpenSky calls are made directly from the browser. This means API keys cannot be used — only anonymous access at 400 credits/day. The USGS earthquake API is also fetched client-side — it's free, requires no auth, and has no CORS restrictions. The server is involved only for aircraft metadata enrichment (model, registration, operator) via a local NDJSON database.
 
 ---
 
@@ -67,23 +72,36 @@ src/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
         dataPoints.ts                 DataPoint union type, per-feature data shapes
-      aircraft/
-        index.ts                      Barrel exports (public API for the feature)
-        types.ts                      AircraftData, AircraftFilter, SquawkCode types
-        definition.ts                 aircraftFeature: FeatureDefinition instance
-        detailRows.ts                 buildAircraftDetailRows()
-        ui/
-          AircraftFilterControl.tsx   Filter dropdown UI
-          AircraftTickerContent.tsx   Ticker rendering for aircraft items
-        hooks/
-          useAircraftData.ts          React hook — orchestrates polling + enrichment
-        data/
-          provider.ts                 AircraftProvider — fetch, cache, enrich
-          typeLookup.ts               getAircraftMetadataBatch() — server enrichment
-        lib/
-          filterUrl.ts                URL sync for aircraft filter state
-          utils.ts                    matchesAircraftFilter(), squawk helpers
-      registry.tsx                    Feature registry + inline ship/event/quake defs
+      tracking/
+        aircraft/
+          index.ts                    Barrel exports (public API for the feature)
+          types.ts                    AircraftData, AircraftFilter, SquawkCode types
+          definition.ts               aircraftFeature: FeatureDefinition instance
+          detailRows.ts               buildAircraftDetailRows() + intel links
+          ui/
+            AircraftFilterControl.tsx Filter dropdown UI
+            AircraftTickerContent.tsx Ticker rendering for aircraft items
+          hooks/
+            useAircraftData.ts        React hook — orchestrates polling + enrichment
+          data/
+            provider.ts               AircraftProvider — fetch, cache, enrich
+            typeLookup.ts             getAircraftMetadataBatch() — server enrichment
+          lib/
+            filterUrl.ts              URL sync for aircraft filter state
+            utils.ts                  matchesAircraftFilter(), squawk helpers
+      environmental/
+        earthquake/
+          index.ts                    Barrel exports
+          types.ts                    EarthquakeData, EarthquakeFilter types
+          definition.ts               earthquakeFeature: FeatureDefinition instance
+          detailRows.ts               buildEarthquakeDetailRows() + USGS link
+          ui/
+            EarthquakeTickerContent.tsx  Ticker rendering for seismic items
+          hooks/
+            useEarthquakeData.ts      React hook — polls USGS every 7 min
+          data/
+            provider.ts               EarthquakeProvider — fetch, cache (IndexedDB)
+      registry.tsx                    Feature registry + inline ship/event defs
     components/
       globe/                          Canvas 2D visualization (modular)
         index.tsx                     Barrel export
@@ -92,15 +110,15 @@ src/
         projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
         landRenderer.ts               Land polygon drawing + globe clipping
         gridRenderer.ts               Lat/lon grid lines
-        pointRenderer.ts              Data points, trails, waypoint hit targets
+        pointRenderer.ts              Data points, trails, quake age rendering, hit targets
         cameraSystem.ts               Lock-on follow, lerp, auto-rotate
         inputHandlers.ts              Mouse, touch, wheel, keyboard handler factory
       Search.tsx                      Global search with zoom-to
       Header.tsx                      Top bar: logo, search, toggles, view controls, clock
-      DetailPanel.tsx                 Selected item detail (draggable/bottom sheet, auto-side)
+      DetailPanel.tsx                 Selected item detail with auto-detected intel links
       Ticker.tsx                      Bottom live feed scroll
       LayerLegend.tsx                 Bottom-left layer counts
-      StatusBadge.tsx                 Bottom-right connection status
+      StatusBadge.tsx                 Bottom-right dynamic data source status
       styles.tsx                      Canvas-only constants
     lib/
       storageService.ts               IndexedDB-backed cache (replaces all localStorage)
@@ -111,7 +129,7 @@ src/
     providers/
       DataOrchestrator.ts             Generic multi-provider coordinator
     data/
-      mockData.ts                     Mock ships, events, quakes, fallback aircraft
+      mockData.ts                     Mock ships, events, fallback aircraft
 ```
 
 ---
@@ -119,6 +137,8 @@ src/
 ## 3. The Feature System
 
 Every data type in the application (aircraft, ships, events, quakes) is a **feature** — a self-contained module that implements the `FeatureDefinition` contract. This keeps rendering, filtering, and display logic colocated with the data type it belongs to.
+
+Features are organized by domain: `tracking/` for live position feeds, `environmental/` for natural events, and `intel/` (future) for news/conflict data.
 
 ### 3.1 FeatureDefinition Contract
 
@@ -133,7 +153,7 @@ type FeatureDefinition<TData, TFilter> = {
   matchesFilter(item, filter): boolean;   // Does this item pass the current filter?
   defaultFilter: TFilter;                 // Initial filter state
 
-  buildDetailRows(data, timestamp?): [string, string][];  // Detail panel rows
+  buildDetailRows(data, timestamp?): [string, string][];  // Detail panel rows + intel links
   TickerContent: React.ComponentType;     // How this type renders in the ticker
 
   FilterControl?: React.ComponentType;    // Optional header filter UI
@@ -150,10 +170,10 @@ graph LR
         FR["featureRegistry<br/>(Map by id)"]
     end
 
-    AF["aircraft/<br/>definition.ts"] --> FL
+    AF["tracking/aircraft/<br/>definition.ts"] --> FL
     SF["shipsFeature<br/>(inline)"] --> FL
     EF["eventsFeature<br/>(inline)"] --> FL
-    QF["quakesFeature<br/>(inline)"] --> FL
+    QF["environmental/earthquake/<br/>definition.ts"] --> FL
 
     FL -->|"same entries"| FR
 
@@ -166,21 +186,21 @@ graph LR
 - **`featureList`** — ordered array for iteration (determines UI rendering order)
 - **`featureRegistry`** — `Map<string, FeatureDefinition>` for O(1) lookup by id
 
-Aircraft has its own folder (`features/aircraft/`) with a full provider, filter system, and UI components organized into subdirectories (`ui/`, `hooks/`, `data/`, `lib/`). Ships, events, and quakes are defined inline in the registry since they currently use mock data.
+Aircraft and earthquake have their own feature folders with full providers, hooks, and UI components. Ships and events are defined inline in the registry since they currently use mock data.
 
-### 3.3 Aircraft Feature Structure
+### 3.3 Live Feature Structure
 
-The aircraft feature uses an explicit subdirectory layout that serves as the pattern for future live data features:
+Both aircraft and earthquake features use an explicit subdirectory layout. This is the pattern for all live data features:
 
-| Directory | Purpose | Files |
-|-----------|---------|-------|
-| `ui/` | React components | `AircraftFilterControl.tsx`, `AircraftTickerContent.tsx` |
-| `hooks/` | React hooks | `useAircraftData.ts` |
-| `data/` | Data fetching & caching | `provider.ts`, `typeLookup.ts` |
-| `lib/` | Pure utilities | `filterUrl.ts`, `utils.ts` |
-| _(root)_ | Feature config & types | `index.ts`, `types.ts`, `definition.ts`, `detailRows.ts` |
+| Directory | Purpose | Aircraft | Earthquake |
+|-----------|---------|----------|------------|
+| `ui/` | React components | FilterControl, TickerContent | TickerContent |
+| `hooks/` | React hooks | useAircraftData | useEarthquakeData |
+| `data/` | Provider + data fetching | AircraftProvider, typeLookup | EarthquakeProvider |
+| `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ |
+| _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows |
 
-All external imports go through the barrel `index.ts` — consumers import from `@/features/aircraft`, never from subdirectories directly.
+All external imports go through the barrel `index.ts` — consumers import from `@/features/tracking/aircraft` or `@/features/environmental/earthquake`, never from subdirectories directly.
 
 ### 3.4 DataPoint Union
 
@@ -191,7 +211,7 @@ type DataPoint =
   | (BasePoint & { type: "ships";    data: ShipData })
   | (BasePoint & { type: "aircraft"; data: AircraftData })
   | (BasePoint & { type: "events";   data: EventData })
-  | (BasePoint & { type: "quakes";   data: QuakeData });
+  | (BasePoint & { type: "quakes";   data: EarthquakeData });
 ```
 
 Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. The `data` field contains type-specific payload. All downstream code switches on `type` to access the correct shape.
@@ -204,40 +224,53 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 ```mermaid
 flowchart TD
-    Boot["Application Boot<br/>await cacheInit()"] --> Hydrate["AircraftProvider.hydrate()<br/>Reads IndexedDB cache<br/>(rejects if >5min stale)"]
-    Hydrate -->|"cache hit"| MergeCache["Merge cached aircraft<br/>+ mock non-aircraft<br/>→ initial allData"]
-    Hydrate -->|"cache miss"| MockFallback["generateMockAircraft()<br/>+ mock non-aircraft<br/>→ initial allData"]
+    Boot["Application Boot<br/>await cacheInit()"] --> HydrateAC["AircraftProvider.hydrate()<br/>Reads IndexedDB cache<br/>(rejects if >5min stale)"]
+    Boot --> HydrateEQ["EarthquakeProvider.hydrate()<br/>Reads IndexedDB cache<br/>(rejects if >30min stale)"]
 
-    MergeCache --> PollStart
-    MockFallback --> PollStart
+    HydrateAC -->|"cache hit"| MergeCache["Merge cached aircraft<br/>+ mock ships/events<br/>→ initial aircraftAndMockData"]
+    HydrateAC -->|"cache miss"| MockFallback["generateMockAircraft()<br/>+ mock ships/events<br/>→ initial aircraftAndMockData"]
 
-    PollStart["poll() — immediate first call<br/>then setInterval(240s)"] --> Refresh["aircraftProvider.refresh()"]
-    Refresh --> FetchOSN["fetchOpenSkyStates()<br/>GET opensky-network.org/api/states/all<br/>(from browser)"]
+    HydrateEQ -->|"cache hit"| CachedEQ["Initial earthquakeData<br/>from IndexedDB"]
+    HydrateEQ -->|"cache miss"| EmptyEQ["Initial earthquakeData = []"]
 
-    FetchOSN -->|"success"| ApplyMeta["applyMetadata()<br/>Merge cached metadata<br/>into DataPoint[]"]
-    FetchOSN -->|"error"| Fallback["Return: memory cache<br/>→ IndexedDB cache<br/>→ mock data"]
+    MergeCache --> AllData
+    MockFallback --> AllData
+    CachedEQ --> AllData
+    EmptyEQ --> AllData
 
-    ApplyMeta --> Persist["persistCache()<br/>Write to IndexedDB"]
-    Persist --> SetState["setData([...mock, ...live])<br/>React state update"]
+    AllData["allData = useMemo(<br/>[...aircraftAndMockData, ...earthquakeData])"]
 
-    Fallback --> SetState
+    AllData --> PollAC["Aircraft poll() every 240s"]
+    AllData --> PollEQ["Earthquake poll() every 420s"]
 
-    SetState --> RecordTrails["recordPositions()<br/>Feed trailService<br/>for all aircraft + ships"]
-    SetState --> ReactRender["React re-render<br/>triggers useMemo chain"]
+    PollAC --> FetchOSN["fetchOpenSkyStates()"]
+    PollEQ --> FetchUSGS["fetch USGS all_week.geojson"]
+
+    FetchOSN -->|"success"| PersistAC["persistCache() → IndexedDB"]
+    FetchUSGS -->|"success"| PersistEQ["persistCache() → IndexedDB"]
+
+    PersistAC --> SetState["React state update → re-merge allData"]
+    PersistEQ --> SetState
 ```
 
 ### 4.2 The `allData` Array
 
-`allData` is the **single source of truth** for all renderable points. It is assembled in `useAircraftData`:
+`allData` is the **single source of truth** for all renderable points. It is assembled in `LiveTrafficPane` by merging two independent data hooks:
 
+```typescript
+const { data: aircraftAndMockData } = useAircraftData();
+const { data: earthquakeData } = useEarthquakeData();
+
+const allData = useMemo(
+  () => [...aircraftAndMockData, ...earthquakeData],
+  [aircraftAndMockData, earthquakeData],
+);
 ```
-allData = [...nonAircraftBaseRef.current, ...aircraftData]
-```
 
-- **`nonAircraftBaseRef.current`**: Generated once on mount (`generateMockNonAircraft()`). Ships, events, quakes. Static for the session lifetime — stored in a `useRef` so it never triggers re-renders.
-- **`aircraftData`**: Live from OpenSky, refreshed every 240 seconds. The only part that changes.
+- **`aircraftAndMockData`**: Live aircraft from OpenSky (refreshed every 240s) + static mock ships and events (generated once on mount via `useRef`).
+- **`earthquakeData`**: Live earthquakes from USGS (refreshed every 420s). Covers the past 7 days of global seismic activity.
 
-When `setData()` is called, React re-renders `LiveTrafficPane`, which recomputes derived values (`counts`, `tickerItems`, `selectedCurrent`, etc.) via `useMemo` and passes fresh props down.
+Each hook independently hydrates from IndexedDB on boot, polls its API, and persists to cache. LiveTrafficPane merges them and passes the result downstream.
 
 ### 4.3 Data Distribution from LiveTrafficPane
 
@@ -245,7 +278,7 @@ When `setData()` is called, React re-renders `LiveTrafficPane`, which recomputes
 flowchart TD
     allData["allData<br/>(DataPoint[])"]
 
-    allData --> Filters["useMemo: filters map<br/>{aircraft: AircraftFilter,<br/>ships: bool, events: bool, quakes: bool}"]
+    allData --> Filters["useMemo: filters map<br/>{aircraft: AircraftFilter,<br/>ships: bool, events: bool,<br/>quakes: EarthquakeFilter}"]
     allData --> SelCurrent["useMemo: selectedCurrent<br/>Find fresh DataPoint for selected id"]
     allData --> Countries["useMemo: availableCountries<br/>Unique countries sorted by frequency"]
 
@@ -256,7 +289,8 @@ flowchart TD
     allData -->|"data prop"| Globe["GlobeVisualization"]
     Counts -->|"counts prop"| Header
     Counts -->|"counts prop"| Legend["LayerLegend"]
-    Active -->|"activeCount prop"| Status["StatusBadge"]
+    DSources["dataSources<br/>(SourceStatus[])"] -->|"dataSources prop"| Status["StatusBadge"]
+    Active -->|"activeCount prop"| Status
     Ticker -->|"items prop"| TickerComp["Ticker"]
     SelCurrent -->|"item prop"| Detail["DetailPanel"]
     Countries -->|"availableCountries prop"| Header
@@ -271,11 +305,11 @@ const filters = {
   aircraft: aircraftFilter,  // AircraftFilter object (enabled, squawks, countries, etc.)
   ships:    layers.ships,     // boolean
   events:   layers.events,    // boolean
-  quakes:   layers.quakes,    // boolean
+  quakes:   { enabled: layers.quakes ?? true, minMagnitude: 0 },  // EarthquakeFilter
 };
 ```
 
-Each feature's `matchesFilter()` receives its corresponding filter value. For aircraft this is a complex object; for the others it's a simple boolean toggle.
+Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Ships and events use simple booleans.
 
 ---
 
@@ -283,7 +317,9 @@ Each feature's `matchesFilter()` receives its corresponding filter value. For ai
 
 The application uses a unified IndexedDB-backed storage service (`lib/storageService.ts`) for all persistent caching. On first run it auto-migrates any existing localStorage data. All reads are synchronous from an in-memory Map (populated at boot via `await cacheInit()`), while writes go to IndexedDB asynchronously (fire-and-forget) to avoid blocking the render loop.
 
-At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours are removed, and trail points are capped at 50 per entity (~3.3 hours at 4-minute intervals) to prevent unbounded growth. The aircraft cache is never deleted — it overwrites itself every 240 seconds during active use.
+At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours are removed, and trail points are capped at 50 per entity (~3.3 hours at 4-minute intervals) to prevent unbounded growth.
+
+**Every live data provider follows the same caching pattern**: hydrate from IndexedDB on boot (with staleness rejection), persist after every successful fetch, and fall back through memory cache → IndexedDB cache → empty on error.
 
 ### 5.1 Cache Overview
 
@@ -291,14 +327,18 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 flowchart LR
     subgraph "IndexedDB (sigint-cache)"
         AC["sigint.opensky.<br/>aircraft-cache.v1<br/><i>Full DataPoint[] with<br/>enriched metadata</i>"]
+        EQ["sigint.usgs.<br/>earthquake-cache.v1<br/><i>USGS earthquake DataPoint[]</i>"]
         TR["sigint.trails.v1<br/><i>Position history,<br/>heading, speed per entity</i>"]
         LD["sigint.land.hd.v1<br/><i>HD coastline polygons</i>"]
     end
 
     StorageSvc["storageService<br/>cacheGet / cacheSet"]
 
-    Provider["AircraftProvider"] -->|"cacheSet: every refresh<br/>+ after enrichment"| StorageSvc
-    Provider -->|"cacheGet: hydrate() on boot"| StorageSvc
+    AircraftProv["AircraftProvider"] -->|"cacheSet: every refresh<br/>+ after enrichment"| StorageSvc
+    AircraftProv -->|"cacheGet: hydrate() on boot"| StorageSvc
+
+    QuakeProv["EarthquakeProvider"] -->|"cacheSet: every refresh"| StorageSvc
+    QuakeProv -->|"cacheGet: hydrate() on boot"| StorageSvc
 
     TrailSvc["trailService"] -->|"cacheSet: every 30s"| StorageSvc
     TrailSvc -->|"cacheGet: lazy on first access"| StorageSvc
@@ -307,6 +347,7 @@ flowchart LR
     LandSvc -->|"cacheGet: on first access"| StorageSvc
 
     StorageSvc --> AC
+    StorageSvc --> EQ
     StorageSvc --> TR
     StorageSvc --> LD
 ```
@@ -315,7 +356,7 @@ flowchart LR
 
 | Key | `sigint.opensky.aircraft-cache.v1` |
 |---|---|
-| Owner | `AircraftProvider` (`data/provider.ts`) |
+| Owner | `AircraftProvider` (`tracking/aircraft/data/provider.ts`) |
 | Contains | Full `DataPoint[]` array with aircraft positions + any enriched metadata |
 | Written | After every successful OpenSky fetch (with metadata applied) and after enrichment |
 | Read | On `hydrate()` at boot — provides instant first render before first API call |
@@ -325,7 +366,19 @@ The provider has a two-tier cache: an in-memory object (`this.cache`) and Indexe
 
 When metadata enrichment succeeds, both tiers are updated and re-persisted. This means the cache progressively improves — a callsign that was "Unknown" on first fetch gains its real type, registration, and operator after enrichment, and that enriched data survives page reloads.
 
-### 5.3 Trail Cache
+### 5.3 Earthquake Data Cache
+
+| Key | `sigint.usgs.earthquake-cache.v1` |
+|---|---|
+| Owner | `EarthquakeProvider` (`environmental/earthquake/data/provider.ts`) |
+| Contains | Full `DataPoint[]` array of USGS earthquake data (7 days) |
+| Written | After every successful USGS fetch |
+| Read | On `hydrate()` at boot — provides instant first render before first API call |
+| Staleness | Rejected on hydrate if older than 30 minutes. Overwritten every 420s on successful refresh. |
+
+Same two-tier pattern as aircraft: in-memory cache is authoritative during a session, IndexedDB is for cross-session persistence. On fetch error, the provider falls back through memory cache → IndexedDB cache → empty array.
+
+### 5.4 Trail Cache
 
 | Key | `sigint.trails.v1` |
 |---|---|
@@ -339,7 +392,7 @@ Each trail point stores `{ lat, lon, ts, altitude?, speed?, heading? }` — the 
 
 The trail service records actual positions from each data refresh and uses speed + heading for between-refresh interpolation. It is consumed both for drawing trail lines behind selected items and for smoothly animating all moving points between 240-second refresh intervals.
 
-### 5.4 Land Data Cache
+### 5.5 Land Data Cache
 
 | Key | `sigint.land.hd.v1` |
 |---|---|
@@ -349,7 +402,7 @@ The trail service records actual positions from each data refresh and uses speed
 
 Fetched once in the background when GlobeVisualization mounts. The render loop calls `getLand()` each frame — if HD data hasn't loaded yet, it falls back to a simpler built-in dataset.
 
-### 5.5 Metadata Deduplication
+### 5.6 Metadata Deduplication
 
 `AircraftProvider` also maintains two in-memory-only structures for metadata enrichment:
 
@@ -396,7 +449,7 @@ flowchart TD
         Shell["GlobeVisualization.tsx<br/><i>Shell: refs, render loop, tooltip</i>"]
         Camera["cameraSystem.ts<br/><i>Lock-on, lerp, auto-rotate</i>"]
         Input["inputHandlers.ts<br/><i>Mouse, touch, wheel, keyboard</i>"]
-        Points["pointRenderer.ts<br/><i>Data points, trails, hit targets</i>"]
+        Points["pointRenderer.ts<br/><i>Data points, trails, quake age, hit targets</i>"]
         Land["landRenderer.ts<br/><i>Coastline polygons, clipping</i>"]
         Grid["gridRenderer.ts<br/><i>Lat/lon grid lines</i>"]
         Proj["projection.ts<br/><i>projGlobe, projFlat, metrics</i>"]
@@ -523,6 +576,39 @@ Two projection modes, selected by the `flat` prop:
 
 Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always positive (flat).
 
+### 6.7 Earthquake Age-Based Rendering
+
+Earthquake points are rendered with visual properties that encode both magnitude and age, making it easy to distinguish a fresh M6 from a week-old M2 at a glance.
+
+**Magnitude → Size** (exponential scaling):
+
+| Magnitude | Dot Size |
+|-----------|----------|
+| < M1 | 2px |
+| M1-2 | 2.5px |
+| M2-3 | 3.5px |
+| M3-4 | 5px |
+| M4-5 | 7px |
+| M5-6 | 9.5px |
+| M6-7 | 12px |
+| M7+ | 15px |
+
+**Age → Color & Opacity**:
+
+| Age | Color | Opacity Factor |
+|-----|-------|---------------|
+| < 1 hour | Base green (`#66ff44`) | 1.0 |
+| 1-6 hours | `#44dd33` | 0.9 |
+| 6-24 hours | `#33aa33` | 0.8 |
+| 1-3 days | `#2d8835` | 0.65 |
+| 3-7 days | `#2d8835` | 0.5 (floor) |
+
+The opacity factor is multiplied with the depth-based alpha, so even the oldest quakes at the back of the globe remain visible — just noticeably dimmer and more muted than fresh ones.
+
+**Magnitude → Pulse**: Earthquakes above M2.5 get a pulsing glow effect. The pulse intensity scales with magnitude — a M3 gets a gentle wobble, a M7 gets an aggressive throb. The glow radius also scales, making larger earthquakes visually dominant.
+
+Quake rendering is handled in its own block within `pointRenderer.ts` with an early return, keeping it separate from the aircraft/ship/event rendering path.
+
 ---
 
 ## 7. Isolation Modes
@@ -638,7 +724,7 @@ Each feature provides a `getSearchText(data)` method that concatenates all searc
 | Aircraft | callsign, icao24, acType, registration, operator, manufacturerName, model, categoryDescription, originCountry, squawk |
 | Ships | name, flag, vesselType |
 | Events | headline, category, source |
-| Quakes | location, magnitude |
+| Quakes | location, magnitude, alert, eventType |
 
 ### 9.5 UI Integration
 
@@ -674,7 +760,7 @@ When a specific search result is clicked, two things happen simultaneously:
 ```mermaid
 graph TD
     App["App.tsx<br/><i>Thin shell — renders LiveTrafficPane</i>"]
-    App --> LTP["LiveTrafficPane<br/><i>All top-level state</i>"]
+    App --> LTP["LiveTrafficPane<br/><i>All top-level state, data merging</i>"]
 
     LTP --> Header["Header<br/><i>Logo, search, toggles, controls, clock</i>"]
     Header --> SearchComp["Search<br/><i>searchSlot prop, z-[60]</i>"]
@@ -687,11 +773,12 @@ graph TD
     GlobeViz --> CanvasLoop["requestAnimationFrame loop<br/><i>Not managed by React</i>"]
     GlobeViz --> Tooltip["Trail waypoint tooltip<br/><i>Anchored, reprojected per frame</i>"]
 
-    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions left or right<br/>opposite selected item, z-40</i>"]
+    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions opposite selected item<br/>Data rows + intel links, z-40</i>"]
     DetailPanel --> DetailRows["Feature-specific detail rows<br/><i>via buildDetailRows()</i>"]
+    DetailPanel --> IntelLinks["Intel links<br/><i>Auto-detected URLs rendered as chips</i>"]
 
     LTP --> LayerLegend["LayerLegend<br/><i>bottom-left, z-10</i>"]
-    LTP --> StatusBadge["StatusBadge<br/><i>bottom-right, z-10</i>"]
+    LTP --> StatusBadge["StatusBadge<br/><i>Dynamic source status, z-10</i>"]
 
     LTP --> Ticker["Ticker<br/><i>bottom bar, fixed 90px</i>"]
     Ticker --> TickerContent["Feature-specific content<br/><i>via TickerContent component</i>"]
@@ -702,9 +789,32 @@ graph TD
 The application uses a pane-based layout designed for future multi-pane support:
 
 - **`App.tsx`** — thin shell that renders the active pane(s). Currently renders `LiveTrafficPane` full-screen. Will become the layout manager when multi-pane support is added (PaneManager with resize handles, minimize, rearrange).
-- **`LiveTrafficPane`** — self-contained pane owning all globe-related state, data fetching, filtering, selection, and UI. Takes no props — it manages everything internally.
+- **`LiveTrafficPane`** — self-contained pane owning all globe-related state, data fetching, filtering, selection, and UI. Takes no props — it manages everything internally. Merges data from multiple independent hooks (`useAircraftData`, `useEarthquakeData`) and builds a `dataSources` array reflecting each provider's real status.
 
 This separation means adding a second pane (e.g., ships, intel feed) requires no changes to App.tsx beyond adding it to the layout. Each pane owns its own state and subscribes to shared data providers independently.
+
+### Detail Panel & Intel Links
+
+The detail panel renders feature-specific data rows from `buildDetailRows()`. Any row whose value starts with `https://` is automatically detected as a URL and rendered separately as a clickable chip with an external link icon (`target="_blank" rel="noopener noreferrer"`). This keeps the feature system simple — features just return `[label, url]` tuples alongside normal data rows, and the panel handles rendering.
+
+Current intel links:
+- **Aircraft**: FlightAware (by callsign), FlightRadar24 (by callsign), ADS-B Exchange (by icao24)
+- **Earthquake**: USGS event page (direct URL from API)
+
+### Dynamic Data Source Status
+
+`StatusBadge` receives a `dataSources` array of `SourceStatus` objects, each with `{ id, label, status }` where status is one of `"loading" | "live" | "cached" | "mock" | "error" | "empty"`. LiveTrafficPane builds this array from the actual hook state of each data source:
+
+```typescript
+const dataSources = [
+  { id: "aircraft", label: "AIRCRAFT", status: dataSource },
+  { id: "quakes",   label: "SEISMIC",  status: earthquakeSource },
+  { id: "ships",    label: "SHIPS",    status: "mock" },
+  { id: "events",   label: "EVENTS",   status: "mock" },
+];
+```
+
+StatusBadge dynamically groups these into LIVE, SIMULATED, and OFFLINE lines. No hardcoded strings — when a new live source is added, it automatically appears in the correct category.
 
 ### Detail Panel Auto-Positioning
 
@@ -747,14 +857,20 @@ Derived values computed via `useMemo`:
 
 ```mermaid
 flowchart LR
+    subgraph "Hook Data"
+        aircraftAndMockData["aircraftAndMockData<br/><i>from useAircraftData</i>"]
+        earthquakeData["earthquakeData<br/><i>from useEarthquakeData</i>"]
+    end
+
     subgraph "React State"
-        allData["allData"]
         aircraftFilter["aircraftFilter"]
         layers["layers"]
         selected["selected"]
     end
 
     subgraph "useMemo Derivations"
+        allData["allData<br/><i>merged from both hooks</i>"]
+        dataSources["dataSources<br/><i>SourceStatus[] for StatusBadge</i>"]
         filters["filters<br/><i>unified filter map</i>"]
         tickerItems["tickerItems"]
         selectedCurrent["selectedCurrent<br/><i>fresh DataPoint for selected id</i>"]
@@ -762,6 +878,9 @@ flowchart LR
         activeCount["activeCount<br/><i>total visible</i>"]
         availableCountries["availableCountries"]
     end
+
+    aircraftAndMockData --> allData
+    earthquakeData --> allData
 
     aircraftFilter --> filters
     layers --> filters
@@ -783,6 +902,8 @@ flowchart LR
 
 | Derived | Recomputes when |
 |---|---|
+| `allData` | Either hook's data changes |
+| `dataSources` | Either hook's dataSource status changes |
 | `filters` | `aircraftFilter` or `layers` changes |
 | `tickerItems` | Data refresh or filter change |
 | `selectedCurrent` | Data refresh or selection change |
@@ -798,7 +919,9 @@ flowchart LR
 
 **OpenSky rate limiting**: Anonymous access = 400 credits/day. Each `/states/all` call costs credits. The 240-second poll interval is chosen to stay well under the limit for a full day of use.
 
-**Client-side fetching**: Cannot proxy through the server. Cannot add authentication headers. Any OpenSky-related code must run in the browser.
+**USGS rate limiting**: Responses are cached server-side for 60 seconds — checking more frequently won't return new data. The feed updates every 5 minutes. Our 420-second (7 minute) poll interval ensures every request gets fresh data while staying well under any rate limit. Exceeding limits returns a 429 response.
+
+**Client-side fetching**: Cannot proxy through the server. Cannot add authentication headers. Any OpenSky or USGS-related code must run in the browser.
 
 **Canvas vs React**: The globe is pure Canvas 2D. React components (Header, DetailPanel, etc.) are overlaid on top with absolute/fixed positioning. They communicate with the canvas via refs and props, not DOM events on canvas elements.
 
@@ -810,4 +933,6 @@ flowchart LR
 
 **IndexedDB migration**: On first run, `storageService` auto-migrates any existing localStorage data to IndexedDB and removes the old keys. This is a one-time operation. IndexedDB has no practical size limit (browser-dependent, typically hundreds of MB to GB), eliminating the 5MB localStorage quota that previously caused trail persistence failures.
 
-**Storage cleanup**: At boot, `cacheInit()` removes trail entries older than 24 hours and trims remaining trails to the last 50 points per entity. The aircraft cache is self-managing — it overwrites itself every 240 seconds during active use and is never deleted from storage.
+**Storage cleanup**: At boot, `cacheInit()` removes trail entries older than 24 hours and trims remaining trails to the last 50 points per entity. The aircraft cache is self-managing — it overwrites itself every 240 seconds during active use and is never deleted from storage. The earthquake cache overwrites itself every 420 seconds.
+
+**All providers cache to IndexedDB**: This is a non-negotiable pattern. Every live data provider implements `hydrate()` (read from IndexedDB on boot), `persistCache()` (write after every successful fetch), and a fallback chain (memory → IndexedDB → empty/mock) on error. New providers must follow this pattern.
