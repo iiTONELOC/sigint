@@ -1,8 +1,8 @@
 import { Anchor, Zap, Activity } from "lucide-react";
-import type { FeatureDefinition, TickerRendererProps, BasePoint } from "./base/types";
+import type { FeatureDefinition, TickerRendererProps } from "./base/types";
 import type { ShipData, EventData, QuakeData } from "./base/dataPoints";
 import { aircraftFeature } from "./aircraft";
-import { mono, FONT_LG, FONT_SM } from "@/components/styles";
+import { mono, FONT_LG } from "@/components/styles";
 
 // ── Default ticker content for simple features ───────────────────────
 
@@ -18,7 +18,10 @@ function ShipTickerContent({ data, textColor }: Readonly<TickerRendererProps>) {
   );
 }
 
-function EventTickerContent({ data, textColor }: Readonly<TickerRendererProps>) {
+function EventTickerContent({
+  data,
+  textColor,
+}: Readonly<TickerRendererProps>) {
   const d = data as EventData;
   return (
     <div
@@ -30,7 +33,10 @@ function EventTickerContent({ data, textColor }: Readonly<TickerRendererProps>) 
   );
 }
 
-function QuakeTickerContent({ data, textColor }: Readonly<TickerRendererProps>) {
+function QuakeTickerContent({
+  data,
+  textColor,
+}: Readonly<TickerRendererProps>) {
   const d = data as QuakeData;
   return (
     <div
@@ -54,7 +60,10 @@ function buildShipDetailRows(data: ShipData): [string, string][] {
   ];
 }
 
-function buildEventDetailRows(data: EventData, timestamp?: string): [string, string][] {
+function buildEventDetailRows(
+  data: EventData,
+  timestamp?: string,
+): [string, string][] {
   return [
     ["Category", data.category || ""],
     ["Headline", data.headline || ""],
@@ -68,7 +77,10 @@ function buildEventDetailRows(data: EventData, timestamp?: string): [string, str
   ];
 }
 
-function buildQuakeDetailRows(data: QuakeData, timestamp?: string): [string, string][] {
+function buildQuakeDetailRows(
+  data: QuakeData,
+  timestamp?: string,
+): [string, string][] {
   return [
     ["Magnitude", `M${data.magnitude}`],
     ["Depth", `${data.depth} km`],
@@ -89,6 +101,8 @@ const shipsFeature: FeatureDefinition<ShipData, boolean> = {
   defaultFilter: true,
   buildDetailRows: (data) => buildShipDetailRows(data),
   TickerContent: ShipTickerContent,
+  getSearchText: (data) =>
+    [data.name, data.flag, data.vesselType].filter(Boolean).join(" "),
 };
 
 const eventsFeature: FeatureDefinition<EventData, boolean> = {
@@ -99,6 +113,8 @@ const eventsFeature: FeatureDefinition<EventData, boolean> = {
   defaultFilter: true,
   buildDetailRows: (data, ts) => buildEventDetailRows(data, ts),
   TickerContent: EventTickerContent,
+  getSearchText: (data) =>
+    [data.headline, data.category, data.source].filter(Boolean).join(" "),
 };
 
 const quakesFeature: FeatureDefinition<QuakeData, boolean> = {
@@ -109,6 +125,10 @@ const quakesFeature: FeatureDefinition<QuakeData, boolean> = {
   defaultFilter: true,
   buildDetailRows: (data, ts) => buildQuakeDetailRows(data, ts),
   TickerContent: QuakeTickerContent,
+  getSearchText: (data) =>
+    [data.location, data.magnitude != null ? `M${data.magnitude}` : ""]
+      .filter(Boolean)
+      .join(" "),
 };
 
 // ── Registry ─────────────────────────────────────────────────────────

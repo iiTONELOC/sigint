@@ -57,3 +57,28 @@ button:focus-visible {
 .aircraft-country-scroll::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #61749b 0%, #4f6488 100%);
 }
+
+/* Search results dropdown scrollbar */
+.search-results-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #4c5f80 #0b1225;
+}
+
+.search-results-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.search-results-scroll::-webkit-scrollbar-track {
+  background: #0b1225;
+  border-radius: 0 4px 4px 0;
+}
+
+.search-results-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #4c5f80 0%, #3d4f70 100%);
+  border-radius: 8px;
+  border: 2px solid #0b1225;
+}
+
+.search-results-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #61749b 0%, #4f6488 100%);
+}

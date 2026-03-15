@@ -56,8 +56,9 @@ export function SettingsDropdown({
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 rounded z-50"
+          className="absolute top-full mt-1 rounded z-[60]"
           style={{
+            left: 0,
             background: C.panel,
             border: `1px solid ${C.border}`,
             padding: "10px 12px",

@@ -1,4 +1,5 @@
 import { getLand, enrichLand } from "@/lib/landService";
+import { getInterpolatedPosition, getTrail } from "@/lib/trailService";
 import { useEffect, useRef } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { type ThemeColors } from "@/config/theme";
@@ -14,8 +15,13 @@ interface GlobeVisualizationProps {
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
   readonly selected: DataPoint | null;
+  readonly isolatedId: string | null;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onSelect: (item: DataPoint | null) => void;
   readonly onRawCanvasClick?: () => void;
+  readonly onMiddleClick?: () => void;
+  readonly zoomToId?: string | null;
+  readonly searchMatchIds?: Set<string> | null;
 }
 
 interface Projected {
@@ -408,9 +414,12 @@ function drawPoints(
   layers: Record<string, boolean>,
   aircraftFilter: AircraftFilter,
   selected: DataPoint | null,
+  isolatedId: string | null,
+  isolateMode: null | "solo" | "focus",
   projFn: ProjFn,
   t: number,
   colors: ThemeColors,
+  searchMatchIds: Set<string> | null | undefined,
 ) {
   const colorMap: Record<string, string> = {
     ships: colors.ships,
@@ -419,17 +428,112 @@ function drawPoints(
     quakes: colors.quakes,
   };
 
+  const isolatedItem = isolatedId
+    ? data.find((d) => d.id === isolatedId)
+    : null;
+  const isolatedType = isolatedItem?.type ?? null;
+
   const pts: Array<Projected & { item: DataPoint }> = [];
   data.forEach((item) => {
+    // Search filter: when active, only show matching items
+    if (searchMatchIds && !searchMatchIds.has(item.id)) return;
+
+    if (isolateMode === "solo") {
+      // Solo: only this one point, everything else gone
+      if (item.id !== isolatedId) return;
+    } else if (isolateMode === "focus") {
+      // Focus: only this layer type, other layers hidden
+      if (isolatedType && item.type !== isolatedType) return;
+      // Within the focused layer, still apply normal filters
+    }
+
     if (item.type === "aircraft") {
       if (!matchesAircraftFilter(item, aircraftFilter)) return;
     } else {
       if (layers[item.type] === false) return;
     }
-    const p = projFn(item.lat, item.lon);
+
+    // Use interpolated position for moving items (aircraft, ships)
+    let lat = item.lat;
+    let lon = item.lon;
+    if (item.type === "aircraft" || item.type === "ships") {
+      const interp = getInterpolatedPosition(item.id);
+      if (interp) {
+        lat = interp.lat;
+        lon = interp.lon;
+      }
+    }
+
+    const p = projFn(lat, lon);
     if (p.z > 0) pts.push({ ...p, item });
   });
   pts.sort((a, b) => a.z - b.z);
+
+  // ── Draw trail for selected item (behind points) ─────────────────
+  if (selected) {
+    const trail = getTrail(selected.id);
+    if (trail.length >= 1) {
+      const trailCoords = trail.map((tp) => ({ lat: tp.lat, lon: tp.lon }));
+      const interp = getInterpolatedPosition(selected.id);
+      if (interp) {
+        trailCoords.push(interp);
+      }
+
+      if (trailCoords.length >= 2) {
+        const projectedTrail = trailCoords
+          .map((tp) => projFn(tp.lat, tp.lon))
+          .filter((p) => p.z > 0);
+
+        if (projectedTrail.length >= 2) {
+          ctx.save();
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+
+          // Glow pass
+          ctx.lineWidth = 6;
+          for (let i = 1; i < projectedTrail.length; i++) {
+            const prev = projectedTrail[i - 1]!;
+            const curr = projectedTrail[i]!;
+            const age = i / projectedTrail.length;
+            ctx.globalAlpha = 0.05 + age * 0.15;
+            ctx.strokeStyle = colors.accent;
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(curr.x, curr.y);
+            ctx.stroke();
+          }
+
+          // Main line
+          ctx.lineWidth = 2.5;
+          for (let i = 1; i < projectedTrail.length; i++) {
+            const prev = projectedTrail[i - 1]!;
+            const curr = projectedTrail[i]!;
+            const age = i / projectedTrail.length;
+            ctx.globalAlpha = 0.3 + age * 0.7;
+            ctx.strokeStyle = colors.accent;
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(curr.x, curr.y);
+            ctx.stroke();
+          }
+
+          // Dots at each recorded waypoint
+          for (let i = 0; i < projectedTrail.length - 1; i++) {
+            const p = projectedTrail[i]!;
+            const age = i / projectedTrail.length;
+            ctx.globalAlpha = 0.4 + age * 0.6;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
 
   pts.forEach(({ x, y, z, item }) => {
     const color = colorMap[item.type] ?? colors.accent;
@@ -511,8 +615,13 @@ export function GlobeVisualization({
   layers,
   aircraftFilter,
   selected,
+  isolatedId,
+  isolateMode,
   onSelect,
   onRawCanvasClick,
+  onMiddleClick,
+  zoomToId,
+  searchMatchIds,
 }: Readonly<GlobeVisualizationProps>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef({
@@ -524,6 +633,23 @@ export function GlobeVisualization({
     panX: 0,
     panY: 0,
   });
+  const camTargetRef = useRef<{
+    rotY: number;
+    rotX: number;
+    zoom: number;
+    panX: number;
+    panY: number;
+    active: boolean;
+    lockedId: string | null;
+  }>({
+    rotY: 0,
+    rotX: 0,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    active: false,
+    lockedId: null,
+  });
   const dragRef = useRef({
     active: false,
     interactive: false,
@@ -534,6 +660,8 @@ export function GlobeVisualization({
     sy: 0,
     pinching: false,
     pinchDist: 0,
+    lastClickTime: 0,
+    lastClickId: null as string | null,
   });
   const sizeRef = useRef({ w: 800, h: 600 });
   const propsRef = useRef({
@@ -544,8 +672,13 @@ export function GlobeVisualization({
     autoRotate,
     rotationSpeed,
     selected,
+    isolatedId,
+    isolateMode,
     onSelect,
     onRawCanvasClick,
+    onMiddleClick,
+    zoomToId,
+    searchMatchIds,
   });
   propsRef.current = {
     data,
@@ -555,13 +688,54 @@ export function GlobeVisualization({
     autoRotate,
     rotationSpeed,
     selected,
+    isolatedId,
+    isolateMode,
     onSelect,
     onRawCanvasClick,
+    onMiddleClick,
+    zoomToId,
+    searchMatchIds,
   };
 
   const { theme } = useTheme();
   const colorsRef = useRef(theme.colors);
   colorsRef.current = theme.colors;
+
+  // ── External zoom-to trigger (from search) ──────────────────────────
+  const lastZoomToIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!zoomToId || zoomToId === lastZoomToIdRef.current) return;
+    lastZoomToIdRef.current = zoomToId;
+
+    const item = data.find((d) => d.id === zoomToId);
+    if (!item) return;
+
+    const camTarget = camTargetRef.current;
+    const cam = camRef.current;
+    const isFlat = flat;
+
+    const interp = getInterpolatedPosition(item.id);
+    const tLat = interp ? interp.lat : item.lat;
+    const tLon = interp ? interp.lon : item.lon;
+
+    if (isFlat) {
+      const { w: fw, h: fh } = sizeRef.current;
+      const targetZoom = Math.max(cam.zoomFlat, 20);
+      const mW = fw * 0.92 * targetZoom;
+      const mH = fh * 0.84 * targetZoom;
+      camTarget.panX = -(tLon / 180) * (mW / 2);
+      camTarget.panY = (tLat / 90) * (mH / 2);
+      camTarget.zoom = targetZoom;
+    } else {
+      const phi = ((90 - tLat) * Math.PI) / 180;
+      const theta = ((tLon + 180) * Math.PI) / 180;
+      camTarget.rotY = Math.PI / 2 - theta;
+      camTarget.rotX = -(phi - Math.PI / 2);
+      camTarget.zoom = Math.max(cam.zoomGlobe, 15);
+    }
+    camTarget.active = true;
+    camTarget.lockedId = zoomToId;
+  }, [zoomToId, data, flat]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -588,11 +762,80 @@ export function GlobeVisualization({
         autoRotate: shouldRotate,
         rotationSpeed: rotSpeed,
         selected: sel,
+        isolatedId: iso,
+        isolateMode: isoMode,
+        searchMatchIds: sMatch,
       } = propsRef.current;
       const C = colorsRef.current;
       const t = Date.now() * 0.003;
 
-      if (!isFlat && !drag.active && shouldRotate) cam.rotY += 0.002 * rotSpeed;
+      // ── Camera animation (zoom-to-target / lock-on) ─────────────────
+      const camTarget = camTargetRef.current;
+
+      // If locked onto a selected item, update target to follow it
+      if (camTarget.lockedId && sel && sel.id === camTarget.lockedId) {
+        const interp = getInterpolatedPosition(sel.id);
+        const tLat = interp ? interp.lat : sel.lat;
+        const tLon = interp ? interp.lon : sel.lon;
+
+        if (isFlat) {
+          const { w: fw, h: fh } = sizeRef.current;
+          const mW = fw * 0.92 * cam.zoomFlat;
+          const mH = fh * 0.84 * cam.zoomFlat;
+          camTarget.panX = -(tLon / 180) * (mW / 2);
+          camTarget.panY = (tLat / 90) * (mH / 2);
+          camTarget.active = true;
+        } else {
+          const phi = ((90 - tLat) * Math.PI) / 180;
+          const theta = ((tLon + 180) * Math.PI) / 180;
+          camTarget.rotY = Math.PI / 2 - theta;
+          camTarget.rotX = -(phi - Math.PI / 2);
+          camTarget.active = true;
+        }
+      }
+
+      // Clear lock if selection changed
+      if (camTarget.lockedId && (!sel || sel.id !== camTarget.lockedId)) {
+        camTarget.lockedId = null;
+        camTarget.active = false;
+      }
+
+      // Lerp camera toward target
+      if (camTarget.active) {
+        const lerpSpeed = 0.08;
+        if (isFlat) {
+          cam.panX += (camTarget.panX - cam.panX) * lerpSpeed;
+          cam.panY += (camTarget.panY - cam.panY) * lerpSpeed;
+          cam.zoomFlat += (camTarget.zoom - cam.zoomFlat) * lerpSpeed;
+          const { w: cw, h: ch } = sizeRef.current;
+          clampFlatPan(cam, cw, ch);
+        } else {
+          cam.rotY += (camTarget.rotY - cam.rotY) * lerpSpeed;
+          cam.rotX += (camTarget.rotX - cam.rotX) * lerpSpeed;
+          cam.zoomGlobe += (camTarget.zoom - cam.zoomGlobe) * lerpSpeed;
+          cam.vy = 0;
+        }
+
+        // Stop animating once close enough (unless locked on)
+        if (!camTarget.lockedId) {
+          const dZoom = Math.abs(
+            isFlat
+              ? cam.zoomFlat - camTarget.zoom
+              : cam.zoomGlobe - camTarget.zoom,
+          );
+          const dRot = isFlat
+            ? Math.abs(cam.panX - camTarget.panX) +
+              Math.abs(cam.panY - camTarget.panY)
+            : Math.abs(cam.rotY - camTarget.rotY) +
+              Math.abs(cam.rotX - camTarget.rotX);
+          if (dZoom < 0.01 && dRot < 0.001) {
+            camTarget.active = false;
+          }
+        }
+      }
+
+      if (!isFlat && !drag.active && shouldRotate && !camTarget.active)
+        cam.rotY += 0.002 * rotSpeed;
       cam.rotY += cam.vy;
       cam.vy *= 0.95;
 
@@ -644,7 +887,7 @@ export function GlobeVisualization({
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        drawPoints(ctx, d, ly, af, sel, proj, t, C);
+        drawPoints(ctx, d, ly, af, sel, iso, isoMode, proj, t, C, sMatch);
       } else {
         const {
           mW,
@@ -676,7 +919,7 @@ export function GlobeVisualization({
           my,
           accentColor: C.accent,
         });
-        drawPoints(ctx, d, ly, af, sel, proj, t, C);
+        drawPoints(ctx, d, ly, af, sel, iso, isoMode, proj, t, C, sMatch);
 
         ctx.restore();
 
@@ -723,11 +966,17 @@ export function GlobeVisualization({
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = par.clientWidth,
         h = par.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (w === 0 || h === 0) return;
+      const cw = Math.round(w * dpr);
+      const ch = Math.round(h * dpr);
+      // Only reassign if dimensions actually changed — assignment clears the buffer
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+        canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
       sizeRef.current = { w, h };
     };
     resize();
@@ -747,7 +996,14 @@ export function GlobeVisualization({
     const drag = dragRef.current;
 
     const onDown = (e: MouseEvent | TouchEvent) => {
-      // Only handle left mouse button (0) or touch — ignore right-click/middle-click
+      // Middle mouse button (1) — toggle auto-rotate
+      if ("button" in e && e.button === 1) {
+        e.preventDefault();
+        const props = propsRef.current;
+        props.onMiddleClick?.();
+        return;
+      }
+      // Only handle left mouse button (0) or touch — ignore right-click
       if ("button" in e && e.button !== 0) return;
 
       // Detect pinch start
@@ -805,14 +1061,14 @@ export function GlobeVisualization({
           if (propsRef.current.flat) {
             cam.zoomFlat = Math.max(
               0.85,
-              Math.min(18.0, cam.zoomFlat * factor),
+              Math.min(80.0, cam.zoomFlat * factor),
             );
             const { w: W, h: H } = sizeRef.current;
             clampFlatPan(cam, W, H);
           } else {
             cam.zoomGlobe = Math.max(
               0.55,
-              Math.min(10.0, cam.zoomGlobe * factor),
+              Math.min(50.0, cam.zoomGlobe * factor),
             );
           }
         }
@@ -828,6 +1084,13 @@ export function GlobeVisualization({
       const dx = p.clientX - drag.lx,
         dy = p.clientY - drag.ly;
       drag.dist += Math.abs(dx) + Math.abs(dy);
+
+      // Dragging breaks lock-on
+      if (drag.dist > 6) {
+        camTargetRef.current.lockedId = null;
+        camTargetRef.current.active = false;
+      }
+
       if (!propsRef.current.flat) {
         const zf = cam.zoomGlobe || 1;
         cam.rotY += (dx * 0.005) / zf;
@@ -873,12 +1136,24 @@ export function GlobeVisualization({
           flat: isFlat,
           onSelect: sel,
         } = propsRef.current;
-        let closest: DataPoint | null = null,
-          cd = 10;
+        let closest: DataPoint | null = null;
+        let cd = 14;
         d.forEach((item) => {
           if (item.type === "aircraft") {
             if (!matchesAircraftFilter(item, af)) return;
           } else if (!ly[item.type]) return;
+
+          // Use interpolated position for moving items
+          let lat = item.lat;
+          let lon = item.lon;
+          if (item.type === "aircraft" || item.type === "ships") {
+            const interp = getInterpolatedPosition(item.id);
+            if (interp) {
+              lat = interp.lat;
+              lon = interp.lon;
+            }
+          }
+
           const flatMetrics = getFlatMetrics(
             W,
             H,
@@ -888,16 +1163,16 @@ export function GlobeVisualization({
           );
           const p = isFlat
             ? projFlat(
-                item.lat,
-                item.lon,
+                lat,
+                lon,
                 flatMetrics.cx,
                 flatMetrics.cy,
                 flatMetrics.mW,
                 flatMetrics.mH,
               )
             : projGlobe(
-                item.lat,
-                item.lon,
+                lat,
+                lon,
                 cxc,
                 cyc,
                 Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
@@ -912,7 +1187,50 @@ export function GlobeVisualization({
           }
         });
         if (closest) {
-          sel(closest);
+          const hit: DataPoint = closest;
+          const now = Date.now();
+          const isDoubleClick =
+            // @ts-ignore
+            now - drag.lastClickTime < 400 && drag.lastClickId === hit.id;
+
+          sel(hit);
+
+          if (isDoubleClick) {
+            const camTarget = camTargetRef.current;
+            const isFlat = propsRef.current.flat;
+            // @ts-ignore
+            const interp = getInterpolatedPosition(hit.id);
+            // @ts-ignore
+            const tLat = interp ? interp.lat : hit.lat;
+            // @ts-ignore
+            const tLon = interp ? interp.lon : hit.lon;
+
+            if (isFlat) {
+              const { w: fw, h: fh } = sizeRef.current;
+              const targetZoom = Math.max(camRef.current.zoomFlat, 20);
+              const mW = fw * 0.92 * targetZoom;
+              const mH = fh * 0.84 * targetZoom;
+              camTarget.panX = -(tLon / 180) * (mW / 2);
+              camTarget.panY = (tLat / 90) * (mH / 2);
+              camTarget.zoom = targetZoom;
+            } else {
+              const phi = ((90 - tLat) * Math.PI) / 180;
+              const theta = ((tLon + 180) * Math.PI) / 180;
+              camTarget.rotY = Math.PI / 2 - theta;
+              camTarget.rotX = -(phi - Math.PI / 2);
+              camTarget.zoom = Math.max(camRef.current.zoomGlobe, 15);
+            }
+            camTarget.active = true;
+            // @ts-ignore
+            camTarget.lockedId = hit.id;
+          }
+
+          drag.lastClickTime = now;
+          // @ts-ignore
+          drag.lastClickId = hit.id;
+        } else {
+          drag.lastClickTime = 0;
+          drag.lastClickId = null;
         }
       }
       drag.active = false;
@@ -958,6 +1276,17 @@ export function GlobeVisualization({
         if (item.type === "aircraft") {
           if (!matchesAircraftFilter(item, af)) return;
         } else if (!ly[item.type]) return;
+
+        let lat = item.lat;
+        let lon = item.lon;
+        if (item.type === "aircraft" || item.type === "ships") {
+          const interp = getInterpolatedPosition(item.id);
+          if (interp) {
+            lat = interp.lat;
+            lon = interp.lon;
+          }
+        }
+
         const flatMetrics = getFlatMetrics(
           W,
           H,
@@ -967,16 +1296,16 @@ export function GlobeVisualization({
         );
         const p = isFlat
           ? projFlat(
-              item.lat,
-              item.lon,
+              lat,
+              lon,
               flatMetrics.cx,
               flatMetrics.cy,
               flatMetrics.mW,
               flatMetrics.mH,
             )
           : projGlobe(
-              item.lat,
-              item.lon,
+              lat,
+              lon,
               W / 2,
               H / 2,
               Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
@@ -984,7 +1313,7 @@ export function GlobeVisualization({
               camRef.current.rotX,
             );
         if (p.z <= 0) return;
-        if (Math.hypot(p.x - mx, p.y - my) < 12) hit = true;
+        if (Math.hypot(p.x - mx, p.y - my) < 14) hit = true;
       });
       canvas.style.cursor = hit ? "pointer" : "grab";
     };
@@ -995,24 +1324,38 @@ export function GlobeVisualization({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const camState = camRef.current;
+      const camTarget = camTargetRef.current;
       const factor = Math.exp(-e.deltaY * 0.0015);
-      if (propsRef.current.flat) {
+
+      if (camTarget.lockedId) {
+        // Locked on: zoom the target, let the lerp keep it centered
+        if (propsRef.current.flat) {
+          camTarget.zoom = Math.max(
+            0.85,
+            Math.min(80.0, camTarget.zoom * factor),
+          );
+        } else {
+          camTarget.zoom = Math.max(
+            0.55,
+            Math.min(50.0, camTarget.zoom * factor),
+          );
+        }
+        camTarget.active = true;
+      } else if (propsRef.current.flat) {
         const { w: W, h: H } = sizeRef.current;
         const rect = canvas.getBoundingClientRect();
-        // Mouse position relative to canvas center
         const mx = e.clientX - rect.left - W / 2;
         const my = e.clientY - rect.top - H / 2;
         const oldZoom = camState.zoomFlat;
-        camState.zoomFlat = Math.max(0.85, Math.min(18.0, oldZoom * factor));
+        camState.zoomFlat = Math.max(0.85, Math.min(80.0, oldZoom * factor));
         const actualFactor = camState.zoomFlat / oldZoom;
-        // Shift pan so the point under the cursor stays fixed
         camState.panX = mx - actualFactor * (mx - camState.panX);
         camState.panY = my - actualFactor * (my - camState.panY);
         clampFlatPan(camState, W, H);
       } else {
         camState.zoomGlobe = Math.max(
           0.55,
-          Math.min(10.0, camState.zoomGlobe * factor),
+          Math.min(50.0, camState.zoomGlobe * factor),
         );
       }
     };
@@ -1031,6 +1374,60 @@ export function GlobeVisualization({
       canvas.style.cursor = "default";
     };
     canvas.addEventListener("contextmenu", onContextMenu);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Don't capture keys if user is typing in an input
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const cam = camRef.current;
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          propsRef.current.onMiddleClick?.();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          cam.rotY -= 0.05;
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          cam.rotY += 0.05;
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          cam.rotX = Math.max(-1.2, cam.rotX - 0.05);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          cam.rotX = Math.min(1.2, cam.rotX + 0.05);
+          break;
+        case "Equal":
+        case "NumpadAdd":
+          e.preventDefault();
+          if (propsRef.current.flat) {
+            cam.zoomFlat = Math.min(80.0, cam.zoomFlat * 1.1);
+            const { w: W, h: H } = sizeRef.current;
+            clampFlatPan(cam, W, H);
+          } else {
+            cam.zoomGlobe = Math.min(50.0, cam.zoomGlobe * 1.1);
+          }
+          break;
+        case "Minus":
+        case "NumpadSubtract":
+          e.preventDefault();
+          if (propsRef.current.flat) {
+            cam.zoomFlat = Math.max(0.85, cam.zoomFlat / 1.1);
+            const { w: W, h: H } = sizeRef.current;
+            clampFlatPan(cam, W, H);
+          } else {
+            cam.zoomGlobe = Math.max(0.55, cam.zoomGlobe / 1.1);
+          }
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+
     return () => {
       canvas.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
@@ -1041,6 +1438,7 @@ export function GlobeVisualization({
       canvas.removeEventListener("touchmove", onTouchMove);
       canvas.removeEventListener("touchend", onUp);
       canvas.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, []);
 

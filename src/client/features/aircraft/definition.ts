@@ -8,20 +8,39 @@ import { AircraftTickerContent } from "./AircraftTickerContent";
 import { AircraftFilterControl } from "./AircraftFilterControl";
 import { DEFAULT_AIRCRAFT_FILTER } from "./filterUrl";
 
-export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> = {
-  id: "aircraft",
-  label: "AIRCRAFT",
-  icon: Plane,
+export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> =
+  {
+    id: "aircraft",
+    label: "AIRCRAFT",
+    icon: Plane,
 
-  matchesFilter: (item: BasePoint & { data: AircraftData }, filter: AircraftFilter) =>
-    matchesAircraftFilter(item, filter),
+    matchesFilter: (
+      item: BasePoint & { data: AircraftData },
+      filter: AircraftFilter,
+    ) => matchesAircraftFilter(item, filter),
 
-  defaultFilter: DEFAULT_AIRCRAFT_FILTER,
+    defaultFilter: DEFAULT_AIRCRAFT_FILTER,
 
-  buildDetailRows: (data: AircraftData, _timestamp?: string) =>
-    buildAircraftDetailRows(data),
+    buildDetailRows: (data: AircraftData, _timestamp?: string) =>
+      buildAircraftDetailRows(data),
 
-  TickerContent: AircraftTickerContent,
+    TickerContent: AircraftTickerContent,
 
-  FilterControl: AircraftFilterControl,
-};
+    FilterControl: AircraftFilterControl,
+
+    getSearchText: (data: AircraftData) =>
+      [
+        data.callsign,
+        data.icao24,
+        data.acType,
+        data.registration,
+        data.operator,
+        data.manufacturerName,
+        data.model,
+        data.categoryDescription,
+        data.originCountry,
+        data.squawk,
+      ]
+        .filter(Boolean)
+        .join(" "),
+  };

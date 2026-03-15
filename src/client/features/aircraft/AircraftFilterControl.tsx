@@ -90,7 +90,7 @@ export function AircraftFilterControl({
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 rounded z-50"
+          className="absolute right-0 top-full mt-1 rounded z-[60]"
           style={{
             background: colors.panel,
             border: `1px solid ${colors.border}`,

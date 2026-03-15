@@ -1,3 +1,5 @@
+import { useRef, useState, useCallback } from "react";
+import { Eye, EyeOff, Crosshair, GripHorizontal } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -12,13 +14,77 @@ function getRows(item: DataPoint): [string, string][] {
 
 export type DetailPanelProps = {
   readonly item: DataPoint | null;
+  readonly isolateMode: null | "solo" | "focus";
+  readonly onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   readonly onClose: () => void;
 };
 
-export function DetailPanel({ item, onClose }: DetailPanelProps) {
+function useDrag() {
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [dragged, setDragged] = useState(false);
+  const dragState = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    origX: 0,
+    origY: 0,
+  });
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragState.current = {
+        active: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: pos.x,
+        origY: pos.y,
+      };
+    },
+    [pos],
+  );
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current.active) return;
+    const dx = e.clientX - dragState.current.startX;
+    const dy = e.clientY - dragState.current.startY;
+    setPos({
+      x: dragState.current.origX + dx,
+      y: dragState.current.origY + dy,
+    });
+    setDragged(true);
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragState.current.active = false;
+  }, []);
+
+  const reset = useCallback(() => {
+    setPos({ x: 0, y: 0 });
+    setDragged(false);
+  }, []);
+
+  return { pos, dragged, onPointerDown, onPointerMove, onPointerUp, reset };
+}
+
+export function DetailPanel({
+  item,
+  isolateMode,
+  onSetIsolateMode,
+  onClose,
+}: DetailPanelProps) {
   const { theme } = useTheme();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
+  const drag = useDrag();
+
+  // Reset drag position when selecting a new item
+  const lastItemId = useRef<string | null>(null);
+  if (item?.id !== lastItemId.current) {
+    lastItemId.current = item?.id ?? null;
+    if (drag.dragged) drag.reset();
+  }
 
   if (!item) return null;
 
@@ -29,11 +95,25 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
   const color = colorMap[item.type];
   const rows = getRows(item);
 
+  const content = (
+    <PanelContent
+      Icon={Icon}
+      color={color}
+      feature={feature}
+      item={item}
+      rows={rows}
+      C={C}
+      isolateMode={isolateMode}
+      onSetIsolateMode={onSetIsolateMode}
+      onClose={onClose}
+    />
+  );
+
   return (
     <>
       {/* Mobile: bottom sheet */}
       <div
-        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-30 md:hidden max-h-[60vh] overflow-y-auto"
+        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[60vh] overflow-y-auto"
         style={{
           background: `${C.panel}f5`,
           border: `1px solid ${C.border}`,
@@ -42,38 +122,72 @@ export function DetailPanel({ item, onClose }: DetailPanelProps) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <PanelContent
-          Icon={Icon}
-          color={color}
-          feature={feature}
-          item={item}
-          rows={rows}
-          C={C}
-          onClose={onClose}
-        />
+        {content}
       </div>
 
-      {/* Desktop: floating card */}
+      {/* Desktop: draggable floating card */}
       <div
-        className="hidden md:block absolute right-3.5 top-3.5 w-64 rounded-md backdrop-blur-sm z-30"
+        className="hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40"
         style={{
+          top: 14,
+          right: 14,
+          transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)`,
           background: `${C.panel}f0`,
           border: `1px solid ${C.border}`,
           padding: 14,
         }}
         onClick={(e) => e.stopPropagation()}
+        onPointerMove={drag.onPointerMove}
+        onPointerUp={drag.onPointerUp}
       >
-        <PanelContent
-          Icon={Icon}
-          color={color}
-          feature={feature}
-          item={item}
-          rows={rows}
-          C={C}
-          onClose={onClose}
-        />
+        {/* Drag handle */}
+        <div
+          className="flex justify-center mb-1 cursor-grab active:cursor-grabbing"
+          style={{ color: C.dim, marginTop: -4 }}
+          onPointerDown={drag.onPointerDown}
+        >
+          <GripHorizontal size={14} />
+        </div>
+        {content}
       </div>
     </>
+  );
+}
+
+function ModeButton({
+  active,
+  label,
+  icon: ButtonIcon,
+  accentColor,
+  dimColor,
+  brightColor,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  icon: any;
+  accentColor: string;
+  dimColor: string;
+  brightColor: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-all"
+      style={{
+        ...mono(active ? accentColor : dimColor, "10px"),
+        background: active ? `${accentColor}20` : "transparent",
+        border: `1px solid ${active ? accentColor : `${brightColor}30`}`,
+        cursor: "pointer",
+        letterSpacing: 1,
+        fontFamily: "inherit",
+      }}
+    >
+      <ButtonIcon size={11} />
+      {label}
+    </button>
   );
 }
 
@@ -84,6 +198,8 @@ function PanelContent({
   item,
   rows,
   C,
+  isolateMode,
+  onSetIsolateMode,
   onClose,
 }: {
   Icon: any;
@@ -92,6 +208,8 @@ function PanelContent({
   item: DataPoint;
   rows: [string, string][];
   C: any;
+  isolateMode: null | "solo" | "focus";
+  onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   onClose: () => void;
 }) {
   return (
@@ -113,13 +231,37 @@ function PanelContent({
             {feature.label}
           </span>
         </div>
-        <span
-          onClick={onClose}
-          className="cursor-pointer text-[15px] leading-none select-none"
-          style={{ color: C.dim }}
-        >
-          ✕
-        </span>
+        <div className="flex items-center gap-1">
+          <ModeButton
+            active={isolateMode === "focus"}
+            label="FOCUS"
+            icon={Eye}
+            accentColor={C.accent}
+            dimColor={C.dim}
+            brightColor={C.bright}
+            onClick={() =>
+              onSetIsolateMode(isolateMode === "focus" ? null : "focus")
+            }
+          />
+          <ModeButton
+            active={isolateMode === "solo"}
+            label="SOLO"
+            icon={Crosshair}
+            accentColor={C.danger}
+            dimColor={C.dim}
+            brightColor={C.bright}
+            onClick={() =>
+              onSetIsolateMode(isolateMode === "solo" ? null : "solo")
+            }
+          />
+          <span
+            onClick={onClose}
+            className="cursor-pointer text-[15px] leading-none select-none ml-1"
+            style={{ color: C.dim }}
+          >
+            ✕
+          </span>
+        </div>
       </div>
 
       {/* Rows */}
