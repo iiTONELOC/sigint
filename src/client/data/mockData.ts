@@ -141,38 +141,7 @@ export function generateMockNonAircraft(): DataPoint[] {
     };
   });
 
-  const quakes: DataPoint[] = Array.from({ length: 22 }, (_, i) => {
-    let lat = rnd(-55, 65),
-      lon = rnd(-170, 170);
-    if (i < 5) {
-      lat = rnd(32, 40);
-      lon = rnd(130, 145);
-    } else if (i < 9) {
-      lat = rnd(-20, -5);
-      lon = rnd(-78, -70);
-    } else if (i < 12) {
-      lat = rnd(35, 42);
-      lon = rnd(26, 36);
-    } else if (i < 15) {
-      lat = rnd(58, 64);
-      lon = rnd(-155, -145);
-    }
-
-    return {
-      id: `Q${i}`,
-      type: "quakes",
-      lat,
-      lon,
-      timestamp: new Date(Date.now() - rnd(0, 7200000)).toISOString(),
-      data: {
-        magnitude: rnd(1.2, 7.1),
-        depth: Math.floor(rnd(5, 300)),
-        location: `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`,
-      },
-    };
-  });
-
-  return [...ships, ...quakes, ...events];
+  return [...ships, ...events];
 }
 
 export function generateMockData(): DataPoint[] {

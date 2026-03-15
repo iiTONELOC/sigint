@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureList } from "@/features/registry";
-import type { AircraftFilter } from "@/features/aircraft/types";
-import { AircraftFilterControl } from "@/features/aircraft";
+import type { AircraftFilter } from "@/features/tracking/aircraft/types";
+import { AircraftFilterControl } from "@/features/tracking/aircraft";
 
 type HeaderProps = {
   readonly layers: Record<string, boolean>;

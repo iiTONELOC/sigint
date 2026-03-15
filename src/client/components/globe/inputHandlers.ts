@@ -1,5 +1,5 @@
 import { getInterpolatedPosition, type TrailPoint } from "@/lib/trailService";
-import { matchesAircraftFilter } from "@/features/aircraft";
+import { matchesAircraftFilter } from "@/features/tracking/aircraft";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type {
   CamState,

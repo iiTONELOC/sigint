@@ -1,5 +1,6 @@
 import type { BasePoint } from "./types";
-import type { AircraftData } from "@/features/aircraft/types";
+import type { AircraftData } from "@/features/tracking/aircraft/types";
+import type { EarthquakeData } from "@/features/environmental/earthquake/types";
 
 // ── Per-feature data shapes ──────────────────────────────────────────
 // These live here until they graduate to their own feature folders.
@@ -19,18 +20,12 @@ export type EventData = {
   severity?: number;
 };
 
-export type QuakeData = {
-  magnitude?: number;
-  depth?: number;
-  location?: string;
-};
-
 // ── DataPoint union ──────────────────────────────────────────────────
 
 export type DataPoint =
   | (BasePoint & { type: "ships"; data: ShipData })
   | (BasePoint & { type: "aircraft"; data: AircraftData })
   | (BasePoint & { type: "events"; data: EventData })
-  | (BasePoint & { type: "quakes"; data: QuakeData });
+  | (BasePoint & { type: "quakes"; data: EarthquakeData });
 
 export type DataType = DataPoint["type"];

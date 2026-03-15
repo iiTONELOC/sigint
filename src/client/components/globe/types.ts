@@ -1,5 +1,5 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { AircraftFilter } from "@/features/aircraft";
+import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { TrailPoint } from "@/lib/trailService";
 
 export type Projected = {

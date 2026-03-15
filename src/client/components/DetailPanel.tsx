@@ -1,9 +1,13 @@
 import { useRef, useState, useCallback } from "react";
-import { Eye, Crosshair, GripHorizontal } from "lucide-react";
+import { Eye, Crosshair, GripHorizontal, ExternalLink } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
+
+function isUrl(value: string): boolean {
+  return value.startsWith("https://") || value.startsWith("http://");
+}
 
 function getRows(item: DataPoint): [string, string][] {
   const feature = featureRegistry.get(item.type);
@@ -195,6 +199,9 @@ function PanelContent({
   onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   onClose: () => void;
 }) {
+  const dataRows = rows.filter(([, v]) => !isUrl(v));
+  const linkRows = rows.filter(([, v]) => isUrl(v));
+
   return (
     <>
       {/* Header */}
@@ -242,9 +249,9 @@ function PanelContent({
         </div>
       </div>
 
-      {/* Rows */}
+      {/* Data rows */}
       <div className="pt-2.5 border-t border-sig-border">
-        {rows.map(([k, v]) => (
+        {dataRows.map(([k, v]) => (
           <div key={k} className="flex justify-between mb-1.5">
             <span className="uppercase tracking-wide text-sig-dim text-(length:--sig-text-sm)">
               {k}
@@ -261,6 +268,24 @@ function PanelContent({
         {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>
+
+      {/* Intel links */}
+      {linkRows.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
+          {linkRows.map(([label, url]) => (
+            <a
+              key={label}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+            >
+              {label}
+              <ExternalLink size={9} />
+            </a>
+          ))}
+        </div>
+      )}
     </>
   );
 }

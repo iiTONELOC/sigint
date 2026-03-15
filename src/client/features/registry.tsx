@@ -1,11 +1,12 @@
-import { Anchor, Zap, Activity } from "lucide-react";
+import { Anchor, Zap } from "lucide-react";
 import type {
   FeatureDefinition,
   TickerRendererProps,
   BasePoint,
 } from "./base/types";
-import type { ShipData, EventData, QuakeData } from "./base/dataPoints";
-import { aircraftFeature } from "./aircraft";
+import type { ShipData, EventData } from "./base/dataPoints";
+import { aircraftFeature } from "./tracking/aircraft";
+import { earthquakeFeature } from "./environmental/earthquake";
 
 // ── Default ticker content for simple features ───────────────────────
 
@@ -23,15 +24,6 @@ function EventTickerContent({ data }: Readonly<TickerRendererProps>) {
   return (
     <div className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap text-sig-text text-[length:var(--sig-text-lg)]">
       {d.headline ?? ""}
-    </div>
-  );
-}
-
-function QuakeTickerContent({ data }: Readonly<TickerRendererProps>) {
-  const d = data as QuakeData;
-  return (
-    <div className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap text-sig-text text-[length:var(--sig-text-lg)]">
-      M{d.magnitude} {"\u2014"} {d.location}
     </div>
   );
 }
@@ -65,18 +57,6 @@ function buildEventDetailRows(
   ];
 }
 
-function buildQuakeDetailRows(
-  data: QuakeData,
-  timestamp?: string,
-): [string, string][] {
-  return [
-    ["Magnitude", `M${data.magnitude}`],
-    ["Depth", `${data.depth} km`],
-    ["Location", data.location || ""],
-    ["Time", timestamp ? new Date(timestamp).toLocaleTimeString() : ""],
-  ];
-}
-
 // ── Simple feature definitions ───────────────────────────────────────
 
 const shipsFeature: FeatureDefinition<ShipData, boolean> = {
@@ -103,27 +83,13 @@ const eventsFeature: FeatureDefinition<EventData, boolean> = {
     [data.headline, data.category, data.source].filter(Boolean).join(" "),
 };
 
-const quakesFeature: FeatureDefinition<QuakeData, boolean> = {
-  id: "quakes",
-  label: "SEISMIC",
-  icon: Activity,
-  matchesFilter: (_item, enabled) => enabled,
-  defaultFilter: true,
-  buildDetailRows: (data, ts) => buildQuakeDetailRows(data, ts),
-  TickerContent: QuakeTickerContent,
-  getSearchText: (data) =>
-    [data.location, data.magnitude != null ? `M${data.magnitude}` : ""]
-      .filter(Boolean)
-      .join(" "),
-};
-
 // ── Registry ─────────────────────────────────────────────────────────
 
 const features: FeatureDefinition<any, any>[] = [
   aircraftFeature,
   shipsFeature,
   eventsFeature,
-  quakesFeature,
+  earthquakeFeature,
 ];
 
 export const featureRegistry = new Map<string, FeatureDefinition<any, any>>(
