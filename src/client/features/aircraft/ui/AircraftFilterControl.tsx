@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Plane } from "lucide-react";
-import { type AircraftFilter } from "./types";
+import { type AircraftFilter } from "../types";
 
 type FilterThemeColors = {
   panel: string;

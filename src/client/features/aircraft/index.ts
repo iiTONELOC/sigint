@@ -1,14 +1,14 @@
 // Public API — everything outside this folder imports from here
 export { aircraftFeature } from "./definition";
-export { useAircraftData } from "./useAircraftData";
-export type { AircraftDataSource } from "./useAircraftData";
-export { matchesAircraftFilter } from "./utils";
+export { useAircraftData } from "./hooks/useAircraftData";
+export type { AircraftDataSource } from "./hooks/useAircraftData";
+export { matchesAircraftFilter } from "./lib/utils";
 export {
   getInitialAircraftFilter,
   syncAircraftFilterToUrl,
   DEFAULT_AIRCRAFT_FILTER,
-} from "./filterUrl";
-export { AircraftFilterControl } from "./AircraftFilterControl";
+} from "./lib/filterUrl";
+export { AircraftFilterControl } from "./ui/AircraftFilterControl";
 
 // Re-export types
 export type { AircraftData, AircraftFilter, SquawkStatus } from "./types";

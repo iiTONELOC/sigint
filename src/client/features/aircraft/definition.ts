@@ -2,11 +2,11 @@ import { Plane } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { AircraftData, AircraftFilter } from "./types";
 import type { BasePoint } from "@/features/base/types";
-import { matchesAircraftFilter } from "./utils";
+import { matchesAircraftFilter } from "./lib/utils";
 import { buildAircraftDetailRows } from "./detailRows";
-import { AircraftTickerContent } from "./AircraftTickerContent";
-import { AircraftFilterControl } from "./AircraftFilterControl";
-import { DEFAULT_AIRCRAFT_FILTER } from "./filterUrl";
+import { AircraftTickerContent } from "./ui/AircraftTickerContent";
+import { AircraftFilterControl } from "./ui/AircraftFilterControl";
+import { DEFAULT_AIRCRAFT_FILTER } from "./lib/filterUrl";
 
 export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> =
   {

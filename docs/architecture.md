@@ -15,7 +15,7 @@ SIGINT is a real-time geospatial intelligence dashboard that renders live aircra
 ```mermaid
 graph TB
     subgraph Browser
-        SPA["React SPA<br/>(App.tsx)"]
+        SPA["React SPA<br/>(App.tsx → LiveTrafficPane)"]
         Canvas["Canvas 2D<br/>Render Loop"]
         IDB["IndexedDB<br/>(sigint-cache)"]
         Provider["AircraftProvider<br/>(provider.ts)"]
@@ -54,28 +54,35 @@ src/
     data/
       ac-db.ndjson                    Local aircraft database (~180k records)
   client/
-    App.tsx                           Root component, all top-level state
+    App.tsx                           Thin shell — renders LiveTrafficPane
     frontend.tsx                      React DOM entry point (async boot with cacheInit)
     config/
       theme.ts                        Color definitions, ThemeColors type, getColorMap()
     context/
       ThemeContext.tsx                 Theme provider (dark/light)
+    panes/
+      live-traffic/
+        LiveTrafficPane.tsx           Self-contained live traffic view (all state lives here)
     features/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
         dataPoints.ts                 DataPoint union type, per-feature data shapes
       aircraft/
+        index.ts                      Barrel exports (public API for the feature)
         types.ts                      AircraftData, AircraftFilter, SquawkCode types
-        provider.ts                   AircraftProvider — fetch, cache, enrich
-        useAircraftData.ts            React hook — orchestrates polling + enrichment
         definition.ts                 aircraftFeature: FeatureDefinition instance
-        utils.ts                      matchesAircraftFilter()
-        filterUrl.ts                  URL sync for aircraft filter state
-        typeLookup.ts                 getAircraftMetadataBatch() — server enrichment
         detailRows.ts                 buildAircraftDetailRows()
-        AircraftFilterControl.tsx     Filter dropdown UI
-        AircraftTickerContent.tsx     Ticker rendering for aircraft items
-        index.ts                      Barrel exports
+        ui/
+          AircraftFilterControl.tsx   Filter dropdown UI
+          AircraftTickerContent.tsx   Ticker rendering for aircraft items
+        hooks/
+          useAircraftData.ts          React hook — orchestrates polling + enrichment
+        data/
+          provider.ts                 AircraftProvider — fetch, cache, enrich
+          typeLookup.ts               getAircraftMetadataBatch() — server enrichment
+        lib/
+          filterUrl.ts                URL sync for aircraft filter state
+          utils.ts                    matchesAircraftFilter(), squawk helpers
       registry.tsx                    Feature registry + inline ship/event/quake defs
     components/
       globe/                          Canvas 2D visualization (modular)
@@ -159,9 +166,23 @@ graph LR
 - **`featureList`** — ordered array for iteration (determines UI rendering order)
 - **`featureRegistry`** — `Map<string, FeatureDefinition>` for O(1) lookup by id
 
-Aircraft has its own folder (`features/aircraft/`) with a full provider, filter system, and UI components. Ships, events, and quakes are defined inline in the registry since they currently use mock data.
+Aircraft has its own folder (`features/aircraft/`) with a full provider, filter system, and UI components organized into subdirectories (`ui/`, `hooks/`, `data/`, `lib/`). Ships, events, and quakes are defined inline in the registry since they currently use mock data.
 
-### 3.3 DataPoint Union
+### 3.3 Aircraft Feature Structure
+
+The aircraft feature uses an explicit subdirectory layout that serves as the pattern for future live data features:
+
+| Directory | Purpose | Files |
+|-----------|---------|-------|
+| `ui/` | React components | `AircraftFilterControl.tsx`, `AircraftTickerContent.tsx` |
+| `hooks/` | React hooks | `useAircraftData.ts` |
+| `data/` | Data fetching & caching | `provider.ts`, `typeLookup.ts` |
+| `lib/` | Pure utilities | `filterUrl.ts`, `utils.ts` |
+| _(root)_ | Feature config & types | `index.ts`, `types.ts`, `definition.ts`, `detailRows.ts` |
+
+All external imports go through the barrel `index.ts` — consumers import from `@/features/aircraft`, never from subdirectories directly.
+
+### 3.4 DataPoint Union
 
 `features/base/dataPoints.ts` defines the discriminated union:
 
@@ -216,9 +237,9 @@ allData = [...nonAircraftBaseRef.current, ...aircraftData]
 - **`nonAircraftBaseRef.current`**: Generated once on mount (`generateMockNonAircraft()`). Ships, events, quakes. Static for the session lifetime — stored in a `useRef` so it never triggers re-renders.
 - **`aircraftData`**: Live from OpenSky, refreshed every 240 seconds. The only part that changes.
 
-When `setData()` is called, React re-renders `App.tsx`, which recomputes derived values (`counts`, `tickerItems`, `selectedCurrent`, etc.) via `useMemo` and passes fresh props down.
+When `setData()` is called, React re-renders `LiveTrafficPane`, which recomputes derived values (`counts`, `tickerItems`, `selectedCurrent`, etc.) via `useMemo` and passes fresh props down.
 
-### 4.3 Data Distribution from App.tsx
+### 4.3 Data Distribution from LiveTrafficPane
 
 ```mermaid
 flowchart TD
@@ -243,7 +264,7 @@ flowchart TD
 
 ### 4.4 The `filters` Map
 
-`App.tsx` maintains a unified filter map consumed by `uiSelectors.ts`:
+`LiveTrafficPane` maintains a unified filter map consumed by `uiSelectors.ts`:
 
 ```typescript
 const filters = {
@@ -294,7 +315,7 @@ flowchart LR
 
 | Key | `sigint.opensky.aircraft-cache.v1` |
 |---|---|
-| Owner | `AircraftProvider` (`provider.ts`) |
+| Owner | `AircraftProvider` (`data/provider.ts`) |
 | Contains | Full `DataPoint[]` array with aircraft positions + any enriched metadata |
 | Written | After every successful OpenSky fetch (with metadata applied) and after enrichment |
 | Read | On `hydrate()` at boot — provides instant first render before first API call |
@@ -392,7 +413,7 @@ flowchart TD
     Shell -->|"drawGrid()"| Grid
     Shell -->|"drawPoints()"| Points
     Shell -->|"createInputHandlers()"| Input
-    Shell -->|"onSelectedSide()"| App["App.tsx → DetailPanel side"]
+    Shell -->|"onSelectedSide()"| Pane["LiveTrafficPane → DetailPanel side"]
     Land --> Proj
     Grid --> Proj
     Points --> Proj
@@ -506,7 +527,7 @@ Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always 
 
 ## 7. Isolation Modes
 
-Two modes for focusing on specific data, controlled by `isolateMode` state in `App.tsx`:
+Two modes for focusing on specific data, controlled by `isolateMode` state in `LiveTrafficPane`:
 
 | Mode | Icon | Color | Behavior |
 |---|---|---|---|
@@ -536,7 +557,7 @@ The detail panel controls toggling between modes. Closing the panel clears isola
 
 ## 8. Enrichment Pipeline
 
-Aircraft metadata enrichment runs as a side effect in `App.tsx`, scoped to the currently selected aircraft only. This prevents the aircraft cache from bloating with enrichment data for thousands of aircraft.
+Aircraft metadata enrichment runs as a side effect in `LiveTrafficPane`, scoped to the currently selected aircraft only. This prevents the aircraft cache from bloating with enrichment data for thousands of aircraft.
 
 ```mermaid
 flowchart TD
@@ -632,7 +653,7 @@ Keyboard support: arrow keys navigate results, Enter executes search (with or wi
 The filter flows through the existing `propsRef` bridge:
 
 1. Search calls `onMatchingIdsChange(Set<string>)` on execute
-2. App.tsx stores it as `searchMatchIds` state
+2. LiveTrafficPane stores it as `searchMatchIds` state
 3. Passed to GlobeVisualization as a prop, synced into `propsRef`
 4. `drawPoints()` checks `searchMatchIds` before any other filter — if the set exists and the item's ID isn't in it, the item is skipped
 5. Isolation modes (FOCUS/SOLO) and layer toggles still apply on top of the search filter
@@ -652,32 +673,42 @@ When a specific search result is clicked, two things happen simultaneously:
 
 ```mermaid
 graph TD
-    App["App.tsx<br/><i>All top-level state</i>"]
+    App["App.tsx<br/><i>Thin shell — renders LiveTrafficPane</i>"]
+    App --> LTP["LiveTrafficPane<br/><i>All top-level state</i>"]
 
-    App --> Header["Header<br/><i>Logo, search, toggles, controls, clock</i>"]
+    LTP --> Header["Header<br/><i>Logo, search, toggles, controls, clock</i>"]
     Header --> SearchComp["Search<br/><i>searchSlot prop, z-[60]</i>"]
     Header --> LayerToggles["Layer toggle buttons<br/><i>from featureList</i>"]
     Header --> AircraftFC["AircraftFilterControl<br/><i>dropdown</i>"]
     Header --> ViewControls["View controls"]
     Header --> Clock["Clock"]
 
-    App --> GlobeViz["globe/<br/><i>Canvas 2D, fills flex-1<br/>Reports selected item screen side</i>"]
+    LTP --> GlobeViz["globe/<br/><i>Canvas 2D, fills flex-1<br/>Reports selected item screen side</i>"]
     GlobeViz --> CanvasLoop["requestAnimationFrame loop<br/><i>Not managed by React</i>"]
     GlobeViz --> Tooltip["Trail waypoint tooltip<br/><i>Anchored, reprojected per frame</i>"]
 
-    App --> DetailPanel["DetailPanel<br/><i>Auto-positions left or right<br/>opposite selected item, z-40</i>"]
+    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions left or right<br/>opposite selected item, z-40</i>"]
     DetailPanel --> DetailRows["Feature-specific detail rows<br/><i>via buildDetailRows()</i>"]
 
-    App --> LayerLegend["LayerLegend<br/><i>bottom-left, z-10</i>"]
-    App --> StatusBadge["StatusBadge<br/><i>bottom-right, z-10</i>"]
+    LTP --> LayerLegend["LayerLegend<br/><i>bottom-left, z-10</i>"]
+    LTP --> StatusBadge["StatusBadge<br/><i>bottom-right, z-10</i>"]
 
-    App --> Ticker["Ticker<br/><i>bottom bar, fixed 90px</i>"]
+    LTP --> Ticker["Ticker<br/><i>bottom bar, fixed 90px</i>"]
     Ticker --> TickerContent["Feature-specific content<br/><i>via TickerContent component</i>"]
 ```
 
+### Pane Architecture
+
+The application uses a pane-based layout designed for future multi-pane support:
+
+- **`App.tsx`** — thin shell that renders the active pane(s). Currently renders `LiveTrafficPane` full-screen. Will become the layout manager when multi-pane support is added (PaneManager with resize handles, minimize, rearrange).
+- **`LiveTrafficPane`** — self-contained pane owning all globe-related state, data fetching, filtering, selection, and UI. Takes no props — it manages everything internally.
+
+This separation means adding a second pane (e.g., ships, intel feed) requires no changes to App.tsx beyond adding it to the layout. Each pane owns its own state and subscribes to shared data providers independently.
+
 ### Detail Panel Auto-Positioning
 
-The globe's render loop projects the selected item's screen position each frame and calls `onSelectedSide("left" | "right")` to report which side of the screen the item is on. App.tsx tracks this in `panelSide` state and passes it to DetailPanel as a `side` prop. The desktop card renders `right-3.5` or `left-3.5` accordingly — always on the opposite side from the selected item so it never covers what you're tracking. On mobile, the panel is always a bottom sheet regardless of side.
+The globe's render loop projects the selected item's screen position each frame and calls `onSelectedSide("left" | "right")` to report which side of the screen the item is on. LiveTrafficPane tracks this in `panelSide` state and passes it to DetailPanel as a `side` prop. The desktop card renders `right-3.5` or `left-3.5` accordingly — always on the opposite side from the selected item so it never covers what you're tracking. On mobile, the panel is always a bottom sheet regardless of side.
 
 ### Z-Index Stack
 
@@ -695,7 +726,7 @@ The Header deliberately avoids a z-index to prevent creating a stacking context 
 
 ## 11. State Management
 
-All state lives in `App.tsx` as React hooks. There is no external state management library.
+All state lives in `LiveTrafficPane` as React hooks. There is no external state management library. `App.tsx` is a stateless shell.
 
 | State | Type | Purpose |
 |---|---|---|

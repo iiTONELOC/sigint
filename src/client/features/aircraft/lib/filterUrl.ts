@@ -1,4 +1,4 @@
-import type { AircraftFilter } from "./types";
+import type { AircraftFilter } from "../types";
 
 export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   enabled: true,

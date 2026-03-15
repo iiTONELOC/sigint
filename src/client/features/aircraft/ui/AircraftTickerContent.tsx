@@ -1,4 +1,4 @@
-import type { AircraftData } from "./types";
+import type { AircraftData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
 
 export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {

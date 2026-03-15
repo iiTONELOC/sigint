@@ -1,5 +1,5 @@
 import type { AircraftData } from "./types";
-import { getSquawkStatus, getSquawkStatusLabel } from "./utils";
+import { getSquawkStatus, getSquawkStatusLabel } from "./lib/utils";
 
 export function buildAircraftDetailRows(data: AircraftData): [string, string][] {
   const {
