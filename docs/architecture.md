@@ -71,7 +71,7 @@ src/
     features/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
-        dataPoints.ts                 DataPoint union type, per-feature data shapes
+        dataPoints.ts                 DataPoint union type (imports types from feature folders)
       tracking/
         aircraft/
           index.ts                    Barrel exports (public API for the feature)
@@ -89,6 +89,13 @@ src/
           lib/
             filterUrl.ts              URL sync for aircraft filter state
             utils.ts                  matchesAircraftFilter(), squawk helpers
+        ships/
+          index.ts                    Barrel exports
+          types.ts                    ShipData type
+          definition.ts               shipsFeature: FeatureDefinition instance
+          detailRows.ts               buildShipDetailRows()
+          ui/
+            ShipTickerContent.tsx     Ticker rendering for ship items
       environmental/
         earthquake/
           index.ts                    Barrel exports
@@ -101,7 +108,15 @@ src/
             useEarthquakeData.ts      React hook — polls USGS every 7 min
           data/
             provider.ts               EarthquakeProvider — fetch, cache (IndexedDB)
-      registry.tsx                    Feature registry + inline ship/event defs
+      intel/
+        events/
+          index.ts                    Barrel exports
+          types.ts                    EventData type
+          definition.ts               eventsFeature: FeatureDefinition instance
+          detailRows.ts               buildEventDetailRows()
+          ui/
+            EventTickerContent.tsx    Ticker rendering for event items
+      registry.tsx                    Feature registry (imports all feature definitions)
     components/
       globe/                          Canvas 2D visualization (modular)
         index.tsx                     Barrel export
@@ -126,8 +141,6 @@ src/
       landService.ts                  HD coastline data fetch + cache
       tickerFeed.ts                   Builds ticker items from filtered data
       uiSelectors.ts                  Derived counts, active totals, country lists
-    providers/
-      DataOrchestrator.ts             Generic multi-provider coordinator
     data/
       mockData.ts                     Mock ships, events, fallback aircraft
 ```
@@ -138,7 +151,7 @@ src/
 
 Every data type in the application (aircraft, ships, events, quakes) is a **feature** — a self-contained module that implements the `FeatureDefinition` contract. This keeps rendering, filtering, and display logic colocated with the data type it belongs to.
 
-Features are organized by domain: `tracking/` for live position feeds, `environmental/` for natural events, and `intel/` (future) for news/conflict data.
+Features are organized by domain: `tracking/` for live position feeds, `environmental/` for natural events, and `intel/` for news/conflict data.
 
 ### 3.1 FeatureDefinition Contract
 
@@ -171,8 +184,8 @@ graph LR
     end
 
     AF["tracking/aircraft/<br/>definition.ts"] --> FL
-    SF["shipsFeature<br/>(inline)"] --> FL
-    EF["eventsFeature<br/>(inline)"] --> FL
+    SF["tracking/ships/<br/>definition.ts"] --> FL
+    EF["intel/events/<br/>definition.ts"] --> FL
     QF["environmental/earthquake/<br/>definition.ts"] --> FL
 
     FL -->|"same entries"| FR
@@ -181,32 +194,37 @@ graph LR
     FL -->|"ordered iteration"| UI["Header toggles<br/>LayerLegend"]
 ```
 
-`features/registry.tsx` collects all features into two exports:
+`features/registry.tsx` is a pure registry file — it imports all feature definitions from their respective folders and collects them into two exports:
 
 - **`featureList`** — ordered array for iteration (determines UI rendering order)
 - **`featureRegistry`** — `Map<string, FeatureDefinition>` for O(1) lookup by id
 
-Aircraft and earthquake have their own feature folders with full providers, hooks, and UI components. Ships and events are defined inline in the registry since they currently use mock data.
+All four features (aircraft, ships, events, earthquakes) have their own feature folders. Aircraft and earthquake have full providers, hooks, and UI components for live data. Ships and events have types, definitions, detail rows, and ticker content — ready to gain `hooks/` and `data/` directories when their live data sources are integrated.
 
-### 3.3 Live Feature Structure
+### 3.3 Feature Structure
 
-Both aircraft and earthquake features use an explicit subdirectory layout. This is the pattern for all live data features:
+Every feature uses an explicit subdirectory layout. Live features (aircraft, earthquake) have the full set; mock features (ships, events) have the subset they need, and will gain `hooks/` and `data/` when they go live.
 
-| Directory | Purpose | Aircraft | Earthquake |
-|-----------|---------|----------|------------|
-| `ui/` | React components | FilterControl, TickerContent | TickerContent |
-| `hooks/` | React hooks | useAircraftData | useEarthquakeData |
-| `data/` | Provider + data fetching | AircraftProvider, typeLookup | EarthquakeProvider |
-| `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ |
-| _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows |
+| Directory | Purpose | Aircraft | Earthquake | Ships | Events |
+|-----------|---------|----------|------------|-------|--------|
+| `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent |
+| `hooks/` | React hooks | useAircraftData | useEarthquakeData | _(when live)_ | _(when live)_ |
+| `data/` | Provider + data fetching | AircraftProvider, typeLookup | EarthquakeProvider | _(when live)_ | _(when live)_ |
+| `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ | _(none yet)_ | _(none yet)_ |
+| _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
-All external imports go through the barrel `index.ts` — consumers import from `@/features/tracking/aircraft` or `@/features/environmental/earthquake`, never from subdirectories directly.
+All external imports go through the barrel `index.ts` — consumers import from `@/features/tracking/aircraft`, `@/features/tracking/ships`, `@/features/environmental/earthquake`, or `@/features/intel/events`, never from subdirectories directly.
 
 ### 3.4 DataPoint Union
 
-`features/base/dataPoints.ts` defines the discriminated union:
+`features/base/dataPoints.ts` defines the discriminated union. It imports each feature's data type from its own feature folder:
 
 ```typescript
+import type { AircraftData } from "@/features/tracking/aircraft/types";
+import type { ShipData } from "@/features/tracking/ships/types";
+import type { EventData } from "@/features/intel/events/types";
+import type { EarthquakeData } from "@/features/environmental/earthquake/types";
+
 type DataPoint =
   | (BasePoint & { type: "ships";    data: ShipData })
   | (BasePoint & { type: "aircraft"; data: AircraftData })
@@ -214,7 +232,7 @@ type DataPoint =
   | (BasePoint & { type: "quakes";   data: EarthquakeData });
 ```
 
-Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. The `data` field contains type-specific payload. All downstream code switches on `type` to access the correct shape.
+Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. The `data` field contains type-specific payload. All downstream code switches on `type` to access the correct shape. `ShipData` and `EventData` are re-exported from `dataPoints.ts` for backward compatibility.
 
 ---
 
