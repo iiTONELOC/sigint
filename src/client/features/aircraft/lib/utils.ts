@@ -1,4 +1,4 @@
-import type { AircraftData, AircraftFilter, SquawkStatus } from "./types";
+import type { AircraftData, AircraftFilter, SquawkStatus } from "../types";
 import type { BasePoint } from "@/features/base/types";
 
 export function getSquawkStatus(squawk?: string): SquawkStatus {

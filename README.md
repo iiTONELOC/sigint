@@ -61,11 +61,15 @@ Aircraft data is live — pulled directly from the OpenSky Network API every 4 m
 
 ## Architecture
 
+The application uses a pane-based layout with self-contained view modules. The current single pane — `LiveTrafficPane` — owns all globe-related state, data fetching, filtering, and UI. `App.tsx` is a thin shell that renders the active pane, designed to become a layout manager when multi-pane support is added.
+
+Data features follow a feature-folder pattern: each data type (aircraft, ships, events, quakes) implements a `FeatureDefinition` contract that keeps rendering, filtering, and display logic colocated. The aircraft feature uses an explicit subdirectory layout (`ui/`, `hooks/`, `data/`, `lib/`) that serves as the template for future live data integrations.
+
 Full technical documentation of the data flow, caching architecture, rendering pipeline, and component hierarchy is available in the architecture doc:
 
 **[docs/architecture.md](./docs/architecture.md)**
 
-Covers the boot lifecycle, IndexedDB caching system, metadata enrichment pipeline, the propsRef bridge between React and the Canvas animation loop, camera state machine, interpolation mechanics, isolation modes, and the feature-folder pattern.
+Covers the boot lifecycle, IndexedDB caching system, metadata enrichment pipeline, the propsRef bridge between React and the Canvas animation loop, camera state machine, interpolation mechanics, isolation modes, pane architecture, and the feature-folder pattern.
 
 ## Data Sources
 

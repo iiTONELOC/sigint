@@ -3,7 +3,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { DataOrchestrator } from "@/providers/DataOrchestrator";
 import { generateMockAircraft, generateMockNonAircraft } from "@/data/mockData";
 import { recordPositions } from "@/lib/trailService";
-import { AircraftProvider } from "./provider";
+import { AircraftProvider } from "../data/provider";
 
 const aircraftProvider = new AircraftProvider();
 const orchestrator = new DataOrchestrator([aircraftProvider]);

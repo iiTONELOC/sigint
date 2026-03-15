@@ -4,7 +4,7 @@ import {
   type ProviderSnapshot,
 } from "@/features/base/types";
 import { generateMockAircraft } from "@/data/mockData";
-import { getSquawkStatus } from "./utils";
+import { getSquawkStatus } from "../lib/utils";
 import { getAircraftMetadataBatch } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 
