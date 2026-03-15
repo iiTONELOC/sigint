@@ -7,7 +7,7 @@
  *   bun run src/scripts/convert-aircraft-csv.ts src/data/ac-db.csv.gz
  *   bun run src/scripts/convert-aircraft-csv.ts ~/Downloads/aircraftDatabase.csv
  *
- * Output is written to src/data/ac-db.ndjson (commit this file).
+ * Output is written to src/server/data/ac-db.ndjson (commit this file).
  */
 
 import { gunzip } from "zlib";
@@ -198,7 +198,7 @@ async function main() {
     .map(([, v]) => v.json);
 
   const ndjson = sorted.join("\n") + "\n";
-  const outPath = resolve(import.meta.dir, "../src/data/ac-db.ndjson");
+  const outPath = resolve(import.meta.dir, "../src/server/data/ac-db.ndjson");
   await Bun.write(outPath, ndjson);
 
   console.log(

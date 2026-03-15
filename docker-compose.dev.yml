@@ -8,7 +8,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./public:/app/public
-    command: bun --hot src/index.ts
+    command: bun --hot src/server/index.ts
     healthcheck:
       test:
         [

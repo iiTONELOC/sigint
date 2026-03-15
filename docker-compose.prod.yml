@@ -9,7 +9,7 @@ services:
       - NODE_ENV=production
       - PORT=${PORT:-3000}
     restart: always
-    command: bun src/index.prod.ts
+    command: bun src/server/index.prod.ts
     healthcheck:
       test:
         [
