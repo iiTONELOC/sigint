@@ -2,4 +2,4 @@ build:
   docker:
     web: Dockerfile.prod
 run:
-  web: bun src/index.prod.ts
+  web: bun src/server/index.prod.ts

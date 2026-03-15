@@ -20,4 +20,4 @@ RUN bun run build.ts
 ENV NODE_ENV=production
 
 # Serve the built dist/ directory
-CMD ["bun", "src/index.prod.ts"]
+CMD ["bun", "src/server/index.prod.ts"]
