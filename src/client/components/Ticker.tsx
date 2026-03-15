@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
-import { mono, FONT_SM, FONT_MD } from "./styles";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 
@@ -48,7 +47,6 @@ export function Ticker({ items }: Readonly<TickerProps>) {
   const colorMap = useMemo(() => getColorMap(theme), [theme]);
   const visibleCount = useVisibleCount();
 
-  // Force re-render every 30s to keep relative times fresh
   const [, setTick] = useState(0);
   useEffect(() => {
     const iv = setInterval(() => setTick((t) => t + 1), 30_000);
@@ -82,19 +80,13 @@ export function Ticker({ items }: Readonly<TickerProps>) {
         return (
           <div
             key={`${item.id}-${idx}-${i}`}
-            className="flex-1 min-w-0 rounded overflow-hidden"
-            style={{
-              padding: "6px 10px",
-              background: `${C.panel}cc`,
-              border: `1px solid ${C.border}`,
-              borderLeft: `3px solid ${color}`,
-              height: 90,
-            }}
+            className="flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 bg-sig-panel/80 border border-sig-border h-22.5"
+            style={{ borderLeft: `3px solid ${color}` }}
           >
             <div className="flex justify-between mb-0.5">
               <span
-                className="tracking-wider flex items-center gap-1"
-                style={mono(color as string, FONT_MD)}
+                className="tracking-wider flex items-center gap-1 text-(length:--sig-text-md)"
+                style={{ color }}
               >
                 <Icon
                   size="1em"
@@ -104,7 +96,7 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 />
                 {feature.label}
               </span>
-              <span style={mono(C.dim, FONT_SM)}>
+              <span className="text-sig-dim text-(length:--sig-text-sm)">
                 {relativeTime(item.timestamp)}
               </span>
             </div>

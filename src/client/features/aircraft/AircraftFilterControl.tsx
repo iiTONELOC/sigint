@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { Plane } from "lucide-react";
 import { type AircraftFilter } from "./types";
 
-interface FilterThemeColors {
+type FilterThemeColors = {
   panel: string;
   border: string;
   bright: string;
   dim: string;
   danger: string;
-}
+};
 
-interface AircraftFilterControlProps {
+type AircraftFilterControlProps = {
   readonly aircraftFilter: AircraftFilter;
   readonly setAircraftFilter: React.Dispatch<
     React.SetStateAction<AircraftFilter>
@@ -19,7 +19,7 @@ interface AircraftFilterControlProps {
   readonly aircraftColor: string;
   readonly availableCountries: string[];
   readonly colors: FilterThemeColors;
-}
+};
 
 export function AircraftFilterControl({
   aircraftFilter,
@@ -67,85 +67,45 @@ export function AircraftFilterControl({
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-0.5 rounded tracking-wide transition-all font-semibold"
+        className="flex items-center gap-1.5 px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn)"
         style={{
           background: aircraftFilter.enabled
             ? aircraftColor + "15"
             : "transparent",
           border: `1px solid ${aircraftFilter.enabled ? aircraftColor + "50" : colors.border}`,
           color: aircraftFilter.enabled ? aircraftColor : colors.dim,
-          fontFamily: "inherit",
-          fontSize: "clamp(10px, 1.5vw, 14px)",
-          cursor: "pointer",
         }}
       >
-        <span style={{ fontSize: "clamp(12px, 1.8vw, 16px)" }}>
+        <span className="text-(length:--sig-text-icon)">
           <Plane size="1em" fill="currentColor" strokeWidth={0} />
         </span>
         <span>{aircraftCount}</span>
-        <span style={{ fontSize: "clamp(8px, 1.1vw, 10px)", opacity: 0.6 }}>
-          ▾
-        </span>
+        <span className="text-[8px] opacity-60">▾</span>
       </button>
 
       {open && (
-        <div
-          className="absolute right-0 top-full mt-1 rounded z-[60]"
-          style={{
-            background: colors.panel,
-            border: `1px solid ${colors.border}`,
-            padding: "10px 12px",
-            minWidth: 220,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          <div
-            className="flex justify-between items-center mb-2"
-            style={{
-              borderBottom: `1px solid ${colors.border}`,
-              paddingBottom: 6,
-            }}
-          >
-            <span
-              style={{
-                color: colors.bright,
-                fontSize: 11,
-                letterSpacing: 1,
-                opacity: 0.82,
-              }}
-            >
+        <div className="absolute right-0 top-full mt-1 rounded z-60 bg-sig-panel border border-sig-border p-2.5 min-w-55">
+          {/* Header */}
+          <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-sig-border">
+            <span className="text-sig-bright text-[11px] tracking-wider opacity-80">
               AIRCRAFT
             </span>
             <button
               onClick={() =>
-                setAircraftFilter((f) => ({
-                  ...f,
-                  enabled: !f.enabled,
-                }))
+                setAircraftFilter((f) => ({ ...f, enabled: !f.enabled }))
               }
+              className="text-[12px] bg-transparent border-none"
               style={{
                 color: aircraftFilter.enabled ? aircraftColor : colors.bright,
-                fontSize: 12,
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontFamily: "inherit",
               }}
             >
               {aircraftFilter.enabled ? "ON" : "OFF"}
             </button>
           </div>
 
+          {/* Status */}
           <div className="mb-2">
-            <div
-              style={{
-                color: colors.bright,
-                fontSize: 11,
-                opacity: 0.78,
-                letterSpacing: 1,
-                marginBottom: 4,
-              }}
-            >
+            <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
               STATUS
             </div>
             <div className="flex gap-1 flex-wrap">
@@ -160,22 +120,15 @@ export function AircraftFilterControl({
                   <button
                     key={key}
                     onClick={() =>
-                      setAircraftFilter((f) => ({
-                        ...f,
-                        [key]: !f[key],
-                      }))
+                      setAircraftFilter((f) => ({ ...f, [key]: !f[key] }))
                     }
+                    className="rounded-sm px-1.5 py-0.5 text-[12px]"
                     style={{
                       background: on
                         ? aircraftColor + "24"
                         : colors.panel + "55",
                       border: `1px solid ${on ? aircraftColor + "d0" : colors.bright + "66"}`,
                       color: on ? aircraftColor : colors.bright,
-                      borderRadius: 3,
-                      padding: "2px 7px",
-                      fontSize: 12,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
                     }}
                   >
                     {label}
@@ -185,17 +138,10 @@ export function AircraftFilterControl({
             </div>
           </div>
 
+          {/* Squawk */}
           <div>
-            <div
-              style={{
-                color: colors.bright,
-                fontSize: 11,
-                opacity: 0.78,
-                letterSpacing: 1,
-                marginBottom: 4,
-              }}
-            >
-              SQUAWK <span style={{ opacity: 0.5 }}>(empty = all)</span>
+            <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
+              SQUAWK <span className="opacity-50">(empty = all)</span>
             </div>
             <div className="flex gap-1 flex-wrap">
               {(
@@ -211,15 +157,11 @@ export function AircraftFilterControl({
                   <button
                     key={code}
                     onClick={() => toggleSquawk(code as any)}
+                    className="rounded-sm px-1.5 py-0.5 text-[12px]"
                     style={{
                       background: on ? clr + "28" : colors.panel + "55",
                       border: `1px solid ${on ? clr : colors.bright + "66"}`,
                       color: on ? clr : colors.bright,
-                      borderRadius: 3,
-                      padding: "2px 7px",
-                      fontSize: 12,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
                     }}
                   >
                     {label}
@@ -229,44 +171,26 @@ export function AircraftFilterControl({
             </div>
           </div>
 
+          {/* Countries */}
           {availableCountries.length > 0 && (
-            <div
-              className="mt-2"
-              style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 6 }}
-            >
-              <div
-                style={{
-                  color: colors.bright,
-                  fontSize: 11,
-                  letterSpacing: 1,
-                  marginBottom: 4,
-                  opacity: 0.78,
-                }}
-              >
-                COUNTRY <span style={{ opacity: 0.5 }}>(empty = all)</span>
+            <div className="mt-2 pt-1.5 border-t border-sig-border">
+              <div className="text-sig-bright text-[11px] tracking-wider mb-1 opacity-80">
+                COUNTRY <span className="opacity-50">(empty = all)</span>
               </div>
-              <div
-                className="flex gap-1 flex-wrap aircraft-country-scroll"
-                style={{ maxHeight: 88, overflowY: "auto", paddingRight: 4 }}
-              >
+              <div className="flex gap-1 flex-wrap sigint-scroll max-h-22 overflow-y-auto pr-1">
                 {availableCountries.map((country) => {
                   const on = aircraftFilter.countries.has(country);
                   return (
                     <button
                       key={country}
                       onClick={() => toggleCountry(country)}
+                      className="rounded-sm px-1.5 py-0.5 text-[11px] whitespace-nowrap"
                       style={{
                         background: on
                           ? aircraftColor + "24"
                           : colors.panel + "55",
                         border: `1px solid ${on ? aircraftColor + "d0" : colors.bright + "66"}`,
                         color: on ? aircraftColor : colors.bright,
-                        borderRadius: 3,
-                        padding: "2px 6px",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        whiteSpace: "nowrap",
                       }}
                     >
                       {country}

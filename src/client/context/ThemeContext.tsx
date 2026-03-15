@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { ThemeMode, themes, applyThemeToRoot } from "@/config/theme";
+import { type ThemeMode, themes, applyThemeToRoot } from "@/config/theme";
 
-interface ThemeContextType {
+type ThemeContextType = {
   mode: ThemeMode;
   setMode: (mode: ThemeMode) => void;
   theme: (typeof themes)[ThemeMode];
-}
+};
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 

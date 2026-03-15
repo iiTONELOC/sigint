@@ -1,6 +1,6 @@
 export type ThemeMode = "dark" | "light";
 
-export interface ThemeColors {
+export type ThemeColors = {
   bg: string;
   panel: string;
   border: string;
@@ -15,11 +15,11 @@ export interface ThemeColors {
   dim: string;
   bright: string;
   danger: string;
-}
+};
 
-export interface Theme {
+export type Theme = {
   colors: ThemeColors;
-}
+};
 
 export const themes: Record<ThemeMode, Theme> = {
   dark: {

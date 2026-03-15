@@ -1,4 +1,4 @@
-export interface AircraftMetadata {
+export type AircraftMetadata = {
   icao24: string;
   resolvedType: string;
   typecode?: string;
@@ -8,7 +8,7 @@ export interface AircraftMetadata {
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
-}
+};
 
 function normalizeIcao24(value: string | undefined): string | null {
   const normalized = (value ?? "")
@@ -74,11 +74,10 @@ export async function getAircraftMetadataBatch(
   if (normalized.length === 0) return new Map<string, AircraftMetadata>();
 
   try {
-    const response = await fetch("/api/aircraft/metadata/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ icao24: normalized }),
-    });
+    const ids = normalized.join(",");
+    const response = await fetch(
+      `/api/aircraft/metadata/batch?ids=${encodeURIComponent(ids)}`,
+    );
 
     if (!response.ok) return new Map<string, AircraftMetadata>();
 

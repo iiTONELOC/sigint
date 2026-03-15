@@ -38,14 +38,13 @@ export const apiRoutes = {
   },
 
   "/api/aircraft/metadata/batch": {
-    async POST(req: Request) {
-      const body = (await req.json().catch(() => ({}))) as {
-        icao24?: unknown;
-      };
-      const { icao24: rawIcao24 = [] } = body;
-      const icao24 = Array.isArray(rawIcao24)
-        ? rawIcao24.map((v) => String(v))
-        : [];
+    async GET(req: Request) {
+      const url = new URL(req.url);
+      const idsParam = url.searchParams.get("ids") ?? "";
+      const icao24 = idsParam
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
 
       const items = await lookupAircraftMetadataBatch(icao24);
       return Response.json({ items });

@@ -10,13 +10,13 @@ const orchestrator = new DataOrchestrator([aircraftProvider]);
 
 export type AircraftDataSource = "loading" | "live" | "cached" | "mock";
 
-interface UseAircraftDataResult {
+type UseAircraftDataResult = {
   data: DataPoint[];
   loading: boolean;
   error: Error | null;
   dataSource: AircraftDataSource;
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
-}
+};
 
 export function useAircraftData(
   pollInterval: number = 240_000,
@@ -71,6 +71,8 @@ export function useAircraftData(
               ((d.data as any)?.speed
                 ? (d.data as any).speed * 0.5144
                 : undefined),
+            altitude: (d.data as any)?.altitude,
+            speed: (d.data as any)?.speed,
           }));
         recordPositions(movingItems);
 

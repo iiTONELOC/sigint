@@ -1,12 +1,7 @@
 import type { AircraftData } from "./types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { mono, FONT_SM, FONT_MD } from "@/components/styles";
 
-export function AircraftTickerContent({
-  data,
-  textColor,
-  dimColor,
-}: Readonly<TickerRendererProps>) {
+export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as AircraftData;
   const {
     model,
@@ -47,15 +42,15 @@ export function AircraftTickerContent({
 
   return (
     <>
-      <div className="leading-snug" style={mono(textColor, FONT_MD)}>
+      <div className="leading-snug text-sig-text text-(length:--sig-text-md)">
         {callsign}
         {reg} {acType} {altitude}ft {speedText}
         {sq}
       </div>
-      <div className="leading-snug" style={mono(dimColor, FONT_SM)}>
+      <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
         {metaLine}
       </div>
-      <div className="leading-snug" style={mono(dimColor, FONT_SM)}>
+      <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
         {originCountry} • HDG {hdg} • {status}
       </div>
     </>

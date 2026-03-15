@@ -1,39 +1,39 @@
-// ── Provider interface ────────────────────────────────────────────────
+// ── Provider type ────────────────────────────────────────────────
 
-export interface ProviderSnapshot<TEntity> {
+export type ProviderSnapshot<TEntity> = {
   entities: TEntity[];
   lastUpdatedAt: number | null;
   loading: boolean;
   error: Error | null;
-}
+};
 
-export interface DataProvider<TEntity> {
+export type DataProvider<TEntity> = {
   readonly id: string;
   hydrate(): TEntity[] | null;
   refresh(): Promise<TEntity[]>;
   getData(): Promise<TEntity[]>;
   getSnapshot(): ProviderSnapshot<TEntity>;
-}
+};
 
 // ── Base point shape ─────────────────────────────────────────────────
 
-export interface BasePoint {
+export type BasePoint = {
   id: string;
   type: string;
   lat: number;
   lon: number;
   timestamp?: string;
-}
+};
 
 // ── Feature rendering contracts ──────────────────────────────────────
 
-export interface TickerRendererProps {
+export type TickerRendererProps = {
   data: unknown;
   textColor: string;
   dimColor: string;
-}
+};
 
-export interface FeatureDefinition<TData = unknown, TFilter = unknown> {
+export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
   /** Unique key matching the DataPoint type discriminator */
   id: string;
 
@@ -61,4 +61,4 @@ export interface FeatureDefinition<TData = unknown, TFilter = unknown> {
 
   /** Optional: build searchable text for this entity (used by global search) */
   getSearchText?: (data: TData) => string;
-}
+};

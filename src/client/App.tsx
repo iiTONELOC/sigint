@@ -14,14 +14,13 @@ import {
   selectAvailableAircraftCountries,
 } from "@/lib/uiSelectors";
 import { buildTickerItems } from "@/lib/tickerFeed";
-import { GlobeVisualization } from "@/components/GlobeVisualization";
+import { GlobeVisualization } from "@/components/globe";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { DetailPanel } from "@/components/DetailPanel";
 import { LayerLegend } from "@/components/LayerLegend";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Ticker } from "@/components/Ticker";
-import { mono, FONT_MD } from "@/components/styles";
 
 export function App() {
   const { theme } = useTheme();
@@ -44,8 +43,9 @@ export function App() {
   const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(
     null,
   );
-
-  const C = theme.colors;
+  const stashedSelectionRef = useRef<DataPoint | null>(null);
+  const stashedIsolateModeRef = useRef<null | "solo" | "focus">(null);
+  const [panelSide, setPanelSide] = useState<"left" | "right">("right");
 
   const {
     loading,
@@ -55,7 +55,6 @@ export function App() {
     requestAircraftEnrichment,
   } = useAircraftData();
 
-  // ── Derived filter map for generic selectors ────────────────────────
   const filters = useMemo<Record<string, unknown>>(
     () => ({
       aircraft: aircraftFilter,
@@ -79,25 +78,17 @@ export function App() {
 
   // ── Aircraft enrichment ─────────────────────────────────────────────
   useEffect(() => {
-    const tickerIcao24 = tickerItems
-      .filter((item) => item.type === "aircraft")
-      .map((item) => (item.data as any)?.icao24 ?? "")
-      .filter(Boolean);
+    if (selectedCurrent?.type !== "aircraft") return;
 
-    const selectedIcao24 =
-      selectedCurrent?.type === "aircraft"
-        ? [(selectedCurrent.data as any)?.icao24 ?? ""]
-        : [];
+    const icao24 = (selectedCurrent.data as any)?.icao24;
+    if (!icao24) return;
 
-    const targets = Array.from(new Set([...tickerIcao24, ...selectedIcao24]));
-    if (targets.length === 0) return;
-
-    const key = [...targets].sort().join(",");
-    if (!key || key === lastEnrichmentKeyRef.current) return;
+    const key = icao24;
+    if (key === lastEnrichmentKeyRef.current) return;
     lastEnrichmentKeyRef.current = key;
 
-    void requestAircraftEnrichment(targets);
-  }, [tickerItems, selectedCurrent, requestAircraftEnrichment]);
+    void requestAircraftEnrichment([icao24]);
+  }, [selectedCurrent, requestAircraftEnrichment]);
 
   const counts = useMemo(
     () => selectLayerCounts(allData, filters),
@@ -136,13 +127,33 @@ export function App() {
 
   const handleSearchZoomTo = (item: DataPoint) => {
     setZoomToId(item.id);
-    // Clear after a tick so the same item can be re-searched
     setTimeout(() => setZoomToId(null), 100);
   };
 
-  const handleSearchMatchIds = useCallback((ids: Set<string> | null) => {
-    setSearchMatchIds(ids);
-  }, []);
+  const handleSearchMatchIds = useCallback(
+    (ids: Set<string> | null) => {
+      setSearchMatchIds(ids);
+      if (ids) {
+        setSelected((prev) => {
+          if (prev && !ids.has(prev.id)) {
+            stashedSelectionRef.current = prev;
+            stashedIsolateModeRef.current = isolateMode;
+            setIsolateMode(null);
+            return null;
+          }
+          return prev;
+        });
+      } else {
+        if (stashedSelectionRef.current) {
+          setSelected(stashedSelectionRef.current);
+          setIsolateMode(stashedIsolateModeRef.current);
+          stashedSelectionRef.current = null;
+          stashedIsolateModeRef.current = null;
+        }
+      }
+    },
+    [isolateMode],
+  );
 
   useEffect(() => {
     syncAircraftFilterToUrl(aircraftFilter);
@@ -154,10 +165,7 @@ export function App() {
   );
 
   return (
-    <div
-      className="w-screen h-screen flex flex-col overflow-hidden"
-      style={{ background: C.bg, fontFamily: "'JetBrains Mono', monospace" }}
-    >
+    <div className="w-screen h-screen flex flex-col overflow-hidden min-w-[320px] bg-sig-bg font-mono">
       {/* ── HEADER ── */}
       {!chromeHidden && (
         <Header
@@ -201,6 +209,7 @@ export function App() {
           isolateMode={isolateMode}
           zoomToId={zoomToId}
           searchMatchIds={searchMatchIds}
+          onSelectedSide={setPanelSide}
         />
         {!chromeHidden && (
           <DetailPanel
@@ -211,6 +220,7 @@ export function App() {
             }}
             isolateMode={isolateMode}
             onSetIsolateMode={setIsolateMode}
+            side={panelSide}
           />
         )}
 
@@ -227,18 +237,9 @@ export function App() {
 
       {/* ── TICKER ── */}
       {!chromeHidden && (
-        <div
-          className="shrink-0 px-3 pt-1 pb-2"
-          style={{
-            borderTop: `1px solid ${C.border}`,
-            background: `${C.panel}ee`,
-          }}
-        >
-          <div
-            className="tracking-wider mb-0.5 flex items-center gap-1.5"
-            style={mono(C.dim, FONT_MD)}
-          >
-            <span style={{ color: C.danger, animation: "pulse 1.5s infinite" }}>
+        <div className="shrink-0 px-3 pt-1 pb-2 border-t border-sig-border bg-sig-panel/95">
+          <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
+            <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
               ●
             </span>{" "}
             LIVE FEED

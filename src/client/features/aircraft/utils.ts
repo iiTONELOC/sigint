@@ -1,8 +1,4 @@
-import type {
-  AircraftData,
-  AircraftFilter,
-  SquawkStatus,
-} from "./types";
+import type { AircraftData, AircraftFilter, SquawkStatus } from "./types";
 import type { BasePoint } from "@/features/base/types";
 
 export function getSquawkStatus(squawk?: string): SquawkStatus {
@@ -36,7 +32,7 @@ export function matchesAircraftFilter(
   f: AircraftFilter,
 ): boolean {
   if (!f.enabled) return false;
-  const d = (item as { data: AircraftData }).data;
+  const d = (item as unknown as { data: AircraftData }).data;
   const onGround: boolean = d?.onGround === true;
   if (!f.showAirborne && !onGround) return false;
   if (!f.showGround && onGround) return false;

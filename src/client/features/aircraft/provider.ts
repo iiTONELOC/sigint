@@ -1,6 +1,4 @@
-import {
-  type DataPoint,
-} from "@/features/base/dataPoints";
+import { type DataPoint } from "@/features/base/dataPoints";
 import {
   type DataProvider,
   type ProviderSnapshot,
@@ -8,6 +6,7 @@ import {
 import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus } from "./utils";
 import { getAircraftMetadataBatch } from "./typeLookup";
+import { cacheGet, cacheSet } from "@/lib/storageService";
 
 const DEFAULT_CACHE_DURATION = 235_000;
 const DEFAULT_CACHE_KEY = "sigint.opensky.aircraft-cache.v1";
@@ -17,7 +16,7 @@ export type AircraftProviderConfig = {
   cacheKey?: string;
 };
 
-interface StoredMetadata {
+type StoredMetadata = {
   resolvedType: string;
   registration?: string;
   manufacturerName?: string;
@@ -25,7 +24,7 @@ interface StoredMetadata {
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
-}
+};
 
 function normalizeIcao24(value: string | undefined): string | null {
   const raw = (value ?? "").trim().toLowerCase();
@@ -57,41 +56,25 @@ export class AircraftProvider implements DataProvider<DataPoint> {
   }
 
   private persistCache(data: DataPoint[]): void {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        this.cacheKey,
-        JSON.stringify({ timestamp: Date.now(), data }),
-      );
-    } catch {
-      // Ignore storage errors.
-    }
+    cacheSet(this.cacheKey, { timestamp: Date.now(), data });
   }
 
   private readPersistedCache(): {
     data: DataPoint[];
     timestamp: number;
   } | null {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem(this.cacheKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as {
-        data?: DataPoint[];
-        timestamp?: number;
-      };
-      if (!Array.isArray(parsed.data)) return null;
-      return {
-        data: parsed.data,
-        timestamp:
-          typeof parsed.timestamp === "number" &&
-          Number.isFinite(parsed.timestamp)
-            ? parsed.timestamp
-            : 0,
-      };
-    } catch {
-      return null;
-    }
+    const cached = cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
+      this.cacheKey,
+    );
+    if (!cached || !Array.isArray(cached.data)) return null;
+    return {
+      data: cached.data,
+      timestamp:
+        typeof cached.timestamp === "number" &&
+        Number.isFinite(cached.timestamp)
+          ? cached.timestamp
+          : 0,
+    };
   }
 
   private hydrateMemoryCacheFromPersisted(): void {

@@ -40,16 +40,11 @@ export function buildTickerItems(
     if (!feature) continue;
 
     if (item.type === "aircraft") {
-      // Aircraft uses its own complex filter; ticker always uses { ...filter, enabled: true }
-      const filter = filters[item.type];
-      if (filter && feature.matchesFilter(item as any, { ...(filter as any), enabled: true })) {
-        aircraft.push(item);
-      }
+      // Ticker shows ALL aircraft — UI filters don't affect the live feed
+      aircraft.push(item);
     } else {
-      // Simple features just check their layer toggle
-      if (layers[item.type] ?? false) {
-        nonAircraft.push(item);
-      }
+      // Ticker shows all data — layer toggles don't affect the live feed
+      nonAircraft.push(item);
     }
   }
 
