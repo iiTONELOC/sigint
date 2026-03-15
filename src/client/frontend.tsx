@@ -8,6 +8,7 @@ import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
+import { cacheInit } from "./lib/storageService";
 
 const fontsLink = document.createElement("link");
 fontsLink.rel = "stylesheet";
@@ -23,11 +24,15 @@ const app = (
   </StrictMode>
 );
 
-if (import.meta.hot) {
-  // With hot module reloading, `import.meta.hot.data` is persisted.
-  const root = (import.meta.hot.data.root ??= createRoot(elem));
-  root.render(app);
-} else {
-  // The hot module reloading API is not available in production.
-  createRoot(elem).render(app);
+async function boot() {
+  await cacheInit();
+
+  if (import.meta.hot) {
+    const root = (import.meta.hot.data.root ??= createRoot(elem));
+    root.render(app);
+  } else {
+    createRoot(elem).render(app);
+  }
 }
+
+boot();

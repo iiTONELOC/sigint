@@ -6,8 +6,8 @@ A real-time OSINT dashboard featuring live aircraft tracking, interactive globe/
 
 - [SIGINT](#sigint)
   - [Table of Contents](#table-of-contents)
-  - [Overview](#overview)
   - [Screenshot](#screenshot)
+  - [Overview](#overview)
   - [Features](#features)
   - [Tech Stack](#tech-stack)
   - [Architecture](#architecture)
@@ -19,16 +19,16 @@ A real-time OSINT dashboard featuring live aircraft tracking, interactive globe/
   - [Cleanup](#cleanup)
   - [License](#license)
   - [Author](#author)
+  
+## Screenshot
+
+![SIGINT](./sigint.gif)
 
 ## Overview
 
 **SIGINT** is an open-source geospatial intelligence dashboard that renders live aircraft positions from the OpenSky Network alongside simulated ship, event, and seismic data layers onto an interactive 3D globe or flat map projection. The UI is fully responsive, scaling from mobile to desktop with adaptive controls and touch support.
 
 Aircraft data is live — pulled directly from the OpenSky Network API every 4 minutes with smooth interpolation between refreshes. Ship, event, and seismic layers currently use generated mock data, with the architecture designed for easy integration of real providers.
-
-## Screenshot
-
-![SIGINT](./sigint.gif)
 
 ## Features
 
@@ -41,9 +41,10 @@ Aircraft data is live — pulled directly from the OpenSky Network API every 4 m
 - **Camera lock-on** — Double-click any point to zoom in and track it as it moves, with smooth lerp-based camera transitions
 - **Isolation modes** — FOCUS mode shows only the selected layer type; SOLO mode shows only a single tracked entity
 - **Trail rendering** — Selected items show a glowing trail of their recorded positions with real-time extrapolation
-- **Detail panel** — Draggable on desktop, bottom sheet on mobile, showing feature-specific metadata rows
+- **Trail waypoint history** — Click any waypoint dot on a trail to see an anchored tooltip with the aircraft's altitude, speed, heading, and coordinates at that point in time. Tooltip stays locked to the point as you pan and zoom. Trail dots take click priority over overlapping data points.
+- **Detail panel** — Draggable on desktop, bottom sheet on mobile, showing feature-specific metadata rows. Automatically repositions to the opposite side of the screen from the selected item so it never covers what you're tracking.
 - **Live ticker** — Scrolling bottom feed of active tracked entities with feature-specific formatting
-- **Offline resilience** — Three-tier localStorage caching (aircraft data, position trails, coastline geometry) enables instant boot from cache and graceful fallback on API errors
+- **Offline resilience** — IndexedDB caching (aircraft data, position trails, coastline geometry) enables instant boot from cache and graceful fallback on API errors. Auto-migrates from localStorage on first run. Trail entries expire after 24 hours and points are capped per entity to keep storage lean.
 - **Dark and light themes** — Full theme system with CSS variable propagation
 - **Responsive design** — Adaptive header controls, mobile gear dropdown, touch-friendly interactions
 
@@ -53,7 +54,7 @@ Aircraft data is live — pulled directly from the OpenSky Network API every 4 m
 - **Frontend**: React 19 + TypeScript
 - **Styling**: Tailwind CSS 4
 - **Icons**: Lucide React
-- **Visualization**: Custom Canvas 2D rendering engine (~1400 lines)
+- **Visualization**: Custom Canvas 2D rendering engine (modular `globe/` directory)
 - **Build**: Bun bundler with Tailwind plugin
 - **Containerization**: Docker + Docker Compose
 - **Deployment**: Heroku container stack
@@ -64,7 +65,7 @@ Full technical documentation of the data flow, caching architecture, rendering p
 
 **[docs/architecture.md](./docs/architecture.md)**
 
-Covers the boot lifecycle, three-tier caching system, metadata enrichment pipeline, the propsRef bridge between React and the Canvas animation loop, camera state machine, interpolation mechanics, isolation modes, and the feature-folder pattern.
+Covers the boot lifecycle, IndexedDB caching system, metadata enrichment pipeline, the propsRef bridge between React and the Canvas animation loop, camera state machine, interpolation mechanics, isolation modes, and the feature-folder pattern.
 
 ## Data Sources
 

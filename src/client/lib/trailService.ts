@@ -1,21 +1,27 @@
+import { cacheGet, cacheSet } from "@/lib/storageService";
+
 const CACHE_KEY = "sigint.trails.v1";
 const MIN_MOVE_DEG = 0.001; // ~100m — skip if hasn't moved
 const PERSIST_INTERVAL_MS = 30_000;
 const MAX_MISSED_REFRESHES = 3;
+const MAX_TRAIL_POINTS = 50; // ~3.3 hours at 4-min intervals
 
-export interface TrailPoint {
+export type TrailPoint = {
   lat: number;
   lon: number;
   ts: number;
-}
+  altitude?: number;
+  speed?: number;
+  heading?: number;
+};
 
-interface TrailEntry {
+type TrailEntry = {
   points: TrailPoint[];
   lastSeen: number;
   missedRefreshes: number;
   heading: number;
   speedMps: number;
-}
+};
 
 let trails = new Map<string, TrailEntry>();
 let lastPersist = 0;
@@ -24,29 +30,23 @@ let loaded = false;
 // ── Cache ────────────────────────────────────────────────────────────
 
 function readCache(): Map<string, TrailEntry> {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return new Map();
-    const parsed = JSON.parse(raw) as Record<string, TrailEntry>;
-    const map = new Map<string, TrailEntry>();
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (Array.isArray(entry.points) && entry.points.length > 0) {
-        map.set(id, entry);
-      }
+  const cached = cacheGet<Record<string, TrailEntry>>(CACHE_KEY);
+  if (!cached) return new Map();
+  const map = new Map<string, TrailEntry>();
+  for (const [id, entry] of Object.entries(cached)) {
+    if (Array.isArray(entry.points) && entry.points.length > 0) {
+      map.set(id, entry);
     }
-    return map;
-  } catch {}
-  return new Map();
+  }
+  return map;
 }
 
 function writeCache(): void {
-  try {
-    const obj: Record<string, TrailEntry> = {};
-    for (const [id, entry] of trails) {
-      obj[id] = entry;
-    }
-    localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
-  } catch {}
+  const obj: Record<string, TrailEntry> = {};
+  for (const [id, entry] of trails) {
+    obj[id] = entry;
+  }
+  cacheSet(CACHE_KEY, obj);
 }
 
 function maybePersist(): void {
@@ -95,6 +95,8 @@ export function recordPositions(
     lon: number;
     heading?: number;
     speedMps?: number;
+    altitude?: number;
+    speed?: number;
   }>,
 ): void {
   ensureLoaded();
@@ -112,7 +114,17 @@ export function recordPositions(
         Math.abs(last.lat - item.lat) >= MIN_MOVE_DEG ||
         Math.abs(last.lon - item.lon) >= MIN_MOVE_DEG
       ) {
-        entry.points.push({ lat: item.lat, lon: item.lon, ts: now });
+        entry.points.push({
+          lat: item.lat,
+          lon: item.lon,
+          ts: now,
+          altitude: item.altitude,
+          speed: item.speed,
+          heading: item.heading,
+        });
+        if (entry.points.length > MAX_TRAIL_POINTS) {
+          entry.points = entry.points.slice(-MAX_TRAIL_POINTS);
+        }
       }
       entry.lastSeen = now;
       entry.missedRefreshes = 0;
@@ -120,7 +132,16 @@ export function recordPositions(
       entry.speedMps = item.speedMps ?? entry.speedMps;
     } else {
       trails.set(item.id, {
-        points: [{ lat: item.lat, lon: item.lon, ts: now }],
+        points: [
+          {
+            lat: item.lat,
+            lon: item.lon,
+            ts: now,
+            altitude: item.altitude,
+            speed: item.speed,
+            heading: item.heading,
+          },
+        ],
         lastSeen: now,
         missedRefreshes: 0,
         heading: item.heading ?? 0,

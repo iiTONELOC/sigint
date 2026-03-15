@@ -4,16 +4,15 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureRegistry } from "@/features/registry";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { mono, FONT_BTN, FONT_SM, FONT_MD } from "./styles";
 
 // ── Search engine ────────────────────────────────────────────────────
 
-interface SearchResult {
+type SearchResult = {
   item: DataPoint;
   score: number;
   primary: string;
   secondary: string;
-}
+};
 
 function getPrimaryLabel(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
@@ -61,82 +60,58 @@ function scoreMatch(
   const q = query.toLowerCase();
   const words = q.split(/\s+/).filter(Boolean);
   if (words.length === 0) return 0;
-
   const st = searchText.toLowerCase();
   const pl = primary.toLowerCase();
-
-  // All words must appear
   for (const w of words) {
     if (!st.includes(w)) return 0;
   }
-
   let score = 1;
-
-  // Exact match on primary field
   if (pl === q) return 100;
-
-  // Primary starts with query
   if (pl.startsWith(q)) score += 50;
-
-  // Any word is an exact match on primary
   for (const w of words) {
     if (pl === w) score += 30;
     else if (pl.startsWith(w)) score += 15;
   }
-
-  // Earlier position = higher score
   for (const w of words) {
     const idx = st.indexOf(w);
     if (idx >= 0) score += Math.max(0, 10 - idx * 0.5);
   }
-
   return score;
 }
 
-/** Returns ALL matching items (for globe filtering) and top 15 scored (for dropdown). */
 function searchData(
   query: string,
   data: DataPoint[],
 ): { allMatches: SearchResult[]; topResults: SearchResult[] } {
   if (!query.trim()) return { allMatches: [], topResults: [] };
-
   const allMatches: SearchResult[] = [];
-
   for (const item of data) {
     const feature = featureRegistry.get(item.type);
     if (!feature?.getSearchText) continue;
-
     const searchText = feature.getSearchText(item.data as never);
     if (!searchText) continue;
-
     const primary = getPrimaryLabel(item);
     const score = scoreMatch(query, searchText, primary);
-
-    if (score > 0) {
+    if (score > 0)
       allMatches.push({
         item,
         score,
         primary,
         secondary: getSecondaryLabel(item),
       });
-    }
   }
-
   allMatches.sort((a, b) => b.score - a.score);
-  const topResults = allMatches.slice(0, 15);
-
-  return { allMatches, topResults };
+  return { allMatches, topResults: allMatches.slice(0, 15) };
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
-interface SearchProps {
+type SearchProps = {
   readonly data: DataPoint[];
   readonly onSelect: (item: DataPoint) => void;
   readonly onZoomTo: (item: DataPoint) => void;
-  /** Called with the Set of all matching IDs when search is active, or null when inactive. */
   readonly onMatchingIdsChange: (ids: Set<string> | null) => void;
-}
+};
 
 export function Search({
   data,
@@ -150,6 +125,8 @@ export function Search({
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [committedQuery, setCommittedQuery] = useState<string | null>(null);
+  const [committedCount, setCommittedCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -159,26 +136,63 @@ export function Search({
     [query, data],
   );
 
-  // Commit the current matches to the globe filter
+  // Re-run committed filter on data refresh
+  useEffect(() => {
+    if (committedQuery === null) return;
+    const { allMatches: refreshed } = searchData(committedQuery, data);
+    if (refreshed.length > 0) {
+      onMatchingIdsChange(new Set(refreshed.map((r) => r.item.id)));
+      setCommittedCount(refreshed.length);
+    } else {
+      onMatchingIdsChange(null);
+      setCommittedCount(0);
+    }
+  }, [data, committedQuery, onMatchingIdsChange]);
+
   const commitFilter = useCallback(() => {
     if (!query.trim() || allMatches.length === 0) return;
-    const ids = new Set(allMatches.map((r) => r.item.id));
-    onMatchingIdsChange(ids);
+    onMatchingIdsChange(new Set(allMatches.map((r) => r.item.id)));
+    setCommittedQuery(query.trim());
+    setCommittedCount(allMatches.length);
+    setOpen(false);
+    setActiveIndex(-1);
   }, [query, allMatches, onMatchingIdsChange]);
 
-  // Global Ctrl+K / Cmd+K shortcut
+  const clearFilter = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setCommittedQuery(null);
+    setCommittedCount(0);
+    setActiveIndex(-1);
+    onMatchingIdsChange(null);
+  }, [onMatchingIdsChange]);
+
+  const openSearch = useCallback(() => {
+    if (committedQuery && !query) setQuery(committedQuery);
+    setOpen(true);
+  }, [committedQuery, query]);
+
+  const closeDropdown = useCallback(() => {
+    setOpen(false);
+    setActiveIndex(-1);
+    if (committedQuery) {
+      setQuery(committedQuery);
+    } else {
+      setQuery("");
+    }
+  }, [committedQuery]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setOpen(true);
+        openSearch();
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [openSearch]);
 
-  // Group top results by type
   const grouped = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     for (const r of topResults) {
@@ -198,40 +212,27 @@ export function Search({
     [onSelect, onZoomTo, commitFilter],
   );
 
-  const closeSearch = useCallback(() => {
-    setOpen(false);
-    setQuery("");
-    setActiveIndex(-1);
-    onMatchingIdsChange(null);
-  }, [onMatchingIdsChange]);
-
-  // Focus input when opening
   useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    if (open) requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node)
-      ) {
-        closeSearch();
-      }
+      )
+        closeDropdown();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open, closeSearch]);
+  }, [open, closeDropdown]);
 
-  // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
-        closeSearch();
+        closeDropdown();
         return;
       }
       if (e.key === "ArrowDown") {
@@ -246,60 +247,66 @@ export function Search({
       }
       if (e.key === "Enter") {
         e.preventDefault();
-        if (activeIndex >= 0 && topResults[activeIndex]) {
-          // Select + zoom to specific result, also commits filter
+        if (activeIndex >= 0 && topResults[activeIndex])
           selectResult(topResults[activeIndex]);
-        } else {
-          // No specific result highlighted — just commit the filter to the globe
-          commitFilter();
-        }
+        else commitFilter();
       }
     },
-    [topResults, activeIndex, selectResult, closeSearch, commitFilter],
+    [topResults, activeIndex, selectResult, closeDropdown, commitFilter],
   );
 
-  // Reset active index when results change
   useEffect(() => {
     setActiveIndex(-1);
   }, [topResults]);
 
-  // Match count for the filter indicator
-  const matchCount = allMatches.length;
+  // ── COMMITTED state (chip) ───────────────────────────────────────
+  if (!open && committedQuery) {
+    return (
+      <div className="flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-sig-accent/10 border border-sig-accent/30">
+        <button
+          onClick={openSearch}
+          className="flex items-center gap-1 bg-transparent border-none p-0 text-sig-accent text-(length:--sig-text-btn)"
+          title="Edit search"
+        >
+          <SearchIcon size={12} strokeWidth={2.5} />
+          <span className="max-w-20 truncate">{committedQuery}</span>
+          <span className="text-sig-dim text-(length:--sig-text-sm)">
+            ({committedCount})
+          </span>
+        </button>
+        <button
+          onClick={clearFilter}
+          className="text-sig-dim bg-transparent border-none p-0 pl-0.5"
+          title="Clear filter"
+        >
+          <X size={12} strokeWidth={2.5} />
+        </button>
+      </div>
+    );
+  }
 
+  // ── IDLE state (button) ──────────────────────────────────────────
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1 px-1.5 md:px-2 py-0.5 rounded tracking-wide font-semibold transition-all"
-        style={{
-          ...mono(C.dim, FONT_BTN),
-          background: "transparent",
-          border: `1px solid ${C.border}`,
-          cursor: "pointer",
-        }}
+        onClick={openSearch}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border"
         title="Search (Ctrl+K)"
       >
-        <SearchIcon size={14} strokeWidth={2.5} />
-        <span className="hidden md:inline">SEARCH</span>
+        <SearchIcon size={13} strokeWidth={2.5} />
+        <span className="hidden sm:inline">SEARCH</span>
       </button>
     );
   }
 
+  // ── OPEN state (input + dropdown) ────────────────────────────────
   return (
-    <div ref={containerRef} className="relative z-[60]">
-      {/* Input */}
-      <div
-        className="flex items-center gap-1.5 rounded px-2 py-0.5"
-        style={{
-          background: `${C.panel}`,
-          border: `1px solid ${C.accent}70`,
-          minWidth: 220,
-        }}
-      >
+    <div ref={containerRef} className="relative z-60">
+      <div className="flex items-center gap-1.5 rounded px-2 py-0.5 bg-sig-panel border border-sig-accent/45 min-w-45">
         <SearchIcon
-          size={14}
+          size={13}
           strokeWidth={2.5}
-          style={{ color: C.accent, flexShrink: 0 }}
+          className="text-sig-accent shrink-0"
         />
         <input
           ref={inputRef}
@@ -307,53 +314,27 @@ export function Search({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="callsign, ICAO, type..."
-          className="bg-transparent outline-none flex-1 min-w-0"
-          style={{
-            ...mono(C.bright, FONT_MD),
-            caretColor: C.accent,
-          }}
+          placeholder="callsign, type..."
+          className="bg-transparent outline-none flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) caret-sig-accent"
         />
-        {query.trim() && matchCount > 0 && (
-          <span
-            className="flex-shrink-0 tracking-wider"
-            style={mono(C.accent, FONT_SM)}
-          >
-            {matchCount}
+        {query.trim() && allMatches.length > 0 && (
+          <span className="shrink-0 tracking-wider text-sig-accent text-(length:--sig-text-sm)">
+            {allMatches.length}
           </span>
         )}
         <button
           title="Close"
-          onClick={closeSearch}
-          className="flex-shrink-0"
-          style={{
-            color: C.dim,
-            cursor: "pointer",
-            background: "none",
-            border: "none",
-            padding: 0,
-          }}
+          onClick={closeDropdown}
+          className="shrink-0 text-sig-dim bg-transparent border-none p-0"
         >
-          <X size={14} strokeWidth={2.5} />
+          <X size={13} strokeWidth={2.5} />
         </button>
       </div>
 
-      {/* Results dropdown */}
       {query.trim() && (
-        <div
-          className="absolute top-full left-0 mt-1 rounded overflow-hidden overflow-y-auto search-results-scroll"
-          style={{
-            background: `${C.panel}f5`,
-            border: `1px solid ${C.border}`,
-            backdropFilter: "blur(12px)",
-            maxHeight: 360,
-            minWidth: 300,
-            width: "max-content",
-            maxWidth: "min(400px, 90vw)",
-          }}
-        >
+        <div className="absolute top-full left-0 mt-1 rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80 min-w-65 w-max max-w-[min(360px,90vw)]">
           {topResults.length === 0 ? (
-            <div className="px-3 py-2.5" style={mono(C.dim, FONT_SM)}>
+            <div className="px-3 py-2.5 text-sig-dim text-(length:--sig-text-sm)">
               No results for &ldquo;{query}&rdquo;
             </div>
           ) : (
@@ -362,58 +343,38 @@ export function Search({
               if (!feature) return null;
               const Icon = feature.icon;
               const color = colorMap[type] ?? C.dim;
-
               return (
                 <div key={type}>
-                  {/* Group header */}
                   <div
-                    className="px-3 py-1 tracking-wider"
-                    style={{
-                      ...mono(color, FONT_SM),
-                      background: `${color}10`,
-                      borderBottom: `1px solid ${C.border}`,
-                    }}
+                    className="px-3 py-1 tracking-wider text-(length:--sig-text-sm) border-b border-sig-border"
+                    style={{ color, background: `${color}10` }}
                   >
                     {feature.label}
                   </div>
-
-                  {/* Results */}
                   {items.map((result) => {
                     const flatIdx = topResults.indexOf(result);
                     const isActive = flatIdx === activeIndex;
-
                     return (
                       <button
                         key={result.item.id}
                         onClick={() => selectResult(result)}
-                        className="w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors"
-                        style={{
-                          background: isActive
-                            ? `${C.accent}18`
-                            : "transparent",
-                          cursor: "pointer",
-                          border: "none",
-                          borderBottom: `1px solid ${C.border}50`,
-                        }}
+                        className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30 ${
+                          isActive ? "bg-sig-accent/10" : "bg-transparent"
+                        }`}
                         onMouseEnter={() => setActiveIndex(flatIdx)}
                       >
                         <Icon
-                          size={13}
-                          style={{ color, flexShrink: 0 }}
+                          size={12}
+                          style={{ color }}
+                          className="shrink-0"
                           strokeWidth={2.5}
                         />
                         <div className="min-w-0 flex-1 overflow-hidden">
-                          <div
-                            className="truncate"
-                            style={mono(C.bright, FONT_MD)}
-                          >
+                          <div className="truncate text-sig-bright text-(length:--sig-text-md)">
                             {result.primary}
                           </div>
                           {result.secondary && (
-                            <div
-                              className="truncate"
-                              style={mono(C.dim, FONT_SM)}
-                            >
+                            <div className="truncate text-sig-dim text-(length:--sig-text-sm)">
                               {result.secondary}
                             </div>
                           )}

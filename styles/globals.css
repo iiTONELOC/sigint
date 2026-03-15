@@ -1,31 +1,15 @@
-.panel-container { /* Add container styles */ }
-.panel-header { /* Add header styles */ }
-.panel-row { /* Add row styles */ }
-.panel-label { /* Add label styles */ }
-.panel-value { /* Add value styles */ }
-.panel-button { /* Add button styles */ }
-.panel-button-text { font-size: clamp(12px, 1.8vw, 16px); }
-.panel-action { /* Add action button styles */ }
-.panel-input-row { /* Add input row styles */ }
-.panel-input-label { /* Add input label styles */ }
-.panel-input { /* Add input styles */ }
-.panel-input-error { /* Add input error styles */ }
-.panel-detail-row { /* Add detail row styles */ }
-.panel-detail-label { /* Add detail label styles */ }
-.panel-detail-value { /* Add detail value styles */ }
-.panel-detail-extra { /* Add detail extra styles */ }
-.panel-footer { /* Add footer styles */ }
-.panel-accent { color: var(--accent-color); }
-.panel-dim { color: var(--dim-color); }
-.panel-footer-row { /* Add footer row styles */ }
-.panel-footer-extra { /* Add footer extra styles */ }
-.panel-danger { color: var(--danger-color); animation: pulse 1.5s infinite; }
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Tailwind theme registration ──────────────────────────────────── */
+/* All SIGINT colors are registered here so we can use:               */
+/*   text-sig-accent, bg-sig-panel, border-sig-border, etc.           */
+/* They resolve to CSS vars set by applyThemeToRoot() at runtime.     */
+
 @theme inline {
+  /* shadcn defaults */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -61,10 +45,34 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* SIGINT theme colors — usable as text-sig-accent, bg-sig-panel, etc. */
+  --color-sig-bg: var(--sigint-bg);
+  --color-sig-panel: var(--sigint-panel);
+  --color-sig-border: var(--sigint-border);
+  --color-sig-accent: var(--sigint-accent);
+  --color-sig-coast: var(--sigint-coast);
+  --color-sig-coastFill: var(--sigint-coastFill);
+  --color-sig-ships: var(--sigint-ships);
+  --color-sig-aircraft: var(--sigint-aircraft);
+  --color-sig-events: var(--sigint-events);
+  --color-sig-quakes: var(--sigint-quakes);
+  --color-sig-text: var(--sigint-text);
+  --color-sig-dim: var(--sigint-dim);
+  --color-sig-bright: var(--sigint-bright);
+  --color-sig-danger: var(--sigint-danger);
+
+  /* SIGINT font family */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
+
+/* ── SIGINT font size scale (responsive clamp values) ─────────────── */
+/* Used as: text-[length:var(--sig-text-xs)] or via utility classes     */
 
 :root {
   --radius: 0.625rem;
+
+  /* shadcn light theme defaults */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -96,6 +104,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* SIGINT responsive font sizes */
+  --sig-text-xs: clamp(8px, 1.2vw, 11px);
+  --sig-text-sm: clamp(9px, 1.2vw, 12px);
+  --sig-text-md: clamp(9px, 1.3vw, 13px);
+  --sig-text-lg: clamp(10px, 1.4vw, 13px);
+  --sig-text-btn: clamp(10px, 1.5vw, 14px);
+  --sig-text-icon: clamp(12px, 1.8vw, 16px);
+  --sig-text-title: clamp(14px, 3vw, 24px);
+  --sig-text-subtitle: clamp(10px, 1.8vw, 16px);
+  --sig-text-clock: clamp(11px, 1.5vw, 15px);
 }
 
 .dark {
@@ -137,6 +156,6 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-mono;
   }
 }

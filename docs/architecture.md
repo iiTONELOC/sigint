@@ -17,12 +17,12 @@ graph TB
     subgraph Browser
         SPA["React SPA<br/>(App.tsx)"]
         Canvas["Canvas 2D<br/>Render Loop"]
-        LS["localStorage<br/>3 caches"]
+        IDB["IndexedDB<br/>(sigint-cache)"]
         Provider["AircraftProvider<br/>(provider.ts)"]
 
         SPA -->|"props via propsRef"| Canvas
         SPA -->|"useAircraftData hook"| Provider
-        Provider -->|"hydrate / persist"| LS
+        Provider -->|"hydrate / persist"| IDB
     end
 
     OpenSky["OpenSky Network API<br/>(anonymous, 400 cred/day)"]
@@ -30,7 +30,7 @@ graph TB
     NDJSON["ac-db.ndjson<br/>(~180k records)"]
 
     Provider -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
-    Provider -->|"POST icao24 batch<br/>(enrichment)"| BunServer
+    Provider -->|"GET /metadata/:icao24<br/>(enrichment)"| BunServer
     BunServer -->|"lookup"| NDJSON
 ```
 
@@ -55,7 +55,7 @@ src/
       ac-db.ndjson                    Local aircraft database (~180k records)
   client/
     App.tsx                           Root component, all top-level state
-    frontend.tsx                      React DOM entry point
+    frontend.tsx                      React DOM entry point (async boot with cacheInit)
     config/
       theme.ts                        Color definitions, ThemeColors type, getColorMap()
     context/
@@ -78,16 +78,25 @@ src/
         index.ts                      Barrel exports
       registry.tsx                    Feature registry + inline ship/event/quake defs
     components/
-      GlobeVisualization.tsx          Canvas 2D renderer (~1400 lines)
+      globe/                          Canvas 2D visualization (modular)
+        index.tsx                     Barrel export
+        GlobeVisualization.tsx        Shell: refs, render loop, effects, tooltip JSX
+        types.ts                      Shared types (Projected, CamState, CamTarget, etc.)
+        projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
+        landRenderer.ts               Land polygon drawing + globe clipping
+        gridRenderer.ts               Lat/lon grid lines
+        pointRenderer.ts              Data points, trails, waypoint hit targets
+        cameraSystem.ts               Lock-on follow, lerp, auto-rotate
+        inputHandlers.ts              Mouse, touch, wheel, keyboard handler factory
       Search.tsx                      Global search with zoom-to
       Header.tsx                      Top bar: logo, search, toggles, view controls, clock
-      SettingsDropdown.tsx            Mobile-only gear dropdown
-      DetailPanel.tsx                 Selected item detail (draggable/bottom sheet)
+      DetailPanel.tsx                 Selected item detail (draggable/bottom sheet, auto-side)
       Ticker.tsx                      Bottom live feed scroll
       LayerLegend.tsx                 Bottom-left layer counts
       StatusBadge.tsx                 Bottom-right connection status
-      styles.tsx                      mono() helper, responsive font constants
+      styles.tsx                      Canvas-only constants
     lib/
+      storageService.ts               IndexedDB-backed cache (replaces all localStorage)
       trailService.ts                 Position recording, interpolation, trail storage
       landService.ts                  HD coastline data fetch + cache
       tickerFeed.ts                   Builds ticker items from filtered data
@@ -109,7 +118,7 @@ Every data type in the application (aircraft, ships, events, quakes) is a **feat
 Defined in `features/base/types.ts`:
 
 ```typescript
-interface FeatureDefinition<TData, TFilter> {
+type FeatureDefinition<TData, TFilter> = {
   id: string;                   // Discriminator matching DataPoint.type
   label: string;                // Display name ("AIRCRAFT", "AIS VESSELS")
   icon: LucideIcon;             // Icon component for UI
@@ -122,7 +131,7 @@ interface FeatureDefinition<TData, TFilter> {
 
   FilterControl?: React.ComponentType;    // Optional header filter UI
   getSearchText?: (data) => string;       // Optional searchable text builder
-}
+};
 ```
 
 ### 3.2 Feature Registry
@@ -174,7 +183,7 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 ```mermaid
 flowchart TD
-    Boot["Application Boot"] --> Hydrate["AircraftProvider.hydrate()<br/>Reads localStorage<br/><i>sigint.opensky.aircraft-cache.v1</i>"]
+    Boot["Application Boot<br/>await cacheInit()"] --> Hydrate["AircraftProvider.hydrate()<br/>Reads IndexedDB cache<br/>(rejects if >5min stale)"]
     Hydrate -->|"cache hit"| MergeCache["Merge cached aircraft<br/>+ mock non-aircraft<br/>→ initial allData"]
     Hydrate -->|"cache miss"| MockFallback["generateMockAircraft()<br/>+ mock non-aircraft<br/>→ initial allData"]
 
@@ -185,9 +194,9 @@ flowchart TD
     Refresh --> FetchOSN["fetchOpenSkyStates()<br/>GET opensky-network.org/api/states/all<br/>(from browser)"]
 
     FetchOSN -->|"success"| ApplyMeta["applyMetadata()<br/>Merge cached metadata<br/>into DataPoint[]"]
-    FetchOSN -->|"error"| Fallback["Return: memory cache<br/>→ localStorage cache<br/>→ mock data"]
+    FetchOSN -->|"error"| Fallback["Return: memory cache<br/>→ IndexedDB cache<br/>→ mock data"]
 
-    ApplyMeta --> Persist["persistCache()<br/>Write to localStorage"]
+    ApplyMeta --> Persist["persistCache()<br/>Write to IndexedDB"]
     Persist --> SetState["setData([...mock, ...live])<br/>React state update"]
 
     Fallback --> SetState
@@ -251,26 +260,34 @@ Each feature's `matchesFilter()` receives its corresponding filter value. For ai
 
 ## 5. Caching Architecture
 
-The application maintains three independent caches in `localStorage`. They serve different purposes and have different lifecycles.
+The application uses a unified IndexedDB-backed storage service (`lib/storageService.ts`) for all persistent caching. On first run it auto-migrates any existing localStorage data. All reads are synchronous from an in-memory Map (populated at boot via `await cacheInit()`), while writes go to IndexedDB asynchronously (fire-and-forget) to avoid blocking the render loop.
+
+At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours are removed, and trail points are capped at 50 per entity (~3.3 hours at 4-minute intervals) to prevent unbounded growth. The aircraft cache is never deleted — it overwrites itself every 240 seconds during active use.
 
 ### 5.1 Cache Overview
 
 ```mermaid
 flowchart LR
-    subgraph "localStorage"
+    subgraph "IndexedDB (sigint-cache)"
         AC["sigint.opensky.<br/>aircraft-cache.v1<br/><i>Full DataPoint[] with<br/>enriched metadata</i>"]
         TR["sigint.trails.v1<br/><i>Position history,<br/>heading, speed per entity</i>"]
-        LD["Land data cache<br/><i>HD coastline polygons</i>"]
+        LD["sigint.land.hd.v1<br/><i>HD coastline polygons</i>"]
     end
 
-    Provider["AircraftProvider"] -->|"write: every refresh<br/>+ after enrichment"| AC
-    Provider -->|"read: hydrate() on boot"| AC
+    StorageSvc["storageService<br/>cacheGet / cacheSet"]
 
-    TrailSvc["trailService"] -->|"write: every 30s"| TR
-    TrailSvc -->|"read: lazy on first access"| TR
+    Provider["AircraftProvider"] -->|"cacheSet: every refresh<br/>+ after enrichment"| StorageSvc
+    Provider -->|"cacheGet: hydrate() on boot"| StorageSvc
 
-    LandSvc["landService"] -->|"write: after first fetch"| LD
-    LandSvc -->|"read: getLand() every frame"| LD
+    TrailSvc["trailService"] -->|"cacheSet: every 30s"| StorageSvc
+    TrailSvc -->|"cacheGet: lazy on first access"| StorageSvc
+
+    LandSvc["landService"] -->|"cacheSet: after first fetch"| StorageSvc
+    LandSvc -->|"cacheGet: on first access"| StorageSvc
+
+    StorageSvc --> AC
+    StorageSvc --> TR
+    StorageSvc --> LD
 ```
 
 ### 5.2 Aircraft Data Cache
@@ -281,9 +298,9 @@ flowchart LR
 | Contains | Full `DataPoint[]` array with aircraft positions + any enriched metadata |
 | Written | After every successful OpenSky fetch (with metadata applied) and after enrichment |
 | Read | On `hydrate()` at boot — provides instant first render before first API call |
-| Staleness | Overwritten every 240s on successful refresh; stale data returned as fallback on error |
+| Staleness | Rejected on hydrate if older than 5 minutes (provider skips to fresh fetch). Never deleted from storage — overwritten every 240s on successful refresh. |
 
-The provider has a two-tier cache: an in-memory object (`this.cache`) and `localStorage`. On boot, `hydrate()` checks memory first, then falls back to `localStorage`. The in-memory cache is authoritative during a session; `localStorage` is for cross-session persistence.
+The provider has a two-tier cache: an in-memory object (`this.cache`) and IndexedDB via `storageService`. On boot, `hydrate()` checks memory first, then falls back to IndexedDB. The in-memory cache is authoritative during a session; IndexedDB is for cross-session persistence.
 
 When metadata enrichment succeeds, both tiers are updated and re-persisted. This means the cache progressively improves — a callsign that was "Unknown" on first fetch gains its real type, registration, and operator after enrichment, and that enriched data survives page reloads.
 
@@ -295,13 +312,15 @@ When metadata enrichment succeeds, both tiers are updated and re-persisted. This
 | Contains | Map of entity ID → `{ points[], lastSeen, missedRefreshes, heading, speedMps }` |
 | Written | Every 30 seconds (`PERSIST_INTERVAL_MS`) |
 | Read | On first access (lazy load) |
-| Staleness | Entries purged after 3 consecutive missed refreshes |
+| Staleness | Entries purged after 3 consecutive missed refreshes. Entries older than 24 hours removed at boot. Points capped at 50 per entity. |
+
+Each trail point stores `{ lat, lon, ts, altitude?, speed?, heading? }` — the optional snapshot fields are captured at each data refresh for use by the trail waypoint tooltip feature.
 
 The trail service records actual positions from each data refresh and uses speed + heading for between-refresh interpolation. It is consumed both for drawing trail lines behind selected items and for smoothly animating all moving points between 240-second refresh intervals.
 
 ### 5.4 Land Data Cache
 
-| Key | Managed by `landService.ts` |
+| Key | `sigint.land.hd.v1` |
 |---|---|
 | Contains | HD coastline polygon data |
 | Written | After first successful fetch |
@@ -324,11 +343,11 @@ flowchart TD
     Hydrate -->|"Same ICAO24s added"| AttemptSet
 
     EnrichReq["enrichAircraftByIcao24(icao24List)"] --> FilterStep{"Filter out<br/>already in<br/>attemptedMetadataIcao?"}
-    FilterStep -->|"new ICAO24s only"| ServerCall["POST /api/aircraft/metadata"]
+    FilterStep -->|"new ICAO24s only"| ServerCall["GET /api/aircraft/metadata/batch?ids="]
     FilterStep -->|"all known → skip"| NoOp["Return null<br/>(no work needed)"]
 
     ServerCall -->|"results"| StoreStep["Store in metadataByIcao<br/>+ mark in attemptedMetadataIcao"]
-    StoreStep --> Reapply["applyMetadata() on cached DataPoints<br/>→ re-persist to localStorage"]
+    StoreStep --> Reapply["applyMetadata() on cached DataPoints<br/>→ re-persist to IndexedDB"]
 ```
 
 On boot, `hydrate()` populates both maps from the cached `DataPoint[]` — any entity whose `acType` is not "Unknown" is treated as already resolved. This prevents re-fetching metadata the server already returned in a previous session.
@@ -336,7 +355,7 @@ On boot, `hydrate()` populates both maps from the cached `DataPoint[]` — any e
 During a session, `enrichAircraftByIcao24()` filters out any ICAO24 already in `attemptedMetadataIcao` before hitting the server. This means:
 
 1. First refresh: all aircraft have `acType: "Unknown"`
-2. Ticker/detail panel triggers enrichment for visible aircraft
+2. Selecting an aircraft triggers enrichment for that ICAO24
 3. Server returns metadata, `metadataByIcao` is populated
 4. `applyMetadata()` merges it into the DataPoint array
 5. Cache is re-persisted with enriched data
@@ -348,47 +367,43 @@ During a session, `enrichAircraftByIcao24()` filters out any ICAO24 already in `
 
 ### 6.1 GlobeVisualization Architecture
 
-`GlobeVisualization.tsx` (~1400 lines) is a Canvas 2D renderer that runs outside React's render cycle for performance.
+The globe visualization is split into a modular `components/globe/` directory. The main component (`GlobeVisualization.tsx`, ~400 lines) is a thin shell that manages refs, the render loop, effects, and tooltip JSX. All rendering logic is extracted into pure functions in separate files.
 
 ```mermaid
 flowchart TD
+    subgraph "globe/ directory"
+        Shell["GlobeVisualization.tsx<br/><i>Shell: refs, render loop, tooltip</i>"]
+        Camera["cameraSystem.ts<br/><i>Lock-on, lerp, auto-rotate</i>"]
+        Input["inputHandlers.ts<br/><i>Mouse, touch, wheel, keyboard</i>"]
+        Points["pointRenderer.ts<br/><i>Data points, trails, hit targets</i>"]
+        Land["landRenderer.ts<br/><i>Coastline polygons, clipping</i>"]
+        Grid["gridRenderer.ts<br/><i>Lat/lon grid lines</i>"]
+        Proj["projection.ts<br/><i>projGlobe, projFlat, metrics</i>"]
+        Types["types.ts<br/><i>Shared types</i>"]
+    end
+
     subgraph "React World"
-        Props["React props<br/>(data, layers, selected, flat, etc.)"]
-        PropsRef["propsRef.current<br/><i>Synced every React render</i>"]
-        Props -->|"assigned on each render"| PropsRef
+        Props["React props"] --> PropsRef["propsRef.current"]
     end
 
-    subgraph "Animation Loop (requestAnimationFrame)"
-        Read["Read propsRef.current"] --> Camera["Camera system<br/>lerp, auto-rotate, lock-on"]
-        Camera --> Clear["Clear canvas"]
-        Clear --> BG["Draw ocean / globe background"]
-        BG --> Land["Draw land polygons<br/>getLand()"]
-        Land --> Grid["Draw grid lines"]
-        Grid --> DP["drawPoints()"]
-
-        subgraph "drawPoints()"
-            Isolate["Apply isolation mode<br/>(solo / focus)"]
-            Filter["Apply layer toggles<br/>+ aircraft filter"]
-            Interp["getInterpolatedPosition()<br/>for aircraft + ships"]
-            Project["Project to screen coords<br/>(globe or flat)"]
-            ZSort["Z-sort<br/>(painter's algorithm)"]
-            Trail["Draw trail for selected item"]
-            Markers["Draw point markers<br/>(triangles / circles)"]
-
-            Isolate --> Filter --> Interp --> Project --> ZSort --> Trail --> Markers
-        end
-
-        DP --> RAF["requestAnimationFrame(render)"]
-    end
-
-    PropsRef -.->|"read each frame<br/>(no React dependency)"| Read
+    PropsRef -->|"read each frame"| Shell
+    Shell -->|"updateCamera()"| Camera
+    Shell -->|"drawLand()"| Land
+    Shell -->|"drawGrid()"| Grid
+    Shell -->|"drawPoints()"| Points
+    Shell -->|"createInputHandlers()"| Input
+    Shell -->|"onSelectedSide()"| App["App.tsx → DetailPanel side"]
+    Land --> Proj
+    Grid --> Proj
+    Points --> Proj
+    Input --> Proj
 ```
 
 The key insight: **React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps. This means data updates (which trigger React re-renders) are picked up on the next animation frame without any useEffect dependencies or re-registration of the render loop.
 
 ### 6.2 Camera System
 
-The camera uses a target + lerp model for smooth transitions:
+The camera uses a target + lerp model for smooth transitions. The `updateCamera()` pure function in `cameraSystem.ts` handles all camera state mutation each frame.
 
 - **`camRef`** — current camera state: `{ rotY, rotX, vy, zoomGlobe, zoomFlat, panX, panY }`
 - **`camTargetRef`** — animation target: `{ rotY, rotX, zoom, panX, panY, active, lockedId }`
@@ -412,13 +427,32 @@ flowchart TD
 
 | Action | Effect |
 |---|---|
-| Double-click a point | Set `camTargetRef` to point's position, set `lockedId` |
+| Double-click a point | Set `camTargetRef` to point's position, set `lockedId`, zoom to 35 (globe) or 40 (flat) |
 | Drag | Breaks lock-on (`lockedId = null`, `active = false`) |
 | Scroll wheel (locked) | Adjusts `camTargetRef.zoom`, stays locked |
 | Scroll wheel (unlocked) | Directly modifies `camRef` zoom |
 | Auto-rotate | Only active when: globe mode, not dragging, not animating to target |
 
-### 6.3 Interpolation
+When locked onto an item in flat map mode, the pan target is calculated using `camTarget.zoom` (the destination zoom) rather than `cam.zoomFlat` (the mid-lerp zoom) to prevent pan/zoom fighting during transitions.
+
+### 6.3 Input Handlers
+
+All input handling is extracted into `inputHandlers.ts` as a factory function:
+
+```typescript
+const handlers = createInputHandlers({
+  canvas, camRef, camTargetRef, dragRef, sizeRef, propsRef, setTrailTooltip,
+});
+attachInputHandlers(canvas, handlers);
+// cleanup:
+detachInputHandlers(canvas, handlers);
+```
+
+This keeps the main component's useEffect clean — just create, attach, and return a detach cleanup.
+
+**Click priority**: Trail waypoint dots on the selected item's trail are checked before data points. This prevents random overlapping aircraft from stealing clicks when you're inspecting a trail. If no trail waypoint is hit, normal data point hit-testing runs. The hover handler follows the same priority for cursor changes.
+
+### 6.4 Interpolation
 
 All moving entities (aircraft, ships) have their positions interpolated between data refreshes for smooth animation:
 
@@ -428,7 +462,7 @@ sequenceDiagram
     participant Trail as trailService
     participant Frame as Render frame (~60fps)
 
-    Poll->>Trail: recordPositions(items)<br/>Store { lat, lon, ts, heading, speedMps }
+    Poll->>Trail: recordPositions(items)<br/>Store { lat, lon, ts, altitude?, speed?, heading? }
     Note over Trail: Adds new point only if<br/>moved > 0.001° (~100m)
 
     loop Every animation frame
@@ -451,7 +485,15 @@ sequenceDiagram
 
 This means even though OpenSky data refreshes every 4 minutes, aircraft appear to move continuously on screen.
 
-### 6.4 Projection Functions
+### 6.5 Trail Waypoint Tooltip
+
+When a trail is drawn for the selected item, each waypoint dot is stored as a hit target with its screen coordinates and `TrailPoint` data. The click handler in `inputHandlers.ts` checks trail waypoints first — if the click is near a waypoint dot, a tooltip is shown. Data point hit-testing only runs if no trail dot was hit.
+
+The tooltip is rendered as an absolutely positioned `<div>` over the canvas. Its position is updated every frame by the render loop via a DOM ref (not React state) — the `TrailPoint`'s lat/lon is reprojected to screen coordinates each frame, keeping the tooltip anchored to the waypoint as the user pans and zooms. The tooltip defaults to the left side of the waypoint dot (away from the detail panel) and flips to the right only when near the left screen edge. Vertically centered on the dot, clamped to the viewport. The tooltip hides when the point goes behind the globe.
+
+The hover handler also checks trail waypoints first, showing `pointer` cursor over trail dots before checking data points.
+
+### 6.6 Projection Functions
 
 Two projection modes, selected by the `flat` prop:
 
@@ -494,32 +536,29 @@ The detail panel controls toggling between modes. Closing the panel clears isola
 
 ## 8. Enrichment Pipeline
 
-Aircraft metadata enrichment runs as a side effect in `App.tsx`:
+Aircraft metadata enrichment runs as a side effect in `App.tsx`, scoped to the currently selected aircraft only. This prevents the aircraft cache from bloating with enrichment data for thousands of aircraft.
 
 ```mermaid
 flowchart TD
-    Trigger["useEffect triggers when<br/>tickerItems or selectedCurrent changes"]
-    Trigger --> Collect["Collect ICAO24 values from:<br/>• Aircraft in ticker<br/>• Currently selected aircraft"]
-    Collect --> Dedup["Deduplicate + sort → key string"]
-    Dedup --> KeyCheck{"key ==<br/>lastEnrichmentKeyRef?"}
-    KeyCheck -->|"yes — same set visible"| NoOp["Skip<br/>(prevents infinite loop)"]
-    KeyCheck -->|"no — new aircraft visible"| UpdateKey["lastEnrichmentKeyRef = key"]
-    UpdateKey --> Call["requestAircraftEnrichment(targets)"]
+    Trigger["useEffect triggers when<br/>selectedCurrent changes"]
+    Trigger --> Check{"selectedCurrent<br/>is aircraft?"}
+    Check -->|"no"| NoOp["Skip"]
+    Check -->|"yes"| GetIcao["Get icao24"]
+    GetIcao --> KeyCheck{"icao24 ==<br/>lastEnrichmentKeyRef?"}
+    KeyCheck -->|"yes — same aircraft"| NoOp
+    KeyCheck -->|"no — new selection"| UpdateKey["lastEnrichmentKeyRef = icao24"]
+    UpdateKey --> Call["requestAircraftEnrichment([icao24])"]
     Call --> ProviderEnrich["AircraftProvider.enrichAircraftByIcao24()"]
 
-    ProviderEnrich --> FilterAttempted{"Filter out ICAO24s<br/>in attemptedMetadataIcao"}
-    FilterAttempted -->|"none remaining"| ReturnNull["Return null"]
-    FilterAttempted -->|"pending ICAO24s"| MarkAttempted["Add to attemptedMetadataIcao"]
-    MarkAttempted --> ServerPost["POST /api/aircraft/metadata<br/>(server looks up ac-db.ndjson)"]
-    ServerPost --> StoreResults["Store in metadataByIcao"]
+    ProviderEnrich --> FilterAttempted{"Filter out ICAO24<br/>in attemptedMetadataIcao?"}
+    FilterAttempted -->|"already attempted"| ReturnNull["Return null"]
+    FilterAttempted -->|"new"| MarkAttempted["Add to attemptedMetadataIcao"]
+    MarkAttempted --> ServerGet["GET /api/aircraft/metadata/batch?ids=<br/>(server looks up ac-db.ndjson)"]
+    ServerGet --> StoreResults["Store in metadataByIcao"]
     StoreResults --> ReApply["applyMetadata() on cached DataPoints"]
-    ReApply --> RePersist["persistCache() → localStorage"]
+    ReApply --> RePersist["persistCache() → IndexedDB"]
     RePersist --> SetData["setData() → React re-render"]
-
-    SetData -.->|"re-render updates tickerItems<br/>but key hasn't changed"| NoOp
 ```
-
-The `lastEnrichmentKeyRef` prevents infinite loops: enrichment updates `allData`, which updates `tickerItems`, which would re-trigger the effect — but the key check short-circuits because the same set of ICAO24s is still visible.
 
 ---
 
@@ -565,7 +604,11 @@ flowchart TD
 
 Clicking a result selects + zooms to that specific point AND commits the filter. Pressing Enter with no result highlighted commits the filter without selecting or zooming to anything — useful for queries like "737" where you want to see all matches on the globe.
 
-### 9.3 Search Text per Feature
+### 9.3 Selection Stash/Restore
+
+When a search filter is committed, if the currently selected item is not in the match set, the selection is stashed in a ref (`stashedSelectionRef`) along with the isolate mode. When the search is cleared, the stashed selection is restored — so the user's pre-search selection comes back automatically.
+
+### 9.4 Search Text per Feature
 
 Each feature provides a `getSearchText(data)` method that concatenates all searchable fields into a single string:
 
@@ -576,7 +619,7 @@ Each feature provides a `getSearchText(data)` method that concatenates all searc
 | Events | headline, category, source |
 | Quakes | location, magnitude |
 
-### 9.4 UI Integration
+### 9.5 UI Integration
 
 Search is rendered into the Header via a `searchSlot` prop — the Header doesn't know about search internals, it just renders a React node in the correct position (left of layer toggles). This keeps the components loosely coupled.
 
@@ -584,7 +627,7 @@ On desktop, the search button shows a search icon + "SEARCH" label. Clicking it 
 
 Keyboard support: arrow keys navigate results, Enter executes search (with or without a selected result), Escape closes and clears filter, Ctrl+K/Cmd+K opens from anywhere.
 
-### 9.5 Globe Filter Mechanism
+### 9.6 Globe Filter Mechanism
 
 The filter flows through the existing `propsRef` bridge:
 
@@ -594,7 +637,7 @@ The filter flows through the existing `propsRef` bridge:
 4. `drawPoints()` checks `searchMatchIds` before any other filter — if the set exists and the item's ID isn't in it, the item is skipped
 5. Isolation modes (FOCUS/SOLO) and layer toggles still apply on top of the search filter
 
-### 9.6 Zoom-to Mechanism
+### 9.7 Zoom-to Mechanism
 
 When a specific search result is clicked, two things happen simultaneously:
 
@@ -615,14 +658,14 @@ graph TD
     Header --> SearchComp["Search<br/><i>searchSlot prop, z-[60]</i>"]
     Header --> LayerToggles["Layer toggle buttons<br/><i>from featureList</i>"]
     Header --> AircraftFC["AircraftFilterControl<br/><i>dropdown</i>"]
-    Header --> ViewDesktop["View controls<br/><i>desktop: inline</i>"]
-    Header --> ViewMobile["SettingsDropdown<br/><i>mobile: gear icon</i>"]
+    Header --> ViewControls["View controls"]
     Header --> Clock["Clock"]
 
-    App --> GlobeViz["GlobeVisualization<br/><i>Canvas 2D, fills flex-1</i>"]
+    App --> GlobeViz["globe/<br/><i>Canvas 2D, fills flex-1<br/>Reports selected item screen side</i>"]
     GlobeViz --> CanvasLoop["requestAnimationFrame loop<br/><i>Not managed by React</i>"]
+    GlobeViz --> Tooltip["Trail waypoint tooltip<br/><i>Anchored, reprojected per frame</i>"]
 
-    App --> DetailPanel["DetailPanel<br/><i>absolute over globe, z-40</i>"]
+    App --> DetailPanel["DetailPanel<br/><i>Auto-positions left or right<br/>opposite selected item, z-40</i>"]
     DetailPanel --> DetailRows["Feature-specific detail rows<br/><i>via buildDetailRows()</i>"]
 
     App --> LayerLegend["LayerLegend<br/><i>bottom-left, z-10</i>"]
@@ -632,14 +675,19 @@ graph TD
     Ticker --> TickerContent["Feature-specific content<br/><i>via TickerContent component</i>"]
 ```
 
+### Detail Panel Auto-Positioning
+
+The globe's render loop projects the selected item's screen position each frame and calls `onSelectedSide("left" | "right")` to report which side of the screen the item is on. App.tsx tracks this in `panelSide` state and passes it to DetailPanel as a `side` prop. The desktop card renders `right-3.5` or `left-3.5` accordingly — always on the opposite side from the selected item so it never covers what you're tracking. On mobile, the panel is always a bottom sheet regardless of side.
+
 ### Z-Index Stack
 
 | z-index | Component |
 |---|---|
 | z-10 | LayerLegend, StatusBadge |
 | (none) | Header — uses `relative` only, no stacking context that could trap dropdowns |
+| z-30 | Trail waypoint tooltip |
 | z-40 | DetailPanel |
-| z-[60] | AircraftFilterControl dropdown, SettingsDropdown, Search dropdown |
+| z-[60] | AircraftFilterControl dropdown, Search dropdown |
 
 The Header deliberately avoids a z-index to prevent creating a stacking context that would clip dropdown menus appearing below it.
 
@@ -661,6 +709,8 @@ All state lives in `App.tsx` as React hooks. There is no external state manageme
 | `aircraftFilter` | `AircraftFilter` | Complex aircraft filter (squawks, countries, airborne/ground) |
 | `zoomToId` | `string \| null` | Triggers camera zoom-to in GlobeVisualization, cleared after one tick |
 | `searchMatchIds` | `Set<string> \| null` | When non-null, globe only renders points whose IDs are in this set |
+| `panelSide` | `"left" \| "right"` | Which side of the screen the detail panel renders on (driven by globe) |
+| `stashedSelectionRef` | `Ref<DataPoint \| null>` | Pre-search selection, restored when search clears |
 
 Derived values computed via `useMemo`:
 
@@ -723,6 +773,10 @@ flowchart LR
 
 **propsRef pattern**: The animation loop never re-registers. It reads `propsRef.current` each frame, which is synced from React props on every render. This means there's a max 1-frame delay between a React state change and the canvas reflecting it — imperceptible to users.
 
-**Metadata enrichment is best-effort**: If the server is down or the ICAO24 isn't in the database, the aircraft just shows "Unknown" type. The UI never blocks on enrichment.
+**Metadata enrichment is best-effort**: If the server is down or the ICAO24 isn't in the database, the aircraft just shows "Unknown" type. The UI never blocks on enrichment. Enrichment only fires for the currently selected aircraft to prevent cache bloat.
 
-**Trail purging**: If an aircraft disappears from OpenSky data for 3 consecutive refreshes (~12 minutes), its trail is deleted. This prevents stale trails from accumulating for aircraft that have landed or left coverage.
+**Trail purging**: If an aircraft disappears from OpenSky data for 3 consecutive refreshes (~12 minutes), its trail is deleted. Trail entries older than 24 hours are removed at boot. Points are capped at 50 per entity.
+
+**IndexedDB migration**: On first run, `storageService` auto-migrates any existing localStorage data to IndexedDB and removes the old keys. This is a one-time operation. IndexedDB has no practical size limit (browser-dependent, typically hundreds of MB to GB), eliminating the 5MB localStorage quota that previously caused trail persistence failures.
+
+**Storage cleanup**: At boot, `cacheInit()` removes trail entries older than 24 hours and trims remaining trails to the last 50 points per entity. The aircraft cache is self-managing — it overwrites itself every 240 seconds during active use and is never deleted from storage.

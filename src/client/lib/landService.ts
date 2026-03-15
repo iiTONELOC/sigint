@@ -1,3 +1,5 @@
+import { cacheGet, cacheSet } from "@/lib/storageService";
+
 const CACHE_KEY = "sigint.land.hd.v1";
 const HD_URL = "/data/ne_50m_land.json";
 
@@ -19,7 +21,13 @@ function parseGeoJSON(geojson: any): number[][][] {
     for (const ring of rings) {
       // GeoJSON is [lon, lat] — we store [lat, lon]
       const converted = ring
-        .filter((coords): coords is [number, number] => Array.isArray(coords) && coords.length === 2 && typeof coords[0] === "number" && typeof coords[1] === "number")
+        .filter(
+          (coords): coords is [number, number] =>
+            Array.isArray(coords) &&
+            coords.length === 2 &&
+            typeof coords[0] === "number" &&
+            typeof coords[1] === "number",
+        )
         .map(([lon, lat]) => [
           Math.round(lat * 100) / 100,
           Math.round(lon * 100) / 100,
@@ -35,19 +43,13 @@ function parseGeoJSON(geojson: any): number[][][] {
 // ── Cache ────────────────────────────────────────────────────────────
 
 function readCache(): number[][][] | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-  } catch {}
+  const cached = cacheGet<number[][][]>(CACHE_KEY);
+  if (Array.isArray(cached) && cached.length > 0) return cached;
   return null;
 }
 
 function writeCache(data: number[][][]): void {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-  } catch {}
+  cacheSet(CACHE_KEY, data);
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -69,7 +71,7 @@ export function getLand(): number[][][] {
 }
 
 /**
- * Fetches land data if not already available. Checks localStorage first,
+ * Fetches land data if not already available. Checks cache first,
  * then network. Calls `onReady` when data becomes available.
  */
 export function enrichLand(onReady: (land: number[][][]) => void): void {

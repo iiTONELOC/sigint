@@ -1,4 +1,5 @@
 @import "../styles/globals.css";
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -7,7 +8,7 @@
   }
 
   body {
-    @apply m-0 overflow-hidden;
+    @apply m-0 overflow-hidden font-mono;
   }
 }
 
@@ -21,7 +22,7 @@
   }
 }
 
-/* Click affordance for interactive controls */
+/* ── Global button affordance ─────────────────────────────────────── */
 button:not(:disabled) {
   cursor: pointer;
 }
@@ -35,50 +36,27 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-/* Themed scrollbar for aircraft country filter list */
-.aircraft-country-scroll {
-}
-
-.aircraft-country-scroll::-webkit-scrollbar {
-  width: 10px;
-}
-
-.aircraft-country-scroll::-webkit-scrollbar-track {
-  background: #0b1225;
-  border-radius: 8px;
-}
-
-.aircraft-country-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #4c5f80 0%, #3d4f70 100%);
-  border-radius: 8px;
-  border: 2px solid #0b1225;
-}
-
-.aircraft-country-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #61749b 0%, #4f6488 100%);
-}
-
-/* Search results dropdown scrollbar */
-.search-results-scroll {
+/* ── Scrollbar theming ────────────────────────────────────────────── */
+.sigint-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #4c5f80 #0b1225;
+  scrollbar-color: var(--sigint-dim) var(--sigint-panel);
 }
 
-.search-results-scroll::-webkit-scrollbar {
+.sigint-scroll::-webkit-scrollbar {
   width: 8px;
 }
 
-.search-results-scroll::-webkit-scrollbar-track {
-  background: #0b1225;
-  border-radius: 0 4px 4px 0;
-}
-
-.search-results-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #4c5f80 0%, #3d4f70 100%);
+.sigint-scroll::-webkit-scrollbar-track {
+  background: var(--sigint-panel);
   border-radius: 8px;
-  border: 2px solid #0b1225;
 }
 
-.search-results-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #61749b 0%, #4f6488 100%);
+.sigint-scroll::-webkit-scrollbar-thumb {
+  background: var(--sigint-dim);
+  border-radius: 8px;
+  border: 2px solid var(--sigint-panel);
+}
+
+.sigint-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--sigint-bright);
 }

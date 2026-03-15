@@ -1,10 +1,9 @@
 import { useRef, useState, useCallback } from "react";
-import { Eye, EyeOff, Crosshair, GripHorizontal } from "lucide-react";
+import { Eye, Crosshair, GripHorizontal } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
-import { mono, FONT_SM, FONT_MD, FONT_LG, FONT_BTN } from "@/components/styles";
 
 function getRows(item: DataPoint): [string, string][] {
   const feature = featureRegistry.get(item.type);
@@ -17,6 +16,7 @@ export type DetailPanelProps = {
   readonly isolateMode: null | "solo" | "focus";
   readonly onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   readonly onClose: () => void;
+  readonly side?: "left" | "right";
 };
 
 function useDrag() {
@@ -73,16 +73,18 @@ export function DetailPanel({
   isolateMode,
   onSetIsolateMode,
   onClose,
+  side = "right",
 }: DetailPanelProps) {
   const { theme } = useTheme();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
   const drag = useDrag();
 
-  // Reset drag position when selecting a new item
   const lastItemId = useRef<string | null>(null);
-  if (item?.id !== lastItemId.current) {
+  const lastSide = useRef(side);
+  if (item?.id !== lastItemId.current || side !== lastSide.current) {
     lastItemId.current = item?.id ?? null;
+    lastSide.current = side;
     if (drag.dragged) drag.reset();
   }
 
@@ -102,7 +104,6 @@ export function DetailPanel({
       feature={feature}
       item={item}
       rows={rows}
-      C={C}
       isolateMode={isolateMode}
       onSetIsolateMode={onSetIsolateMode}
       onClose={onClose}
@@ -113,13 +114,7 @@ export function DetailPanel({
     <>
       {/* Mobile: bottom sheet */}
       <div
-        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[60vh] overflow-y-auto"
-        style={{
-          background: `${C.panel}f5`,
-          border: `1px solid ${C.border}`,
-          borderBottom: "none",
-          padding: 14,
-        }}
+        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[40vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 p-2.5"
         onClick={(e) => e.stopPropagation()}
       >
         {content}
@@ -127,23 +122,14 @@ export function DetailPanel({
 
       {/* Desktop: draggable floating card */}
       <div
-        className="hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40"
-        style={{
-          top: 14,
-          right: 14,
-          transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)`,
-          background: `${C.panel}f0`,
-          border: `1px solid ${C.border}`,
-          padding: 14,
-        }}
+        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 ${side === "left" ? "left-3.5" : "right-3.5"}`}
+        style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
         onPointerMove={drag.onPointerMove}
         onPointerUp={drag.onPointerUp}
       >
-        {/* Drag handle */}
         <div
-          className="flex justify-center mb-1 cursor-grab active:cursor-grabbing"
-          style={{ color: C.dim, marginTop: -4 }}
+          className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing"
           onPointerDown={drag.onPointerDown}
         >
           <GripHorizontal size={14} />
@@ -159,31 +145,30 @@ function ModeButton({
   label,
   icon: ButtonIcon,
   accentColor,
-  dimColor,
-  brightColor,
   onClick,
 }: {
   active: boolean;
   label: string;
   icon: any;
   accentColor: string;
-  dimColor: string;
-  brightColor: string;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
       title={label}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-all"
-      style={{
-        ...mono(active ? accentColor : dimColor, "10px"),
-        background: active ? `${accentColor}20` : "transparent",
-        border: `1px solid ${active ? accentColor : `${brightColor}30`}`,
-        cursor: "pointer",
-        letterSpacing: 1,
-        fontFamily: "inherit",
-      }}
+      className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-all text-[10px] tracking-wide ${
+        active ? "border" : "text-sig-dim border border-sig-bright/20"
+      }`}
+      style={
+        active
+          ? {
+              color: accentColor,
+              background: `${accentColor}20`,
+              borderColor: accentColor,
+            }
+          : undefined
+      }
     >
       <ButtonIcon size={11} />
       {label}
@@ -197,7 +182,6 @@ function PanelContent({
   feature,
   item,
   rows,
-  C,
   isolateMode,
   onSetIsolateMode,
   onClose,
@@ -207,7 +191,6 @@ function PanelContent({
   feature: any;
   item: DataPoint;
   rows: [string, string][];
-  C: any;
   isolateMode: null | "solo" | "focus";
   onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   onClose: () => void;
@@ -219,14 +202,14 @@ function PanelContent({
         <div className="flex items-center gap-1.5">
           <Icon
             size="clamp(14px, 2vw, 18px)"
-            style={{ color: color ?? C.text }}
+            style={{ color }}
             {...(item.type === "aircraft" || item.type === "events"
               ? { fill: "currentColor", strokeWidth: 0 }
               : { strokeWidth: 2.5 })}
           />
           <span
-            className="font-bold tracking-widest"
-            style={mono(color ?? C.text, FONT_BTN)}
+            className="font-bold tracking-widest text-(length:--sig-text-btn)"
+            style={{ color }}
           >
             {feature.label}
           </span>
@@ -236,9 +219,7 @@ function PanelContent({
             active={isolateMode === "focus"}
             label="FOCUS"
             icon={Eye}
-            accentColor={C.accent}
-            dimColor={C.dim}
-            brightColor={C.bright}
+            accentColor="var(--sigint-accent)"
             onClick={() =>
               onSetIsolateMode(isolateMode === "focus" ? null : "focus")
             }
@@ -247,17 +228,14 @@ function PanelContent({
             active={isolateMode === "solo"}
             label="SOLO"
             icon={Crosshair}
-            accentColor={C.danger}
-            dimColor={C.dim}
-            brightColor={C.bright}
+            accentColor="var(--sigint-danger)"
             onClick={() =>
               onSetIsolateMode(isolateMode === "solo" ? null : "solo")
             }
           />
           <span
             onClick={onClose}
-            className="cursor-pointer text-[15px] leading-none select-none ml-1"
-            style={{ color: C.dim }}
+            className="cursor-pointer text-[15px] leading-none select-none ml-1 text-sig-dim"
           >
             ✕
           </span>
@@ -265,19 +243,13 @@ function PanelContent({
       </div>
 
       {/* Rows */}
-      <div className="pt-2.5" style={{ borderTop: `1px solid ${C.border}` }}>
+      <div className="pt-2.5 border-t border-sig-border">
         {rows.map(([k, v]) => (
           <div key={k} className="flex justify-between mb-1.5">
-            <span
-              className="uppercase tracking-wide"
-              style={mono(C.dim, FONT_SM)}
-            >
+            <span className="uppercase tracking-wide text-sig-dim text-(length:--sig-text-sm)">
               {k}
             </span>
-            <span
-              className="text-right max-w-38.75 wrap-break-word"
-              style={mono(C.bright, FONT_LG)}
-            >
+            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-lg)">
               {v}
             </span>
           </div>
@@ -285,13 +257,7 @@ function PanelContent({
       </div>
 
       {/* Coordinates */}
-      <div
-        className="mt-1.5 pt-1.5"
-        style={{
-          borderTop: `1px solid ${C.border}`,
-          ...mono(C.dim, FONT_MD),
-        }}
-      >
+      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-dim text-(length:--sig-text-md)">
         {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>

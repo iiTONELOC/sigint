@@ -1,48 +1,36 @@
 import { Anchor, Zap, Activity } from "lucide-react";
-import type { FeatureDefinition, TickerRendererProps } from "./base/types";
+import type {
+  FeatureDefinition,
+  TickerRendererProps,
+  BasePoint,
+} from "./base/types";
 import type { ShipData, EventData, QuakeData } from "./base/dataPoints";
 import { aircraftFeature } from "./aircraft";
-import { mono, FONT_LG } from "@/components/styles";
 
 // ── Default ticker content for simple features ───────────────────────
 
-function ShipTickerContent({ data, textColor }: Readonly<TickerRendererProps>) {
+function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as ShipData;
   return (
-    <div
-      className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap"
-      style={mono(textColor, FONT_LG)}
-    >
+    <div className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap text-sig-text text-[length:var(--sig-text-lg)]">
       {d.name} [{d.flag}] {d.speed}kn
     </div>
   );
 }
 
-function EventTickerContent({
-  data,
-  textColor,
-}: Readonly<TickerRendererProps>) {
+function EventTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as EventData;
   return (
-    <div
-      className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap"
-      style={mono(textColor, FONT_LG)}
-    >
+    <div className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap text-sig-text text-[length:var(--sig-text-lg)]">
       {d.headline ?? ""}
     </div>
   );
 }
 
-function QuakeTickerContent({
-  data,
-  textColor,
-}: Readonly<TickerRendererProps>) {
+function QuakeTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as QuakeData;
   return (
-    <div
-      className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap"
-      style={mono(textColor, FONT_LG)}
-    >
+    <div className="leading-snug overflow-hidden text-ellipsis whitespace-nowrap text-sig-text text-[length:var(--sig-text-lg)]">
       M{d.magnitude} {"\u2014"} {d.location}
     </div>
   );
@@ -90,8 +78,6 @@ function buildQuakeDetailRows(
 }
 
 // ── Simple feature definitions ───────────────────────────────────────
-// These don't have their own folders yet. When they get real providers,
-// graduate them to features/ships/, features/events/, etc.
 
 const shipsFeature: FeatureDefinition<ShipData, boolean> = {
   id: "ships",
@@ -132,7 +118,6 @@ const quakesFeature: FeatureDefinition<QuakeData, boolean> = {
 };
 
 // ── Registry ─────────────────────────────────────────────────────────
-// Adding a new data source? Register it here.
 
 const features: FeatureDefinition<any, any>[] = [
   aircraftFeature,
@@ -141,10 +126,8 @@ const features: FeatureDefinition<any, any>[] = [
   quakesFeature,
 ];
 
-/** Map keyed by feature id for O(1) lookup */
 export const featureRegistry = new Map<string, FeatureDefinition<any, any>>(
   features.map((f) => [f.id, f]),
 );
 
-/** Ordered list for iteration (UI rendering order) */
 export const featureList = features;
