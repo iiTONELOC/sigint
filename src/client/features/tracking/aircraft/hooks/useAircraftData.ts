@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { DataOrchestrator } from "@/providers/DataOrchestrator";
 import { generateMockAircraft, generateMockNonAircraft } from "@/data/mockData";
 import { recordPositions } from "@/lib/trailService";
 import { AircraftProvider } from "../data/provider";
 
 const aircraftProvider = new AircraftProvider();
-const orchestrator = new DataOrchestrator([aircraftProvider]);
 
 export type AircraftDataSource = "loading" | "live" | "cached" | "mock";
 
@@ -43,8 +41,6 @@ export function useAircraftData(
   useEffect(() => {
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
-
-    orchestrator.initialize();
 
     const poll = async () => {
       try {

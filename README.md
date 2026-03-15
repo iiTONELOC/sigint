@@ -66,7 +66,7 @@ Aircraft data is live — pulled directly from the OpenSky Network API every 4 m
 
 The application uses a pane-based layout with self-contained view modules. The current single pane — `LiveTrafficPane` — owns all globe-related state, data fetching, filtering, and UI. `App.tsx` is a thin shell that renders the active pane, designed to become a layout manager when multi-pane support is added.
 
-Data features are organized by domain: `tracking/` for live position feeds (aircraft, future ships), `environmental/` for natural events (earthquakes, future weather), and `intel/` for news/conflict data (future GDELT). Each feature follows a consistent subdirectory pattern (`ui/`, `hooks/`, `data/`, `lib/`) with a barrel `index.ts` for clean external imports. Every live data provider implements full IndexedDB caching with hydrate-on-boot, persist-after-fetch, and a fallback chain.
+Data features are organized by domain: `tracking/` for live position feeds (aircraft, ships), `environmental/` for natural events (earthquakes, future weather), and `intel/` for news/conflict data (events, future GDELT). Each feature follows a consistent subdirectory pattern (`ui/`, `hooks/`, `data/`, `lib/`) with a barrel `index.ts` for clean external imports. Every live data provider implements full IndexedDB caching with hydrate-on-boot, persist-after-fetch, and a fallback chain. The feature registry is a pure import-and-register file — all feature logic lives in feature folders, not in the registry.
 
 Full technical documentation of the data flow, caching architecture, rendering pipeline, and component hierarchy is available in the architecture doc:
 
