@@ -1,15 +1,18 @@
 # SIGINT
 
-A real-time global intelligence dashboard prototype featuring live data visualization, interactive globe/map views, and multi-layer event tracking. Currently demonstrates simulated data for ships, aircraft, seismic events, and GDELT-style intelligence events.
+A real-time OSINT dashboard featuring live aircraft tracking, interactive globe/flat map visualization, and multi-layer geospatial event monitoring. Built with Bun, React 19, and a custom Canvas 2D rendering engine.
 
 ## Table of Contents
 
 - [SIGINT](#sigint)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
-  - [Tech Stack](#tech-stack)
-  - [Docker Architecture](#docker-architecture)
   - [Screenshot](#screenshot)
+  - [Features](#features)
+  - [Tech Stack](#tech-stack)
+  - [Architecture](#architecture)
+  - [Data Sources](#data-sources)
+  - [Docker Architecture](#docker-architecture)
   - [Development](#development)
   - [Production](#production)
   - [Heroku Deployment](#heroku-deployment)
@@ -19,33 +22,69 @@ A real-time global intelligence dashboard prototype featuring live data visualiz
 
 ## Overview
 
-**SIGINT** is an open-source OSINT dashboard prototype built with Bun, React, and Canvas-based 3D visualization. The app provides real-time tracking and monitoring across geospatial data streams with a responsive UI that scales from mobile to desktop.
+**SIGINT** is an open-source geospatial intelligence dashboard that renders live aircraft positions from the OpenSky Network alongside simulated ship, event, and seismic data layers onto an interactive 3D globe or flat map projection. The UI is fully responsive, scaling from mobile to desktop with adaptive controls and touch support.
 
-**⚠️ Status**: Prototype using simulated mock data. Not yet connected to real data sources.
+Aircraft data is live — pulled directly from the OpenSky Network API every 4 minutes with smooth interpolation between refreshes. Ship, event, and seismic layers currently use generated mock data, with the architecture designed for easy integration of real providers.
+
+## Screenshot
+
+![SIGINT](./sigint.gif)
+
+## Features
+
+- **Live aircraft tracking** — Real-time positions from OpenSky Network with smooth frame-by-frame interpolation between 4-minute data refreshes
+- **Globe and flat map** — Toggle between an orthographic 3D globe and an equirectangular flat map projection, both rendered on Canvas 2D
+- **Aircraft metadata enrichment** — Automatic lookup of aircraft type, registration, operator, and model from a local database (~180k records)
+- **Multi-layer visualization** — Aircraft, ships, GDELT-style events, and seismic activity as independently toggleable layers
+- **Advanced aircraft filtering** — Filter by airborne/ground status, squawk codes (emergency, radio failure, hijack), and origin country
+- **Global search with live globe filtering** — Search across all data layers by callsign, type, country, or any field. Results preview live as you type; executing the search filters the globe to show only matching points. Ctrl+K/Cmd+K shortcut.
+- **Camera lock-on** — Double-click any point to zoom in and track it as it moves, with smooth lerp-based camera transitions
+- **Isolation modes** — FOCUS mode shows only the selected layer type; SOLO mode shows only a single tracked entity
+- **Trail rendering** — Selected items show a glowing trail of their recorded positions with real-time extrapolation
+- **Detail panel** — Draggable on desktop, bottom sheet on mobile, showing feature-specific metadata rows
+- **Live ticker** — Scrolling bottom feed of active tracked entities with feature-specific formatting
+- **Offline resilience** — Three-tier localStorage caching (aircraft data, position trails, coastline geometry) enables instant boot from cache and graceful fallback on API errors
+- **Dark and light themes** — Full theme system with CSS variable propagation
+- **Responsive design** — Adaptive header controls, mobile gear dropdown, touch-friendly interactions
 
 ## Tech Stack
 
 - **Runtime**: [Bun](https://bun.sh) (TypeScript/JavaScript)
 - **Frontend**: React 19 + TypeScript
 - **Styling**: Tailwind CSS 4
-- **Visualization**: Canvas 3D globe + interactive map
+- **Icons**: Lucide React
+- **Visualization**: Custom Canvas 2D rendering engine (~1400 lines)
 - **Build**: Bun bundler with Tailwind plugin
 - **Containerization**: Docker + Docker Compose
 - **Deployment**: Heroku container stack
 
+## Architecture
+
+Full technical documentation of the data flow, caching architecture, rendering pipeline, and component hierarchy is available in the architecture doc:
+
+**[docs/architecture.md](./docs/architecture.md)**
+
+Covers the boot lifecycle, three-tier caching system, metadata enrichment pipeline, the propsRef bridge between React and the Canvas animation loop, camera state machine, interpolation mechanics, isolation modes, and the feature-folder pattern.
+
+## Data Sources
+
+| Layer | Source | Status |
+|-------|--------|--------|
+| Aircraft | [OpenSky Network API](https://opensky-network.org/apidoc/) | **Live** — anonymous access, 400 credits/day |
+| Aircraft metadata | Local NDJSON database (`ac-db.ndjson`) | **Live** — ~180k records, server-side lookup |
+| Ships | Generated mock data | Simulated |
+| Events | Generated mock data | Simulated |
+| Seismic | Generated mock data | Simulated |
+
+OpenSky API calls are made client-side because Heroku's IP ranges are blocked by OpenSky. This means anonymous access only — no API keys can be used. The 240-second poll interval keeps usage well within the daily credit limit.
+
 ## Docker Architecture
 
-Fully containerized app with separate dev and production configurations:
+Fully containerized with separate dev and production configurations:
 
 - **Dev**: Hot-reload with source volumes, Caddy reverse proxy (HTTPS), renders bundled TypeScript at runtime
 - **Prod**: Multi-stage build, compiles to static `dist/`, serves pre-built files at runtime, ready for Heroku container stack
 - **Network**: Dev compose exposes ports 80/443 (Caddy) + 3000 (API); prod exposes 3000 with configurable PORT override
-
-Start dev or prod containers with npm scripts (see Development/Production sections below).
-
-## Screenshot
-
-![SIGINT](./sigint.gif)
 
 ## Development
 
@@ -55,7 +94,7 @@ Dev with hot-reload (Caddy handles HTTPS):
 npm run docker:dev:up
 ```
 
-Access via over the network at `https://<machine-ip>`, or locally via localhost.
+Access over the network at `https://<machine-ip>`, or locally via localhost.
 
 Stop:
 
@@ -100,8 +139,13 @@ npm run docker:clean
 
 ## License
 
-This project is licensed under the **MIT License** — see [LICENSE](./LICENSE) file for details.
+This project is dual-licensed:
+
+- **Non-commercial use** — free under the [SIGINT Non-Commercial License](./LICENSE.md). Use it for personal projects, learning, research, portfolios, whatever you want — just not to make money.
+- **Commercial use** — requires a separate paid license. [Contact the author](https://github.com/iiTONELOC) for terms.
+
+See [LICENSE.md](./LICENSE.md) for full details.
 
 ## Author
 
-[iiTONELOC](https://github.com/iiTONELOC)
+[Anthony Tropeano](https://github.com/iiTONELOC)

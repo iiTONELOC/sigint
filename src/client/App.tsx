@@ -1,5 +1,5 @@
 import "../index.css";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/aircraft/types";
@@ -16,6 +16,7 @@ import {
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { GlobeVisualization } from "@/components/GlobeVisualization";
 import { Header } from "@/components/Header";
+import { Search } from "@/components/Search";
 import { DetailPanel } from "@/components/DetailPanel";
 import { LayerLegend } from "@/components/LayerLegend";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -27,9 +28,10 @@ export function App() {
   const lastEnrichmentKeyRef = useRef("");
   const [flat, setFlat] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
-  const [rotationSpeed, setRotationSpeed] = useState(0.5);
+  const [rotationSpeed, setRotationSpeed] = useState(0.2);
   const [chromeHidden, setChromeHidden] = useState(false);
   const [selected, setSelected] = useState<DataPoint | null>(null);
+  const [isolateMode, setIsolateMode] = useState<null | "solo" | "focus">(null);
   const [layers, setLayers] = useState<Record<string, boolean>>({
     ships: true,
     events: true,
@@ -37,6 +39,10 @@ export function App() {
   });
   const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
     getInitialAircraftFilter(),
+  );
+  const [zoomToId, setZoomToId] = useState<string | null>(null);
+  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(
+    null,
   );
 
   const C = theme.colors;
@@ -116,10 +122,27 @@ export function App() {
   const handleRawCanvasClick = () => {
     setChromeHidden((v) => {
       const next = !v;
-      if (next) setSelected(null);
+      if (next) {
+        setSelected(null);
+        setIsolateMode(null);
+      }
       return next;
     });
   };
+
+  const handleSearchSelect = (item: DataPoint) => {
+    setSelected(item);
+  };
+
+  const handleSearchZoomTo = (item: DataPoint) => {
+    setZoomToId(item.id);
+    // Clear after a tick so the same item can be re-searched
+    setTimeout(() => setZoomToId(null), 100);
+  };
+
+  const handleSearchMatchIds = useCallback((ids: Set<string> | null) => {
+    setSearchMatchIds(ids);
+  }, []);
 
   useEffect(() => {
     syncAircraftFilterToUrl(aircraftFilter);
@@ -150,6 +173,14 @@ export function App() {
           aircraftFilter={aircraftFilter}
           setAircraftFilter={setAircraftFilter}
           availableCountries={availableCountries}
+          searchSlot={
+            <Search
+              data={allData}
+              onSelect={handleSearchSelect}
+              onZoomTo={handleSearchZoomTo}
+              onMatchingIdsChange={handleSearchMatchIds}
+            />
+          }
         />
       )}
 
@@ -164,12 +195,22 @@ export function App() {
           rotationSpeed={rotationSpeed}
           onSelect={handleSelect}
           onRawCanvasClick={handleRawCanvasClick}
+          onMiddleClick={() => setAutoRotate((v) => !v)}
           selected={selectedCurrent}
+          isolatedId={isolateMode ? (selectedCurrent?.id ?? null) : null}
+          isolateMode={isolateMode}
+          zoomToId={zoomToId}
+          searchMatchIds={searchMatchIds}
         />
         {!chromeHidden && (
           <DetailPanel
             item={selectedCurrent}
-            onClose={() => setSelected(null)}
+            onClose={() => {
+              setSelected(null);
+              setIsolateMode(null);
+            }}
+            isolateMode={isolateMode}
+            onSetIsolateMode={setIsolateMode}
           />
         )}
 

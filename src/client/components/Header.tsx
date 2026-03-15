@@ -30,6 +30,7 @@ interface HeaderProps {
     React.SetStateAction<AircraftFilter>
   >;
   readonly availableCountries: string[];
+  readonly searchSlot?: React.ReactNode;
 }
 
 export function Header({
@@ -45,6 +46,7 @@ export function Header({
   aircraftFilter,
   setAircraftFilter,
   availableCountries,
+  searchSlot,
 }: Readonly<HeaderProps>) {
   const { theme, mode } = useTheme();
   const C = theme.colors;
@@ -58,7 +60,7 @@ export function Header({
 
   return (
     <div
-      className="flex justify-between items-center px-3 md:px-4 py-2 shrink-0 z-20"
+      className="flex justify-between items-center px-3 md:px-4 py-2 shrink-0 relative"
       style={{
         borderBottom: `1px solid ${C.border}`,
         background: `${C.panel}ee`,
@@ -90,7 +92,10 @@ export function Header({
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-1.5 md:gap-3">
+      <div className="flex items-center gap-1.5 md:gap-2">
+        {/* Search */}
+        {searchSlot}
+
         {/* Layer toggles */}
         <div className="flex gap-1 items-center">
           {featureList
@@ -138,15 +143,64 @@ export function Header({
           />
         </div>
 
-        {/* Settings */}
-        <SettingsDropdown
-          flat={flat}
-          setFlat={setFlat}
-          autoRotate={autoRotate}
-          setAutoRotate={setAutoRotate}
-          rotationSpeed={rotationSpeed}
-          setRotationSpeed={setRotationSpeed}
-        />
+        {/* Desktop: inline view controls */}
+        <div className="hidden lg:flex items-center gap-1.5">
+          <button
+            onClick={() => setFlat(!flat)}
+            className="px-2 py-0.5 rounded tracking-wider font-semibold"
+            style={{
+              ...mono(C.accent, FONT_BTN),
+              background: "transparent",
+              border: `1px solid ${C.border}`,
+              cursor: "pointer",
+            }}
+          >
+            {flat ? "\u25C9 GLOBE" : "\u25AD FLAT"}
+          </button>
+
+          <button
+            onClick={() => setAutoRotate(!autoRotate)}
+            className="px-2 py-0.5 rounded tracking-wider font-semibold"
+            style={{
+              ...mono(autoRotate ? C.accent : C.dim, FONT_BTN),
+              background: autoRotate ? `${C.accent}18` : "transparent",
+              border: `1px solid ${autoRotate ? `${C.accent}70` : C.border}`,
+              cursor: "pointer",
+            }}
+          >
+            {autoRotate ? "⏸ ROT" : "▶ ROT"}
+          </button>
+
+          <div
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded"
+            style={{ border: `1px solid ${C.border}` }}
+          >
+            <span style={mono(C.dim, FONT_SM)}>SPD</span>
+            <input
+              type="range"
+              aria-label="Rotation speed"
+              title="Rotation speed"
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={rotationSpeed}
+              onChange={(e) => setRotationSpeed(Number(e.target.value))}
+              style={{ width: 60, cursor: "pointer", accentColor: C.accent }}
+            />
+          </div>
+        </div>
+
+        {/* Mobile: gear dropdown for view controls */}
+        <div className="lg:hidden">
+          <SettingsDropdown
+            flat={flat}
+            setFlat={setFlat}
+            autoRotate={autoRotate}
+            setAutoRotate={setAutoRotate}
+            rotationSpeed={rotationSpeed}
+            setRotationSpeed={setRotationSpeed}
+          />
+        </div>
 
         {/* Clock */}
         <div className="text-right shrink-0">

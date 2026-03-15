@@ -31,12 +31,29 @@ function useVisibleCount(): number {
   return count;
 }
 
+function relativeTime(timestamp?: string): string {
+  if (!timestamp) return "LIVE";
+  const diff = Date.now() - new Date(timestamp).getTime();
+  if (diff < 0 || diff < 60_000) return "LIVE";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
 export function Ticker({ items }: Readonly<TickerProps>) {
   const [idx, setIdx] = useState(0);
   const { theme } = useTheme();
   const C = theme.colors;
   const colorMap = useMemo(() => getColorMap(theme), [theme]);
   const visibleCount = useVisibleCount();
+
+  // Force re-render every 30s to keep relative times fresh
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(iv);
+  }, []);
 
   useEffect(() => {
     const iv = setInterval(() => setIdx((i) => i + 1), TICKER_INTERVAL_MS);
@@ -65,13 +82,13 @@ export function Ticker({ items }: Readonly<TickerProps>) {
         return (
           <div
             key={`${item.id}-${idx}-${i}`}
-            className="flex-1 min-w-0 rounded"
+            className="flex-1 min-w-0 rounded overflow-hidden"
             style={{
               padding: "6px 10px",
               background: `${C.panel}cc`,
               border: `1px solid ${C.border}`,
               borderLeft: `3px solid ${color}`,
-              minHeight: 68,
+              height: 90,
             }}
           >
             <div className="flex justify-between mb-0.5">
@@ -88,9 +105,7 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 {feature.label}
               </span>
               <span style={mono(C.dim, FONT_SM)}>
-                {item.timestamp
-                  ? new Date(item.timestamp).toLocaleTimeString()
-                  : "LIVE"}
+                {relativeTime(item.timestamp)}
               </span>
             </div>
 

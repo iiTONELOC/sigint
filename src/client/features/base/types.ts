@@ -42,7 +42,10 @@ export interface FeatureDefinition<TData = unknown, TFilter = unknown> {
   icon: React.ForwardRefExoticComponent<any>;
 
   /** Does this item match the given filter? */
-  matchesFilter: (item: BasePoint & { data: TData }, filter: TFilter) => boolean;
+  matchesFilter: (
+    item: BasePoint & { data: TData },
+    filter: TFilter,
+  ) => boolean;
 
   /** Default filter state */
   defaultFilter: TFilter;
@@ -55,4 +58,7 @@ export interface FeatureDefinition<TData = unknown, TFilter = unknown> {
 
   /** Optional: filter control component for the header */
   FilterControl?: React.ComponentType<any>;
+
+  /** Optional: build searchable text for this entity (used by global search) */
+  getSearchText?: (data: TData) => string;
 }

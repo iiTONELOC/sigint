@@ -1,22 +1,81 @@
-MIT LICENSE
+# SIGINT — Dual License
 
-Copyright (c) 2026 Anthony Tropeano
+Copyright (c) 2026 Anthony Tropeano. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
+This software is licensed under a dual-license model:
 
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
+1. NON-COMMERCIAL USE — see LICENSE-NC.md
+   Free for personal, educational, and non-commercial open-source use
+   under the terms of the SIGINT Non-Commercial License.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. COMMERCIAL USE — requires a separate paid license.
+   Contact the author for commercial licensing terms.
+
+   GitHub: [https://github.com/iiTONELOC](https://github.com/iiTONELOC)
+   
+Unless you have obtained a commercial license, you may only use this
+software under the terms of the Non-Commercial License (LICENSE-NC.md).
+
+The full text of each license is included in this repository.
+
+## SIGINT Non-Commercial License v1.0
+
+Copyright (c) 2026 Anthony Tropeano. All rights reserved.
+
+### Grant of License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, and distribute the Software, subject to the following conditions:
+
+### Conditions
+
+1. **Non-Commercial Use Only.** The Software may not be used, in whole or in
+   part, for any commercial purpose. "Commercial purpose" means any activity
+   intended for or directed toward commercial advantage or monetary
+   compensation, including but not limited to:
+   - Selling the Software or derivative works
+   - Using the Software to provide paid services or SaaS products
+   - Incorporating the Software into a product or service that is sold,
+     licensed, or monetized in any way
+   - Using the Software internally at a for-profit organization for
+     revenue-generating operations
+
+2. **Attribution Required.** All copies and derivative works must include this
+   license, the above copyright notice, and clear attribution to the original
+   author (Anthony Tropeano) with a link to the original repository.
+
+3. **Share-Alike.** Derivative works must be distributed under the same or a
+   compatible non-commercial license. You may not apply additional restrictions
+   that limit the rights granted under this license.
+
+4. **No Trademark Rights.** This license does not grant permission to use the
+   trade names, trademarks, or product names of the licensor, except as
+   required for attribution.
+
+### Permitted Uses
+
+The following uses are expressly permitted under this license:
+
+- Personal projects and experimentation
+- Academic research and coursework
+- Non-commercial open-source projects
+- Portfolio demonstration and job applications
+- Technical writing, tutorials, and educational content
+
+### Commercial Licensing
+
+For commercial use, a separate paid license is required. Contact the author
+to discuss commercial licensing terms:
+
+- GitHub: [https://github.com/iiTONELOC](https://github.com/iiTONELOC)
+
+### Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

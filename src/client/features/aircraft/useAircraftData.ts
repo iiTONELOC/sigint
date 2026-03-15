@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DataOrchestrator } from "@/providers/DataOrchestrator";
 import { generateMockAircraft, generateMockNonAircraft } from "@/data/mockData";
+import { recordPositions } from "@/lib/trailService";
 import { AircraftProvider } from "./provider";
 
 const aircraftProvider = new AircraftProvider();
@@ -45,21 +46,36 @@ export function useAircraftData(
 
     orchestrator.initialize();
 
-    const refresh = async () => {
+    const poll = async () => {
       try {
-        const aircraftData = await aircraftProvider.getData();
+        // Call refresh() directly — the poll interval IS our schedule,
+        // don't let the provider's internal cache cause stale data
+        const aircraftData = await aircraftProvider.refresh();
         if (!isMounted) return;
 
-        // Check the provider snapshot to see if it errored internally
         const snapshot = aircraftProvider.getSnapshot();
-        setData([...nonAircraftBaseRef.current, ...aircraftData]);
+        const allItems = [...nonAircraftBaseRef.current, ...aircraftData];
+        setData(allItems);
         setLoading(false);
+
+        // Feed trail service with all moving items
+        const movingItems = allItems
+          .filter((d) => d.type === "aircraft" || d.type === "ships")
+          .map((d) => ({
+            id: d.id,
+            lat: d.lat,
+            lon: d.lon,
+            heading: (d.data as any)?.heading,
+            speedMps:
+              (d.data as any)?.speedMps ??
+              ((d.data as any)?.speed
+                ? (d.data as any).speed * 0.5144
+                : undefined),
+          }));
+        recordPositions(movingItems);
 
         if (snapshot.error) {
           setError(snapshot.error);
-          // Provider fell back — determine what it fell back to
-          // If there was ever a successful fetch (cache exists with real data),
-          // it's "cached". Otherwise it's mock.
           const hasRealCache =
             aircraftData.length > 0 &&
             aircraftData.some(
@@ -81,8 +97,8 @@ export function useAircraftData(
       }
     };
 
-    refresh();
-    intervalId = setInterval(refresh, pollInterval);
+    poll();
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;
