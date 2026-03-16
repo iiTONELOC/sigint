@@ -17,12 +17,14 @@ import {
 } from "@/features/tracking/aircraft";
 import { useEarthquakeData } from "@/features/environmental/earthquake";
 import { useEventData } from "@/features/intel/events";
+import { useShipData } from "@/features/tracking/ships";
 import {
   selectActiveCount,
   selectLayerCounts,
   selectAvailableAircraftCountries,
 } from "@/lib/uiSelectors";
 import { buildTickerItems } from "@/lib/tickerFeed";
+import { recordPositions } from "@/lib/trailService";
 import type { SourceStatus } from "@/components/StatusBadge";
 
 // ── Context value type ──────────────────────────────────────────────
@@ -121,7 +123,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // ── Data hooks ─────────────────────────────────────────────────
   const {
-    data: aircraftAndMockData,
+    data: aircraftData,
     dataSource,
     requestAircraftEnrichment,
   } = useAircraftData();
@@ -132,11 +134,39 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { data: eventData, dataSource: eventSource } =
     useEventData();
 
+  const { data: shipData, dataSource: shipSource } =
+    useShipData();
+
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
-    () => [...aircraftAndMockData, ...earthquakeData, ...eventData],
-    [aircraftAndMockData, earthquakeData, eventData],
+    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData],
+    [aircraftData, shipData, earthquakeData, eventData],
   );
+
+  // ── Trail recording (centralized) ─────────────────────────────
+  const allDataRef = useRef(allData);
+  allDataRef.current = allData;
+
+  useEffect(() => {
+    const movingItems = allData
+      .filter((d) => d.type === "aircraft" || d.type === "ships")
+      .map((d) => ({
+        id: d.id,
+        lat: d.lat,
+        lon: d.lon,
+        heading: (d.data as any)?.heading,
+        speedMps:
+          (d.data as any)?.speedMps ??
+          ((d.data as any)?.speed
+            ? (d.data as any).speed * 0.5144
+            : undefined),
+        altitude: (d.data as any)?.altitude,
+        speed: (d.data as any)?.speed,
+      }));
+    if (movingItems.length > 0) {
+      recordPositions(movingItems);
+    }
+  }, [allData]);
 
   // ── Data source status ─────────────────────────────────────────
   const dataSources = useMemo<SourceStatus[]>(
@@ -144,9 +174,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "aircraft", label: "AIRCRAFT", status: dataSource },
       { id: "quakes", label: "SEISMIC", status: earthquakeSource },
       { id: "events", label: "GDELT", status: eventSource },
-      { id: "ships", label: "SHIPS", status: "mock" },
+      { id: "ships", label: "SHIPS", status: shipSource },
     ],
-    [dataSource, earthquakeSource, eventSource],
+    [dataSource, earthquakeSource, eventSource, shipSource],
   );
 
   // ── Filters ────────────────────────────────────────────────────

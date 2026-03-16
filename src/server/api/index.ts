@@ -4,6 +4,7 @@ import {
 } from "./aircraftMetadata";
 import { generateToken, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
+import { getAisCache } from "./aisCache";
 
 export const apiRoutes = {
   // ── Auth token ──────────────────────────────────────────────────
@@ -68,6 +69,28 @@ export const apiRoutes = {
       return Response.json({
         data: cache.data,
         fetchedAt: cache.fetchedAt,
+      });
+    },
+  },
+
+  // ── AIS ships ──────────────────────────────────────────────────
+  "/api/ships/latest": {
+    GET(req: Request) {
+      const blocked = guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getAisCache();
+      if (!cache.data) {
+        return Response.json(
+          { error: cache.error ?? "No AIS data available yet" },
+          { status: 503 },
+        );
+      }
+
+      return Response.json({
+        data: cache.data,
+        vesselCount: cache.vesselCount,
+        connected: cache.connected,
       });
     },
   },

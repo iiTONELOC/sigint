@@ -3,7 +3,7 @@ import { RefreshCw, AlertTriangle, Satellite, Database } from "lucide-react";
 export type SourceStatus = {
   id: string;
   label: string;
-  status: "loading" | "live" | "cached" | "mock" | "error" | "empty";
+  status: "loading" | "live" | "cached" | "mock" | "error" | "empty" | "unavailable";
 };
 
 type StatusBadgeProps = {

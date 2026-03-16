@@ -60,6 +60,7 @@ When `chromeHidden` is true, the PaneManager toolbar and pane headers are hidden
 Reads everything from `useData()`. Only local state is `panelSide` (which side the detail panel renders on, driven by the globe's render loop).
 
 Renders:
+
 - `GlobeVisualization` — full-size Canvas 2D
 - `DetailPanel` — auto-positions opposite selected item
 - `LayerLegend` — bottom-left layer counts

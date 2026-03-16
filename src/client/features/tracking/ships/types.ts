@@ -1,7 +1,20 @@
 export type ShipData = {
+  mmsi?: number;
+  imo?: number;
   name?: string;
+  callSign?: string;
   vesselType?: string;
+  shipTypeCode?: number;
   flag?: string;
   speed?: number;
+  sog?: number;
+  cog?: number;
   heading?: number;
+  navStatus?: number;
+  navStatusLabel?: string;
+  destination?: string;
+  draught?: number;
+  length?: number;
+  width?: number;
+  speedMps?: number;
 };

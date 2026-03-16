@@ -13,5 +13,15 @@ export const shipsFeature: FeatureDefinition<ShipData, boolean> = {
   buildDetailRows: (data) => buildShipDetailRows(data),
   TickerContent: ShipTickerContent,
   getSearchText: (data) =>
-    [data.name, data.flag, data.vesselType].filter(Boolean).join(" "),
+    [
+      data.name,
+      data.mmsi != null ? String(data.mmsi) : undefined,
+      data.imo != null ? String(data.imo) : undefined,
+      data.callSign,
+      data.vesselType,
+      data.destination,
+      data.flag,
+    ]
+      .filter(Boolean)
+      .join(" "),
 };
