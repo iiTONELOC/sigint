@@ -22,6 +22,7 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 |---|---|---|---|---|
 | `sigint.opensky.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] with enriched metadata | Every 240s + after enrichment | Rejected on hydrate if >5min |
 | `sigint.usgs.earthquake-cache.v1` | EarthquakeProvider | USGS earthquake DataPoint[] (7 days) | Every 420s | Rejected on hydrate if >30min |
+| `sigint.gdelt.events-cache.v1` | GdeltProvider | GDELT event DataPoint[] (7-day rolling window, URL-deduped) | Every 15 min | Rejected on hydrate if >30min, events >7 days pruned on merge |
 | `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot, 50 points/entity cap |
 | `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
 | `sigint.layout.v1` | PaneManager | Pane configs, split direction, sizes | On every layout change | Never expires |

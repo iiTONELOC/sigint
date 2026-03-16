@@ -2,6 +2,7 @@ import { serve } from "bun";
 import { resolve, relative, normalize } from "path";
 import index from "../index.html";
 import { apiRoutes } from "./api";
+import { startGdeltPolling } from "./api/gdeltCache";
 
 const publicDir = resolve(import.meta.dir, "../../public");
 
@@ -63,3 +64,4 @@ const server = serve({
 });
 
 console.log(`🚀 Server running at ${server.url}`);
+startGdeltPolling();

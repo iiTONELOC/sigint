@@ -81,67 +81,7 @@ export function generateMockNonAircraft(): DataPoint[] {
     };
   });
 
-  const events: DataPoint[] = Array.from({ length: 35 }, (_, i) => {
-    let lat = rnd(-40, 60),
-      lon = rnd(-160, 160);
-    if (i < 8) {
-      lat = rnd(30, 37);
-      lon = rnd(33, 46);
-    } else if (i < 14) {
-      lat = rnd(46, 52);
-      lon = rnd(30, 42);
-    } else if (i < 18) {
-      lat = rnd(4, 14);
-      lon = rnd(-8, 12);
-    } else if (i < 22) {
-      lat = rnd(25, 36);
-      lon = rnd(58, 70);
-    }
-
-    const cats = [
-      "Protest",
-      "Military Action",
-      "Diplomatic",
-      "Conflict",
-      "Humanitarian",
-      "Political Crisis",
-    ];
-    const heads = [
-      "Mass protests erupt in capital",
-      "Military convoy near border",
-      "Emergency diplomatic summit",
-      "Artillery exchange reported",
-      "Aid convoy blocked",
-      "Opposition leader detained",
-      "Naval vessels deployed",
-      "Ceasefire talks stall",
-      "Cyber attack on infrastructure",
-      "Election results contested",
-      "Refugee camp expands",
-      "Trade embargo announced",
-      "Air defense activated",
-      "Border crossing shut down",
-      "UN emergency session called",
-      "Comms blackout reported",
-    ];
-    const srcs = ["Reuters", "AFP", "AP", "Al Jazeera", "BBC", "TASS"];
-
-    return {
-      id: `E${i}`,
-      type: "events",
-      lat,
-      lon,
-      timestamp: new Date(Date.now() - rnd(0, 14400000)).toISOString(),
-      data: {
-        category: cats[i % 6],
-        headline: heads[i % 16],
-        source: srcs[i % 6],
-        severity: Math.floor(rnd(1, 6)),
-      },
-    };
-  });
-
-  return [...ships, ...events];
+  return ships;
 }
 
 export function generateMockData(): DataPoint[] {

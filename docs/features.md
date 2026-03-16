@@ -55,8 +55,8 @@ Every feature uses an explicit subdirectory layout. Live features have the full 
 | Directory | Purpose | Aircraft | Earthquake | Ships | Events |
 |-----------|---------|----------|------------|-------|--------|
 | `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent |
-| `hooks/` | React hooks | useAircraftData | useEarthquakeData | _(when live)_ | _(when live)_ |
-| `data/` | Provider + fetching | AircraftProvider, typeLookup | EarthquakeProvider | _(when live)_ | _(when live)_ |
+| `hooks/` | React hooks | useAircraftData | useEarthquakeData | _(when live)_ | useEventData |
+| `data/` | Provider + fetching | AircraftProvider, typeLookup | EarthquakeProvider | _(when live)_ | GdeltProvider |
 | `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ | _(none yet)_ | _(none yet)_ |
 | _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
@@ -87,5 +87,5 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 | OpenSky Network | Live aircraft positions | opensky-network.org/api/states/all | **Live** — client-side, anonymous, 400 cred/day | 240s |
 | Aircraft metadata | Type/reg/operator lookup | Local ac-db.ndjson (~180k records) | **Live** — server-side | On selection |
 | USGS Earthquakes | Seismic events (7 days) | earthquake.usgs.gov all_week.geojson | **Live** — client-side, free, no auth | 420s |
+| GDELT 2.0 | Geolocated news events | data.gdeltproject.org raw export CSV | **Live** — server-side fetch + parse, token auth, client polls /api/events/latest | 15 min |
 | Ships (AIS) | Live vessel positions | MarineTraffic / AISHub / VesselFinder | **Mock** — planned | — |
-| GDELT | Geolocated news events | api.gdeltproject.org | **Mock** — planned | — |

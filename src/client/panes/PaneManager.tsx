@@ -521,9 +521,15 @@ export function PaneManager() {
             elements.push(
               <div
                 key={`resize-${vIdx}`}
-                className={`${isHoriz ? "cursor-col-resize w-[4px] hover:bg-sig-accent/30" : "cursor-row-resize h-[4px] hover:bg-sig-accent/30"} bg-sig-border/30 transition-colors`}
+                className={`relative ${isHoriz ? "cursor-col-resize w-[4px]" : "cursor-row-resize h-[4px]"} bg-sig-border/30 transition-colors hover:bg-sig-accent/30`}
                 onPointerDown={(e) => onResizeStart(vIdx - 1, e)}
-              />,
+              >
+                {/* Invisible wider touch target */}
+                <div
+                  className={`absolute ${isHoriz ? "inset-y-0 -left-[10px] w-[24px]" : "inset-x-0 -top-[10px] h-[24px]"} touch-none`}
+                  onPointerDown={(e) => onResizeStart(vIdx - 1, e)}
+                />
+              </div>,
             );
           }
 
