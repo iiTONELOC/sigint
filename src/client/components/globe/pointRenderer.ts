@@ -311,40 +311,72 @@ export function drawPoints(
       return;
     }
 
-    // ── Non-event rendering (aircraft, ships) ─────────────────────
-    let s =
-      item.type === "aircraft"
-          ? 4
-          : 3;
+    // ── Ship rendering (heading-rotated diamond) ───────────────────
+    if (item.type === "ships") {
+      let s = 3.5;
+      if (isSel) s *= 1.8;
+
+      ctx.globalAlpha = depthAlpha;
+      ctx.fillStyle = baseColor;
+
+      const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
+      const hw = s * 0.7; // half-width
+      ctx.beginPath();
+      // Nose (forward)
+      ctx.moveTo(x + Math.sin(a) * s * 1.4, y - Math.cos(a) * s * 1.4);
+      // Starboard
+      ctx.lineTo(
+        x + Math.sin(a + Math.PI / 2) * hw,
+        y - Math.cos(a + Math.PI / 2) * hw,
+      );
+      // Stern
+      ctx.lineTo(
+        x + Math.sin(a + Math.PI) * s * 0.8,
+        y - Math.cos(a + Math.PI) * s * 0.8,
+      );
+      // Port
+      ctx.lineTo(
+        x + Math.sin(a - Math.PI / 2) * hw,
+        y - Math.cos(a - Math.PI / 2) * hw,
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // ── Aircraft rendering (heading-rotated triangle) ────────────
+    let s = 4;
     if (isSel) s *= 1.8;
 
     ctx.globalAlpha = depthAlpha;
-    if (item.type === "aircraft") {
-      const status = (item as any).data?.squawkStatus;
-      ctx.fillStyle =
-        status === "emergency"
-          ? "#ff3333"
-          : status === "radio_failure"
-            ? "#ff8800"
-            : status === "hijack"
-              ? "#cc44ff"
-              : baseColor;
-    } else {
-      ctx.fillStyle = baseColor;
-    }
-    if (item.type === "aircraft") {
-      const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
-      ctx.beginPath();
-      ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
-      ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
-      ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.arc(x, y, s, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const status = (item as any).data?.squawkStatus;
+    ctx.fillStyle =
+      status === "emergency"
+        ? "#ff3333"
+        : status === "radio_failure"
+          ? "#ff8800"
+          : status === "hijack"
+            ? "#cc44ff"
+            : baseColor;
+
+    const a = (((item as any).data?.heading || 0) * Math.PI) / 180;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
+    ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
+    ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
+    ctx.closePath();
+    ctx.fill();
 
     if (isSel) {
       ctx.globalAlpha = 0.85;

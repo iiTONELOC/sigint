@@ -64,6 +64,7 @@ When a search filter is committed, if the currently selected item is not in the 
 ## Zoom-to Mechanism
 
 When a specific result is clicked:
+
 1. `setSelected(item)` — opens detail panel
 2. `setZoomToId(item.id)` — triggers camera lock-on + zoom
 

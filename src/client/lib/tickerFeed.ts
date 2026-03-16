@@ -1,66 +1,99 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 
-function stableOrder(items: DataPoint[]): DataPoint[] {
-  return [...items].sort((a, b) => {
-    // For aircraft, sort by callsign first for stability
-    if (a.type === "aircraft" && b.type === "aircraft") {
-      const aCs = ((a.data as any)?.callsign ?? "").trim();
-      const bCs = ((b.data as any)?.callsign ?? "").trim();
-      if (aCs && bCs && aCs !== bCs) return aCs.localeCompare(bCs);
-    }
-    return a.id.localeCompare(b.id);
-  });
-}
-
 function isEmergencyAircraft(item: DataPoint): boolean {
   if (item.type !== "aircraft") return false;
   const sq = (item.data as any)?.squawk ?? "";
   return sq === "7700" || sq === "7600" || sq === "7500";
 }
 
+function getTimestamp(item: DataPoint): number {
+  if (item.timestamp) {
+    const t = new Date(item.timestamp).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+/** Sort newest first */
+function byRecency(a: DataPoint, b: DataPoint): number {
+  return getTimestamp(b) - getTimestamp(a);
+}
+
+const TICKER_SIZE = 24;
+const TYPE_ORDER = ["aircraft", "ships", "events", "quakes"];
+
 /**
- * Build ticker items from all data, applying each feature's own filter.
- *
- * @param allData     All data points from all providers
- * @param filters     Map of feature id → that feature's current filter state
- * @param layers      Map of feature id → on/off toggle (for simple features)
+ * Build ticker items — newest first, interleaved across all active types.
+ * Emergency aircraft always lead. Then round-robin newest from each type.
  */
 export function buildTickerItems(
   allData: DataPoint[],
-  filters: Record<string, unknown>,
-  layers: Record<string, boolean>,
+  _filters: Record<string, unknown>,
+  _layers: Record<string, boolean>,
 ): DataPoint[] {
-  // Separate aircraft from others — aircraft get priority + emergency sorting
-  const aircraft: DataPoint[] = [];
-  const nonAircraft: DataPoint[] = [];
+  // Bucket by type, sorted by recency within each bucket
+  const byType = new Map<string, DataPoint[]>();
+  for (const type of TYPE_ORDER) byType.set(type, []);
 
   for (const item of allData) {
-    const feature = featureRegistry.get(item.type);
-    if (!feature) continue;
+    if (!featureRegistry.has(item.type)) continue;
+    byType.get(item.type)?.push(item);
+  }
 
-    if (item.type === "aircraft") {
-      // Ticker shows ALL aircraft — UI filters don't affect the live feed
-      aircraft.push(item);
-    } else {
-      // Ticker shows all data — layer toggles don't affect the live feed
-      nonAircraft.push(item);
+  for (const [type, items] of byType) {
+    byType.set(type, items.sort(byRecency));
+  }
+
+  const result: DataPoint[] = [];
+  const usedIds = new Set<string>();
+
+  // Emergency aircraft always first
+  const aircraft = byType.get("aircraft") ?? [];
+  for (const item of aircraft) {
+    if (isEmergencyAircraft(item) && result.length < TICKER_SIZE) {
+      result.push(item);
+      usedIds.add(item.id);
     }
   }
 
-  const emergencyAircraft = aircraft.filter(isEmergencyAircraft);
-  const normalAircraft = aircraft.filter((d) => !isEmergencyAircraft(d));
-
-  const prioritizedAircraft = [
-    ...emergencyAircraft,
-    ...stableOrder(normalAircraft),
-  ].slice(0, 24);
-
-  if (prioritizedAircraft.length >= 20) {
-    return prioritizedAircraft;
+  // Build index per type (skip already-used emergencies)
+  const indices = new Map<string, number>();
+  for (const type of TYPE_ORDER) {
+    if (type === "aircraft") {
+      // Find first non-emergency
+      const list = byType.get(type) ?? [];
+      let startIdx = 0;
+      while (startIdx < list.length && usedIds.has(list[startIdx]!.id)) {
+        startIdx++;
+      }
+      indices.set(type, startIdx);
+    } else {
+      indices.set(type, 0);
+    }
   }
 
-  const remaining = Math.max(0, 24 - prioritizedAircraft.length);
-  const supportItems = stableOrder(nonAircraft).slice(0, remaining);
-  return [...prioritizedAircraft, ...supportItems];
+  // Round-robin: take one from each type that has data, repeat
+  while (result.length < TICKER_SIZE) {
+    let added = false;
+    for (const type of TYPE_ORDER) {
+      if (result.length >= TICKER_SIZE) break;
+      const queue = byType.get(type);
+      if (!queue) continue;
+      let idx = indices.get(type) ?? 0;
+
+      // Skip used items
+      while (idx < queue.length && usedIds.has(queue[idx]!.id)) idx++;
+      if (idx >= queue.length) continue;
+
+      result.push(queue[idx]!);
+      usedIds.add(queue[idx]!.id);
+      indices.set(type, idx + 1);
+      added = true;
+    }
+    // All queues exhausted
+    if (!added) break;
+  }
+
+  return result;
 }

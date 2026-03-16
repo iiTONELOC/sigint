@@ -113,13 +113,13 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       if (drag.pinchDist > 0) {
         const factor = newDist / drag.pinchDist;
         if (propsRef.current.flat) {
-          cam.zoomFlat = Math.max(0.85, Math.min(80.0, cam.zoomFlat * factor));
+          cam.zoomFlat = Math.max(0.85, Math.min(500.0, cam.zoomFlat * factor));
           const { w: W, h: H } = sizeRef.current;
           clampFlatPan(cam, W, H);
         } else {
           cam.zoomGlobe = Math.max(
             0.55,
-            Math.min(50.0, cam.zoomGlobe * factor),
+            Math.min(350.0, cam.zoomGlobe * factor),
           );
         }
       }
@@ -304,9 +304,14 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
         setTrailTooltip(null);
         sel(hit);
 
-        // Lock camera — scroll-to-zoom stays centered on this point
+        // Lock camera — pan to point at current zoom level
+        const ct = camTargetRef.current;
         //@ts-ignore
-        camTargetRef.current.lockedId = hit.id;
+        ct.lockedId = hit.id;
+        ct.zoom = propsRef.current.flat
+          ? camRef.current.zoomFlat
+          : camRef.current.zoomGlobe;
+        ct.active = true;
 
         // Record for potential double-click
         drag.lastClickTime = now;
@@ -429,12 +434,12 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       if (propsRef.current.flat) {
         camTarget.zoom = Math.max(
           0.85,
-          Math.min(80.0, camTarget.zoom * factor),
+          Math.min(500.0, camTarget.zoom * factor),
         );
       } else {
         camTarget.zoom = Math.max(
           0.55,
-          Math.min(50.0, camTarget.zoom * factor),
+          Math.min(350.0, camTarget.zoom * factor),
         );
       }
       camTarget.active = true;
@@ -444,7 +449,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       const mx = e.clientX - rect.left - W / 2;
       const my = e.clientY - rect.top - H / 2;
       const oldZoom = camState.zoomFlat;
-      camState.zoomFlat = Math.max(0.85, Math.min(80.0, oldZoom * factor));
+      camState.zoomFlat = Math.max(0.85, Math.min(500.0, oldZoom * factor));
       const actualFactor = camState.zoomFlat / oldZoom;
       camState.panX = mx - actualFactor * (mx - camState.panX);
       camState.panY = my - actualFactor * (my - camState.panY);
@@ -452,7 +457,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     } else {
       camState.zoomGlobe = Math.max(
         0.55,
-        Math.min(50.0, camState.zoomGlobe * factor),
+        Math.min(350.0, camState.zoomGlobe * factor),
       );
     }
   };
@@ -498,11 +503,11 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       case "NumpadAdd":
         e.preventDefault();
         if (propsRef.current.flat) {
-          cam.zoomFlat = Math.min(80.0, cam.zoomFlat * 1.1);
+          cam.zoomFlat = Math.min(500.0, cam.zoomFlat * 1.1);
           const { w: W, h: H } = sizeRef.current;
           clampFlatPan(cam, W, H);
         } else {
-          cam.zoomGlobe = Math.min(50.0, cam.zoomGlobe * 1.1);
+          cam.zoomGlobe = Math.min(350.0, cam.zoomGlobe * 1.1);
         }
         break;
       case "Minus":

@@ -81,6 +81,10 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     if (this.cache) return;
     const persisted = this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return;
+
+    // Reject stale cache — must be fresher than poll interval
+    if (Date.now() - persisted.timestamp > this.cacheDurationMs) return;
+
     this.cache = { data: persisted.data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: persisted.data,

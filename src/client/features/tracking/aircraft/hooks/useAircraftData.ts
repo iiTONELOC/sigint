@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { generateMockAircraft, generateMockNonAircraft } from "@/data/mockData";
-import { recordPositions } from "@/lib/trailService";
+import { generateMockAircraft } from "@/data/mockData";
 import { AircraftProvider } from "../data/provider";
 
 const aircraftProvider = new AircraftProvider();
@@ -20,14 +19,12 @@ export function useAircraftData(
   pollInterval: number = 240_000,
 ): UseAircraftDataResult {
   const hydratedAircraft = aircraftProvider.hydrate();
-  const nonAircraftBaseRef = useRef<DataPoint[]>(generateMockNonAircraft());
 
   const [data, setData] = useState<DataPoint[]>(() => {
-    const base = nonAircraftBaseRef.current;
     if (hydratedAircraft && hydratedAircraft.length > 0) {
-      return [...base, ...hydratedAircraft];
+      return hydratedAircraft;
     }
-    return [...base, ...generateMockAircraft()];
+    return generateMockAircraft();
   });
   const [loading, setLoading] = useState(
     !(hydratedAircraft && hydratedAircraft.length > 0),
@@ -50,27 +47,8 @@ export function useAircraftData(
         if (!isMounted) return;
 
         const snapshot = aircraftProvider.getSnapshot();
-        const allItems = [...nonAircraftBaseRef.current, ...aircraftData];
-        setData(allItems);
+        setData(aircraftData);
         setLoading(false);
-
-        // Feed trail service with all moving items
-        const movingItems = allItems
-          .filter((d) => d.type === "aircraft" || d.type === "ships")
-          .map((d) => ({
-            id: d.id,
-            lat: d.lat,
-            lon: d.lon,
-            heading: (d.data as any)?.heading,
-            speedMps:
-              (d.data as any)?.speedMps ??
-              ((d.data as any)?.speed
-                ? (d.data as any).speed * 0.5144
-                : undefined),
-            altitude: (d.data as any)?.altitude,
-            speed: (d.data as any)?.speed,
-          }));
-        recordPositions(movingItems);
 
         if (snapshot.error) {
           setError(snapshot.error);
@@ -96,10 +74,8 @@ export function useAircraftData(
 
     // Skip immediate fetch if hydration returned fresh cached data
     if (hydratedAircraft && hydratedAircraft.length > 0) {
-      // Cache was fresh — wait for the next poll interval
       intervalId = setInterval(poll, pollInterval);
     } else {
-      // No cache or stale — fetch immediately, then poll
       poll();
       intervalId = setInterval(poll, pollInterval);
     }
@@ -117,7 +93,7 @@ export function useAircraftData(
         const enrichedAircraft =
           await aircraftProvider.enrichAircraftByIcao24(icao24List);
         if (!enrichedAircraft) return;
-        setData([...nonAircraftBaseRef.current, ...enrichedAircraft]);
+        setData(enrichedAircraft);
       } catch {
         // Non-fatal: enrichment is best effort.
       }

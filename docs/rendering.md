@@ -19,7 +19,7 @@ The globe uses a ResizeObserver on its parent container, so it correctly handles
 | `GlobeVisualization.tsx` | Shell: refs, render loop, effects, tooltip JSX |
 | `cameraSystem.ts` | Lock-on follow, lerp, shortest-path rotation, auto-rotate |
 | `inputHandlers.ts` | Mouse, touch, wheel, keyboard handler factory |
-| `pointRenderer.ts` | Data points, trails, quake age rendering, hit targets |
+| `pointRenderer.ts` | Data points, trails, quake age rendering, ship diamonds, hit targets |
 | `landRenderer.ts` | Coastline polygons, globe clipping |
 | `gridRenderer.ts` | Lat/lon grid lines |
 | `projection.ts` | projGlobe, projFlat, getFlatMetrics, clampFlatPan |
@@ -36,12 +36,16 @@ Target + lerp model for smooth transitions. `updateCamera()` in `cameraSystem.ts
 
 | Action | Effect |
 |---|---|
-| Single-click a point | Select + lock camera onto it (scroll stays centered on selected) |
+| Single-click a point | Select + lock camera onto it at current zoom level (no zoom reset) |
 | Double-click a point | Select + lock + zoom in to 35 (globe) or 40 (flat) |
 | Drag | Breaks lock-on (`lockedId = null`, `active = false`) |
 | Scroll wheel (locked) | Adjusts `camTargetRef.zoom`, stays locked and centered |
 | Scroll wheel (unlocked) | Directly modifies `camRef` zoom |
 | Auto-rotate | Only active when: globe mode, not dragging, not animating to target |
+
+**Zoom limits**: Globe mode min 0.55, max 350. Flat mode min 0.85, max 500. These limits apply to scroll wheel, pinch, keyboard, and locked scroll.
+
+**Single-click zoom preservation**: When clicking a new point, `camTarget.zoom` is set to the current zoom level so the camera pans to the new point without resetting zoom. This prevents the jarring snap-to-orbit behavior that occurred when `camTarget.zoom` was stale from a previous animation.
 
 **Shortest-path rotation**: The `rotY` lerp normalizes the difference to `[-π, π]` before interpolating, ensuring the camera always takes the shortest path around the globe.
 
@@ -70,7 +74,7 @@ detachInputHandlers(canvas, handlers);
 
 All moving entities (aircraft, ships) have their positions interpolated between data refreshes for smooth animation. The trail service records actual positions at each refresh and uses speed + heading to extrapolate between them. If data is older than 10 minutes, interpolation returns null (stale). If less than 1 second old, it also returns null (too soon — use raw position).
 
-This means even though OpenSky data refreshes every 4 minutes, aircraft appear to move continuously on screen.
+This means even though OpenSky data refreshes every 4 minutes and AIS ship data refreshes every 5 minutes, all moving entities appear to move continuously on screen.
 
 ---
 
@@ -91,7 +95,11 @@ Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always 
 
 ---
 
-## Earthquake Age-Based Rendering
+## Point Rendering by Type
+
+Each data type has its own rendering block in `pointRenderer.ts` with an early return, keeping rendering logic cleanly separated.
+
+### Earthquake Rendering (Age-Based)
 
 Earthquake points encode both magnitude and age visually.
 
@@ -101,11 +109,7 @@ Earthquake points encode both magnitude and age visually.
 
 **Magnitude → Pulse**: Earthquakes above M2.5 get a pulsing glow. Intensity scales with magnitude.
 
-Quake rendering is in its own block within `pointRenderer.ts` with an early return, separate from aircraft/ship/event rendering.
-
----
-
-## Event Age-Based Rendering
+### Event Rendering (Age-Based)
 
 GDELT event points use the same age-based rendering pattern as earthquakes, with severity (derived from Goldstein scale) driving size and age driving color/opacity.
 
@@ -115,7 +119,13 @@ GDELT event points use the same age-based rendering pattern as earthquakes, with
 
 **Severity → Pulse**: Events with severity ≥3 get a pulsing glow. Intensity scales with severity.
 
-Event rendering is in its own block within `pointRenderer.ts` with an early return, separate from both quake and aircraft/ship rendering.
+### Ship Rendering (Heading-Rotated Diamond)
+
+Ships render as heading-rotated diamond shapes — a pointed nose forward, narrow beam, and blunt stern. The diamond rotates with the vessel's heading, providing directional awareness similar to aircraft triangles but with a distinct silhouette. Base size 3.5px, scales 1.8x when selected. Selection ring matches other types.
+
+### Aircraft Rendering (Heading-Rotated Triangle)
+
+Aircraft render as heading-rotated triangles pointing in the direction of travel. Base size 4px, scales 1.8x when selected. Emergency squawk codes override the base color: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
 
 ---
 
