@@ -1,6 +1,7 @@
 import { serve } from "bun";
 import { join, resolve, relative, normalize } from "path";
 import { apiRoutes } from "./api";
+import { startGdeltPolling } from "./api/gdeltCache";
 
 const port = Number(process.env.PORT ?? 3000);
 const distDir = resolve(import.meta.dir, "../../dist");
@@ -72,3 +73,4 @@ const server = serve({
 });
 
 console.log(`🚀 Production server running at ${server.url}`);
+startGdeltPolling();

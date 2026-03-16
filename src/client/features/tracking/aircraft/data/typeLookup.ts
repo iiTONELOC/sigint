@@ -10,6 +10,8 @@ export type AircraftMetadata = {
   categoryDescription?: string;
 };
 
+import { authenticatedFetch } from "@/lib/authService";
+
 function normalizeIcao24(value: string | undefined): string | null {
   const normalized = (value ?? "")
     .trim()
@@ -50,7 +52,7 @@ export async function getAircraftMetadata(
   if (!key) return null;
 
   try {
-    const response = await fetch(`/api/aircraft/metadata/${key}`);
+    const response = await authenticatedFetch(`/api/aircraft/metadata/${key}`);
     if (!response.ok) return null;
     const body = (await response.json()) as { item?: unknown };
     const { item = null } = body;
@@ -75,7 +77,7 @@ export async function getAircraftMetadataBatch(
 
   try {
     const ids = normalized.join(",");
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `/api/aircraft/metadata/batch?ids=${encodeURIComponent(ids)}`,
     );
 

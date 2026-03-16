@@ -16,6 +16,7 @@ import {
   syncAircraftFilterToUrl,
 } from "@/features/tracking/aircraft";
 import { useEarthquakeData } from "@/features/environmental/earthquake";
+import { useEventData } from "@/features/intel/events";
 import {
   selectActiveCount,
   selectLayerCounts,
@@ -128,10 +129,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { data: earthquakeData, dataSource: earthquakeSource } =
     useEarthquakeData();
 
+  const { data: eventData, dataSource: eventSource } =
+    useEventData();
+
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
-    () => [...aircraftAndMockData, ...earthquakeData],
-    [aircraftAndMockData, earthquakeData],
+    () => [...aircraftAndMockData, ...earthquakeData, ...eventData],
+    [aircraftAndMockData, earthquakeData, eventData],
   );
 
   // ── Data source status ─────────────────────────────────────────
@@ -139,10 +143,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     () => [
       { id: "aircraft", label: "AIRCRAFT", status: dataSource },
       { id: "quakes", label: "SEISMIC", status: earthquakeSource },
+      { id: "events", label: "GDELT", status: eventSource },
       { id: "ships", label: "SHIPS", status: "mock" },
-      { id: "events", label: "EVENTS", status: "mock" },
     ],
-    [dataSource, earthquakeSource],
+    [dataSource, earthquakeSource, eventSource],
   );
 
   // ── Filters ────────────────────────────────────────────────────
@@ -150,7 +154,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     () => ({
       aircraft: aircraftFilter,
       ships: layers.ships ?? true,
-      events: layers.events ?? true,
+      events: { enabled: layers.events ?? true, minSeverity: 0 },
       quakes: { enabled: layers.quakes ?? true, minMagnitude: 0 },
     }),
     [aircraftFilter, layers],

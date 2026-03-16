@@ -105,6 +105,20 @@ Quake rendering is in its own block within `pointRenderer.ts` with an early retu
 
 ---
 
+## Event Age-Based Rendering
+
+GDELT event points use the same age-based rendering pattern as earthquakes, with severity (derived from Goldstein scale) driving size and age driving color/opacity.
+
+**Severity → Size**: Severity 1=2.5px, 2=3.5px, 3=5px, 4=7px, 5=9.5px
+
+**Age → Color & Opacity**: Fresh (<1hr) bright at full opacity, fading to muted at 0.45 alpha for 7-day-old events. Color shifts from the base event color through progressively dimmer amber tones.
+
+**Severity → Pulse**: Events with severity ≥3 get a pulsing glow. Intensity scales with severity.
+
+Event rendering is in its own block within `pointRenderer.ts` with an early return, separate from both quake and aircraft/ship rendering.
+
+---
+
 ## Isolation Modes
 
 | Mode | Behavior |

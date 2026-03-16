@@ -2,30 +2,27 @@ import {
   lookupAircraftMetadata,
   lookupAircraftMetadataBatch,
 } from "./aircraftMetadata";
+import { generateToken, guardAuth, guardRateLimit } from "./auth";
+import { getGdeltCache } from "./gdeltCache";
 
 export const apiRoutes = {
-  "/api/hello": {
-    async GET() {
-      return Response.json({
-        message: "Hello, world!",
-        method: "GET",
-      });
+  // ── Auth token ──────────────────────────────────────────────────
+  // Rate limited but no token required (this is how you get one).
+  "/api/auth/token": {
+    GET(req: Request) {
+      const blocked = guardRateLimit(req);
+      if (blocked) return blocked;
+
+      const token = generateToken();
+      return Response.json({ token });
     },
-    async PUT() {
-      return Response.json({
-        message: "Hello, world!",
-        method: "PUT",
-      });
-    },
-  },
-  "/api/hello/:name": async (req: any) => {
-    const name = req.params.name;
-    return Response.json({
-      message: `Hello, ${name}!`,
-    });
   },
 
+  // ── Aircraft metadata ──────────────────────────────────────────
   "/api/aircraft/metadata/:icao24": async (req: any) => {
+    const blocked = guardAuth(req);
+    if (blocked) return blocked;
+
     const { method, params } = req;
     const { icao24 = "" } = params ?? {};
 
@@ -39,6 +36,9 @@ export const apiRoutes = {
 
   "/api/aircraft/metadata/batch": {
     async GET(req: Request) {
+      const blocked = guardAuth(req);
+      if (blocked) return blocked;
+
       const url = new URL(req.url);
       const idsParam = url.searchParams.get("ids") ?? "";
       const icao24 = idsParam
@@ -48,6 +48,27 @@ export const apiRoutes = {
 
       const items = await lookupAircraftMetadataBatch(icao24);
       return Response.json({ items });
+    },
+  },
+
+  // ── GDELT events ───────────────────────────────────────────────
+  "/api/events/latest": {
+    GET(req: Request) {
+      const blocked = guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getGdeltCache();
+      if (!cache.data) {
+        return Response.json(
+          { error: cache.error ?? "No data available yet" },
+          { status: 503 },
+        );
+      }
+
+      return Response.json({
+        data: cache.data,
+        fetchedAt: cache.fetchedAt,
+      });
     },
   },
 };

@@ -23,10 +23,12 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D
 
-**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll)
+**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll)
 
 **State**: All shared state in `DataContext` via `useData()` hook — no external state library
 
 **Persistence**: IndexedDB for everything — data caches, trails, coastlines, pane layout
 
 **Rendering**: Canvas 2D at ~60fps via `requestAnimationFrame`, decoupled from React via `propsRef` bridge
+
+**Required env**: `SIGINT_SERVER_SECRET` — generate with `openssl rand -hex 32`

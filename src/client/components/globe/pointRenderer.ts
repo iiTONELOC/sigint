@@ -42,6 +42,35 @@ function getQuakeSize(magnitude: number): number {
   return 15;
 }
 
+// ── Event age helpers ────────────────────────────────────────────────
+
+function getEventAgeFactor(timestamp?: string): number {
+  if (!timestamp) return 0.5;
+  const age = Date.now() - new Date(timestamp).getTime();
+  if (age < HOUR_MS) return 1.0;
+  if (age < 6 * HOUR_MS) return 0.9;
+  if (age < DAY_MS) return 0.75;
+  if (age < 3 * DAY_MS) return 0.6;
+  return 0.45;
+}
+
+function getEventColor(ageFactor: number, baseColor: string): string {
+  // Fade from base event color toward a muted version with age
+  if (ageFactor >= 0.9) return baseColor;
+  if (ageFactor >= 0.75) return "#dd8833";
+  if (ageFactor >= 0.6) return "#aa6633";
+  return "#885530";
+}
+
+function getEventSize(severity: number): number {
+  // Severity 1-5 maps to dot size, similar scale to quake magnitudes
+  if (severity <= 1) return 2.5;
+  if (severity <= 2) return 3.5;
+  if (severity <= 3) return 5;
+  if (severity <= 4) return 7;
+  return 9.5;
+}
+
 // ── Main draw function ────────────────────────────────────────────────
 
 export function drawPoints(
@@ -235,29 +264,59 @@ export function drawPoints(
       return;
     }
 
-    // ── Non-quake rendering (aircraft, ships, events) ─────────────
+    // ── Event-specific rendering (age + severity based) ───────────
+    if (item.type === "events") {
+      const severity = (item as any).data?.severity ?? 1;
+      const ageFactor = getEventAgeFactor(item.timestamp);
+      const eventColor = getEventColor(ageFactor, baseColor);
+      let s = getEventSize(severity);
+      if (isSel) s *= 1.8;
+
+      // Pulse glow for high-severity events
+      if (severity >= 3) {
+        const pulseIntensity = Math.min(1, (severity - 2) / 3);
+        const pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
+            (0.15 + pulseIntensity * 0.3);
+        const gr = s * (3 + pulseIntensity * 1.5) * pulse;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, eventColor + "40");
+        g.addColorStop(1, eventColor + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * ageFactor * 0.6;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core dot
+      ctx.globalAlpha = depthAlpha * ageFactor;
+      ctx.fillStyle = eventColor;
+      ctx.beginPath();
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Selection ring
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = eventColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // ── Non-event rendering (aircraft, ships) ─────────────────────
     let s =
-      item.type === "events"
-        ? 3.5 + ((item as any).data?.severity || 0) * 0.8
-        : item.type === "aircraft"
+      item.type === "aircraft"
           ? 4
           : 3;
     if (isSel) s *= 1.8;
-
-    // Event pulse glow
-    if (item.type === "events") {
-      const pulse =
-        1 + Math.sin(t + (parseInt(item.id.slice(1)) || 0) * 0.7) * 0.35;
-      const gr = s * 4 * pulse;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-      g.addColorStop(0, baseColor + "40");
-      g.addColorStop(1, baseColor + "00");
-      ctx.fillStyle = g;
-      ctx.globalAlpha = depthAlpha * 0.6;
-      ctx.beginPath();
-      ctx.arc(x, y, gr, 0, Math.PI * 2);
-      ctx.fill();
-    }
 
     ctx.globalAlpha = depthAlpha;
     if (item.type === "aircraft") {
