@@ -87,10 +87,25 @@ export const apiRoutes = {
         );
       }
 
-      return Response.json({
+      const json = JSON.stringify({
         data: cache.data,
         vesselCount: cache.vesselCount,
         connected: cache.connected,
+      });
+
+      const acceptEncoding = req.headers.get("accept-encoding") ?? "";
+      if (acceptEncoding.includes("gzip")) {
+        const compressed = Bun.gzipSync(Buffer.from(json));
+        return new Response(compressed, {
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Encoding": "gzip",
+          },
+        });
+      }
+
+      return new Response(json, {
+        headers: { "Content-Type": "application/json" },
       });
     },
   },
