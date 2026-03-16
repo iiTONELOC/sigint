@@ -1,17 +1,17 @@
 // ── AIS server-side cache ────────────────────────────────────────────
-// Connects to aisstream.io WebSocket, streams global AIS data.
+// Connects to aisstream.io via the `ws` package (not Bun native WebSocket)
+// to avoid TLS handshake failures inside Bun.serve() on Heroku.
+//
 // Accumulates latest position per MMSI in memory.
 // Serves snapshot via /api/ships/latest with token auth.
 // Optional env var: AISSTREAM_API_KEY — if absent, ships endpoint returns 503.
-//
-// Two message types consumed:
-//   PositionReport — lat, lon, heading, speed, course, nav status
-//   ShipStaticData — name, callsign, IMO, type, destination, draught, dimensions
+
+import WS from "ws";
 
 const AISSTREAM_WS_URL = "wss://stream.aisstream.io/v0/stream";
 const RECONNECT_DELAY_MS = 10_000;
 const PRUNE_INTERVAL_MS = 5 * 60_000;
-const MAX_VESSEL_AGE_MS = 60 * 60_000; // drop vessels not seen for 1 hour
+const MAX_VESSEL_AGE_MS = 60 * 60_000;
 
 // ── Vessel record ────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ type VesselRecord = {
 // ── Cache state ──────────────────────────────────────────────────────
 
 const vessels = new Map<number, VesselRecord>();
-let wsConnection: WebSocket | null = null;
+let wsConnection: WS | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
@@ -105,43 +105,60 @@ function connect(): void {
   const apiKey = process.env.AISSTREAM_API_KEY;
   if (!apiKey) {
     lastError = "AISSTREAM_API_KEY env var not set — ships data unavailable";
+    console.warn("🚢 AIS: no API key set, skipping");
     return;
   }
 
+  console.log("🚢 AIS: connecting to aisstream.io...");
+
   try {
-    const ws = new WebSocket(AISSTREAM_WS_URL);
+    const ws = new WS(AISSTREAM_WS_URL);
     wsConnection = ws;
 
-    ws.addEventListener("open", () => {
+    ws.on("open", () => {
       lastError = null;
       const subscription = {
         APIKey: apiKey,
-        BoundingBoxes: [[[-90, -180], [90, 180]]],
+        BoundingBoxes: [
+          [
+            [-90, -180],
+            [90, 180],
+          ],
+        ],
         FilterMessageTypes: ["PositionReport", "ShipStaticData"],
       };
       ws.send(JSON.stringify(subscription));
+      console.log("🚢 AIS: WebSocket connected, subscription sent");
     });
 
-    ws.addEventListener("message", (event) => {
+    ws.on("message", (raw: WS.Data) => {
       try {
-        const msg = JSON.parse(String(event.data));
+        const msg = JSON.parse(String(raw));
         messageCount++;
+        if (messageCount === 1) console.log("🚢 AIS: first message received");
+        if (messageCount % 10000 === 0)
+          console.log(
+            `🚢 AIS: ${messageCount} messages, ${vessels.size} vessels`,
+          );
         handleAisMessage(msg);
       } catch {
         // malformed message — skip
       }
     });
 
-    ws.addEventListener("close", () => {
+    ws.on("close", (code: number) => {
+      console.warn(`🚢 AIS: WebSocket closed (code: ${code})`);
       wsConnection = null;
       scheduleReconnect();
     });
 
-    ws.addEventListener("error", (err) => {
-      lastError = `WebSocket error: ${(err as any)?.message ?? "unknown"}`;
+    ws.on("error", (err: Error) => {
+      lastError = `WebSocket error: ${err.message ?? "unknown"}`;
+      console.error(`🚢 AIS: ${lastError}`);
     });
   } catch (err) {
     lastError = err instanceof Error ? err.message : "Connection failed";
+    console.error(`🚢 AIS: connection failed — ${lastError}`);
     scheduleReconnect();
   }
 }
@@ -209,7 +226,8 @@ function handleAisMessage(msg: any): void {
       if (sd.CallSign) existing.callSign = sd.CallSign.trim();
       if (sd.ImoNumber && sd.ImoNumber > 0) existing.imo = sd.ImoNumber;
       if (sd.Type != null) existing.shipType = sd.Type;
-      if (sd.Destination) existing.destination = sd.Destination.trim().replace(/@+$/, "");
+      if (sd.Destination)
+        existing.destination = sd.Destination.trim().replace(/@+$/, "");
       if (sd.MaximumStaticDraught) existing.draught = sd.MaximumStaticDraught;
       if (sd.Dimension) {
         existing.dimA = sd.Dimension.A;
@@ -326,6 +344,6 @@ export function getAisCache(): {
     vesselCount: vessels.size,
     messageCount,
     error: lastError,
-    connected: wsConnection?.readyState === WebSocket.OPEN,
+    connected: wsConnection?.readyState === WS.OPEN,
   };
 }
