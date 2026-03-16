@@ -252,31 +252,28 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
         }
       });
 
-      // Double-click detection: if this could be a double-click on the same
-      // data point, the data point wins over trail waypoints
+      // ── Click / double-click detection ────────────────────────────
+      // Single click: select + lock camera (scroll stays centered)
+      // Double click on already-selected: zoom in
+      // The second click doesn't need to hit the same point — the camera
+      // may have shifted it. If we're within the time window and have a
+      // lastClickId, any click counts as a double-click on that item.
       const now = Date.now();
-      const couldBeDouble =
-        closest &&
-        now - drag.lastClickTime < 400 &&
-        //@ts-ignore
-        drag.lastClickId === closest.id;
+      const timeSinceLast = now - drag.lastClickTime;
+      const isDoubleClick = timeSinceLast < 500 && drag.lastClickId !== null;
 
-      // Data point takes priority if: it's a potential double-click, or no trail hit
-      if (closest && (couldBeDouble || !closestTrail)) {
-        const hit: DataPoint = closest;
+      if (isDoubleClick) {
+        // Double-click: zoom in to the already-selected point
         setTrailTooltip(null);
-        const isDoubleClick = !!couldBeDouble;
-
-        sel(hit);
-
-        if (isDoubleClick) {
+        const selected = propsRef.current.selected;
+        if (selected && selected.id === drag.lastClickId) {
           const camTarget = camTargetRef.current;
           //@ts-ignore
-          const interp = getInterpolatedPosition(hit.id);
+          const interp = getInterpolatedPosition(selected.id);
           //@ts-ignore
-          const tLat = interp ? interp.lat : hit.lat;
+          const tLat = interp ? interp.lat : selected.lat;
           //@ts-ignore
-          const tLon = interp ? interp.lon : hit.lon;
+          const tLon = interp ? interp.lon : selected.lon;
 
           if (isFlat) {
             const { w: fw, h: fh } = sizeRef.current;
@@ -295,9 +292,23 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
           }
           camTarget.active = true;
           //@ts-ignore
-          camTarget.lockedId = hit.id;
+          camTarget.lockedId = selected.id;
         }
 
+        // Reset so next click starts fresh
+        drag.lastClickTime = 0;
+        drag.lastClickId = null;
+      } else if (closest && !closestTrail) {
+        // Single click on data point
+        const hit: DataPoint = closest;
+        setTrailTooltip(null);
+        sel(hit);
+
+        // Lock camera — scroll-to-zoom stays centered on this point
+        //@ts-ignore
+        camTargetRef.current.lockedId = hit.id;
+
+        // Record for potential double-click
         drag.lastClickTime = now;
         //@ts-ignore
         drag.lastClickId = hit.id;

@@ -56,7 +56,12 @@ export function updateCamera(
       cam.zoomFlat += (camTarget.zoom - cam.zoomFlat) * lerpSpeed;
       clampFlatPan(cam, viewportW, viewportH);
     } else {
-      cam.rotY += (camTarget.rotY - cam.rotY) * lerpSpeed;
+      // Shortest-path rotation: normalize rotY difference to [-π, π]
+      let dRotY = camTarget.rotY - cam.rotY;
+      const TWO_PI = Math.PI * 2;
+      dRotY = ((((dRotY + Math.PI) % TWO_PI) + TWO_PI) % TWO_PI) - Math.PI;
+      cam.rotY += dRotY * lerpSpeed;
+
       cam.rotX += (camTarget.rotX - cam.rotX) * lerpSpeed;
       cam.zoomGlobe += (camTarget.zoom - cam.zoomGlobe) * lerpSpeed;
       cam.vy = 0;
