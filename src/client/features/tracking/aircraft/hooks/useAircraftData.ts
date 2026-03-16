@@ -86,7 +86,6 @@ export function useAircraftData(
         }
       } catch (err) {
         if (!isMounted) return;
-        console.error("Failed to fetch aircraft data:", err);
         setError(
           err instanceof Error ? err : new Error("Unknown error occurred"),
         );
@@ -95,8 +94,15 @@ export function useAircraftData(
       }
     };
 
-    poll();
-    intervalId = setInterval(poll, pollInterval);
+    // Skip immediate fetch if hydration returned fresh cached data
+    if (hydratedAircraft && hydratedAircraft.length > 0) {
+      // Cache was fresh — wait for the next poll interval
+      intervalId = setInterval(poll, pollInterval);
+    } else {
+      // No cache or stale — fetch immediately, then poll
+      poll();
+      intervalId = setInterval(poll, pollInterval);
+    }
 
     return () => {
       isMounted = false;

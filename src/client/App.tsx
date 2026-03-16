@@ -1,10 +1,13 @@
 import "../index.css";
-import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
+import { DataProvider } from "@/context/DataContext";
+import { AppShell } from "@/AppShell";
 
 export function App() {
   return (
     <div className="w-screen h-screen overflow-hidden min-w-[320px] bg-sig-bg font-mono">
-      <LiveTrafficPane />
+      <DataProvider>
+        <AppShell />
+      </DataProvider>
     </div>
   );
 }
