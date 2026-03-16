@@ -93,10 +93,9 @@ export function drawPoints(
     quakes: colors.quakes,
   };
 
-  const isolatedItem = isolatedId
-    ? data.find((d) => d.id === isolatedId)
-    : null;
-  const isolatedType = isolatedItem?.type ?? null;
+  // O(1) — selected is already the isolated item when isolateMode is active
+  const isolatedType =
+    isolatedId && selected && selected.id === isolatedId ? selected.type : null;
 
   const pts: Array<Projected & { item: DataPoint }> = [];
   data.forEach((item) => {
@@ -127,7 +126,10 @@ export function drawPoints(
     const p = projFn(lat, lon);
     if (p.z > 0) pts.push({ ...p, item });
   });
-  pts.sort((a, b) => a.z - b.z);
+  // Skip sort in flat mode — projFlat always returns z=1
+  if (pts.length > 1 && pts[0]!.z !== 1) {
+    pts.sort((a, b) => a.z - b.z);
+  }
 
   // ── Draw trail for selected item (behind points) ─────────────────
   if (selected) {

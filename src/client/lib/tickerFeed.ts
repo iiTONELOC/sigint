@@ -7,6 +7,20 @@ function isEmergencyAircraft(item: DataPoint): boolean {
   return sq === "7700" || sq === "7600" || sq === "7500";
 }
 
+function isMoving(item: DataPoint): boolean {
+  if (item.type === "aircraft") {
+    // Emergency aircraft always show regardless
+    if (isEmergencyAircraft(item)) return true;
+    return (item.data as any)?.onGround !== true;
+  }
+  if (item.type === "ships") {
+    const sog = (item.data as any)?.sog ?? 0;
+    return sog >= 0.5;
+  }
+  // Events and quakes always show
+  return true;
+}
+
 function getTimestamp(item: DataPoint): number {
   if (item.timestamp) {
     const t = new Date(item.timestamp).getTime();
@@ -26,6 +40,7 @@ const TYPE_ORDER = ["aircraft", "ships", "events", "quakes"];
 /**
  * Build ticker items — newest first, interleaved across all active types.
  * Emergency aircraft always lead. Then round-robin newest from each type.
+ * Grounded aircraft and moored ships (sog < 0.5) are excluded.
  */
 export function buildTickerItems(
   allData: DataPoint[],
@@ -38,6 +53,7 @@ export function buildTickerItems(
 
   for (const item of allData) {
     if (!featureRegistry.has(item.type)) continue;
+    if (!isMoving(item)) continue;
     byType.get(item.type)?.push(item);
   }
 

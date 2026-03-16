@@ -36,7 +36,7 @@ async function servePublicFile(pathname: string): Promise<Response> {
 }
 
 const server = serve({
-  hostname: "localhost",
+  hostname: "0.0.0.0",
   port: 3000,
   routes: {
     "/fonts.css": async () => {

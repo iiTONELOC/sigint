@@ -6,6 +6,7 @@ import { featureRegistry } from "@/features/registry";
 
 type TickerProps = {
   readonly items: DataPoint[];
+  readonly onSelect?: (item: DataPoint) => void;
 };
 
 const TICKER_INTERVAL_MS = 6500;
@@ -40,7 +41,7 @@ function relativeTime(timestamp?: string): string {
   return `${hrs}h ago`;
 }
 
-export function Ticker({ items }: Readonly<TickerProps>) {
+export function Ticker({ items, onSelect }: Readonly<TickerProps>) {
   const [idx, setIdx] = useState(0);
   const { theme } = useTheme();
   const C = theme.colors;
@@ -80,8 +81,9 @@ export function Ticker({ items }: Readonly<TickerProps>) {
         return (
           <div
             key={`${item.id}-${idx}-${i}`}
-            className="flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 bg-sig-panel/80 border border-sig-border h-22.5"
+            className="flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 bg-sig-panel/80 border border-sig-border h-22.5 cursor-pointer transition-colors hover:bg-sig-panel"
             style={{ borderLeft: `3px solid ${color}` }}
+            onClick={() => onSelect?.(item)}
           >
             <div className="flex justify-between mb-0.5">
               <span

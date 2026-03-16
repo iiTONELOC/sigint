@@ -26,17 +26,25 @@ export function LiveTrafficPane() {
     counts,
     activeCount,
     dataSources,
+    spatialGrid,
+    filteredIds,
   } = useData();
 
   const [panelSide, setPanelSide] = useState<"left" | "right">("right");
 
   const handleSelect = useCallback(
     (item: DataPoint | null) => {
-      if (!item) return;
+      if (!item) {
+        // Click on empty space — deselect
+        setSelected(null);
+        setIsolateMode(null);
+        return;
+      }
       if (chromeHidden) setChromeHidden(false);
+      setAutoRotate(false);
       setSelected(item);
     },
-    [chromeHidden, setChromeHidden, setSelected],
+    [chromeHidden, setChromeHidden, setSelected, setAutoRotate, setIsolateMode],
   );
 
   const handleRawCanvasClick = useCallback(() => {
@@ -73,6 +81,8 @@ export function LiveTrafficPane() {
         zoomToId={zoomToId}
         searchMatchIds={searchMatchIds}
         onSelectedSide={setPanelSide}
+        spatialGrid={spatialGrid}
+        filteredIds={filteredIds}
       />
       {!chromeHidden && (
         <DetailPanel

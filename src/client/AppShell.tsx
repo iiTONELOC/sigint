@@ -1,4 +1,6 @@
+import { useCallback } from "react";
 import { useData } from "@/context/DataContext";
+import type { DataPoint } from "@/features/base/dataPoints";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
@@ -21,10 +23,21 @@ export function AppShell() {
     availableCountries,
     chromeHidden,
     tickerItems,
+    setSelected,
+    setZoomToId,
     handleSearchSelect,
     handleSearchZoomTo,
     handleSearchMatchIds,
   } = useData();
+
+  const handleTickerSelect = useCallback(
+    (item: DataPoint) => {
+      setSelected(item);
+      setZoomToId(item.id);
+      setTimeout(() => setZoomToId(null), 100);
+    },
+    [setSelected, setZoomToId],
+  );
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
@@ -68,7 +81,7 @@ export function AppShell() {
             </span>{" "}
             LIVE FEED
           </div>
-          <Ticker items={tickerItems} />
+          <Ticker items={tickerItems} onSelect={handleTickerSelect} />
         </div>
       )}
     </div>

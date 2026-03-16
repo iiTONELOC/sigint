@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { TrailPoint } from "@/lib/trailService";
+import type { SpatialGrid } from "@/lib/spatialIndex";
 
 export type Projected = {
   x: number;
@@ -84,6 +85,8 @@ export type GlobeVisualizationProps = {
   readonly onSelectedSide?: (side: "left" | "right") => void;
   readonly zoomToId?: string | null;
   readonly searchMatchIds?: Set<string> | null;
+  readonly spatialGrid: SpatialGrid;
+  readonly filteredIds: Set<string>;
 };
 
 export type TrailHitTarget = {
