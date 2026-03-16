@@ -1,12 +1,16 @@
 // ── AIS server-side cache ────────────────────────────────────────────
-// Connects to aisstream.io via the `ws` package (not Bun native WebSocket)
-// to avoid TLS handshake failures inside Bun.serve() on Heroku.
+// Connects to aisstream.io via the `ws` npm package using require() to
+// prevent Bun from intercepting the import with its native WebSocket.
+// Explicit https.Agent forces Node's TLS stack.
 //
 // Accumulates latest position per MMSI in memory.
 // Serves snapshot via /api/ships/latest with token auth.
 // Optional env var: AISSTREAM_API_KEY — if absent, ships endpoint returns 503.
 
-import WS from "ws";
+// @ts-ignore — require() bypasses Bun's ESM WebSocket polyfill
+const WebSocketClient = require("ws");
+// @ts-ignore
+const https = require("https");
 
 const AISSTREAM_WS_URL = "wss://stream.aisstream.io/v0/stream";
 const RECONNECT_DELAY_MS = 10_000;
@@ -40,7 +44,7 @@ type VesselRecord = {
 // ── Cache state ──────────────────────────────────────────────────────
 
 const vessels = new Map<number, VesselRecord>();
-let wsConnection: WS | null = null;
+let wsConnection: any = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
@@ -112,7 +116,9 @@ function connect(): void {
   console.log("🚢 AIS: connecting to aisstream.io...");
 
   try {
-    const ws = new WS(AISSTREAM_WS_URL);
+    // Force Node's TLS stack via explicit https agent
+    const agent = new https.Agent({ rejectUnauthorized: true });
+    const ws = new WebSocketClient(AISSTREAM_WS_URL, { agent });
     wsConnection = ws;
 
     ws.on("open", () => {
@@ -131,7 +137,7 @@ function connect(): void {
       console.log("🚢 AIS: WebSocket connected, subscription sent");
     });
 
-    ws.on("message", (raw: WS.Data) => {
+    ws.on("message", (raw: any) => {
       try {
         const msg = JSON.parse(String(raw));
         messageCount++;
@@ -153,7 +159,7 @@ function connect(): void {
     });
 
     ws.on("error", (err: Error) => {
-      lastError = `WebSocket error: ${err.message ?? "unknown"}`;
+      lastError = `ws error: ${err.message ?? "unknown"}`;
       console.error(`🚢 AIS: ${lastError}`);
     });
   } catch (err) {
@@ -344,6 +350,6 @@ export function getAisCache(): {
     vesselCount: vessels.size,
     messageCount,
     error: lastError,
-    connected: wsConnection?.readyState === WS.OPEN,
+    connected: wsConnection?.readyState === 1,
   };
 }
