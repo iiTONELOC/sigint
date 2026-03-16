@@ -116,11 +116,14 @@ export function DetailPanel({
 
   return (
     <>
-      {/* Mobile: bottom sheet */}
+      {/* Mobile: compact bottom sheet */}
       <div
-        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[40vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 p-2.5"
+        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[28vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-2 pt-1"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="flex justify-center mb-1">
+          <div className="w-8 h-0.5 rounded-full bg-sig-dim/40" />
+        </div>
         {content}
       </div>
 

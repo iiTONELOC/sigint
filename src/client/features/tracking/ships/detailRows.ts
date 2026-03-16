@@ -11,7 +11,10 @@ export function buildShipDetailRows(data: ShipData): [string, string][] {
     rows.push(["Type", data.vesselType]);
   if (data.navStatusLabel && data.navStatusLabel !== "Not defined")
     rows.push(["Status", data.navStatusLabel]);
-  if (data.speed != null) rows.push(["Speed", `${data.speed} kn`]);
+  if (data.speed != null) {
+    const mph = Math.round(data.speed * 1.15078);
+    rows.push(["Speed", `${data.speed} kn (${mph} mph)`]);
+  }
   if (data.heading != null && data.heading < 511)
     rows.push(["Heading", `${data.heading}\u00B0`]);
   if (data.cog != null) rows.push(["Course", `${Math.round(data.cog)}\u00B0`]);

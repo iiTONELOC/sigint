@@ -19,6 +19,7 @@ import {
   attachInputHandlers,
   detachInputHandlers,
 } from "./inputHandlers";
+import type { DataPoint } from "@/features/base/dataPoints";
 
 export function GlobeVisualization({
   flat = false,
@@ -36,6 +37,8 @@ export function GlobeVisualization({
   onSelectedSide,
   zoomToId,
   searchMatchIds,
+  spatialGrid,
+  filteredIds,
 }: Readonly<GlobeVisualizationProps>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef<CamState>({
@@ -73,6 +76,7 @@ export function GlobeVisualization({
   const [trailTooltip, setTrailTooltip] = useState<TrailPoint | null>(null);
   const trailTooltipPointRef = useRef<TrailPoint | null>(null);
   const trailTooltipElRef = useRef<HTMLDivElement>(null);
+  const lastSideRef = useRef<"left" | "right">("right");
   const propsRef = useRef({
     data,
     layers,
@@ -89,6 +93,8 @@ export function GlobeVisualization({
     onSelectedSide,
     zoomToId,
     searchMatchIds,
+    spatialGrid,
+    filteredIds,
   });
   propsRef.current = {
     data,
@@ -106,11 +112,22 @@ export function GlobeVisualization({
     onSelectedSide,
     zoomToId,
     searchMatchIds,
+    spatialGrid,
+    filteredIds,
   };
 
   const { theme } = useTheme();
   const colorsRef = useRef(theme.colors);
   colorsRef.current = theme.colors;
+
+  // ── Offscreen canvas for static layer (land/ocean/grid) ─────────
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
+  const lastStaticFpRef = useRef("");
+
+  // ── Progressive render limit ────────────────────────────────────
+  const prevDataRef = useRef<DataPoint[] | null>(null);
+  const renderLimitRef = useRef(0);
+  const RENDER_CHUNK = 3000;
 
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
@@ -154,7 +171,10 @@ export function GlobeVisualization({
     if (!canvas) return;
     let running = true;
 
-    enrichLand(() => {});
+    enrichLand(() => {
+      // Land loaded — invalidate offscreen cache
+      lastStaticFpRef.current = "";
+    });
 
     const render = () => {
       if (!running) return;
@@ -194,6 +214,7 @@ export function GlobeVisualization({
       );
 
       // Report which side of the screen the selected item is on
+      // Hysteresis: only flip when point crosses 35%/65% of viewport
       if (sel && propsRef.current.onSelectedSide) {
         const selInterp = getInterpolatedPosition(sel.id);
         const sLat = selInterp ? selInterp.lat : sel.lat;
@@ -213,59 +234,202 @@ export function GlobeVisualization({
               cam.rotX,
             );
         if (sp.z > 0) {
-          propsRef.current.onSelectedSide(sp.x > W / 2 ? "left" : "right");
+          const ratio = sp.x / W;
+          const prev = lastSideRef.current;
+          // Only flip if point clearly crossed to the other side
+          if (prev === "right" && ratio > 0.65) {
+            lastSideRef.current = "left";
+          } else if (prev === "left" && ratio < 0.35) {
+            lastSideRef.current = "right";
+          }
+          propsRef.current.onSelectedSide(lastSideRef.current);
         }
       }
 
+      // ── Progressive render limit ────────────────────────────────
+      if (d !== prevDataRef.current) {
+        prevDataRef.current = d;
+        renderLimitRef.current = RENDER_CHUNK;
+      } else if (renderLimitRef.current < d.length) {
+        renderLimitRef.current = Math.min(
+          renderLimitRef.current + RENDER_CHUNK,
+          d.length,
+        );
+      }
+      const renderData =
+        renderLimitRef.current < d.length
+          ? d.slice(0, renderLimitRef.current)
+          : d;
+
+      // ── Static layer fingerprint ────────────────────────────────
+      // Quantized to .001 so during auto-rotate the static layer
+      // redraws ~15fps (land/grid) while data points stay at 60fps.
+      const fp = isFlat
+        ? `F|${W}|${H}|${cam.zoomFlat.toFixed(2)}|${cam.panX.toFixed(0)}|${cam.panY.toFixed(0)}`
+        : `G|${W}|${H}|${cam.rotY.toFixed(3)}|${cam.rotX.toFixed(3)}|${cam.zoomGlobe.toFixed(2)}`;
+
+      const staticDirty = fp !== lastStaticFpRef.current;
+
+      // Ensure offscreen canvas exists and is sized
+      if (!offscreenRef.current) {
+        offscreenRef.current = document.createElement("canvas");
+      }
+      const osc = offscreenRef.current;
+      if (osc.width !== canvas.width || osc.height !== canvas.height) {
+        osc.width = canvas.width;
+        osc.height = canvas.height;
+        lastStaticFpRef.current = ""; // force redraw on resize
+      }
+
+      // ── Draw static layer (land/ocean/grid) to offscreen ────────
+      if (staticDirty || lastStaticFpRef.current === "") {
+        const octx = osc.getContext("2d");
+        if (octx) {
+          const dpr = canvas.width / W || 1;
+          octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          octx.clearRect(0, 0, W, H);
+
+          if (!isFlat) {
+            const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+            const proj: ProjFn = (lat, lon) =>
+              projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
+
+            // Glow
+            const glow = octx.createRadialGradient(
+              cx,
+              cy,
+              r * 0.8,
+              cx,
+              cy,
+              r * 1.4,
+            );
+            glow.addColorStop(0, C.accent + "0d");
+            glow.addColorStop(1, "rgba(0,0,0,0)");
+            octx.fillStyle = glow;
+            octx.fillRect(0, 0, W, H);
+
+            // Solid ocean
+            const bg = octx.createRadialGradient(
+              cx - r * 0.2,
+              cy - r * 0.2,
+              0,
+              cx,
+              cy,
+              r,
+            );
+            bg.addColorStop(0, "#0e1825");
+            bg.addColorStop(1, "#060c16");
+            octx.beginPath();
+            octx.arc(cx, cy, r, 0, Math.PI * 2);
+            octx.fillStyle = bg;
+            octx.fill();
+
+            // Clip to globe
+            octx.save();
+            octx.beginPath();
+            octx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
+            octx.clip();
+
+            drawLand(octx, proj, C, false, cx, cy, r - 0.5);
+            drawGrid(octx, proj, { isFlat: false, accentColor: C.accent });
+
+            octx.restore();
+
+            // Rim
+            octx.beginPath();
+            octx.arc(cx, cy, r, 0, Math.PI * 2);
+            octx.strokeStyle = C.accent + "1f";
+            octx.lineWidth = 1.5;
+            octx.stroke();
+          } else {
+            const {
+              mW,
+              mH,
+              mx,
+              my,
+              cx: flatCx,
+              cy: flatCy,
+            } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+            const proj: ProjFn = (lat, lon) =>
+              projFlat(lat, lon, flatCx, flatCy, mW, mH);
+
+            octx.fillStyle = "#081018";
+            octx.fillRect(mx, my, mW, mH);
+
+            octx.save();
+            octx.beginPath();
+            octx.rect(mx, my, mW, mH);
+            octx.clip();
+
+            drawLand(octx, proj, C, true, 0, 0, 0);
+            drawGrid(octx, proj, {
+              isFlat: true,
+              cx,
+              cy,
+              mW,
+              mH,
+              mx,
+              my,
+              accentColor: C.accent,
+            });
+
+            octx.restore();
+
+            octx.strokeStyle = C.accent + "1a";
+            octx.lineWidth = 1;
+            octx.strokeRect(mx, my, mW, mH);
+
+            octx.globalAlpha = 1;
+            octx.fillStyle = C.dim;
+            const baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
+            octx.font = `${baseFontSize}px 'JetBrains Mono', monospace`;
+            octx.textAlign = "center";
+            for (let lon = -120; lon <= 120; lon += 60) {
+              octx.fillText(
+                `${Math.abs(lon)}\u00B0${lon >= 0 ? "E" : "W"}`,
+                flatCx + (lon / 180) * (mW / 2),
+                my + mH + 13,
+              );
+            }
+            octx.textAlign = "right";
+            for (let lat = -60; lat <= 60; lat += 30) {
+              octx.fillText(
+                `${Math.abs(lat)}\u00B0${lat >= 0 ? "N" : "S"}`,
+                mx - 5,
+                flatCy - (lat / 90) * (mH / 2) + 3,
+              );
+            }
+          }
+
+          lastStaticFpRef.current = fp;
+        }
+      }
+
+      // ── Composite: blit cached static layer, draw points on top ──
       ctx.clearRect(0, 0, W, H);
+      // drawImage with matching canvas dimensions is a single GPU blit
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(osc, 0, 0);
+      const dpr = canvas.width / W || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       if (!isFlat) {
         const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
         const proj: ProjFn = (lat, lon) =>
           projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
-
-        // Glow
-        const glow = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 1.4);
-        glow.addColorStop(0, C.accent + "0d");
-        glow.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = glow;
-        ctx.fillRect(0, 0, W, H);
-
-        // Solid ocean
-        const bg = ctx.createRadialGradient(
-          cx - r * 0.2,
-          cy - r * 0.2,
-          0,
-          cx,
-          cy,
-          r,
+        drawPoints(
+          ctx,
+          renderData,
+          ly,
+          af,
+          sel,
+          iso,
+          isoMode,
+          proj,
+          t,
+          C,
+          sMatch,
         );
-        bg.addColorStop(0, "#0e1825");
-        bg.addColorStop(1, "#060c16");
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.fillStyle = bg;
-        ctx.fill();
-
-        // Clip to globe
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
-        ctx.clip();
-
-        drawLand(ctx, proj, C, false, cx, cy, r - 0.5);
-        drawGrid(ctx, proj, { isFlat: false, accentColor: C.accent });
-
-        ctx.restore();
-
-        // Rim
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = C.accent + "1f";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        drawPoints(ctx, d, ly, af, sel, iso, isoMode, proj, t, C, sMatch);
       } else {
         const {
           mW,
@@ -278,60 +442,33 @@ export function GlobeVisualization({
         const proj: ProjFn = (lat, lon) =>
           projFlat(lat, lon, flatCx, flatCy, mW, mH);
 
-        ctx.fillStyle = "#081018";
-        ctx.fillRect(mx, my, mW, mH);
-
+        // Clip points to map rect
         ctx.save();
         ctx.beginPath();
         ctx.rect(mx, my, mW, mH);
         ctx.clip();
-
-        drawLand(ctx, proj, C, true, 0, 0, 0);
-        drawGrid(ctx, proj, {
-          isFlat: true,
-          cx,
-          cy,
-          mW,
-          mH,
-          mx,
-          my,
-          accentColor: C.accent,
-        });
-        drawPoints(ctx, d, ly, af, sel, iso, isoMode, proj, t, C, sMatch);
-
+        drawPoints(
+          ctx,
+          renderData,
+          ly,
+          af,
+          sel,
+          iso,
+          isoMode,
+          proj,
+          t,
+          C,
+          sMatch,
+        );
         ctx.restore();
-
-        ctx.strokeStyle = C.accent + "1a";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(mx, my, mW, mH);
-
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = C.dim;
-        const baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
-        ctx.font = `${baseFontSize}px 'JetBrains Mono', monospace`;
-        ctx.textAlign = "center";
-        for (let lon = -120; lon <= 120; lon += 60) {
-          ctx.fillText(
-            `${Math.abs(lon)}\u00B0${lon >= 0 ? "E" : "W"}`,
-            flatCx + (lon / 180) * (mW / 2),
-            my + mH + 13,
-          );
-        }
-        ctx.textAlign = "right";
-        for (let lat = -60; lat <= 60; lat += 30) {
-          ctx.fillText(
-            `${Math.abs(lat)}\u00B0${lat >= 0 ? "N" : "S"}`,
-            mx - 5,
-            flatCy - (lat / 90) * (mH / 2) + 3,
-          );
-        }
       }
 
       // Update trail tooltip position if active
       const ttEl = trailTooltipElRef.current;
       const ttPoint = trailTooltipPointRef.current;
       if (ttEl && ttPoint) {
-        const proj: ProjFn = isFlat
+        const isF = isFlat;
+        const proj: ProjFn = isF
           ? (lat, lon) => {
               const fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
               return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
@@ -428,9 +565,10 @@ export function GlobeVisualization({
     trailTooltipPointRef.current = trailTooltip;
   }, [trailTooltip]);
 
-  // Clear tooltip when selection changes
+  // Clear tooltip and reset panel side when selection changes
   useEffect(() => {
     setTrailTooltip(null);
+    lastSideRef.current = "right";
   }, [selected?.id]);
 
   return (
@@ -438,7 +576,7 @@ export function GlobeVisualization({
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        style={{ cursor: "default", display: "block" }}
+        style={{ cursor: "default", display: "block", touchAction: "none" }}
       />
       {trailTooltip && (
         <div

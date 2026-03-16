@@ -6,6 +6,25 @@ import { generateToken, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 
+// ── Gzip response helper ─────────────────────────────────────────────
+
+function jsonResponse(req: Request, body: unknown): Response {
+  const json = JSON.stringify(body);
+  const acceptEncoding = req.headers.get("accept-encoding") ?? "";
+  if (acceptEncoding.includes("gzip")) {
+    const compressed = Bun.gzipSync(Buffer.from(json));
+    return new Response(compressed, {
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+      },
+    });
+  }
+  return new Response(json, {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export const apiRoutes = {
   // ── Auth token ──────────────────────────────────────────────────
   // Rate limited but no token required (this is how you get one).
@@ -66,7 +85,7 @@ export const apiRoutes = {
         );
       }
 
-      return Response.json({
+      return jsonResponse(req, {
         data: cache.data,
         fetchedAt: cache.fetchedAt,
       });
@@ -87,25 +106,10 @@ export const apiRoutes = {
         );
       }
 
-      const json = JSON.stringify({
+      return jsonResponse(req, {
         data: cache.data,
         vesselCount: cache.vesselCount,
         connected: cache.connected,
-      });
-
-      const acceptEncoding = req.headers.get("accept-encoding") ?? "";
-      if (acceptEncoding.includes("gzip")) {
-        const compressed = Bun.gzipSync(Buffer.from(json));
-        return new Response(compressed, {
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Encoding": "gzip",
-          },
-        });
-      }
-
-      return new Response(json, {
-        headers: { "Content-Type": "application/json" },
       });
     },
   },

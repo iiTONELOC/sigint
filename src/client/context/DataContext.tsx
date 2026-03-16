@@ -25,6 +25,8 @@ import {
 } from "@/lib/uiSelectors";
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { recordPositions } from "@/lib/trailService";
+import { featureRegistry } from "@/features/registry";
+import { buildSpatialGrid, type SpatialGrid } from "@/lib/spatialIndex";
 import type { SourceStatus } from "@/components/StatusBadge";
 
 // ── Context value type ──────────────────────────────────────────────
@@ -33,6 +35,10 @@ type DataContextValue = {
   // Raw data
   allData: DataPoint[];
 
+  // Lookup structures (for click/hover, not rendering)
+  spatialGrid: SpatialGrid;
+  filteredIds: Set<string>;
+
   // Selection
   selected: DataPoint | null;
   selectedCurrent: DataPoint | null;
@@ -40,9 +46,7 @@ type DataContextValue = {
 
   // Isolation
   isolateMode: null | "solo" | "focus";
-  setIsolateMode: React.Dispatch<
-    React.SetStateAction<null | "solo" | "focus">
-  >;
+  setIsolateMode: React.Dispatch<React.SetStateAction<null | "solo" | "focus">>;
 
   // Layers & filters
   layers: Record<string, boolean>;
@@ -101,9 +105,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // ── Selection & isolation ───────────────────────────────────────
   const [selected, setSelected] = useState<DataPoint | null>(null);
-  const [isolateMode, setIsolateMode] = useState<null | "solo" | "focus">(
-    null,
-  );
+  const [isolateMode, setIsolateMode] = useState<null | "solo" | "focus">(null);
 
   // ── Layers & filters ───────────────────────────────────────────
   const [layers, setLayers] = useState<Record<string, boolean>>({
@@ -131,16 +133,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { data: earthquakeData, dataSource: earthquakeSource } =
     useEarthquakeData();
 
-  const { data: eventData, dataSource: eventSource } =
-    useEventData();
+  const { data: eventData, dataSource: eventSource } = useEventData();
 
-  const { data: shipData, dataSource: shipSource } =
-    useShipData();
+  const { data: shipData, dataSource: shipSource } = useShipData();
 
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
     () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData],
     [aircraftData, shipData, earthquakeData, eventData],
+  );
+
+  // ── ID Map — O(1) lookup by id ─────────────────────────────────
+  const idMap = useMemo(() => {
+    const map = new Map<string, DataPoint>();
+    for (let i = 0; i < allData.length; i++) {
+      map.set(allData[i]!.id, allData[i]!);
+    }
+    return map;
+  }, [allData]);
+
+  // ── Spatial grid — for click/hover only ────────────────────────
+  const spatialGrid = useMemo<SpatialGrid>(
+    () =>
+      allData.length > 0
+        ? buildSpatialGrid(allData)
+        : { cells: new Map(), size: 0 },
+    [allData],
   );
 
   // ── Trail recording (centralized) ─────────────────────────────
@@ -157,9 +175,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         heading: (d.data as any)?.heading,
         speedMps:
           (d.data as any)?.speedMps ??
-          ((d.data as any)?.speed
-            ? (d.data as any).speed * 0.5144
-            : undefined),
+          ((d.data as any)?.speed ? (d.data as any).speed * 0.5144 : undefined),
         altitude: (d.data as any)?.altitude,
         speed: (d.data as any)?.speed,
       }));
@@ -190,6 +206,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [aircraftFilter, layers],
   );
 
+  // ── Pre-computed filter set (for click/hover) ──────────────────
+  const filteredIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (let i = 0; i < allData.length; i++) {
+      const item = allData[i]!;
+      const feature = featureRegistry.get(item.type);
+      if (!feature) continue;
+      const filter = filters[item.type];
+      if (filter == null) continue;
+      if (feature.matchesFilter(item as any, filter)) ids.add(item.id);
+    }
+    return ids;
+  }, [allData, filters]);
+
   // ── Derived values ─────────────────────────────────────────────
   const tickerItems = useMemo(
     () => buildTickerItems(allData, filters, layers),
@@ -198,9 +228,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const selectedCurrent = useMemo(() => {
     if (!selected) return null;
-    const next = allData.find((item) => item.id === selected.id);
-    return next ?? selected;
-  }, [allData, selected]);
+    return idMap.get(selected.id) ?? selected;
+  }, [idMap, selected]);
 
   const counts = useMemo(
     () => selectLayerCounts(allData, filters),
@@ -280,6 +309,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const value = useMemo<DataContextValue>(
     () => ({
       allData,
+      spatialGrid,
+      filteredIds,
       selected,
       selectedCurrent,
       setSelected,
@@ -313,6 +344,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }),
     [
       allData,
+      spatialGrid,
+      filteredIds,
       selected,
       selectedCurrent,
       isolateMode,

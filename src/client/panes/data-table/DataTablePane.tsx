@@ -231,6 +231,20 @@ export function DataTablePane() {
     [sortedData, startIdx, endIdx],
   );
 
+  // ── Auto-scroll to selected item ────────────────────────────────
+  useEffect(() => {
+    if (!selectedCurrent || !scrollRef.current) return;
+    const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
+    if (idx < 0) return;
+    const itemTop = idx * ROW_HEIGHT;
+    const itemBottom = itemTop + ROW_HEIGHT;
+    const el = scrollRef.current;
+    // Only scroll if item is outside the visible viewport
+    if (itemTop < el.scrollTop || itemBottom > el.scrollTop + viewportH) {
+      el.scrollTop = Math.max(0, itemTop - ROW_HEIGHT * 2);
+    }
+  }, [selectedCurrent?.id, sortedData, viewportH]);
+
   // ── Feature counts ──────────────────────────────────────────────
 
   const featureCounts = useMemo(() => {
