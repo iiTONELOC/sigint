@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useData } from "@/context/DataContext";
-import { useHasDossier } from "@/panes/paneLayoutContext";
+import { useHasDossier, requestDossierOpen } from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -11,6 +11,7 @@ export function LiveTrafficPane() {
   const {
     allData,
     layers,
+    toggleLayer,
     aircraftFilter,
     flat,
     autoRotate,
@@ -38,8 +39,8 @@ export function LiveTrafficPane() {
   const handleSetIsolateMode = useCallback(
     (mode: null | "solo" | "focus") => {
       setIsolateMode(mode);
-      // Zoom to the selected point when entering Focus or Solo
-      if (mode && selectedCurrent) {
+      // Always zoom to the selected point when entering or re-entering Focus/Solo
+      if (selectedCurrent) {
         setZoomToId(selectedCurrent.id);
         setTimeout(() => setZoomToId(null), 100);
       }
@@ -63,6 +64,13 @@ export function LiveTrafficPane() {
   );
 
   const handleRawCanvasClick = useCallback(() => {
+    // If something is selected, just deselect — don't hide chrome
+    if (selectedCurrent) {
+      setSelected(null);
+      setIsolateMode(null);
+      return;
+    }
+    // Nothing selected — toggle fullscreen
     setChromeHidden((v) => {
       const next = !v;
       if (next) {
@@ -71,7 +79,7 @@ export function LiveTrafficPane() {
       }
       return next;
     });
-  }, [setChromeHidden, setSelected, setIsolateMode]);
+  }, [selectedCurrent, setChromeHidden, setSelected, setIsolateMode]);
 
   const handleClose = useCallback(() => {
     setSelected(null);
@@ -106,10 +114,13 @@ export function LiveTrafficPane() {
           isolateMode={isolateMode}
           onSetIsolateMode={handleSetIsolateMode}
           side={panelSide}
+          onOpenDossier={requestDossierOpen}
         />
       )}
 
-      {!chromeHidden && <LayerLegend layers={layers} counts={counts} />}
+      {!chromeHidden && (
+        <LayerLegend layers={layers} counts={counts} onToggle={toggleLayer} />
+      )}
 
       {!chromeHidden && (
         <StatusBadge dataSources={dataSources} activeCount={activeCount} />

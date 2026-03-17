@@ -38,9 +38,17 @@ function extractAlerts(allData: DataPoint[]): AlertItem[] {
     if (item.type === "aircraft") {
       const sq = (d.squawk as string) ?? "";
       if (sq === "7700") {
-        alerts.push({ item, alertLabel: "SQUAWK 7700 — EMERGENCY", priority: 10 });
+        alerts.push({
+          item,
+          alertLabel: "SQUAWK 7700 — EMERGENCY",
+          priority: 10,
+        });
       } else if (sq === "7600") {
-        alerts.push({ item, alertLabel: "SQUAWK 7600 — RADIO FAILURE", priority: 9 });
+        alerts.push({
+          item,
+          alertLabel: "SQUAWK 7600 — RADIO FAILURE",
+          priority: 9,
+        });
       } else if (sq === "7500") {
         alerts.push({ item, alertLabel: "SQUAWK 7500 — HIJACK", priority: 10 });
       }
@@ -106,8 +114,12 @@ function extractAlerts(allData: DataPoint[]): AlertItem[] {
 
   // Sort by timestamp descending (newest first)
   recent.sort((a, b) => {
-    const ta = a.item.timestamp ? new Date(a.item.timestamp).getTime() : Date.now();
-    const tb = b.item.timestamp ? new Date(b.item.timestamp).getTime() : Date.now();
+    const ta = a.item.timestamp
+      ? new Date(a.item.timestamp).getTime()
+      : Date.now();
+    const tb = b.item.timestamp
+      ? new Date(b.item.timestamp).getTime()
+      : Date.now();
     return tb - ta;
   });
 
@@ -175,6 +187,28 @@ export function AlertLogPane() {
 
   const alerts = useMemo(() => extractAlerts(allData), [allData]);
 
+  // ── Filter / sort state ─────────────────────────────────────────
+  const [filterType, setFilterType] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"time" | "priority">("time");
+
+  const filteredAlerts = useMemo(() => {
+    let list = alerts;
+    if (filterType) list = list.filter((a) => a.item.type === filterType);
+    if (sortBy === "priority") {
+      list = [...list].sort(
+        (a, b) =>
+          b.priority - a.priority ||
+          (b.item.timestamp
+            ? new Date(b.item.timestamp).getTime()
+            : Date.now()) -
+            (a.item.timestamp
+              ? new Date(a.item.timestamp).getTime()
+              : Date.now()),
+      );
+    }
+    return list;
+  }, [alerts, filterType, sortBy]);
+
   // ── Virtual scroll state ────────────────────────────────────────
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -194,19 +228,41 @@ export function AlertLogPane() {
     if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop);
   }, []);
 
+  // Reset scroll on filter change
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [filterType, sortBy]);
+
   // ── Virtual window ──────────────────────────────────────────────
 
-  const totalHeight = alerts.length * ROW_HEIGHT;
+  const totalHeight = filteredAlerts.length * ROW_HEIGHT;
   const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIdx = Math.min(
-    alerts.length,
+    filteredAlerts.length,
     Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
   );
   const offsetY = startIdx * ROW_HEIGHT;
   const visibleAlerts = useMemo(
-    () => alerts.slice(startIdx, endIdx),
-    [alerts, startIdx, endIdx],
+    () => filteredAlerts.slice(startIdx, endIdx),
+    [filteredAlerts, startIdx, endIdx],
   );
+
+  // ── Type counts for filter tabs ─────────────────────────────────
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const a of alerts) {
+      counts[a.item.type] = (counts[a.item.type] ?? 0) + 1;
+    }
+    return counts;
+  }, [alerts]);
+
+  const filterTypes = useMemo(() => {
+    const types = Object.keys(typeCounts).sort(
+      (a, b) => (typeCounts[b] ?? 0) - (typeCounts[a] ?? 0),
+    );
+    return types;
+  }, [typeCounts]);
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -229,16 +285,54 @@ export function AlertLogPane() {
 
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
-      {/* Header */}
-      <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 border-b border-sig-border/40">
-        <Bell size={11} strokeWidth={2.5} className="text-sig-danger" />
-        <span className="text-sig-danger text-(length:--sig-text-sm) tracking-wider font-semibold">
-          ALERTS
-        </span>
-        <div className="flex-1" />
-        <span className="text-sig-dim text-(length:--sig-text-sm)">
+      {/* Filter / sort toolbar */}
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 overflow-x-auto">
+        <span className="text-sig-danger text-(length:--sig-text-sm) font-semibold shrink-0">
           {alerts.length} active
         </span>
+        <div className="w-px h-3 bg-sig-border/40 shrink-0 mx-0.5" />
+        {/* Type filter tabs */}
+        <button
+          onClick={() => setFilterType(null)}
+          className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+            filterType === null
+              ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
+              : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+          }`}
+        >
+          ALL
+        </button>
+        {filterTypes.map((t) => {
+          const Icon = TYPE_ICONS[t] ?? Activity;
+          const color = colorMap[t] ?? theme.colors.dim;
+          return (
+            <button
+              key={t}
+              onClick={() => setFilterType(filterType === t ? null : t)}
+              className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border flex items-center gap-1 ${
+                filterType === t
+                  ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
+                  : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+              }`}
+            >
+              <Icon size={9} strokeWidth={2.5} style={{ color }} />
+              {typeCounts[t]}
+            </button>
+          );
+        })}
+        <div className="flex-1" />
+        {/* Sort toggle */}
+        <button
+          onClick={() => setSortBy((s) => (s === "time" ? "priority" : "time"))}
+          className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+          title={
+            sortBy === "time"
+              ? "Sorted by time — click for priority"
+              : "Sorted by priority — click for time"
+          }
+        >
+          {sortBy === "time" ? "⏱ NEW" : "⚡ PRI"}
+        </button>
       </div>
 
       {/* Virtual scrolling alert list */}
@@ -248,7 +342,9 @@ export function AlertLogPane() {
         className="flex-1 overflow-y-auto sigint-scroll"
       >
         <div style={{ height: totalHeight, position: "relative" }}>
-          <div style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
+          <div
+            style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
+          >
             {visibleAlerts.map((alert, localIdx) => {
               const Icon = TYPE_ICONS[alert.item.type] ?? Activity;
               const color = colorMap[alert.item.type] ?? theme.colors.dim;
@@ -276,7 +372,9 @@ export function AlertLogPane() {
                       style={{ color }}
                       className="shrink-0"
                     />
-                    <span className={`text-(length:--sig-text-sm) font-bold tracking-wider truncate ${textCls}`}>
+                    <span
+                      className={`text-(length:--sig-text-sm) font-bold tracking-wider truncate ${textCls}`}
+                    >
                       {alert.alertLabel}
                     </span>
                     <span className="ml-auto text-(length:--sig-text-sm) text-sig-dim shrink-0">
@@ -304,9 +402,12 @@ export function AlertLogPane() {
         {alerts.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-sig-dim">
             <Bell size={24} className="opacity-20 mb-2" />
-            <span className="text-(length:--sig-text-md)">No active alerts</span>
+            <span className="text-(length:--sig-text-md)">
+              No active alerts
+            </span>
             <span className="text-(length:--sig-text-sm) mt-1 text-center px-4">
-              Monitoring for squawk codes, severe weather, large quakes, high-FRP fires, crisis events
+              Monitoring for squawk codes, severe weather, large quakes,
+              high-FRP fires, crisis events
             </span>
           </div>
         )}

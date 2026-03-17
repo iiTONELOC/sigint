@@ -52,11 +52,12 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 
 ```mermaid
 flowchart TD
-    Boot["Application Boot<br/>await cacheInit()"] --> HydrateAC["AircraftProvider.hydrate()<br/>(rejects if >235s stale)"]
+    Boot["Application Boot<br/>await cacheInit()"] --> HydrateAC["AircraftProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateEQ["EarthquakeProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateEV["GdeltProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateSH["ShipProvider.hydrate()<br/>(rejects if >5min stale)"]
+    Boot --> HydrateSH["ShipProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateFI["FireProvider.hydrate()<br/>(rejects if >30min stale)"]
+    Boot --> HydrateWX["WeatherProvider.hydrate()<br/>(rejects if >30min stale)"]
 
     HydrateAC -->|"cache hit"| CachedAC["cached aircraft"]
     HydrateAC -->|"cache miss"| MockFallback["mock aircraft"]
@@ -73,6 +74,9 @@ flowchart TD
     HydrateFI -->|"cache hit"| CachedFI["cached fireData"]
     HydrateFI -->|"cache miss"| EmptyFI["fireData = []"]
 
+    HydrateWX -->|"cache hit"| CachedWX["cached weatherData"]
+    HydrateWX -->|"cache miss"| EmptyWX["weatherData = []"]
+
     CachedAC --> AllData["allData = useMemo merge"]
     MockFallback --> AllData
     CachedEQ --> AllData
@@ -83,27 +87,32 @@ flowchart TD
     EmptySH --> AllData
     CachedFI --> AllData
     EmptyFI --> AllData
+    CachedWX --> AllData
+    EmptyWX --> AllData
 
     AllData --> PollAC["Aircraft poll() every 240s"]
     AllData --> PollEQ["Earthquake poll() every 420s"]
     AllData --> PollEV["Event poll() every 15 min<br/>(fetches from our server)"]
     AllData --> PollSH["Ship poll() every 300s<br/>(fetches from our server)"]
     AllData --> PollFI["Fire poll() every 600s<br/>(fetches from our server)"]
+    AllData --> PollWX["Weather poll() every 300s<br/>(client-side fetch from NOAA)"]
 
     PollAC -->|"success"| PersistAC["persistCache() → IndexedDB"]
     PollEQ -->|"success"| PersistEQ["persistCache() → IndexedDB"]
     PollEV -->|"success"| PersistEV["mergeAndPrune() → persistCache() → IndexedDB"]
     PollSH -->|"success"| PersistSH["persistCache() → IndexedDB"]
     PollFI -->|"success"| PersistFI["persistCache() → IndexedDB"]
+    PollWX -->|"success"| PersistWX["persistCache() → IndexedDB"]
 
     PersistAC --> SetState["React state update → re-merge allData"]
     PersistEQ --> SetState
     PersistEV --> SetState
     PersistSH --> SetState
     PersistFI --> SetState
+    PersistWX --> SetState
 ```
 
-All five hooks skip the immediate fetch on boot if hydration returned fresh data. Staleness thresholds are set to match or be tighter than poll intervals so stale cache is rejected and the immediate fetch fires.
+All six hooks skip the immediate fetch on boot if hydration returned fresh data. All providers use a uniform 30-minute staleness threshold — cached data shows instantly on reload, live data replaces within one poll cycle.
 
 ---
 
@@ -125,10 +134,11 @@ const { data: shipData } = useShipData();
 const { data: earthquakeData } = useEarthquakeData();
 const { data: eventData } = useEventData();
 const { data: fireData } = useFireData();
+const { data: weatherData } = useWeatherData();
 
 const allData = useMemo(
-  () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData],
-  [aircraftData, shipData, earthquakeData, eventData, fireData],
+  () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData],
+  [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData],
 );
 ```
 
@@ -137,6 +147,7 @@ const allData = useMemo(
 - **`earthquakeData`**: Live earthquakes from USGS (refreshed every 420s). Covers the past 7 days of global seismic activity.
 - **`eventData`**: Live GDELT events from our server (refreshed every 15 min). Client-side 7-day rolling window with URL-based dedup. Server fetches GDELT raw export files, parses geocoded conflict/crisis events, caches in memory.
 - **`fireData`**: Live fire hotspots from our server (refreshed every 600s). Server fetches NASA FIRMS VIIRS CSV every 30 min, parses global fire detections from the last 24 hours. Empty array if `FIRMS_MAP_KEY` not set.
+- **`weatherData`**: Live NOAA severe weather alerts (refreshed every 300s). Client-side fetch from `api.weather.gov/alerts/active`. US-only. No API key, just User-Agent header.
 
 ---
 
@@ -149,10 +160,11 @@ const filters = {
   events:   { enabled: layers.events ?? true, minSeverity: 0 },  // EventFilter
   quakes:   { enabled: layers.quakes ?? true, minMagnitude: 0 },  // EarthquakeFilter
   fires:    { enabled: layers.fires ?? true, minConfidence: 0 },  // FireFilter
+  weather:  { enabled: layers.weather ?? true, minSeverity: 0 },  // WeatherFilter
 };
 ```
 
-Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Events use `EventFilter` with enabled + minSeverity. Ships use a simple boolean. Fires use `FireFilter` with enabled + minConfidence.
+Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Events use `EventFilter` with enabled + minSeverity. Ships use a simple boolean. Fires use `FireFilter` with enabled + minConfidence. Weather uses `WeatherFilter` with enabled + minSeverity.
 
 ---
 
@@ -162,7 +174,7 @@ The AIS pipeline has both server-side and client-side components:
 
 **Server** (`aisCache.ts`): On boot, opens a persistent WebSocket to `wss://stream.aisstream.io/v0/stream`. Subscribes to global `PositionReport` and `ShipStaticData` messages. Accumulates latest position per MMSI in an in-memory Map. `PositionReport` provides lat/lon/speed/heading/course/nav status. `ShipStaticData` enriches with name/callsign/IMO/type/destination/draught/dimensions. Stale vessels (not seen for 60 min) pruned every 5 min. Auto-reconnects on disconnect. Serves snapshot via `/api/ships/latest` with token auth.
 
-**Client** (`ShipProvider`): Polls `/api/ships/latest` every 300 seconds using `authenticatedFetch()` from `lib/authService.ts`. Converts server vessel records to DataPoints with `id: S{mmsi}`, type `ships`. Persists to IndexedDB. Hydrates on boot with 5-min staleness threshold.
+**Client** (`ShipProvider`): Polls `/api/ships/latest` every 300 seconds using `authenticatedFetch()` from `lib/authService.ts`. Converts server vessel records to DataPoints with `id: S{mmsi}`, type `ships`. Persists to IndexedDB. Hydrates on boot with 30-min staleness threshold.
 
 ---
 
@@ -183,6 +195,14 @@ The FIRMS pipeline has both server-side and client-side components:
 **Server** (`firmsCache.ts`): Every 30 minutes, fetches the VIIRS NOAA-20 global CSV from the NASA FIRMS API (`/api/area/csv/{MAP_KEY}/VIIRS_NOAA20_NRT/world/1`). Parses CSV columns (latitude, longitude, brightness, FRP, confidence, satellite, instrument, acquisition date/time, day/night). Caches parsed records in memory. Serves via `/api/fires/latest` with token auth and gzip compression. If `FIRMS_MAP_KEY` is not set, polling is skipped.
 
 **Client** (`FireProvider`): Polls `/api/fires/latest` every 600 seconds (10 min) using `authenticatedFetch()`. Converts server fire records to DataPoints with `id: FI{idx}-{lat}-{lon}`, type `fires`. Persists to IndexedDB under `sigint.firms.fire-cache.v1`. Hydrates on boot with 30-min staleness threshold.
+
+---
+
+## NOAA Weather Data Flow
+
+Unlike the server-proxied sources (GDELT, ships, fires), weather alerts are fetched **client-side** directly from `api.weather.gov/alerts/active?status=actual&message_type=alert`. No API key required — only a `User-Agent` header. The NWS API returns a GeoJSON FeatureCollection.
+
+**Client** (`WeatherProvider`): Polls every 300 seconds (5 min). Extracts centroid coordinates from each feature's geometry (skips alerts without geometry). Maps to DataPoints with `id: WX{nws_id}`, type `weather`. Data includes severity, certainty, urgency, event type, headline, description, area description, onset, and expiry. Persists under `sigint.noaa.weather-cache.v1`. Hydrates on boot with 30-min staleness threshold. US-only coverage.
 
 ---
 

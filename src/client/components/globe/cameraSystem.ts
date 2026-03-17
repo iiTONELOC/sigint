@@ -90,4 +90,9 @@ export function updateCamera(
   // Velocity decay
   cam.rotY += cam.vy;
   cam.vy *= 0.95;
+
+  // Keep rotY in [0, 2π] — prevents floating point precision loss
+  // in sin/cos at large values, which causes land polygon jitter
+  var TWO_PI_WRAP = Math.PI * 2;
+  cam.rotY = ((cam.rotY % TWO_PI_WRAP) + TWO_PI_WRAP) % TWO_PI_WRAP;
 }

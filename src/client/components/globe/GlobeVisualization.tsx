@@ -287,9 +287,19 @@ export function GlobeVisualization({
       }
 
       // ── Progressive render limit ────────────────────────────────
+      // Never reset to a small chunk on data change — that causes a flash.
+      // Only grow the limit or clamp it if data shrank.
       if (d !== prevDataRef.current) {
         prevDataRef.current = d;
-        renderLimitRef.current = RENDER_CHUNK;
+        // If we've already ramped up past the new data length, clamp down
+        // Otherwise keep what we had — no visual pop
+        if (renderLimitRef.current > d.length) {
+          renderLimitRef.current = d.length;
+        }
+        // If limit is 0 (first load), seed with one chunk so we don't render a blank frame
+        if (renderLimitRef.current === 0 && d.length > 0) {
+          renderLimitRef.current = Math.min(RENDER_CHUNK, d.length);
+        }
       } else if (renderLimitRef.current < d.length) {
         renderLimitRef.current = Math.min(
           renderLimitRef.current + RENDER_CHUNK,

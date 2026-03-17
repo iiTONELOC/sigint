@@ -39,9 +39,11 @@ export function useEarthquakeData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
+    const poll = async (isInitial = false) => {
       try {
-        const earthquakeData = await earthquakeProvider.refresh();
+        const earthquakeData = isInitial
+          ? await earthquakeProvider.getData()
+          : await earthquakeProvider.refresh();
         if (!isMounted) return;
 
         const snapshot = earthquakeProvider.getSnapshot();
@@ -65,8 +67,13 @@ export function useEarthquakeData(
       }
     };
 
-    poll();
-    intervalId = setInterval(poll, pollInterval);
+    // Skip immediate fetch if hydration returned fresh data
+    if (hydratedData && hydratedData.length > 0) {
+      intervalId = setInterval(poll, pollInterval);
+    } else {
+      poll(true);
+      intervalId = setInterval(poll, pollInterval);
+    }
 
     return () => {
       isMounted = false;

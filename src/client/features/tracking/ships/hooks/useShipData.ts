@@ -39,9 +39,11 @@ export function useShipData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
+    const poll = async (isInitial = false) => {
       try {
-        const shipData = await shipProvider.refresh();
+        const shipData = isInitial
+          ? await shipProvider.getData()
+          : await shipProvider.refresh();
         if (!isMounted) return;
 
         const snapshot = shipProvider.getSnapshot();
@@ -75,7 +77,7 @@ export function useShipData(
     if (hydratedData && hydratedData.length > 0) {
       intervalId = setInterval(poll, pollInterval);
     } else {
-      poll();
+      poll(true);
       intervalId = setInterval(poll, pollInterval);
     }
 

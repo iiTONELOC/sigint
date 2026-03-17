@@ -39,9 +39,11 @@ export function useWeatherData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
+    const poll = async (isInitial = false) => {
       try {
-        const weatherData = await weatherProvider.refresh();
+        const weatherData = isInitial
+          ? await weatherProvider.getData()
+          : await weatherProvider.refresh();
         if (!isMounted) return;
 
         const snapshot = weatherProvider.getSnapshot();
@@ -68,7 +70,7 @@ export function useWeatherData(
     if (hydratedData && hydratedData.length > 0) {
       intervalId = setInterval(poll, pollInterval);
     } else {
-      poll();
+      poll(true);
       intervalId = setInterval(poll, pollInterval);
     }
 

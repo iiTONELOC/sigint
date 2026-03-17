@@ -12,52 +12,62 @@
 
 SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), and live AIS vessel positions (via aisstream.io) onto an interactive globe or flat map projection. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
 
-The rendering pipeline uses a two-layer architecture: the main thread renders a cached static layer (land, ocean, grid) on an offscreen canvas, while a dedicated Web Worker handles all data point projection, interpolation, filtering, and drawing on a separate CPU core via OffscreenCanvas. The main thread composites both layers each frame.
+The rendering pipeline uses a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, data points, trails, and selection rings — on a separate CPU core. The main thread handles camera updates, input handling, and composites the finished `ImageBitmap` via a single `drawImage` call.
 
 ```mermaid
 graph TB
     subgraph Browser
         SPA["React SPA<br/>(App → DataProvider → AppShell)"]
         MainCanvas["Main Canvas<br/>(composite only)"]
-        StaticOSC["Offscreen Canvas<br/>(land/ocean/grid — cached)"]
-        Worker["Web Worker<br/>(pointWorker.js — OffscreenCanvas)"]
+        Worker["Web Worker<br/>(pointWorker.js — OffscreenCanvas)<br/>land, grid, ocean, points, trails"]
         IDB["IndexedDB<br/>(sigint-cache)"]
         AircraftProv["AircraftProvider"]
         QuakeProv["EarthquakeProvider"]
         GdeltProv["GdeltProvider"]
         ShipProv["ShipProvider"]
+        FireProv["FireProvider"]
+        WeatherProv["WeatherProvider"]
 
         SPA -->|"props via propsRef"| MainCanvas
-        MainCanvas -->|"drawImage"| StaticOSC
         MainCanvas -->|"drawImage bitmap"| Worker
         SPA -->|"data + camera msgs"| Worker
         SPA -->|"useAircraftData hook"| AircraftProv
         SPA -->|"useEarthquakeData hook"| QuakeProv
         SPA -->|"useEventData hook"| GdeltProv
         SPA -->|"useShipData hook"| ShipProv
+        SPA -->|"useFireData hook"| FireProv
+        SPA -->|"useWeatherData hook"| WeatherProv
         AircraftProv -->|"hydrate / persist"| IDB
         QuakeProv -->|"hydrate / persist"| IDB
         GdeltProv -->|"hydrate / persist"| IDB
         ShipProv -->|"hydrate / persist"| IDB
+        FireProv -->|"hydrate / persist"| IDB
+        WeatherProv -->|"hydrate / persist"| IDB
     end
 
     OpenSky["OpenSky Network API<br/>(anonymous, 400 cred/day)"]
     USGS["USGS Earthquake API<br/>(free, no auth)"]
-    BunServer["Bun Server<br/>(api routes + GDELT cache + AIS cache)"]
+    NOAA["NOAA Weather API<br/>(free, User-Agent only)"]
+    BunServer["Bun Server<br/>(api routes + GDELT cache + AIS cache + FIRMS cache)"]
     NDJSON["ac-db.ndjson<br/>(~180k records)"]
     GdeltRaw["GDELT Raw Export Files<br/>(data.gdeltproject.org)"]
     AISStream["aisstream.io<br/>(WebSocket, global AIS)"]
+    FIRMS["NASA FIRMS API<br/>(VIIRS NOAA-20 CSV)"]
 
     AircraftProv -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
     AircraftProv -->|"GET /metadata/:icao24<br/>(enrichment)"| BunServer
     QuakeProv -->|"GET all_week.geojson<br/>(client-side fetch)"| USGS
+    WeatherProv -->|"GET /alerts/active<br/>(client-side fetch)"| NOAA
     GdeltProv -->|"GET /api/events/latest<br/>(token auth)"| BunServer
     ShipProv -->|"GET /api/ships/latest<br/>(token auth)"| BunServer
+    FireProv -->|"GET /api/fires/latest<br/>(token auth)"| BunServer
     BunServer -->|"lookup"| NDJSON
     BunServer -->|"serve cached"| GdeltCache["gdeltCache.ts<br/>(in-memory)"]
     BunServer -->|"serve cached"| AISCache["aisCache.ts<br/>(in-memory)"]
+    BunServer -->|"serve cached"| FIRMSCache["firmsCache.ts<br/>(in-memory)"]
     GdeltCache -->|"fetch + unzip + parse<br/>(every 15 min)"| GdeltRaw
     AISCache -->|"persistent WebSocket<br/>(real-time stream)"| AISStream
+    FIRMSCache -->|"fetch CSV<br/>(every 30 min)"| FIRMS
 ```
 
 ### Why client-side fetching for some sources?
@@ -68,6 +78,10 @@ GDELT raw export files have CORS restrictions and are large CSV zips — these a
 
 AIS data from aisstream.io requires an API key and does not support browser CORS. The server maintains a persistent WebSocket connection to aisstream.io, accumulates vessel positions in an in-memory Map, and serves snapshots to clients via `/api/ships/latest` with token authentication.
 
+NASA FIRMS fire data requires an API key and returns large CSV payloads (30-100k records). Fetched server-side every 30 minutes, parsed, and cached in memory. Served from `/api/fires/latest` with token auth and gzip compression. Clients poll every 600 seconds.
+
+NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alerts/active`. No API key required — only a `User-Agent` header. Free, no CORS restrictions. The NWS API returns a GeoJSON FeatureCollection. Clients poll every 300 seconds.
+
 ### Server API Routes
 
 | Route | Method | Auth | Rate Limit | Purpose |
@@ -77,6 +91,8 @@ AIS data from aisstream.io requires an API key and does not support browser CORS
 | `/api/ships/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
 | `/api/aircraft/metadata/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Single aircraft metadata lookup |
 | `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
+| `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
+| `/api/dossier/aircraft/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
 | `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
 
 ### Auth + Rate Limiting
@@ -221,7 +237,7 @@ src/
       registry.tsx                    Feature registry (imports all definitions)
     components/
       globe/                          Canvas 2D visualization (modular)
-        GlobeVisualization.tsx        Shell: refs, render loop, worker lifecycle, static layer, composite
+        GlobeVisualization.tsx        Shell: refs, render loop, worker lifecycle, composite
         types.ts                      Shared types + SpatialGrid prop types
         projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
         landRenderer.ts               Coastline polygons, globe clipping
@@ -264,14 +280,17 @@ graph TD
     Header --> ViewControls["Globe/flat, rotation"]
     Header --> Clock["Clock"]
 
-    AppShell --> PM["PaneManager<br/><i>CSS Grid, resize, minimize, rearrange</i>"]
+    AppShell --> PM["PaneManager<br/><i>Binary split tree, resize, drag-to-swap, type switcher</i>"]
     PM --> LTP["LiveTrafficPane<br/><i>Globe + overlays</i>"]
     PM --> DTP["DataTablePane<br/><i>Virtual-scrolling table</i>"]
     PM --> DSP["DossierPane<br/><i>Entity dossier</i>"]
     PM --> IFP["IntelFeedPane<br/><i>Intel feed</i>"]
+    PM --> ALP["AlertLogPane<br/><i>Priority alerts</i>"]
+    PM --> RCP["RawConsolePane<br/><i>Raw data console</i>"]
+    PM --> VFP["VideoFeedPane<br/><i>HLS.js news streams</i>"]
 
-    LTP --> GlobeViz["globe/<br/><i>Main thread: camera, static layer<br/>Worker: point rendering</i>"]
-    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions, intel links</i>"]
+    LTP --> GlobeViz["globe/<br/><i>Main thread: camera, input<br/>Worker: all rendering (land, points, trails)</i>"]
+    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions, Open in Dossier button, intel links</i>"]
     LTP --> LayerLegend["LayerLegend"]
     LTP --> StatusBadge["StatusBadge"]
 

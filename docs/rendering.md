@@ -72,7 +72,7 @@ The worker renders everything to a single OffscreenCanvas:
 - Position interpolation (speed + heading extrapolation for moving items)
 - Projection (orthographic globe or equirectangular flat)
 - Filtering (layers, aircraft filter, isolation modes, search)
-- Depth sorting (globe mode only — flat mode skips since z is always 1)
+- Layer-type sorting (aircraft/ships underneath, ground truth on top — no depth sub-sort)
 - Trail rendering (glow pass, main line, waypoint dots, hit targets)
 - All shape drawing (quake pulses, event glows, ship diamonds, aircraft triangles, selection rings)
 
@@ -145,7 +145,7 @@ Trail hit targets (for click detection on waypoint dots) are sent back from the 
 
 ## Progressive Data Loading
 
-When a data source refreshes and delivers a new array, the `renderLimitRef` resets to 3000. Each frame it grows by 3000 until it covers all data. This spreads the cost of a 20K item data refresh across ~6-7 frames (~100ms) instead of one frame spike. Once fully loaded, no slicing occurs.
+When a data source refreshes and delivers a new array, the `renderLimitRef` is **preserved** (not reset). It only clamps downward if the data array actually shrank. Each frame it grows by 3000 until it covers all data. This prevents the visual "pop" — points don't disappear and re-appear when new data trickles in. Once fully loaded, no slicing occurs.
 
 ---
 
@@ -227,7 +227,7 @@ Two modes, selected by the `flat` prop:
 - **Globe** (`projGlobe`): Orthographic projection onto a sphere. Points behind the globe (`z <= 0`) are culled.
 - **Flat** (`projFlat`): Equirectangular projection. Supports pan and zoom.
 
-Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always 1 (flat — sort skipped).
+Both return `{ x, y, z }` where `z` is used for backside culling (globe: `z <= 0` means behind the globe) or always 1 (flat). Points are sorted by layer type only — no depth sub-sort within layers.
 
 The worker inlines its own copies of these projection functions (plain JS, no imports).
 
@@ -235,39 +235,84 @@ The worker inlines its own copies of these projection functions (plain JS, no im
 
 ## Point Rendering by Type
 
-Each data type has its own rendering block in the worker with a `continue`, keeping rendering logic cleanly separated. The rendering logic is identical to the original `pointRenderer.ts`.
+Each data type has its own rendering block in the worker with a `continue`, keeping rendering logic cleanly separated. `pointRenderer.ts` in the globe directory is **dead code** — not imported anywhere. All rendering lives in the Web Worker.
 
-### Earthquake Rendering (Age-Based)
+### Zoom-Aware Sizing
 
-**Magnitude → Size** (exponential): M1=2px, M3=3.5px, M5=7px, M7+=15px
+All point types (except aircraft) use the shared `zoomScale()` function:
+
+```javascript
+// zoom 1 → 0.5x, zoom 3 → 1.0x, zoom 5 → 1.5x, zoom 6.2+ → 1.8x (capped)
+function zoomScale(zoom) {
+  return Math.min(1.8, 0.5 + Math.max(0, (zoom - 1) / 4));
+}
+```
+
+This ensures points are tiny at globe level (where 60K tracks would otherwise blanket the view) and grow to selectable size as you zoom in.
+
+### Draw Order
+
+The rendering loop draws types in this order (earlier = bottom, later = top):
+
+1. **Aircraft** → 2. **Ships** → 3. **Fires** → 4. **Events** (GDELT) → 5. **Quakes** → 6. **Weather**
+
+Moving vehicles (aircraft, ships) render underneath so ground truth data (seismic, fire, weather) stays visible on top. Within each layer, points are drawn in data array order (no depth sub-sort — depth sorting caused visual instability/twinkle during rotation). All glow effects are zoom-aware — invisible at globe level, fade in as you zoom.
+
+### Earthquake Rendering (Magnitude-Scaled, Age-Based)
+
+**Magnitude → Size**: `quakeSize(mag) * zoomScale(zoom)` — M<1=1.2px, M1=1.5px, M2=2px, M3=3px, M4=4.5px, M5=6px, M6=8px, M7+=10px (base, before zoom scaling)
 
 **Age → Color & Opacity**: Fresh (<1hr) bright green at full opacity, fading to muted green at 0.5 alpha for 7-day-old events.
 
-**Magnitude → Pulse**: Earthquakes above M2.5 get a pulsing glow. Intensity scales with magnitude.
+**Magnitude → Pulse**: Earthquakes above M3 get a pulsing glow. Intensity scales with magnitude. Glow invisible below zoom 1.3.
 
-### Event Rendering (Age-Based)
+### Event Rendering (Severity-Scaled, Age-Based)
 
-**Severity → Size**: Severity 1=2.5px, 2=3.5px, 3=5px, 4=7px, 5=9.5px
+**Severity → Size**: `eventSize(sev) * zoomScale(zoom)` — sev≤1=1px, sev≤2=1.3px, sev≤3=1.8px, sev≤4=2.5px, sev5=3.5px (base, before zoom scaling)
 
-**Age → Color & Opacity**: Fresh (<1hr) bright at full opacity, fading to muted at 0.45 alpha. Color shifts through progressively dimmer amber tones.
+**Age → Color & Opacity**: Fresh (<1hr) bright magenta at full opacity, fading to muted at 0.45 alpha. Color shifts through progressively dimmer tones.
 
-**Severity → Pulse**: Events with severity ≥3 get a pulsing glow.
-
-### Ship Rendering (Heading-Rotated Diamond)
-
-Heading-rotated diamond shapes — pointed nose forward, narrow beam, blunt stern. Base size 3.5px, scales 1.8x when selected. Selection ring matches other types.
+**Severity → Pulse**: Events with severity ≥3 get a pulsing glow. Glow invisible below zoom 1.5.
 
 ### Fire Rendering (FRP-Scaled, Age-Based Orange)
 
-**FRP → Size** (scaled): FRP<1=2px, FRP 5=2.5px, FRP 10=3.5px, FRP 25=5px, FRP 50=7px, FRP 100+=12px
+**FRP → Size**: `fireSize(frp) * zoomScale(zoom)` — FRP<1=0.8px, FRP<5=1px, FRP<10=1.3px, FRP<25=1.8px, FRP<50=2.5px, FRP<100=3.5px, FRP100+=4.5px (base, before zoom scaling)
 
-**Age → Color & Opacity**: Fresh (<1hr) bright orange at full opacity, fading to muted burnt orange at 0.5 alpha for 12+ hour old detections.
+**Core alpha**: 0.5 × fireAgeFactor × depthAlpha
 
-**FRP → Pulse**: Fires with FRP >10 MW get a pulsing glow. Intensity scales with FRP.
+**Age → Color & Opacity**: Fresh (<1hr) bright orange, fading to burnt orange/brown.
+
+**FRP → Pulse**: Fires with FRP >10 MW get a pulsing glow. Glow invisible below zoom 1.5.
+
+### Weather Rendering (Severity-Scaled)
+
+**Severity → Size**: `weatherSize(sev) * zoomScale(zoom)` — Unknown=1.5px, Minor=2px, Moderate=3px, Severe=4.5px, Extreme=6px (base, before zoom scaling)
+
+**Severity → Alpha**: Unknown=0.25, Minor=0.4, Moderate=0.55, Severe=0.7, Extreme=0.85
+
+**Shape**: Circle with crosshair lines. Severe/Extreme get pulsing glow.
+
+### Ship Rendering (Heading-Rotated Diamond)
+
+**Size**: `2.5 * zoomScale(zoom)` (base 2.5px before zoom scaling)
+
+**Alpha**: Zoom-aware — 0.35 at globe level, ramps to 0.85 at zoom ≥ 3.
+
+Heading-rotated diamond shapes — pointed nose forward, narrow beam, blunt stern. Scales 2x when selected.
 
 ### Aircraft Rendering (Heading-Rotated Triangle)
 
-Heading-rotated triangles pointing in direction of travel. Base size 4px, scales 1.8x when selected. Emergency squawk codes override base color: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
+Aircraft have their **own independent size and alpha curves** (NOT `zoomScale`) to prevent the mid-zoom blanket problem (10K+ aircraft at intermediate zoom create a solid yellow wall):
+
+```javascript
+// Size: zoom 1 → 1.0px, zoom 3 → 1.8px, zoom 5 → 2.8px, zoom 7+ → 4px (capped)
+var acSize = Math.min(4, 1 + Math.max(0, (zoomLevel - 1) * 0.5));
+
+// Alpha: 0.2 at globe, slowly ramps to 0.8 at zoom 5+
+var acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
+```
+
+Emergency squawk codes always render at full alpha: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
 
 ---
 

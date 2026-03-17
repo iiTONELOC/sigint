@@ -7,13 +7,32 @@ import { DossierPane } from "@/panes/dossier/DossierPane";
 import { IntelFeedPane } from "@/panes/intel-feed/IntelFeedPane";
 import { AlertLogPane } from "@/panes/alert-log/AlertLogPane";
 import { RawConsolePane } from "@/panes/raw-console/RawConsolePane";
+import { VideoFeedPane } from "@/panes/video-feed/VideoFeedPane";
 import { PaneHeader } from "@/panes/PaneHeader";
-import { setDossierOpen } from "@/panes/paneLayoutContext";
-import { Globe, Table2, FileSearch, Newspaper, Bell, Terminal } from "lucide-react";
+import {
+  setDossierOpen,
+  onDossierOpenRequest,
+} from "@/panes/paneLayoutContext";
+import {
+  Globe,
+  Table2,
+  FileSearch,
+  Newspaper,
+  Bell,
+  Terminal,
+  Tv,
+} from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type PaneType = "globe" | "data-table" | "dossier" | "intel-feed" | "alert-log" | "raw-console";
+type PaneType =
+  | "globe"
+  | "data-table"
+  | "dossier"
+  | "intel-feed"
+  | "alert-log"
+  | "raw-console"
+  | "video-feed";
 
 type LeafNode = {
   type: "leaf";
@@ -45,6 +64,7 @@ const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
   "intel-feed": { label: "INTEL FEED", icon: Newspaper },
   "alert-log": { label: "ALERTS", icon: Bell },
   "raw-console": { label: "CONSOLE", icon: Terminal },
+  "video-feed": { label: "VIDEO FEED", icon: Tv },
 };
 
 const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
@@ -54,6 +74,7 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   "intel-feed": IntelFeedPane,
   "alert-log": AlertLogPane,
   "raw-console": RawConsolePane,
+  "video-feed": VideoFeedPane,
 };
 
 // ── Tree helpers ─────────────────────────────────────────────────────
@@ -205,6 +226,37 @@ export function PaneManager() {
     return () => setDossierOpen(false);
   }, [layout.root]);
 
+  // ── Listen for dossier open requests from DetailPanel ──────────
+  useEffect(() => {
+    return onDossierOpenRequest(() => {
+      setLayout((prev) => {
+        // Only add dossier if it's not already in the tree
+        if (hasDossierInTree(prev.root)) return prev;
+        // Find the globe leaf and split it with a dossier
+        const findGlobe = (node: LayoutNode): string | null => {
+          if (node.type === "leaf")
+            return node.paneType === "globe" ? node.id : null;
+          return findGlobe(node.children[0]) ?? findGlobe(node.children[1]);
+        };
+        const globeId = findGlobe(prev.root);
+        if (globeId) {
+          const newLeaf = leaf("dossier");
+          const target = (function find(node: LayoutNode): LayoutNode | null {
+            if (node.type === "leaf" && node.id === globeId) return node;
+            if (node.type === "split")
+              return find(node.children[0]) ?? find(node.children[1]);
+            return null;
+          })(prev.root);
+          if (!target) return prev;
+          const newSplit = split("h", target, newLeaf, 0.75);
+          return { ...prev, root: replaceNode(prev.root, globeId, newSplit) };
+        }
+        // No globe — just split the root
+        return { ...prev, root: split("h", prev.root, leaf("dossier"), 0.75) };
+      });
+    });
+  }, []);
+
   // ── Available pane types ────────────────────────────────────────
   const openTypes = useMemo(() => {
     const s = collectLeafTypes(layout.root);
@@ -224,7 +276,6 @@ export function PaneManager() {
     (leafId: string, dir: "h" | "v", newType: PaneType) => {
       setLayout((prev) => {
         const newLeaf = leaf(newType);
-        // Find the target leaf and wrap it in a split
         const find = (node: LayoutNode): LayoutNode | null => {
           if (node.type === "leaf" && node.id === leafId) return node;
           if (node.type === "split") {
@@ -234,7 +285,10 @@ export function PaneManager() {
         };
         const target = find(prev.root);
         if (!target) return prev;
-        const newSplit = split(dir, target, newLeaf);
+        // Dossier and secondary panes open smaller — existing pane keeps 75%
+        const ratio =
+          newType === "dossier" || newType === "video-feed" ? 0.75 : 0.5;
+        const newSplit = split(dir, target, newLeaf, ratio);
         return { ...prev, root: replaceNode(prev.root, leafId, newSplit) };
       });
     },
@@ -278,6 +332,70 @@ export function PaneManager() {
       root: updateRatio(prev.root, splitId, ratio),
     }));
   }, []);
+
+  const changePaneType = useCallback((leafId: string, newType: PaneType) => {
+    setLayout((prev) => ({
+      ...prev,
+      root: replaceNode(prev.root, leafId, leaf(newType)),
+    }));
+  }, []);
+
+  // ── Drag-to-swap panes ──────────────────────────────────────────
+
+  const [dragSourceId, setDragSourceId] = useState<string | null>(null);
+  const [dragTargetId, setDragTargetId] = useState<string | null>(null);
+
+  const swapPanes = useCallback(
+    (sourceLeafId: string, targetLeafId: string) => {
+      if (sourceLeafId === targetLeafId) return;
+      setLayout((prev) => {
+        // Find both leaves
+        const findLeaf = (node: LayoutNode, id: string): LeafNode | null => {
+          if (node.type === "leaf") return node.id === id ? node : null;
+          return (
+            findLeaf(node.children[0], id) ?? findLeaf(node.children[1], id)
+          );
+        };
+        const srcLeaf = findLeaf(prev.root, sourceLeafId);
+        const tgtLeaf = findLeaf(prev.root, targetLeafId);
+        if (!srcLeaf || !tgtLeaf) return prev;
+
+        // Swap paneTypes — keep the tree structure, just swap what's rendered where
+        const srcType = srcLeaf.paneType;
+        const tgtType = tgtLeaf.paneType;
+        let newRoot = replaceNode(prev.root, sourceLeafId, {
+          ...srcLeaf,
+          paneType: tgtType,
+        });
+        newRoot = replaceNode(newRoot, targetLeafId, {
+          ...tgtLeaf,
+          paneType: srcType,
+        });
+        return { ...prev, root: newRoot };
+      });
+    },
+    [],
+  );
+
+  const handleDragStart = useCallback((leafId: string) => {
+    setDragSourceId(leafId);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDragSourceId(null);
+    setDragTargetId(null);
+  }, []);
+
+  const handleDrop = useCallback(
+    (targetLeafId: string) => {
+      if (dragSourceId && dragSourceId !== targetLeafId) {
+        swapPanes(dragSourceId, targetLeafId);
+      }
+      setDragSourceId(null);
+      setDragTargetId(null);
+    },
+    [dragSourceId, swapPanes],
+  );
 
   // ── Add menu (split menus only) ──────────────────────────────────
 
@@ -383,6 +501,7 @@ export function PaneManager() {
               <PaneHeader
                 label={meta.label}
                 icon={meta.icon}
+                leafId={node.id}
                 onSplitH={
                   availableTypes.length > 0
                     ? () => {
@@ -415,6 +534,16 @@ export function PaneManager() {
                 }
                 onMinimize={() => minimizePane(node.id, node.paneType)}
                 onClose={canClose ? () => closePane(node.id) : undefined}
+                onChangePaneType={(id) =>
+                  changePaneType(node.id, id as PaneType)
+                }
+                paneOptions={Object.entries(PANE_META)
+                  .filter(([id]) => id !== node.paneType)
+                  .map(([id, m]) => ({ id, label: m.label, icon: m.icon }))}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDrop={handleDrop}
+                isDragTarget={dragSourceId !== null && dragSourceId !== node.id}
               />
               {renderSplitMenu(node.id, "h")}
               {renderSplitMenu(node.id, "v")}
