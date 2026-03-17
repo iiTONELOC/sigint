@@ -1,78 +1,65 @@
-import {
-  Minus,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  ChevronDown,
-} from "lucide-react";
+import { Minus, X, Columns2, Rows2 } from "lucide-react";
 
 type PaneHeaderProps = {
   readonly label: string;
   readonly icon: React.ForwardRefExoticComponent<any>;
+  readonly onSplitH?: () => void;
+  readonly onSplitV?: () => void;
   readonly onMinimize: () => void;
   readonly onClose?: () => void;
-  readonly onMoveLeft?: () => void;
-  readonly onMoveRight?: () => void;
-  readonly direction: "horizontal" | "vertical";
 };
 
 export function PaneHeader({
   label,
   icon: Icon,
+  onSplitH,
+  onSplitV,
   onMinimize,
   onClose,
-  onMoveLeft,
-  onMoveRight,
-  direction,
 }: PaneHeaderProps) {
-  const isHoriz = direction === "horizontal";
-  const MoveBackIcon = isHoriz ? ChevronLeft : ChevronUp;
-  const MoveFwdIcon = isHoriz ? ChevronRight : ChevronDown;
-
   return (
     <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 bg-sig-panel/80 border-b border-sig-border/40 select-none">
-      <Icon size={14} strokeWidth={2.5} className="text-sig-accent shrink-0" />
+      <Icon size={11} strokeWidth={2.5} className="text-sig-accent shrink-0" />
       <span className="text-sig-accent tracking-wider text-(length:--sig-text-sm) font-semibold">
         {label}
       </span>
 
       <div className="flex-1" />
 
-      {onMoveLeft && (
+      {onSplitH && (
         <button
-          onClick={onMoveLeft}
-          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
-          title={isHoriz ? "Move left" : "Move up"}
+          onClick={onSplitH}
+          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          title="Split right"
         >
-          <MoveBackIcon size={14} strokeWidth={2.5} />
+          <Columns2 size={11} strokeWidth={2.5} />
         </button>
       )}
-      {onMoveRight && (
+      {onSplitV && (
         <button
-          onClick={onMoveRight}
-          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
-          title={isHoriz ? "Move right" : "Move down"}
+          onClick={onSplitV}
+          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          title="Split down"
         >
-          <MoveFwdIcon size={14} strokeWidth={2.5} />
+          <Rows2 size={11} strokeWidth={2.5} />
         </button>
       )}
 
       <button
         onClick={onMinimize}
-        className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
+        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
         title="Minimize"
       >
-        <Minus size={14} strokeWidth={2.5} />
+        <Minus size={11} strokeWidth={2.5} />
       </button>
 
       {onClose && (
         <button
           onClick={onClose}
-          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors min-w-9 min-h-9 flex items-center justify-center"
+          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
           title="Close"
         >
-          <X size={14} strokeWidth={2.5} />
+          <X size={11} strokeWidth={2.5} />
         </button>
       )}
     </div>

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useData } from "@/context/DataContext";
+import { useHasDossier } from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -32,6 +33,7 @@ export function LiveTrafficPane() {
   } = useData();
 
   const [panelSide, setPanelSide] = useState<"left" | "right">("right");
+  const hasDossier = useHasDossier();
 
   const handleSetIsolateMode = useCallback(
     (mode: null | "solo" | "focus") => {
@@ -97,7 +99,7 @@ export function LiveTrafficPane() {
         spatialGrid={spatialGrid}
         filteredIds={filteredIds}
       />
-      {!chromeHidden && (
+      {!chromeHidden && !hasDossier && (
         <DetailPanel
           item={selectedCurrent}
           onClose={handleClose}
