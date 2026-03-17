@@ -100,7 +100,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // ── View controls ───────────────────────────────────────────────
   const [flat, setFlat] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
-  const [rotationSpeed, setRotationSpeed] = useState(0.2);
+  const [rotationSpeed, setRotationSpeed] = useState(0.35);
   const [chromeHidden, setChromeHidden] = useState(false);
 
   // ── Selection & isolation ───────────────────────────────────────

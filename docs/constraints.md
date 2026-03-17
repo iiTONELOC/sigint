@@ -38,6 +38,33 @@ The **propsRef pattern**: The animation loop never re-registers. It reads `props
 
 ---
 
+## Web Worker Rendering
+
+Point rendering runs in a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker is plain JavaScript (not TypeScript) because it's served directly from `public/` with no build step.
+
+**Constraints:**
+- Worker code cannot import from the main codebase — all logic (projection, interpolation, filtering, age helpers, aircraft filter matching) is inlined
+- `Set` objects cannot cross `postMessage` — serialized to arrays before sending, used as arrays in worker
+- Trail data is synced periodically (~every 30 frames), not every frame
+- The worker's `matchesAircraftFilter` must exactly match the real one in `features/tracking/aircraft/lib/utils.ts` — if the filter logic changes, the worker must be updated manually
+- OffscreenCanvas must be resized in the worker when viewport dimensions change — the main thread sends W, H, dpr each frame
+
+**IMPORTANT**: The `aisCache.ts` uses `require("ws")` specifically to bypass Bun's native WebSocket TLS issues inside `Bun.serve()` on Heroku. Do NOT change this to `import` or to Bun's native `WebSocket`.
+
+---
+
+## Server Routes for Static Files
+
+Both `index.ts` and `index.prod.ts` serve static files from `public/` via explicit route patterns:
+
+- `/fonts.css` and `/fonts/*` — font files
+- `/data/*` — land geometry JSON
+- `/workers/*` — Web Worker scripts
+
+New static file directories require adding a matching route pattern to both server files.
+
+---
+
 ## Metadata Enrichment
 
 Best-effort only. If the server is down or the ICAO24 isn't in the database, the aircraft shows "Unknown" type. The UI never blocks on enrichment. Only fires for the currently selected aircraft to prevent cache bloat.
@@ -52,7 +79,7 @@ AIS vessel type codes arrive in `ShipStaticData` messages, not in `PositionRepor
 
 ## Trail Recording
 
-Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes. Both aircraft and ships feed the trail service from this single location. Previously trail recording was embedded inside `useAircraftData`'s poll callback.
+Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes. Both aircraft and ships feed the trail service from this single location.
 
 ---
 
@@ -64,7 +91,17 @@ If an aircraft or ship disappears from data for 3 consecutive refreshes (~12 min
 
 ## Zoom Limits
 
-Globe mode zoom: min 0.55, max 350. Flat mode zoom: min 0.85, max 500. Double-click zoom targets: globe 35, flat 40. Single-click on a point preserves current zoom level and pans to the point — no zoom reset.
+Globe mode zoom: min 0.55, max 350. Flat mode zoom: min 0.85, max 500.
+
+Double-click zoom: progressive — 8x current zoom, min 80, max 500 (flat) / 350 (globe). Globe mode snaps rotation immediately and lerps only zoom. Double-click again to zoom deeper.
+
+Single-click on a point preserves current zoom level and pans to the point — no zoom reset. Auto-rotate stops permanently on selection (re-enable via ROT button).
+
+---
+
+## Gzip Compression
+
+Both `/api/events/latest` and `/api/ships/latest` gzip-compress responses when the client sends `Accept-Encoding: gzip`. Uses `Bun.gzipSync`. Extracted to a shared `jsonResponse` helper in `api/index.ts`.
 
 ---
 
@@ -100,3 +137,5 @@ Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go
 - **Async storage** — IndexedDB for all persistence, no localStorage
 - **External links** — `target="_blank" rel="noopener noreferrer"` on every external link
 - **@ts-ignore comments are intentional** — preserve them
+- **No console.log in production code**
+- **Worker code is plain JS** — served from `public/workers/`, no build step

@@ -449,13 +449,13 @@ export function PaneManager() {
           {visiblePanes.length > 1 && (
             <button
               onClick={toggleDirection}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
+              className="flex items-center gap-1 px-2 py-1 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors min-w-9 min-h-9 justify-center"
               title={isHoriz ? "Stack vertically" : "Split horizontally"}
             >
               {isHoriz ? (
-                <ArrowUpDown size={11} strokeWidth={2.5} />
+                <ArrowUpDown size={14} strokeWidth={2.5} />
               ) : (
-                <ArrowLeftRight size={11} strokeWidth={2.5} />
+                <ArrowLeftRight size={14} strokeWidth={2.5} />
               )}
             </button>
           )}
@@ -465,10 +465,10 @@ export function PaneManager() {
             <div ref={menuRef} className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
+                className="flex items-center gap-1 px-2 py-1 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors min-w-9 min-h-9 justify-center"
                 title="Add pane"
               >
-                <Plus size={11} strokeWidth={2.5} />
+                <Plus size={14} strokeWidth={2.5} />
               </button>
               {menuOpen && (
                 <div className="absolute right-0 top-full mt-1 z-50 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36">
@@ -482,10 +482,10 @@ export function PaneManager() {
                           addPane(type);
                           setMenuOpen(false);
                         }}
-                        className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
+                        className="w-full text-left px-3 py-2.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
                       >
                         <Icon
-                          size={13}
+                          size={16}
                           strokeWidth={2.5}
                           className="text-sig-accent"
                         />

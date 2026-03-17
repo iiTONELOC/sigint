@@ -144,9 +144,9 @@ export function Header({
                 type="range"
                 aria-label="Rotation speed"
                 title="Rotation speed"
-                min={0.1}
+                min={0.01}
                 max={2}
-                step={0.1}
+                step={0.01}
                 value={rotationSpeed}
                 onChange={(e) => setRotationSpeed(Number(e.target.value))}
                 className="w-15 cursor-pointer accent-sig-accent"
@@ -200,9 +200,9 @@ export function Header({
             type="range"
             aria-label="Rotation speed"
             title="Rotation speed"
-            min={0.1}
+            min={0.01}
             max={2}
-            step={0.1}
+            step={0.01}
             value={rotationSpeed}
             onChange={(e) => setRotationSpeed(Number(e.target.value))}
             className="w-[50px] cursor-pointer accent-sig-accent"

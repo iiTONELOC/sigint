@@ -6,24 +6,152 @@
 
 ---
 
+## Overview
+
+The rendering pipeline uses a two-layer architecture with a Web Worker for point rendering. The main thread handles the static layer (land, ocean, grid) on an offscreen canvas and composites the final image. A dedicated Web Worker owns a separate OffscreenCanvas and handles all data point projection, interpolation, filtering, sorting, and drawing on a separate CPU core. The main thread never blocks on point rendering.
+
+---
+
 ## GlobeVisualization Architecture
 
-The globe visualization is split into a modular `components/globe/` directory. The main component (`GlobeVisualization.tsx`) is a thin shell that manages refs, the render loop, effects, and tooltip JSX. All rendering logic is extracted into pure functions in separate files.
+The globe visualization is split into a modular `components/globe/` directory. The main component (`GlobeVisualization.tsx`) manages refs, the render loop, camera updates, the static layer offscreen canvas, worker communication, and tooltip JSX.
 
-**React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps. This means data updates (which trigger React re-renders) are picked up on the next animation frame — imperceptible to users.
+**React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps.
 
 The globe uses a ResizeObserver on its parent container, so it correctly handles being resized by the PaneManager grid.
 
 | File | Purpose |
 |---|---|
-| `GlobeVisualization.tsx` | Shell: refs, render loop, effects, tooltip JSX |
+| `GlobeVisualization.tsx` | Shell: refs, render loop, worker lifecycle, static layer, tooltip JSX |
 | `cameraSystem.ts` | Lock-on follow, lerp, shortest-path rotation, auto-rotate |
 | `inputHandlers.ts` | Mouse, touch, wheel, keyboard handler factory |
-| `pointRenderer.ts` | Data points, trails, quake age rendering, ship diamonds, hit targets |
+| `pointRenderer.ts` | Legacy — rendering logic now lives in the Web Worker |
 | `landRenderer.ts` | Coastline polygons, globe clipping |
 | `gridRenderer.ts` | Lat/lon grid lines |
 | `projection.ts` | projGlobe, projFlat, getFlatMetrics, clampFlatPan |
 | `types.ts` | Shared types (Projected, CamState, CamTarget, DragState, etc.) |
+
+| File (public) | Purpose |
+|---|---|
+| `public/workers/pointWorker.js` | Web Worker — owns OffscreenCanvas, all point rendering |
+
+---
+
+## Two-Layer Rendering Architecture
+
+```mermaid
+graph LR
+    subgraph Main Thread
+        RL["Render Loop<br/>(60fps rAF)"]
+        CAM["Camera Update"]
+        OSC["Offscreen Canvas<br/>(land/ocean/grid)"]
+        COMP["Composite"]
+        MC["Main Canvas<br/>(visible)"]
+
+        RL --> CAM --> OSC
+        OSC -->|"drawImage"| COMP
+        COMP --> MC
+    end
+
+    subgraph Web Worker
+        WRK["pointWorker.js"]
+        WOSC["OffscreenCanvas<br/>(points/trails)"]
+        BMP["ImageBitmap"]
+
+        WRK --> WOSC --> BMP
+    end
+
+    RL -->|"postMessage<br/>(camera ~200B)"| WRK
+    BMP -->|"transferToImageBitmap"| COMP
+```
+
+### Static Layer (Main Thread)
+
+Land, ocean, grid, glow, and rim are rendered to a cached offscreen canvas. A camera fingerprint tracks state — the static layer only redraws when the camera actually moves. The fingerprint is quantized so during auto-rotate the static layer redraws at ~15fps while compositing stays at 60fps.
+
+When the camera is still (user reading a detail panel), the static layer is a single cached `drawImage` blit — zero polygon re-projection.
+
+### Point Layer (Web Worker)
+
+All data point rendering runs in `public/workers/pointWorker.js` on a dedicated Web Worker thread with its own OffscreenCanvas. The worker handles:
+
+- Position interpolation (speed + heading extrapolation for moving items)
+- Projection (orthographic globe or equirectangular flat)
+- Filtering (layers, aircraft filter, isolation modes, search)
+- Depth sorting (globe mode only — flat mode skips since z is always 1)
+- Trail rendering (glow pass, main line, waypoint dots, hit targets)
+- All shape drawing (quake pulses, event glows, ship diamonds, aircraft triangles, selection rings)
+- Clip masking (globe circle or flat map rect)
+
+The worker transfers a finished `ImageBitmap` back to the main thread via `transferToImageBitmap`. The main thread composites it on top of the static layer in a single `drawImage` call.
+
+### Split Messaging
+
+```mermaid
+sequenceDiagram
+    participant MT as Main Thread
+    participant W as Web Worker
+
+    Note over MT: Data refresh (every 240-300s)
+    MT->>W: "data" message<br/>(20K items + filters + selection + colors)
+    Note over W: Stores in module state
+
+    loop Every Animation Frame
+        MT->>W: "frame" message<br/>(camera + timing + clip ~200B)
+        Note over W: Project using stored data<br/>Filter, sort, draw
+        W->>MT: "frame" response<br/>(ImageBitmap + hitTargets)
+        Note over MT: Composite static + bitmap
+    end
+
+    Note over MT: Every ~30 frames
+    MT->>W: "trails" message<br/>(interpolation data)
+```
+
+Communication between main thread and worker uses two message types to minimize serialization overhead:
+
+**"data" message** — sent only when data, selection, filters, layers, or search actually change. Carries the full item array + filters + selection + colors. This fires on data refresh (~240-300s), on selection change, on filter toggle — not every frame.
+
+**"frame" message** — sent every animation frame. Contains only camera state, timing, viewport dimensions, DPR, and clip region. ~200 bytes. The worker uses stored data from the last "data" message to project and draw.
+
+This means 60fps of rendering only transfers ~200 bytes per frame across the postMessage boundary instead of megabytes of serialized data.
+
+### Composite Flow
+
+```mermaid
+flowchart TD
+    RAF["requestAnimationFrame"] --> CAM["Update Camera"]
+    CAM --> FP{"Static layer<br/>fingerprint changed?"}
+    FP -->|Yes| REDRAW["Redraw land/ocean/grid<br/>to offscreen canvas"]
+    FP -->|No| SKIP["Skip — cached"]
+    REDRAW --> SEND
+    SKIP --> SEND
+    SEND["Send 'frame' to worker<br/>(camera + timing)"]
+    SEND --> WAIT["Worker processes..."]
+    WAIT --> MSG["onmessage callback"]
+    MSG --> CLEAR["clearRect main canvas"]
+    CLEAR --> BLIT1["drawImage static layer"]
+    BLIT1 --> BLIT2["drawImage worker bitmap"]
+    BLIT2 --> DONE["Frame complete"]
+    RAF2["Next rAF"] --> CAM
+```
+
+1. Main thread render loop runs at 60fps — updates camera, redraws static layer offscreen if dirty, sends "frame" message to worker
+2. Worker receives camera state, projects all points using stored data, draws to OffscreenCanvas, transfers bitmap
+3. Worker's `onmessage` callback on main thread composites: clears main canvas, draws static layer, draws worker bitmap — both in one shot
+
+The composite happens in the worker's `onmessage` callback, not in the render loop. This ensures both layers are painted on the same frame.
+
+### Trail Data Sync
+
+Trail interpolation data is synced from the main thread to the worker every ~30 frames (~500ms). The worker maintains its own trail Map for interpolation. The selected item's full trail point array is sent with each "data" message for trail line rendering.
+
+Trail hit targets (for click detection on waypoint dots) are sent back from the worker with each bitmap and stored on the canvas element for the input handlers to use.
+
+---
+
+## Progressive Data Loading
+
+When a data source refreshes and delivers a new array, the `renderLimitRef` resets to 3000. Each frame it grows by 3000 until it covers all data. This spreads the cost of a 20K item data refresh across ~6-7 frames (~100ms) instead of one frame spike. Once fully loaded, no slicing occurs.
 
 ---
 
@@ -36,20 +164,22 @@ Target + lerp model for smooth transitions. `updateCamera()` in `cameraSystem.ts
 
 | Action | Effect |
 |---|---|
-| Single-click a point | Select + lock camera onto it at current zoom level (no zoom reset) |
-| Double-click a point | Select + lock + zoom in to 35 (globe) or 40 (flat) |
+| Single-click a point | Select + lock camera at current zoom + stop auto-rotate |
+| Double-click a point | Select + lock + progressive zoom (8x current, min 80, max 500 flat / 350 globe). Globe snaps rotation, lerps zoom only. |
 | Drag | Breaks lock-on (`lockedId = null`, `active = false`) |
 | Scroll wheel (locked) | Adjusts `camTargetRef.zoom`, stays locked and centered |
 | Scroll wheel (unlocked) | Directly modifies `camRef` zoom |
-| Auto-rotate | Only active when: globe mode, not dragging, not animating to target |
+| Pinch zoom | Breaks camera lock. Anchored to finger midpoint on flat map (same math as wheel). |
+| Auto-rotate | Only active when: globe mode, not dragging, not animating to target. Stops permanently on point selection. |
+| Click empty area | Deselects current item, clears isolation |
 
-**Zoom limits**: Globe mode min 0.55, max 350. Flat mode min 0.85, max 500. These limits apply to scroll wheel, pinch, keyboard, and locked scroll.
+**Zoom limits**: Globe mode min 0.55, max 350. Flat mode min 0.85, max 500.
 
-**Single-click zoom preservation**: When clicking a new point, `camTarget.zoom` is set to the current zoom level so the camera pans to the new point without resetting zoom. This prevents the jarring snap-to-orbit behavior that occurred when `camTarget.zoom` was stale from a previous animation.
+**Double-click zoom**: Uses a `lastClickItem` closure variable to store the DataPoint on first click — does not depend on React state (which may not have updated by the second click). Synthesized mouse events from mobile touch are suppressed via `lastTouchTime` guard to prevent false double-clicks.
+
+**Detail panel side hysteresis**: Panel starts on the right for each new selection. Only flips to left when the selected point crosses past 65% of viewport width, flips back below 35%. Points in the middle 30% never trigger a flip. Resets on new selection.
 
 **Shortest-path rotation**: The `rotY` lerp normalizes the difference to `[-π, π]` before interpolating, ensuring the camera always takes the shortest path around the globe.
-
-When locked onto an item in flat map mode, the pan target is calculated using `camTarget.zoom` (the destination zoom) rather than `cam.zoomFlat` (the mid-lerp zoom) to prevent pan/zoom fighting during transitions.
 
 ---
 
@@ -66,7 +196,11 @@ attachInputHandlers(canvas, handlers);
 detachInputHandlers(canvas, handlers);
 ```
 
-**Click priority**: Trail waypoint dots on the selected item's trail are checked before data points. This prevents random overlapping aircraft from stealing clicks when you're inspecting a trail.
+**Click priority**: Trail waypoint dots on the selected item's trail are checked before data points.
+
+**Spatial grid acceleration**: Click and hover handlers use the spatial grid (`spatialIndex.ts`) to narrow candidates from O(n) full scan to ~50 nearby points via inverse screen-to-latlon projection + grid query. Falls back to full scan if inverse projection fails (click outside globe).
+
+**Mobile touch**: Synthesized mouse events suppressed via `lastTouchTime`. Pinch detection handles late second-finger arrival (touchmove sees 2 fingers before touchstart). Tap-vs-drag threshold is 15px to absorb finger wobble.
 
 ---
 
@@ -74,13 +208,21 @@ detachInputHandlers(canvas, handlers);
 
 All moving entities (aircraft, ships) have their positions interpolated between data refreshes for smooth animation. The trail service records actual positions at each refresh and uses speed + heading to extrapolate between them. If data is older than 10 minutes, interpolation returns null (stale). If less than 1 second old, it also returns null (too soon — use raw position).
 
-This means even though OpenSky data refreshes every 4 minutes and AIS ship data refreshes every 5 minutes, all moving entities appear to move continuously on screen.
+The Web Worker maintains its own copy of trail data for interpolation, synced from the main thread every ~30 frames.
+
+---
+
+## Spatial Index
+
+`lib/spatialIndex.ts` provides a grid-based spatial hash (2° cells, 16,200 cells total) for O(1) geographic lookups. Used by click/hover handlers to find nearby points without scanning all data. Also provides inverse projection functions (`screenToLatLonGlobe`, `screenToLatLonFlat`) to convert screen coordinates back to geographic coordinates.
+
+The spatial grid is rebuilt in `DataContext` whenever `allData` changes and passed to `GlobeVisualization` as a prop.
 
 ---
 
 ## Trail Waypoint Tooltip
 
-When a trail is drawn for the selected item, each waypoint dot is stored as a hit target. Clicking near a waypoint shows an anchored tooltip with altitude, speed, heading, and coordinates at that point in time. The tooltip is repositioned every frame via DOM ref (not React state) — it stays locked to the waypoint as the user pans and zooms. Hides when the point goes behind the globe.
+When a trail is drawn for the selected item, each waypoint dot is stored as a hit target. Clicking near a waypoint shows an anchored tooltip with altitude, speed, heading, and coordinates at that point in time. The tooltip is repositioned every frame via DOM ref (not React state). Hides when the point goes behind the globe.
 
 ---
 
@@ -89,43 +231,41 @@ When a trail is drawn for the selected item, each waypoint dot is stored as a hi
 Two modes, selected by the `flat` prop:
 
 - **Globe** (`projGlobe`): Orthographic projection onto a sphere. Points behind the globe (`z <= 0`) are culled.
-- **Flat** (`projFlat`): Equirectangular projection. Supports pan and zoom via `cam.panX`, `cam.panY`, `cam.zoomFlat`.
+- **Flat** (`projFlat`): Equirectangular projection. Supports pan and zoom.
 
-Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always positive (flat).
+Both return `{ x, y, z }` where `z` is used for depth sorting (globe) or always 1 (flat — sort skipped).
+
+The worker inlines its own copies of these projection functions (plain JS, no imports).
 
 ---
 
 ## Point Rendering by Type
 
-Each data type has its own rendering block in `pointRenderer.ts` with an early return, keeping rendering logic cleanly separated.
+Each data type has its own rendering block in the worker with a `continue`, keeping rendering logic cleanly separated. The rendering logic is identical to the original `pointRenderer.ts`.
 
 ### Earthquake Rendering (Age-Based)
 
-Earthquake points encode both magnitude and age visually.
-
 **Magnitude → Size** (exponential): M1=2px, M3=3.5px, M5=7px, M7+=15px
 
-**Age → Color & Opacity**: Fresh (<1hr) bright green at full opacity, fading to muted green at 0.5 alpha for 7-day-old events. Always visible.
+**Age → Color & Opacity**: Fresh (<1hr) bright green at full opacity, fading to muted green at 0.5 alpha for 7-day-old events.
 
 **Magnitude → Pulse**: Earthquakes above M2.5 get a pulsing glow. Intensity scales with magnitude.
 
 ### Event Rendering (Age-Based)
 
-GDELT event points use the same age-based rendering pattern as earthquakes, with severity (derived from Goldstein scale) driving size and age driving color/opacity.
-
 **Severity → Size**: Severity 1=2.5px, 2=3.5px, 3=5px, 4=7px, 5=9.5px
 
-**Age → Color & Opacity**: Fresh (<1hr) bright at full opacity, fading to muted at 0.45 alpha for 7-day-old events. Color shifts from the base event color through progressively dimmer amber tones.
+**Age → Color & Opacity**: Fresh (<1hr) bright at full opacity, fading to muted at 0.45 alpha. Color shifts through progressively dimmer amber tones.
 
-**Severity → Pulse**: Events with severity ≥3 get a pulsing glow. Intensity scales with severity.
+**Severity → Pulse**: Events with severity ≥3 get a pulsing glow.
 
 ### Ship Rendering (Heading-Rotated Diamond)
 
-Ships render as heading-rotated diamond shapes — a pointed nose forward, narrow beam, and blunt stern. The diamond rotates with the vessel's heading, providing directional awareness similar to aircraft triangles but with a distinct silhouette. Base size 3.5px, scales 1.8x when selected. Selection ring matches other types.
+Heading-rotated diamond shapes — pointed nose forward, narrow beam, blunt stern. Base size 3.5px, scales 1.8x when selected. Selection ring matches other types.
 
 ### Aircraft Rendering (Heading-Rotated Triangle)
 
-Aircraft render as heading-rotated triangles pointing in the direction of travel. Base size 4px, scales 1.8x when selected. Emergency squawk codes override the base color: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
+Heading-rotated triangles pointing in direction of travel. Base size 4px, scales 1.8x when selected. Emergency squawk codes override base color: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
 
 ---
 

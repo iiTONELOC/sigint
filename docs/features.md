@@ -44,7 +44,7 @@ type FeatureDefinition<TData, TFilter> = {
 - **`featureList`** — ordered array for iteration (determines UI rendering order)
 - **`featureRegistry`** — `Map<string, FeatureDefinition>` for O(1) lookup by id
 
-Consumed by uiSelectors, pointRenderer, tickerFeed, Search, DataTablePane, Header toggles, LayerLegend.
+Consumed by uiSelectors, pointWorker.js (rendering logic inlined), tickerFeed, Search, DataTablePane, Header toggles, LayerLegend.
 
 ---
 

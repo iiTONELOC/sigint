@@ -12,16 +12,16 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 | [Data Flow](./data-flow.md) | DataContext, shared state, boot lifecycle, allData, filters, enrichment, trail recording |
 | [Feature System](./features.md) | FeatureDefinition contract, registry, feature structure, DataPoint union, data sources |
 | [Pane System](./panes.md) | PaneManager, LiveTrafficPane, DataTablePane, layout persistence |
-| [Rendering Pipeline](./rendering.md) | Globe, camera, input handlers, interpolation, projections, quake rendering, ship rendering, isolation modes |
+| [Rendering Pipeline](./rendering.md) | Web Worker rendering, offscreen canvas, split messaging, camera, input handlers, interpolation, projections, isolation modes |
 | [Global Search](./search.md) | Two-phase search, scoring, globe filtering, zoom-to, stash/restore |
 | [Caching Architecture](./caching.md) | IndexedDB service, cache keys, staleness, metadata dedup, migration |
-| [Constraints & Gotchas](./constraints.md) | Rate limits, client-side fetching, Canvas vs React, dev preferences |
+| [Constraints & Gotchas](./constraints.md) | Rate limits, client-side fetching, Canvas vs React, Web Worker constraints, dev preferences |
 
 ---
 
 ## Quick Reference
 
-**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D
+**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker
 
 **Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll)
 
@@ -29,7 +29,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Persistence**: IndexedDB for everything — data caches, trails, coastlines, pane layout
 
-**Rendering**: Canvas 2D at ~60fps via `requestAnimationFrame`, decoupled from React via `propsRef` bridge
+**Rendering**: Two-layer architecture — static layer (land/grid) cached on offscreen canvas, point layer rendered by Web Worker on OffscreenCanvas. Main thread composites both via `drawImage`. Camera/input handling stays on main thread.
 
 **Required env**: `SIGINT_SERVER_SECRET` — generate with `openssl rand -hex 32`
 
