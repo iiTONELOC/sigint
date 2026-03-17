@@ -18,6 +18,7 @@ import {
 import { useEarthquakeData } from "@/features/environmental/earthquake";
 import { useEventData } from "@/features/intel/events";
 import { useShipData } from "@/features/tracking/ships";
+import { useFireData } from "@/features/environmental/fires";
 import {
   selectActiveCount,
   selectLayerCounts,
@@ -112,6 +113,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     ships: true,
     events: true,
     quakes: true,
+    fires: true,
   });
   const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
     getInitialAircraftFilter(),
@@ -137,10 +139,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const { data: shipData, dataSource: shipSource } = useShipData();
 
+  const { data: fireData, dataSource: fireSource } = useFireData();
+
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
-    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData],
-    [aircraftData, shipData, earthquakeData, eventData],
+    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData],
+    [aircraftData, shipData, earthquakeData, eventData, fireData],
   );
 
   // ── ID Map — O(1) lookup by id ─────────────────────────────────
@@ -191,8 +195,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "quakes", label: "SEISMIC", status: earthquakeSource },
       { id: "events", label: "GDELT", status: eventSource },
       { id: "ships", label: "SHIPS", status: shipSource },
+      { id: "fires", label: "FIRMS", status: fireSource },
     ],
-    [dataSource, earthquakeSource, eventSource, shipSource],
+    [dataSource, earthquakeSource, eventSource, shipSource, fireSource],
   );
 
   // ── Filters ────────────────────────────────────────────────────
@@ -202,6 +207,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ships: layers.ships ?? true,
       events: { enabled: layers.events ?? true, minSeverity: 0 },
       quakes: { enabled: layers.quakes ?? true, minMagnitude: 0 },
+      fires: { enabled: layers.fires ?? true, minConfidence: 0 },
     }),
     [aircraftFilter, layers],
   );

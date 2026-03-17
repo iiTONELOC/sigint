@@ -8,9 +8,9 @@
 
 ## Overview
 
-Every data type in the application (aircraft, ships, events, quakes) is a **feature** — a self-contained module that implements the `FeatureDefinition` contract. This keeps rendering, filtering, and display logic colocated with the data type it belongs to.
+Every data type in the application (aircraft, ships, events, quakes, fires) is a **feature** — a self-contained module that implements the `FeatureDefinition` contract. This keeps rendering, filtering, and display logic colocated with the data type it belongs to.
 
-Features are organized by domain: `tracking/` for live position feeds, `environmental/` for natural events, and `intel/` for news/conflict data.
+Features are organized by domain: `tracking/` for live position feeds, `environmental/` for natural events (earthquakes, fires), and `intel/` for news/conflict data.
 
 ---
 
@@ -52,13 +52,13 @@ Consumed by uiSelectors, pointWorker.js (rendering logic inlined), tickerFeed, S
 
 Every feature uses an explicit subdirectory layout. All live features have the full set.
 
-| Directory | Purpose | Aircraft | Earthquake | Ships | Events |
-|-----------|---------|----------|------------|-------|--------|
-| `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent |
-| `hooks/` | React hooks | useAircraftData | useEarthquakeData | useShipData | useEventData |
-| `data/` | Provider + fetching | AircraftProvider, typeLookup | EarthquakeProvider | ShipProvider | GdeltProvider |
-| `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ | _(none yet)_ | _(none yet)_ |
-| _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
+| Directory | Purpose | Aircraft | Earthquake | Ships | Events | Fires |
+|-----------|---------|----------|------------|-------|--------|-------|
+| `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent | TickerContent |
+| `hooks/` | React hooks | useAircraftData | useEarthquakeData | useShipData | useEventData | useFireData |
+| `data/` | Provider + fetching | AircraftProvider, typeLookup | EarthquakeProvider | ShipProvider | GdeltProvider | FireProvider |
+| `lib/` | Pure utilities | filterUrl, utils | _(none yet)_ | _(none yet)_ | _(none yet)_ | _(none yet)_ |
+| _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
 All external imports go through the barrel `index.ts` — never from subdirectories directly.
 
@@ -73,10 +73,11 @@ type DataPoint =
   | (BasePoint & { type: "ships";    data: ShipData })
   | (BasePoint & { type: "aircraft"; data: AircraftData })
   | (BasePoint & { type: "events";   data: EventData })
-  | (BasePoint & { type: "quakes";   data: EarthquakeData });
+  | (BasePoint & { type: "quakes";   data: EarthquakeData })
+  | (BasePoint & { type: "fires";    data: FireData });
 ```
 
-Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. The `data` field contains type-specific payload. `ShipData` and `EventData` are re-exported from `dataPoints.ts` for backward compatibility.
+Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. The `data` field contains type-specific payload. `ShipData`, `EventData`, and `FireData` are re-exported from `dataPoints.ts` for backward compatibility.
 
 ---
 
@@ -89,3 +90,4 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 | USGS Earthquakes | Seismic events (7 days) | earthquake.usgs.gov all_week.geojson | **Live** — client-side, free, no auth | 420s |
 | GDELT 2.0 | Geolocated news events | data.gdeltproject.org raw export CSV | **Live** — server-side fetch + parse, token auth, client polls /api/events/latest | 15 min |
 | AIS Ships | Live vessel positions | aisstream.io WebSocket | **Live** — server-side WebSocket stream, token auth, client polls /api/ships/latest | 300s (client) / real-time (server) |
+| NASA FIRMS | Fire hotspots (24h) | firms.modaps.eosdis.nasa.gov VIIRS CSV | **Live** — server-side fetch + parse, token auth, client polls /api/fires/latest | 600s (client) / 30 min (server) |

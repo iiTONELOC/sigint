@@ -11,6 +11,7 @@ export type ThemeColors = {
   aircraft: string;
   events: string;
   quakes: string;
+  fires: string;
   text: string;
   dim: string;
   bright: string;
@@ -32,8 +33,9 @@ export const themes: Record<ThemeMode, Theme> = {
       coastFill: "#0f1e2e",
       ships: "#00d4f0",
       aircraft: "#ffcc00",
-      events: "#ff4422",
+      events: "#dd44aa",
       quakes: "#66ff44",
+      fires: "#ff6600",
       text: "#b0bec5",
       dim: "#556070",
       bright: "#e8eef4",
@@ -50,8 +52,9 @@ export const themes: Record<ThemeMode, Theme> = {
       coastFill: "#dce8f0",
       ships: "#0090b8",
       aircraft: "#cc8800",
-      events: "#cc2200",
+      events: "#aa2288",
       quakes: "#228800",
+      fires: "#cc4400",
       text: "#3a4550",
       dim: "#8898a8",
       bright: "#0a1018",
@@ -67,6 +70,7 @@ export function getColorMap(theme: Theme): Record<string, string> {
     aircraft: theme.colors.aircraft,
     events: theme.colors.events,
     quakes: theme.colors.quakes,
+    fires: theme.colors.fires,
   };
 }
 

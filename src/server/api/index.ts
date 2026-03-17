@@ -5,6 +5,7 @@ import {
 import { generateToken, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
+import { getFirmsCache } from "./firmsCache";
 import {
   getAircraftDossier,
   isValidIcao24,
@@ -32,7 +33,6 @@ function jsonResponse(req: Request, body: unknown): Response {
 
 export const apiRoutes = {
   // ── Auth token ──────────────────────────────────────────────────
-  // Rate limited but no token required (this is how you get one).
   "/api/auth/token": {
     GET(req: Request) {
       const blocked = guardRateLimit(req);
@@ -119,9 +119,29 @@ export const apiRoutes = {
     },
   },
 
+  // ── NASA FIRMS fires ───────────────────────────────────────────
+  "/api/fires/latest": {
+    GET(req: Request) {
+      const blocked = guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getFirmsCache();
+      if (!cache.data) {
+        return Response.json(
+          { error: cache.error ?? "No fire data available yet" },
+          { status: 503 },
+        );
+      }
+
+      return jsonResponse(req, {
+        data: cache.data,
+        fetchedAt: cache.fetchedAt,
+        fireCount: cache.fireCount,
+      });
+    },
+  },
+
   // ── Dossier: Aircraft enrichment ───────────────────────────────
-  // Proxies hexdb.io for aircraft info, route, and airport details.
-  // Cached server-side with 30 min TTL.
   "/api/dossier/aircraft/:icao24": async (req: any) => {
     const blocked = guardAuth(req);
     if (blocked) return blocked;
@@ -139,7 +159,6 @@ export const apiRoutes = {
       );
     }
 
-    // Optional callsign for route lookup
     const url = new URL(req.url);
     const callsignRaw = url.searchParams.get("callsign") ?? "";
     const callsign =

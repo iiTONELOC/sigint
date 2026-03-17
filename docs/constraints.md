@@ -16,6 +16,8 @@
 
 **aisstream.io**: WebSocket-based, no traditional rate limit. One persistent connection per server. Messages stream at ~300/sec globally. The server accumulates positions in memory and serves snapshots to clients. Connection is auto-reconnected on drop with a 10-second delay.
 
+**NASA FIRMS**: API key required (free). Transaction-based — each global CSV query costs ~5 transactions. Limit resets every 10 minutes. Our server fetches once per 30-minute interval regardless of client count, well within limits. VIIRS NOAA-20 global data can return 30,000–100,000+ records per day.
+
 **Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships) additionally require a valid `X-SIGINT-Token` header. Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes.
 
 ---
@@ -27,6 +29,8 @@ OpenSky and USGS are fetched client-side — OpenSky blocks Heroku IPs, USGS has
 GDELT raw export files have CORS restrictions — must be fetched server-side. The server downloads, unzips (using `zlib.inflateRaw`, zero deps), parses the tab-delimited CSV, filters to conflict/crisis CAMEO codes, and caches in memory. Clients fetch the parsed result from `/api/events/latest` with a server-issued token.
 
 AIS data from aisstream.io does not support browser CORS and requires an API key that must not be exposed client-side. The server maintains a persistent WebSocket, accumulates vessel positions in an in-memory Map keyed by MMSI, and serves snapshots from `/api/ships/latest` with token auth. Clients poll every 300 seconds.
+
+NASA FIRMS fire data requires an API key and returns large CSV payloads (30-100k records). Fetched server-side every 30 minutes, parsed, and cached in memory. Served from `/api/fires/latest` with token auth and gzip compression. Clients poll every 600 seconds.
 
 ---
 

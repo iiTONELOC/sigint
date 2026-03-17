@@ -257,6 +257,14 @@ Each data type has its own rendering block in the worker with a `continue`, keep
 
 Heading-rotated diamond shapes — pointed nose forward, narrow beam, blunt stern. Base size 3.5px, scales 1.8x when selected. Selection ring matches other types.
 
+### Fire Rendering (FRP-Scaled, Age-Based Orange)
+
+**FRP → Size** (scaled): FRP<1=2px, FRP 5=2.5px, FRP 10=3.5px, FRP 25=5px, FRP 50=7px, FRP 100+=12px
+
+**Age → Color & Opacity**: Fresh (<1hr) bright orange at full opacity, fading to muted burnt orange at 0.5 alpha for 12+ hour old detections.
+
+**FRP → Pulse**: Fires with FRP >10 MW get a pulsing glow. Intensity scales with FRP.
+
 ### Aircraft Rendering (Heading-Rotated Triangle)
 
 Heading-rotated triangles pointing in direction of travel. Base size 4px, scales 1.8x when selected. Emergency squawk codes override base color: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.

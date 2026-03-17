@@ -4,13 +4,14 @@ import { useData } from "@/context/DataContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTablePane } from "@/panes/data-table/DataTablePane";
 import { DossierPane } from "@/panes/dossier/DossierPane";
+import { IntelFeedPane } from "@/panes/intel-feed/IntelFeedPane";
 import { PaneHeader } from "@/panes/PaneHeader";
 import { setDossierOpen } from "@/panes/paneLayoutContext";
-import { Globe, Table2, FileSearch } from "lucide-react";
+import { Globe, Table2, FileSearch, Newspaper } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type PaneType = "globe" | "data-table" | "dossier";
+type PaneType = "globe" | "data-table" | "dossier" | "intel-feed";
 
 type LeafNode = {
   type: "leaf";
@@ -39,12 +40,14 @@ const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
   globe: { label: "GLOBE", icon: Globe },
   "data-table": { label: "DATA TABLE", icon: Table2 },
   dossier: { label: "DOSSIER", icon: FileSearch },
+  "intel-feed": { label: "INTEL FEED", icon: Newspaper },
 };
 
 const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   globe: LiveTrafficPane,
   "data-table": DataTablePane,
   dossier: DossierPane,
+  "intel-feed": IntelFeedPane,
 };
 
 // ── Tree helpers ─────────────────────────────────────────────────────

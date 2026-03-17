@@ -24,6 +24,7 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 | `sigint.usgs.earthquake-cache.v1` | EarthquakeProvider | USGS earthquake DataPoint[] (7 days) | Every 420s | Rejected on hydrate if >30min |
 | `sigint.gdelt.events-cache.v1` | GdeltProvider | GDELT event DataPoint[] (7-day rolling window, URL-deduped) | Every 15 min | Rejected on hydrate if >30min, events >7 days pruned on merge |
 | `sigint.ais.ship-cache.v1` | ShipProvider | AIS vessel DataPoint[] | Every 300s | Rejected on hydrate if >5min |
+| `sigint.firms.fire-cache.v1` | FireProvider | NASA FIRMS fire DataPoint[] (24h) | Every 600s | Rejected on hydrate if >30min |
 | `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot, 50 points/entity cap |
 | `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
 | `sigint.layout.v1` | PaneManager | Pane configs, split direction, sizes | On every layout change | Never expires |
@@ -40,6 +41,7 @@ Each provider's hydration staleness threshold is set so that stale cache is reje
 | Earthquake | 420s | 30 min | USGS feed updates every 5 min, 30 min is generous but acceptable for seismic data |
 | Events | 15 min | 30 min | GDELT updates every 15 min, 30 min allows one missed cycle |
 | Ships | 300s | 5 min | AIS data is high-frequency; stale ship positions are misleading |
+| Fires | 600s | 30 min | FIRMS updates every 30 min server-side; 30 min staleness allows one missed cycle |
 
 When hydration rejects (returns null), the hook starts with empty/mock data and fetches immediately. When hydration succeeds (cache is fresh), the hook skips the immediate fetch and waits for the next poll interval — the cached data is shown instantly as a placeholder.
 

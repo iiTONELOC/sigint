@@ -77,12 +77,13 @@ AIS data from aisstream.io requires an API key and does not support browser CORS
 | `/api/ships/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
 | `/api/aircraft/metadata/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Single aircraft metadata lookup |
 | `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
+| `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
 
 ### Auth + Rate Limiting
 
 All API routes are rate limited at 60 requests per minute per IP (sliding window). Protected routes additionally require a valid `X-SIGINT-Token` header. Auth and rate limiting live in `api/auth.ts` — every route calls either `guardAuth` (token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
 
-Clients use a shared `lib/authService.ts` that fetches a token once on first API call, caches it in memory, and auto-refreshes on 401. All server-bound fetches (aircraft metadata, GDELT events, AIS ships) go through `authenticatedFetch()`.
+Clients use a shared `lib/authService.ts` that fetches a token once on first API call, caches it in memory, and auto-refreshes on 401. All server-bound fetches (aircraft metadata, GDELT events, AIS ships, FIRMS fires) go through `authenticatedFetch()`.
 
 ### GDELT Server Pipeline
 
@@ -113,6 +114,18 @@ On boot, `startAisPolling()` opens a persistent WebSocket to aisstream.io:
 
 If `AISSTREAM_API_KEY` is not set, the WebSocket is never opened and `/api/ships/latest` returns 503. Ships layer shows empty. All other features work normally.
 
+### FIRMS Server Pipeline
+
+On boot, `startFirmsPolling()` kicks off a 30-minute interval:
+
+1. Fetch VIIRS NOAA-20 global fire hotspot CSV from `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_NOAA20_NRT/world/1` (last 24 hours)
+2. Parse CSV — columns: latitude, longitude, brightness, scan, track, acquisition date/time, satellite, instrument, confidence, version, bright_ti5, FRP, day/night
+3. Filter out null-island (0,0) records
+4. Cache parsed records in memory
+5. Serve via `/api/fires/latest` with token auth and gzip compression
+
+If `FIRMS_MAP_KEY` is not set, polling is skipped and `/api/fires/latest` returns 503. Fires layer shows empty. All other features work normally.
+
 Token auth and rate limiting prevent the API from being abused as an open proxy. Tokens are signed with `SIGINT_SERVER_SECRET` (env var, required) using HMAC-SHA256 with constant-time comparison. Rate limiting uses a per-IP sliding window (60 req/min) applied to every route including the token endpoint. Clients fetch a token on boot via `authenticatedFetch()` in `lib/authService.ts` and auto-refresh on 401.
 
 ### Environment Variables
@@ -121,6 +134,7 @@ Token auth and rate limiting prevent the API from being abused as an open proxy.
 |----------|----------|-------------|
 | `SIGINT_SERVER_SECRET` | **Yes** | Server-only secret for signing auth tokens. Generate with `openssl rand -hex 32`. Server refuses to start without it. |
 | `AISSTREAM_API_KEY` | No | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty. |
+| `FIRMS_MAP_KEY` | No | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
 | `PORT` | No | Server port (default: 3000) |
 
 ---
@@ -147,6 +161,7 @@ src/
       aircraftMetadata.ts             Metadata lookup from ac-db.ndjson
       gdeltCache.ts                   GDELT fetch, parse, in-memory cache
       aisCache.ts                     AIS WebSocket connection, vessel accumulation, in-memory cache
+      firmsCache.ts                   NASA FIRMS CSV fetch, parse, in-memory cache
     data/
       ac-db.ndjson                    Local aircraft database (~180k records)
   client/
@@ -161,10 +176,15 @@ src/
     panes/
       PaneManager.tsx                 Multi-pane layout engine (grid, resize, minimize, mobile tabs)
       PaneHeader.tsx                  Pane header bar (title, controls, rearrange)
+      paneLayoutContext.ts            useSyncExternalStore signal (NOT React context)
       live-traffic/
         LiveTrafficPane.tsx           Globe + overlays (detail panel, legend, status badge)
       data-table/
         DataTablePane.tsx             Virtual-scrolling sortable/filterable data table (auto-scrolls to selection)
+      dossier/
+        DossierPane.tsx               Entity dossier — aircraft photos/route, ship details, event/quake/fire info
+      intel-feed/
+        IntelFeedPane.tsx             Scrollable intel feed — GDELT events, quakes, fires with severity badges
     features/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
@@ -187,6 +207,11 @@ src/
           ui/                         EarthquakeTickerContent
           hooks/                      useEarthquakeData
           data/                       EarthquakeProvider
+        fires/                        Live data — NASA FIRMS
+          index.ts, types.ts, definition.ts, detailRows.ts
+          ui/                         FireTickerContent
+          hooks/                      useFireData
+          data/                       FireProvider
       intel/
         events/                       Live data — GDELT 2.0
           index.ts, types.ts, definition.ts, detailRows.ts
@@ -242,6 +267,8 @@ graph TD
     AppShell --> PM["PaneManager<br/><i>CSS Grid, resize, minimize, rearrange</i>"]
     PM --> LTP["LiveTrafficPane<br/><i>Globe + overlays</i>"]
     PM --> DTP["DataTablePane<br/><i>Virtual-scrolling table</i>"]
+    PM --> DSP["DossierPane<br/><i>Entity dossier</i>"]
+    PM --> IFP["IntelFeedPane<br/><i>Intel feed</i>"]
 
     LTP --> GlobeViz["globe/<br/><i>Main thread: camera, static layer<br/>Worker: point rendering</i>"]
     LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions, intel links</i>"]
@@ -256,8 +283,8 @@ graph TD
 All shared state lives in `DataContext`, exposed via `useData()`. There is no external state management library.
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
-- **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`. Wires ticker click → setSelected + setZoomToId.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
+- **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`.
+- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
 - **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
 - **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
 - **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Auto-scrolls to selected item when selection changes from external source (ticker, globe).

@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
+import { useData } from "@/context/DataContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 
 type TickerProps = {
   readonly items: DataPoint[];
-  readonly onSelect?: (item: DataPoint) => void;
 };
 
 const TICKER_INTERVAL_MS = 6500;
@@ -41,7 +41,9 @@ function relativeTime(timestamp?: string): string {
   return `${hrs}h ago`;
 }
 
-export function Ticker({ items, onSelect }: Readonly<TickerProps>) {
+export function Ticker({ items }: Readonly<TickerProps>) {
+  const { selectedCurrent, setSelected, setZoomToId } = useData();
+  const selectedId = selectedCurrent?.id ?? null;
   const [idx, setIdx] = useState(0);
   const { theme } = useTheme();
   const C = theme.colors;
@@ -81,9 +83,17 @@ export function Ticker({ items, onSelect }: Readonly<TickerProps>) {
         return (
           <div
             key={`${item.id}-${idx}-${i}`}
-            className="flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 bg-sig-panel/80 border border-sig-border h-22.5 cursor-pointer transition-colors hover:bg-sig-panel"
+            onClick={() => {
+              setSelected(item);
+              setZoomToId(item.id);
+              setTimeout(() => setZoomToId(null), 100);
+            }}
+            className={`flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 border h-22.5 transition-colors cursor-pointer ${
+              selectedId && item.id === selectedId
+                ? "bg-sig-accent/15 border-sig-accent/50"
+                : "bg-sig-panel/80 border-sig-border hover:bg-sig-panel"
+            }`}
             style={{ borderLeft: `3px solid ${color}` }}
-            onClick={() => onSelect?.(item)}
           >
             <div className="flex justify-between mb-0.5">
               <span
