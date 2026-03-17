@@ -12,7 +12,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 | [Data Flow](./data-flow.md) | DataContext, shared state, boot lifecycle, allData, filters, enrichment, trail recording |
 | [Feature System](./features.md) | FeatureDefinition contract, registry, feature structure, DataPoint union, data sources |
 | [Pane System](./panes.md) | PaneManager, LiveTrafficPane, DataTablePane, layout persistence |
-| [Rendering Pipeline](./rendering.md) | Web Worker rendering, offscreen canvas, split messaging, camera, input handlers, interpolation, projections, isolation modes |
+| [Rendering Pipeline](./rendering.md) | Web Worker rendering, worker architecture, split messaging, camera, input handlers, interpolation, projections, isolation modes |
 | [Global Search](./search.md) | Two-phase search, scoring, globe filtering, zoom-to, stash/restore |
 | [Caching Architecture](./caching.md) | IndexedDB service, cache keys, staleness, metadata dedup, migration |
 | [Constraints & Gotchas](./constraints.md) | Rate limits, client-side fetching, Canvas vs React, Web Worker constraints, dev preferences |
@@ -29,7 +29,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Persistence**: IndexedDB for everything — data caches, trails, coastlines, pane layout
 
-**Rendering**: Two-layer architecture — static layer (land/grid) cached on offscreen canvas, point layer rendered by Web Worker on OffscreenCanvas. Main thread composites both via `drawImage`. Camera/input handling stays on main thread.
+**Rendering**: All drawing offloaded to a dedicated Web Worker with OffscreenCanvas — land, grid, ocean, points, trails rendered on a separate CPU core. Main thread handles camera, input, and composites a single `ImageBitmap` per frame via `drawImage`.
 
 **Required env**: `SIGINT_SERVER_SECRET` — generate with `openssl rand -hex 32`
 

@@ -8,13 +8,13 @@
 
 ## Overview
 
-The rendering pipeline uses a two-layer architecture with a Web Worker for point rendering. The main thread handles the static layer (land, ocean, grid) on an offscreen canvas and composites the final image. A dedicated Web Worker owns a separate OffscreenCanvas and handles all data point projection, interpolation, filtering, sorting, and drawing on a separate CPU core. The main thread never blocks on point rendering.
+The rendering pipeline offloads all drawing to a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, coordinate labels, data points, trails, and selection rings — on a separate CPU core. The main thread handles only camera updates, input handling, and compositing the finished bitmap via a single `drawImage` call. The worker fetches its own land data (`/data/ne_50m_land.json`) on init.
 
 ---
 
 ## GlobeVisualization Architecture
 
-The globe visualization is split into a modular `components/globe/` directory. The main component (`GlobeVisualization.tsx`) manages refs, the render loop, camera updates, the static layer offscreen canvas, worker communication, and tooltip JSX.
+The globe visualization is split into a modular `components/globe/` directory. The main component (`GlobeVisualization.tsx`) manages refs, the render loop, camera updates, worker communication, trail tooltip positioning, and tooltip JSX. All rendering is done by the worker.
 
 **React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps.
 
@@ -22,7 +22,7 @@ The globe uses a ResizeObserver on its parent container, so it correctly handles
 
 | File | Purpose |
 |---|---|
-| `GlobeVisualization.tsx` | Shell: refs, render loop, worker lifecycle, static layer, tooltip JSX |
+| `GlobeVisualization.tsx` | Shell: refs, render loop, worker lifecycle, camera, input, tooltip JSX |
 | `cameraSystem.ts` | Lock-on follow, lerp, shortest-path rotation, auto-rotate |
 | `inputHandlers.ts` | Mouse, touch, wheel, keyboard handler factory |
 | `pointRenderer.ts` | Legacy — rendering logic now lives in the Web Worker |
@@ -37,53 +37,50 @@ The globe uses a ResizeObserver on its parent container, so it correctly handles
 
 ---
 
-## Two-Layer Rendering Architecture
+## Worker Rendering Architecture
 
 ```mermaid
 graph LR
     subgraph Main Thread
         RL["Render Loop<br/>(60fps rAF)"]
         CAM["Camera Update"]
-        OSC["Offscreen Canvas<br/>(land/ocean/grid)"]
         COMP["Composite"]
         MC["Main Canvas<br/>(visible)"]
 
-        RL --> CAM --> OSC
-        OSC -->|"drawImage"| COMP
+        RL --> CAM
         COMP --> MC
     end
 
     subgraph Web Worker
         WRK["pointWorker.js"]
-        WOSC["OffscreenCanvas<br/>(points/trails)"]
+        WOSC["OffscreenCanvas<br/>(land+grid+points+trails)"]
         BMP["ImageBitmap"]
 
-        WRK --> WOSC --> BMP
+        WRK -->|"renders everything"| WOSC --> BMP
     end
 
-    RL -->|"postMessage<br/>(camera ~200B)"| WRK
+    CAM -->|"postMessage<br/>(camera + interaction)"| WRK
     BMP -->|"transferToImageBitmap"| COMP
 ```
 
-### Static Layer (Main Thread)
+The worker renders everything to a single OffscreenCanvas:
 
-Land, ocean, grid, glow, and rim are rendered to a cached offscreen canvas. A camera fingerprint tracks state — the static layer only redraws when the camera actually moves. The fingerprint is quantized so during auto-rotate the static layer redraws at ~15fps while compositing stays at 60fps.
-
-When the camera is still (user reading a detail panel), the static layer is a single cached `drawImage` blit — zero polygon re-projection.
-
-### Point Layer (Web Worker)
-
-All data point rendering runs in `public/workers/pointWorker.js` on a dedicated Web Worker thread with its own OffscreenCanvas. The worker handles:
-
+- Land polygons (globe-clipped with horizon arc interpolation, flat with antimeridian segment splitting)
+- Ocean gradient, atmospheric glow, globe rim
+- Grid lines (projected for globe, direct for flat)
+- Flat map border, coordinate labels
 - Position interpolation (speed + heading extrapolation for moving items)
 - Projection (orthographic globe or equirectangular flat)
 - Filtering (layers, aircraft filter, isolation modes, search)
 - Depth sorting (globe mode only — flat mode skips since z is always 1)
 - Trail rendering (glow pass, main line, waypoint dots, hit targets)
 - All shape drawing (quake pulses, event glows, ship diamonds, aircraft triangles, selection rings)
-- Clip masking (globe circle or flat map rect)
 
-The worker transfers a finished `ImageBitmap` back to the main thread via `transferToImageBitmap`. The main thread composites it on top of the static layer in a single `drawImage` call.
+The worker fetches land data (`/data/ne_50m_land.json`) on init, parses the GeoJSON, and stores the polygon arrays. No land data crosses `postMessage`.
+
+The worker uses `requestAnimationFrame` internally with a pending frame pattern — if multiple "frame" messages arrive while the worker is busy, it skips to the most recent one. Points always render with the latest camera state.
+
+The main thread composites the finished `ImageBitmap` via a single `drawImage` call in the worker's `onmessage` callback.
 
 ### Split Messaging
 
@@ -92,58 +89,55 @@ sequenceDiagram
     participant MT as Main Thread
     participant W as Web Worker
 
+    Note over MT: Worker init
+    W->>W: fetch /data/ne_50m_land.json
+
     Note over MT: Data refresh (every 240-300s)
-    MT->>W: "data" message<br/>(20K items + filters + selection + colors)
+    MT->>W: "data" message<br/>(20K items + colors)
+    MT->>W: "trails" message<br/>(interpolation data for all moving items)
     Note over W: Stores in module state
 
     loop Every Animation Frame
-        MT->>W: "frame" message<br/>(camera + timing + clip ~200B)
-        Note over W: Project using stored data<br/>Filter, sort, draw
+        MT->>W: "frame" message<br/>(camera + interaction state)
+        Note over W: Render everything<br/>land, grid, points, trails
         W->>MT: "frame" response<br/>(ImageBitmap + hitTargets)
-        Note over MT: Composite static + bitmap
+        Note over MT: Single drawImage composite
     end
 
     Note over MT: Every ~30 frames
-    MT->>W: "trails" message<br/>(interpolation data)
+    MT->>W: "trails" message<br/>(updated interpolation data)
 ```
 
 Communication between main thread and worker uses two message types to minimize serialization overhead:
 
-**"data" message** — sent only when data, selection, filters, layers, or search actually change. Carries the full item array + filters + selection + colors. This fires on data refresh (~240-300s), on selection change, on filter toggle — not every frame.
+**"data" message** — sent only when the data array reference changes (on data refresh, ~240-300s). Carries the full item array + theme colors. Trail interpolation data for all moving items is also sent alongside. Interaction state (selection, filters, layers, isolation) is NOT included here — it goes with the frame message for instant responsiveness.
 
-**"frame" message** — sent every animation frame. Contains only camera state, timing, viewport dimensions, DPR, and clip region. ~200 bytes. The worker uses stored data from the last "data" message to project and draw.
+**"frame" message** — sent every animation frame. Contains camera state, timing, viewport dimensions, DPR, and all interaction state (selectedId, isolateMode, layers, aircraftFilter, searchMatchIds, selectedItem with trail). The worker uses stored data from the last "data" message combined with the frame's interaction state to render.
 
-This means 60fps of rendering only transfers ~200 bytes per frame across the postMessage boundary instead of megabytes of serialized data.
+This means toggling Focus/Solo, changing filters, or selecting items is instant — no re-serialization of 20K items.
 
 ### Composite Flow
 
 ```mermaid
 flowchart TD
     RAF["requestAnimationFrame"] --> CAM["Update Camera"]
-    CAM --> FP{"Static layer<br/>fingerprint changed?"}
-    FP -->|Yes| REDRAW["Redraw land/ocean/grid<br/>to offscreen canvas"]
-    FP -->|No| SKIP["Skip — cached"]
-    REDRAW --> SEND
-    SKIP --> SEND
-    SEND["Send 'frame' to worker<br/>(camera + timing)"]
-    SEND --> WAIT["Worker processes..."]
-    WAIT --> MSG["onmessage callback"]
+    CAM --> SEND["Send 'frame' to worker<br/>(camera + interaction state)"]
+    SEND --> WAIT["Worker renders everything...<br/>land, grid, ocean, points, trails"]
+    WAIT --> BMP["transferToImageBitmap"]
+    BMP --> MSG["onmessage callback"]
     MSG --> CLEAR["clearRect main canvas"]
-    CLEAR --> BLIT1["drawImage static layer"]
-    BLIT1 --> BLIT2["drawImage worker bitmap"]
-    BLIT2 --> DONE["Frame complete"]
+    CLEAR --> BLIT["drawImage worker bitmap"]
+    BLIT --> DONE["Frame complete"]
     RAF2["Next rAF"] --> CAM
 ```
 
-1. Main thread render loop runs at 60fps — updates camera, redraws static layer offscreen if dirty, sends "frame" message to worker
-2. Worker receives camera state, projects all points using stored data, draws to OffscreenCanvas, transfers bitmap
-3. Worker's `onmessage` callback on main thread composites: clears main canvas, draws static layer, draws worker bitmap — both in one shot
-
-The composite happens in the worker's `onmessage` callback, not in the render loop. This ensures both layers are painted on the same frame.
+1. Main thread render loop runs at 60fps — updates camera, sends "frame" message to worker
+2. Worker renders everything (land, grid, ocean, glow, points, trails, rim) to its OffscreenCanvas, transfers bitmap
+3. Worker's `onmessage` callback on main thread composites: clears main canvas, draws worker bitmap
 
 ### Trail Data Sync
 
-Trail interpolation data is synced from the main thread to the worker every ~30 frames (~500ms). The worker maintains its own trail Map for interpolation. The selected item's full trail point array is sent with each "data" message for trail line rendering.
+Trail interpolation data is synced from the main thread to the worker on every data change and every ~30 frames (~500ms). The worker maintains its own trail Map for interpolation. The selected item's full trail point array is sent with each frame message for trail line rendering.
 
 Trail hit targets (for click detection on waypoint dots) are sent back from the worker with each bitmap and stored on the canvas element for the input handlers to use.
 

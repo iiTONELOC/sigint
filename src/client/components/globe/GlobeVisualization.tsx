@@ -1,4 +1,3 @@
-import { enrichLand } from "@/lib/landService";
 import {
   getInterpolatedPosition,
   getTrail,
@@ -14,8 +13,6 @@ import type {
   ProjFn,
 } from "./types";
 import { getFlatMetrics, projGlobe, projFlat } from "./projection";
-import { drawLand } from "./landRenderer";
-import { drawGrid } from "./gridRenderer";
 import { updateCamera } from "./cameraSystem";
 import {
   createInputHandlers,
@@ -123,24 +120,14 @@ export function GlobeVisualization({
   const colorsRef = useRef(theme.colors);
   colorsRef.current = theme.colors;
 
-  // ── Offscreen canvas for static layer (land/ocean/grid) ─────────
-  const offscreenRef = useRef<HTMLCanvasElement | null>(null);
-  const lastStaticFpRef = useRef("");
-
   // ── Point rendering worker ──────────────────────────────────────
   const workerRef = useRef<Worker | null>(null);
   const workerCanvasRef = useRef<OffscreenCanvas | null>(null);
   const latestBitmapRef = useRef<ImageBitmap | null>(null);
-  const workerBusyRef = useRef(false);
-  const trailSyncRef = useRef(0);
+  const trailSyncRef = useRef(30);
 
   // Track what was last sent to worker — skip re-sending heavy data
   const lastSentDataRef = useRef<DataPoint[] | null>(null);
-  const lastSentSelRef = useRef<string | null>(null);
-  const lastSentIsoRef = useRef<string | null>(null);
-  const lastSentSearchRef = useRef<Set<string> | null>(null);
-  const lastSentLayersRef = useRef<string>("");
-  const lastSentFilterRef = useRef<string>("");
 
   // ── Progressive render limit ────────────────────────────────────
   const prevDataRef = useRef<DataPoint[] | null>(null);
@@ -209,35 +196,25 @@ export function GlobeVisualization({
             latestBitmapRef.current.close();
           }
           latestBitmapRef.current = e.data.bitmap;
-          workerBusyRef.current = false;
 
           // Store trail hit targets for click detection
           if (e.data.hitTargets && canvasRef.current) {
             (canvasRef.current as any).__trailHitTargets = e.data.hitTargets;
           }
 
-          // Composite both layers on the same frame
+          // Composite — single bitmap from worker has everything
           const mainCanvas = canvasRef.current;
-          const staticCanvas = offscreenRef.current;
-          if (mainCanvas && staticCanvas && latestBitmapRef.current) {
+          if (mainCanvas && latestBitmapRef.current) {
             const mainCtx = mainCanvas.getContext("2d");
             if (mainCtx) {
-              // Clear at physical pixel size (canvas.width/height includes DPR)
               mainCtx.setTransform(1, 0, 0, 1, 0, 0);
               mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-              // Both static layer and worker bitmap are at physical pixel size
-              mainCtx.drawImage(staticCanvas, 0, 0);
               mainCtx.drawImage(latestBitmapRef.current, 0, 0);
             }
           }
         }
       };
     }
-
-    enrichLand(() => {
-      // Land loaded — invalidate offscreen cache
-      lastStaticFpRef.current = "";
-    });
 
     const render = () => {
       if (!running) return;
@@ -324,159 +301,9 @@ export function GlobeVisualization({
           ? d.slice(0, renderLimitRef.current)
           : d;
 
-      // ── Static layer fingerprint ────────────────────────────────
-      // Quantized to .001 so during auto-rotate the static layer
-      // redraws ~15fps (land/grid) while data points stay at 60fps.
-      const fp = isFlat
-        ? `F|${W}|${H}|${cam.zoomFlat.toFixed(2)}|${cam.panX.toFixed(0)}|${cam.panY.toFixed(0)}`
-        : `G|${W}|${H}|${cam.rotY.toFixed(3)}|${cam.rotX.toFixed(3)}|${cam.zoomGlobe.toFixed(2)}`;
-
-      const staticDirty = fp !== lastStaticFpRef.current;
-
-      // Ensure offscreen canvas exists and is sized
-      if (!offscreenRef.current) {
-        offscreenRef.current = document.createElement("canvas");
-      }
-      const osc = offscreenRef.current;
-      if (osc.width !== canvas.width || osc.height !== canvas.height) {
-        osc.width = canvas.width;
-        osc.height = canvas.height;
-        lastStaticFpRef.current = ""; // force redraw on resize
-      }
-
-      // ── Draw static layer (land/ocean/grid) to offscreen ────────
-      if (staticDirty || lastStaticFpRef.current === "") {
-        const octx = osc.getContext("2d");
-        if (octx) {
-          const dpr = canvas.width / W || 1;
-          octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          octx.clearRect(0, 0, W, H);
-
-          if (!isFlat) {
-            const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-            const proj: ProjFn = (lat, lon) =>
-              projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
-
-            // Glow
-            const glow = octx.createRadialGradient(
-              cx,
-              cy,
-              r * 0.8,
-              cx,
-              cy,
-              r * 1.4,
-            );
-            glow.addColorStop(0, C.accent + "0d");
-            glow.addColorStop(1, "rgba(0,0,0,0)");
-            octx.fillStyle = glow;
-            octx.fillRect(0, 0, W, H);
-
-            // Solid ocean
-            const bg = octx.createRadialGradient(
-              cx - r * 0.2,
-              cy - r * 0.2,
-              0,
-              cx,
-              cy,
-              r,
-            );
-            bg.addColorStop(0, "#0e1825");
-            bg.addColorStop(1, "#060c16");
-            octx.beginPath();
-            octx.arc(cx, cy, r, 0, Math.PI * 2);
-            octx.fillStyle = bg;
-            octx.fill();
-
-            // Clip to globe
-            octx.save();
-            octx.beginPath();
-            octx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
-            octx.clip();
-
-            drawLand(octx, proj, C, false, cx, cy, r - 0.5);
-            drawGrid(octx, proj, { isFlat: false, accentColor: C.accent });
-
-            octx.restore();
-
-            // Rim
-            octx.beginPath();
-            octx.arc(cx, cy, r, 0, Math.PI * 2);
-            octx.strokeStyle = C.accent + "1f";
-            octx.lineWidth = 1.5;
-            octx.stroke();
-          } else {
-            const {
-              mW,
-              mH,
-              mx,
-              my,
-              cx: flatCx,
-              cy: flatCy,
-            } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-            const proj: ProjFn = (lat, lon) =>
-              projFlat(lat, lon, flatCx, flatCy, mW, mH);
-
-            octx.fillStyle = "#081018";
-            octx.fillRect(mx, my, mW, mH);
-
-            octx.save();
-            octx.beginPath();
-            octx.rect(mx, my, mW, mH);
-            octx.clip();
-
-            drawLand(octx, proj, C, true, 0, 0, 0);
-            drawGrid(octx, proj, {
-              isFlat: true,
-              cx,
-              cy,
-              mW,
-              mH,
-              mx,
-              my,
-              accentColor: C.accent,
-            });
-
-            octx.restore();
-
-            octx.strokeStyle = C.accent + "1a";
-            octx.lineWidth = 1;
-            octx.strokeRect(mx, my, mW, mH);
-
-            octx.globalAlpha = 1;
-            octx.fillStyle = C.dim;
-            const baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
-            octx.font = `${baseFontSize}px 'JetBrains Mono', monospace`;
-            octx.textAlign = "center";
-            for (let lon = -120; lon <= 120; lon += 60) {
-              octx.fillText(
-                `${Math.abs(lon)}\u00B0${lon >= 0 ? "E" : "W"}`,
-                flatCx + (lon / 180) * (mW / 2),
-                my + mH + 13,
-              );
-            }
-            octx.textAlign = "right";
-            for (let lat = -60; lat <= 60; lat += 30) {
-              octx.fillText(
-                `${Math.abs(lat)}\u00B0${lat >= 0 ? "N" : "S"}`,
-                mx - 5,
-                flatCy - (lat / 90) * (mH / 2) + 3,
-              );
-            }
-          }
-
-          lastStaticFpRef.current = fp;
-        }
-      }
-
-      // ── Draw static layer to offscreen (camera update already done) ──
-      // The actual composite to screen happens in the worker onmessage
-      // callback so both layers paint on the same frame.
-
       // ── Send render job to worker ─────────────────────────────
       const worker = workerRef.current;
-      if (worker && !workerBusyRef.current) {
-        workerBusyRef.current = true;
-
+      if (worker) {
         // Sync trail data periodically (~every 30 frames)
         trailSyncRef.current++;
         if (trailSyncRef.current >= 30) {
@@ -505,18 +332,10 @@ export function GlobeVisualization({
 
         // ── Detect data changes — only re-send heavy payload when needed ──
         const selId = sel?.id ?? null;
-        const layersFp = JSON.stringify(ly);
-        const filterFp = `${af.enabled}|${af.showAirborne}|${af.showGround}|${af.squawks.size}|${af.countries.size}`;
-        const dataChanged =
-          renderData !== lastSentDataRef.current ||
-          selId !== lastSentSelRef.current ||
-          iso !== lastSentIsoRef.current ||
-          sMatch !== lastSentSearchRef.current ||
-          layersFp !== lastSentLayersRef.current ||
-          filterFp !== lastSentFilterRef.current;
+        const dataChanged = renderData !== lastSentDataRef.current;
 
         if (dataChanged) {
-          // Heavy message — full data + filters + selection
+          // Heavy message — full data array only
           const plainData = renderData.map((item) => ({
             id: item.id,
             type: item.type,
@@ -526,60 +345,58 @@ export function GlobeVisualization({
             data: (item as any).data,
           }));
 
-          let selectedItem = null;
-          if (sel) {
-            const trail = getTrail(sel.id);
-            selectedItem = {
-              id: sel.id,
-              type: sel.type,
-              lat: sel.lat,
-              lon: sel.lon,
-              _trail: trail,
-            };
+          // Send full trail history for all moving items on data change
+          const fullTrails: Array<[string, any]> = [];
+          for (const item of renderData) {
+            if (item.type === "aircraft" || item.type === "ships") {
+              const trail = getTrail(item.id);
+              if (trail.length > 0) {
+                const last = trail[trail.length - 1]!;
+                fullTrails.push([
+                  item.id,
+                  {
+                    lat: last.lat,
+                    lon: last.lon,
+                    ts: last.ts,
+                    heading: (item as any).data?.heading ?? 0,
+                    speedMps: (item as any).data?.speedMps ?? 0,
+                  },
+                ]);
+              }
+            }
           }
-
-          const searchIds = sMatch ? Array.from(sMatch) : null;
+          if (fullTrails.length > 0) {
+            worker.postMessage({ type: "trails", entries: fullTrails });
+          }
 
           worker.postMessage({
             type: "data",
             payload: {
               data: plainData,
-              layers: ly,
-              aircraftFilter: {
-                enabled: af.enabled,
-                showAirborne: af.showAirborne,
-                showGround: af.showGround,
-                squawks: Array.from(af.squawks),
-                countries: Array.from(af.countries),
-              },
-              selectedId: selId,
-              isolatedId: iso,
-              isolateMode: isoMode,
-              searchMatchIds: searchIds,
-              selectedItem,
               colors: C,
             },
           });
 
           lastSentDataRef.current = renderData;
-          lastSentSelRef.current = selId;
-          lastSentIsoRef.current = iso;
-          lastSentSearchRef.current = sMatch ?? null;
-          lastSentLayersRef.current = layersFp;
-          lastSentFilterRef.current = filterFp;
         }
 
-        // ── Light message — camera + timing only (~50 bytes) ──
+        // ── Light message — camera + interaction state every frame ──
         const dpr = canvas.width / W || 1;
 
-        let clip: any = null;
-        if (!isFlat) {
-          const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-          clip = { type: "globe", cx: W / 2, cy: H / 2, r: r - 0.5 };
-        } else {
-          const fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-          clip = { type: "flat", mx: fm.mx, my: fm.my, mW: fm.mW, mH: fm.mH };
+        // Build selected item with trail for worker
+        let selectedItem = null;
+        if (sel) {
+          const trail = getTrail(sel.id);
+          selectedItem = {
+            id: sel.id,
+            type: sel.type,
+            lat: sel.lat,
+            lon: sel.lon,
+            _trail: trail,
+          };
         }
+
+        const searchIds = sMatch ? Array.from(sMatch) : null;
 
         worker.postMessage({
           type: "frame",
@@ -597,7 +414,19 @@ export function GlobeVisualization({
             H,
             dpr,
             t,
-            clip,
+            selectedId: sel?.id ?? null,
+            isolatedId: iso,
+            isolateMode: isoMode,
+            layers: ly,
+            aircraftFilter: {
+              enabled: af.enabled,
+              showAirborne: af.showAirborne,
+              showGround: af.showGround,
+              squawks: Array.from(af.squawks),
+              countries: Array.from(af.countries),
+            },
+            searchMatchIds: searchIds,
+            selectedItem,
           },
         });
       }
@@ -626,14 +455,59 @@ export function GlobeVisualization({
         if (p.z > 0) {
           const ttW = ttEl.offsetWidth || 200;
           const ttH = ttEl.offsetHeight || 80;
-          // Default to left of dot (away from detail panel on right)
-          // Flip to right only if too close to left edge
-          const showRight = p.x - ttW - 16 < 0;
-          const xPos = showRight ? p.x + 14 : p.x - ttW - 14;
-          // Vertically center on the dot, clamp to viewport
-          const yPos = Math.max(4, Math.min(H - ttH - 4, p.y - ttH / 2));
-          ttEl.style.left = `${xPos}px`;
-          ttEl.style.top = `${yPos}px`;
+
+          // Project selected item's current position to avoid overlap
+          let selScreenX = -999;
+          let selScreenY = -999;
+          if (sel) {
+            const selInterp = getInterpolatedPosition(sel.id);
+            const sLat = selInterp ? selInterp.lat : sel.lat;
+            const sLon = selInterp ? selInterp.lon : sel.lon;
+            const sp = proj(sLat, sLon);
+            if (sp.z > 0) {
+              selScreenX = sp.x;
+              selScreenY = sp.y;
+            }
+          }
+
+          // Default to left of dot
+          let showRight = p.x - ttW - 16 < 0;
+
+          // Check if default position would overlap selected item
+          const xLeft = p.x - ttW - 14;
+          const xRight = p.x + 14;
+          const yTop = Math.max(4, Math.min(H - ttH - 4, p.y - ttH / 2));
+          const yBot = yTop + ttH;
+
+          // If tooltip on left overlaps selected item, try right
+          if (
+            !showRight &&
+            selScreenX > xLeft &&
+            selScreenX < xLeft + ttW &&
+            selScreenY > yTop &&
+            selScreenY < yBot
+          ) {
+            showRight = true;
+          }
+          // If tooltip on right overlaps selected item, try left
+          if (
+            showRight &&
+            selScreenX > xRight &&
+            selScreenX < xRight + ttW &&
+            selScreenY > yTop &&
+            selScreenY < yBot
+          ) {
+            showRight = false;
+          }
+
+          const xPos = showRight ? xRight : xLeft;
+          const yPos = yTop;
+
+          // Clamp to viewport — never go off screen
+          const clampedX = Math.max(4, Math.min(W - ttW - 4, xPos));
+          const clampedY = Math.max(4, Math.min(H - ttH - 4, yPos));
+          ttEl.style.left = `${clampedX}px`;
+          ttEl.style.top = `${clampedY}px`;
           ttEl.style.display = "";
         } else {
           ttEl.style.display = "none";
