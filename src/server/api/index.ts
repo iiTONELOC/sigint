@@ -5,6 +5,11 @@ import {
 import { generateToken, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
+import {
+  getAircraftDossier,
+  isValidIcao24,
+  isValidCallsign,
+} from "./dossierCache";
 
 // ── Gzip response helper ─────────────────────────────────────────────
 
@@ -112,5 +117,39 @@ export const apiRoutes = {
         connected: cache.connected,
       });
     },
+  },
+
+  // ── Dossier: Aircraft enrichment ───────────────────────────────
+  // Proxies hexdb.io for aircraft info, route, and airport details.
+  // Cached server-side with 30 min TTL.
+  "/api/dossier/aircraft/:icao24": async (req: any) => {
+    const blocked = guardAuth(req);
+    if (blocked) return blocked;
+
+    const { method, params } = req;
+    if (method !== "GET") {
+      return new Response("Method Not Allowed", { status: 405 });
+    }
+
+    const { icao24 = "" } = params ?? {};
+    if (!isValidIcao24(String(icao24))) {
+      return Response.json(
+        { error: "Invalid ICAO24 hex code" },
+        { status: 400 },
+      );
+    }
+
+    // Optional callsign for route lookup
+    const url = new URL(req.url);
+    const callsignRaw = url.searchParams.get("callsign") ?? "";
+    const callsign =
+      callsignRaw && isValidCallsign(callsignRaw) ? callsignRaw : undefined;
+
+    const dossier = await getAircraftDossier(String(icao24), callsign);
+    if (!dossier) {
+      return Response.json({ error: "Aircraft not found" }, { status: 404 });
+    }
+
+    return jsonResponse(req, { dossier });
   },
 };

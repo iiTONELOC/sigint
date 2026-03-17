@@ -231,20 +231,6 @@ export function DataTablePane() {
     [sortedData, startIdx, endIdx],
   );
 
-  // ── Auto-scroll to selected item ────────────────────────────────
-  useEffect(() => {
-    if (!selectedCurrent || !scrollRef.current) return;
-    const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
-    if (idx < 0) return;
-    const itemTop = idx * ROW_HEIGHT;
-    const itemBottom = itemTop + ROW_HEIGHT;
-    const el = scrollRef.current;
-    // Only scroll if item is outside the visible viewport
-    if (itemTop < el.scrollTop || itemBottom > el.scrollTop + viewportH) {
-      el.scrollTop = Math.max(0, itemTop - ROW_HEIGHT * 2);
-    }
-  }, [selectedCurrent?.id, sortedData, viewportH]);
-
   // ── Feature counts ──────────────────────────────────────────────
 
   const featureCounts = useMemo(() => {
@@ -327,14 +313,12 @@ export function DataTablePane() {
               className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
                 active
                   ? "bg-sig-accent/10 border-sig-accent/30"
-                  : "bg-transparent border-sig-border/50"
+                  : "text-sig-dim bg-transparent border-sig-border/50"
               }`}
               style={{ color: active ? color : undefined }}
             >
               <Icon size={11} strokeWidth={2.5} />
-              <span className="hidden sm:inline">
-                {featureCounts[f.id] ?? 0}
-              </span>
+              <span>{featureCounts[f.id] ?? 0}</span>
             </button>
           );
         })}

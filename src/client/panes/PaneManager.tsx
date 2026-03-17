@@ -1,64 +1,176 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { useData } from "@/context/DataContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTablePane } from "@/panes/data-table/DataTablePane";
+import { DossierPane } from "@/panes/dossier/DossierPane";
 import { PaneHeader } from "@/panes/PaneHeader";
-import { Globe, Table2, Plus, ArrowLeftRight, ArrowUpDown } from "lucide-react";
+import { setDossierOpen } from "@/panes/paneLayoutContext";
+import { Globe, Table2, FileSearch } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type PaneType = "globe" | "data-table";
+type PaneType = "globe" | "data-table" | "dossier";
 
-type PaneConfig = {
+type LeafNode = {
+  type: "leaf";
   id: string;
-  type: PaneType;
-  minimized: boolean;
+  paneType: PaneType;
 };
 
-type PaneDirection = "horizontal" | "vertical";
+type SplitNode = {
+  type: "split";
+  id: string;
+  direction: "h" | "v";
+  ratio: number; // 0–1, first child gets ratio
+  children: [LayoutNode, LayoutNode];
+};
+
+type LayoutNode = LeafNode | SplitNode;
 
 type LayoutState = {
-  panes: PaneConfig[];
-  direction: PaneDirection;
-  sizes: number[]; // fractional sizes (sum to 1)
+  root: LayoutNode;
+  minimized: { id: string; paneType: PaneType }[];
 };
 
-const CACHE_KEY = "sigint.layout.v1";
+const CACHE_KEY = "sigint.layout.v2";
 
 const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
   globe: { label: "GLOBE", icon: Globe },
   "data-table": { label: "DATA TABLE", icon: Table2 },
+  dossier: { label: "DOSSIER", icon: FileSearch },
 };
 
 const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   globe: LiveTrafficPane,
   "data-table": DataTablePane,
+  dossier: DossierPane,
 };
 
-// ── Default layout ──────────────────────────────────────────────────
+// ── Tree helpers ─────────────────────────────────────────────────────
+
+let _idC = 0;
+function uid(): string {
+  _idC += 1;
+  return `n${Date.now()}-${_idC}`;
+}
+
+function leaf(paneType: PaneType): LeafNode {
+  return { type: "leaf", id: uid(), paneType };
+}
+
+function split(
+  dir: "h" | "v",
+  a: LayoutNode,
+  b: LayoutNode,
+  ratio = 0.5,
+): SplitNode {
+  return { type: "split", id: uid(), direction: dir, ratio, children: [a, b] };
+}
+
+/** Collect all leaf pane types in the tree */
+function collectLeafTypes(node: LayoutNode): Set<PaneType> {
+  if (node.type === "leaf") return new Set([node.paneType]);
+  const s = collectLeafTypes(node.children[0]);
+  for (const t of collectLeafTypes(node.children[1])) s.add(t);
+  return s;
+}
+
+/** Count leaves */
+function leafCount(node: LayoutNode): number {
+  if (node.type === "leaf") return 1;
+  return leafCount(node.children[0]) + leafCount(node.children[1]);
+}
+
+/** Check if dossier is in tree */
+function hasDossierInTree(node: LayoutNode): boolean {
+  if (node.type === "leaf") return node.paneType === "dossier";
+  return (
+    hasDossierInTree(node.children[0]) || hasDossierInTree(node.children[1])
+  );
+}
+
+/** Replace a node by id, return new tree (immutable) */
+function replaceNode(
+  root: LayoutNode,
+  targetId: string,
+  replacement: LayoutNode,
+): LayoutNode {
+  if (root.id === targetId) return replacement;
+  if (root.type === "leaf") return root;
+  return {
+    ...root,
+    children: [
+      replaceNode(root.children[0], targetId, replacement),
+      replaceNode(root.children[1], targetId, replacement),
+    ],
+  };
+}
+
+/** Remove a leaf by id — promotes sibling. Returns null if removing would empty tree. */
+function removeLeaf(root: LayoutNode, targetId: string): LayoutNode | null {
+  if (root.type === "leaf") {
+    return root.id === targetId ? null : root;
+  }
+  const [a, b] = root.children;
+  if (a.id === targetId) return b;
+  if (b.id === targetId) return a;
+  // Recurse
+  const newA = removeLeaf(a, targetId);
+  if (newA !== a) return newA === null ? b : { ...root, children: [newA, b] };
+  const newB = removeLeaf(b, targetId);
+  if (newB !== b) return newB === null ? a : { ...root, children: [a, newB] };
+  return root;
+}
+
+/** Update ratio for a split by id */
+function updateRatio(
+  root: LayoutNode,
+  splitId: string,
+  ratio: number,
+): LayoutNode {
+  if (root.type === "leaf") return root;
+  if (root.id === splitId) return { ...root, ratio };
+  return {
+    ...root,
+    children: [
+      updateRatio(root.children[0], splitId, ratio),
+      updateRatio(root.children[1], splitId, ratio),
+    ],
+  };
+}
+
+// ── Persistence ──────────────────────────────────────────────────────
 
 function defaultLayout(): LayoutState {
-  return {
-    panes: [{ id: "globe-1", type: "globe", minimized: false }],
-    direction: "horizontal",
-    sizes: [1],
-  };
+  return { root: leaf("globe"), minimized: [] };
+}
+
+function isValidTree(node: unknown): node is LayoutNode {
+  if (!node || typeof node !== "object") return false;
+  const n = node as any;
+  if (n.type === "leaf")
+    return typeof n.id === "string" && typeof n.paneType === "string";
+  if (n.type === "split") {
+    return (
+      typeof n.id === "string" &&
+      (n.direction === "h" || n.direction === "v") &&
+      typeof n.ratio === "number" &&
+      Array.isArray(n.children) &&
+      n.children.length === 2 &&
+      isValidTree(n.children[0]) &&
+      isValidTree(n.children[1])
+    );
+  }
+  return false;
 }
 
 function loadLayout(): LayoutState {
   try {
     const cached = cacheGet<LayoutState>(CACHE_KEY);
-    if (cached && cached.panes && cached.panes.length > 0) return cached;
+    if (cached && isValidTree(cached.root)) return cached;
   } catch {
-    // Ignore
+    /* ignore */
   }
   return defaultLayout();
 }
@@ -67,132 +179,398 @@ function persistLayout(layout: LayoutState) {
   cacheSet(CACHE_KEY, layout);
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
-function rebalanceSizes(count: number, existing: number[]): number[] {
-  if (count <= 0) return [];
-  if (count === 1) return [1];
-  // Equal distribution
-  return Array.from({ length: count }, () => 1 / count);
-}
-
-let paneIdCounter = 0;
-function nextPaneId(type: PaneType): string {
-  paneIdCounter += 1;
-  return `${type}-${Date.now()}-${paneIdCounter}`;
-}
-
-// ── Component ───────────────────────────────────────────────────────
+// ── Component ────────────────────────────────────────────────────────
 
 export function PaneManager() {
   const { chromeHidden } = useData();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Persist on change
   useEffect(() => {
     persistLayout(layout);
   }, [layout]);
 
-  const visiblePanes = useMemo(
-    () => layout.panes.filter((p) => !p.minimized),
-    [layout.panes],
+  // ── Dossier signal ──────────────────────────────────────────────
+  useEffect(() => {
+    const open = hasDossierInTree(layout.root);
+    setDossierOpen(open);
+    return () => setDossierOpen(false);
+  }, [layout.root]);
+
+  // ── Available pane types ────────────────────────────────────────
+  const openTypes = useMemo(() => {
+    const s = collectLeafTypes(layout.root);
+    for (const m of layout.minimized) s.add(m.paneType);
+    return s;
+  }, [layout.root, layout.minimized]);
+
+  const availableTypes = useMemo<PaneType[]>(
+    () =>
+      (Object.keys(PANE_META) as PaneType[]).filter((t) => !openTypes.has(t)),
+    [openTypes],
   );
 
-  const minimizedPanes = useMemo(
-    () => layout.panes.filter((p) => p.minimized),
-    [layout.panes],
+  // ── Actions ─────────────────────────────────────────────────────
+
+  const splitPane = useCallback(
+    (leafId: string, dir: "h" | "v", newType: PaneType) => {
+      setLayout((prev) => {
+        const newLeaf = leaf(newType);
+        // Find the target leaf and wrap it in a split
+        const find = (node: LayoutNode): LayoutNode | null => {
+          if (node.type === "leaf" && node.id === leafId) return node;
+          if (node.type === "split") {
+            return find(node.children[0]) ?? find(node.children[1]);
+          }
+          return null;
+        };
+        const target = find(prev.root);
+        if (!target) return prev;
+        const newSplit = split(dir, target, newLeaf);
+        return { ...prev, root: replaceNode(prev.root, leafId, newSplit) };
+      });
+    },
+    [],
   );
 
-  // ── Pane actions ────────────────────────────────────────────────
-
-  const addPane = useCallback((type: PaneType) => {
+  const closePane = useCallback((leafId: string) => {
     setLayout((prev) => {
-      const newPane: PaneConfig = {
-        id: nextPaneId(type),
-        type,
-        minimized: false,
-      };
-      const panes = [...prev.panes, newPane];
-      const visibleCount = panes.filter((p) => !p.minimized).length;
+      const result = removeLeaf(prev.root, leafId);
+      if (!result) return defaultLayout();
+      return { ...prev, root: result };
+    });
+  }, []);
+
+  const minimizePane = useCallback((leafId: string, paneType: PaneType) => {
+    setLayout((prev) => {
+      const result = removeLeaf(prev.root, leafId);
+      if (!result) return prev; // don't minimize the last pane
       return {
-        ...prev,
-        panes,
-        sizes: rebalanceSizes(visibleCount, prev.sizes),
+        root: result,
+        minimized: [...prev.minimized, { id: leafId, paneType }],
       };
     });
   }, []);
 
-  const closePane = useCallback((id: string) => {
+  const restorePane = useCallback((idx: number) => {
     setLayout((prev) => {
-      const panes = prev.panes.filter((p) => p.id !== id);
-      if (panes.length === 0) return defaultLayout();
-      const visibleCount = panes.filter((p) => !p.minimized).length;
-      return {
-        ...prev,
-        panes,
-        sizes: rebalanceSizes(visibleCount, prev.sizes),
-      };
+      const entry = prev.minimized[idx];
+      if (!entry) return prev;
+      const newLeaf = leaf(entry.paneType);
+      const minimized = prev.minimized.filter((_, i) => i !== idx);
+      // Add as a horizontal split at root
+      const newRoot = split("h", prev.root, newLeaf);
+      return { root: newRoot, minimized };
     });
   }, []);
 
-  const toggleMinimize = useCallback((id: string) => {
-    setLayout((prev) => {
-      const panes = prev.panes.map((p) =>
-        p.id === id ? { ...p, minimized: !p.minimized } : p,
-      );
-      const visibleCount = panes.filter((p) => !p.minimized).length;
-      return {
-        ...prev,
-        panes,
-        sizes: rebalanceSizes(visibleCount, prev.sizes),
-      };
-    });
-  }, []);
-
-  const toggleDirection = useCallback(() => {
+  const resizeSplit = useCallback((splitId: string, ratio: number) => {
     setLayout((prev) => ({
       ...prev,
-      direction: prev.direction === "horizontal" ? "vertical" : "horizontal",
+      root: updateRatio(prev.root, splitId, ratio),
     }));
   }, []);
 
-  const movePane = useCallback((id: string, delta: -1 | 1) => {
-    setLayout((prev) => {
-      const idx = prev.panes.findIndex((p) => p.id === id);
-      if (idx < 0) return prev;
-      const newIdx = idx + delta;
-      if (newIdx < 0 || newIdx >= prev.panes.length) return prev;
-      const panes = [...prev.panes];
-      const temp = panes[idx]!;
-      panes[idx] = panes[newIdx]!;
-      panes[newIdx] = temp;
-      return { ...prev, panes };
-    });
+  // ── Add menu (split menus only) ──────────────────────────────────
+
+  const [splitMenu, setSplitMenu] = useState<{
+    leafId: string;
+    dir: "h" | "v";
+  } | null>(null);
+  const splitMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!splitMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        splitMenu &&
+        splitMenuRef.current &&
+        !splitMenuRef.current.contains(e.target as Node)
+      )
+        setSplitMenu(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [splitMenu]);
+
+  // ── Mobile ──────────────────────────────────────────────────────
+
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
+  const [activeMobilePane, setActiveMobilePane] = useState(0);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
   }, []);
 
-  // ── Resize handling ─────────────────────────────────────────────
-  // During drag: show a position indicator line (no layout changes).
-  // On pointer-up: commit final sizes to state (one resize + redraw).
+  const allLeaves = useMemo(() => {
+    const leaves: LeafNode[] = [];
+    const walk = (n: LayoutNode) => {
+      if (n.type === "leaf") leaves.push(n);
+      else {
+        walk(n.children[0]);
+        walk(n.children[1]);
+      }
+    };
+    walk(layout.root);
+    return leaves;
+  }, [layout.root]);
 
-  const onResizeStart = useCallback(
-    (index: number, e: React.PointerEvent) => {
+  useEffect(() => {
+    if (activeMobilePane >= allLeaves.length) {
+      setActiveMobilePane(Math.max(0, allLeaves.length - 1));
+    }
+  }, [allLeaves.length, activeMobilePane]);
+
+  // ── Render helpers ──────────────────────────────────────────────
+
+  const multiPane = leafCount(layout.root) > 1 || layout.minimized.length > 0;
+
+  const renderSplitMenu = (leafId: string, dir: "h" | "v") => {
+    if (!splitMenu || splitMenu.leafId !== leafId || splitMenu.dir !== dir)
+      return null;
+    return (
+      <div
+        ref={splitMenuRef}
+        className="absolute right-0 top-full mt-1 z-50 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
+      >
+        {availableTypes.map((type) => {
+          const meta = PANE_META[type];
+          const Icon = meta.icon;
+          return (
+            <button
+              key={type}
+              onClick={() => {
+                splitPane(leafId, dir, type);
+                setSplitMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
+            >
+              <Icon size={14} strokeWidth={2.5} className="text-sig-accent" />
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderNode = (node: LayoutNode): React.ReactNode => {
+    if (node.type === "leaf") {
+      const meta = PANE_META[node.paneType];
+      const PaneComponent = PANE_COMPONENTS[node.paneType];
+      const showHeader = !chromeHidden;
+      const canClose = leafCount(layout.root) > 1;
+
+      return (
+        <div
+          key={node.id}
+          className="flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full"
+        >
+          {showHeader && (
+            <div className="relative">
+              <PaneHeader
+                label={meta.label}
+                icon={meta.icon}
+                onSplitH={
+                  availableTypes.length > 0
+                    ? () => {
+                        if (availableTypes.length === 1) {
+                          splitPane(node.id, "h", availableTypes[0]!);
+                        } else {
+                          setSplitMenu((prev) =>
+                            prev?.leafId === node.id && prev.dir === "h"
+                              ? null
+                              : { leafId: node.id, dir: "h" },
+                          );
+                        }
+                      }
+                    : undefined
+                }
+                onSplitV={
+                  availableTypes.length > 0
+                    ? () => {
+                        if (availableTypes.length === 1) {
+                          splitPane(node.id, "v", availableTypes[0]!);
+                        } else {
+                          setSplitMenu((prev) =>
+                            prev?.leafId === node.id && prev.dir === "v"
+                              ? null
+                              : { leafId: node.id, dir: "v" },
+                          );
+                        }
+                      }
+                    : undefined
+                }
+                onMinimize={() => minimizePane(node.id, node.paneType)}
+                onClose={canClose ? () => closePane(node.id) : undefined}
+              />
+              {renderSplitMenu(node.id, "h")}
+              {renderSplitMenu(node.id, "v")}
+            </div>
+          )}
+          <div className="flex-1 relative overflow-hidden">
+            <PaneComponent />
+          </div>
+        </div>
+      );
+    }
+
+    // Split node
+    const isH = node.direction === "h";
+    const r = node.ratio;
+
+    return (
+      <div
+        key={node.id}
+        className="w-full h-full min-w-0 min-h-0 overflow-hidden"
+        style={{
+          display: "grid",
+          [isH ? "gridTemplateColumns" : "gridTemplateRows"]:
+            `${r}fr 4px ${1 - r}fr`,
+        }}
+      >
+        <div className="overflow-hidden min-w-0 min-h-0">
+          {renderNode(node.children[0])}
+        </div>
+        <ResizeHandle
+          splitId={node.id}
+          direction={node.direction}
+          onResize={resizeSplit}
+        />
+        <div className="overflow-hidden min-w-0 min-h-0">
+          {renderNode(node.children[1])}
+        </div>
+      </div>
+    );
+  };
+
+  // ── MOBILE ──────────────────────────────────────────────────────
+
+  if (isMobile) {
+    return (
+      <div className="w-full h-full flex flex-col overflow-hidden">
+        {!chromeHidden && (
+          <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60 overflow-x-auto">
+            {allLeaves.map((lf, i) => {
+              const meta = PANE_META[lf.paneType];
+              const Icon = meta.icon;
+              const active = i === activeMobilePane;
+              return (
+                <button
+                  key={lf.id}
+                  onClick={() => setActiveMobilePane(i)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold shrink-0 transition-colors border ${
+                    active
+                      ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
+                      : "text-sig-dim bg-transparent border-sig-border/50"
+                  }`}
+                >
+                  <Icon size={11} strokeWidth={2.5} />
+                  {meta.label}
+                </button>
+              );
+            })}
+            {layout.minimized.map((m, i) => {
+              const meta = PANE_META[m.paneType];
+              const Icon = meta.icon;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => restorePane(i)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 shrink-0 opacity-50"
+                  title={`Restore ${meta.label}`}
+                >
+                  <Icon size={11} strokeWidth={2.5} />
+                  {meta.label}
+                </button>
+              );
+            })}
+            <div className="flex-1" />
+          </div>
+        )}
+        <div className="flex-1 relative overflow-hidden">
+          {allLeaves[activeMobilePane] &&
+            (() => {
+              const lf = allLeaves[activeMobilePane]!;
+              const PaneComponent = PANE_COMPONENTS[lf.paneType];
+              return <PaneComponent />;
+            })()}
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP ─────────────────────────────────────────────────────
+
+  return (
+    <div className="w-full h-full flex flex-col overflow-hidden">
+      {/* Toolbar — minimized panes */}
+      {!chromeHidden && layout.minimized.length > 0 && (
+        <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
+          {/* Minimized tabs */}
+          {layout.minimized.map((m, i) => {
+            const meta = PANE_META[m.paneType];
+            const Icon = meta.icon;
+            return (
+              <button
+                key={m.id}
+                onClick={() => restorePane(i)}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 hover:text-sig-accent transition-colors"
+                title={`Restore ${meta.label}`}
+              >
+                <Icon size={11} strokeWidth={2.5} />
+                {meta.label}
+              </button>
+            );
+          })}
+
+          <div className="flex-1" />
+        </div>
+      )}
+
+      {/* Tree layout */}
+      <div className="flex-1 overflow-hidden">{renderNode(layout.root)}</div>
+    </div>
+  );
+}
+
+// ── Resize Handle ────────────────────────────────────────────────────
+
+function ResizeHandle({
+  splitId,
+  direction,
+  onResize,
+}: {
+  readonly splitId: string;
+  readonly direction: "h" | "v";
+  readonly onResize: (splitId: string, ratio: number) => void;
+}) {
+  const handleRef = useRef<HTMLDivElement>(null);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
       e.preventDefault();
-      const isHoriz = layout.direction === "horizontal";
-      const startSizes = [...layout.sizes];
-      const startPos = isHoriz ? e.clientX : e.clientY;
-      const container = containerRef.current;
-      if (!container) return;
+      const handle = handleRef.current;
+      if (!handle) return;
+      const parent = handle.parentElement;
+      if (!parent) return;
 
-      const rect = container.getBoundingClientRect();
-      const totalSize = isHoriz ? rect.width : rect.height;
+      const rect = parent.getBoundingClientRect();
+      const isH = direction === "h";
+      const totalSize = isH ? rect.width : rect.height;
+      const startOffset = isH ? rect.left : rect.top;
 
-      // Create overlay indicator line
+      // Visual indicator
       const indicator = document.createElement("div");
       indicator.style.position = "fixed";
       indicator.style.zIndex = "9999";
       indicator.style.pointerEvents = "none";
-      if (isHoriz) {
+      indicator.style.background = "var(--sigint-accent, #00b8d4)";
+      indicator.style.opacity = "0.6";
+      if (isH) {
         indicator.style.width = "2px";
         indicator.style.top = rect.top + "px";
         indicator.style.height = rect.height + "px";
@@ -203,29 +581,18 @@ export function PaneManager() {
         indicator.style.width = rect.width + "px";
         indicator.style.top = e.clientY + "px";
       }
-      indicator.style.background = "var(--sigint-accent, #00b8d4)";
-      indicator.style.opacity = "0.6";
       document.body.appendChild(indicator);
-      document.body.style.cursor = isHoriz ? "col-resize" : "row-resize";
+      document.body.style.cursor = isH ? "col-resize" : "row-resize";
 
-      let liveSizes = startSizes;
+      let finalRatio = 0.5;
 
       const onMove = (ev: PointerEvent) => {
-        const pos = isHoriz ? ev.clientX : ev.clientY;
-        const delta = (pos - startPos) / totalSize;
+        const pos = isH ? ev.clientX : ev.clientY;
+        // Subtract 4px for the handle itself
+        const raw = (pos - startOffset) / totalSize;
+        finalRatio = Math.max(0.1, Math.min(0.9, raw));
 
-        // Calculate final sizes (for commit on up)
-        const sizes = [...startSizes];
-        const minSize = 0.15;
-        const sum = sizes[index]! + sizes[index + 1]!;
-        let newA = Math.max(minSize, sizes[index]! + delta);
-        if (sum - newA < minSize) newA = sum - minSize;
-        sizes[index] = newA;
-        sizes[index + 1] = sum - newA;
-        liveSizes = sizes;
-
-        // Move indicator only
-        if (isHoriz) {
+        if (isH) {
           indicator.style.left =
             Math.max(rect.left, Math.min(rect.right, pos)) + "px";
         } else {
@@ -239,335 +606,28 @@ export function PaneManager() {
         document.removeEventListener("pointerup", onUp);
         document.body.style.cursor = "";
         indicator.remove();
-
-        // Single state update
-        setLayout((prev) => ({ ...prev, sizes: liveSizes }));
+        onResize(splitId, finalRatio);
       };
 
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
     },
-    [layout.direction, layout.sizes, layout.panes],
+    [splitId, direction, onResize],
   );
 
-  // ── Available pane types to add ─────────────────────────────────
+  const isH = direction === "h";
 
-  const availableTypes = useMemo<PaneType[]>(() => {
-    const openTypes = new Set(layout.panes.map((p) => p.type));
-    return (Object.keys(PANE_META) as PaneType[]).filter(
-      (t) => !openTypes.has(t),
-    );
-  }, [layout.panes]);
-
-  // ── Add pane menu ───────────────────────────────────────────────
-
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node))
-        setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
-
-  // ── Mobile detection ─────────────────────────────────────────────
-
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  );
-  const [activeMobilePane, setActiveMobilePane] = useState(0);
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  // Clamp active tab if panes change
-  useEffect(() => {
-    if (activeMobilePane >= visiblePanes.length) {
-      setActiveMobilePane(Math.max(0, visiblePanes.length - 1));
-    }
-  }, [visiblePanes.length, activeMobilePane]);
-
-  // ── Grid template ───────────────────────────────────────────────
-
-  const gridTemplate = useMemo(() => {
-    if (visiblePanes.length === 0) return "1fr";
-    let sizeIdx = 0;
-    const parts: string[] = [];
-    for (const pane of layout.panes) {
-      if (pane.minimized) continue;
-      const size = layout.sizes[sizeIdx] ?? 1 / visiblePanes.length;
-      parts.push(`${size}fr`);
-      sizeIdx++;
-    }
-    const result: string[] = [];
-    parts.forEach((p, i) => {
-      if (i > 0) result.push("4px");
-      result.push(p);
-    });
-    return result.join(" ");
-  }, [visiblePanes, layout.panes, layout.sizes]);
-
-  // ── Render ──────────────────────────────────────────────────────
-
-  const isHoriz = layout.direction === "horizontal";
-  const multiPane = layout.panes.length > 1 || minimizedPanes.length > 0;
-
-  // ── MOBILE: tabs + single pane ──────────────────────────────────
-  if (isMobile) {
-    return (
-      <div className="w-full h-full flex flex-col overflow-hidden">
-        {/* Tab bar + controls */}
-        {!chromeHidden && (
-          <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60 overflow-x-auto">
-            {/* Pane tabs */}
-            {visiblePanes.map((pane, i) => {
-              const meta = PANE_META[pane.type];
-              const Icon = meta.icon;
-              const active = i === activeMobilePane;
-              return (
-                <button
-                  key={pane.id}
-                  onClick={() => setActiveMobilePane(i)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold shrink-0 transition-colors border ${
-                    active
-                      ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                      : "text-sig-dim bg-transparent border-sig-border/50"
-                  }`}
-                >
-                  <Icon size={11} strokeWidth={2.5} />
-                  {meta.label}
-                </button>
-              );
-            })}
-
-            {/* Minimized tabs */}
-            {minimizedPanes.map((pane) => {
-              const meta = PANE_META[pane.type];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={pane.id}
-                  onClick={() => toggleMinimize(pane.id)}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 shrink-0 opacity-50"
-                  title={`Restore ${meta.label}`}
-                >
-                  <Icon size={11} strokeWidth={2.5} />
-                  {meta.label}
-                </button>
-              );
-            })}
-
-            <div className="flex-1" />
-
-            {/* Add pane */}
-            {availableTypes.length > 0 && (
-              <div ref={menuRef} className="relative shrink-0">
-                <button
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50"
-                  title="Add pane"
-                >
-                  <Plus size={11} strokeWidth={2.5} />
-                </button>
-                {menuOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-50 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36">
-                    {availableTypes.map((type) => {
-                      const meta = PANE_META[type];
-                      const Icon = meta.icon;
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => {
-                            addPane(type);
-                            setMenuOpen(false);
-                            setActiveMobilePane(visiblePanes.length);
-                          }}
-                          className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
-                        >
-                          <Icon
-                            size={13}
-                            strokeWidth={2.5}
-                            className="text-sig-accent"
-                          />
-                          {meta.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Single active pane */}
-        <div className="flex-1 relative overflow-hidden">
-          {visiblePanes[activeMobilePane] &&
-            (() => {
-              const pane = visiblePanes[activeMobilePane]!;
-              const PaneComponent = PANE_COMPONENTS[pane.type];
-              return <PaneComponent />;
-            })()}
-        </div>
-      </div>
-    );
-  }
-
-  // ── DESKTOP: grid layout ────────────────────────────────────────
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden">
-      {/* ── Minimized pane tabs + controls ── */}
-      {!chromeHidden && (
-        <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
-          {/* Minimized tabs */}
-          {minimizedPanes.map((pane) => {
-            const meta = PANE_META[pane.type];
-            const Icon = meta.icon;
-            return (
-              <button
-                key={pane.id}
-                onClick={() => toggleMinimize(pane.id)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 hover:text-sig-accent transition-colors"
-                title={`Restore ${meta.label}`}
-              >
-                <Icon size={11} strokeWidth={2.5} />
-                {meta.label}
-              </button>
-            );
-          })}
-
-          <div className="flex-1" />
-
-          {/* Direction toggle */}
-          {visiblePanes.length > 1 && (
-            <button
-              onClick={toggleDirection}
-              className="flex items-center gap-1 px-2 py-1 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors min-w-9 min-h-9 justify-center"
-              title={isHoriz ? "Stack vertically" : "Split horizontally"}
-            >
-              {isHoriz ? (
-                <ArrowUpDown size={14} strokeWidth={2.5} />
-              ) : (
-                <ArrowLeftRight size={14} strokeWidth={2.5} />
-              )}
-            </button>
-          )}
-
-          {/* Add pane */}
-          {availableTypes.length > 0 && (
-            <div ref={menuRef} className="relative">
-              <button
-                onClick={() => setMenuOpen((v) => !v)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors min-w-9 min-h-9 justify-center"
-                title="Add pane"
-              >
-                <Plus size={14} strokeWidth={2.5} />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36">
-                  {availableTypes.map((type) => {
-                    const meta = PANE_META[type];
-                    const Icon = meta.icon;
-                    return (
-                      <button
-                        key={type}
-                        onClick={() => {
-                          addPane(type);
-                          setMenuOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
-                      >
-                        <Icon
-                          size={16}
-                          strokeWidth={2.5}
-                          className="text-sig-accent"
-                        />
-                        {meta.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Pane grid ── */}
+    <div
+      ref={handleRef}
+      className={`relative ${isH ? "cursor-col-resize w-[4px]" : "cursor-row-resize h-[4px]"} bg-sig-border/30 transition-colors hover:bg-sig-accent/30`}
+      onPointerDown={onPointerDown}
+    >
+      {/* Wider touch target */}
       <div
-        ref={containerRef}
-        className="flex-1 overflow-hidden"
-        style={{
-          display: "grid",
-          [isHoriz ? "gridTemplateColumns" : "gridTemplateRows"]: gridTemplate,
-        }}
-      >
-        {visiblePanes.map((pane, vIdx) => {
-          const meta = PANE_META[pane.type];
-          const PaneComponent = PANE_COMPONENTS[pane.type];
-          const showHeader = !chromeHidden && multiPane;
-
-          const elements: ReactNode[] = [];
-
-          // Resize handle before this pane (except first)
-          if (vIdx > 0) {
-            elements.push(
-              <div
-                key={`resize-${vIdx}`}
-                className={`relative ${isHoriz ? "cursor-col-resize w-[4px]" : "cursor-row-resize h-[4px]"} bg-sig-border/30 transition-colors hover:bg-sig-accent/30`}
-                onPointerDown={(e) => onResizeStart(vIdx - 1, e)}
-              >
-                {/* Invisible wider touch target */}
-                <div
-                  className={`absolute ${isHoriz ? "inset-y-0 -left-[10px] w-[24px]" : "inset-x-0 -top-[10px] h-[24px]"} touch-none`}
-                  onPointerDown={(e) => onResizeStart(vIdx - 1, e)}
-                />
-              </div>,
-            );
-          }
-
-          elements.push(
-            <div
-              key={pane.id}
-              className="overflow-hidden flex flex-col min-w-0 min-h-0"
-            >
-              {showHeader && (
-                <PaneHeader
-                  label={meta.label}
-                  icon={meta.icon}
-                  onMinimize={() => toggleMinimize(pane.id)}
-                  onClose={
-                    layout.panes.length > 1
-                      ? () => closePane(pane.id)
-                      : undefined
-                  }
-                  onMoveLeft={
-                    vIdx > 0 ? () => movePane(pane.id, -1) : undefined
-                  }
-                  onMoveRight={
-                    vIdx < visiblePanes.length - 1
-                      ? () => movePane(pane.id, 1)
-                      : undefined
-                  }
-                  direction={layout.direction}
-                />
-              )}
-              <div className="flex-1 relative overflow-hidden">
-                <PaneComponent />
-              </div>
-            </div>,
-          );
-
-          return elements;
-        })}
-      </div>
+        className={`absolute ${isH ? "inset-y-0 -left-[10px] w-[24px]" : "inset-x-0 -top-[10px] h-[24px]"} touch-none`}
+        onPointerDown={onPointerDown}
+      />
     </div>
   );
 }
