@@ -5,6 +5,7 @@ import {
   Zap,
   Activity,
   Flame,
+  CloudAlert,
   MapPin,
   ExternalLink,
   Loader2,
@@ -766,12 +767,14 @@ function NonAircraftDossier({
     events: "GDELT EVENT",
     quakes: "SEISMIC",
     fires: "FIRE HOTSPOT",
+    weather: "WEATHER ALERT",
   };
   const TypeIcon: Record<string, typeof Plane> = {
     ships: Ship,
     events: Zap,
     quakes: Activity,
     fires: Flame,
+    weather: CloudAlert,
   };
   const Icon = TypeIcon[item.type] ?? Activity;
   const label = typeLabel[item.type] ?? item.type.toUpperCase();
@@ -977,6 +980,85 @@ function NonAircraftDossier({
                 <LinkRow label="USGS Detail" href={url} />
               </Section>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (item.type === "weather") {
+    const {
+      event,
+      severity,
+      urgency,
+      certainty,
+      headline,
+      description,
+      instruction,
+      senderName,
+      areaDesc,
+      onset,
+      expires,
+      category,
+      response,
+    } = d;
+    return (
+      <div className="h-full flex flex-col">
+        {toolbar}
+        <div className="flex-1 overflow-y-auto sigint-scroll">
+          <div className="p-3 space-y-3">
+            <div className="text-sig-bright font-mono tracking-wider text-sm truncate">
+              {(event as string) || "Weather Alert"}
+            </div>
+            {headline && (
+              <div className="text-sig-text text-sm leading-snug">
+                {headline as string}
+              </div>
+            )}
+            <Section title="ALERT">
+              {severity && (
+                <Row label="SEVERITY" value={(severity as string).toUpperCase()} />
+              )}
+              {urgency && <Row label="URGENCY" value={urgency as string} />}
+              {certainty && <Row label="CERTAINTY" value={certainty as string} />}
+              {category && <Row label="CATEGORY" value={category as string} />}
+              {response && <Row label="RESPONSE" value={response as string} />}
+            </Section>
+            <Section title="AREA">
+              {areaDesc && (
+                <div className="text-sm text-sig-text leading-snug">
+                  {(areaDesc as string).split(";").slice(0, 5).join("; ")}
+                  {(areaDesc as string).split(";").length > 5 && "..."}
+                </div>
+              )}
+              {senderName && <Row label="ISSUER" value={senderName as string} />}
+            </Section>
+            <Section title="TIMING">
+              {onset && <Row label="ONSET" value={new Date(onset as string).toLocaleString()} />}
+              {expires && <Row label="EXPIRES" value={new Date(expires as string).toLocaleString()} />}
+            </Section>
+            {description && (
+              <Section title="DETAILS">
+                <div className="text-xs text-sig-text/70 leading-relaxed max-h-40 overflow-y-auto sigint-scroll whitespace-pre-wrap">
+                  {(description as string).slice(0, 800)}
+                  {(description as string).length > 800 && "..."}
+                </div>
+              </Section>
+            )}
+            {instruction && (
+              <Section title="INSTRUCTIONS">
+                <div className="text-xs text-sig-text/70 leading-relaxed max-h-32 overflow-y-auto sigint-scroll whitespace-pre-wrap">
+                  {(instruction as string).slice(0, 500)}
+                  {(instruction as string).length > 500 && "..."}
+                </div>
+              </Section>
+            )}
+            <Section title="POSITION">
+              <div className="text-sm font-mono text-sig-dim">
+                {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
+                {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+              </div>
+            </Section>
           </div>
         </div>
       </div>

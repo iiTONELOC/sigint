@@ -5,13 +5,15 @@ import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTablePane } from "@/panes/data-table/DataTablePane";
 import { DossierPane } from "@/panes/dossier/DossierPane";
 import { IntelFeedPane } from "@/panes/intel-feed/IntelFeedPane";
+import { AlertLogPane } from "@/panes/alert-log/AlertLogPane";
+import { RawConsolePane } from "@/panes/raw-console/RawConsolePane";
 import { PaneHeader } from "@/panes/PaneHeader";
 import { setDossierOpen } from "@/panes/paneLayoutContext";
-import { Globe, Table2, FileSearch, Newspaper } from "lucide-react";
+import { Globe, Table2, FileSearch, Newspaper, Bell, Terminal } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type PaneType = "globe" | "data-table" | "dossier" | "intel-feed";
+type PaneType = "globe" | "data-table" | "dossier" | "intel-feed" | "alert-log" | "raw-console";
 
 type LeafNode = {
   type: "leaf";
@@ -41,6 +43,8 @@ const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
   "data-table": { label: "DATA TABLE", icon: Table2 },
   dossier: { label: "DOSSIER", icon: FileSearch },
   "intel-feed": { label: "INTEL FEED", icon: Newspaper },
+  "alert-log": { label: "ALERTS", icon: Bell },
+  "raw-console": { label: "CONSOLE", icon: Terminal },
 };
 
 const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
@@ -48,6 +52,8 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   "data-table": DataTablePane,
   dossier: DossierPane,
   "intel-feed": IntelFeedPane,
+  "alert-log": AlertLogPane,
+  "raw-console": RawConsolePane,
 };
 
 // ── Tree helpers ─────────────────────────────────────────────────────
