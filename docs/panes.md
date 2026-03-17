@@ -40,12 +40,14 @@ The application uses a multi-pane layout managed by `PaneManager`. App-level chr
 |---|---|---|---|
 | `globe` | LiveTrafficPane | 1 | Interactive globe/map with all overlays |
 | `data-table` | DataTablePane | 1 | Virtual-scrolling sortable/filterable table |
+| `dossier` | DossierPane | 1 | Entity dossier — aircraft photos/route, ship details, event/quake/fire info |
+| `intel-feed` | IntelFeedPane | 1 | Scrollable intel feed — GDELT events, quakes, fires with severity badges |
 
 Each type can only appear once (no duplicate globes).
 
 ### Persistence
 
-Layout state (pane configs, direction, sizes) is persisted to IndexedDB under key `sigint.layout.v1`. Restored on boot. Every layout change triggers a persist.
+Layout state (pane configs, direction, sizes) is persisted to IndexedDB under key `sigint.layout.v2`. Restored on boot. Every layout change triggers a persist.
 
 ### Chrome Visibility
 
@@ -114,11 +116,61 @@ Data is first filtered through each feature's `matchesFilter()` (respects layer 
 
 ## PaneHeader
 
-`panes/PaneHeader.tsx` — thin header bar rendered above each pane when multiple panes are open.
+`panes/PaneHeader.tsx` — thin header bar rendered above each pane.
 
-Shows: feature icon + label, move left/right chevrons, minimize button, close button. Direction-aware (chevrons show left/right for horizontal, up/down for vertical). All buttons have 36px minimum touch targets (14px icons with padding).
+Shows: feature icon + label, split right (Columns2) and split down (Rows2) buttons, minimize button, close button. Split buttons open a dropdown menu if multiple pane types are available, or split immediately if only one type is available. All buttons have 36px minimum touch targets (14px icons with padding).
 
-Not shown when only one pane is open and nothing is minimized.
+Always shown (even on single pane) so split buttons are accessible.
+
+---
+
+## DossierPane
+
+`panes/dossier/DossierPane.tsx` — entity dossier pane.
+
+Shows enriched data for the currently selected entity. Content varies by type:
+
+**Aircraft**: Photo from planespotters.net (direct URL per ToS, photographer credit with 8s load timeout), identity (hexdb.io aircraft info), live telemetry (altitude, speed, heading, squawk, V/S), route (hexdb.io callsign→ICAO origin/dest→airport details), intel links (FlightAware, FR24, ADS-B Exchange, Planespotters, JetPhotos).
+
+**Ships**: MMSI, IMO, call sign, type, flag (derived from MMSI MID), destination, telemetry (SOG, COG, heading, nav status), dimensions, intel links (MarineTraffic, VesselFinder, Equasis).
+
+**Events**: Actors, CAMEO code, Goldstein scale, mentions, sources, article link.
+
+**Earthquakes**: Magnitude, depth, tsunami alert, felt reports, USGS detail link.
+
+**Fires**: FRP (fire radiative power), brightness temperature, confidence level, satellite/instrument, detection time (day/night), pixel size, intel links (NASA FIRMS map, Google Maps satellite).
+
+Server endpoint for aircraft: `/api/dossier/aircraft/:icao24?callsign=` — hexdb.io for aircraft info + route, planespotters.net for photos. Memory cache (30min text, 12h photos). Client-side IndexedDB cache under `sigint.dossier.cache.v2` (30min TTL, max 200 entries).
+
+### Cross-Pane Signal
+
+Uses `useSyncExternalStore` signal in `paneLayoutContext.ts` — NOT React context. PaneManager calls `setDossierOpen(bool)` in a `useEffect`. LiveTrafficPane reads via `useHasDossier()`. This hides DetailPanel when dossier pane is open.
+
+---
+
+## IntelFeedPane
+
+`panes/intel-feed/IntelFeedPane.tsx` — scrollable intel feed pane.
+
+Shows a chronological feed of intel-relevant data types: GDELT events, earthquakes, and fire hotspots. Aircraft and ships are excluded (they're position feeds, not event-driven).
+
+### Features
+
+- Sorted newest-first by timestamp
+- Severity badges (MON/CON/TEN/CON/CRI) with color-coded styling
+- Per-type filter buttons (events, quakes, fires) with counts
+- Source attribution and location context
+- External link buttons for events with source URLs
+- Zoom-to button per item — selects + zooms on globe
+- Click any item to select (syncs with globe + data table)
+
+### Severity Mapping
+
+| Type | Input | Severity 1 | Severity 3 | Severity 5 |
+|---|---|---|---|---|
+| Events | Goldstein scale | Monitoring | Tension | Crisis |
+| Quakes | Magnitude | <M3 | M4-5 | M6+ |
+| Fires | FRP (MW) | <5 | 20-50 | 100+ |
 
 ---
 

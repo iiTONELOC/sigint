@@ -23,7 +23,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker
 
-**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll)
+**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll)
 
 **State**: All shared state in `DataContext` via `useData()` hook — no external state library
 
@@ -34,3 +34,5 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 **Required env**: `SIGINT_SERVER_SECRET` — generate with `openssl rand -hex 32`
 
 **Optional env**: `AISSTREAM_API_KEY` — free from aisstream.io, enables live AIS vessel data
+
+**Optional env**: `FIRMS_MAP_KEY` — free from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/), enables live fire hotspot data

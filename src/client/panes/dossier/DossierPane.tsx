@@ -4,6 +4,7 @@ import {
   Ship,
   Zap,
   Activity,
+  Flame,
   MapPin,
   ExternalLink,
   Loader2,
@@ -84,7 +85,7 @@ type DossierState = {
 
 // ── Cache ────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "sigint.dossier.cache.v1";
+const CACHE_KEY = "sigint.dossier.cache.v2";
 const CACHE_TTL_MS = 30 * 60_000;
 
 type DossierCacheMap = Record<string, { dossier: AircraftDossier; ts: number }>;
@@ -529,7 +530,7 @@ export function DossierPane() {
       <div className="flex-1 overflow-y-auto sigint-scroll">
         <div className="p-3 space-y-3">
           {/* ── Photo ─────────────────────────────────────────── */}
-          {photo && !photoError && (
+          {photo && photo.src && !photoError && (
             <a
               href={photo.link}
               target="_blank"
@@ -540,8 +541,20 @@ export function DossierPane() {
                 src={photo.src}
                 alt={`${reg || icao24}`}
                 className="w-full h-auto object-cover max-h-52"
-                loading="lazy"
                 onError={() => setPhotoError(true)}
+                onLoad={(e) => {
+                  // Clear any pending timeout
+                  const el = e.currentTarget as any;
+                  if (el.__photoTimeout) clearTimeout(el.__photoTimeout);
+                }}
+                ref={(el) => {
+                  if (!el) return;
+                  // 8s timeout — if image hasn't loaded, show fallback
+                  (el as any).__photoTimeout = setTimeout(() => {
+                    if (!el.complete || el.naturalWidth === 0)
+                      setPhotoError(true);
+                  }, 8000);
+                }}
               />
               <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-sig-dim">
                 <Camera className="w-3 h-3 shrink-0" />
@@ -552,7 +565,7 @@ export function DossierPane() {
               </div>
             </a>
           )}
-          {photoError && (
+          {(photoError || (photo && !photo.src)) && (
             <div className="rounded bg-sig-bg/50 border border-sig-grid flex items-center justify-center h-20 text-sig-dim">
               <ImageOff className="w-4 h-4 mr-2 opacity-40" />
               <span className="text-xs">No photo available</span>
@@ -751,12 +764,14 @@ function NonAircraftDossier({
   const typeLabel: Record<string, string> = {
     ships: "AIS VESSEL",
     events: "GDELT EVENT",
-    earthquake: "SEISMIC",
+    quakes: "SEISMIC",
+    fires: "FIRE HOTSPOT",
   };
   const TypeIcon: Record<string, typeof Plane> = {
     ships: Ship,
     events: Zap,
-    earthquake: Activity,
+    quakes: Activity,
+    fires: Flame,
   };
   const Icon = TypeIcon[item.type] ?? Activity;
   const label = typeLabel[item.type] ?? item.type.toUpperCase();
@@ -953,9 +968,7 @@ function NonAircraftDossier({
             </Section>
             <Section title="POSITION">
               <div className="text-sm font-mono text-sig-dim">
-                {/* @ts-ignore */}
                 {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-                {/* @ts-ignore */}
                 {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
               </div>
             </Section>
@@ -964,6 +977,98 @@ function NonAircraftDossier({
                 <LinkRow label="USGS Detail" href={url} />
               </Section>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (item.type === "fires") {
+    const {
+      frp,
+      brightness,
+      brightT31,
+      confidence,
+      satellite,
+      instrument,
+      daynight,
+      scan,
+      track,
+      acqDate,
+      acqTime,
+    } = d;
+    return (
+      <div className="h-full flex flex-col">
+        {toolbar}
+        <div className="flex-1 overflow-y-auto sigint-scroll">
+          <div className="p-3 space-y-3">
+            <div className="text-sig-bright font-mono tracking-wider text-sm truncate">
+              Fire Hotspot
+              {frp ? ` — FRP ${(frp as number).toFixed(1)} MW` : ""}
+            </div>
+            <Section title="THERMAL">
+              {frp != null && (frp as number) > 0 && (
+                <Row label="FRP" value={`${(frp as number).toFixed(1)} MW`} />
+              )}
+              {brightness != null && (brightness as number) > 0 && (
+                <Row
+                  label="BRIGHTNESS"
+                  value={`${(brightness as number).toFixed(1)} K`}
+                />
+              )}
+              {brightT31 != null && (brightT31 as number) > 0 && (
+                <Row
+                  label="BRIGHT T31"
+                  value={`${(brightT31 as number).toFixed(1)} K`}
+                />
+              )}
+              {confidence && (
+                <Row
+                  label="CONFIDENCE"
+                  value={(confidence as string).toUpperCase()}
+                />
+              )}
+            </Section>
+            <Section title="DETECTION">
+              {satellite && <Row label="SATELLITE" value={satellite as string} />}
+              {instrument && (
+                <Row label="INSTRUMENT" value={instrument as string} />
+              )}
+              {daynight && (
+                <Row
+                  label="TIME"
+                  value={daynight === "D" ? "DAYTIME" : "NIGHTTIME"}
+                />
+              )}
+              {scan != null && track != null && (
+                <Row
+                  label="PIXEL"
+                  value={`${(scan as number).toFixed(1)} × ${(track as number).toFixed(1)} km`}
+                />
+              )}
+              {acqDate && (
+                <Row
+                  label="DATE"
+                  value={`${acqDate}${acqTime ? ` ${(acqTime as string).slice(0, 2)}:${(acqTime as string).slice(2)}Z` : ""}`}
+                />
+              )}
+            </Section>
+            <Section title="POSITION">
+              <div className="text-sm font-mono text-sig-dim">
+                {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
+                {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+              </div>
+            </Section>
+            <Section title="INTEL LINKS">
+              <LinkRow
+                label="NASA FIRMS Map"
+                href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${item.lon},${item.lat},10z`}
+              />
+              <LinkRow
+                label="Google Maps (Satellite)"
+                href={`https://www.google.com/maps/@${item.lat},${item.lon},14z/data=!3m1!1e1`}
+              />
+            </Section>
           </div>
         </div>
       </div>

@@ -31,6 +31,8 @@ function getName(item: DataPoint): string {
       return (d.headline as string) || item.id;
     case "quakes":
       return (d.location as string) || item.id;
+    case "fires":
+      return d.frp ? `FRP ${(d.frp as number).toFixed(1)} MW` : "Fire hotspot";
     default:
       //@ts-ignore
       return item.id;
@@ -48,6 +50,8 @@ function getValue1(item: DataPoint): string {
       return (d.category as string) || "";
     case "quakes":
       return d.magnitude != null ? `M${d.magnitude}` : "";
+    case "fires":
+      return (d.confidence as string)?.toUpperCase() || "";
     default:
       return "";
   }
@@ -60,6 +64,8 @@ function getValue1Num(item: DataPoint): number {
       return (d.magnitude as number) ?? 0;
     case "events":
       return (d.severity as number) ?? 0;
+    case "fires":
+      return (d.frp as number) ?? 0;
     default:
       return 0;
   }
@@ -82,6 +88,10 @@ function getValue2(item: DataPoint): string {
       const depth = d.depth as number | undefined;
       return depth != null ? `${depth.toFixed(1)} km` : "";
     }
+    case "fires": {
+      const bri = d.brightness as number | undefined;
+      return bri != null ? `${bri.toFixed(0)} K` : "";
+    }
     default:
       return "";
   }
@@ -96,6 +106,8 @@ function getValue2Num(item: DataPoint): number {
       return (d.speed as number) ?? 0;
     case "quakes":
       return (d.depth as number) ?? 0;
+    case "fires":
+      return (d.brightness as number) ?? 0;
     default:
       return 0;
   }
@@ -231,6 +243,23 @@ export function DataTablePane() {
     [sortedData, startIdx, endIdx],
   );
 
+  // ── Auto-scroll to selected item ─────────────────────────────────
+
+  useEffect(() => {
+    if (!selectedCurrent || !scrollRef.current) return;
+    const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
+    if (idx < 0) return;
+    const rowTop = idx * ROW_HEIGHT;
+    const rowBot = rowTop + ROW_HEIGHT;
+    const el = scrollRef.current;
+    const visTop = el.scrollTop;
+    const visBot = visTop + viewportH;
+    // Already visible — skip
+    if (rowTop >= visTop && rowBot <= visBot) return;
+    // Scroll so selected row is centered
+    el.scrollTop = Math.max(0, rowTop - viewportH / 2 + ROW_HEIGHT / 2);
+  }, [selectedCurrent?.id, sortedData, viewportH]);
+
   // ── Feature counts ──────────────────────────────────────────────
 
   const featureCounts = useMemo(() => {
@@ -283,6 +312,7 @@ export function DataTablePane() {
     ships: "AIS",
     events: "EVT",
     quakes: "EQ",
+    fires: "FI",
   };
 
   // ── Render ──────────────────────────────────────────────────────
@@ -318,7 +348,9 @@ export function DataTablePane() {
               style={{ color: active ? color : undefined }}
             >
               <Icon size={11} strokeWidth={2.5} />
-              <span>{featureCounts[f.id] ?? 0}</span>
+              <span>
+                {featureCounts[f.id] ?? 0}
+              </span>
             </button>
           );
         })}
@@ -382,7 +414,7 @@ export function DataTablePane() {
                   onClick={() => handleRowClick(item)}
                   className={`grid items-center px-2 border-b border-sig-border/20 cursor-pointer transition-colors ${
                     isSelected
-                      ? "bg-sig-accent/10"
+                      ? "bg-sig-accent/15 border-l-2 border-l-sig-accent"
                       : "bg-transparent hover:bg-sig-panel/40"
                   }`}
                   style={{

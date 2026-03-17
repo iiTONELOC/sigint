@@ -57,9 +57,9 @@ function getEventAgeFactor(timestamp?: string): number {
 function getEventColor(ageFactor: number, baseColor: string): string {
   // Fade from base event color toward a muted version with age
   if (ageFactor >= 0.9) return baseColor;
-  if (ageFactor >= 0.75) return "#dd8833";
-  if (ageFactor >= 0.6) return "#aa6633";
-  return "#885530";
+  if (ageFactor >= 0.75) return "#bb3399";
+  if (ageFactor >= 0.6) return "#993377";
+  return "#772860";
 }
 
 function getEventSize(severity: number): number {
@@ -69,6 +69,35 @@ function getEventSize(severity: number): number {
   if (severity <= 3) return 5;
   if (severity <= 4) return 7;
   return 9.5;
+}
+
+// ── Fire age helpers ─────────────────────────────────────────────────
+
+function getFireAgeFactor(timestamp?: string): number {
+  if (!timestamp) return 0.5;
+  const age = Date.now() - new Date(timestamp).getTime();
+  if (age < HOUR_MS) return 1.0;
+  if (age < 3 * HOUR_MS) return 0.9;
+  if (age < 6 * HOUR_MS) return 0.8;
+  if (age < 12 * HOUR_MS) return 0.65;
+  return 0.5;
+}
+
+function getFireColor(ageFactor: number, baseColor: string): string {
+  if (ageFactor >= 0.9) return baseColor;
+  if (ageFactor >= 0.8) return "#dd6622";
+  if (ageFactor >= 0.65) return "#aa4420";
+  return "#883318";
+}
+
+function getFireSize(frp: number): number {
+  if (frp < 1) return 2;
+  if (frp < 5) return 2.5;
+  if (frp < 10) return 3.5;
+  if (frp < 25) return 5;
+  if (frp < 50) return 7;
+  if (frp < 100) return 9.5;
+  return 12;
 }
 
 // ── Main draw function ────────────────────────────────────────────────
@@ -91,6 +120,7 @@ export function drawPoints(
     aircraft: colors.aircraft,
     events: colors.events,
     quakes: colors.quakes,
+    fires: colors.fires ?? "#ff6600",
   };
 
   // O(1) — selected is already the isolated item when isolateMode is active
@@ -303,6 +333,53 @@ export function drawPoints(
       if (isSel) {
         ctx.globalAlpha = 0.85;
         ctx.strokeStyle = eventColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // ── Fire rendering (FRP-scaled, age-based orange/red) ────────────
+    if (item.type === "fires") {
+      const frp = (item as any).data?.frp ?? 0;
+      const ageFactor = getFireAgeFactor(item.timestamp);
+      const fireColor = getFireColor(ageFactor, baseColor);
+      let s = getFireSize(frp);
+      if (isSel) s *= 1.8;
+
+      // Pulse glow for high-FRP fires
+      if (frp > 10) {
+        const pulseIntensity = Math.min(1, (frp - 10) / 90);
+        const pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.6) *
+            (0.15 + pulseIntensity * 0.35);
+        const gr = s * (3 + pulseIntensity * 2) * pulse;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, fireColor + "50");
+        g.addColorStop(1, fireColor + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * ageFactor * 0.7;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core dot
+      ctx.globalAlpha = depthAlpha * ageFactor;
+      ctx.fillStyle = fireColor;
+      ctx.beginPath();
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Selection ring
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = fireColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);

@@ -64,66 +64,38 @@ var HR = 3600000,
 function quakeAgeFactor(ts) {
   if (!ts) return 0.5;
   var a = Date.now() - new Date(ts).getTime();
-  return a < HR
-    ? 1.0
-    : a < 6 * HR
-      ? 0.9
-      : a < DY
-        ? 0.8
-        : a < 3 * DY
-          ? 0.65
-          : 0.5;
+  return a < HR ? 1.0 : a < 6 * HR ? 0.9 : a < DY ? 0.8 : a < 3 * DY ? 0.65 : 0.5;
 }
 function quakeColor(af, base) {
-  return af >= 0.9
-    ? base
-    : af >= 0.8
-      ? "#44dd33"
-      : af >= 0.65
-        ? "#33aa33"
-        : "#2d8835";
+  return af >= 0.9 ? base : af >= 0.8 ? "#44dd33" : af >= 0.65 ? "#33aa33" : "#2d8835";
 }
 function quakeSize(m) {
-  return m < 1
-    ? 2
-    : m < 2
-      ? 2.5
-      : m < 3
-        ? 3.5
-        : m < 4
-          ? 5
-          : m < 5
-            ? 7
-            : m < 6
-              ? 9.5
-              : m < 7
-                ? 12
-                : 15;
+  return m < 1 ? 2 : m < 2 ? 2.5 : m < 3 ? 3.5 : m < 4 ? 5 : m < 5 ? 7 : m < 6 ? 9.5 : m < 7 ? 12 : 15;
 }
 function eventAgeFactor(ts) {
   if (!ts) return 0.5;
   var a = Date.now() - new Date(ts).getTime();
-  return a < HR
-    ? 1.0
-    : a < 6 * HR
-      ? 0.9
-      : a < DY
-        ? 0.75
-        : a < 3 * DY
-          ? 0.6
-          : 0.45;
+  return a < HR ? 1.0 : a < 6 * HR ? 0.9 : a < DY ? 0.75 : a < 3 * DY ? 0.6 : 0.45;
 }
 function eventColor(af, base) {
-  return af >= 0.9
-    ? base
-    : af >= 0.75
-      ? "#dd8833"
-      : af >= 0.6
-        ? "#aa6633"
-        : "#885530";
+  return af >= 0.9 ? base : af >= 0.75 ? "#bb3399" : af >= 0.6 ? "#993377" : "#772860";
 }
 function eventSize(s) {
   return s <= 1 ? 2.5 : s <= 2 ? 3.5 : s <= 3 ? 5 : s <= 4 ? 7 : 9.5;
+}
+
+// ── Fire age/size helpers ───────────────────────────────────────────
+
+function fireAgeFactor(ts) {
+  if (!ts) return 0.5;
+  var a = Date.now() - new Date(ts).getTime();
+  return a < HR ? 1.0 : a < 3 * HR ? 0.9 : a < 6 * HR ? 0.8 : a < 12 * HR ? 0.65 : 0.5;
+}
+function fireColor(af, base) {
+  return af >= 0.9 ? base : af >= 0.8 ? "#dd6622" : af >= 0.65 ? "#aa4420" : "#883318";
+}
+function fireSize(frp) {
+  return frp < 1 ? 2 : frp < 5 ? 2.5 : frp < 10 ? 3.5 : frp < 25 ? 5 : frp < 50 ? 7 : frp < 100 ? 9.5 : 12;
 }
 
 // ── Aircraft filter ─────────────────────────────────────────────────
@@ -136,13 +108,7 @@ function matchesAF(d, f) {
   if (f.squawks.length > 0) {
     var sq = d.squawk || "";
     var bucket =
-      sq === "7700"
-        ? "7700"
-        : sq === "7600"
-          ? "7600"
-          : sq === "7500"
-            ? "7500"
-            : "other";
+      sq === "7700" ? "7700" : sq === "7600" ? "7600" : sq === "7500" ? "7500" : "other";
     if (f.squawks.indexOf(bucket) === -1) return false;
   }
   if (f.countries.length > 0) {
@@ -170,15 +136,8 @@ function parseLandGeoJSON(geojson) {
       var converted = [];
       for (var k = 0; k < ring.length; k++) {
         var c = ring[k];
-        if (
-          c.length >= 2 &&
-          typeof c[0] === "number" &&
-          typeof c[1] === "number"
-        ) {
-          converted.push([
-            Math.round(c[1] * 100) / 100,
-            Math.round(c[0] * 100) / 100,
-          ]);
+        if (c.length >= 2 && typeof c[0] === "number" && typeof c[1] === "number") {
+          converted.push([Math.round(c[1] * 100) / 100, Math.round(c[0] * 100) / 100]);
         }
       }
       if (converted.length >= 3) polys.push(converted);
@@ -189,15 +148,9 @@ function parseLandGeoJSON(geojson) {
 
 function fetchLandData() {
   fetch("/data/ne_50m_land.json")
-    .then(function (res) {
-      return res.json();
-    })
-    .then(function (geojson) {
-      landPolygons = parseLandGeoJSON(geojson);
-    })
-    .catch(function (err) {
-      // Silent fail — land just won't render
-    });
+    .then(function (res) { return res.json(); })
+    .then(function (geojson) { landPolygons = parseLandGeoJSON(geojson); })
+    .catch(function (err) { /* Silent fail */ });
 }
 
 // ── Land renderer (inlined from landRenderer.ts) ────────────────────
@@ -235,18 +188,14 @@ function findReentryPoint(pts, startIndex) {
 function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
   var n = pts.length;
   var path = [];
-
   for (var i = 0; i < n; i++) {
     var curr = pts[i];
     var next = pts[(i + 1) % n];
     var cVis = curr.z > 0;
     var nVis = next.z > 0;
-
     if (cVis) path.push({ x: curr.x, y: curr.y });
     if (cVis === nVis) continue;
-
     if (cVis) {
-      // Exit
       var exit = edgeLerp(curr, next);
       path.push(exit);
       var reentry = findReentryPoint(pts, i);
@@ -258,7 +207,6 @@ function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
         path.push(reentry);
       }
     } else {
-      // Reentry
       var re = edgeLerp(curr, next);
       var last = path.length > 0 ? path[path.length - 1] : null;
       if (!last || Math.abs(last.x - re.x) > 1 || Math.abs(last.y - re.y) > 1) {
@@ -266,7 +214,6 @@ function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
       }
     }
   }
-
   if (path.length < 3) return;
   ctx.beginPath();
   ctx.moveTo(path[0].x, path[0].y);
@@ -303,20 +250,17 @@ function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
     var poly = landPolygons[pi];
     var pts = [];
     for (var i = 0; i < poly.length; i++) {
-      var lat = poly[i][0],
-        lon = poly[i][1];
+      var lat = poly[i][0], lon = poly[i][1];
       if (typeof lat === "number" && typeof lon === "number") {
         pts.push(projFn(lat, lon));
       }
     }
     if (pts.length < 3) continue;
-
     if (isFlat) {
       var segments = [];
       var seg = [];
       for (var i = 0; i < poly.length; i++) {
-        var lat = poly[i][0],
-          lon = poly[i][1];
+        var lat = poly[i][0], lon = poly[i][1];
         if (typeof lat !== "number" || typeof lon !== "number") continue;
         if (i > 0) {
           var prevLon = poly[i - 1][1];
@@ -333,18 +277,13 @@ function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
       }
       continue;
     }
-
-    var anyVis = false,
-      allVis = true;
+    var anyVis = false, allVis = true;
     for (var i = 0; i < pts.length; i++) {
       if (pts[i].z > 0) anyVis = true;
       else allVis = false;
     }
     if (!anyVis) continue;
-    if (allVis) {
-      simpleDraw(ctx, pts, colors.coastFill, colors.coast);
-      continue;
-    }
+    if (allVis) { simpleDraw(ctx, pts, colors.coastFill, colors.coast); continue; }
     drawClippedPoly(ctx, pts, gcx, gcy, gr, colors.coastFill, colors.coast);
   }
 }
@@ -355,27 +294,15 @@ function drawGrid(ctx, projFn, cfg) {
   ctx.strokeStyle = cfg.accentColor || "#000";
   ctx.globalAlpha = 0.11;
   ctx.lineWidth = 0.4;
-
   if (cfg.isFlat) {
-    var cx = cfg.cx,
-      cy = cfg.cy,
-      mW = cfg.mW,
-      mH = cfg.mH,
-      mx = cfg.mx,
-      my = cfg.my;
+    var cx = cfg.cx, cy = cfg.cy, mW = cfg.mW, mH = cfg.mH, mx = cfg.mx, my = cfg.my;
     for (var lat = -80; lat <= 80; lat += 20) {
       var y = cy - (lat / 90) * (mH / 2);
-      ctx.beginPath();
-      ctx.moveTo(mx, y);
-      ctx.lineTo(mx + mW, y);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx, y); ctx.lineTo(mx + mW, y); ctx.stroke();
     }
     for (var lon = -180; lon < 180; lon += 30) {
       var x = cx + (lon / 180) * (mW / 2);
-      ctx.beginPath();
-      ctx.moveTo(x, my);
-      ctx.lineTo(x, my + mH);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, my); ctx.lineTo(x, my + mH); ctx.stroke();
     }
   } else {
     for (var lat = -80; lat <= 80; lat += 20) {
@@ -383,12 +310,8 @@ function drawGrid(ctx, projFn, cfg) {
       var on = false;
       for (var lon = -180; lon <= 180; lon += 3) {
         var p = projFn(lat, lon);
-        if (p.z > 0) {
-          if (!on) {
-            ctx.moveTo(p.x, p.y);
-            on = true;
-          } else ctx.lineTo(p.x, p.y);
-        } else on = false;
+        if (p.z > 0) { if (!on) { ctx.moveTo(p.x, p.y); on = true; } else ctx.lineTo(p.x, p.y); }
+        else on = false;
       }
       ctx.stroke();
     }
@@ -397,12 +320,8 @@ function drawGrid(ctx, projFn, cfg) {
       var on = false;
       for (var lat = -90; lat <= 90; lat += 3) {
         var p = projFn(lat, lon);
-        if (p.z > 0) {
-          if (!on) {
-            ctx.moveTo(p.x, p.y);
-            on = true;
-          } else ctx.lineTo(p.x, p.y);
-        } else on = false;
+        if (p.z > 0) { if (!on) { ctx.moveTo(p.x, p.y); on = true; } else ctx.lineTo(p.x, p.y); }
+        else on = false;
       }
       ctx.stroke();
     }
@@ -416,74 +335,49 @@ function drawTrail(ctx, projFn, selectedItem, colors, t) {
   if (!selectedItem) return [];
   var trail = selectedItem._trail;
   if (!trail || trail.length < 1) return [];
-
   var coords = [];
   for (var i = 0; i < trail.length; i++) {
     coords.push({ lat: trail[i].lat, lon: trail[i].lon, point: trail[i] });
   }
   var interp = getInterp(selectedItem.id);
   if (interp) {
-    coords.push({
-      lat: interp.lat,
-      lon: interp.lon,
-      point: { lat: interp.lat, lon: interp.lon, ts: Date.now() },
-    });
+    coords.push({ lat: interp.lat, lon: interp.lon, point: { lat: interp.lat, lon: interp.lon, ts: Date.now() } });
   }
   if (coords.length < 2) return [];
-
   var projected = [];
   for (var i = 0; i < coords.length; i++) {
     var p = projFn(coords[i].lat, coords[i].lon);
-    if (p.z > 0)
-      projected.push({ x: p.x, y: p.y, z: p.z, point: coords[i].point });
+    if (p.z > 0) projected.push({ x: p.x, y: p.y, z: p.z, point: coords[i].point });
   }
   if (projected.length < 2) return [];
-
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-
-  // Glow
   ctx.lineWidth = 6;
   for (var i = 1; i < projected.length; i++) {
-    var prev = projected[i - 1],
-      curr = projected[i];
+    var prev = projected[i - 1], curr = projected[i];
     var age = i / projected.length;
     ctx.globalAlpha = 0.05 + age * 0.15;
     ctx.strokeStyle = colors.accent;
-    ctx.beginPath();
-    ctx.moveTo(prev.x, prev.y);
-    ctx.lineTo(curr.x, curr.y);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(curr.x, curr.y); ctx.stroke();
   }
-
-  // Main line
   ctx.lineWidth = 2.5;
   for (var i = 1; i < projected.length; i++) {
-    var prev = projected[i - 1],
-      curr = projected[i];
+    var prev = projected[i - 1], curr = projected[i];
     var age = i / projected.length;
     ctx.globalAlpha = 0.3 + age * 0.7;
     ctx.strokeStyle = colors.accent;
-    ctx.beginPath();
-    ctx.moveTo(prev.x, prev.y);
-    ctx.lineTo(curr.x, curr.y);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(curr.x, curr.y); ctx.stroke();
   }
-
-  // Waypoint dots
   var hitTargets = [];
   for (var i = 0; i < projected.length - 1; i++) {
     var p = projected[i];
     var age = i / projected.length;
     ctx.globalAlpha = 0.4 + age * 0.6;
     ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
     hitTargets.push({ x: p.x, y: p.y, point: p.point });
   }
-
   ctx.restore();
   return hitTargets;
 }
@@ -501,25 +395,21 @@ var _frameScheduled = false;
 
 self.onmessage = function (e) {
   var msg = e.data;
-
   if (msg.type === "init") {
     canvas = msg.canvas;
     ctx = canvas.getContext("2d");
     fetchLandData();
     return;
   }
-
   if (msg.type === "trails") {
     trailMap = new Map(msg.entries);
     return;
   }
-
   if (msg.type === "data") {
     _data = msg.payload.data;
     _colors = msg.payload.colors;
     return;
   }
-
   if (msg.type === "frame") {
     _pendingFrame = msg.payload;
     if (!_frameScheduled) {
@@ -539,25 +429,16 @@ function renderFrame() {
   var p = _pendingFrame;
   _pendingFrame = null;
 
-  var W = p.W,
-    H = p.H,
-    dpr = p.dpr,
-    isFlat = p.isFlat,
-    cam = p.cam;
+  var W = p.W, H = p.H, dpr = p.dpr, isFlat = p.isFlat, cam = p.cam;
   var t = p.t;
-  var selId = p.selectedId,
-    isoId = p.isolatedId,
-    isoMode = p.isolateMode;
-  var layers = p.layers,
-    af = p.aircraftFilter;
+  var selId = p.selectedId, isoId = p.isolatedId, isoMode = p.isolateMode;
+  var layers = p.layers, af = p.aircraftFilter;
   var colors = _colors;
   var data = _data;
   var searchIds = p.searchMatchIds;
   var selectedItem = p.selectedItem;
 
-  // Resize if needed
-  var cw = Math.round(W * dpr),
-    ch = Math.round(H * dpr);
+  var cw = Math.round(W * dpr), ch = Math.round(H * dpr);
   if (canvas.width !== cw || canvas.height !== ch) {
     canvas.width = cw;
     canvas.height = ch;
@@ -566,90 +447,56 @@ function renderFrame() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
-  var cx = W / 2,
-    cy = H / 2;
+  var cx = W / 2, cy = H / 2;
   var colorMap = {
     ships: colors.ships,
     aircraft: colors.aircraft,
     events: colors.events,
     quakes: colors.quakes,
+    fires: colors.fires || "#ff6600",
   };
 
-  // ── Build projection function ─────────────────────────────────
   var projFn;
   var fm;
   if (isFlat) {
     fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-    projFn = function (lat, lon) {
-      return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
-    };
+    projFn = function (lat, lon) { return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH); };
   } else {
     var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-    projFn = function (lat, lon) {
-      return projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
-    };
+    projFn = function (lat, lon) { return projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX); };
   }
 
-  // ── Draw static layer (land/ocean/grid) ─────────────────────────
+  // ── Draw static layer ─────────────────────────────────────────
   if (!isFlat) {
     var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-
-    // Glow
     var glow = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 1.4);
     glow.addColorStop(0, colors.accent + "0d");
     glow.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
-
-    // Ocean
     var bg = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 0, cx, cy, r);
     bg.addColorStop(0, "#0e1825");
     bg.addColorStop(1, "#060c16");
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = bg;
-    ctx.fill();
-
-    // Clip to globe
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = bg; ctx.fill();
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
-    ctx.clip();
-
+    ctx.beginPath(); ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2); ctx.clip();
     drawLand(ctx, projFn, colors, false, cx, cy, r - 0.5);
     drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.accent });
   } else {
-    // Flat background
     ctx.fillStyle = "#081018";
     ctx.fillRect(fm.mx, fm.my, fm.mW, fm.mH);
-
-    // Clip to map
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
-    ctx.clip();
-
+    ctx.beginPath(); ctx.rect(fm.mx, fm.my, fm.mW, fm.mH); ctx.clip();
     drawLand(ctx, projFn, colors, true, 0, 0, 0);
-    drawGrid(ctx, projFn, {
-      isFlat: true,
-      cx: cx,
-      cy: cy,
-      mW: fm.mW,
-      mH: fm.mH,
-      mx: fm.mx,
-      my: fm.my,
-      accentColor: colors.accent,
-    });
+    drawGrid(ctx, projFn, { isFlat: true, cx: cx, cy: cy, mW: fm.mW, mH: fm.mH, mx: fm.mx, my: fm.my, accentColor: colors.accent });
   }
 
   // ── Project + filter points ───────────────────────────────────
   var isolatedType = null;
   if (isoId && selId) {
     for (var i = 0; i < data.length; i++) {
-      if (data[i].id === isoId) {
-        isolatedType = data[i].type;
-        break;
-      }
+      if (data[i].id === isoId) { isolatedType = data[i].type; break; }
     }
   }
 
@@ -659,26 +506,16 @@ function renderFrame() {
   for (var i = 0; i < data.length; i++) {
     var item = data[i];
     if (searchSet && !searchSet.has(item.id)) continue;
-    if (isoMode === "solo") {
-      if (item.id !== isoId) continue;
-    } else if (isoMode === "focus") {
-      if (isolatedType && item.type !== isolatedType) continue;
-    }
+    if (isoMode === "solo") { if (item.id !== isoId) continue; }
+    else if (isoMode === "focus") { if (isolatedType && item.type !== isolatedType) continue; }
 
-    if (item.type === "aircraft") {
-      if (!matchesAF(item.data, af)) continue;
-    } else {
-      if (layers[item.type] === false) continue;
-    }
+    if (item.type === "aircraft") { if (!matchesAF(item.data, af)) continue; }
+    else { if (layers[item.type] === false) continue; }
 
-    var lat = item.lat,
-      lon = item.lon;
+    var lat = item.lat, lon = item.lon;
     if (item.type === "aircraft" || item.type === "ships") {
       var interp = getInterp(item.id);
-      if (interp) {
-        lat = interp.lat;
-        lon = interp.lon;
-      }
+      if (interp) { lat = interp.lat; lon = interp.lon; }
     }
 
     var pt = projFn(lat, lon);
@@ -687,9 +524,7 @@ function renderFrame() {
   }
 
   if (pts.length > 1 && pts[0].z !== 1) {
-    pts.sort(function (a, b) {
-      return a.z - b.z;
-    });
+    pts.sort(function (a, b) { return a.z - b.z; });
   }
 
   // ── Draw trail ────────────────────────────────────────────────
@@ -699,10 +534,7 @@ function renderFrame() {
   // ── Draw points ───────────────────────────────────────────────
   for (var i = 0; i < pts.length; i++) {
     var pt = pts[i];
-    var x = pt.x,
-      y = pt.y,
-      z = pt.z,
-      item = pt.item;
+    var x = pt.x, y = pt.y, z = pt.z, item = pt.item;
     var baseColor = colorMap[item.type] || colors.accent;
     var depthAlpha = 0.4 + z * 0.6;
     var isSel = item.id === selId;
@@ -715,35 +547,20 @@ function renderFrame() {
       if (isSel) s *= 1.8;
       if (mag > 2.5) {
         var pi = Math.min(1, (mag - 2.5) / 4.5);
-        var pulse =
-          1 +
-          Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) *
-            (0.15 + pi * 0.35);
+        var pulse = 1 + Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) * (0.15 + pi * 0.35);
         var gr = s * (3 + pi * 2) * pulse;
         var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, qc + "50");
-        g.addColorStop(1, qc + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * af2 * 0.7;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        g.addColorStop(0, qc + "50"); g.addColorStop(1, qc + "00");
+        ctx.fillStyle = g; ctx.globalAlpha = depthAlpha * af2 * 0.7;
+        ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2); ctx.fill();
       }
-      ctx.globalAlpha = depthAlpha * af2;
-      ctx.fillStyle = qc;
-      ctx.beginPath();
-      ctx.arc(x, y, s, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = depthAlpha * af2; ctx.fillStyle = qc;
+      ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.fill();
       if (isSel) {
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = qc;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = qc; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
       }
-      ctx.globalAlpha = 1;
-      continue;
+      ctx.globalAlpha = 1; continue;
     }
 
     if (item.type === "events") {
@@ -754,70 +571,63 @@ function renderFrame() {
       if (isSel) s *= 1.8;
       if (sev >= 3) {
         var pi = Math.min(1, (sev - 2) / 3);
-        var pulse =
-          1 +
-          Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
-            (0.15 + pi * 0.3);
+        var pulse = 1 + Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) * (0.15 + pi * 0.3);
         var gr = s * (3 + pi * 1.5) * pulse;
         var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, ec + "40");
-        g.addColorStop(1, ec + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * af2 * 0.6;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        g.addColorStop(0, ec + "40"); g.addColorStop(1, ec + "00");
+        ctx.fillStyle = g; ctx.globalAlpha = depthAlpha * af2 * 0.6;
+        ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2); ctx.fill();
       }
-      ctx.globalAlpha = depthAlpha * af2;
-      ctx.fillStyle = ec;
-      ctx.beginPath();
-      ctx.arc(x, y, s, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.globalAlpha = depthAlpha * af2; ctx.fillStyle = ec;
+      ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.fill();
       if (isSel) {
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = ec;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = ec; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
       }
-      ctx.globalAlpha = 1;
-      continue;
+      ctx.globalAlpha = 1; continue;
+    }
+
+    if (item.type === "fires") {
+      var frp = (item.data && item.data.frp) || 0;
+      var af2 = fireAgeFactor(item.timestamp);
+      var fc = fireColor(af2, baseColor);
+      var s = fireSize(frp);
+      if (isSel) s *= 1.8;
+      if (frp > 10) {
+        var pi = Math.min(1, (frp - 10) / 90);
+        var pulse = 1 + Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.6) * (0.15 + pi * 0.35);
+        var gr = s * (3 + pi * 2) * pulse;
+        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, fc + "50"); g.addColorStop(1, fc + "00");
+        ctx.fillStyle = g; ctx.globalAlpha = depthAlpha * af2 * 0.7;
+        ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = depthAlpha * af2; ctx.fillStyle = fc;
+      ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.fill();
+      if (isSel) {
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = fc; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1; continue;
     }
 
     if (item.type === "ships") {
       var s = 3.5;
       if (isSel) s *= 1.8;
-      ctx.globalAlpha = depthAlpha;
-      ctx.fillStyle = baseColor;
+      ctx.globalAlpha = depthAlpha; ctx.fillStyle = baseColor;
       var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
       var hw = s * 0.7;
       ctx.beginPath();
       ctx.moveTo(x + Math.sin(a) * s * 1.4, y - Math.cos(a) * s * 1.4);
-      ctx.lineTo(
-        x + Math.sin(a + Math.PI / 2) * hw,
-        y - Math.cos(a + Math.PI / 2) * hw,
-      );
-      ctx.lineTo(
-        x + Math.sin(a + Math.PI) * s * 0.8,
-        y - Math.cos(a + Math.PI) * s * 0.8,
-      );
-      ctx.lineTo(
-        x + Math.sin(a - Math.PI / 2) * hw,
-        y - Math.cos(a - Math.PI / 2) * hw,
-      );
-      ctx.closePath();
-      ctx.fill();
+      ctx.lineTo(x + Math.sin(a + Math.PI / 2) * hw, y - Math.cos(a + Math.PI / 2) * hw);
+      ctx.lineTo(x + Math.sin(a + Math.PI) * s * 0.8, y - Math.cos(a + Math.PI) * s * 0.8);
+      ctx.lineTo(x + Math.sin(a - Math.PI / 2) * hw, y - Math.cos(a - Math.PI / 2) * hw);
+      ctx.closePath(); ctx.fill();
       if (isSel) {
-        ctx.globalAlpha = 0.85;
-        ctx.strokeStyle = baseColor;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = baseColor; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
       }
-      ctx.globalAlpha = 1;
-      continue;
+      ctx.globalAlpha = 1; continue;
     }
 
     // Aircraft
@@ -825,28 +635,16 @@ function renderFrame() {
     if (isSel) s *= 1.8;
     ctx.globalAlpha = depthAlpha;
     var status = item.data && item.data.squawkStatus;
-    ctx.fillStyle =
-      status === "emergency"
-        ? "#ff3333"
-        : status === "radio_failure"
-          ? "#ff8800"
-          : status === "hijack"
-            ? "#cc44ff"
-            : baseColor;
+    ctx.fillStyle = status === "emergency" ? "#ff3333" : status === "radio_failure" ? "#ff8800" : status === "hijack" ? "#cc44ff" : baseColor;
     var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
     ctx.beginPath();
     ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
     ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
     ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
-    ctx.closePath();
-    ctx.fill();
+    ctx.closePath(); ctx.fill();
     if (isSel) {
-      ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = baseColor;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.globalAlpha = 0.85; ctx.strokeStyle = baseColor; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
     }
   }
   ctx.globalAlpha = 1;
@@ -856,41 +654,24 @@ function renderFrame() {
 
   if (!isFlat) {
     var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = colors.accent + "1f";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = colors.accent + "1f"; ctx.lineWidth = 1.5; ctx.stroke();
   } else {
-    ctx.strokeStyle = colors.accent + "1a";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = colors.accent + "1a"; ctx.lineWidth = 1;
     ctx.strokeRect(fm.mx, fm.my, fm.mW, fm.mH);
-
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = colors.dim;
+    ctx.globalAlpha = 1; ctx.fillStyle = colors.dim;
     var baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
     ctx.font = baseFontSize + "px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
     for (var lon = -120; lon <= 120; lon += 60) {
-      ctx.fillText(
-        Math.abs(lon) + "\u00B0" + (lon >= 0 ? "E" : "W"),
-        fm.cx + (lon / 180) * (fm.mW / 2),
-        fm.my + fm.mH + 13,
-      );
+      ctx.fillText(Math.abs(lon) + "\u00B0" + (lon >= 0 ? "E" : "W"), fm.cx + (lon / 180) * (fm.mW / 2), fm.my + fm.mH + 13);
     }
     ctx.textAlign = "right";
     for (var lat = -60; lat <= 60; lat += 30) {
-      ctx.fillText(
-        Math.abs(lat) + "\u00B0" + (lat >= 0 ? "N" : "S"),
-        fm.mx - 5,
-        fm.cy - (lat / 90) * (fm.mH / 2) + 3,
-      );
+      ctx.fillText(Math.abs(lat) + "\u00B0" + (lat >= 0 ? "N" : "S"), fm.mx - 5, fm.cy - (lat / 90) * (fm.mH / 2) + 3);
     }
   }
 
-  // Transfer bitmap
   var bitmap = canvas.transferToImageBitmap();
-  self.postMessage({ type: "frame", bitmap: bitmap, hitTargets: hitTargets }, [
-    bitmap,
-  ]);
+  self.postMessage({ type: "frame", bitmap: bitmap, hitTargets: hitTargets }, [bitmap]);
 }

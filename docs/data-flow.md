@@ -14,7 +14,7 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 
 | Category | State | Purpose |
 |---|---|---|
-| **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event DataPoints |
+| **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event + FIRMS fire DataPoints |
 | **Selection** | `selected`, `selectedCurrent`, `setSelected` | Currently selected item (selectedCurrent stays fresh across data refreshes) |
 | **Isolation** | `isolateMode`, `setIsolateMode` | FOCUS (layer only) or SOLO (single point) |
 | **Layers** | `layers`, `toggleLayer` | Per-feature on/off toggles |
@@ -56,6 +56,7 @@ flowchart TD
     Boot --> HydrateEQ["EarthquakeProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateEV["GdeltProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateSH["ShipProvider.hydrate()<br/>(rejects if >5min stale)"]
+    Boot --> HydrateFI["FireProvider.hydrate()<br/>(rejects if >30min stale)"]
 
     HydrateAC -->|"cache hit"| CachedAC["cached aircraft"]
     HydrateAC -->|"cache miss"| MockFallback["mock aircraft"]
@@ -69,6 +70,9 @@ flowchart TD
     HydrateSH -->|"cache hit"| CachedSH["cached shipData"]
     HydrateSH -->|"cache miss"| EmptySH["shipData = []"]
 
+    HydrateFI -->|"cache hit"| CachedFI["cached fireData"]
+    HydrateFI -->|"cache miss"| EmptyFI["fireData = []"]
+
     CachedAC --> AllData["allData = useMemo merge"]
     MockFallback --> AllData
     CachedEQ --> AllData
@@ -77,24 +81,29 @@ flowchart TD
     EmptyEV --> AllData
     CachedSH --> AllData
     EmptySH --> AllData
+    CachedFI --> AllData
+    EmptyFI --> AllData
 
     AllData --> PollAC["Aircraft poll() every 240s"]
     AllData --> PollEQ["Earthquake poll() every 420s"]
     AllData --> PollEV["Event poll() every 15 min<br/>(fetches from our server)"]
     AllData --> PollSH["Ship poll() every 300s<br/>(fetches from our server)"]
+    AllData --> PollFI["Fire poll() every 600s<br/>(fetches from our server)"]
 
     PollAC -->|"success"| PersistAC["persistCache() → IndexedDB"]
     PollEQ -->|"success"| PersistEQ["persistCache() → IndexedDB"]
     PollEV -->|"success"| PersistEV["mergeAndPrune() → persistCache() → IndexedDB"]
     PollSH -->|"success"| PersistSH["persistCache() → IndexedDB"]
+    PollFI -->|"success"| PersistFI["persistCache() → IndexedDB"]
 
     PersistAC --> SetState["React state update → re-merge allData"]
     PersistEQ --> SetState
     PersistEV --> SetState
     PersistSH --> SetState
+    PersistFI --> SetState
 ```
 
-All four hooks skip the immediate fetch on boot if hydration returned fresh data. Staleness thresholds are set to match or be tighter than poll intervals so stale cache is rejected and the immediate fetch fires.
+All five hooks skip the immediate fetch on boot if hydration returned fresh data. Staleness thresholds are set to match or be tighter than poll intervals so stale cache is rejected and the immediate fetch fires.
 
 ---
 
@@ -115,10 +124,11 @@ const { data: aircraftData } = useAircraftData();
 const { data: shipData } = useShipData();
 const { data: earthquakeData } = useEarthquakeData();
 const { data: eventData } = useEventData();
+const { data: fireData } = useFireData();
 
 const allData = useMemo(
-  () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData],
-  [aircraftData, shipData, earthquakeData, eventData],
+  () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData],
+  [aircraftData, shipData, earthquakeData, eventData, fireData],
 );
 ```
 
@@ -126,6 +136,7 @@ const allData = useMemo(
 - **`shipData`**: Live AIS vessels from our server (refreshed every 300s). Server streams from aisstream.io WebSocket. Empty array if `AISSTREAM_API_KEY` not set.
 - **`earthquakeData`**: Live earthquakes from USGS (refreshed every 420s). Covers the past 7 days of global seismic activity.
 - **`eventData`**: Live GDELT events from our server (refreshed every 15 min). Client-side 7-day rolling window with URL-based dedup. Server fetches GDELT raw export files, parses geocoded conflict/crisis events, caches in memory.
+- **`fireData`**: Live fire hotspots from our server (refreshed every 600s). Server fetches NASA FIRMS VIIRS CSV every 30 min, parses global fire detections from the last 24 hours. Empty array if `FIRMS_MAP_KEY` not set.
 
 ---
 
@@ -137,10 +148,11 @@ const filters = {
   ships:    layers.ships,     // boolean
   events:   { enabled: layers.events ?? true, minSeverity: 0 },  // EventFilter
   quakes:   { enabled: layers.quakes ?? true, minMagnitude: 0 },  // EarthquakeFilter
+  fires:    { enabled: layers.fires ?? true, minConfidence: 0 },  // FireFilter
 };
 ```
 
-Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Events use `EventFilter` with enabled + minSeverity. Ships use a simple boolean.
+Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Events use `EventFilter` with enabled + minSeverity. Ships use a simple boolean. Fires use `FireFilter` with enabled + minConfidence.
 
 ---
 
@@ -161,6 +173,16 @@ The GDELT pipeline has both server-side and client-side components:
 **Server** (`gdeltCache.ts`): Every 15 minutes, fetches `lastupdate.txt` from GDELT, downloads the latest `.export.CSV.zip`, extracts and parses the tab-delimited CSV, filters to conflict/crisis CAMEO codes, converts to GeoJSON, and caches in memory. Serves via `/api/events/latest` with token auth.
 
 **Client** (`GdeltProvider`): Polls `/api/events/latest` every 15 minutes using `authenticatedFetch()` from `lib/authService.ts`, which handles token acquisition and auto-refresh. Incoming events are merged with existing cache (URL-based dedup), events older than 7 days are pruned, and the result is persisted to IndexedDB.
+
+---
+
+## NASA FIRMS Fire Data Flow
+
+The FIRMS pipeline has both server-side and client-side components:
+
+**Server** (`firmsCache.ts`): Every 30 minutes, fetches the VIIRS NOAA-20 global CSV from the NASA FIRMS API (`/api/area/csv/{MAP_KEY}/VIIRS_NOAA20_NRT/world/1`). Parses CSV columns (latitude, longitude, brightness, FRP, confidence, satellite, instrument, acquisition date/time, day/night). Caches parsed records in memory. Serves via `/api/fires/latest` with token auth and gzip compression. If `FIRMS_MAP_KEY` is not set, polling is skipped.
+
+**Client** (`FireProvider`): Polls `/api/fires/latest` every 600 seconds (10 min) using `authenticatedFetch()`. Converts server fire records to DataPoints with `id: FI{idx}-{lat}-{lon}`, type `fires`. Persists to IndexedDB under `sigint.firms.fire-cache.v1`. Hydrates on boot with 30-min staleness threshold.
 
 ---
 
