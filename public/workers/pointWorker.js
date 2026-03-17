@@ -1,6 +1,7 @@
-// ── Point Rendering Web Worker ─────────────────────────────────────────
-// Owns an OffscreenCanvas. Main thread sends data + camera state.
-// Worker projects, filters, sorts, draws, transfers bitmap back.
+// ── Complete Rendering Web Worker ──────────────────────────────────────
+// Owns an OffscreenCanvas. Renders EVERYTHING: land, ocean, grid, glow,
+// rim, points, trails. Main thread only composites the finished bitmap.
+// Fetches land data directly from /data/ne_50m_land.json on init.
 "use strict";
 
 // ── Projection ──────────────────────────────────────────────────────
@@ -73,7 +74,6 @@ function quakeAgeFactor(ts) {
           ? 0.65
           : 0.5;
 }
-
 function quakeColor(af, base) {
   return af >= 0.9
     ? base
@@ -83,7 +83,6 @@ function quakeColor(af, base) {
         ? "#33aa33"
         : "#2d8835";
 }
-
 function quakeSize(m) {
   return m < 1
     ? 2
@@ -101,7 +100,6 @@ function quakeSize(m) {
                 ? 12
                 : 15;
 }
-
 function eventAgeFactor(ts) {
   if (!ts) return 0.5;
   var a = Date.now() - new Date(ts).getTime();
@@ -115,7 +113,6 @@ function eventAgeFactor(ts) {
           ? 0.6
           : 0.45;
 }
-
 function eventColor(af, base) {
   return af >= 0.9
     ? base
@@ -125,7 +122,6 @@ function eventColor(af, base) {
         ? "#aa6633"
         : "#885530";
 }
-
 function eventSize(s) {
   return s <= 1 ? 2.5 : s <= 2 ? 3.5 : s <= 3 ? 5 : s <= 4 ? 7 : 9.5;
 }
@@ -155,35 +151,276 @@ function matchesAF(d, f) {
   return true;
 }
 
-// ── Canvas state ────────────────────────────────────────────────────
+// ── Land data ───────────────────────────────────────────────────────
 
-var canvas = null;
-var ctx = null;
+var landPolygons = [];
 
-// ── Stored state from "data" messages ───────────────────────────────
-var _data = null;
-var _layers = null;
-var _af = null;
-var _selId = null;
-var _isoId = null;
-var _isoMode = null;
-var _searchIds = null;
-var _selectedItem = null;
-var _colors = null;
+function parseLandGeoJSON(geojson) {
+  var polys = [];
+  for (var i = 0; i < geojson.features.length; i++) {
+    var geom = geojson.features[i].geometry;
+    var rings =
+      geom.type === "Polygon"
+        ? geom.coordinates
+        : geom.type === "MultiPolygon"
+          ? geom.coordinates.flat()
+          : [];
+    for (var j = 0; j < rings.length; j++) {
+      var ring = rings[j];
+      var converted = [];
+      for (var k = 0; k < ring.length; k++) {
+        var c = ring[k];
+        if (
+          c.length >= 2 &&
+          typeof c[0] === "number" &&
+          typeof c[1] === "number"
+        ) {
+          converted.push([
+            Math.round(c[1] * 100) / 100,
+            Math.round(c[0] * 100) / 100,
+          ]);
+        }
+      }
+      if (converted.length >= 3) polys.push(converted);
+    }
+  }
+  return polys;
+}
+
+function fetchLandData() {
+  fetch("/data/ne_50m_land.json")
+    .then(function (res) {
+      return res.json();
+    })
+    .then(function (geojson) {
+      landPolygons = parseLandGeoJSON(geojson);
+    })
+    .catch(function (err) {
+      // Silent fail — land just won't render
+    });
+}
+
+// ── Land renderer (inlined from landRenderer.ts) ────────────────────
+
+function edgeLerp(a, b) {
+  var t = a.z / (a.z - b.z);
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+function arcPts(cx, cy, r, a1, a2, n) {
+  if (!n) n = 12;
+  var diff = a2 - a1;
+  if (diff > Math.PI) diff -= 2 * Math.PI;
+  if (diff < -Math.PI) diff += 2 * Math.PI;
+  var out = [];
+  for (var i = 1; i <= n; i++) {
+    var a = a1 + (diff * i) / n;
+    out.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+  }
+  return out;
+}
+
+function findReentryPoint(pts, startIndex) {
+  var n = pts.length;
+  for (var j = 1; j < n; j++) {
+    var pi = (startIndex + j) % n;
+    var ni = (startIndex + j + 1) % n;
+    if (pts[pi].z <= 0 && pts[ni].z > 0) {
+      return edgeLerp(pts[pi], pts[ni]);
+    }
+  }
+  return null;
+}
+
+function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
+  var n = pts.length;
+  var path = [];
+
+  for (var i = 0; i < n; i++) {
+    var curr = pts[i];
+    var next = pts[(i + 1) % n];
+    var cVis = curr.z > 0;
+    var nVis = next.z > 0;
+
+    if (cVis) path.push({ x: curr.x, y: curr.y });
+    if (cVis === nVis) continue;
+
+    if (cVis) {
+      // Exit
+      var exit = edgeLerp(curr, next);
+      path.push(exit);
+      var reentry = findReentryPoint(pts, i);
+      if (reentry) {
+        var ea = Math.atan2(exit.y - gcy, exit.x - gcx);
+        var ra = Math.atan2(reentry.y - gcy, reentry.x - gcx);
+        var arcs = arcPts(gcx, gcy, gr, ea, ra);
+        for (var k = 0; k < arcs.length; k++) path.push(arcs[k]);
+        path.push(reentry);
+      }
+    } else {
+      // Reentry
+      var re = edgeLerp(curr, next);
+      var last = path.length > 0 ? path[path.length - 1] : null;
+      if (!last || Math.abs(last.x - re.x) > 1 || Math.abs(last.y - re.y) > 1) {
+        path.push(re);
+      }
+    }
+  }
+
+  if (path.length < 3) return;
+  ctx.beginPath();
+  ctx.moveTo(path[0].x, path[0].y);
+  for (var i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.globalAlpha = 0.7;
+  ctx.fill();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 0.7;
+  ctx.globalAlpha = 0.8;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function simpleDraw(ctx, pts, fillColor, strokeColor) {
+  if (pts.length < 3) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.globalAlpha = 0.7;
+  ctx.fill();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 0.7;
+  ctx.globalAlpha = 0.8;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
+  for (var pi = 0; pi < landPolygons.length; pi++) {
+    var poly = landPolygons[pi];
+    var pts = [];
+    for (var i = 0; i < poly.length; i++) {
+      var lat = poly[i][0],
+        lon = poly[i][1];
+      if (typeof lat === "number" && typeof lon === "number") {
+        pts.push(projFn(lat, lon));
+      }
+    }
+    if (pts.length < 3) continue;
+
+    if (isFlat) {
+      var segments = [];
+      var seg = [];
+      for (var i = 0; i < poly.length; i++) {
+        var lat = poly[i][0],
+          lon = poly[i][1];
+        if (typeof lat !== "number" || typeof lon !== "number") continue;
+        if (i > 0) {
+          var prevLon = poly[i - 1][1];
+          if (typeof prevLon === "number" && Math.abs(lon - prevLon) > 120) {
+            if (seg.length >= 3) segments.push(seg);
+            seg = [];
+          }
+        }
+        seg.push(projFn(lat, lon));
+      }
+      if (seg.length >= 3) segments.push(seg);
+      for (var s = 0; s < segments.length; s++) {
+        simpleDraw(ctx, segments[s], colors.coastFill, colors.coast);
+      }
+      continue;
+    }
+
+    var anyVis = false,
+      allVis = true;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i].z > 0) anyVis = true;
+      else allVis = false;
+    }
+    if (!anyVis) continue;
+    if (allVis) {
+      simpleDraw(ctx, pts, colors.coastFill, colors.coast);
+      continue;
+    }
+    drawClippedPoly(ctx, pts, gcx, gcy, gr, colors.coastFill, colors.coast);
+  }
+}
+
+// ── Grid renderer (inlined from gridRenderer.ts) ────────────────────
+
+function drawGrid(ctx, projFn, cfg) {
+  ctx.strokeStyle = cfg.accentColor || "#000";
+  ctx.globalAlpha = 0.11;
+  ctx.lineWidth = 0.4;
+
+  if (cfg.isFlat) {
+    var cx = cfg.cx,
+      cy = cfg.cy,
+      mW = cfg.mW,
+      mH = cfg.mH,
+      mx = cfg.mx,
+      my = cfg.my;
+    for (var lat = -80; lat <= 80; lat += 20) {
+      var y = cy - (lat / 90) * (mH / 2);
+      ctx.beginPath();
+      ctx.moveTo(mx, y);
+      ctx.lineTo(mx + mW, y);
+      ctx.stroke();
+    }
+    for (var lon = -180; lon < 180; lon += 30) {
+      var x = cx + (lon / 180) * (mW / 2);
+      ctx.beginPath();
+      ctx.moveTo(x, my);
+      ctx.lineTo(x, my + mH);
+      ctx.stroke();
+    }
+  } else {
+    for (var lat = -80; lat <= 80; lat += 20) {
+      ctx.beginPath();
+      var on = false;
+      for (var lon = -180; lon <= 180; lon += 3) {
+        var p = projFn(lat, lon);
+        if (p.z > 0) {
+          if (!on) {
+            ctx.moveTo(p.x, p.y);
+            on = true;
+          } else ctx.lineTo(p.x, p.y);
+        } else on = false;
+      }
+      ctx.stroke();
+    }
+    for (var lon = -180; lon < 180; lon += 30) {
+      ctx.beginPath();
+      var on = false;
+      for (var lat = -90; lat <= 90; lat += 3) {
+        var p = projFn(lat, lon);
+        if (p.z > 0) {
+          if (!on) {
+            ctx.moveTo(p.x, p.y);
+            on = true;
+          } else ctx.lineTo(p.x, p.y);
+        } else on = false;
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ── Trail drawing ───────────────────────────────────────────────────
 
-function drawTrail(projFn, selectedItem, colors, t) {
-  if (!selectedItem || !ctx) return;
+function drawTrail(ctx, projFn, selectedItem, colors, t) {
+  if (!selectedItem) return [];
   var trail = selectedItem._trail;
-  if (!trail || trail.length < 1) return;
+  if (!trail || trail.length < 1) return [];
 
   var coords = [];
   for (var i = 0; i < trail.length; i++) {
     coords.push({ lat: trail[i].lat, lon: trail[i].lon, point: trail[i] });
   }
-
-  // Add interpolated current position
   var interp = getInterp(selectedItem.id);
   if (interp) {
     coords.push({
@@ -192,8 +429,7 @@ function drawTrail(projFn, selectedItem, colors, t) {
       point: { lat: interp.lat, lon: interp.lon, ts: Date.now() },
     });
   }
-
-  if (coords.length < 2) return;
+  if (coords.length < 2) return [];
 
   var projected = [];
   for (var i = 0; i < coords.length; i++) {
@@ -201,18 +437,17 @@ function drawTrail(projFn, selectedItem, colors, t) {
     if (p.z > 0)
       projected.push({ x: p.x, y: p.y, z: p.z, point: coords[i].point });
   }
-
-  if (projected.length < 2) return;
+  if (projected.length < 2) return [];
 
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  // Glow pass
+  // Glow
   ctx.lineWidth = 6;
   for (var i = 1; i < projected.length; i++) {
-    var prev = projected[i - 1];
-    var curr = projected[i];
+    var prev = projected[i - 1],
+      curr = projected[i];
     var age = i / projected.length;
     ctx.globalAlpha = 0.05 + age * 0.15;
     ctx.strokeStyle = colors.accent;
@@ -225,8 +460,8 @@ function drawTrail(projFn, selectedItem, colors, t) {
   // Main line
   ctx.lineWidth = 2.5;
   for (var i = 1; i < projected.length; i++) {
-    var prev = projected[i - 1];
-    var curr = projected[i];
+    var prev = projected[i - 1],
+      curr = projected[i];
     var age = i / projected.length;
     ctx.globalAlpha = 0.3 + age * 0.7;
     ctx.strokeStyle = colors.accent;
@@ -250,10 +485,17 @@ function drawTrail(projFn, selectedItem, colors, t) {
   }
 
   ctx.restore();
-
-  // Send hit targets back for click detection on main thread
   return hitTargets;
 }
+
+// ── Canvas + state ──────────────────────────────────────────────────
+
+var canvas = null;
+var ctx = null;
+var _data = null;
+var _colors = null;
+var _pendingFrame = null;
+var _frameScheduled = false;
 
 // ── Message handler ─────────────────────────────────────────────────
 
@@ -263,6 +505,7 @@ self.onmessage = function (e) {
   if (msg.type === "init") {
     canvas = msg.canvas;
     ctx = canvas.getContext("2d");
+    fetchLandData();
     return;
   }
 
@@ -271,307 +514,300 @@ self.onmessage = function (e) {
     return;
   }
 
-  // ── Heavy data update — stored, not rendered immediately ──────
   if (msg.type === "data") {
-    var dp = msg.payload;
-    _data = dp.data;
-    _layers = dp.layers;
-    _af = dp.aircraftFilter;
-    _selId = dp.selectedId;
-    _isoId = dp.isolatedId;
-    _isoMode = dp.isolateMode;
-    _searchIds = dp.searchMatchIds;
-    _selectedItem = dp.selectedItem;
-    _colors = dp.colors;
+    _data = msg.payload.data;
+    _colors = msg.payload.colors;
     return;
   }
 
-  // ── Light frame update — camera + timing, renders using stored data ──
   if (msg.type === "frame") {
-    if (!canvas || !ctx || !_data || !_colors) return;
-
-    var p = msg.payload;
-    var W = p.W,
-      H = p.H,
-      dpr = p.dpr,
-      isFlat = p.isFlat,
-      cam = p.cam;
-    var t = p.t;
-    var selId = _selId,
-      isoId = _isoId,
-      isoMode = _isoMode;
-    var layers = _layers,
-      af = _af,
-      colors = _colors;
-    var data = _data,
-      searchIds = _searchIds;
-    var selectedItem = _selectedItem;
-
-    // Resize if needed
-    var cw = Math.round(W * dpr),
-      ch = Math.round(H * dpr);
-    if (canvas.width !== cw || canvas.height !== ch) {
-      canvas.width = cw;
-      canvas.height = ch;
+    _pendingFrame = msg.payload;
+    if (!_frameScheduled) {
+      _frameScheduled = true;
+      requestAnimationFrame(renderFrame);
     }
+    return;
+  }
+};
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+// ── Render everything ───────────────────────────────────────────────
 
-    var colorMap = {
-      ships: colors.ships,
-      aircraft: colors.aircraft,
-      events: colors.events,
-      quakes: colors.quakes,
+function renderFrame() {
+  _frameScheduled = false;
+  if (!canvas || !ctx || !_data || !_colors || !_pendingFrame) return;
+
+  var p = _pendingFrame;
+  _pendingFrame = null;
+
+  var W = p.W,
+    H = p.H,
+    dpr = p.dpr,
+    isFlat = p.isFlat,
+    cam = p.cam;
+  var t = p.t;
+  var selId = p.selectedId,
+    isoId = p.isolatedId,
+    isoMode = p.isolateMode;
+  var layers = p.layers,
+    af = p.aircraftFilter;
+  var colors = _colors;
+  var data = _data;
+  var searchIds = p.searchMatchIds;
+  var selectedItem = p.selectedItem;
+
+  // Resize if needed
+  var cw = Math.round(W * dpr),
+    ch = Math.round(H * dpr);
+  if (canvas.width !== cw || canvas.height !== ch) {
+    canvas.width = cw;
+    canvas.height = ch;
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  var cx = W / 2,
+    cy = H / 2;
+  var colorMap = {
+    ships: colors.ships,
+    aircraft: colors.aircraft,
+    events: colors.events,
+    quakes: colors.quakes,
+  };
+
+  // ── Build projection function ─────────────────────────────────
+  var projFn;
+  var fm;
+  if (isFlat) {
+    fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+    projFn = function (lat, lon) {
+      return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
     };
+  } else {
+    var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+    projFn = function (lat, lon) {
+      return projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
+    };
+  }
 
-    // Determine isolated type
-    var isolatedType = null;
-    if (isoId && selId) {
-      for (var i = 0; i < data.length; i++) {
-        if (data[i].id === isoId) {
-          isolatedType = data[i].type;
-          break;
-        }
-      }
-    }
+  // ── Draw static layer (land/ocean/grid) ─────────────────────────
+  if (!isFlat) {
+    var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
 
-    var searchSet = searchIds ? new Set(searchIds) : null;
+    // Glow
+    var glow = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 1.4);
+    glow.addColorStop(0, colors.accent + "0d");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
 
-    // Build projection function
-    var cx = W / 2,
-      cy = H / 2;
-    var projFn;
-    if (isFlat) {
-      var fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-      projFn = function (lat, lon) {
-        return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
-      };
-    } else {
-      var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-      projFn = function (lat, lon) {
-        return projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
-      };
-    }
+    // Ocean
+    var bg = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 0, cx, cy, r);
+    bg.addColorStop(0, "#0e1825");
+    bg.addColorStop(1, "#060c16");
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = bg;
+    ctx.fill();
 
-    // ── Project + filter ────────────────────────────────────────
-    var pts = [];
+    // Clip to globe
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
+    ctx.clip();
 
+    drawLand(ctx, projFn, colors, false, cx, cy, r - 0.5);
+    drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.accent });
+  } else {
+    // Flat background
+    ctx.fillStyle = "#081018";
+    ctx.fillRect(fm.mx, fm.my, fm.mW, fm.mH);
+
+    // Clip to map
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
+    ctx.clip();
+
+    drawLand(ctx, projFn, colors, true, 0, 0, 0);
+    drawGrid(ctx, projFn, {
+      isFlat: true,
+      cx: cx,
+      cy: cy,
+      mW: fm.mW,
+      mH: fm.mH,
+      mx: fm.mx,
+      my: fm.my,
+      accentColor: colors.accent,
+    });
+  }
+
+  // ── Project + filter points ───────────────────────────────────
+  var isolatedType = null;
+  if (isoId && selId) {
     for (var i = 0; i < data.length; i++) {
-      var item = data[i];
-      if (searchSet && !searchSet.has(item.id)) continue;
-
-      if (isoMode === "solo") {
-        if (item.id !== isoId) continue;
-      } else if (isoMode === "focus") {
-        if (isolatedType && item.type !== isolatedType) continue;
+      if (data[i].id === isoId) {
+        isolatedType = data[i].type;
+        break;
       }
+    }
+  }
 
-      if (item.type === "aircraft") {
-        if (!matchesAF(item.data, af)) continue;
-      } else {
-        if (layers[item.type] === false) continue;
-      }
+  var searchSet = searchIds ? new Set(searchIds) : null;
+  var pts = [];
 
-      var lat = item.lat;
-      var lon = item.lon;
-      if (item.type === "aircraft" || item.type === "ships") {
-        var interp = getInterp(item.id);
-        if (interp) {
-          lat = interp.lat;
-          lon = interp.lon;
-        }
-      }
-
-      var pt = projFn(lat, lon);
-      if (pt.z <= 0) continue;
-      pts.push({ x: pt.x, y: pt.y, z: pt.z, item: item });
+  for (var i = 0; i < data.length; i++) {
+    var item = data[i];
+    if (searchSet && !searchSet.has(item.id)) continue;
+    if (isoMode === "solo") {
+      if (item.id !== isoId) continue;
+    } else if (isoMode === "focus") {
+      if (isolatedType && item.type !== isolatedType) continue;
     }
 
-    // Sort in globe mode only
-    if (pts.length > 1 && pts[0].z !== 1) {
-      pts.sort(function (a, b) {
-        return a.z - b.z;
-      });
+    if (item.type === "aircraft") {
+      if (!matchesAF(item.data, af)) continue;
+    } else {
+      if (layers[item.type] === false) continue;
     }
 
-    // ── Apply clip region ─────────────────────────────────────────
-    var clip = p.clip;
-    if (clip) {
-      ctx.save();
-      ctx.beginPath();
-      if (clip.type === "globe") {
-        ctx.arc(clip.cx, clip.cy, clip.r, 0, Math.PI * 2);
-      } else {
-        ctx.rect(clip.mx, clip.my, clip.mW, clip.mH);
+    var lat = item.lat,
+      lon = item.lon;
+    if (item.type === "aircraft" || item.type === "ships") {
+      var interp = getInterp(item.id);
+      if (interp) {
+        lat = interp.lat;
+        lon = interp.lon;
       }
-      ctx.clip();
     }
 
-    // ── Draw trail ──────────────────────────────────────────────
-    var hitTargets = drawTrail(projFn, selectedItem, colors, t) || [];
+    var pt = projFn(lat, lon);
+    if (pt.z <= 0) continue;
+    pts.push({ x: pt.x, y: pt.y, z: pt.z, item: item });
+  }
 
-    ctx.globalAlpha = 1;
+  if (pts.length > 1 && pts[0].z !== 1) {
+    pts.sort(function (a, b) {
+      return a.z - b.z;
+    });
+  }
 
-    // ── Draw points ─────────────────────────────────────────────
-    for (var i = 0; i < pts.length; i++) {
-      var pt = pts[i];
-      var x = pt.x,
-        y = pt.y,
-        z = pt.z,
-        item = pt.item;
-      var baseColor = colorMap[item.type] || colors.accent;
-      var depthAlpha = 0.4 + z * 0.6;
-      var isSel = item.id === selId;
+  // ── Draw trail ────────────────────────────────────────────────
+  var hitTargets = drawTrail(ctx, projFn, selectedItem, colors, t);
+  ctx.globalAlpha = 1;
 
-      // ── Quakes ────────────────────────────────────────────
-      if (item.type === "quakes") {
-        var mag = (item.data && item.data.magnitude) || 0;
-        var af2 = quakeAgeFactor(item.timestamp);
-        var qc = quakeColor(af2, baseColor);
-        var s = quakeSize(mag);
-        if (isSel) s *= 1.8;
+  // ── Draw points ───────────────────────────────────────────────
+  for (var i = 0; i < pts.length; i++) {
+    var pt = pts[i];
+    var x = pt.x,
+      y = pt.y,
+      z = pt.z,
+      item = pt.item;
+    var baseColor = colorMap[item.type] || colors.accent;
+    var depthAlpha = 0.4 + z * 0.6;
+    var isSel = item.id === selId;
 
-        if (mag > 2.5) {
-          var pi = Math.min(1, (mag - 2.5) / 4.5);
-          var pulse =
-            1 +
-            Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) *
-              (0.15 + pi * 0.35);
-          var gr = s * (3 + pi * 2) * pulse;
-          var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-          g.addColorStop(0, qc + "50");
-          g.addColorStop(1, qc + "00");
-          ctx.fillStyle = g;
-          ctx.globalAlpha = depthAlpha * af2 * 0.7;
-          ctx.beginPath();
-          ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.globalAlpha = depthAlpha * af2;
-        ctx.fillStyle = qc;
-        ctx.beginPath();
-        ctx.arc(x, y, s, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isSel) {
-          ctx.globalAlpha = 0.85;
-          ctx.strokeStyle = qc;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
-      // ── Events ────────────────────────────────────────────
-      if (item.type === "events") {
-        var sev = (item.data && item.data.severity) || 1;
-        var af2 = eventAgeFactor(item.timestamp);
-        var ec = eventColor(af2, baseColor);
-        var s = eventSize(sev);
-        if (isSel) s *= 1.8;
-
-        if (sev >= 3) {
-          var pi = Math.min(1, (sev - 2) / 3);
-          var pulse =
-            1 +
-            Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
-              (0.15 + pi * 0.3);
-          var gr = s * (3 + pi * 1.5) * pulse;
-          var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-          g.addColorStop(0, ec + "40");
-          g.addColorStop(1, ec + "00");
-          ctx.fillStyle = g;
-          ctx.globalAlpha = depthAlpha * af2 * 0.6;
-          ctx.beginPath();
-          ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.globalAlpha = depthAlpha * af2;
-        ctx.fillStyle = ec;
-        ctx.beginPath();
-        ctx.arc(x, y, s, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isSel) {
-          ctx.globalAlpha = 0.85;
-          ctx.strokeStyle = ec;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
-      // ── Ships ─────────────────────────────────────────────
-      if (item.type === "ships") {
-        var s = 3.5;
-        if (isSel) s *= 1.8;
-
-        ctx.globalAlpha = depthAlpha;
-        ctx.fillStyle = baseColor;
-
-        var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
-        var hw = s * 0.7;
-        ctx.beginPath();
-        ctx.moveTo(x + Math.sin(a) * s * 1.4, y - Math.cos(a) * s * 1.4);
-        ctx.lineTo(
-          x + Math.sin(a + Math.PI / 2) * hw,
-          y - Math.cos(a + Math.PI / 2) * hw,
-        );
-        ctx.lineTo(
-          x + Math.sin(a + Math.PI) * s * 0.8,
-          y - Math.cos(a + Math.PI) * s * 0.8,
-        );
-        ctx.lineTo(
-          x + Math.sin(a - Math.PI / 2) * hw,
-          y - Math.cos(a - Math.PI / 2) * hw,
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        if (isSel) {
-          ctx.globalAlpha = 0.85;
-          ctx.strokeStyle = baseColor;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
-      // ── Aircraft ──────────────────────────────────────────
-      var s = 4;
+    if (item.type === "quakes") {
+      var mag = (item.data && item.data.magnitude) || 0;
+      var af2 = quakeAgeFactor(item.timestamp);
+      var qc = quakeColor(af2, baseColor);
+      var s = quakeSize(mag);
       if (isSel) s *= 1.8;
-
-      ctx.globalAlpha = depthAlpha;
-      var status = item.data && item.data.squawkStatus;
-      ctx.fillStyle =
-        status === "emergency"
-          ? "#ff3333"
-          : status === "radio_failure"
-            ? "#ff8800"
-            : status === "hijack"
-              ? "#cc44ff"
-              : baseColor;
-
-      var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
+      if (mag > 2.5) {
+        var pi = Math.min(1, (mag - 2.5) / 4.5);
+        var pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) *
+            (0.15 + pi * 0.35);
+        var gr = s * (3 + pi * 2) * pulse;
+        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, qc + "50");
+        g.addColorStop(1, qc + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * af2 * 0.7;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = depthAlpha * af2;
+      ctx.fillStyle = qc;
       ctx.beginPath();
-      ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
-      ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
-      ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = qc;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      continue;
+    }
+
+    if (item.type === "events") {
+      var sev = (item.data && item.data.severity) || 1;
+      var af2 = eventAgeFactor(item.timestamp);
+      var ec = eventColor(af2, baseColor);
+      var s = eventSize(sev);
+      if (isSel) s *= 1.8;
+      if (sev >= 3) {
+        var pi = Math.min(1, (sev - 2) / 3);
+        var pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
+            (0.15 + pi * 0.3);
+        var gr = s * (3 + pi * 1.5) * pulse;
+        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, ec + "40");
+        g.addColorStop(1, ec + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * af2 * 0.6;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = depthAlpha * af2;
+      ctx.fillStyle = ec;
+      ctx.beginPath();
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = ec;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      continue;
+    }
+
+    if (item.type === "ships") {
+      var s = 3.5;
+      if (isSel) s *= 1.8;
+      ctx.globalAlpha = depthAlpha;
+      ctx.fillStyle = baseColor;
+      var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
+      var hw = s * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.sin(a) * s * 1.4, y - Math.cos(a) * s * 1.4);
+      ctx.lineTo(
+        x + Math.sin(a + Math.PI / 2) * hw,
+        y - Math.cos(a + Math.PI / 2) * hw,
+      );
+      ctx.lineTo(
+        x + Math.sin(a + Math.PI) * s * 0.8,
+        y - Math.cos(a + Math.PI) * s * 0.8,
+      );
+      ctx.lineTo(
+        x + Math.sin(a - Math.PI / 2) * hw,
+        y - Math.cos(a - Math.PI / 2) * hw,
+      );
       ctx.closePath();
       ctx.fill();
-
       if (isSel) {
         ctx.globalAlpha = 0.85;
         ctx.strokeStyle = baseColor;
@@ -580,19 +816,81 @@ self.onmessage = function (e) {
         ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
         ctx.stroke();
       }
-    }
-    ctx.globalAlpha = 1;
-
-    // Restore clip
-    if (clip) {
-      ctx.restore();
+      ctx.globalAlpha = 1;
+      continue;
     }
 
-    // Transfer bitmap to main thread
-    var bitmap = canvas.transferToImageBitmap();
-    self.postMessage(
-      { type: "frame", bitmap: bitmap, hitTargets: hitTargets },
-      [bitmap],
-    );
+    // Aircraft
+    var s = 4;
+    if (isSel) s *= 1.8;
+    ctx.globalAlpha = depthAlpha;
+    var status = item.data && item.data.squawkStatus;
+    ctx.fillStyle =
+      status === "emergency"
+        ? "#ff3333"
+        : status === "radio_failure"
+          ? "#ff8800"
+          : status === "hijack"
+            ? "#cc44ff"
+            : baseColor;
+    var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
+    ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
+    ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
+    ctx.closePath();
+    ctx.fill();
+    if (isSel) {
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = baseColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
-};
+  ctx.globalAlpha = 1;
+
+  // ── Restore clip and draw rim/border ──────────────────────────
+  ctx.restore();
+
+  if (!isFlat) {
+    var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = colors.accent + "1f";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = colors.accent + "1a";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(fm.mx, fm.my, fm.mW, fm.mH);
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.dim;
+    var baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
+    ctx.font = baseFontSize + "px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    for (var lon = -120; lon <= 120; lon += 60) {
+      ctx.fillText(
+        Math.abs(lon) + "\u00B0" + (lon >= 0 ? "E" : "W"),
+        fm.cx + (lon / 180) * (fm.mW / 2),
+        fm.my + fm.mH + 13,
+      );
+    }
+    ctx.textAlign = "right";
+    for (var lat = -60; lat <= 60; lat += 30) {
+      ctx.fillText(
+        Math.abs(lat) + "\u00B0" + (lat >= 0 ? "N" : "S"),
+        fm.mx - 5,
+        fm.cy - (lat / 90) * (fm.mH / 2) + 3,
+      );
+    }
+  }
+
+  // Transfer bitmap
+  var bitmap = canvas.transferToImageBitmap();
+  self.postMessage({ type: "frame", bitmap: bitmap, hitTargets: hitTargets }, [
+    bitmap,
+  ]);
+}

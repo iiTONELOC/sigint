@@ -22,6 +22,7 @@ export function LiveTrafficPane() {
     chromeHidden,
     setChromeHidden,
     zoomToId,
+    setZoomToId,
     searchMatchIds,
     counts,
     activeCount,
@@ -31,6 +32,18 @@ export function LiveTrafficPane() {
   } = useData();
 
   const [panelSide, setPanelSide] = useState<"left" | "right">("right");
+
+  const handleSetIsolateMode = useCallback(
+    (mode: null | "solo" | "focus") => {
+      setIsolateMode(mode);
+      // Zoom to the selected point when entering Focus or Solo
+      if (mode && selectedCurrent) {
+        setZoomToId(selectedCurrent.id);
+        setTimeout(() => setZoomToId(null), 100);
+      }
+    },
+    [setIsolateMode, setZoomToId, selectedCurrent],
+  );
 
   const handleSelect = useCallback(
     (item: DataPoint | null) => {
@@ -89,7 +102,7 @@ export function LiveTrafficPane() {
           item={selectedCurrent}
           onClose={handleClose}
           isolateMode={isolateMode}
-          onSetIsolateMode={setIsolateMode}
+          onSetIsolateMode={handleSetIsolateMode}
           side={panelSide}
         />
       )}
