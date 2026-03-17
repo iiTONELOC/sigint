@@ -100,6 +100,33 @@ function getFireSize(frp: number): number {
   return 12;
 }
 
+// ── Weather severity helpers ─────────────────────────────────────────
+
+const WEATHER_SEVERITY_RANK: Record<string, number> = {
+  Extreme: 4,
+  Severe: 3,
+  Moderate: 2,
+  Minor: 1,
+  Unknown: 0,
+};
+
+function getWeatherSize(severity: string): number {
+  const rank = WEATHER_SEVERITY_RANK[severity] ?? 0;
+  if (rank >= 4) return 10;
+  if (rank >= 3) return 7;
+  if (rank >= 2) return 5;
+  if (rank >= 1) return 3.5;
+  return 2.5;
+}
+
+function getWeatherAlpha(severity: string): number {
+  const rank = WEATHER_SEVERITY_RANK[severity] ?? 0;
+  if (rank >= 4) return 1.0;
+  if (rank >= 3) return 0.9;
+  if (rank >= 2) return 0.75;
+  return 0.6;
+}
+
 // ── Main draw function ────────────────────────────────────────────────
 
 export function drawPoints(
@@ -121,6 +148,7 @@ export function drawPoints(
     events: colors.events,
     quakes: colors.quakes,
     fires: colors.fires ?? "#ff6600",
+    weather: colors.weather ?? "#aa66ff",
   };
 
   // O(1) — selected is already the isolated item when isolateMode is active
@@ -380,6 +408,58 @@ export function drawPoints(
       if (isSel) {
         ctx.globalAlpha = 0.85;
         ctx.strokeStyle = fireColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // ── Weather rendering (severity-based diamond) ────────────────
+    if (item.type === "weather") {
+      const severity = (item as any).data?.severity ?? "Unknown";
+      const sevAlpha = getWeatherAlpha(severity);
+      let s = getWeatherSize(severity);
+      if (isSel) s *= 1.8;
+
+      const rank = WEATHER_SEVERITY_RANK[severity] ?? 0;
+
+      // Pulse glow for severe/extreme
+      if (rank >= 3) {
+        const pulseIntensity = Math.min(1, (rank - 2) / 2);
+        const pulse =
+          1 +
+          Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
+            (0.15 + pulseIntensity * 0.35);
+        const gr = s * (3 + pulseIntensity * 2) * pulse;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, baseColor + "50");
+        g.addColorStop(1, baseColor + "00");
+        ctx.fillStyle = g;
+        ctx.globalAlpha = depthAlpha * sevAlpha * 0.7;
+        ctx.beginPath();
+        ctx.arc(x, y, gr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Core — diamond shape
+      ctx.globalAlpha = depthAlpha * sevAlpha;
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 1.2);
+      ctx.lineTo(x + s * 0.8, y);
+      ctx.lineTo(x, y + s * 1.2);
+      ctx.lineTo(x - s * 0.8, y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Selection ring
+      if (isSel) {
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = baseColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);

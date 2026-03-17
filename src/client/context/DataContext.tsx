@@ -19,6 +19,7 @@ import { useEarthquakeData } from "@/features/environmental/earthquake";
 import { useEventData } from "@/features/intel/events";
 import { useShipData } from "@/features/tracking/ships";
 import { useFireData } from "@/features/environmental/fires";
+import { useWeatherData } from "@/features/environmental/weather";
 import {
   selectActiveCount,
   selectLayerCounts,
@@ -114,6 +115,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     events: true,
     quakes: true,
     fires: true,
+    weather: true,
   });
   const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
     getInitialAircraftFilter(),
@@ -141,10 +143,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const { data: fireData, dataSource: fireSource } = useFireData();
 
+  const { data: weatherData, dataSource: weatherSource } = useWeatherData();
+
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
-    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData],
-    [aircraftData, shipData, earthquakeData, eventData, fireData],
+    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData],
+    [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData],
   );
 
   // ── ID Map — O(1) lookup by id ─────────────────────────────────
@@ -196,8 +200,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "events", label: "GDELT", status: eventSource },
       { id: "ships", label: "SHIPS", status: shipSource },
       { id: "fires", label: "FIRMS", status: fireSource },
+      { id: "weather", label: "NOAA", status: weatherSource },
     ],
-    [dataSource, earthquakeSource, eventSource, shipSource, fireSource],
+    [dataSource, earthquakeSource, eventSource, shipSource, fireSource, weatherSource],
   );
 
   // ── Filters ────────────────────────────────────────────────────
@@ -208,6 +213,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       events: { enabled: layers.events ?? true, minSeverity: 0 },
       quakes: { enabled: layers.quakes ?? true, minMagnitude: 0 },
       fires: { enabled: layers.fires ?? true, minConfidence: 0 },
+      weather: { enabled: layers.weather ?? true, minSeverity: 0 },
     }),
     [aircraftFilter, layers],
   );

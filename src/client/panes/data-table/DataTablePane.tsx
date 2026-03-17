@@ -33,6 +33,8 @@ function getName(item: DataPoint): string {
       return (d.location as string) || item.id;
     case "fires":
       return d.frp ? `FRP ${(d.frp as number).toFixed(1)} MW` : "Fire hotspot";
+    case "weather":
+      return (d.event as string) || (d.headline as string) || "Weather Alert";
     default:
       //@ts-ignore
       return item.id;
@@ -52,6 +54,8 @@ function getValue1(item: DataPoint): string {
       return d.magnitude != null ? `M${d.magnitude}` : "";
     case "fires":
       return (d.confidence as string)?.toUpperCase() || "";
+    case "weather":
+      return (d.severity as string) || "";
     default:
       return "";
   }
@@ -66,6 +70,10 @@ function getValue1Num(item: DataPoint): number {
       return (d.severity as number) ?? 0;
     case "fires":
       return (d.frp as number) ?? 0;
+    case "weather": {
+      const sev: Record<string, number> = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1 };
+      return sev[(d.severity as string) ?? ""] ?? 0;
+    }
     default:
       return 0;
   }
@@ -92,6 +100,8 @@ function getValue2(item: DataPoint): string {
       const bri = d.brightness as number | undefined;
       return bri != null ? `${bri.toFixed(0)} K` : "";
     }
+    case "weather":
+      return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
     default:
       return "";
   }
@@ -108,6 +118,8 @@ function getValue2Num(item: DataPoint): number {
       return (d.depth as number) ?? 0;
     case "fires":
       return (d.brightness as number) ?? 0;
+    case "weather":
+      return 0;
     default:
       return 0;
   }
@@ -313,6 +325,7 @@ export function DataTablePane() {
     events: "EVT",
     quakes: "EQ",
     fires: "FI",
+    weather: "WX",
   };
 
   // ── Render ──────────────────────────────────────────────────────

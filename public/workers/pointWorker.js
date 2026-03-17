@@ -98,6 +98,18 @@ function fireSize(frp) {
   return frp < 1 ? 2 : frp < 5 ? 2.5 : frp < 10 ? 3.5 : frp < 25 ? 5 : frp < 50 ? 7 : frp < 100 ? 9.5 : 12;
 }
 
+// ── Weather severity helpers ────────────────────────────────────
+
+var WEATHER_SEV_RANK = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1, Unknown: 0 };
+function weatherSize(sev) {
+  var r = WEATHER_SEV_RANK[sev] || 0;
+  return r >= 4 ? 10 : r >= 3 ? 7 : r >= 2 ? 5 : r >= 1 ? 3.5 : 2.5;
+}
+function weatherAlpha(sev) {
+  var r = WEATHER_SEV_RANK[sev] || 0;
+  return r >= 4 ? 1.0 : r >= 3 ? 0.9 : r >= 2 ? 0.75 : 0.6;
+}
+
 // ── Aircraft filter ─────────────────────────────────────────────────
 
 function matchesAF(d, f) {
@@ -454,6 +466,7 @@ function renderFrame() {
     events: colors.events,
     quakes: colors.quakes,
     fires: colors.fires || "#ff6600",
+    weather: colors.weather || "#aa66ff",
   };
 
   var projFn;
@@ -606,6 +619,33 @@ function renderFrame() {
       ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.fill();
       if (isSel) {
         ctx.globalAlpha = 0.85; ctx.strokeStyle = fc; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1; continue;
+    }
+
+    if (item.type === "weather") {
+      var wsev = (item.data && item.data.severity) || "Unknown";
+      var walpha = weatherAlpha(wsev);
+      var s = weatherSize(wsev);
+      if (isSel) s *= 1.8;
+      var wrank = WEATHER_SEV_RANK[wsev] || 0;
+      if (wrank >= 3) {
+        var pi = Math.min(1, (wrank - 2) / 2);
+        var pulse = 1 + Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) * (0.15 + pi * 0.35);
+        var gr = s * (3 + pi * 2) * pulse;
+        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
+        g.addColorStop(0, baseColor + "50"); g.addColorStop(1, baseColor + "00");
+        ctx.fillStyle = g; ctx.globalAlpha = depthAlpha * walpha * 0.7;
+        ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = depthAlpha * walpha; ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 1.2); ctx.lineTo(x + s * 0.8, y);
+      ctx.lineTo(x, y + s * 1.2); ctx.lineTo(x - s * 0.8, y);
+      ctx.closePath(); ctx.fill();
+      if (isSel) {
+        ctx.globalAlpha = 0.85; ctx.strokeStyle = baseColor; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.globalAlpha = 1; continue;
