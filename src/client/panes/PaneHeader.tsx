@@ -32,7 +32,7 @@ export function PaneHeader({
 
   return (
     <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 bg-sig-panel/80 border-b border-sig-border/40 select-none">
-      <Icon size={11} strokeWidth={2.5} className="text-sig-accent shrink-0" />
+      <Icon size={14} strokeWidth={2.5} className="text-sig-accent shrink-0" />
       <span className="text-sig-accent tracking-wider text-(length:--sig-text-sm) font-semibold">
         {label}
       </span>
@@ -42,37 +42,37 @@ export function PaneHeader({
       {onMoveLeft && (
         <button
           onClick={onMoveLeft}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
           title={isHoriz ? "Move left" : "Move up"}
         >
-          <MoveBackIcon size={11} strokeWidth={2.5} />
+          <MoveBackIcon size={14} strokeWidth={2.5} />
         </button>
       )}
       {onMoveRight && (
         <button
           onClick={onMoveRight}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
           title={isHoriz ? "Move right" : "Move down"}
         >
-          <MoveFwdIcon size={11} strokeWidth={2.5} />
+          <MoveFwdIcon size={14} strokeWidth={2.5} />
         </button>
       )}
 
       <button
         onClick={onMinimize}
-        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+        className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-w-9 min-h-9 flex items-center justify-center"
         title="Minimize"
       >
-        <Minus size={11} strokeWidth={2.5} />
+        <Minus size={14} strokeWidth={2.5} />
       </button>
 
       {onClose && (
         <button
           onClick={onClose}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
+          className="p-1.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors min-w-9 min-h-9 flex items-center justify-center"
           title="Close"
         >
-          <X size={11} strokeWidth={2.5} />
+          <X size={14} strokeWidth={2.5} />
         </button>
       )}
     </div>

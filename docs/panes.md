@@ -57,18 +57,20 @@ When `chromeHidden` is true, the PaneManager toolbar and pane headers are hidden
 
 `panes/live-traffic/LiveTrafficPane.tsx` — the globe pane.
 
-Reads everything from `useData()`. Only local state is `panelSide` (which side the detail panel renders on, driven by the globe's render loop).
+Reads everything from `useData()`. Only local state is `panelSide` (which side the detail panel renders on, driven by the globe's render loop with hysteresis).
 
 Renders:
 
-- `GlobeVisualization` — full-size Canvas 2D
-- `DetailPanel` — auto-positions opposite selected item
+- `GlobeVisualization` — full-size Canvas 2D with Web Worker point rendering
+- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis
 - `LayerLegend` — bottom-left layer counts
 - `StatusBadge` — bottom-right data source status
 
-All four are gated on `chromeHidden` except the globe itself.
+Passes `spatialGrid` and `filteredIds` from DataContext to GlobeVisualization for O(1) click/hover lookups.
 
-Clicking a data point while chrome is hidden selects it AND unhides chrome.
+All four overlays are gated on `chromeHidden` except the globe itself.
+
+Selecting a data point stops auto-rotation, unhides chrome if hidden.
 
 ---
 
@@ -106,6 +108,7 @@ Data is first filtered through each feature's `matchesFilter()` (respects layer 
 - Click a row → `setSelected(item)` — selects on globe, opens detail panel
 - Click crosshair button → `setSelected(item)` + `setZoomToId(item.id)` — selects AND zooms to on globe
 - Selected row is highlighted (synced with globe selection)
+- **Auto-scroll**: When selection changes from an external source (ticker click, globe click), the table auto-scrolls to bring the selected row into view. If already visible, no scroll occurs.
 
 ---
 
@@ -113,6 +116,17 @@ Data is first filtered through each feature's `matchesFilter()` (respects layer 
 
 `panes/PaneHeader.tsx` — thin header bar rendered above each pane when multiple panes are open.
 
-Shows: feature icon + label, move left/right chevrons, minimize button, close button. Direction-aware (chevrons show left/right for horizontal, up/down for vertical).
+Shows: feature icon + label, move left/right chevrons, minimize button, close button. Direction-aware (chevrons show left/right for horizontal, up/down for vertical). All buttons have 36px minimum touch targets (14px icons with padding).
 
 Not shown when only one pane is open and nothing is minimized.
+
+---
+
+## Mobile Layout
+
+Under 768px, PaneManager switches to single-pane mode with tab switching. Mobile-specific adaptations:
+
+- Tab buttons and add-pane button have 40px minimum touch targets
+- Add-pane button positioned before the flex spacer (always visible, not pushed off-screen)
+- Add-pane dropdown items have 44px minimum touch targets
+- Detail panel renders as a compact bottom sheet (28vh max) with a drag handle affordance

@@ -2,7 +2,7 @@
 
 [← Back to Docs Index](./README.md)
 
-**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D | **Last updated**: March 2026
+**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker | **Last updated**: March 2026
 
 **Related docs**: [Data Flow](./data-flow.md) · [Feature System](./features.md) · [Pane System](./panes.md) · [Rendering](./rendering.md)
 
@@ -12,18 +12,25 @@
 
 SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), and live AIS vessel positions (via aisstream.io) onto an interactive globe or flat map projection. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
 
+The rendering pipeline uses a two-layer architecture: the main thread renders a cached static layer (land, ocean, grid) on an offscreen canvas, while a dedicated Web Worker handles all data point projection, interpolation, filtering, and drawing on a separate CPU core via OffscreenCanvas. The main thread composites both layers each frame.
+
 ```mermaid
 graph TB
     subgraph Browser
         SPA["React SPA<br/>(App → DataProvider → AppShell)"]
-        Canvas["Canvas 2D<br/>Render Loop"]
+        MainCanvas["Main Canvas<br/>(composite only)"]
+        StaticOSC["Offscreen Canvas<br/>(land/ocean/grid — cached)"]
+        Worker["Web Worker<br/>(pointWorker.js — OffscreenCanvas)"]
         IDB["IndexedDB<br/>(sigint-cache)"]
         AircraftProv["AircraftProvider"]
         QuakeProv["EarthquakeProvider"]
         GdeltProv["GdeltProvider"]
         ShipProv["ShipProvider"]
 
-        SPA -->|"props via propsRef"| Canvas
+        SPA -->|"props via propsRef"| MainCanvas
+        MainCanvas -->|"drawImage"| StaticOSC
+        MainCanvas -->|"drawImage bitmap"| Worker
+        SPA -->|"data + camera msgs"| Worker
         SPA -->|"useAircraftData hook"| AircraftProv
         SPA -->|"useEarthquakeData hook"| QuakeProv
         SPA -->|"useEventData hook"| GdeltProv
@@ -66,8 +73,8 @@ AIS data from aisstream.io requires an API key and does not support browser CORS
 | Route | Method | Auth | Rate Limit | Purpose |
 |-------|--------|------|------------|---------|
 | `/api/auth/token` | GET | None | 60 req/min per IP | Issues a signed token (HMAC-SHA256, 30 min TTL) |
-| `/api/events/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached GDELT events as GeoJSON |
-| `/api/ships/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached AIS vessel positions |
+| `/api/events/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached GDELT events (gzip compressed) |
+| `/api/ships/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
 | `/api/aircraft/metadata/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Single aircraft metadata lookup |
 | `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
 
@@ -121,13 +128,21 @@ Token auth and rate limiting prevent the API from being abused as an open proxy.
 ## Directory Structure
 
 ```
+public/
+  workers/
+    pointWorker.js                    Web Worker — point rendering on OffscreenCanvas
+  data/
+    ne_50m_land.json                  HD coastline geometry
+  fonts/
+    jetbrains-mono/                   JetBrains Mono woff2 files
+  fonts.css                           Font-face declarations
 src/
   index.html                          Entry HTML
   server/
-    index.ts                          Dev server (Bun, HMR) — calls startGdeltPolling + startAisPolling
-    index.prod.ts                     Prod server — calls startGdeltPolling + startAisPolling
+    index.ts                          Dev server (Bun, HMR) — routes: fonts, data, workers, API, SPA
+    index.prod.ts                     Prod server — routes: fonts, data, workers, API, dist
     api/
-      index.ts                        API route registration (aircraft, auth, events, ships)
+      index.ts                        API route registration + gzip response helper
       auth.ts                         Token generation/verification + per-IP rate limiting
       aircraftMetadata.ts             Metadata lookup from ac-db.ndjson
       gdeltCache.ts                   GDELT fetch, parse, in-memory cache
@@ -136,20 +151,20 @@ src/
       ac-db.ndjson                    Local aircraft database (~180k records)
   client/
     App.tsx                           Thin shell — DataProvider → AppShell
-    AppShell.tsx                      Layout: Header + PaneManager + Ticker
+    AppShell.tsx                      Layout: Header + PaneManager + Ticker (wires ticker click → select + zoom)
     frontend.tsx                      React DOM entry point (async boot with cacheInit)
     config/
       theme.ts                        Color definitions, ThemeColors type, getColorMap()
     context/
       ThemeContext.tsx                 Theme provider (dark/light)
-      DataContext.tsx                  Shared data context — all app state lives here
+      DataContext.tsx                  Shared data context — all app state, idMap, spatialGrid, filteredIds
     panes/
       PaneManager.tsx                 Multi-pane layout engine (grid, resize, minimize, mobile tabs)
       PaneHeader.tsx                  Pane header bar (title, controls, rearrange)
       live-traffic/
         LiveTrafficPane.tsx           Globe + overlays (detail panel, legend, status badge)
       data-table/
-        DataTablePane.tsx             Virtual-scrolling sortable/filterable data table
+        DataTablePane.tsx             Virtual-scrolling sortable/filterable data table (auto-scrolls to selection)
     features/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
@@ -163,7 +178,7 @@ src/
           lib/                        filterUrl, utils
         ships/                        Live data — aisstream.io AIS
           index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         ShipTickerContent
+          ui/                         ShipTickerContent (3-line detail with mph conversion)
           hooks/                      useShipData
           data/                       ShipProvider
       environmental/
@@ -181,13 +196,18 @@ src/
       registry.tsx                    Feature registry (imports all definitions)
     components/
       globe/                          Canvas 2D visualization (modular)
-        GlobeVisualization.tsx        Shell: refs, render loop, effects, tooltip
-        types.ts, projection.ts, landRenderer.ts, gridRenderer.ts
-        pointRenderer.ts, cameraSystem.ts, inputHandlers.ts
+        GlobeVisualization.tsx        Shell: refs, render loop, worker lifecycle, static layer, composite
+        types.ts                      Shared types + SpatialGrid prop types
+        projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
+        landRenderer.ts               Coastline polygons, globe clipping
+        gridRenderer.ts               Lat/lon grid lines
+        pointRenderer.ts              Legacy — rendering logic now in Web Worker
+        cameraSystem.ts               Lock-on follow, lerp, shortest-path rotation, auto-rotate
+        inputHandlers.ts              Mouse, touch, wheel, keyboard + spatial grid click/hover
       Search.tsx                      Global search with zoom-to
       Header.tsx                      Top bar: logo, search, toggles, controls, clock
-      DetailPanel.tsx                 Selected item detail with intel links
-      Ticker.tsx                      Bottom live feed scroll
+      DetailPanel.tsx                 Selected item detail with intel links (hysteresis side, compact mobile)
+      Ticker.tsx                      Bottom live feed scroll (clickable items → select + zoom)
       LayerLegend.tsx                 Bottom-left layer counts
       StatusBadge.tsx                 Dynamic data source status
       styles.tsx                      Canvas-only constants
@@ -196,7 +216,8 @@ src/
       storageService.ts               IndexedDB-backed cache
       trailService.ts                 Position recording, interpolation, trails
       landService.ts                  HD coastline data fetch + cache
-      tickerFeed.ts                   Builds ticker items from filtered data (round-robin interleave, recency sorted)
+      spatialIndex.ts                 Grid-based spatial hash + inverse projection for click/hover
+      tickerFeed.ts                   Ticker items — round-robin interleave, non-moving filtered out
       uiSelectors.ts                  Derived counts, active totals, country lists
     data/
       mockData.ts                     Mock aircraft (fallback only — no mock ships)
@@ -222,12 +243,12 @@ graph TD
     PM --> LTP["LiveTrafficPane<br/><i>Globe + overlays</i>"]
     PM --> DTP["DataTablePane<br/><i>Virtual-scrolling table</i>"]
 
-    LTP --> GlobeViz["globe/<br/><i>Canvas 2D, ResizeObserver</i>"]
+    LTP --> GlobeViz["globe/<br/><i>Main thread: camera, static layer<br/>Worker: point rendering</i>"]
     LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions, intel links</i>"]
     LTP --> LayerLegend["LayerLegend"]
     LTP --> StatusBadge["StatusBadge"]
 
-    AppShell --> Ticker["Ticker<br/><i>Bottom bar, live feed</i>"]
+    AppShell --> Ticker["Ticker<br/><i>Clickable items, live feed</i>"]
 ```
 
 ### State Architecture
@@ -235,11 +256,11 @@ graph TD
 All shared state lives in `DataContext`, exposed via `useData()`. There is no external state management library.
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
-- **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes.
-- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px.
-- **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`.
-- **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally.
+- **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`. Wires ticker click → setSelected + setZoomToId.
+- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
+- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
+- **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
+- **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Auto-scrolls to selected item when selection changes from external source (ticker, globe).
 
 ### Chrome Visibility
 

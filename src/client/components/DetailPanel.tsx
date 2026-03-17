@@ -164,7 +164,7 @@ function ModeButton({
     <button
       onClick={onClick}
       title={label}
-      className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-all text-[10px] tracking-wide ${
+      className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-[10px] tracking-wide min-h-9 ${
         active ? "border" : "text-sig-dim border border-sig-bright/20"
       }`}
       style={
@@ -245,7 +245,7 @@ function PanelContent({
           />
           <span
             onClick={onClose}
-            className="cursor-pointer text-[15px] leading-none select-none ml-1 text-sig-dim"
+            className="cursor-pointer text-[18px] leading-none select-none ml-1 text-sig-dim min-w-11 min-h-11 flex items-center justify-center"
           >
             ✕
           </span>

@@ -1,5 +1,9 @@
 import { enrichLand } from "@/lib/landService";
-import { getInterpolatedPosition, type TrailPoint } from "@/lib/trailService";
+import {
+  getInterpolatedPosition,
+  getTrail,
+  type TrailPoint,
+} from "@/lib/trailService";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import type {
@@ -12,7 +16,6 @@ import type {
 import { getFlatMetrics, projGlobe, projFlat } from "./projection";
 import { drawLand } from "./landRenderer";
 import { drawGrid } from "./gridRenderer";
-import { drawPoints } from "./pointRenderer";
 import { updateCamera } from "./cameraSystem";
 import {
   createInputHandlers,
@@ -124,6 +127,21 @@ export function GlobeVisualization({
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
   const lastStaticFpRef = useRef("");
 
+  // ── Point rendering worker ──────────────────────────────────────
+  const workerRef = useRef<Worker | null>(null);
+  const workerCanvasRef = useRef<OffscreenCanvas | null>(null);
+  const latestBitmapRef = useRef<ImageBitmap | null>(null);
+  const workerBusyRef = useRef(false);
+  const trailSyncRef = useRef(0);
+
+  // Track what was last sent to worker — skip re-sending heavy data
+  const lastSentDataRef = useRef<DataPoint[] | null>(null);
+  const lastSentSelRef = useRef<string | null>(null);
+  const lastSentIsoRef = useRef<string | null>(null);
+  const lastSentSearchRef = useRef<Set<string> | null>(null);
+  const lastSentLayersRef = useRef<string>("");
+  const lastSentFilterRef = useRef<string>("");
+
   // ── Progressive render limit ────────────────────────────────────
   const prevDataRef = useRef<DataPoint[] | null>(null);
   const renderLimitRef = useRef(0);
@@ -170,6 +188,51 @@ export function GlobeVisualization({
     const canvas = canvasRef.current;
     if (!canvas) return;
     let running = true;
+
+    // ── Initialize point rendering worker ────────────────────────
+    if (!workerRef.current) {
+      const worker = new Worker("/workers/pointWorker.js");
+      workerRef.current = worker;
+
+      // Create OffscreenCanvas for the worker
+      const osc = new OffscreenCanvas(
+        canvas.width || 800,
+        canvas.height || 600,
+      );
+      workerCanvasRef.current = osc;
+      worker.postMessage({ type: "init", canvas: osc }, [osc]);
+
+      worker.onmessage = (e: MessageEvent) => {
+        if (e.data.type === "frame") {
+          // Dispose previous bitmap
+          if (latestBitmapRef.current) {
+            latestBitmapRef.current.close();
+          }
+          latestBitmapRef.current = e.data.bitmap;
+          workerBusyRef.current = false;
+
+          // Store trail hit targets for click detection
+          if (e.data.hitTargets && canvasRef.current) {
+            (canvasRef.current as any).__trailHitTargets = e.data.hitTargets;
+          }
+
+          // Composite both layers on the same frame
+          const mainCanvas = canvasRef.current;
+          const staticCanvas = offscreenRef.current;
+          if (mainCanvas && staticCanvas && latestBitmapRef.current) {
+            const mainCtx = mainCanvas.getContext("2d");
+            if (mainCtx) {
+              // Clear at physical pixel size (canvas.width/height includes DPR)
+              mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+              mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+              // Both static layer and worker bitmap are at physical pixel size
+              mainCtx.drawImage(staticCanvas, 0, 0);
+              mainCtx.drawImage(latestBitmapRef.current, 0, 0);
+            }
+          }
+        }
+      };
+    }
 
     enrichLand(() => {
       // Land loaded — invalidate offscreen cache
@@ -405,62 +468,138 @@ export function GlobeVisualization({
         }
       }
 
-      // ── Composite: blit cached static layer, draw points on top ──
-      ctx.clearRect(0, 0, W, H);
-      // drawImage with matching canvas dimensions is a single GPU blit
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(osc, 0, 0);
-      const dpr = canvas.width / W || 1;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // ── Draw static layer to offscreen (camera update already done) ──
+      // The actual composite to screen happens in the worker onmessage
+      // callback so both layers paint on the same frame.
 
-      if (!isFlat) {
-        const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-        const proj: ProjFn = (lat, lon) =>
-          projGlobe(lat, lon, cx, cy, r, cam.rotY, cam.rotX);
-        drawPoints(
-          ctx,
-          renderData,
-          ly,
-          af,
-          sel,
-          iso,
-          isoMode,
-          proj,
-          t,
-          C,
-          sMatch,
-        );
-      } else {
-        const {
-          mW,
-          mH,
-          mx,
-          my,
-          cx: flatCx,
-          cy: flatCy,
-        } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-        const proj: ProjFn = (lat, lon) =>
-          projFlat(lat, lon, flatCx, flatCy, mW, mH);
+      // ── Send render job to worker ─────────────────────────────
+      const worker = workerRef.current;
+      if (worker && !workerBusyRef.current) {
+        workerBusyRef.current = true;
 
-        // Clip points to map rect
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(mx, my, mW, mH);
-        ctx.clip();
-        drawPoints(
-          ctx,
-          renderData,
-          ly,
-          af,
-          sel,
-          iso,
-          isoMode,
-          proj,
-          t,
-          C,
-          sMatch,
-        );
-        ctx.restore();
+        // Sync trail data periodically (~every 30 frames)
+        trailSyncRef.current++;
+        if (trailSyncRef.current >= 30) {
+          trailSyncRef.current = 0;
+          const trailEntries: Array<[string, any]> = [];
+          for (const item of renderData) {
+            if (item.type === "aircraft" || item.type === "ships") {
+              const trail = getTrail(item.id);
+              if (trail.length > 0) {
+                const last = trail[trail.length - 1]!;
+                trailEntries.push([
+                  item.id,
+                  {
+                    lat: last.lat,
+                    lon: last.lon,
+                    ts: last.ts,
+                    heading: (item as any).data?.heading ?? 0,
+                    speedMps: (item as any).data?.speedMps ?? 0,
+                  },
+                ]);
+              }
+            }
+          }
+          worker.postMessage({ type: "trails", entries: trailEntries });
+        }
+
+        // ── Detect data changes — only re-send heavy payload when needed ──
+        const selId = sel?.id ?? null;
+        const layersFp = JSON.stringify(ly);
+        const filterFp = `${af.enabled}|${af.showAirborne}|${af.showGround}|${af.squawks.size}|${af.countries.size}`;
+        const dataChanged =
+          renderData !== lastSentDataRef.current ||
+          selId !== lastSentSelRef.current ||
+          iso !== lastSentIsoRef.current ||
+          sMatch !== lastSentSearchRef.current ||
+          layersFp !== lastSentLayersRef.current ||
+          filterFp !== lastSentFilterRef.current;
+
+        if (dataChanged) {
+          // Heavy message — full data + filters + selection
+          const plainData = renderData.map((item) => ({
+            id: item.id,
+            type: item.type,
+            lat: item.lat,
+            lon: item.lon,
+            timestamp: item.timestamp,
+            data: (item as any).data,
+          }));
+
+          let selectedItem = null;
+          if (sel) {
+            const trail = getTrail(sel.id);
+            selectedItem = {
+              id: sel.id,
+              type: sel.type,
+              lat: sel.lat,
+              lon: sel.lon,
+              _trail: trail,
+            };
+          }
+
+          const searchIds = sMatch ? Array.from(sMatch) : null;
+
+          worker.postMessage({
+            type: "data",
+            payload: {
+              data: plainData,
+              layers: ly,
+              aircraftFilter: {
+                enabled: af.enabled,
+                showAirborne: af.showAirborne,
+                showGround: af.showGround,
+                squawks: Array.from(af.squawks),
+                countries: Array.from(af.countries),
+              },
+              selectedId: selId,
+              isolatedId: iso,
+              isolateMode: isoMode,
+              searchMatchIds: searchIds,
+              selectedItem,
+              colors: C,
+            },
+          });
+
+          lastSentDataRef.current = renderData;
+          lastSentSelRef.current = selId;
+          lastSentIsoRef.current = iso;
+          lastSentSearchRef.current = sMatch ?? null;
+          lastSentLayersRef.current = layersFp;
+          lastSentFilterRef.current = filterFp;
+        }
+
+        // ── Light message — camera + timing only (~50 bytes) ──
+        const dpr = canvas.width / W || 1;
+
+        let clip: any = null;
+        if (!isFlat) {
+          const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+          clip = { type: "globe", cx: W / 2, cy: H / 2, r: r - 0.5 };
+        } else {
+          const fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+          clip = { type: "flat", mx: fm.mx, my: fm.my, mW: fm.mW, mH: fm.mH };
+        }
+
+        worker.postMessage({
+          type: "frame",
+          payload: {
+            isFlat,
+            cam: {
+              rotY: cam.rotY,
+              rotX: cam.rotX,
+              zoomGlobe: cam.zoomGlobe,
+              zoomFlat: cam.zoomFlat,
+              panX: cam.panX,
+              panY: cam.panY,
+            },
+            W,
+            H,
+            dpr,
+            t,
+            clip,
+          },
+        });
       }
 
       // Update trail tooltip position if active
@@ -501,11 +640,21 @@ export function GlobeVisualization({
         }
       }
 
-      requestAnimationFrame(render);
+      // Always schedule next frame for camera updates + static layer.
+      // The actual composite to screen happens only in worker onmessage.
+      if (running) requestAnimationFrame(render);
     };
     requestAnimationFrame(render);
     return () => {
       running = false;
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+      if (latestBitmapRef.current) {
+        latestBitmapRef.current.close();
+        latestBitmapRef.current = null;
+      }
     };
   }, []);
 

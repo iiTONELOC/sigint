@@ -57,6 +57,11 @@ const server = serve({
       return servePublicFile(pathname);
     },
 
+    "/workers/*": async (req) => {
+      const { pathname } = new URL(req.url);
+      return servePublicFile(pathname);
+    },
+
     ...apiRoutes,
 
     "/*": async (req) => {

@@ -21,6 +21,7 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 | **Aircraft filter** | `aircraftFilter`, `setAircraftFilter` | Complex filter (squawks, countries, airborne/ground) |
 | **Filters** | `filters` | Unified filter map consumed by uiSelectors |
 | **Derived** | `counts`, `activeCount`, `tickerItems`, `availableCountries`, `dataSources` | Computed via useMemo |
+| **Spatial** | `idMap`, `spatialGrid`, `filteredIds` | O(1) selection lookup, spatial hash for click/hover, pre-computed filter set |
 | **View controls** | `flat`, `autoRotate`, `rotationSpeed` + setters | Globe-specific but toggled from Header |
 | **Chrome** | `chromeHidden`, `setChromeHidden` | Toggle all UI overlays |
 | **Search** | `searchMatchIds`, `handleSearchMatchIds`, `handleSearchSelect`, `handleSearchZoomTo` | Search filter + zoom |
@@ -39,8 +40,11 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 | `counts` | Data refresh or filter change |
 | `activeCount` | Data refresh or filter change |
 | `availableCountries` | Data refresh |
+| `idMap` | Data refresh |
+| `spatialGrid` | Data refresh |
+| `filteredIds` | Data refresh or filter change |
 
-`selectedCurrent` is notable: when data refreshes, the previously selected item's `DataPoint` object is replaced by a new one with the same `id`. `selectedCurrent` finds the updated version so the detail panel always shows fresh data.
+`selectedCurrent` is notable: when data refreshes, the previously selected item's `DataPoint` object is replaced by a new one with the same `id`. `selectedCurrent` uses `idMap.get()` for O(1) lookup of the updated version so the detail panel always shows fresh data.
 
 ---
 
@@ -180,4 +184,4 @@ flowchart TD
 
 ## Ticker Feed
 
-The live ticker at the bottom of the screen shows a round-robin interleave of the most recent items from each active data type. Items are sorted by recency within each type, then interleaved: one aircraft, one ship, one event, one quake, repeat. Emergency aircraft (squawk 7700/7600/7500) always appear first. The ticker cycles through 24 items, displaying 1-3 at a time depending on screen width, rotating every 6.5 seconds.
+The live ticker at the bottom of the screen shows a round-robin interleave of the most recent items from each active data type. Items are sorted by recency within each type, then interleaved: one aircraft, one ship, one event, one quake, repeat. Emergency aircraft (squawk 7700/7600/7500) always appear first. Grounded aircraft and moored ships (SOG < 0.5) are filtered out. The ticker cycles through 24 items, displaying 1-3 at a time depending on screen width, rotating every 6.5 seconds. Ticker items are clickable — clicking selects the item and zooms the globe to it.
