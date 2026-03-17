@@ -4,12 +4,7 @@ import { GdeltProvider } from "../data/provider";
 
 const gdeltProvider = new GdeltProvider();
 
-export type EventDataSource =
-  | "loading"
-  | "live"
-  | "cached"
-  | "error"
-  | "empty";
+export type EventDataSource = "loading" | "live" | "cached" | "error" | "empty";
 
 type UseEventDataResult = {
   data: DataPoint[];
@@ -39,9 +34,11 @@ export function useEventData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
+    const poll = async (isInitial = false) => {
       try {
-        const eventData = await gdeltProvider.refresh();
+        const eventData = isInitial
+          ? await gdeltProvider.getData()
+          : await gdeltProvider.refresh();
         if (!isMounted) return;
 
         const snapshot = gdeltProvider.getSnapshot();
@@ -69,7 +66,7 @@ export function useEventData(
     if (hydratedData && hydratedData.length > 0) {
       intervalId = setInterval(poll, pollInterval);
     } else {
-      poll();
+      poll(true);
       intervalId = setInterval(poll, pollInterval);
     }
 

@@ -6,7 +6,7 @@ import { authenticatedFetch } from "@/lib/authService";
 const SHIPS_URL = "/api/ships/latest";
 
 const CACHE_KEY = "sigint.ais.ship-cache.v1";
-const MAX_CACHE_AGE_MS = 5 * 60_000; // 5 min — matches poll interval
+const MAX_CACHE_AGE_MS = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
 
 // ── Server response shape ────────────────────────────────────────────
 

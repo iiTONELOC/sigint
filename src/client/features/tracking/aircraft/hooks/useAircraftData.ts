@@ -39,11 +39,14 @@ export function useAircraftData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async () => {
+    const poll = async (isInitial = false) => {
       try {
-        // Call refresh() directly — the poll interval IS our schedule,
-        // don't let the provider's internal cache cause stale data
-        const aircraftData = await aircraftProvider.refresh();
+        // Initial call uses getData() which deduplicates in-flight requests
+        // (prevents StrictMode double-mount from firing two API calls).
+        // Interval polls use refresh() to always get fresh data.
+        const aircraftData = isInitial
+          ? await aircraftProvider.getData()
+          : await aircraftProvider.refresh();
         if (!isMounted) return;
 
         const snapshot = aircraftProvider.getSnapshot();
@@ -76,7 +79,7 @@ export function useAircraftData(
     if (hydratedAircraft && hydratedAircraft.length > 0) {
       intervalId = setInterval(poll, pollInterval);
     } else {
-      poll();
+      poll(true);
       intervalId = setInterval(poll, pollInterval);
     }
 

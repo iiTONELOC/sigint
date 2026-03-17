@@ -42,6 +42,8 @@ In-memory, no external calls. For each DataPoint, calls `featureRegistry.get(typ
 | Ships | name, flag, vesselType |
 | Events | headline, category, source |
 | Quakes | location, magnitude, alert, eventType |
+| Fires | satellite, confidence, frp (as string) |
+| Weather | event, severity, headline, areaDesc |
 
 ---
 

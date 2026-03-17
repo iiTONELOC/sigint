@@ -16,23 +16,31 @@ The application uses a multi-pane layout managed by `PaneManager`. App-level chr
 
 `panes/PaneManager.tsx` is the layout engine sitting between AppShell and the pane components.
 
-### Layout
+### Layout — Binary Split Tree
 
-- CSS Grid with configurable direction (horizontal or vertical split)
-- Fractional sizes per pane (sum to 1), stored as `number[]`
-- Resize handles (4px) between panes — drag to resize with 15% minimum per pane
+The layout is a recursive binary split tree. Each node is either a leaf (renders a pane) or a split (two children with a direction and ratio):
+
+```typescript
+type LeafNode = { type: "leaf"; id: string; paneType: PaneType };
+type SplitNode = { type: "split"; id: string; direction: "h" | "v"; ratio: number; children: [LayoutNode, LayoutNode] };
+type LayoutNode = LeafNode | SplitNode;
+type LayoutState = { root: LayoutNode; minimized: { id: string; paneType: PaneType }[] };
+```
+
+Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridTemplateRows` (vertical) using fractional units. A 4px `ResizeHandle` sits between children.
+
 - Default layout: single globe pane, full screen
 
 ### Pane Operations
 
 | Operation | Behavior |
 |---|---|
-| **Add** | `+` button opens menu of available pane types. Only types not already open are shown. |
-| **Close** | X button removes the pane. Cannot close the last pane — falls back to default layout. |
+| **Split H / Split V** | Wraps the current leaf in a split node with a new pane as sibling. If only one type available, splits immediately; otherwise opens a dropdown menu. |
+| **Close** | X button removes the pane via `removeLeaf()`, promotes sibling. Cannot close the last pane — falls back to default layout. |
 | **Minimize** | Minus button collapses to a tab in the toolbar. Click tab to restore. |
-| **Rearrange** | Chevron buttons in pane headers swap positions. |
-| **Direction** | Toggle button switches between horizontal and vertical split. |
-| **Resize** | Drag the handle between panes. Minimum 15% per pane. |
+| **Change Type** | Click pane title → dropdown of all other pane types → swaps in place via `replaceNode()`. |
+| **Drag to Swap** | Drag grip handle on pane header → drop on another pane's header → `swapPanes()` exchanges their `paneType` values. Tree structure unchanged. |
+| **Resize** | Drag the handle between split children. Min ratio 0.1, max 0.9. Visual indicator line during drag. |
 
 ### Pane Types
 
@@ -42,12 +50,26 @@ The application uses a multi-pane layout managed by `PaneManager`. App-level chr
 | `data-table` | DataTablePane | 1 | Virtual-scrolling sortable/filterable table |
 | `dossier` | DossierPane | 1 | Entity dossier — aircraft photos/route, ship details, event/quake/fire info |
 | `intel-feed` | IntelFeedPane | 1 | Scrollable intel feed — GDELT events, quakes, fires with severity badges |
+| `alert-log` | AlertLogPane | 1 | Priority alerts — emergency squawks, high-FRP fires, severe weather, crisis events. Filter by type, sort by time/priority. |
+| `raw-console` | RawConsolePane | 1 | Raw data console — JSON view of incoming data streams |
+| `video-feed` | VideoFeedPane | 1 | Live HLS video streams — iptv-org news channels, grid layout, presets |
 
 Each type can only appear once (no duplicate globes).
 
 ### Persistence
 
-Layout state (pane configs, direction, sizes) is persisted to IndexedDB under key `sigint.layout.v2`. Restored on boot. Every layout change triggers a persist.
+Layout state (pane configs, split tree, ratios) is persisted under key `sigint.layout.v1`. Restored on boot. Every layout change triggers a persist. Invalid or corrupt layouts fall back to default (single globe pane).
+
+### Dossier Open Bridge
+
+`panes/paneLayoutContext.ts` provides a cross-component event system using `useSyncExternalStore`:
+
+- `setDossierOpen(bool)` — PaneManager signals whether a dossier pane exists in the tree
+- `useHasDossier()` — LiveTrafficPane reads to decide whether to show DetailPanel
+- `requestDossierOpen()` — DetailPanel fires this to ask PaneManager to add a dossier pane
+- `onDossierOpenRequest(cb)` — PaneManager listens and auto-splits the globe pane with a dossier at 75/25 ratio
+
+The listener uses `setLayout((prev) => ...)` functional form to avoid stale closures.
 
 ### Chrome Visibility
 
@@ -64,8 +86,8 @@ Reads everything from `useData()`. Only local state is `panelSide` (which side t
 Renders:
 
 - `GlobeVisualization` — full-size Canvas 2D with Web Worker point rendering
-- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis
-- `LayerLegend` — bottom-left layer counts
+- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis. Shows "OPEN IN DOSSIER" button when no dossier pane is open (fires `requestDossierOpen()`); shows intel links when dossier IS open. Header layout: label + close on top row, FOCUS/SOLO on their own row below.
+- `LayerLegend` — bottom-left layer counts. Items are clickable `<button>` elements that toggle layers via `toggleLayer`. Numbers right-aligned with `tabular-nums`. Disabled layers show at 50% opacity.
 - `StatusBadge` — bottom-right data source status
 
 Passes `spatialGrid` and `filteredIds` from DataContext to GlobeVisualization for O(1) click/hover lookups.
@@ -118,9 +140,7 @@ Data is first filtered through each feature's `matchesFilter()` (respects layer 
 
 `panes/PaneHeader.tsx` — thin header bar rendered above each pane.
 
-Shows: feature icon + label, split right (Columns2) and split down (Rows2) buttons, minimize button, close button. Split buttons open a dropdown menu if multiple pane types are available, or split immediately if only one type is available. All buttons have 36px minimum touch targets (14px icons with padding).
-
-Always shown (even on single pane) so split buttons are accessible.
+Shows: drag grip handle (GripVertical, left), clickable label with chevron (opens pane type dropdown for in-place swap), split right (Columns2) and split down (Rows2) buttons, minimize button, close button. All buttons have 36px minimum touch targets. Drop target highlight shows accent border when another pane is being dragged over.
 
 ---
 
@@ -139,6 +159,8 @@ Shows enriched data for the currently selected entity. Content varies by type:
 **Earthquakes**: Magnitude, depth, tsunami alert, felt reports, USGS detail link.
 
 **Fires**: FRP (fire radiative power), brightness temperature, confidence level, satellite/instrument, detection time (day/night), pixel size, intel links (NASA FIRMS map, Google Maps satellite).
+
+**Weather**: Severity, event type, area description, onset/expiry, headline.
 
 Server endpoint for aircraft: `/api/dossier/aircraft/:icao24?callsign=` — hexdb.io for aircraft info + route, planespotters.net for photos. Memory cache (30min text, 12h photos). Client-side IndexedDB cache under `sigint.dossier.cache.v2` (30min TTL, max 200 entries).
 
@@ -171,6 +193,57 @@ Shows a chronological feed of intel-relevant data types: GDELT events, earthquak
 | Events | Goldstein scale | Monitoring | Tension | Crisis |
 | Quakes | Magnitude | <M3 | M4-5 | M6+ |
 | Fires | FRP (MW) | <5 | 20-50 | 100+ |
+
+---
+
+## AlertLogPane
+
+`panes/alert-log/AlertLogPane.tsx` — priority alerts pane.
+
+`extractAlerts()` scans `allData` for notable items within the last 24 hours:
+
+- Aircraft with emergency squawk codes (7700 emergency, 7500 hijack = priority 10; 7600 radio failure = priority 9)
+- GDELT events with severity ≥ 4 (crisis = priority 8, conflict = priority 6)
+- Earthquakes with magnitude ≥ 4.5 (M6+ = priority 9, M5+ = 7, M4.5+ = 5); tsunami bonus
+- Fire hotspots with FRP ≥ 50 MW (FRP 100+ = priority 7, FRP 50+ = 5)
+- Severe/Extreme weather alerts (Extreme = priority 8, Severe = 6)
+
+### Features
+
+- **Filter tabs** at top — per-type buttons with icons and counts. Click to filter, click again for all.
+- **Sort toggle** — ⏱ NEW (newest first, default) or ⚡ PRI (highest priority first, then by time)
+- **Priority color coding** — red left border for priority ≥ 8, yellow for ≥ 5, accent for lower
+- **Virtual scrolling** — ROW_HEIGHT 56px, OVERSCAN 6 rows. Scroll resets on filter/sort change.
+- **Cross-pane interaction** — click to select, locate button zooms to item on globe
+
+---
+
+## VideoFeedPane
+
+`panes/video-feed/VideoFeedPane.tsx` — live HLS video streams.
+
+Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org** community channel directory (`iptv-org.github.io/api/streams.json` + `channels.json`). No iframes — direct `<video>` element playback.
+
+### Features
+
+- **Grid layouts**: 1×1, 2×2, 3×3 toggle via toolbar
+- **Channel picker**: search + region tabs (ALL, ★ TOP, US, AMER, EUR, MENA, ASIA, AFR, OCE)
+- **Virtual-scrolled channel list** — full ~3K channels, no cap
+- **Featured channels** pinned to top: Al Jazeera, Sky News, BBC, CNN, Fox, C-SPAN, PBS, NewsMax, Bloomberg, etc.
+- **Error recovery**: RETRY / CHANGE / CLOSE buttons on stream failure, 15s load timeout, max 2 retries
+- **Audio**: only one slot unmuted at a time
+- **Auto-save**: grid layout + channel selections persist to `sigint.videofeed.state.v1`. Restored on mount.
+- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Stored under `sigint.videofeed.presets.v1`.
+
+**Dependency**: `bun add hls.js` required.
+
+---
+
+## RawConsolePane
+
+`panes/raw-console/RawConsolePane.tsx` — raw data console pane.
+
+Shows a raw JSON view of incoming data streams for debugging and monitoring.
 
 ---
 

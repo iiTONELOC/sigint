@@ -4,10 +4,11 @@ import { cacheGet, cacheSet } from "@/lib/storageService";
 
 // Active alerts — GeoJSON FeatureCollection, US-only
 // No API key required, just User-Agent header
-const ALERTS_URL = "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
+const ALERTS_URL =
+  "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
 
 const CACHE_KEY = "sigint.noaa.weather-cache.v1";
-const MAX_CACHE_AGE_MS = 5 * 60_000; // 5 min — alerts update frequently
+const MAX_CACHE_AGE_MS = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
 
 // ── NWS GeoJSON shape ────────────────────────────────────────────────
 
@@ -51,7 +52,9 @@ type NWSResponse = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function getCentroid(geometry: NWSFeature["geometry"]): { lat: number; lon: number } | null {
+function getCentroid(
+  geometry: NWSFeature["geometry"],
+): { lat: number; lon: number } | null {
   if (!geometry || !geometry.coordinates) return null;
 
   if (geometry.type === "Point") {
@@ -62,7 +65,8 @@ function getCentroid(geometry: NWSFeature["geometry"]): { lat: number; lon: numb
   if (geometry.type === "Polygon") {
     const ring = (geometry.coordinates as number[][][])[0];
     if (!ring || ring.length === 0) return null;
-    let latSum = 0, lonSum = 0;
+    let latSum = 0,
+      lonSum = 0;
     for (const pt of ring) {
       lonSum += pt[0]!;
       latSum += pt[1]!;
@@ -71,10 +75,11 @@ function getCentroid(geometry: NWSFeature["geometry"]): { lat: number; lon: numb
   }
 
   if (geometry.type === "MultiPolygon") {
-    const polys = geometry.coordinates as number[][][][];
+    const polys = geometry.coordinates as unknown as number[][][][];
     const ring = polys[0]?.[0];
     if (!ring || ring.length === 0) return null;
-    let latSum = 0, lonSum = 0;
+    let latSum = 0,
+      lonSum = 0;
     for (const pt of ring) {
       lonSum += pt[0]!;
       latSum += pt[1]!;

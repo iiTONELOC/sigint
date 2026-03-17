@@ -1,5 +1,12 @@
 import { useRef, useState, useCallback } from "react";
-import { Eye, Crosshair, GripHorizontal, ExternalLink } from "lucide-react";
+import {
+  Eye,
+  Crosshair,
+  GripHorizontal,
+  ExternalLink,
+  FileSearch,
+} from "lucide-react";
+import { useHasDossier } from "@/panes/paneLayoutContext";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -21,6 +28,7 @@ export type DetailPanelProps = {
   readonly onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   readonly onClose: () => void;
   readonly side?: "left" | "right";
+  readonly onOpenDossier?: () => void;
 };
 
 function useDrag() {
@@ -78,8 +86,10 @@ export function DetailPanel({
   onSetIsolateMode,
   onClose,
   side = "right",
+  onOpenDossier,
 }: DetailPanelProps) {
   const { theme } = useTheme();
+  const hasDossier = useHasDossier();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
   const drag = useDrag();
@@ -111,6 +121,7 @@ export function DetailPanel({
       isolateMode={isolateMode}
       onSetIsolateMode={onSetIsolateMode}
       onClose={onClose}
+      onOpenDossier={!hasDossier ? onOpenDossier : undefined}
     />
   );
 
@@ -192,6 +203,7 @@ function PanelContent({
   isolateMode,
   onSetIsolateMode,
   onClose,
+  onOpenDossier,
 }: {
   Icon: any;
   color: string | undefined;
@@ -201,6 +213,7 @@ function PanelContent({
   isolateMode: null | "solo" | "focus";
   onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   onClose: () => void;
+  onOpenDossier?: () => void;
 }) {
   const dataRows = rows.filter(([, v]) => !isUrl(v));
   const linkRows = rows.filter(([, v]) => isUrl(v));
@@ -208,23 +221,31 @@ function PanelContent({
   return (
     <>
       {/* Header */}
-      <div className="flex justify-between items-center mb-2.5">
-        <div className="flex items-center gap-1.5">
-          <Icon
-            size="clamp(14px, 2vw, 18px)"
-            style={{ color }}
-            {...(item.type === "aircraft" || item.type === "events"
-              ? { fill: "currentColor", strokeWidth: 0 }
-              : { strokeWidth: 2.5 })}
-          />
+      <div className="mb-2.5">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <Icon
+              size="clamp(14px, 2vw, 18px)"
+              style={{ color }}
+              {...(item.type === "aircraft" || item.type === "events"
+                ? { fill: "currentColor", strokeWidth: 0 }
+                : { strokeWidth: 2.5 })}
+            />
+            <span
+              className="font-bold tracking-widest text-(length:--sig-text-btn)"
+              style={{ color }}
+            >
+              {feature.label}
+            </span>
+          </div>
           <span
-            className="font-bold tracking-widest text-(length:--sig-text-btn)"
-            style={{ color }}
+            onClick={onClose}
+            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim min-w-8 min-h-8 flex items-center justify-center hover:text-sig-bright transition-colors"
           >
-            {feature.label}
+            ✕
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <ModeButton
             active={isolateMode === "focus"}
             label="FOCUS"
@@ -243,12 +264,6 @@ function PanelContent({
               onSetIsolateMode(isolateMode === "solo" ? null : "solo")
             }
           />
-          <span
-            onClick={onClose}
-            className="cursor-pointer text-[18px] leading-none select-none ml-1 text-sig-dim min-w-11 min-h-11 flex items-center justify-center"
-          >
-            ✕
-          </span>
         </div>
       </div>
 
@@ -272,8 +287,21 @@ function PanelContent({
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>
 
-      {/* Intel links */}
-      {linkRows.length > 0 && (
+      {/* Open in Dossier button — shown when no dossier pane is open */}
+      {onOpenDossier && (
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+          <button
+            onClick={onOpenDossier}
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+          >
+            <FileSearch size={12} strokeWidth={2.5} />
+            OPEN IN DOSSIER
+          </button>
+        </div>
+      )}
+
+      {/* Intel links — only show if dossier IS open (links are dossier territory otherwise) */}
+      {!onOpenDossier && linkRows.length > 0 && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
           {linkRows.map(([label, url]) => (
             <a

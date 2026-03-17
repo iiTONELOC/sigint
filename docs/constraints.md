@@ -1,145 +1,90 @@
-# Constraints & Gotchas
+# Caching Architecture
 
 [← Back to Docs Index](./README.md)
 
-**Related docs**: [Caching](./caching.md) · [Rendering](./rendering.md) · [Data Flow](./data-flow.md)
+**Related docs**: [Data Flow](./data-flow.md) · [Constraints](./constraints.md) · [Pane System](./panes.md)
 
 ---
 
-## Rate Limits
+## Overview
 
-**OpenSky Network**: Anonymous access = 400 credits/day. Each `/states/all` call costs credits. The 240-second poll interval stays well under the limit for a full day of use.
+The application uses a unified IndexedDB-backed storage service (`lib/storageService.ts`) for all persistent caching. On first run it auto-migrates any existing localStorage data. All reads are synchronous from an in-memory Map (populated at boot via `await cacheInit()`), while writes go to IndexedDB asynchronously (fire-and-forget) to avoid blocking the render loop.
 
-**USGS**: Responses cached server-side for 60 seconds. Feed updates every 5 minutes. Our 420-second poll interval ensures every request gets fresh data. Exceeding limits returns 429.
+At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours are removed, and trail points are capped at 50 per entity (~3.3 hours at 4-minute intervals) to prevent unbounded growth.
 
-**GDELT**: No explicit rate limit on raw export files — they're static files on a CDN, updated every 15 minutes. Our server fetches once per 15-minute interval regardless of client count. The server dedupes by tracking the last export URL fetched.
-
-**aisstream.io**: WebSocket-based, no traditional rate limit. One persistent connection per server. Messages stream at ~300/sec globally. The server accumulates positions in memory and serves snapshots to clients. Connection is auto-reconnected on drop with a 10-second delay.
-
-**NASA FIRMS**: API key required (free). Transaction-based — each global CSV query costs ~5 transactions. Limit resets every 10 minutes. Our server fetches once per 30-minute interval regardless of client count, well within limits. VIIRS NOAA-20 global data can return 30,000–100,000+ records per day.
-
-**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships) additionally require a valid `X-SIGINT-Token` header. Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes.
+**Every live data provider follows the same caching pattern**: hydrate from IndexedDB on boot (with staleness rejection), persist after every successful fetch, and fall back through memory cache → IndexedDB cache → empty on error.
 
 ---
 
-## Client-Side vs Server-Side Fetching
+## Cache Keys
 
-OpenSky and USGS are fetched client-side — OpenSky blocks Heroku IPs, USGS has no CORS restrictions. Cannot proxy these through the server, cannot add auth headers.
-
-GDELT raw export files have CORS restrictions — must be fetched server-side. The server downloads, unzips (using `zlib.inflateRaw`, zero deps), parses the tab-delimited CSV, filters to conflict/crisis CAMEO codes, and caches in memory. Clients fetch the parsed result from `/api/events/latest` with a server-issued token.
-
-AIS data from aisstream.io does not support browser CORS and requires an API key that must not be exposed client-side. The server maintains a persistent WebSocket, accumulates vessel positions in an in-memory Map keyed by MMSI, and serves snapshots from `/api/ships/latest` with token auth. Clients poll every 300 seconds.
-
-NASA FIRMS fire data requires an API key and returns large CSV payloads (30-100k records). Fetched server-side every 30 minutes, parsed, and cached in memory. Served from `/api/fires/latest` with token auth and gzip compression. Clients poll every 600 seconds.
-
----
-
-## Canvas vs React
-
-The globe is pure Canvas 2D. React components (Header, DetailPanel, etc.) are overlaid on top with absolute/fixed positioning. They communicate with the canvas via refs and props, not DOM events on canvas elements.
-
-The **propsRef pattern**: The animation loop never re-registers. It reads `propsRef.current` each frame, synced from React props on every render. Max 1-frame delay between state change and canvas reflecting it.
-
----
-
-## Web Worker Rendering
-
-Point rendering runs in a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker is plain JavaScript (not TypeScript) because it's served directly from `public/` with no build step.
-
-**Constraints:**
-- Worker code cannot import from the main codebase — all logic (projection, interpolation, filtering, age helpers, aircraft filter matching) is inlined
-- `Set` objects cannot cross `postMessage` — serialized to arrays before sending, used as arrays in worker
-- Trail data is synced periodically (~every 30 frames), not every frame
-- The worker's `matchesAircraftFilter` must exactly match the real one in `features/tracking/aircraft/lib/utils.ts` — if the filter logic changes, the worker must be updated manually
-- OffscreenCanvas must be resized in the worker when viewport dimensions change — the main thread sends W, H, dpr each frame
-
-**IMPORTANT**: The `aisCache.ts` uses `require("ws")` specifically to bypass Bun's native WebSocket TLS issues inside `Bun.serve()` on Heroku. Do NOT change this to `import` or to Bun's native `WebSocket`.
+| Key | Owner | Contains | Written | Staleness |
+|---|---|---|---|---|
+| `sigint.opensky.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] with enriched metadata | Every 240s + after enrichment | Rejected on hydrate if >30min |
+| `sigint.usgs.earthquake-cache.v1` | EarthquakeProvider | USGS earthquake DataPoint[] (7 days) | Every 420s | Rejected on hydrate if >30min |
+| `sigint.gdelt.events-cache.v1` | GdeltProvider | GDELT event DataPoint[] (7-day rolling window, URL-deduped) | Every 15 min | Rejected on hydrate if >30min, events >7 days pruned on merge |
+| `sigint.ais.ship-cache.v1` | ShipProvider | AIS vessel DataPoint[] | Every 300s | Rejected on hydrate if >30min |
+| `sigint.firms.fire-cache.v1` | FireProvider | NASA FIRMS fire DataPoint[] (24h) | Every 600s | Rejected on hydrate if >30min |
+| `sigint.noaa.weather-cache.v1` | WeatherProvider | NOAA severe weather alert DataPoint[] | Every 300s | Rejected on hydrate if >30min |
+| `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot, 50 points/entity cap |
+| `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
+| `sigint.layout.v2` | PaneManager | Binary split tree layout + minimized panes | On every layout change | Never expires |
+| `sigint.dossier.cache.v2` | DossierPane | Aircraft dossier responses (max 200 entries) | On each dossier fetch | 30 min TTL per entry |
+| `sigint.videofeed.state.v1` | VideoFeedPane | Grid layout + channel selections | On slot/grid change | Never expires |
+| `sigint.videofeed.presets.v1` | VideoFeedPane | Named channel preset configurations | On save/delete | Never expires |
 
 ---
 
-## Server Routes for Static Files
+## Staleness & Hydration
 
-Both `index.ts` and `index.prod.ts` serve static files from `public/` via explicit route patterns:
+Each provider's hydration staleness threshold is set so that stale cache is rejected and the hook's immediate fetch fires rather than waiting a full poll interval with old data:
 
-- `/fonts.css` and `/fonts/*` — font files
-- `/data/*` — land geometry JSON
-- `/workers/*` — Web Worker scripts
+| Provider | Poll Interval | Staleness Threshold | Rationale |
+|---|---|---|---|
+| Aircraft | 240s | 30 min | Generous hydration window — cached data shows instantly, live data replaces within 4 min |
+| Earthquake | 420s | 30 min | USGS feed updates every 5 min, 30 min allows several missed cycles |
+| Events | 15 min | 30 min | GDELT updates every 15 min, 30 min allows one missed cycle |
+| Ships | 300s | 30 min | Generous hydration window — positions update within 5 min |
+| Fires | 600s | 30 min | FIRMS updates every 30 min server-side; matches server poll |
+| Weather | 300s | 30 min | Generous hydration window — alerts update within 5 min |
 
-New static file directories require adding a matching route pattern to both server files.
-
----
-
-## Metadata Enrichment
-
-Best-effort only. If the server is down or the ICAO24 isn't in the database, the aircraft shows "Unknown" type. The UI never blocks on enrichment. Only fires for the currently selected aircraft to prevent cache bloat.
-
----
-
-## Ship Type Resolution
-
-AIS vessel type codes arrive in `ShipStaticData` messages, not in `PositionReport` messages. A vessel that has only sent position reports will show "Unknown" type until a static data message arrives (typically within a few minutes). The server maps AIS type codes (20-90 range) to human-readable labels. The detail panel hides "Unknown" type and "Not defined" nav status to keep the display clean.
+All providers use a **uniform 30-minute hydration staleness window**. This was standardized to prevent the "mock data flash" problem — when the cache TTL was too tight (e.g., 235s for aircraft, 5min for ships), reloading the page would show mock/empty data for several seconds before live data arrived.
 
 ---
 
-## Trail Recording
+## Aircraft Data Cache
 
-Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes. Both aircraft and ships feed the trail service from this single location.
+The provider has a two-tier cache: an in-memory object (`this.cache`) and IndexedDB via `storageService`. On boot, `hydrate()` checks memory first, then falls back to IndexedDB with staleness check. The in-memory cache is authoritative during a session; IndexedDB is for cross-session persistence.
 
----
-
-## Trail Purging
-
-If an aircraft or ship disappears from data for 3 consecutive refreshes (~12 minutes for aircraft, ~15 minutes for ships), its trail is deleted. Entries older than 24 hours removed at boot. Points capped at 50 per entity.
+When metadata enrichment succeeds, both tiers are updated and re-persisted. This means the cache progressively improves — a callsign that was "Unknown" on first fetch gains its real type, registration, and operator after enrichment, and that enriched data survives page reloads.
 
 ---
 
-## Zoom Limits
+## Metadata Deduplication
 
-Globe mode zoom: min 0.55, max 350. Flat mode zoom: min 0.85, max 500.
+`AircraftProvider` maintains two in-memory-only structures:
 
-Double-click zoom: progressive — 8x current zoom, min 80, max 500 (flat) / 350 (globe). Globe mode snaps rotation immediately and lerps only zoom. Double-click again to zoom deeper.
+- **`metadataByIcao`** — Map of successfully resolved metadata
+- **`attemptedMetadataIcao`** — Set of all ICAO24s ever attempted
 
-Single-click on a point preserves current zoom level and pans to the point — no zoom reset. Auto-rotate stops permanently on selection (re-enable via ROT button).
-
----
-
-## Gzip Compression
-
-Both `/api/events/latest` and `/api/ships/latest` gzip-compress responses when the client sends `Accept-Encoding: gzip`. Uses `Bun.gzipSync`. Extracted to a shared `jsonResponse` helper in `api/index.ts`.
+On boot, `hydrate()` populates both from cached DataPoints where `acType ≠ "Unknown"`. During a session, `enrichAircraftByIcao24()` filters out already-attempted ICAO24s before hitting the server. This prevents redundant server calls across sessions.
 
 ---
 
-## IndexedDB
+## Ship Data Cache
 
-Auto-migrates from localStorage on first run (one-time). No practical size limit (browser-dependent, typically hundreds of MB to GB). The aircraft cache overwrites itself every 240 seconds. The ship cache overwrites every 300 seconds. The earthquake cache overwrites every 420 seconds. Layout state overwrites on every change.
-
----
-
-## All Providers Cache to IndexedDB
-
-Non-negotiable pattern. Every live data provider implements:
-- `hydrate()` — read from IndexedDB on boot, reject if stale
-- `persistCache()` — write after every successful fetch
-- Fallback chain: memory → IndexedDB → empty/mock on error
-
-Staleness thresholds must be tighter than or equal to the poll interval so stale cache is rejected and the immediate fetch fires on boot.
-
-New providers must follow this pattern.
+The `ShipProvider` follows the standard provider pattern. Server-side, vessel data is never persisted — the in-memory Map is populated in real-time from the aisstream.io WebSocket and repopulates within seconds of a server restart. Client-side, the provider persists to IndexedDB after each successful poll and hydrates on boot with a 30-min staleness threshold.
 
 ---
 
-## All Server API Calls Use authenticatedFetch
+## Trail Cache
 
-Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go through `lib/authService.ts`'s `authenticatedFetch()`. This handles token acquisition, caching, and auto-refresh on 401. Never call `fetch()` directly for server API routes.
+Each trail point stores `{ lat, lon, ts, altitude?, speed?, heading? }`. The trail service records actual positions from each data refresh and uses speed + heading for between-refresh interpolation. Consumed for drawing trail lines behind selected items and for smoothly animating all moving points between refresh intervals. Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes, feeding both aircraft and ship positions to the trail service.
+
+Entries purged after 3 consecutive missed refreshes (~12 minutes). Points capped at 50 per entity.
 
 ---
 
-## User Preferences (Development)
+## IndexedDB Migration
 
-- **Types ONLY, never interfaces** — intellisense populates types better
-- **Tailwind classes ONLY** — no inline `style=` except dynamic per-item colors
-- **Async storage** — IndexedDB for all persistence, no localStorage
-- **External links** — `target="_blank" rel="noopener noreferrer"` on every external link
-- **@ts-ignore comments are intentional** — preserve them
-- **No console.log in production code**
-- **Worker code is plain JS** — served from `public/workers/`, no build step
+On first run, `storageService` auto-migrates any existing localStorage data to IndexedDB and removes the old keys. One-time operation. IndexedDB has no practical size limit (browser-dependent, typically hundreds of MB to GB), eliminating the 5MB localStorage quota that previously caused trail persistence failures.

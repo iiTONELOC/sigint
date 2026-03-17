@@ -20,14 +20,18 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 
 | Key | Owner | Contains | Written | Staleness |
 |---|---|---|---|---|
-| `sigint.opensky.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] with enriched metadata | Every 240s + after enrichment | Rejected on hydrate if >235s |
+| `sigint.opensky.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] with enriched metadata | Every 240s + after enrichment | Rejected on hydrate if >30min |
 | `sigint.usgs.earthquake-cache.v1` | EarthquakeProvider | USGS earthquake DataPoint[] (7 days) | Every 420s | Rejected on hydrate if >30min |
 | `sigint.gdelt.events-cache.v1` | GdeltProvider | GDELT event DataPoint[] (7-day rolling window, URL-deduped) | Every 15 min | Rejected on hydrate if >30min, events >7 days pruned on merge |
-| `sigint.ais.ship-cache.v1` | ShipProvider | AIS vessel DataPoint[] | Every 300s | Rejected on hydrate if >5min |
+| `sigint.ais.ship-cache.v1` | ShipProvider | AIS vessel DataPoint[] | Every 300s | Rejected on hydrate if >30min |
 | `sigint.firms.fire-cache.v1` | FireProvider | NASA FIRMS fire DataPoint[] (24h) | Every 600s | Rejected on hydrate if >30min |
+| `sigint.noaa.weather-cache.v1` | WeatherProvider | NOAA severe weather alert DataPoint[] | Every 300s | Rejected on hydrate if >30min |
 | `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot, 50 points/entity cap |
 | `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
-| `sigint.layout.v1` | PaneManager | Pane configs, split direction, sizes | On every layout change | Never expires |
+| `sigint.layout.v1` | PaneManager | Binary split tree layout + minimized panes | On every layout change | Never expires |
+| `sigint.dossier.cache.v2` | DossierPane | Aircraft dossier responses (max 200 entries) | On each dossier fetch | 30 min TTL per entry |
+| `sigint.videofeed.state.v1` | VideoFeedPane | Grid layout + channel selections | On slot/grid change | Never expires |
+| `sigint.videofeed.presets.v1` | VideoFeedPane | Named channel preset configurations | On save/delete | Never expires |
 
 ---
 
@@ -37,13 +41,14 @@ Each provider's hydration staleness threshold is set so that stale cache is reje
 
 | Provider | Poll Interval | Staleness Threshold | Rationale |
 |---|---|---|---|
-| Aircraft | 240s | 235s | Slightly under poll interval — cache from the previous cycle is too old |
-| Earthquake | 420s | 30 min | USGS feed updates every 5 min, 30 min is generous but acceptable for seismic data |
+| Aircraft | 240s | 30 min | Generous hydration window — cached data shows instantly, live data replaces within 4 min |
+| Earthquake | 420s | 30 min | USGS feed updates every 5 min, 30 min allows several missed cycles |
 | Events | 15 min | 30 min | GDELT updates every 15 min, 30 min allows one missed cycle |
-| Ships | 300s | 5 min | AIS data is high-frequency; stale ship positions are misleading |
-| Fires | 600s | 30 min | FIRMS updates every 30 min server-side; 30 min staleness allows one missed cycle |
+| Ships | 300s | 30 min | Generous hydration window — positions update within 5 min |
+| Fires | 600s | 30 min | FIRMS updates every 30 min server-side; matches server poll |
+| Weather | 300s | 30 min | Generous hydration window — alerts update within 5 min |
 
-When hydration rejects (returns null), the hook starts with empty/mock data and fetches immediately. When hydration succeeds (cache is fresh), the hook skips the immediate fetch and waits for the next poll interval — the cached data is shown instantly as a placeholder.
+All providers use a **uniform 30-minute hydration staleness window**. This was standardized to prevent the "mock data flash" problem — when the cache TTL was too tight (e.g., 235s for aircraft, 5min for ships), reloading the page would show mock/empty data for several seconds before live data arrived.
 
 ---
 
@@ -68,7 +73,7 @@ On boot, `hydrate()` populates both from cached DataPoints where `acType ≠ "Un
 
 ## Ship Data Cache
 
-The `ShipProvider` follows the standard provider pattern. Server-side, vessel data is never persisted — the in-memory Map is populated in real-time from the aisstream.io WebSocket and repopulates within seconds of a server restart. Client-side, the provider persists to IndexedDB after each successful poll and hydrates on boot with a 5-minute staleness threshold.
+The `ShipProvider` follows the standard provider pattern. Server-side, vessel data is never persisted — the in-memory Map is populated in real-time from the aisstream.io WebSocket and repopulates within seconds of a server restart. Client-side, the provider persists to IndexedDB after each successful poll and hydrates on boot with a 30-min staleness threshold.
 
 ---
 

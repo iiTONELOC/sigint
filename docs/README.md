@@ -11,7 +11,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 | [Architecture Overview](./architecture.md) | System overview, directory structure, component hierarchy, state architecture |
 | [Data Flow](./data-flow.md) | DataContext, shared state, boot lifecycle, allData, filters, enrichment, trail recording |
 | [Feature System](./features.md) | FeatureDefinition contract, registry, feature structure, DataPoint union, data sources |
-| [Pane System](./panes.md) | PaneManager, LiveTrafficPane, DataTablePane, layout persistence |
+| [Pane System](./panes.md) | PaneManager, binary split tree, all 7 pane types (globe, data table, dossier, intel feed, alert log, raw console, video feed), drag-to-swap, dossier bridge, layout persistence |
 | [Rendering Pipeline](./rendering.md) | Web Worker rendering, worker architecture, split messaging, camera, input handlers, interpolation, projections, isolation modes |
 | [Global Search](./search.md) | Two-phase search, scoring, globe filtering, zoom-to, stash/restore |
 | [Caching Architecture](./caching.md) | IndexedDB service, cache keys, staleness, metadata dedup, migration |
@@ -23,11 +23,11 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker
 
-**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll)
+**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll) + NOAA Weather (severe alerts, 300s client poll)
 
 **State**: All shared state in `DataContext` via `useData()` hook — no external state library
 
-**Persistence**: IndexedDB for everything — data caches, trails, coastlines, pane layout
+**Persistence**: storageService (in-memory + persistence) for data caches, pane layout, video feed presets
 
 **Rendering**: All drawing offloaded to a dedicated Web Worker with OffscreenCanvas — land, grid, ocean, points, trails rendered on a separate CPU core. Main thread handles camera, input, and composites a single `ImageBitmap` per frame via `drawImage`.
 
