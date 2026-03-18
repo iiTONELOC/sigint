@@ -10,17 +10,12 @@ export function AppShell() {
     layers,
     toggleLayer,
     counts,
-    flat,
-    setFlat,
-    autoRotate,
-    setAutoRotate,
-    rotationSpeed,
-    setRotationSpeed,
     aircraftFilter,
     setAircraftFilter,
     availableCountries,
     chromeHidden,
     tickerItems,
+    dataSources,
     handleSearchSelect,
     handleSearchZoomTo,
     handleSearchMatchIds,
@@ -34,12 +29,7 @@ export function AppShell() {
           layers={layers}
           toggleLayer={toggleLayer}
           counts={counts}
-          flat={flat}
-          setFlat={setFlat}
-          autoRotate={autoRotate}
-          setAutoRotate={setAutoRotate}
-          rotationSpeed={rotationSpeed}
-          setRotationSpeed={setRotationSpeed}
+          dataSources={dataSources}
           aircraftFilter={aircraftFilter}
           setAircraftFilter={setAircraftFilter}
           availableCountries={availableCountries}

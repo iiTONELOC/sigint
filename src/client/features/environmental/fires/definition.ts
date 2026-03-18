@@ -16,6 +16,7 @@ export const firesFeature: FeatureDefinition<FireData, FireFilter> = {
   id: "fires",
   label: "FIRES",
   icon: Flame,
+  iconProps: { strokeWidth: 2.5 },
 
   matchesFilter: (
     _item: BasePoint & { data: FireData },

@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap } from "@/config/theme";
+
+import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   Bell,
@@ -13,6 +14,7 @@ import {
   Flame,
   CloudAlert,
 } from "lucide-react";
+import { relativeAge } from "@/lib/timeFormat";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -128,17 +130,6 @@ function extractAlerts(allData: DataPoint[]): AlertItem[] {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function relativeAge(timestamp?: string): string {
-  if (!timestamp) return "";
-  const diff = Date.now() - new Date(timestamp).getTime();
-  if (diff < 60_000) return "now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
-
 function getDetail(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
   switch (item.type) {
@@ -181,9 +172,9 @@ function getPrioTextClass(priority: number): string {
 // ── Component ───────────────────────────────────────────────────────
 
 export function AlertLogPane() {
-  const { allData, selectedCurrent, setSelected, setZoomToId } = useData();
+  const { allData, selectedCurrent, setSelected, selectAndZoom, colorMap } =
+    useData();
   const { theme } = useTheme();
-  const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
   const alerts = useMemo(() => extractAlerts(allData), [allData]);
 
@@ -209,40 +200,26 @@ export function AlertLogPane() {
     return list;
   }, [alerts, filterType, sortBy]);
 
-  // ── Virtual scroll state ────────────────────────────────────────
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportH, setViewportH] = useState(0);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver((entries) => {
-      for (const entry of entries) setViewportH(entry.contentRect.height);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  const onScroll = useCallback(() => {
-    if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop);
-  }, []);
+  // ── Virtual scroll ──────────────────────────────────────────────
+  const {
+    scrollRef,
+    totalHeight,
+    offsetY,
+    startIdx,
+    endIdx,
+    onScroll,
+    scrollToTop,
+  } = useVirtualScroll({
+    itemCount: filteredAlerts.length,
+    rowHeight: ROW_HEIGHT,
+    overscan: OVERSCAN,
+  });
 
   // Reset scroll on filter change
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-    setScrollTop(0);
-  }, [filterType, sortBy]);
+    scrollToTop();
+  }, [filterType, sortBy, scrollToTop]);
 
-  // ── Virtual window ──────────────────────────────────────────────
-
-  const totalHeight = filteredAlerts.length * ROW_HEIGHT;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(
-    filteredAlerts.length,
-    Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
-  );
-  const offsetY = startIdx * ROW_HEIGHT;
   const visibleAlerts = useMemo(
     () => filteredAlerts.slice(startIdx, endIdx),
     [filteredAlerts, startIdx, endIdx],
@@ -274,11 +251,9 @@ export function AlertLogPane() {
   const handleZoom = useCallback(
     (item: DataPoint, e: React.MouseEvent) => {
       e.stopPropagation();
-      setSelected(item);
-      setZoomToId(item.id);
-      setTimeout(() => setZoomToId(null), 100);
+      selectAndZoom(item);
     },
-    [setSelected, setZoomToId],
+    [selectAndZoom],
   );
 
   // ── Render ──────────────────────────────────────────────────────
@@ -286,7 +261,7 @@ export function AlertLogPane() {
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
       {/* Filter / sort toolbar */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 overflow-x-auto">
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 overflow-x-auto sigint-scroll">
         <span className="text-sig-danger text-(length:--sig-text-sm) font-semibold shrink-0">
           {alerts.length} active
         </span>

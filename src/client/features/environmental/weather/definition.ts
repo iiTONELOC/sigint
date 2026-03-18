@@ -16,6 +16,7 @@ export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter> = {
   id: "weather",
   label: "WEATHER",
   icon: CloudAlert,
+  iconProps: { strokeWidth: 2.5 },
 
   matchesFilter: (
     _item: BasePoint & { data: WeatherData },
@@ -37,13 +38,7 @@ export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter> = {
   TickerContent: WeatherTickerContent,
 
   getSearchText: (data: WeatherData) =>
-    [
-      data.event,
-      data.headline,
-      data.severity,
-      data.areaDesc,
-      data.senderName,
-    ]
+    [data.event, data.headline, data.severity, data.areaDesc, data.senderName]
       .filter(Boolean)
       .join(" "),
 };

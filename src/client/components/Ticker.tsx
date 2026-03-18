@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { useData } from "@/context/DataContext";
-import { getColorMap } from "@/config/theme";
+
 import type { DataPoint } from "@/features/base/dataPoints";
+import { relativeAge } from "@/lib/timeFormat";
 import { featureRegistry } from "@/features/registry";
 
 type TickerProps = {
@@ -31,23 +32,12 @@ function useVisibleCount(): number {
   return count;
 }
 
-function relativeTime(timestamp?: string): string {
-  if (!timestamp) return "LIVE";
-  const diff = Date.now() - new Date(timestamp).getTime();
-  if (diff < 0 || diff < 60_000) return "LIVE";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ago`;
-}
-
 export function Ticker({ items }: Readonly<TickerProps>) {
-  const { selectedCurrent, setSelected, setZoomToId } = useData();
+  const { selectedCurrent, selectAndZoom, colorMap } = useData();
   const selectedId = selectedCurrent?.id ?? null;
   const [idx, setIdx] = useState(0);
   const { theme } = useTheme();
   const C = theme.colors;
-  const colorMap = useMemo(() => getColorMap(theme), [theme]);
   const visibleCount = useVisibleCount();
 
   const [, setTick] = useState(0);
@@ -84,9 +74,7 @@ export function Ticker({ items }: Readonly<TickerProps>) {
           <div
             key={`${item.id}-${idx}-${i}`}
             onClick={() => {
-              setSelected(item);
-              setZoomToId(item.id);
-              setTimeout(() => setZoomToId(null), 100);
+              selectAndZoom(item);
             }}
             className={`flex-1 min-w-0 rounded overflow-hidden px-2.5 py-1.5 border h-22.5 transition-colors cursor-pointer ${
               selectedId && item.id === selectedId
@@ -100,16 +88,11 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 className="tracking-wider flex items-center gap-1 text-(length:--sig-text-md)"
                 style={{ color }}
               >
-                <Icon
-                  size="1em"
-                  {...(item.type === "aircraft" || item.type === "events"
-                    ? { fill: "currentColor", strokeWidth: 0 }
-                    : { strokeWidth: 2.5 })}
-                />
+                <Icon size="1em" {...feature.iconProps} />
                 {feature.label}
               </span>
               <span className="text-sig-dim text-(length:--sig-text-sm)">
-                {relativeTime(item.timestamp)}
+                {relativeAge(item.timestamp)}
               </span>
             </div>
 

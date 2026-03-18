@@ -6,7 +6,11 @@ import {
   Rows2,
   ChevronDown,
   GripVertical,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
+import { Tooltip } from "@/components/Tooltip";
+import { useData } from "@/context/DataContext";
 
 type PaneOption = {
   id: string;
@@ -18,6 +22,7 @@ type PaneHeaderProps = {
   readonly label: string;
   readonly icon: React.ForwardRefExoticComponent<any>;
   readonly leafId: string;
+  readonly statusSlot?: React.ReactNode;
   readonly onSplitH?: () => void;
   readonly onSplitV?: () => void;
   readonly onMinimize: () => void;
@@ -34,6 +39,7 @@ export function PaneHeader({
   label,
   icon: Icon,
   leafId,
+  statusSlot,
   onSplitH,
   onSplitV,
   onMinimize,
@@ -45,6 +51,7 @@ export function PaneHeader({
   onDrop,
   isDragTarget,
 }: PaneHeaderProps) {
+  const { chromeHidden, setChromeHidden } = useData();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -77,19 +84,20 @@ export function PaneHeader({
       }}
     >
       {/* Drag handle */}
-      <div
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", leafId);
-          e.dataTransfer.effectAllowed = "move";
-          onDragStart?.(leafId);
-        }}
-        onDragEnd={() => onDragEnd?.()}
-        className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors p-0.5 -ml-0.5"
-        title="Drag to reorder"
-      >
-        <GripVertical size={10} strokeWidth={2.5} />
-      </div>
+      <Tooltip content="Drag to swap" placement="bottom" delay={600}>
+        <div
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("text/plain", leafId);
+            e.dataTransfer.effectAllowed = "move";
+            onDragStart?.(leafId);
+          }}
+          onDragEnd={() => onDragEnd?.()}
+          className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors p-0.5 -ml-0.5"
+        >
+          <GripVertical size={10} strokeWidth={2.5} />
+        </div>
+      </Tooltip>
 
       {/* Clickable label — opens pane type dropdown */}
       <button
@@ -146,43 +154,70 @@ export function PaneHeader({
         </div>
       )}
 
+      {/* Inline status (e.g. track count for globe) */}
+      {statusSlot && (
+        <div className="flex items-center gap-1.5 ml-2 text-(length:--sig-text-sm) text-sig-dim">
+          {statusSlot}
+        </div>
+      )}
+
       <div className="flex-1" />
 
       {onSplitH && (
-        <button
-          onClick={onSplitH}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-          title="Split right"
-        >
-          <Columns2 size={11} strokeWidth={2.5} />
-        </button>
+        <Tooltip content="Split right" placement="bottom">
+          <button
+            onClick={onSplitH}
+            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          >
+            <Columns2 size={11} strokeWidth={2.5} />
+          </button>
+        </Tooltip>
       )}
       {onSplitV && (
-        <button
-          onClick={onSplitV}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-          title="Split down"
-        >
-          <Rows2 size={11} strokeWidth={2.5} />
-        </button>
+        <Tooltip content="Split down" placement="bottom">
+          <button
+            onClick={onSplitV}
+            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          >
+            <Rows2 size={11} strokeWidth={2.5} />
+          </button>
+        </Tooltip>
       )}
 
-      <button
-        onClick={onMinimize}
-        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-        title="Minimize"
+      <Tooltip
+        content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
+        placement="bottom"
       >
-        <Minus size={11} strokeWidth={2.5} />
-      </button>
+        <button
+          onClick={() => setChromeHidden((v) => !v)}
+          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+        >
+          {chromeHidden ? (
+            <Minimize2 size={11} strokeWidth={2.5} />
+          ) : (
+            <Maximize2 size={11} strokeWidth={2.5} />
+          )}
+        </button>
+      </Tooltip>
+
+      <Tooltip content="Minimize" placement="bottom">
+        <button
+          onClick={onMinimize}
+          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+        >
+          <Minus size={11} strokeWidth={2.5} />
+        </button>
+      </Tooltip>
 
       {onClose && (
-        <button
-          onClick={onClose}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
-          title="Close"
-        >
-          <X size={11} strokeWidth={2.5} />
-        </button>
+        <Tooltip content="Close pane" placement="bottom">
+          <button
+            onClick={onClose}
+            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
+          >
+            <X size={11} strokeWidth={2.5} />
+          </button>
+        </Tooltip>
       )}
     </div>
   );

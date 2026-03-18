@@ -4,19 +4,19 @@ import { useHasDossier, requestDossierOpen } from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
-import { LayerLegend } from "@/components/LayerLegend";
-import { StatusBadge } from "@/components/StatusBadge";
+import { Tooltip } from "@/components/Tooltip";
 
 export function LiveTrafficPane() {
   const {
     allData,
     layers,
-    toggleLayer,
     aircraftFilter,
     flat,
+    setFlat,
     autoRotate,
     setAutoRotate,
     rotationSpeed,
+    setRotationSpeed,
     selectedCurrent,
     isolateMode,
     setSelected,
@@ -26,9 +26,6 @@ export function LiveTrafficPane() {
     zoomToId,
     setZoomToId,
     searchMatchIds,
-    counts,
-    activeCount,
-    dataSources,
     spatialGrid,
     filteredIds,
   } = useData();
@@ -39,7 +36,6 @@ export function LiveTrafficPane() {
   const handleSetIsolateMode = useCallback(
     (mode: null | "solo" | "focus") => {
       setIsolateMode(mode);
-      // Always zoom to the selected point when entering or re-entering Focus/Solo
       if (selectedCurrent) {
         setZoomToId(selectedCurrent.id);
         setTimeout(() => setZoomToId(null), 100);
@@ -51,7 +47,6 @@ export function LiveTrafficPane() {
   const handleSelect = useCallback(
     (item: DataPoint | null) => {
       if (!item) {
-        // Click on empty space — deselect
         setSelected(null);
         setIsolateMode(null);
         return;
@@ -64,13 +59,11 @@ export function LiveTrafficPane() {
   );
 
   const handleRawCanvasClick = useCallback(() => {
-    // If something is selected, just deselect — don't hide chrome
     if (selectedCurrent) {
       setSelected(null);
       setIsolateMode(null);
       return;
     }
-    // Nothing selected — toggle fullscreen
     setChromeHidden((v) => {
       const next = !v;
       if (next) {
@@ -107,6 +100,59 @@ export function LiveTrafficPane() {
         spatialGrid={spatialGrid}
         filteredIds={filteredIds}
       />
+
+      {/* ── View controls — top-left overlay on globe ─────────────── */}
+      {!chromeHidden && (
+        <div className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1">
+          <Tooltip
+            content={flat ? "Switch to globe view" : "Switch to flat map"}
+            placement="bottom"
+          >
+            <button
+              onClick={() => setFlat(!flat)}
+              className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors"
+            >
+              {flat ? "\u25C9 GLOBE" : "\u25AD FLAT"}
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            content={autoRotate ? "Pause rotation" : "Resume rotation"}
+            placement="bottom"
+            shortcut="Space / Middle-click"
+          >
+            <button
+              onClick={() => setAutoRotate(!autoRotate)}
+              className={`px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors ${
+                autoRotate
+                  ? "text-sig-accent bg-sig-accent/15 border-sig-accent/45"
+                  : "text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel"
+              }`}
+            >
+              {autoRotate ? "⏸ ROT" : "▶ ROT"}
+            </button>
+          </Tooltip>
+
+          <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded bg-sig-panel/75 border border-sig-border/50">
+            <span className="text-sig-dim text-(length:--sig-text-sm)">
+              SPD
+            </span>
+            <input
+              type="range"
+              aria-label="Rotation speed"
+              title="Rotation speed"
+              min={0.01}
+              max={2}
+              step={0.01}
+              value={rotationSpeed}
+              onChange={(e) => setRotationSpeed(Number(e.target.value))}
+              className="w-12 md:w-15 cursor-pointer accent-sig-accent"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Detail panel ──────────────────────────────────────────── */}
       {!chromeHidden && !hasDossier && (
         <DetailPanel
           item={selectedCurrent}
@@ -116,14 +162,6 @@ export function LiveTrafficPane() {
           side={panelSide}
           onOpenDossier={requestDossierOpen}
         />
-      )}
-
-      {!chromeHidden && (
-        <LayerLegend layers={layers} counts={counts} onToggle={toggleLayer} />
-      )}
-
-      {!chromeHidden && (
-        <StatusBadge dataSources={dataSources} activeCount={activeCount} />
       )}
     </>
   );

@@ -8,6 +8,7 @@ export const shipsFeature: FeatureDefinition<ShipData, boolean> = {
   id: "ships",
   label: "AIS VESSELS",
   icon: Anchor,
+  iconProps: { strokeWidth: 2.5 },
   matchesFilter: (_item, enabled) => enabled,
   defaultFilter: true,
   buildDetailRows: (data) => buildShipDetailRows(data),

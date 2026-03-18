@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap } from "@/config/theme";
+
+import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   Filter,
@@ -12,6 +13,7 @@ import {
   Flame,
   CloudAlert,
 } from "lucide-react";
+import { relativeAge } from "@/lib/timeFormat";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -53,17 +55,6 @@ function SeverityBadge({ severity }: { readonly severity: number }) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-function relativeAge(timestamp?: string): string {
-  if (!timestamp) return "";
-  const diff = Date.now() - new Date(timestamp).getTime();
-  if (diff < 60_000) return "now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
 
 function getItemHeadline(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
@@ -117,7 +108,12 @@ function getItemSeverity(item: DataPoint): number {
     return 1;
   }
   if (item.type === "weather") {
-    const sev: Record<string, number> = { Extreme: 5, Severe: 4, Moderate: 3, Minor: 2 };
+    const sev: Record<string, number> = {
+      Extreme: 5,
+      Severe: 4,
+      Moderate: 3,
+      Minor: 2,
+    };
     return sev[(d.severity as string) ?? ""] ?? 1;
   }
   return 1;
@@ -137,7 +133,8 @@ function getItemCategory(item: DataPoint): string {
     const mag = (d.magnitude as number) ?? 0;
     return `M${mag.toFixed(1)}`;
   }
-  if (item.type === "fires") return (d.confidence as string)?.toUpperCase() || "";
+  if (item.type === "fires")
+    return (d.confidence as string)?.toUpperCase() || "";
   if (item.type === "weather") return (d.severity as string) || "";
   return "";
 }
@@ -145,7 +142,8 @@ function getItemCategory(item: DataPoint): string {
 function getItemLocation(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
   if (item.type === "events") return (d.locationName as string) || "";
-  if (item.type === "weather") return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
+  if (item.type === "weather")
+    return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
   return "";
 }
 
@@ -159,35 +157,18 @@ const ICON_MAP: Record<string, typeof Zap> = {
 // ── Component ───────────────────────────────────────────────────────
 
 export function IntelFeedPane() {
-  const { allData, filters, selectedCurrent, setSelected, setZoomToId } =
+  const { allData, selectedCurrent, setSelected, selectAndZoom, colorMap } =
     useData();
   const { theme } = useTheme();
-  const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
 
-  // ── Virtual scroll state ────────────────────────────────────────
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportH, setViewportH] = useState(0);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver((entries) => {
-      for (const entry of entries) setViewportH(entry.contentRect.height);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  const onScroll = useCallback(() => {
-    if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop);
-  }, []);
-
   // ── Filter to intel types ───────────────────────────────────────
 
-  const feedTypes = useMemo(() => new Set(["events", "quakes", "fires", "weather"]), []);
+  const feedTypes = useMemo(
+    () => new Set(["events", "quakes", "fires", "weather"]),
+    [],
+  );
 
   const feedItems = useMemo(() => {
     let items = allData.filter((item) => feedTypes.has(item.type));
@@ -205,7 +186,12 @@ export function IntelFeedPane() {
   // ── Type counts ─────────────────────────────────────────────────
 
   const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = { events: 0, quakes: 0, fires: 0, weather: 0 };
+    const counts: Record<string, number> = {
+      events: 0,
+      quakes: 0,
+      fires: 0,
+      weather: 0,
+    };
     for (const item of allData) {
       if (feedTypes.has(item.type)) {
         counts[item.type] = (counts[item.type] ?? 0) + 1;
@@ -214,15 +200,15 @@ export function IntelFeedPane() {
     return counts;
   }, [allData, feedTypes]);
 
-  // ── Virtual window ──────────────────────────────────────────────
+  // ── Virtual scroll ──────────────────────────────────────────────
 
-  const totalHeight = feedItems.length * ROW_HEIGHT;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(
-    feedItems.length,
-    Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
-  );
-  const offsetY = startIdx * ROW_HEIGHT;
+  const { scrollRef, totalHeight, offsetY, startIdx, endIdx, onScroll } =
+    useVirtualScroll({
+      itemCount: feedItems.length,
+      rowHeight: ROW_HEIGHT,
+      overscan: OVERSCAN,
+    });
+
   const visibleItems = useMemo(
     () => feedItems.slice(startIdx, endIdx),
     [feedItems, startIdx, endIdx],
@@ -238,11 +224,9 @@ export function IntelFeedPane() {
   const handleZoomTo = useCallback(
     (item: DataPoint, e: React.MouseEvent) => {
       e.stopPropagation();
-      setSelected(item);
-      setZoomToId(item.id);
-      setTimeout(() => setZoomToId(null), 100);
+      selectAndZoom(item);
     },
-    [setSelected, setZoomToId],
+    [selectAndZoom],
   );
 
   // ── Render ──────────────────────────────────────────────────────
@@ -295,7 +279,9 @@ export function IntelFeedPane() {
         className="flex-1 overflow-y-auto sigint-scroll"
       >
         <div style={{ height: totalHeight, position: "relative" }}>
-          <div style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
+          <div
+            style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
+          >
             {visibleItems.map((item) => {
               const Icon = ICON_MAP[item.type] ?? Zap;
               const color = colorMap[item.type] ?? theme.colors.dim;

@@ -44,6 +44,7 @@ button:focus-visible {
 
 .sigint-scroll::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
 .sigint-scroll::-webkit-scrollbar-track {

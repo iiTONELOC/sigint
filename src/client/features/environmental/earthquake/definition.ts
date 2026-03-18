@@ -12,6 +12,7 @@ export const earthquakeFeature: FeatureDefinition<
   id: "quakes",
   label: "SEISMIC",
   icon: Activity,
+  iconProps: { strokeWidth: 2.5 },
 
   matchesFilter: (
     _item: BasePoint & { data: EarthquakeData },

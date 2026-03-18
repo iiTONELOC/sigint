@@ -21,6 +21,7 @@ import {
   Bell,
   Terminal,
   Tv,
+  Satellite,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -212,7 +213,7 @@ function persistLayout(layout: LayoutState) {
 // ── Component ────────────────────────────────────────────────────────
 
 export function PaneManager() {
-  const { chromeHidden } = useData();
+  const { chromeHidden, activeCount, dataSources } = useData();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
 
   useEffect(() => {
@@ -488,7 +489,7 @@ export function PaneManager() {
     if (node.type === "leaf") {
       const meta = PANE_META[node.paneType];
       const PaneComponent = PANE_COMPONENTS[node.paneType];
-      const showHeader = !chromeHidden;
+      const showHeader = true; // Pane headers always visible — chromeHidden only affects app-level chrome
       const canClose = leafCount(layout.root) > 1;
 
       return (
@@ -502,6 +503,32 @@ export function PaneManager() {
                 label={meta.label}
                 icon={meta.icon}
                 leafId={node.id}
+                statusSlot={
+                  node.paneType === "globe" ? (
+                    <>
+                      <Satellite
+                        size={10}
+                        strokeWidth={2.5}
+                        className="text-sig-accent"
+                      />
+                      <span className="text-sig-accent font-semibold tabular-nums">
+                        {activeCount.toLocaleString()}
+                      </span>
+                      <span className="hidden sm:inline tracking-wider">
+                        TRACKS
+                      </span>
+                      <span className="text-sig-dim hidden sm:inline">
+                        ·{" "}
+                        {
+                          dataSources.filter(
+                            (s) => s.status === "live" || s.status === "cached",
+                          ).length
+                        }
+                        /{dataSources.length} LIVE
+                      </span>
+                    </>
+                  ) : undefined
+                }
                 onSplitH={
                   availableTypes.length > 0
                     ? () => {
@@ -590,45 +617,44 @@ export function PaneManager() {
   if (isMobile) {
     return (
       <div className="w-full h-full flex flex-col overflow-hidden">
-        {!chromeHidden && (
-          <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60 overflow-x-auto">
-            {allLeaves.map((lf, i) => {
-              const meta = PANE_META[lf.paneType];
-              const Icon = meta.icon;
-              const active = i === activeMobilePane;
-              return (
-                <button
-                  key={lf.id}
-                  onClick={() => setActiveMobilePane(i)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold shrink-0 transition-colors border ${
-                    active
-                      ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                      : "text-sig-dim bg-transparent border-sig-border/50"
-                  }`}
-                >
-                  <Icon size={11} strokeWidth={2.5} />
-                  {meta.label}
-                </button>
-              );
-            })}
-            {layout.minimized.map((m, i) => {
-              const meta = PANE_META[m.paneType];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => restorePane(i)}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 shrink-0 opacity-50"
-                  title={`Restore ${meta.label}`}
-                >
-                  <Icon size={11} strokeWidth={2.5} />
-                  {meta.label}
-                </button>
-              );
-            })}
-            <div className="flex-1" />
-          </div>
-        )}
+        {/* Mobile tab bar — always visible */}
+        <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60 overflow-x-auto sigint-scroll">
+          {allLeaves.map((lf, i) => {
+            const meta = PANE_META[lf.paneType];
+            const Icon = meta.icon;
+            const active = i === activeMobilePane;
+            return (
+              <button
+                key={lf.id}
+                onClick={() => setActiveMobilePane(i)}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold shrink-0 transition-colors border ${
+                  active
+                    ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
+                    : "text-sig-dim bg-transparent border-sig-border/50"
+                }`}
+              >
+                <Icon size={11} strokeWidth={2.5} />
+                {meta.label}
+              </button>
+            );
+          })}
+          {layout.minimized.map((m, i) => {
+            const meta = PANE_META[m.paneType];
+            const Icon = meta.icon;
+            return (
+              <button
+                key={m.id}
+                onClick={() => restorePane(i)}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 shrink-0 opacity-50"
+                title={`Restore ${meta.label}`}
+              >
+                <Icon size={11} strokeWidth={2.5} />
+                {meta.label}
+              </button>
+            );
+          })}
+          <div className="flex-1" />
+        </div>
         <div className="flex-1 relative overflow-hidden">
           {allLeaves[activeMobilePane] &&
             (() => {
@@ -646,7 +672,7 @@ export function PaneManager() {
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* Toolbar — minimized panes */}
-      {!chromeHidden && layout.minimized.length > 0 && (
+      {layout.minimized.length > 0 && (
         <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
           {/* Minimized tabs */}
           {layout.minimized.map((m, i) => {

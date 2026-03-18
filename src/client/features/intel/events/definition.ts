@@ -8,6 +8,7 @@ export const eventsFeature: FeatureDefinition<EventData, EventFilter> = {
   id: "events",
   label: "GDELT EVENTS",
   icon: Zap,
+  iconProps: { fill: "currentColor", strokeWidth: 0 },
 
   matchesFilter: (
     _item: BasePoint & { data: EventData },
