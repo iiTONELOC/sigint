@@ -24,6 +24,12 @@ import {
   Save,
   Trash2,
   Subtitles,
+  Maximize,
+  Minimize,
+  Play,
+  Pause,
+  Radio,
+  Scan,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -381,6 +387,19 @@ async function fetchNewsChannels(): Promise<Channel[]> {
   }
 }
 
+// ── Player handle for parent to control playback ────────────────────
+
+type PlayerHandle = {
+  isPaused: boolean;
+  isLive: boolean;
+  currentDelay: number;
+  play: () => void;
+  pause: () => void;
+  goLive: () => void;
+};
+
+const DVR_BACK_BUFFER = 300; // 5 min
+
 // ── HLS Player ───────────────────────────────────────────────────────
 
 function HlsPlayer({
@@ -389,16 +408,75 @@ function HlsPlayer({
   ccEnabled,
   onError,
   onLoaded,
+  playerRef,
 }: {
   readonly channel: Channel;
   readonly muted: boolean;
   readonly ccEnabled: boolean;
   readonly onError: () => void;
   readonly onLoaded: () => void;
+  readonly playerRef?: React.MutableRefObject<PlayerHandle | null>;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const errorFired = useRef(false);
+  const [, tick] = useState(0);
+
+  // Expose player handle
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playerRef) return;
+    playerRef.current = {
+      get isPaused() {
+        return video.paused;
+      },
+      get isLive() {
+        // For live HLS, duration is often Infinity — use buffered end as live edge
+        if (!isFinite(video.duration)) {
+          if (video.buffered.length === 0) return true;
+          const liveEdge = video.buffered.end(video.buffered.length - 1);
+          return liveEdge - video.currentTime < 3;
+        }
+        return video.duration - video.currentTime < 3;
+      },
+      get currentDelay() {
+        if (!isFinite(video.duration)) {
+          if (video.buffered.length === 0) return 0;
+          const liveEdge = video.buffered.end(video.buffered.length - 1);
+          return Math.max(0, liveEdge - video.currentTime);
+        }
+        return Math.max(0, video.duration - video.currentTime);
+      },
+      play() {
+        video.play().catch(() => {});
+        tick((n) => n + 1);
+      },
+      pause() {
+        video.pause();
+        tick((n) => n + 1);
+      },
+      goLive() {
+        // Jump to live edge — works for both finite and Infinity duration
+        if (video.buffered.length > 0) {
+          video.currentTime = video.buffered.end(video.buffered.length - 1);
+        } else if (isFinite(video.duration)) {
+          video.currentTime = video.duration;
+        }
+        // If HLS.js is attached, use startLoad to resync
+        if (hlsRef.current) {
+          hlsRef.current.startLoad(-1);
+        }
+        video.play().catch(() => {});
+        tick((n) => n + 1);
+      },
+    };
+    // Periodic update for DVR time display
+    const iv = setInterval(() => tick((n) => n + 1), 1000);
+    return () => {
+      clearInterval(iv);
+      if (playerRef) playerRef.current = null;
+    };
+  }, [playerRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -422,7 +500,8 @@ function HlsPlayer({
         enableWorker: true,
         lowLatencyMode: true,
         maxBufferLength: 10,
-        maxMaxBufferLength: 20,
+        maxMaxBufferLength: 30,
+        backBufferLength: DVR_BACK_BUFFER,
       });
       hls.loadSource(channel.url);
       hls.attachMedia(video);
@@ -608,7 +687,7 @@ const ChannelPicker = forwardRef<
         </button>
       </div>
       {/* Region tabs */}
-      <div className="shrink-0 flex items-center gap-0.5 px-2 py-1 border-b border-sig-border/30 overflow-x-auto">
+      <div className="shrink-0 flex items-center gap-0.5 px-2 py-1 border-b border-sig-border/30 overflow-x-auto sigint-scroll">
         {REGIONS.map((r) => (
           <button
             key={r.key}
@@ -687,6 +766,13 @@ const ChannelPicker = forwardRef<
 
 // ── Video Slot ───────────────────────────────────────────────────────
 
+function formatDelay(seconds: number): string {
+  if (seconds < 1) return "";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return m > 0 ? `-${m}:${String(s).padStart(2, "0")}` : `-${s}s`;
+}
+
 function VideoSlot({
   slot,
   slotIdx,
@@ -698,6 +784,7 @@ function VideoSlot({
   muted,
   onToggleMute,
   gridSize,
+  onPromote,
 }: {
   readonly slot: SlotState;
   readonly slotIdx: number;
@@ -709,10 +796,13 @@ function VideoSlot({
   readonly muted: boolean;
   readonly onToggleMute: (idx: number) => void;
   readonly gridSize: GridLayout;
+  readonly onPromote?: (idx: number) => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [ccEnabled, setCcEnabled] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<PlayerHandle | null>(null);
   const compact = gridSize > 1;
 
   useEffect(() => {
@@ -724,6 +814,16 @@ function VideoSlot({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showPicker]);
+
+  const handleFullscreen = useCallback(() => {
+    const el = slotRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      el.requestFullscreen().catch(() => {});
+    }
+  }, []);
 
   // ── Empty slot ─────────────────────────────────────────────────
   if (!slot.channel) {
@@ -753,7 +853,7 @@ function VideoSlot({
     );
   }
 
-  // ── Error state — show picker button so user can switch ────────
+  // ── Error state ────────────────────────────────────────────────
   if (slot.error) {
     return (
       <div className="relative w-full h-full flex flex-col items-center justify-center bg-black/80 border border-sig-border/30 rounded overflow-hidden gap-2">
@@ -797,8 +897,16 @@ function VideoSlot({
   }
 
   // ── Playing / Loading state ────────────────────────────────────
+  const player = playerRef.current;
+  const isPaused = player?.isPaused ?? false;
+  const isLive = player?.isLive ?? true;
+  const delay = player?.currentDelay ?? 0;
+
   return (
-    <div className="relative w-full h-full bg-black border border-sig-border/30 rounded overflow-hidden group">
+    <div
+      ref={slotRef}
+      className="relative w-full h-full bg-black border border-sig-border/30 rounded overflow-hidden group"
+    >
       {slot.loading && (
         <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/70">
           <Loader2 size={20} className="text-sig-accent animate-spin" />
@@ -811,49 +919,120 @@ function VideoSlot({
         ccEnabled={ccEnabled}
         onError={() => onSlotError(slotIdx)}
         onLoaded={() => onSlotLoaded(slotIdx)}
+        playerRef={playerRef}
       />
 
-      {/* Hover controls */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1.5 flex items-center gap-1.5">
-        {slot.channel.logo && (
-          <img
-            src={slot.channel.logo}
-            alt=""
-            className="w-4 h-4 rounded-sm object-contain bg-white/10 shrink-0"
-            loading="lazy"
-          />
+      {/* Controls — always visible on touch, hover-reveal on desktop */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-2 pt-4 pb-1.5">
+        {/* DVR bar — shows when not live */}
+        {!isLive && delay > 2 && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-yellow-400 text-[9px] font-semibold tracking-wider tabular-nums shrink-0">
+              {formatDelay(delay)}
+            </span>
+            <div className="flex-1 h-0.5 bg-white/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-yellow-400/60 rounded-full"
+                style={{
+                  width: `${Math.max(2, 100 - (delay / DVR_BACK_BUFFER) * 100)}%`,
+                }}
+              />
+            </div>
+            <button
+              onClick={() => player?.goLive()}
+              className="text-yellow-400 text-[9px] font-bold tracking-wider bg-transparent border-none hover:text-white transition-colors shrink-0"
+            >
+              GO LIVE
+            </button>
+          </div>
         )}
-        <span className="text-white text-(length:--sig-text-sm) font-semibold truncate flex-1 tracking-wide">
-          {slot.channel.name}
-        </span>
-        <button
-          onClick={() => onToggleMute(slotIdx)}
-          className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-          title={muted ? "Unmute" : "Mute"}
-        >
-          {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
-        </button>
-        <button
-          onClick={() => setCcEnabled((v) => !v)}
-          className={`bg-transparent border-none transition-colors p-0.5 ${ccEnabled ? "text-sig-accent" : "text-white/70 hover:text-white"}`}
-          title={ccEnabled ? "Hide captions" : "Show captions"}
-        >
-          <Subtitles size={12} />
-        </button>
-        <button
-          onClick={() => setShowPicker(true)}
-          className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-          title="Change channel"
-        >
-          <ChevronDown size={12} />
-        </button>
-        <button
-          onClick={() => onClear(slotIdx)}
-          className="text-white/70 bg-transparent border-none hover:text-sig-danger transition-colors p-0.5"
-          title="Close"
-        >
-          <X size={12} />
-        </button>
+
+        {/* Main control row */}
+        <div className="flex items-center gap-1.5">
+          {slot.channel.logo && (
+            <img
+              src={slot.channel.logo}
+              alt=""
+              className="w-4 h-4 rounded-sm object-contain bg-white/10 shrink-0"
+              loading="lazy"
+            />
+          )}
+          <span className="text-white text-(length:--sig-text-sm) font-semibold truncate flex-1 tracking-wide">
+            {slot.channel.name}
+          </span>
+
+          {/* Live indicator */}
+          {isLive && !isPaused && (
+            <span className="flex items-center gap-0.5 text-sig-danger text-[8px] font-bold tracking-wider shrink-0">
+              <Radio size={8} className="animate-[pulse_1.5s_infinite]" /> LIVE
+            </span>
+          )}
+
+          {/* Pause/Play */}
+          <button
+            onClick={() => (isPaused ? player?.play() : player?.pause())}
+            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
+            title={isPaused ? "Play" : "Pause (DVR buffer: 5 min)"}
+          >
+            {isPaused ? <Play size={12} /> : <Pause size={12} />}
+          </button>
+
+          {/* Mute toggle — uses video.muted, simple and working */}
+          <button
+            onClick={() => onToggleMute(slotIdx)}
+            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
+            title={muted ? "Unmute" : "Mute"}
+          >
+            {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+          </button>
+
+          {/* CC */}
+          <button
+            onClick={() => setCcEnabled((v) => !v)}
+            className={`bg-transparent border-none transition-colors p-0.5 ${ccEnabled ? "text-sig-accent" : "text-white/70 hover:text-white"}`}
+            title={ccEnabled ? "Hide captions" : "Show captions"}
+          >
+            <Subtitles size={12} />
+          </button>
+
+          {/* Promote to 1×1 (only in grid mode) */}
+          {onPromote && compact && (
+            <button
+              onClick={() => onPromote(slotIdx)}
+              className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
+              title="Focus this channel"
+            >
+              <Scan size={12} />
+            </button>
+          )}
+
+          {/* Browser fullscreen */}
+          <button
+            onClick={handleFullscreen}
+            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
+            title="Fullscreen"
+          >
+            <Maximize size={12} />
+          </button>
+
+          {/* Change channel */}
+          <button
+            onClick={() => setShowPicker(true)}
+            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
+            title="Change channel"
+          >
+            <ChevronDown size={12} />
+          </button>
+
+          {/* Close */}
+          <button
+            onClick={() => onClear(slotIdx)}
+            className="text-white/70 bg-transparent border-none hover:text-sig-danger transition-colors p-0.5"
+            title="Close"
+          >
+            <X size={12} />
+          </button>
+        </div>
       </div>
 
       {compact && (
@@ -1056,6 +1235,7 @@ export function VideoFeedPane() {
   const [loading, setLoading] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<Preset[]>(loadPresets);
+  const paneRef = useRef<HTMLDivElement>(null);
 
   // Restore saved state or default
   const savedState = useMemo(() => loadState(), []);
@@ -1064,7 +1244,6 @@ export function VideoFeedPane() {
   );
   const [slots, setSlots] = useState<SlotState[]>(() => {
     if (savedState?.slots) {
-      // We'll restore channels once the channel list loads
       return savedState.slots.map(
         () => ({ channel: null, error: false, loading: false }) as SlotState,
       );
@@ -1073,6 +1252,33 @@ export function VideoFeedPane() {
   });
   const [mutedSlot, setMutedSlot] = useState<number | null>(null);
   const restoredRef = useRef(false);
+
+  // ── Promote: temporarily show one slot as 1×1 ──────────────────
+  const [promotedIdx, setPromotedIdx] = useState<number | null>(null);
+  const [prePromoteGrid, setPrePromoteGrid] = useState<GridLayout | null>(null);
+
+  const handlePromote = useCallback(
+    (idx: number) => {
+      setPrePromoteGrid(gridLayout);
+      setPromotedIdx(idx);
+    },
+    [gridLayout],
+  );
+
+  const handleRestoreGrid = useCallback(() => {
+    setPromotedIdx(null);
+    setPrePromoteGrid(null);
+  }, []);
+
+  const handlePaneFullscreen = useCallback(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      el.requestFullscreen().catch(() => {});
+    }
+  }, []);
 
   // Fetch channels, then restore saved slots
   useEffect(() => {
@@ -1109,7 +1315,8 @@ export function VideoFeedPane() {
 
   // Auto-save whenever slots or grid change
   useEffect(() => {
-    if (!restoredRef.current && !savedState) return; // don't save initial empty state
+    const hasContent = slots.some((s) => s.channel !== null);
+    if (!restoredRef.current && !hasContent) return;
     saveState(gridLayout, slots);
   }, [gridLayout, slots]);
 
@@ -1204,6 +1411,7 @@ export function VideoFeedPane() {
   );
 
   const gridClass = useMemo(() => {
+    if (promotedIdx !== null) return "grid-cols-1 grid-rows-1";
     switch (gridLayout) {
       case 1:
         return "grid-cols-1 grid-rows-1";
@@ -1212,16 +1420,46 @@ export function VideoFeedPane() {
       case 9:
         return "grid-cols-3 grid-rows-3";
     }
-  }, [gridLayout]);
+  }, [gridLayout, promotedIdx]);
+
+  const visibleSlots = useMemo(() => {
+    if (promotedIdx !== null && slots[promotedIdx]) {
+      return [{ slot: slots[promotedIdx]!, idx: promotedIdx }];
+    }
+    return slots.map((slot, idx) => ({ slot, idx }));
+  }, [slots, promotedIdx]);
 
   return (
-    <div className="w-full h-full flex flex-col bg-black overflow-hidden">
+    <div
+      ref={paneRef}
+      className="w-full h-full flex flex-col bg-black overflow-hidden"
+    >
       <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-sig-border/40 bg-sig-panel/80 relative">
+        {/* Restore grid button */}
+        {promotedIdx !== null && (
+          <button
+            onClick={handleRestoreGrid}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) font-semibold tracking-wider bg-sig-accent/10 border border-sig-accent/30 hover:bg-sig-accent/20 transition-colors mr-auto"
+          >
+            <Minimize size={10} strokeWidth={2.5} />
+            RESTORE{" "}
+            {prePromoteGrid === 4
+              ? "2×2"
+              : prePromoteGrid === 9
+                ? "3×3"
+                : "GRID"}
+          </button>
+        )}
+
         <div className="flex items-center gap-0.5">
           {([1, 4, 9] as GridLayout[]).map((g) => (
             <button
               key={g}
-              onClick={() => setGridLayout(g)}
+              onClick={() => {
+                setGridLayout(g);
+                setPromotedIdx(null);
+                setPrePromoteGrid(null);
+              }}
               className={`p-1 rounded transition-colors border-none ${
                 gridLayout === g
                   ? "text-sig-accent bg-sig-accent/15"
@@ -1278,6 +1516,14 @@ export function VideoFeedPane() {
             `${channels.length} ch`
           )}
         </span>
+        <div className="w-px h-4 bg-sig-border/50" />
+        <button
+          onClick={handlePaneFullscreen}
+          className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
+          title="Fullscreen pane"
+        >
+          <Maximize size={12} strokeWidth={2.5} />
+        </button>
         {showPresets && (
           <PresetMenu
             presets={presets}
@@ -1290,19 +1536,20 @@ export function VideoFeedPane() {
       </div>
 
       <div className={`flex-1 grid ${gridClass} gap-0.5 p-0.5 min-h-0`}>
-        {slots.map((slot, i) => (
+        {visibleSlots.map(({ slot, idx }) => (
           <VideoSlot
-            key={`slot-${i}`}
+            key={`slot-${idx}`}
             slot={slot}
-            slotIdx={i}
+            slotIdx={idx}
             channels={channels}
             onAssign={assignChannel}
             onClear={clearSlot}
             onSlotError={slotError}
             onSlotLoaded={slotLoaded}
-            muted={mutedSlot !== i}
+            muted={mutedSlot !== idx}
             onToggleMute={toggleMute}
-            gridSize={gridLayout}
+            gridSize={promotedIdx !== null ? 1 : gridLayout}
+            onPromote={gridLayout > 1 ? handlePromote : undefined}
           />
         ))}
       </div>

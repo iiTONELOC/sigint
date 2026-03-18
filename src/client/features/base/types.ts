@@ -41,6 +41,9 @@ export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
   label: string;
   icon: React.ForwardRefExoticComponent<any>;
 
+  /** Icon rendering props — filled icons (aircraft, events) vs stroked */
+  iconProps: Record<string, unknown>;
+
   /** Does this item match the given filter? */
   matchesFilter: (
     item: BasePoint & { data: TData },

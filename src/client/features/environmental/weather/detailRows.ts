@@ -1,16 +1,5 @@
+import { relativeAge } from "@/lib/timeFormat";
 import type { WeatherData } from "./types";
-
-function relativeAge(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 0) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs % 24}h ago`;
-}
 
 function formatTime(iso?: string): string {
   if (!iso) return "";
@@ -80,7 +69,10 @@ export function buildWeatherDetailRows(
 
   if (timestamp) {
     const ts = new Date(timestamp).getTime();
-    rows.push(["Issued", `${formatTime(timestamp)} (${relativeAge(ts)})`]);
+    rows.push([
+      "Issued",
+      `${formatTime(timestamp)} (${relativeAge(ts, "verbose")})`,
+    ]);
   }
 
   return rows;

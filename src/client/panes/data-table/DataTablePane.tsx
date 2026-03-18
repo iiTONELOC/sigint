@@ -1,10 +1,12 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap } from "@/config/theme";
+
+import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry, featureList } from "@/features/registry";
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown, Locate } from "lucide-react";
+import { relativeAge } from "@/lib/timeFormat";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -71,7 +73,12 @@ function getValue1Num(item: DataPoint): number {
     case "fires":
       return (d.frp as number) ?? 0;
     case "weather": {
-      const sev: Record<string, number> = { Extreme: 4, Severe: 3, Moderate: 2, Minor: 1 };
+      const sev: Record<string, number> = {
+        Extreme: 4,
+        Severe: 3,
+        Moderate: 2,
+        Minor: 1,
+      };
       return sev[(d.severity as string) ?? ""] ?? 0;
     }
     default:
@@ -130,18 +137,6 @@ function getAge(item: DataPoint): number {
   return Date.now() - new Date(item.timestamp).getTime();
 }
 
-function relativeAge(item: DataPoint): string {
-  if (!item.timestamp) return "LIVE";
-  const diff = Date.now() - new Date(item.timestamp).getTime();
-  if (diff < 60_000) return "LIVE";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d`;
-}
-
 // ── Column definitions ──────────────────────────────────────────────
 
 const COLUMNS: {
@@ -162,33 +157,19 @@ const COLUMNS: {
 // ── Component ───────────────────────────────────────────────────────
 
 export function DataTablePane() {
-  const { allData, filters, selectedCurrent, setSelected, setZoomToId } =
-    useData();
+  const {
+    allData,
+    filters,
+    selectedCurrent,
+    setSelected,
+    selectAndZoom,
+    colorMap,
+  } = useData();
   const { theme } = useTheme();
-  const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
   const [sortKey, setSortKey] = useState<SortKey>("type");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
-
-  // ── Virtual scroll state ────────────────────────────────────────
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportH, setViewportH] = useState(0);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver((entries) => {
-      for (const entry of entries) setViewportH(entry.contentRect.height);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  const onScroll = useCallback(() => {
-    if (scrollRef.current) setScrollTop(scrollRef.current.scrollTop);
-  }, []);
 
   // ── Filter ──────────────────────────────────────────────────────
 
@@ -241,15 +222,22 @@ export function DataTablePane() {
     return sorted;
   }, [filteredData, sortKey, sortDir]);
 
-  // ── Virtual window ──────────────────────────────────────────────
+  // ── Virtual scroll ──────────────────────────────────────────────
 
-  const totalHeight = sortedData.length * ROW_HEIGHT;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(
-    sortedData.length,
-    Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN,
-  );
-  const offsetY = startIdx * ROW_HEIGHT;
+  const {
+    scrollRef,
+    totalHeight,
+    offsetY,
+    startIdx,
+    endIdx,
+    onScroll,
+    scrollToIndex,
+  } = useVirtualScroll({
+    itemCount: sortedData.length,
+    rowHeight: ROW_HEIGHT,
+    overscan: OVERSCAN,
+  });
+
   const visibleItems = useMemo(
     () => sortedData.slice(startIdx, endIdx),
     [sortedData, startIdx, endIdx],
@@ -258,19 +246,10 @@ export function DataTablePane() {
   // ── Auto-scroll to selected item ─────────────────────────────────
 
   useEffect(() => {
-    if (!selectedCurrent || !scrollRef.current) return;
+    if (!selectedCurrent) return;
     const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
-    if (idx < 0) return;
-    const rowTop = idx * ROW_HEIGHT;
-    const rowBot = rowTop + ROW_HEIGHT;
-    const el = scrollRef.current;
-    const visTop = el.scrollTop;
-    const visBot = visTop + viewportH;
-    // Already visible — skip
-    if (rowTop >= visTop && rowBot <= visBot) return;
-    // Scroll so selected row is centered
-    el.scrollTop = Math.max(0, rowTop - viewportH / 2 + ROW_HEIGHT / 2);
-  }, [selectedCurrent?.id, sortedData, viewportH]);
+    if (idx >= 0) scrollToIndex(idx);
+  }, [selectedCurrent?.id, sortedData, scrollToIndex]);
 
   // ── Feature counts ──────────────────────────────────────────────
 
@@ -310,11 +289,9 @@ export function DataTablePane() {
   const handleZoomTo = useCallback(
     (item: DataPoint, e: React.MouseEvent) => {
       e.stopPropagation();
-      setSelected(item);
-      setZoomToId(item.id);
-      setTimeout(() => setZoomToId(null), 100);
+      selectAndZoom(item);
     },
-    [setSelected, setZoomToId],
+    [selectAndZoom],
   );
 
   const gridTemplate = COLUMNS.map((c) => c.width).join(" ") + " 32px";
@@ -361,9 +338,7 @@ export function DataTablePane() {
               style={{ color: active ? color : undefined }}
             >
               <Icon size={11} strokeWidth={2.5} />
-              <span>
-                {featureCounts[f.id] ?? 0}
-              </span>
+              <span>{featureCounts[f.id] ?? 0}</span>
             </button>
           );
         })}
@@ -465,7 +440,7 @@ export function DataTablePane() {
                     {item.lon.toFixed(2)}
                   </div>
                   <div className="text-right text-sig-dim text-(length:--sig-text-sm)">
-                    {relativeAge(item)}
+                    {relativeAge(item.timestamp)}
                   </div>
                   <div className="flex justify-center">
                     <button

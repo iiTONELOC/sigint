@@ -1,16 +1,5 @@
+import { relativeAge } from "@/lib/timeFormat";
 import type { EarthquakeData } from "./types";
-
-function relativeAge(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 0) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs % 24}h ago`;
-}
 
 export function buildEarthquakeDetailRows(
   data: EarthquakeData,
@@ -63,7 +52,7 @@ export function buildEarthquakeDetailRows(
       minute: "2-digit",
       hour12: false,
     });
-    rows.push(["Time", `${dateStr} (${relativeAge(ts)})`]);
+    rows.push(["Time", `${dateStr} (${relativeAge(ts, "verbose")})`]);
   }
 
   // ── Intel links ─────────────────────────────────────────────────

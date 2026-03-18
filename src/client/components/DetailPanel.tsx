@@ -227,9 +227,7 @@ function PanelContent({
             <Icon
               size="clamp(14px, 2vw, 18px)"
               style={{ color }}
-              {...(item.type === "aircraft" || item.type === "events"
-                ? { fill: "currentColor", strokeWidth: 0 }
-                : { strokeWidth: 2.5 })}
+              {...feature.iconProps}
             />
             <span
               className="font-bold tracking-widest text-(length:--sig-text-btn)"
@@ -300,8 +298,8 @@ function PanelContent({
         </div>
       )}
 
-      {/* Intel links — only show if dossier IS open (links are dossier territory otherwise) */}
-      {!onOpenDossier && linkRows.length > 0 && (
+      {/* Intel links — always visible */}
+      {linkRows.length > 0 && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
           {linkRows.map(([label, url]) => (
             <a

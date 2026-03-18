@@ -13,6 +13,7 @@ export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> =
     id: "aircraft",
     label: "AIRCRAFT",
     icon: Plane,
+    iconProps: { fill: "currentColor", strokeWidth: 0 },
 
     matchesFilter: (
       item: BasePoint & { data: AircraftData },

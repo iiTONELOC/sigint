@@ -28,8 +28,10 @@ import {
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { recordPositions } from "@/lib/trailService";
 import { featureRegistry } from "@/features/registry";
+import { getColorMap } from "@/config/theme";
+import { useTheme } from "@/context/ThemeContext";
 import { buildSpatialGrid, type SpatialGrid } from "@/lib/spatialIndex";
-import type { SourceStatus } from "@/components/StatusBadge";
+import type { SourceStatus } from "@/lib/sourceHealth";
 
 // ── Context value type ──────────────────────────────────────────────
 
@@ -86,6 +88,12 @@ type DataContextValue = {
   zoomToId: string | null;
   setZoomToId: React.Dispatch<React.SetStateAction<string | null>>;
 
+  /** Select an item and zoom the globe to it */
+  selectAndZoom: (item: DataPoint) => void;
+
+  /** Color map keyed by feature id — derived from theme */
+  colorMap: Record<string, string>;
+
   // Enrichment
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
 };
@@ -95,6 +103,7 @@ const DataContext = createContext<DataContextValue | undefined>(undefined);
 // ── Provider ────────────────────────────────────────────────────────
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { theme } = useTheme();
   const lastEnrichmentKeyRef = useRef("");
   const stashedSelectionRef = useRef<DataPoint | null>(null);
   const stashedIsolateModeRef = useRef<null | "solo" | "focus">(null);
@@ -147,7 +156,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // ── Merged data ────────────────────────────────────────────────
   const allData = useMemo(
-    () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData],
+    () => [
+      ...aircraftData,
+      ...shipData,
+      ...earthquakeData,
+      ...eventData,
+      ...fireData,
+      ...weatherData,
+    ],
     [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData],
   );
 
@@ -202,7 +218,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "fires", label: "FIRMS", status: fireSource },
       { id: "weather", label: "NOAA", status: weatherSource },
     ],
-    [dataSource, earthquakeSource, eventSource, shipSource, fireSource, weatherSource],
+    [
+      dataSource,
+      earthquakeSource,
+      eventSource,
+      shipSource,
+      fireSource,
+      weatherSource,
+    ],
   );
 
   // ── Filters ────────────────────────────────────────────────────
@@ -292,6 +315,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setZoomToId(null), 100);
   }, []);
 
+  /** Select + zoom in one call — replaces the 3-line pattern used everywhere */
+  const selectAndZoom = useCallback((item: DataPoint) => {
+    setSelected(item);
+    setZoomToId(item.id);
+    setTimeout(() => setZoomToId(null), 100);
+  }, []);
+
+  /** Color map derived from theme — avoids 5× useMemo(getColorMap) across consumers */
+  const colorMap = useMemo(() => getColorMap(theme), [theme]);
+
   const handleSearchMatchIds = useCallback(
     (ids: Set<string> | null) => {
       setSearchMatchIds(ids);
@@ -352,6 +385,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       handleSearchZoomTo,
       zoomToId,
       setZoomToId,
+      selectAndZoom,
+      colorMap,
       requestAircraftEnrichment,
     }),
     [
@@ -379,6 +414,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       handleSearchSelect,
       handleSearchZoomTo,
       zoomToId,
+      selectAndZoom,
+      colorMap,
       requestAircraftEnrichment,
     ],
   );

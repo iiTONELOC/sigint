@@ -1,16 +1,5 @@
+import { relativeAge } from "@/lib/timeFormat";
 import type { FireData } from "./types";
-
-function relativeAge(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 0) return "just now";
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ${hrs % 24}h ago`;
-}
 
 export function buildFireDetailRows(
   data: FireData,
@@ -47,7 +36,10 @@ export function buildFireDetailRows(
   }
 
   if (data.scan != null && data.track != null) {
-    rows.push(["Pixel", `${data.scan.toFixed(1)} × ${data.track.toFixed(1)} km`]);
+    rows.push([
+      "Pixel",
+      `${data.scan.toFixed(1)} × ${data.track.toFixed(1)} km`,
+    ]);
   }
 
   if (timestamp) {
@@ -59,7 +51,7 @@ export function buildFireDetailRows(
       minute: "2-digit",
       hour12: false,
     });
-    rows.push(["Detected", `${dateStr} (${relativeAge(ts)})`]);
+    rows.push(["Detected", `${dateStr} (${relativeAge(ts, "verbose")})`]);
   }
 
   return rows;
