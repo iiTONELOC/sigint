@@ -42,7 +42,7 @@ export function useWeatherData(
     const poll = async (isInitial = false) => {
       try {
         const weatherData = isInitial
-          ? await weatherProvider.getData()
+          ? await weatherProvider.getData(pollInterval)
           : await weatherProvider.refresh();
         if (!isMounted) return;
 
@@ -67,12 +67,8 @@ export function useWeatherData(
       }
     };
 
-    if (hydratedData && hydratedData.length > 0) {
-      intervalId = setInterval(poll, pollInterval);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, pollInterval);
-    }
+    poll(true);
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;

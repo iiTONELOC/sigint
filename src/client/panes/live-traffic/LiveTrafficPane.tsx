@@ -36,13 +36,16 @@ export function LiveTrafficPane() {
   const handleSetIsolateMode = useCallback(
     (mode: null | "solo" | "focus") => {
       setIsolateMode(mode);
-      if (selectedCurrent) {
-        setZoomToId(selectedCurrent.id);
-        setTimeout(() => setZoomToId(null), 100);
-      }
     },
-    [setIsolateMode, setZoomToId, selectedCurrent],
+    [setIsolateMode],
   );
+
+  const handleZoomToSelected = useCallback(() => {
+    if (selectedCurrent) {
+      setZoomToId(selectedCurrent.id);
+      setTimeout(() => setZoomToId(null), 100);
+    }
+  }, [setZoomToId, selectedCurrent]);
 
   const handleSelect = useCallback(
     (item: DataPoint | null) => {
@@ -159,6 +162,7 @@ export function LiveTrafficPane() {
           onClose={handleClose}
           isolateMode={isolateMode}
           onSetIsolateMode={handleSetIsolateMode}
+          onZoomTo={handleZoomToSelected}
           side={panelSide}
           onOpenDossier={requestDossierOpen}
         />

@@ -56,7 +56,7 @@ function LayerToggle({
     <Tooltip content={tooltipText} placement="bottom">
       <button
         onClick={onToggle}
-        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0"
+        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 min-h-7 min-w-7 justify-center sm:justify-start"
         style={{
           color: on ? color : undefined,
           background: on ? `${color}15` : undefined,
@@ -80,9 +80,9 @@ function LayerToggle({
   );
 }
 
-// ── Main Header ──────────────────────────────────────────────────────
+// ── Toggles (shared between single-row and two-row layouts) ──────────
 
-export function Header({
+function Toggles({
   layers,
   toggleLayer,
   counts,
@@ -95,6 +95,58 @@ export function Header({
   const { theme, mode } = useTheme();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
+  const sourceStatusMap = useMemo(
+    () => buildSourceStatusMap(dataSources),
+    [dataSources],
+  );
+
+  return (
+    <>
+      {searchSlot}
+      <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
+      {featureList
+        .filter((f) => f.id !== "aircraft")
+        .map((f) => {
+          const on = layers[f.id] ?? false;
+          const color = colorMap[f.id] ?? C.dim;
+          const status = sourceStatusMap.get(f.id);
+          const count = counts[f.id] ?? 0;
+          const down = isSourceDown(status, count, f.id);
+          return (
+            <LayerToggle
+              key={f.id}
+              label={f.label}
+              icon={f.icon}
+              on={on}
+              color={color}
+              count={count}
+              down={down}
+              iconProps={f.iconProps}
+              onToggle={() => toggleLayer(f.id)}
+            />
+          );
+        })}
+      <AircraftFilterControl
+        aircraftFilter={aircraftFilter}
+        setAircraftFilter={setAircraftFilter}
+        aircraftCount={counts.aircraft ?? 0}
+        aircraftColor={colorMap.aircraft ?? C.aircraft}
+        availableCountries={availableCountries}
+        colors={{
+          panel: C.panel,
+          border: C.border,
+          bright: mode === "dark" ? "#00b8d4" : C.accent,
+          dim: C.dim,
+          danger: C.danger,
+        }}
+      />
+    </>
+  );
+}
+
+// ── Main Header ──────────────────────────────────────────────────────
+
+export function Header(props: Readonly<HeaderProps>) {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -102,32 +154,34 @@ export function Header({
     return () => clearInterval(iv);
   }, []);
 
-  const sourceStatusMap = useMemo(
-    () => buildSourceStatusMap(dataSources),
-    [dataSources],
-  );
-
   return (
     <div className="shrink-0 border-b border-sig-border bg-sig-panel/95">
-      {/* ── ROW 1: Logo + Clock ─────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-2 sm:px-3 md:px-4 py-1 sm:py-1.5">
+      {/* ── LARGE SCREENS: Single row ─────────────────────────────── */}
+      <div className="hidden lg:flex items-center gap-1.5 px-3 md:px-4 py-1.5">
         {/* Logo */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
-          <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-1.75 h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
+          <span className="font-bold tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
             SIGINT
           </span>
-          <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
+          <span className="font-light text-sig-dim text-(length:--sig-text-subtitle)">
             OSINT LIVE FEED
           </span>
         </div>
 
+        <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-1" />
+
+        {/* Search + Toggles + Aircraft — centered */}
+        <div className="flex items-center justify-center gap-1.5 flex-1 min-w-0">
+          <Toggles {...props} />
+        </div>
+
         {/* Clock */}
-        <div className="text-right shrink-0">
+        <div className="text-right shrink-0 ml-3">
           <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
             {time.toLocaleTimeString("en-US", { hour12: false })}
           </div>
-          <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
+          <div className="tracking-wide text-sig-dim text-(length:--sig-text-sm)">
             {time.toLocaleDateString("en-US", {
               year: "numeric",
               month: "short",
@@ -137,53 +191,34 @@ export function Header({
         </div>
       </div>
 
-      {/* ── ROW 2: Search + Layer toggles ───────────────────────────── */}
-      <div className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 md:px-4 pb-1 sm:pb-1.5 overflow-x-auto sigint-scroll">
-        {/* Search */}
-        {searchSlot}
-
-        {/* Separator */}
-        <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
-
-        {/* Layer toggles */}
-        {featureList
-          .filter((f) => f.id !== "aircraft")
-          .map((f) => {
-            const on = layers[f.id] ?? false;
-            const color = colorMap[f.id] ?? C.dim;
-            const status = sourceStatusMap.get(f.id);
-            const count = counts[f.id] ?? 0;
-            const down = isSourceDown(status, count, f.id);
-
-            return (
-              <LayerToggle
-                key={f.id}
-                label={f.label}
-                icon={f.icon}
-                on={on}
-                color={color}
-                count={count}
-                down={down}
-                iconProps={f.iconProps}
-                onToggle={() => toggleLayer(f.id)}
-              />
-            );
-          })}
-
-        <AircraftFilterControl
-          aircraftFilter={aircraftFilter}
-          setAircraftFilter={setAircraftFilter}
-          aircraftCount={counts.aircraft ?? 0}
-          aircraftColor={colorMap.aircraft ?? C.aircraft}
-          availableCountries={availableCountries}
-          colors={{
-            panel: C.panel,
-            border: C.border,
-            bright: mode === "dark" ? "#00b8d4" : C.accent,
-            dim: C.dim,
-            danger: C.danger,
-          }}
-        />
+      {/* ── SMALL SCREENS: Two rows ───────────────────────────────── */}
+      <div className="lg:hidden">
+        <div className="flex items-center justify-between px-2 sm:px-3 py-1 sm:py-1.5">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
+            <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
+              SIGINT
+            </span>
+            <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
+              OSINT LIVE FEED
+            </span>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
+              {time.toLocaleTimeString("en-US", { hour12: false })}
+            </div>
+            <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
+              {time.toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 pb-1 sm:pb-1.5 overflow-x-auto sigint-scroll">
+          <Toggles {...props} />
+        </div>
       </div>
     </div>
   );

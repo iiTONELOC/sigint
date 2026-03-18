@@ -5,6 +5,7 @@ import {
   GripHorizontal,
   ExternalLink,
   FileSearch,
+  LocateFixed,
 } from "lucide-react";
 import { useHasDossier } from "@/panes/paneLayoutContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -26,10 +27,13 @@ export type DetailPanelProps = {
   readonly item: DataPoint | null;
   readonly isolateMode: null | "solo" | "focus";
   readonly onSetIsolateMode: (mode: null | "solo" | "focus") => void;
+  readonly onZoomTo?: () => void;
   readonly onClose: () => void;
   readonly side?: "left" | "right";
   readonly onOpenDossier?: () => void;
 };
+
+// ── Desktop drag (free movement) ─────────────────────────────────────
 
 function useDrag() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -80,10 +84,116 @@ function useDrag() {
   return { pos, dragged, onPointerDown, onPointerMove, onPointerUp, reset };
 }
 
+// ── Mobile bottom-sheet swipe-to-dismiss ─────────────────────────────
+
+function useSheetDismiss(onClose: () => void) {
+  const offsetRef = useRef(0);
+  const settlingRef = useRef(false);
+  const [, forceRender] = useState(0);
+  const dragRef = useRef({
+    active: false,
+    startY: 0,
+    lastY: 0,
+    lastT: 0,
+    velocity: 0,
+  });
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  const update = useCallback((offset: number, settling: boolean) => {
+    offsetRef.current = offset;
+    settlingRef.current = settling;
+    forceRender((n) => n + 1);
+  }, []);
+
+  // Reset — safe to call during render because it only triggers update when needed
+  const reset = useCallback(() => {
+    dragRef.current = {
+      active: false,
+      startY: 0,
+      lastY: 0,
+      lastT: 0,
+      velocity: 0,
+    };
+    if (offsetRef.current !== 0 || settlingRef.current) {
+      offsetRef.current = 0;
+      settlingRef.current = false;
+      forceRender((n) => n + 1);
+    }
+  }, []);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const sheet = sheetRef.current;
+    if (sheet && sheet.scrollTop > 0) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    dragRef.current = {
+      active: true,
+      startY: touch.clientY,
+      lastY: touch.clientY,
+      lastT: Date.now(),
+      velocity: 0,
+    };
+  }, []);
+
+  const onTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!dragRef.current.active) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      const dy = touch.clientY - dragRef.current.startY;
+      if (dy < 0) {
+        if (offsetRef.current !== 0) update(0, false);
+        return;
+      }
+      const now = Date.now();
+      const dt = now - dragRef.current.lastT;
+      if (dt > 0) {
+        dragRef.current.velocity = (touch.clientY - dragRef.current.lastY) / dt;
+      }
+      dragRef.current.lastY = touch.clientY;
+      dragRef.current.lastT = now;
+      update(dy, false);
+    },
+    [update],
+  );
+
+  const onTouchEnd = useCallback(() => {
+    if (!dragRef.current.active) return;
+    dragRef.current.active = false;
+    const vel = dragRef.current.velocity;
+    const offset = offsetRef.current;
+    if (offset > 80 || vel > 0.5) {
+      update(400, true);
+      setTimeout(onClose, 200);
+    } else {
+      update(0, true);
+      setTimeout(() => {
+        settlingRef.current = false;
+        forceRender((n) => n + 1);
+      }, 200);
+    }
+  }, [onClose, update]);
+
+  return {
+    sheetRef,
+    get offsetY() {
+      return offsetRef.current;
+    },
+    get settling() {
+      return settlingRef.current;
+    },
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    reset,
+  };
+}
+
 export function DetailPanel({
   item,
   isolateMode,
   onSetIsolateMode,
+  onZoomTo,
   onClose,
   side = "right",
   onOpenDossier,
@@ -93,6 +203,7 @@ export function DetailPanel({
   const C = theme.colors;
   const colorMap = getColorMap(theme);
   const drag = useDrag();
+  const sheet = useSheetDismiss(onClose);
 
   const lastItemId = useRef<string | null>(null);
   const lastSide = useRef(side);
@@ -100,6 +211,7 @@ export function DetailPanel({
     lastItemId.current = item?.id ?? null;
     lastSide.current = side;
     if (drag.dragged) drag.reset();
+    sheet.reset();
   }
 
   if (!item) return null;
@@ -120,6 +232,7 @@ export function DetailPanel({
       rows={rows}
       isolateMode={isolateMode}
       onSetIsolateMode={onSetIsolateMode}
+      onZoomTo={onZoomTo}
       onClose={onClose}
       onOpenDossier={!hasDossier ? onOpenDossier : undefined}
     />
@@ -127,20 +240,30 @@ export function DetailPanel({
 
   return (
     <>
-      {/* Mobile: compact bottom sheet */}
+      {/* Mobile: swipe-to-dismiss bottom sheet */}
       <div
-        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[28vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-2 pt-1"
+        ref={sheet.sheetRef}
+        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[40vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
+        style={{
+          transform: `translateY(${sheet.offsetY}px)`,
+          transition: sheet.settling ? "transform 200ms ease-out" : "none",
+          willChange: "transform",
+        }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={sheet.onTouchStart}
+        onTouchMove={sheet.onTouchMove}
+        onTouchEnd={sheet.onTouchEnd}
       >
-        <div className="flex justify-center mb-1">
-          <div className="w-8 h-0.5 rounded-full bg-sig-dim/40" />
+        {/* Drag handle — wider touch target */}
+        <div className="flex justify-center py-2.5 -mx-2.5 cursor-grab touch-none">
+          <div className="w-10 h-1 rounded-full bg-sig-dim/50" />
         </div>
         {content}
       </div>
 
       {/* Desktop: draggable floating card */}
       <div
-        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 ${side === "left" ? "left-3.5" : "right-3.5"}`}
+        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll ${side === "left" ? "left-3.5" : "right-3.5"}`}
         style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
         onPointerMove={drag.onPointerMove}
@@ -202,6 +325,7 @@ function PanelContent({
   rows,
   isolateMode,
   onSetIsolateMode,
+  onZoomTo,
   onClose,
   onOpenDossier,
 }: {
@@ -212,6 +336,7 @@ function PanelContent({
   rows: [string, string][];
   isolateMode: null | "solo" | "focus";
   onSetIsolateMode: (mode: null | "solo" | "focus") => void;
+  onZoomTo?: () => void;
   onClose: () => void;
   onOpenDossier?: () => void;
 }) {
@@ -244,6 +369,15 @@ function PanelContent({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {onZoomTo && (
+            <ModeButton
+              active={false}
+              label="LOCATE"
+              icon={LocateFixed}
+              accentColor="var(--sigint-accent)"
+              onClick={onZoomTo}
+            />
+          )}
           <ModeButton
             active={isolateMode === "focus"}
             label="FOCUS"

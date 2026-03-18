@@ -69,7 +69,7 @@ export function PaneHeader({
 
   return (
     <div
-      className={`shrink-0 flex items-center gap-1 px-1 py-0.5 bg-sig-panel/80 border-b select-none relative transition-colors ${
+      className={`shrink-0 flex items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b select-none relative transition-colors ${
         isDragTarget
           ? "border-sig-accent border-b-2 bg-sig-accent/10"
           : "border-sig-border/40"
@@ -93,7 +93,7 @@ export function PaneHeader({
             onDragStart?.(leafId);
           }}
           onDragEnd={() => onDragEnd?.()}
-          className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors p-0.5 -ml-0.5"
+          className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5"
         >
           <GripVertical size={10} strokeWidth={2.5} />
         </div>
@@ -163,62 +163,65 @@ export function PaneHeader({
 
       <div className="flex-1" />
 
-      {onSplitH && (
-        <Tooltip content="Split right" placement="bottom">
-          <button
-            onClick={onSplitH}
-            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-          >
-            <Columns2 size={11} strokeWidth={2.5} />
-          </button>
-        </Tooltip>
-      )}
-      {onSplitV && (
-        <Tooltip content="Split down" placement="bottom">
-          <button
-            onClick={onSplitV}
-            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-          >
-            <Rows2 size={11} strokeWidth={2.5} />
-          </button>
-        </Tooltip>
-      )}
+      {/* Control buttons — grouped tighter */}
+      <div className="flex items-center">
+        {onSplitH && (
+          <Tooltip content="Split right" placement="bottom">
+            <button
+              onClick={onSplitH}
+              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            >
+              <Columns2 size={11} strokeWidth={2.5} />
+            </button>
+          </Tooltip>
+        )}
+        {onSplitV && (
+          <Tooltip content="Split down" placement="bottom">
+            <button
+              onClick={onSplitV}
+              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            >
+              <Rows2 size={11} strokeWidth={2.5} />
+            </button>
+          </Tooltip>
+        )}
 
-      <Tooltip
-        content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
-        placement="bottom"
-      >
-        <button
-          onClick={() => setChromeHidden((v) => !v)}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+        <Tooltip
+          content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
+          placement="bottom"
         >
-          {chromeHidden ? (
-            <Minimize2 size={11} strokeWidth={2.5} />
-          ) : (
-            <Maximize2 size={11} strokeWidth={2.5} />
-          )}
-        </button>
-      </Tooltip>
-
-      <Tooltip content="Minimize" placement="bottom">
-        <button
-          onClick={onMinimize}
-          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-        >
-          <Minus size={11} strokeWidth={2.5} />
-        </button>
-      </Tooltip>
-
-      {onClose && (
-        <Tooltip content="Close pane" placement="bottom">
           <button
-            onClick={onClose}
-            className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
+            onClick={() => setChromeHidden((v) => !v)}
+            className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
-            <X size={11} strokeWidth={2.5} />
+            {chromeHidden ? (
+              <Minimize2 size={11} strokeWidth={2.5} />
+            ) : (
+              <Maximize2 size={11} strokeWidth={2.5} />
+            )}
           </button>
         </Tooltip>
-      )}
+
+        <Tooltip content="Minimize" placement="bottom">
+          <button
+            onClick={onMinimize}
+            className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+          >
+            <Minus size={11} strokeWidth={2.5} />
+          </button>
+        </Tooltip>
+
+        {onClose && (
+          <Tooltip content="Close pane" placement="bottom">
+            <button
+              onClick={onClose}
+              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+            >
+              <X size={11} strokeWidth={2.5} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   );
 }

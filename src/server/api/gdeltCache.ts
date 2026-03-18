@@ -306,6 +306,15 @@ async function fetchGdelt(): Promise<void> {
     // 4. Parse events
     const events = parseExportCsv(csv);
 
+    // If upstream returned valid response but 0 events, retain stale cache
+    if (events.length === 0 && cache.data) {
+      console.log(
+        "⚡ GDELT: upstream returned 0 events — retaining stale cache",
+      );
+      cache = { ...cache, error: "Upstream returned 0 events" };
+      return;
+    }
+
     // 5. Convert to GeoJSON and cache
     const geojson = toGeoJSON(events);
 

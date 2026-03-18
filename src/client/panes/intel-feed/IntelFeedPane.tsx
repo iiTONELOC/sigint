@@ -254,15 +254,14 @@ export function IntelFeedPane() {
             <button
               key={type}
               onClick={() => setFeedFilter(active ? "all" : type)}
-              className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
                 active
-                  ? "bg-sig-accent/10 border-sig-accent/30"
-                  : "text-sig-dim bg-transparent border-sig-border/50"
+                  ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
+                  : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
               }`}
-              style={{ color: active ? color : undefined }}
             >
-              <Icon size={11} strokeWidth={2.5} />
-              <span>{typeCounts[type] ?? 0}</span>
+              <Icon size={9} strokeWidth={2.5} style={{ color }} />
+              {typeCounts[type] ?? 0}
             </button>
           );
         })}

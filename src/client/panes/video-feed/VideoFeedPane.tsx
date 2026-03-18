@@ -30,6 +30,7 @@ import {
   Pause,
   Radio,
   Scan,
+  Pencil,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -1135,12 +1136,14 @@ function PresetMenu({
   presets,
   onLoad,
   onSave,
+  onUpdate,
   onDelete,
   onClose,
 }: {
   presets: Preset[];
   onLoad: (p: Preset) => void;
   onSave: (name: string) => void;
+  onUpdate: (idx: number) => void;
   onDelete: (idx: number) => void;
   onClose: () => void;
 }) {
@@ -1187,7 +1190,14 @@ function PresetMenu({
             </span>
           </button>
           <button
-            title="delete"
+            title="Update with current channels"
+            onClick={() => onUpdate(i)}
+            className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
+          >
+            <Pencil size={10} />
+          </button>
+          <button
+            title="Delete preset"
             onClick={() => onDelete(i)}
             className="text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors p-0.5 shrink-0"
           >
@@ -1410,6 +1420,29 @@ export function VideoFeedPane() {
     [presets],
   );
 
+  const handleUpdatePreset = useCallback(
+    (idx: number) => {
+      const state: SavedState = {
+        grid: gridLayout,
+        slots: slots.map((s) =>
+          s.channel
+            ? {
+                channelId: s.channel.id,
+                channelName: s.channel.name,
+                url: s.channel.url,
+                logo: s.channel.logo,
+                country: s.channel.country,
+              }
+            : null,
+        ),
+      };
+      const updated = presets.map((p, i) => (i === idx ? { ...p, state } : p));
+      setPresets(updated);
+      savePresets(updated);
+    },
+    [gridLayout, slots, presets],
+  );
+
   const gridClass = useMemo(() => {
     if (promotedIdx !== null) return "grid-cols-1 grid-rows-1";
     switch (gridLayout) {
@@ -1529,6 +1562,7 @@ export function VideoFeedPane() {
             presets={presets}
             onLoad={handleLoadPreset}
             onSave={handleSavePreset}
+            onUpdate={handleUpdatePreset}
             onDelete={handleDeletePreset}
             onClose={() => setShowPresets(false)}
           />

@@ -211,6 +211,13 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       const persisted = this.readPersistedCache();
       const fallback =
         this.cache?.data ?? persisted?.data ?? generateMockAircraft();
+      // Keep cached data available but update timestamp so it doesn't
+      // appear stale to getData() — the poll interval handles retry
+      if (this.cache) {
+        this.cache = { ...this.cache, timestamp: Date.now() };
+      } else if (persisted?.data) {
+        this.cache = { data: persisted.data, timestamp: Date.now() };
+      }
       this.snapshot = {
         entities: fallback,
         lastUpdatedAt: Date.now(),
@@ -221,14 +228,29 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     }
   }
 
-  getData(): Promise<DataPoint[]> {
+  getData(pollInterval: number = 240_000): Promise<DataPoint[]> {
     this.hydrateMemoryCacheFromPersisted();
 
     const now = Date.now();
-    if (this.cache && now - this.cache.timestamp < this.cacheDurationMs) {
+    const cacheAge = this.cache ? now - this.cache.timestamp : Infinity;
+
+    // Cache is fresh enough — no fetch needed
+    if (cacheAge < pollInterval) {
+      return Promise.resolve(this.cache!.data);
+    }
+
+    // Cache exists but is older than poll interval — return it immediately
+    // but kick off a background refresh so next read gets fresh data
+    if (this.cache && cacheAge < this.cacheDurationMs) {
+      if (!this.fetchInProgress) {
+        this.fetchInProgress = this.refresh().finally(() => {
+          this.fetchInProgress = null;
+        });
+      }
       return Promise.resolve(this.cache.data);
     }
 
+    // No usable cache — must wait for fetch
     if (this.fetchInProgress) {
       return this.cache
         ? Promise.resolve(this.cache.data)

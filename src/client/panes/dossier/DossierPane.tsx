@@ -13,6 +13,7 @@ import {
   Camera,
   Eye,
   Crosshair,
+  LocateFixed,
   X,
 } from "lucide-react";
 import { useData } from "@/context/DataContext";
@@ -381,20 +382,19 @@ export function DossierPane() {
   const handleFocus = useCallback(() => {
     const next = isolateMode === "focus" ? null : "focus";
     setIsolateMode(next);
-    if (next && selectedCurrent) {
-      setZoomToId(selectedCurrent.id);
-      setTimeout(() => setZoomToId(null), 100);
-    }
-  }, [isolateMode, setIsolateMode, setZoomToId, selectedCurrent]);
+  }, [isolateMode, setIsolateMode]);
 
   const handleSolo = useCallback(() => {
     const next = isolateMode === "solo" ? null : "solo";
     setIsolateMode(next);
-    if (next && selectedCurrent) {
+  }, [isolateMode, setIsolateMode]);
+
+  const handleLocate = useCallback(() => {
+    if (selectedCurrent) {
       setZoomToId(selectedCurrent.id);
       setTimeout(() => setZoomToId(null), 100);
     }
-  }, [isolateMode, setIsolateMode, setZoomToId, selectedCurrent]);
+  }, [setZoomToId, selectedCurrent]);
 
   // ── Empty state ─────────────────────────────────────────────────
 
@@ -416,6 +416,7 @@ export function DossierPane() {
       <NonAircraftDossier
         item={selectedCurrent}
         isolateMode={isolateMode}
+        onLocate={handleLocate}
         onFocus={handleFocus}
         onSolo={handleSolo}
         onClose={handleClose}
@@ -449,12 +450,27 @@ export function DossierPane() {
   // ── Toolbar (always visible even while loading) ─────────────────
 
   const toolbar = (
-    <div className="flex items-center gap-2 p-3 pb-0">
-      <Plane className="w-4 h-4 text-sig-accent shrink-0" />
-      <span className="text-sig-bright font-mono tracking-wider text-base truncate">
-        {callsign?.trim() || icao24.toUpperCase()}
-      </span>
-      <div className="ml-auto flex items-center gap-1">
+    <div className="p-3 pb-0">
+      <div className="flex items-center gap-2">
+        <Plane className="w-4 h-4 text-sig-accent shrink-0" />
+        <span className="text-sig-bright font-mono tracking-wider text-base truncate flex-1">
+          {callsign?.trim() || icao24.toUpperCase()}
+        </span>
+        <button
+          onClick={handleClose}
+          className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors shrink-0"
+          title="Deselect"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1 mt-1.5">
+        <IsoBtn
+          active={false}
+          label="LOCATE"
+          icon={LocateFixed}
+          onClick={handleLocate}
+        />
         <IsoBtn
           active={isolateMode === "focus"}
           label="FOCUS"
@@ -467,13 +483,6 @@ export function DossierPane() {
           icon={Crosshair}
           onClick={handleSolo}
         />
-        <button
-          onClick={handleClose}
-          className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors"
-          title="Deselect"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
     </div>
   );
@@ -748,6 +757,7 @@ export function DossierPane() {
 type NonAircraftProps = {
   readonly item: DataPoint;
   readonly isolateMode: null | "solo" | "focus";
+  readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
   readonly onClose: () => void;
@@ -756,6 +766,7 @@ type NonAircraftProps = {
 function NonAircraftDossier({
   item,
   isolateMode,
+  onLocate,
   onFocus,
   onSolo,
   onClose,
@@ -780,12 +791,27 @@ function NonAircraftDossier({
   const label = typeLabel[item.type] ?? item.type.toUpperCase();
 
   const toolbar = (
-    <div className="flex items-center gap-2 p-3 pb-0">
-      <Icon className="w-4 h-4 text-sig-accent shrink-0" />
-      <span className="text-sig-bright font-mono tracking-wider text-xs">
-        {label}
-      </span>
-      <div className="ml-auto flex items-center gap-1">
+    <div className="p-3 pb-0">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-sig-accent shrink-0" />
+        <span className="text-sig-bright font-mono tracking-wider text-xs flex-1">
+          {label}
+        </span>
+        <button
+          title="close"
+          onClick={onClose}
+          className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1 mt-1.5">
+        <IsoBtn
+          active={false}
+          label="LOCATE"
+          icon={LocateFixed}
+          onClick={onLocate}
+        />
         <IsoBtn
           active={isolateMode === "focus"}
           label="FOCUS"
@@ -798,13 +824,6 @@ function NonAircraftDossier({
           icon={Crosshair}
           onClick={onSolo}
         />
-        <button
-          title="close"
-          onClick={onClose}
-          className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
     </div>
   );
@@ -897,38 +916,55 @@ function NonAircraftDossier({
 
   if (item.type === "events") {
     const {
-      actor1,
-      actor2,
-      eventCode,
-      goldsteinScale,
-      numMentions,
-      numSources,
-      sourceUrl,
-      source,
+      headline,
       category,
+      severity,
+      tone,
+      source,
+      sourceCountry,
+      locationName,
+      url,
     } = d;
+
+    const toneLabel =
+      tone != null
+        ? tone <= -15
+          ? "VERY NEGATIVE"
+          : tone <= -5
+            ? "NEGATIVE"
+            : tone <= -1
+              ? "SLIGHTLY NEGATIVE"
+              : tone <= 1
+                ? "NEUTRAL"
+                : tone <= 5
+                  ? "SLIGHTLY POSITIVE"
+                  : "POSITIVE"
+        : null;
+
     return (
       <div className="h-full flex flex-col">
         {toolbar}
         <div className="flex-1 overflow-y-auto sigint-scroll">
           <div className="p-3 space-y-3">
             <div className="text-sig-bright font-mono tracking-wider text-sm truncate">
-              {actor1 || "Unknown actor"}
-              {actor2 ? ` → ${actor2}` : ""}
+              {headline || "Unknown event"}
             </div>
             <Section title="EVENT">
               {category && <Row label="TYPE" value={category} />}
-              {eventCode && <Row label="CAMEO" value={eventCode} />}
-              {goldsteinScale != null && (
-                <Row label="GOLDSTEIN" value={String(goldsteinScale)} />
+              {severity != null && (
+                <Row
+                  label="SEVERITY"
+                  value={
+                    "\u2588".repeat(severity) + "\u2591".repeat(5 - severity)
+                  }
+                />
               )}
-              {numMentions != null && (
-                <Row label="MENTIONS" value={String(numMentions)} />
-              )}
-              {numSources != null && (
-                <Row label="SOURCES" value={String(numSources)} />
+              {tone != null && (
+                <Row label="TONE" value={`${tone.toFixed(1)} ${toneLabel}`} />
               )}
               {source && <Row label="OUTLET" value={source} />}
+              {sourceCountry && <Row label="ORIGIN" value={sourceCountry} />}
+              {locationName && <Row label="LOCATION" value={locationName} />}
             </Section>
             <Section title="POSITION">
               <div className="text-sm font-mono text-sig-dim">
@@ -936,9 +972,9 @@ function NonAircraftDossier({
                 {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
               </div>
             </Section>
-            {sourceUrl && (
+            {url && (
               <Section title="SOURCE">
-                <LinkRow label="Read article" href={sourceUrl} />
+                <LinkRow label="Read article" href={url} />
               </Section>
             )}
           </div>
@@ -1017,10 +1053,15 @@ function NonAircraftDossier({
             )}
             <Section title="ALERT">
               {severity && (
-                <Row label="SEVERITY" value={(severity as string).toUpperCase()} />
+                <Row
+                  label="SEVERITY"
+                  value={(severity as string).toUpperCase()}
+                />
               )}
               {urgency && <Row label="URGENCY" value={urgency as string} />}
-              {certainty && <Row label="CERTAINTY" value={certainty as string} />}
+              {certainty && (
+                <Row label="CERTAINTY" value={certainty as string} />
+              )}
               {category && <Row label="CATEGORY" value={category as string} />}
               {response && <Row label="RESPONSE" value={response as string} />}
             </Section>
@@ -1031,11 +1072,23 @@ function NonAircraftDossier({
                   {(areaDesc as string).split(";").length > 5 && "..."}
                 </div>
               )}
-              {senderName && <Row label="ISSUER" value={senderName as string} />}
+              {senderName && (
+                <Row label="ISSUER" value={senderName as string} />
+              )}
             </Section>
             <Section title="TIMING">
-              {onset && <Row label="ONSET" value={new Date(onset as string).toLocaleString()} />}
-              {expires && <Row label="EXPIRES" value={new Date(expires as string).toLocaleString()} />}
+              {onset && (
+                <Row
+                  label="ONSET"
+                  value={new Date(onset as string).toLocaleString()}
+                />
+              )}
+              {expires && (
+                <Row
+                  label="EXPIRES"
+                  value={new Date(expires as string).toLocaleString()}
+                />
+              )}
             </Section>
             {description && (
               <Section title="DETAILS">
@@ -1112,7 +1165,9 @@ function NonAircraftDossier({
               )}
             </Section>
             <Section title="DETECTION">
-              {satellite && <Row label="SATELLITE" value={satellite as string} />}
+              {satellite && (
+                <Row label="SATELLITE" value={satellite as string} />
+              )}
               {instrument && (
                 <Row label="INSTRUMENT" value={instrument as string} />
               )}
