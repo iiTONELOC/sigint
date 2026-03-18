@@ -15,8 +15,9 @@ export type SourceStatus = {
 
 /**
  * Determine if a data source is considered "down" for UI purposes.
- * A source is down if its status is error/unavailable AND it has zero records.
- * Weather is exempt from "empty" — 0 active alerts is a valid state.
+ * A source is down only if its status is error or unavailable.
+ * "empty" is NOT a down state — the server retains stale cache on 0 upstream
+ * records, so "empty" should only occur on genuine cold starts.
  */
 export function isSourceDown(
   status: string | undefined,
@@ -24,10 +25,7 @@ export function isSourceDown(
   sourceId?: string,
 ): boolean {
   if (!status) return false;
-  // Weather can legitimately have 0 alerts — "empty" is not an error
-  if (sourceId === "weather" && status === "empty") return false;
-  const downStatuses = ["error", "unavailable", "empty"];
-  return downStatuses.includes(status) && count === 0;
+  return (status === "error" || status === "unavailable") && count === 0;
 }
 
 /**

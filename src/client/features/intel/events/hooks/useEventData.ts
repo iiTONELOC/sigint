@@ -37,7 +37,7 @@ export function useEventData(
     const poll = async (isInitial = false) => {
       try {
         const eventData = isInitial
-          ? await gdeltProvider.getData()
+          ? await gdeltProvider.getData(pollInterval)
           : await gdeltProvider.refresh();
         if (!isMounted) return;
 
@@ -62,13 +62,9 @@ export function useEventData(
       }
     };
 
-    // Skip immediate fetch if hydration returned fresh data
-    if (hydratedData && hydratedData.length > 0) {
-      intervalId = setInterval(poll, pollInterval);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, pollInterval);
-    }
+    // Always fetch on mount — hydrated data is shown instantly but may be stale.
+    poll(true);
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;

@@ -137,6 +137,16 @@ async function fetchFirms(): Promise<void> {
     const csv = await res.text();
     const records = parseFirmsCsv(csv);
 
+    // If upstream returned valid response but 0 records (quota exhausted,
+    // temporary outage), retain stale cache instead of overwriting with empty
+    if (records.length === 0 && cache.data && cache.data.length > 0) {
+      console.log(
+        "🔥 FIRMS: upstream returned 0 records — retaining stale cache",
+      );
+      cache = { ...cache, error: "Upstream returned 0 records" };
+      return;
+    }
+
     cache = {
       data: records,
       fetchedAt: Date.now(),

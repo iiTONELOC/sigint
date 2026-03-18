@@ -73,6 +73,11 @@ export function GlobeVisualization({
     lastClickId: null,
   });
   const sizeRef = useRef({ w: 800, h: 600 });
+  const pendingResizeRef = useRef<{
+    cw: number;
+    ch: number;
+    dpr: number;
+  } | null>(null);
   const [trailTooltip, setTrailTooltip] = useState<TrailPoint | null>(null);
   const trailTooltipPointRef = useRef<TrailPoint | null>(null);
   const trailTooltipElRef = useRef<HTMLDivElement>(null);
@@ -205,6 +210,16 @@ export function GlobeVisualization({
           // Composite — single bitmap from worker has everything
           const mainCanvas = canvasRef.current;
           if (mainCanvas && latestBitmapRef.current) {
+            // Apply deferred resize right before drawing — avoids blank canvas gap
+            const pr = pendingResizeRef.current;
+            if (pr) {
+              pendingResizeRef.current = null;
+              mainCanvas.width = pr.cw;
+              mainCanvas.height = pr.ch;
+              mainCanvas
+                .getContext("2d")
+                ?.setTransform(pr.dpr, 0, 0, pr.dpr, 0, 0);
+            }
             const mainCtx = mainCanvas.getContext("2d");
             if (mainCtx) {
               mainCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -555,16 +570,30 @@ export function GlobeVisualization({
       if (w === 0 || h === 0) return;
       const cw = Math.round(w * dpr);
       const ch = Math.round(h * dpr);
+      // Update CSS dimensions immediately so element fills the space
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      // Defer buffer resize — applied right before next composite
+      // This prevents the canvas from going blank between resize and next frame
       if (canvas.width !== cw || canvas.height !== ch) {
-        canvas.width = cw;
-        canvas.height = ch;
-        canvas.style.width = w + "px";
-        canvas.style.height = h + "px";
-        canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+        pendingResizeRef.current = { cw, ch, dpr };
       }
       sizeRef.current = { w, h };
     };
-    resize();
+    // Initial sizing — apply immediately since canvas is empty anyway
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = par.clientWidth,
+      h = par.clientHeight;
+    if (w > 0 && h > 0) {
+      const cw = Math.round(w * dpr);
+      const ch = Math.round(h * dpr);
+      canvas.width = cw;
+      canvas.height = ch;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      sizeRef.current = { w, h };
+    }
     window.addEventListener("resize", resize);
     const ro = new ResizeObserver(resize);
     ro.observe(par);

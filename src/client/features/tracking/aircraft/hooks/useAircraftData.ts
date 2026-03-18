@@ -45,7 +45,7 @@ export function useAircraftData(
         // (prevents StrictMode double-mount from firing two API calls).
         // Interval polls use refresh() to always get fresh data.
         const aircraftData = isInitial
-          ? await aircraftProvider.getData()
+          ? await aircraftProvider.getData(pollInterval)
           : await aircraftProvider.refresh();
         if (!isMounted) return;
 
@@ -75,13 +75,10 @@ export function useAircraftData(
       }
     };
 
-    // Skip immediate fetch if hydration returned fresh cached data
-    if (hydratedAircraft && hydratedAircraft.length > 0) {
-      intervalId = setInterval(poll, pollInterval);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, pollInterval);
-    }
+    // Always fetch on mount — hydrated data is shown instantly but may be stale.
+    // getData() deduplicates in-flight requests (safe for StrictMode double-mount).
+    poll(true);
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;

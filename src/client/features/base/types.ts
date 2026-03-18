@@ -11,7 +11,7 @@ export type DataProvider<TEntity> = {
   readonly id: string;
   hydrate(): TEntity[] | null;
   refresh(): Promise<TEntity[]>;
-  getData(): Promise<TEntity[]>;
+  getData(pollInterval?: number): Promise<TEntity[]>;
   getSnapshot(): ProviderSnapshot<TEntity>;
 };
 

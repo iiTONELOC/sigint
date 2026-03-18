@@ -6,6 +6,7 @@ import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry, featureList } from "@/features/registry";
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown, Locate } from "lucide-react";
+import { Tooltip } from "@/components/Tooltip";
 import { relativeAge } from "@/lib/timeFormat";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -142,16 +143,51 @@ function getAge(item: DataPoint): number {
 const COLUMNS: {
   key: SortKey;
   shortLabel: string;
+  tooltip: string;
   width: string;
   align?: "right";
 }[] = [
-  { key: "type", shortLabel: "TYPE", width: "64px" },
-  { key: "name", shortLabel: "NAME", width: "1fr" },
-  { key: "value1", shortLabel: "CLS", width: "90px" },
-  { key: "value2", shortLabel: "DTL", width: "80px", align: "right" },
-  { key: "lat", shortLabel: "LAT", width: "72px", align: "right" },
-  { key: "lon", shortLabel: "LON", width: "72px", align: "right" },
-  { key: "age", shortLabel: "AGE", width: "48px", align: "right" },
+  { key: "type", shortLabel: "TYPE", tooltip: "Entity type", width: "64px" },
+  {
+    key: "name",
+    shortLabel: "NAME",
+    tooltip: "Callsign / name / headline",
+    width: "1fr",
+  },
+  {
+    key: "value1",
+    shortLabel: "CLS",
+    tooltip: "Classification (aircraft type, vessel type, category, magnitude)",
+    width: "90px",
+  },
+  {
+    key: "value2",
+    shortLabel: "DTL",
+    tooltip: "Detail (altitude, speed, severity, FRP)",
+    width: "80px",
+    align: "right",
+  },
+  {
+    key: "lat",
+    shortLabel: "LAT",
+    tooltip: "Latitude",
+    width: "72px",
+    align: "right",
+  },
+  {
+    key: "lon",
+    shortLabel: "LON",
+    tooltip: "Longitude",
+    width: "72px",
+    align: "right",
+  },
+  {
+    key: "age",
+    shortLabel: "AGE",
+    tooltip: "Time since last update",
+    width: "48px",
+    align: "right",
+  },
 ];
 
 // ── Component ───────────────────────────────────────────────────────
@@ -356,24 +392,29 @@ export function DataTablePane() {
         {COLUMNS.map((col) => {
           const active = sortKey === col.key;
           return (
-            <button
-              key={col.key}
-              onClick={() => handleSort(col.key)}
-              className={`flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
-                active ? "text-sig-accent" : "text-sig-dim"
-              } ${col.align === "right" ? "justify-end" : "justify-start"}`}
-            >
-              {col.shortLabel}
-              {active ? (
-                sortDir === "asc" ? (
-                  <ArrowUp size={10} strokeWidth={2.5} />
+            <Tooltip key={col.key} content={col.tooltip} placement="bottom">
+              <button
+                onClick={() => handleSort(col.key)}
+                className={`flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
+                  active ? "text-sig-accent" : "text-sig-dim"
+                } ${col.align === "right" ? "justify-end" : "justify-start"}`}
+              >
+                {col.shortLabel}
+                {active ? (
+                  sortDir === "asc" ? (
+                    <ArrowUp size={10} strokeWidth={2.5} />
+                  ) : (
+                    <ArrowDown size={10} strokeWidth={2.5} />
+                  )
                 ) : (
-                  <ArrowDown size={10} strokeWidth={2.5} />
-                )
-              ) : (
-                <ArrowUpDown size={9} strokeWidth={2} className="opacity-30" />
-              )}
-            </button>
+                  <ArrowUpDown
+                    size={9}
+                    strokeWidth={2}
+                    className="opacity-30"
+                  />
+                )}
+              </button>
+            </Tooltip>
           );
         })}
         <div />

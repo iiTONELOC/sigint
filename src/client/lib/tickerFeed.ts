@@ -34,8 +34,15 @@ function byRecency(a: DataPoint, b: DataPoint): number {
   return getTimestamp(b) - getTimestamp(a);
 }
 
-const TICKER_SIZE = 24;
-const TYPE_ORDER = ["aircraft", "ships", "events", "quakes"];
+const TICKER_SIZE = 80;
+const TYPE_ORDER = [
+  "aircraft",
+  "ships",
+  "events",
+  "quakes",
+  "fires",
+  "weather",
+];
 
 /**
  * Build ticker items — newest first, interleaved across all active types.
@@ -111,5 +118,15 @@ export function buildTickerItems(
     if (!added) break;
   }
 
-  return result;
+  // Shuffle non-emergency items so the feed feels varied each refresh
+  // Keep emergencies at the front
+  const emergencyCount = result.findIndex((item) => !isEmergencyAircraft(item));
+  const start = emergencyCount < 0 ? result.length : emergencyCount;
+  const rest = result.slice(start);
+  // Fisher-Yates shuffle
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+  }
+  return [...result.slice(0, start), ...rest];
 }

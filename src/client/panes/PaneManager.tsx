@@ -22,6 +22,11 @@ import {
   Terminal,
   Tv,
   Satellite,
+  X,
+  Bookmark,
+  Save,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -53,7 +58,17 @@ type LayoutNode = LeafNode | SplitNode;
 
 type LayoutState = {
   root: LayoutNode;
-  minimized: { id: string; paneType: PaneType }[];
+  minimized: {
+    id: string;
+    paneType: PaneType;
+    /** Restore hints — direction and ratio of the split this pane was in */
+    dir: "h" | "v";
+    ratio: number;
+    /** Was this the second child? If so, restore on the right/bottom side */
+    wasSecond: boolean;
+    /** The sibling node's ID — used to find the insertion point in the tree */
+    siblingId: string | null;
+  }[];
 };
 
 const CACHE_KEY = "sigint.layout.v2";
@@ -154,6 +169,35 @@ function removeLeaf(root: LayoutNode, targetId: string): LayoutNode | null {
   return root;
 }
 
+/** Find the parent split of a leaf — returns restore hints or null if leaf is root */
+function findParentSplit(
+  root: LayoutNode,
+  leafId: string,
+): {
+  dir: "h" | "v";
+  ratio: number;
+  wasSecond: boolean;
+  siblingId: string;
+} | null {
+  if (root.type === "leaf") return null;
+  const [a, b] = root.children;
+  if (a.type === "leaf" && a.id === leafId)
+    return {
+      dir: root.direction,
+      ratio: root.ratio,
+      wasSecond: false,
+      siblingId: b.id,
+    };
+  if (b.type === "leaf" && b.id === leafId)
+    return {
+      dir: root.direction,
+      ratio: root.ratio,
+      wasSecond: true,
+      siblingId: a.id,
+    };
+  return findParentSplit(a, leafId) ?? findParentSplit(b, leafId);
+}
+
 /** Update ratio for a split by id */
 function updateRatio(
   root: LayoutNode,
@@ -199,7 +243,18 @@ function isValidTree(node: unknown): node is LayoutNode {
 function loadLayout(): LayoutState {
   try {
     const cached = cacheGet<LayoutState>(CACHE_KEY);
-    if (cached && isValidTree(cached.root)) return cached;
+    if (cached && isValidTree(cached.root)) {
+      // Backfill minimized entries from older cache versions missing restore hints
+      const minimized = (cached.minimized ?? []).map((m: any) => ({
+        id: m.id,
+        paneType: m.paneType,
+        dir: m.dir ?? "h",
+        ratio: m.ratio ?? 0.5,
+        wasSecond: m.wasSecond ?? true,
+        siblingId: m.siblingId ?? null,
+      }));
+      return { root: cached.root, minimized };
+    }
   } catch {
     /* ignore */
   }
@@ -210,10 +265,134 @@ function persistLayout(layout: LayoutState) {
   cacheSet(CACHE_KEY, layout);
 }
 
+// ── Layout Presets ───────────────────────────────────────────────────
+
+const PRESETS_KEY = "sigint.layout.presets.v1";
+
+type LayoutPreset = { name: string; state: LayoutState };
+
+function loadPresets(): LayoutPreset[] {
+  return cacheGet<LayoutPreset[]>(PRESETS_KEY) ?? [];
+}
+
+function savePresets(presets: LayoutPreset[]) {
+  cacheSet(PRESETS_KEY, presets);
+}
+
+function LayoutPresetMenu({
+  presets,
+  onLoad,
+  onSave,
+  onUpdate,
+  onDelete,
+  onClose,
+}: {
+  presets: LayoutPreset[];
+  onLoad: (p: LayoutPreset) => void;
+  onSave: (name: string) => void;
+  onUpdate: (idx: number) => void;
+  onDelete: (idx: number) => void;
+  onClose: () => void;
+}) {
+  const [newName, setNewName] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+        onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  const paneCount = (p: LayoutPreset) => {
+    const count = leafCount(p.state.root);
+    const min = p.state.minimized.length;
+    return min > 0 ? `${count}+${min}` : `${count}`;
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      className="absolute right-0 top-full z-50 mt-0.5 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52"
+    >
+      <div className="px-2 py-1 text-sig-dim text-[10px] tracking-wider font-semibold border-b border-sig-border/30">
+        LAYOUT PRESETS
+      </div>
+      {presets.length === 0 && (
+        <div className="px-2 py-2 text-sig-dim text-(length:--sig-text-sm)">
+          No saved presets
+        </div>
+      )}
+      {presets.map((p, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-1 px-2 py-1 hover:bg-sig-accent/10 transition-colors"
+        >
+          <button
+            onClick={() => {
+              onLoad(p);
+              onClose();
+            }}
+            className="flex-1 text-left text-sig-bright text-(length:--sig-text-md) bg-transparent border-none truncate"
+          >
+            {p.name}
+            <span className="text-sig-dim ml-1">({paneCount(p)} panes)</span>
+          </button>
+          <button
+            title="Update with current layout"
+            onClick={() => onUpdate(i)}
+            className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
+          >
+            <Pencil size={10} />
+          </button>
+          <button
+            title="Delete preset"
+            onClick={() => onDelete(i)}
+            className="text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors p-0.5 shrink-0"
+          >
+            <Trash2 size={10} />
+          </button>
+        </div>
+      ))}
+      <div className="border-t border-sig-border/30 mt-1 pt-1 px-2 flex items-center gap-1">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Preset name..."
+          className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) min-w-0 caret-sig-accent"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && newName.trim()) {
+              onSave(newName.trim());
+              setNewName("");
+              onClose();
+            }
+          }}
+        />
+        <button
+          onClick={() => {
+            if (newName.trim()) {
+              onSave(newName.trim());
+              setNewName("");
+              onClose();
+            }
+          }}
+          className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
+          title="Save current layout as preset"
+        >
+          <Save size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────
 
 export function PaneManager() {
-  const { chromeHidden, activeCount, dataSources } = useData();
+  const { chromeHidden, activeCount, dataSources, counts } = useData();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
 
   useEffect(() => {
@@ -233,6 +412,56 @@ export function PaneManager() {
       setLayout((prev) => {
         // Only add dossier if it's not already in the tree
         if (hasDossierInTree(prev.root)) return prev;
+
+        // Check if dossier is minimized — restore it instead of creating new
+        const minIdx = prev.minimized.findIndex(
+          (m) => m.paneType === "dossier",
+        );
+        if (minIdx >= 0) {
+          const entry = prev.minimized[minIdx]!;
+          const newLeaf = leaf("dossier");
+          const minimized = prev.minimized.filter((_, i) => i !== minIdx);
+
+          // Try to restore at original position
+          if (entry.siblingId) {
+            const findNode = (node: LayoutNode, id: string): boolean => {
+              if (node.id === id) return true;
+              if (node.type === "split")
+                return (
+                  findNode(node.children[0], id) ||
+                  findNode(node.children[1], id)
+                );
+              return false;
+            };
+            if (findNode(prev.root, entry.siblingId)) {
+              const sibNode = (function find(
+                node: LayoutNode,
+              ): LayoutNode | null {
+                if (node.id === entry.siblingId) return node;
+                if (node.type === "split")
+                  return find(node.children[0]) ?? find(node.children[1]);
+                return null;
+              })(prev.root);
+              if (sibNode) {
+                const newSplit = entry.wasSecond
+                  ? split(entry.dir, sibNode, newLeaf, entry.ratio)
+                  : split(entry.dir, newLeaf, sibNode, entry.ratio);
+                return {
+                  root: replaceNode(prev.root, entry.siblingId, newSplit),
+                  minimized,
+                };
+              }
+            }
+          }
+
+          // Fallback — restore at root
+          const newRoot = entry.wasSecond
+            ? split(entry.dir, prev.root, newLeaf, entry.ratio)
+            : split(entry.dir, newLeaf, prev.root, entry.ratio);
+          return { root: newRoot, minimized };
+        }
+
+        // Not minimized — create fresh dossier split
         // Find the globe leaf and split it with a dossier
         const findGlobe = (node: LayoutNode): string | null => {
           if (node.type === "leaf")
@@ -308,9 +537,21 @@ export function PaneManager() {
     setLayout((prev) => {
       const result = removeLeaf(prev.root, leafId);
       if (!result) return prev; // don't minimize the last pane
+      // Capture the parent split's geometry so we can restore at the same size and position
+      const parentInfo = findParentSplit(prev.root, leafId);
       return {
         root: result,
-        minimized: [...prev.minimized, { id: leafId, paneType }],
+        minimized: [
+          ...prev.minimized,
+          {
+            id: leafId,
+            paneType,
+            dir: parentInfo?.dir ?? "h",
+            ratio: parentInfo?.ratio ?? 0.5,
+            wasSecond: parentInfo?.wasSecond ?? true,
+            siblingId: parentInfo?.siblingId ?? null,
+          },
+        ],
       };
     });
   }, []);
@@ -321,8 +562,42 @@ export function PaneManager() {
       if (!entry) return prev;
       const newLeaf = leaf(entry.paneType);
       const minimized = prev.minimized.filter((_, i) => i !== idx);
-      // Add as a horizontal split at root
-      const newRoot = split("h", prev.root, newLeaf);
+
+      // Try to find the old sibling in the current tree and re-split there
+      if (entry.siblingId) {
+        const findNode = (node: LayoutNode, id: string): boolean => {
+          if (node.id === id) return true;
+          if (node.type === "split")
+            return (
+              findNode(node.children[0], id) || findNode(node.children[1], id)
+            );
+          return false;
+        };
+        if (findNode(prev.root, entry.siblingId)) {
+          // Found the sibling — wrap it in a new split with the restored pane
+          const sibNode = (function find(node: LayoutNode): LayoutNode | null {
+            if (node.id === entry.siblingId) return node;
+            if (node.type === "split")
+              return find(node.children[0]) ?? find(node.children[1]);
+            return null;
+          })(prev.root);
+          if (sibNode) {
+            // ratio = first child's share in the original split
+            // wasSecond=true: restored pane was child[1], sibling was child[0] → sibling first, ratio unchanged
+            // wasSecond=false: restored pane was child[0], sibling was child[1] → restored pane first, ratio unchanged
+            const newSplit = entry.wasSecond
+              ? split(entry.dir, sibNode, newLeaf, entry.ratio)
+              : split(entry.dir, newLeaf, sibNode, entry.ratio);
+            const newRoot = replaceNode(prev.root, entry.siblingId, newSplit);
+            return { root: newRoot, minimized };
+          }
+        }
+      }
+
+      // Fallback — sibling gone or not found, split at root
+      const newRoot = entry.wasSecond
+        ? split(entry.dir, prev.root, newLeaf, entry.ratio)
+        : split(entry.dir, newLeaf, prev.root, entry.ratio);
       return { root: newRoot, minimized };
     });
   }, []);
@@ -420,6 +695,44 @@ export function PaneManager() {
     return () => document.removeEventListener("mousedown", handler);
   }, [splitMenu]);
 
+  // ── Layout presets ──────────────────────────────────────────────
+
+  const [showPresets, setShowPresets] = useState(false);
+  const [presets, setPresets] = useState<LayoutPreset[]>(loadPresets);
+
+  const handleSavePreset = useCallback(
+    (name: string) => {
+      const next = [...presets, { name, state: layout }];
+      setPresets(next);
+      savePresets(next);
+    },
+    [presets, layout],
+  );
+
+  const handleLoadPreset = useCallback((p: LayoutPreset) => {
+    setLayout(p.state);
+  }, []);
+
+  const handleUpdatePreset = useCallback(
+    (idx: number) => {
+      const next = presets.map((p, i) =>
+        i === idx ? { ...p, state: layout } : p,
+      );
+      setPresets(next);
+      savePresets(next);
+    },
+    [presets, layout],
+  );
+
+  const handleDeletePreset = useCallback(
+    (idx: number) => {
+      const next = presets.filter((_, i) => i !== idx);
+      setPresets(next);
+      savePresets(next);
+    },
+    [presets],
+  );
+
   // ── Mobile ──────────────────────────────────────────────────────
 
   const [isMobile, setIsMobile] = useState(() =>
@@ -492,10 +805,43 @@ export function PaneManager() {
       const showHeader = true; // Pane headers always visible — chromeHidden only affects app-level chrome
       const canClose = leafCount(layout.root) > 1;
 
+      const isDragOver = dragSourceId !== null && dragSourceId !== node.id;
+
       return (
         <div
-          key={node.id}
-          className="flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full"
+          key={node.paneType}
+          className={`flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full transition-shadow ${
+            dragTargetId === node.id
+              ? "ring-2 ring-sig-accent/50 ring-inset"
+              : ""
+          }`}
+          onDragOver={
+            isDragOver
+              ? (e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragTargetId(node.id);
+                }
+              : undefined
+          }
+          onDragLeave={
+            isDragOver
+              ? (e) => {
+                  // Only clear if actually leaving this container
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragTargetId(null);
+                  }
+                }
+              : undefined
+          }
+          onDrop={
+            isDragOver
+              ? (e) => {
+                  e.preventDefault();
+                  handleDrop(node.id);
+                }
+              : undefined
+          }
         >
           {showHeader && (
             <div className="relative">
@@ -594,7 +940,7 @@ export function PaneManager() {
         style={{
           display: "grid",
           [isH ? "gridTemplateColumns" : "gridTemplateRows"]:
-            `${r}fr 4px ${1 - r}fr`,
+            `${r}fr 6px ${1 - r}fr`,
         }}
       >
         <div className="overflow-hidden min-w-0 min-h-0">
@@ -615,27 +961,86 @@ export function PaneManager() {
   // ── MOBILE ──────────────────────────────────────────────────────
 
   if (isMobile) {
+    const canCloseMobile = allLeaves.length > 1;
+
     return (
       <div className="w-full h-full flex flex-col overflow-hidden">
-        {/* Mobile tab bar — always visible */}
-        <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60 overflow-x-auto sigint-scroll">
+        {/* Mobile status bar — track count + source status */}
+        <div className="shrink-0 flex items-center gap-2 px-2 py-0.5 border-b border-sig-border/30 bg-sig-panel/60">
+          <Satellite
+            size={10}
+            strokeWidth={2.5}
+            className="text-sig-accent shrink-0"
+          />
+          <span className="text-sig-accent font-semibold tabular-nums text-(length:--sig-text-sm)">
+            {activeCount.toLocaleString()}
+          </span>
+          <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
+            TRACKS
+          </span>
+          <span className="text-sig-dim text-(length:--sig-text-sm)">
+            ·{" "}
+            {
+              dataSources.filter(
+                (s) => s.status === "live" || s.status === "cached",
+              ).length
+            }
+            /{dataSources.length} LIVE
+          </span>
+          <div className="flex-1" />
+          {/* Per-layer counts */}
+          {Object.entries(counts).map(([key, count]) => (
+            <span
+              key={key}
+              className="text-sig-dim text-(length:--sig-text-xs) tabular-nums"
+            >
+              {count > 0 ? count : null}
+            </span>
+          ))}
+        </div>
+
+        {/* Mobile tab bar — always visible, scroll-snap, larger touch targets */}
+        <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/80 overflow-x-auto sigint-scroll snap-x snap-mandatory">
           {allLeaves.map((lf, i) => {
             const meta = PANE_META[lf.paneType];
             const Icon = meta.icon;
             const active = i === activeMobilePane;
             return (
-              <button
+              <div
                 key={lf.id}
-                onClick={() => setActiveMobilePane(i)}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold shrink-0 transition-colors border ${
-                  active
-                    ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                    : "text-sig-dim bg-transparent border-sig-border/50"
-                }`}
+                className="relative flex items-center shrink-0 snap-start"
               >
-                <Icon size={11} strokeWidth={2.5} />
-                {meta.label}
-              </button>
+                <button
+                  onClick={() => setActiveMobilePane(i)}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-l text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors min-h-8 ${
+                    active
+                      ? "text-sig-accent bg-sig-accent/10"
+                      : "text-sig-dim bg-transparent"
+                  } ${canCloseMobile && active ? "pr-1" : "rounded-r"}`}
+                >
+                  <Icon size={12} strokeWidth={2.5} />
+                  {meta.label}
+                </button>
+                {/* Close button — only on active tab, only when multiple panes open */}
+                {canCloseMobile && active && (
+                  <button
+                    onClick={() => {
+                      closePane(lf.id);
+                      if (activeMobilePane >= allLeaves.length - 1) {
+                        setActiveMobilePane(Math.max(0, allLeaves.length - 2));
+                      }
+                    }}
+                    className="px-1 py-1.5 rounded-r text-sig-dim min-h-8 bg-sig-accent/10 transition-colors"
+                    title={`Close ${meta.label}`}
+                  >
+                    <X size={10} strokeWidth={2.5} />
+                  </button>
+                )}
+                {/* Active bottom indicator */}
+                {active && (
+                  <span className="absolute bottom-0 left-1.5 right-1.5 h-0.5 rounded-full bg-sig-accent" />
+                )}
+              </div>
             );
           })}
           {layout.minimized.map((m, i) => {
@@ -645,10 +1050,10 @@ export function PaneManager() {
               <button
                 key={m.id}
                 onClick={() => restorePane(i)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 shrink-0 opacity-50"
+                className="flex items-center gap-1 px-2 py-1.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 shrink-0 opacity-50 min-h-8 snap-start"
                 title={`Restore ${meta.label}`}
               >
-                <Icon size={11} strokeWidth={2.5} />
+                <Icon size={12} strokeWidth={2.5} />
                 {meta.label}
               </button>
             );
@@ -671,8 +1076,8 @@ export function PaneManager() {
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
-      {/* Toolbar — minimized panes */}
-      {layout.minimized.length > 0 && (
+      {/* Toolbar — minimized panes + layout presets */}
+      {(layout.minimized.length > 0 || true) && (
         <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
           {/* Minimized tabs */}
           {layout.minimized.map((m, i) => {
@@ -682,7 +1087,7 @@ export function PaneManager() {
               <button
                 key={m.id}
                 onClick={() => restorePane(i)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 hover:text-sig-accent transition-colors"
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 hover:text-sig-accent transition-colors shrink-0"
                 title={`Restore ${meta.label}`}
               >
                 <Icon size={11} strokeWidth={2.5} />
@@ -692,6 +1097,28 @@ export function PaneManager() {
           })}
 
           <div className="flex-1" />
+
+          {/* Layout presets */}
+          <div className="relative">
+            <button
+              onClick={() => setShowPresets((v) => !v)}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) border border-sig-border/50 hover:text-sig-accent transition-colors"
+              title="Layout presets"
+            >
+              <Bookmark size={11} strokeWidth={2.5} />
+              <span className="hidden sm:inline tracking-wider">VIEWS</span>
+            </button>
+            {showPresets && (
+              <LayoutPresetMenu
+                presets={presets}
+                onLoad={handleLoadPreset}
+                onSave={handleSavePreset}
+                onUpdate={handleUpdatePreset}
+                onDelete={handleDeletePreset}
+                onClose={() => setShowPresets(false)}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -713,6 +1140,7 @@ function ResizeHandle({
   readonly onResize: (splitId: string, ratio: number) => void;
 }) {
   const handleRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -727,50 +1155,25 @@ function ResizeHandle({
       const totalSize = isH ? rect.width : rect.height;
       const startOffset = isH ? rect.left : rect.top;
 
-      // Visual indicator
-      const indicator = document.createElement("div");
-      indicator.style.position = "fixed";
-      indicator.style.zIndex = "9999";
-      indicator.style.pointerEvents = "none";
-      indicator.style.background = "var(--sigint-accent, #00b8d4)";
-      indicator.style.opacity = "0.6";
-      if (isH) {
-        indicator.style.width = "2px";
-        indicator.style.top = rect.top + "px";
-        indicator.style.height = rect.height + "px";
-        indicator.style.left = e.clientX + "px";
-      } else {
-        indicator.style.height = "2px";
-        indicator.style.left = rect.left + "px";
-        indicator.style.width = rect.width + "px";
-        indicator.style.top = e.clientY + "px";
-      }
-      document.body.appendChild(indicator);
+      setDragging(true);
       document.body.style.cursor = isH ? "col-resize" : "row-resize";
-
-      let finalRatio = 0.5;
+      // Prevent text selection during drag
+      document.body.style.userSelect = "none";
 
       const onMove = (ev: PointerEvent) => {
         const pos = isH ? ev.clientX : ev.clientY;
-        // Subtract 4px for the handle itself
         const raw = (pos - startOffset) / totalSize;
-        finalRatio = Math.max(0.1, Math.min(0.9, raw));
-
-        if (isH) {
-          indicator.style.left =
-            Math.max(rect.left, Math.min(rect.right, pos)) + "px";
-        } else {
-          indicator.style.top =
-            Math.max(rect.top, Math.min(rect.bottom, pos)) + "px";
-        }
+        const ratio = Math.max(0.1, Math.min(0.9, raw));
+        // Live resize — update ratio every frame
+        onResize(splitId, ratio);
       };
 
       const onUp = () => {
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
         document.body.style.cursor = "";
-        indicator.remove();
-        onResize(splitId, finalRatio);
+        document.body.style.userSelect = "";
+        setDragging(false);
       };
 
       document.addEventListener("pointermove", onMove);
@@ -784,12 +1187,35 @@ function ResizeHandle({
   return (
     <div
       ref={handleRef}
-      className={`relative ${isH ? "cursor-col-resize w-[4px]" : "cursor-row-resize h-[4px]"} bg-sig-border/30 transition-colors hover:bg-sig-accent/30`}
+      className={`relative flex items-center justify-center ${
+        isH ? "cursor-col-resize w-[6px]" : "cursor-row-resize h-[6px]"
+      } ${
+        dragging
+          ? "bg-sig-accent/40"
+          : "bg-sig-border/30 hover:bg-sig-accent/25"
+      } transition-colors`}
       onPointerDown={onPointerDown}
     >
+      {/* Grip dots */}
+      <div
+        className={`flex ${isH ? "flex-col" : "flex-row"} gap-[3px] pointer-events-none`}
+      >
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className={`rounded-full ${
+              dragging ? "bg-sig-accent/80" : "bg-sig-dim/40"
+            } ${isH ? "w-[2px] h-[2px]" : "w-[2px] h-[2px]"}`}
+          />
+        ))}
+      </div>
       {/* Wider touch target */}
       <div
-        className={`absolute ${isH ? "inset-y-0 -left-[10px] w-[24px]" : "inset-x-0 -top-[10px] h-[24px]"} touch-none`}
+        className={`absolute ${
+          isH
+            ? "inset-y-0 -left-[10px] w-[26px]"
+            : "inset-x-0 -top-[10px] h-[26px]"
+        } touch-none`}
         onPointerDown={onPointerDown}
       />
     </div>

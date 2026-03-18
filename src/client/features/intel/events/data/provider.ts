@@ -278,8 +278,15 @@ export class GdeltProvider implements DataProvider<DataPoint> {
     }
   }
 
-  async getData(): Promise<DataPoint[]> {
-    if (this.cache) return this.cache.data;
+  async getData(pollInterval?: number): Promise<DataPoint[]> {
+    if (this.cache) {
+      // If cache is older than poll interval, kick off background refresh
+      // so next read gets fresh data — but return cached data immediately
+      if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
+        this.refresh().catch(() => {});
+      }
+      return this.cache.data;
+    }
     return this.refresh();
   }
 

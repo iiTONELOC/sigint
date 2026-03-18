@@ -42,7 +42,7 @@ export function useShipData(
     const poll = async (isInitial = false) => {
       try {
         const shipData = isInitial
-          ? await shipProvider.getData()
+          ? await shipProvider.getData(pollInterval)
           : await shipProvider.refresh();
         if (!isMounted) return;
 
@@ -73,13 +73,9 @@ export function useShipData(
       }
     };
 
-    // Skip immediate fetch if hydration returned fresh data
-    if (hydratedData && hydratedData.length > 0) {
-      intervalId = setInterval(poll, pollInterval);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, pollInterval);
-    }
+    // Always fetch on mount — hydrated data is shown instantly but may be stale.
+    poll(true);
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;

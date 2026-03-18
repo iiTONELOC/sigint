@@ -42,7 +42,7 @@ export function useFireData(
     const poll = async (isInitial = false) => {
       try {
         const fireData = isInitial
-          ? await fireProvider.getData()
+          ? await fireProvider.getData(pollInterval)
           : await fireProvider.refresh();
         if (!isMounted) return;
 
@@ -72,12 +72,8 @@ export function useFireData(
       }
     };
 
-    if (hydratedData && hydratedData.length > 0) {
-      intervalId = setInterval(poll, pollInterval);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, pollInterval);
-    }
+    poll(true);
+    intervalId = setInterval(poll, pollInterval);
 
     return () => {
       isMounted = false;
