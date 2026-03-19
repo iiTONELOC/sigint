@@ -1,7 +1,100 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback, type JSX } from "react";
 import { useData } from "@/context/DataContext";
 import { Terminal, Copy, Check } from "lucide-react";
-import { useState, useCallback } from "react";
+
+// ── JSON syntax highlighter ─────────────────────────────────────────
+// Uses SIGINT theme CSS vars for consistent coloring across themes.
+//
+// Color mapping:
+//   keys     → sig-accent  (cyan in dark, teal in light)
+//   strings  → sig-bright  (white-ish)
+//   numbers  → --sigint-fires via inline style (orange)
+//   booleans → --sigint-warn via inline style  (yellow)
+//   null     → sig-dim     (gray)
+//   brackets → sig-dim     (gray)
+
+function HighlightedJson({ json }: { readonly json: string }) {
+  const parts = useMemo(() => {
+    const result: JSX.Element[] = [];
+    const regex =
+      /("(?:\\.|[^"\\])*")\s*(:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let i = 0;
+
+    while ((match = regex.exec(json)) !== null) {
+      // Brackets, commas, whitespace before match
+      if (match.index > lastIndex) {
+        result.push(
+          <span key={i++} className="text-sig-dim">
+            {json.slice(lastIndex, match.index)}
+          </span>,
+        );
+      }
+
+      if (match[1] !== undefined) {
+        if (match[2]) {
+          // Key
+          result.push(
+            <span key={i++} className="text-sig-accent">
+              {match[1]}
+            </span>,
+          );
+          result.push(
+            <span key={i++} className="text-sig-dim">
+              {match[2]}
+            </span>,
+          );
+        } else {
+          // String value
+          result.push(
+            <span key={i++} className="text-sig-bright">
+              {match[1]}
+            </span>,
+          );
+        }
+      } else if (match[3] !== undefined) {
+        // Number — use fires color (orange)
+        result.push(
+          <span key={i++} style={{ color: "var(--sigint-fires)" }}>
+            {match[3]}
+          </span>,
+        );
+      } else if (match[4] !== undefined) {
+        // Boolean — use warn color (yellow)
+        result.push(
+          <span key={i++} style={{ color: "var(--sigint-warn)" }}>
+            {match[4]}
+          </span>,
+        );
+      } else if (match[5] !== undefined) {
+        // Null
+        result.push(
+          <span key={i++} className="text-sig-dim italic">
+            {match[5]}
+          </span>,
+        );
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Remaining
+    if (lastIndex < json.length) {
+      result.push(
+        <span key={i++} className="text-sig-dim">
+          {json.slice(lastIndex)}
+        </span>,
+      );
+    }
+
+    return result;
+  }, [json]);
+
+  return <>{parts}</>;
+}
+
+// ── Component ───────────────────────────────────────────────────────
 
 export function RawConsolePane() {
   const { selectedCurrent, allData } = useData();
@@ -11,6 +104,25 @@ export function RawConsolePane() {
     if (!selectedCurrent) return null;
     try {
       return JSON.stringify(selectedCurrent, null, 2);
+    } catch {
+      return "// Error serializing data";
+    }
+  }, [selectedCurrent]);
+
+  // Display version truncates long strings for readability
+  const displayJsonStr = useMemo(() => {
+    if (!selectedCurrent) return null;
+    try {
+      return JSON.stringify(
+        selectedCurrent,
+        (_key, value) => {
+          if (typeof value === "string" && value.length > 64) {
+            return value.slice(0, 61) + "...";
+          }
+          return value;
+        },
+        2,
+      );
     } catch {
       return "// Error serializing data";
     }
@@ -32,13 +144,15 @@ export function RawConsolePane() {
     );
   }, [allData]);
 
+  const displayStr = displayJsonStr ?? statsStr;
+  const copyStr = jsonStr ?? statsStr;
+
   const handleCopy = useCallback(() => {
-    const text = jsonStr ?? statsStr;
-    navigator.clipboard.writeText(text).then(() => {
+    navigator.clipboard.writeText(copyStr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
-  }, [jsonStr, statsStr]);
+  }, [copyStr]);
 
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
@@ -65,25 +179,14 @@ export function RawConsolePane() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto sigint-scroll p-2">
-        {selectedCurrent ? (
-          <div>
-            <div className="text-sig-dim text-(length:--sig-text-sm) tracking-wider mb-1">
-              // Selected: {selectedCurrent.type} — {selectedCurrent.id}
-            </div>
-            <pre className="text-sig-text text-(length:--sig-text-sm) font-mono whitespace-pre-wrap break-all leading-relaxed">
-              {jsonStr}
-            </pre>
-          </div>
-        ) : (
-          <div>
-            <div className="text-sig-dim text-(length:--sig-text-sm) tracking-wider mb-1">
-              // No entity selected — showing system status
-            </div>
-            <pre className="text-sig-text text-(length:--sig-text-sm) font-mono whitespace-pre-wrap break-all leading-relaxed">
-              {statsStr}
-            </pre>
-          </div>
-        )}
+        <div className="text-sig-dim text-(length:--sig-text-sm) tracking-wider mb-1">
+          {selectedCurrent
+            ? `// Selected: ${selectedCurrent.type} — ${selectedCurrent.id}`
+            : "// No entity selected — showing system status"}
+        </div>
+        <pre className="text-(length:--sig-text-sm) font-mono whitespace-pre leading-relaxed overflow-x-auto">
+          <HighlightedJson json={displayStr} />
+        </pre>
       </div>
     </div>
   );

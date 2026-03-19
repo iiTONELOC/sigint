@@ -25,9 +25,9 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll) + NOAA Weather (severe alerts, 300s client poll) + RSS News (6 world news feeds, 10 min server-side poll, 600s client poll)
 
-**State**: All shared state in `DataContext` via `useData()` hook — no external state library. News data is self-contained in its pane (non-geographic, not in DataContext).
+**State**: All shared state in `DataContext` via `useData()` hook — no external state library. News data lifted to DataContext (non-geographic, not in allData — exposed as `newsArticles`). Correlation engine runs in DataContext, shared via `correlation` on context value.
 
-**Persistence**: storageService (in-memory + persistence) for data caches, pane layout, video feed presets, news feed state
+**Persistence**: storageService (in-memory + persistence) for data caches, pane layout, video feed presets, news feed state, intel baselines, dismissed alerts
 
 **Rendering**: All drawing offloaded to a dedicated Web Worker with OffscreenCanvas — land, grid, ocean, points, trails rendered on a separate CPU core. Main thread handles camera, input, and composites a single `ImageBitmap` per frame via `drawImage`.
 

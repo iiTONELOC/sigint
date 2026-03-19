@@ -36,6 +36,7 @@ export function GlobeVisualization({
   onMiddleClick,
   onSelectedSide,
   zoomToId,
+  revealId,
   searchMatchIds,
   spatialGrid,
   filteredIds,
@@ -145,7 +146,11 @@ export function GlobeVisualization({
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!zoomToId || zoomToId === lastZoomToIdRef.current) return;
+    if (!zoomToId) {
+      lastZoomToIdRef.current = null;
+      return;
+    }
+    if (zoomToId === lastZoomToIdRef.current) return;
     lastZoomToIdRef.current = zoomToId;
 
     const item = data.find((d) => d.id === zoomToId);
@@ -177,6 +182,49 @@ export function GlobeVisualization({
     camTarget.active = true;
     camTarget.lockedId = zoomToId;
   }, [zoomToId, data, flat]);
+
+  // ── Reveal effect — gentle pan, ISS zoom, no lock-on ─────────────
+  const lastRevealIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Allow re-reveal of same ID by resetting when cleared
+    if (!revealId) {
+      lastRevealIdRef.current = null;
+      return;
+    }
+    if (revealId === lastRevealIdRef.current) return;
+    lastRevealIdRef.current = revealId;
+
+    const item = data.find((d) => d.id === revealId);
+    if (!item) return;
+
+    const camTarget = camTargetRef.current;
+    const cam = camRef.current;
+    const isFlat = flat;
+
+    const interp = getInterpolatedPosition(item.id);
+    const tLat = interp ? interp.lat : item.lat;
+    const tLon = interp ? interp.lon : item.lon;
+
+    if (isFlat) {
+      const { w: fw, h: fh } = sizeRef.current;
+      const targetZoom = Math.max(cam.zoomFlat, 2);
+      const mW = fw * 0.92 * targetZoom;
+      const mH = fh * 0.84 * targetZoom;
+      camTarget.panX = -(tLon / 180) * (mW / 2);
+      camTarget.panY = (tLat / 90) * (mH / 2);
+      camTarget.zoom = targetZoom;
+    } else {
+      // Always rotate to show the point — no visibility guessing
+      const phi = ((90 - tLat) * Math.PI) / 180;
+      const theta = ((tLon + 180) * Math.PI) / 180;
+      camTarget.rotY = Math.PI / 2 - theta;
+      camTarget.rotX = -(phi - Math.PI / 2);
+      // ISS-level zoom — keep current if already zoomed in, otherwise mild
+      camTarget.zoom = Math.max(cam.zoomGlobe, 2.5);
+    }
+    camTarget.active = true;
+    camTarget.lockedId = null;
+  }, [revealId, data, flat]);
 
   // ── Render loop ─────────────────────────────────────────────────────
   useEffect(() => {

@@ -4,7 +4,7 @@ import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import { relativeAge } from "@/lib/timeFormat";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
-import { useNewsData } from "./useNewsData";
+import { useData } from "@/context/DataContext";
 import type { NewsArticle } from "./newsProvider";
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ const ALL_SOURCES = [
 // ── Component ───────────────────────────────────────────────────────
 
 export function NewsFeedPane() {
-  const { data: articles, loading, dataSource } = useNewsData();
+  const { newsArticles: articles } = useData();
 
   const [sourceFilter, setSourceFilter] = useState<string | null>(
     () => loadNewsState().sourceFilter,
@@ -206,7 +206,7 @@ export function NewsFeedPane() {
         })}
         <div className="flex-1" />
         <span className="text-sig-dim text-(length:--sig-text-sm) shrink-0">
-          {dataSource === "loading" || loading ? "..." : `${filtered.length}`}
+          {`${filtered.length}`}
         </span>
       </div>
 
@@ -257,12 +257,12 @@ export function NewsFeedPane() {
             ))}
           </div>
         </div>
-        {filtered.length === 0 && !loading && (
+        {filtered.length === 0 && articles.length > 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
-            No news articles available
+            No articles match filter
           </div>
         )}
-        {filtered.length === 0 && loading && (
+        {filtered.length === 0 && articles.length === 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
             Loading feeds...
           </div>

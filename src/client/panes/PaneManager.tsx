@@ -12,6 +12,7 @@ import { PaneHeader } from "@/panes/PaneHeader";
 import {
   setDossierOpen,
   onDossierOpenRequest,
+  onWatchLayoutRequest,
 } from "@/panes/paneLayoutContext";
 import {
   Globe,
@@ -26,12 +27,31 @@ import {
   Bookmark,
 } from "lucide-react";
 
-import type { PaneType, LayoutNode, LeafNode, LayoutState, LayoutPreset } from "./paneTree";
+import type {
+  PaneType,
+  LayoutNode,
+  LeafNode,
+  LayoutState,
+  LayoutPreset,
+} from "./paneTree";
 import {
-  leaf, split, collectLeafTypes, leafCount, hasDossierInTree,
-  replaceNode, removeLeaf, findParentSplit, updateRatio,
-  findNodeById, hasNodeId, collectLeaves,
-  defaultLayout, loadLayout, persistLayout, loadPresets, savePresets,
+  leaf,
+  split,
+  collectLeafTypes,
+  leafCount,
+  hasDossierInTree,
+  replaceNode,
+  removeLeaf,
+  findParentSplit,
+  updateRatio,
+  findNodeById,
+  hasNodeId,
+  collectLeaves,
+  defaultLayout,
+  loadLayout,
+  persistLayout,
+  loadPresets,
+  savePresets,
 } from "./paneTree";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { ResizeHandle } from "./ResizeHandle";
@@ -85,7 +105,9 @@ export function PaneManager() {
         if (hasDossierInTree(prev.root)) return prev;
 
         // Check minimized
-        const minIdx = prev.minimized.findIndex((m) => m.paneType === "dossier");
+        const minIdx = prev.minimized.findIndex(
+          (m) => m.paneType === "dossier",
+        );
         if (minIdx >= 0) {
           const entry = prev.minimized[minIdx]!;
           const newLeaf = leaf("dossier");
@@ -97,7 +119,10 @@ export function PaneManager() {
               const newSplit = entry.wasSecond
                 ? split(entry.dir, sibNode, newLeaf, entry.ratio)
                 : split(entry.dir, newLeaf, sibNode, entry.ratio);
-              return { root: replaceNode(prev.root, entry.siblingId, newSplit), minimized };
+              return {
+                root: replaceNode(prev.root, entry.siblingId, newSplit),
+                minimized,
+              };
             }
           }
 
@@ -109,7 +134,8 @@ export function PaneManager() {
 
         // Not minimized — find globe and split
         const findGlobe = (node: LayoutNode): string | null => {
-          if (node.type === "leaf") return node.paneType === "globe" ? node.id : null;
+          if (node.type === "leaf")
+            return node.paneType === "globe" ? node.id : null;
           return findGlobe(node.children[0]) ?? findGlobe(node.children[1]);
         };
         const globeId = findGlobe(prev.root);
@@ -124,7 +150,80 @@ export function PaneManager() {
     });
   }, []);
 
-  // ── Available pane types ────────────────────────────────────────
+  // ── Listen for watch layout requests ────────────────────────────
+  useEffect(() => {
+    return onWatchLayoutRequest(() => {
+      setLayout((prev) => {
+        const openPanes = collectLeafTypes(prev.root);
+        const minTypes = new Set(prev.minimized.map((m) => m.paneType));
+        let root = prev.root;
+        let minimized = [...prev.minimized];
+
+        // Helper: restore from minimized or create new
+        const ensurePane = (
+          paneType: PaneType,
+          splitDir: "h" | "v",
+          anchorType: PaneType,
+          ratio: number,
+          second: boolean,
+        ) => {
+          if (openPanes.has(paneType)) return; // already open
+
+          // Check minimized
+          const minIdx = minimized.findIndex((m) => m.paneType === paneType);
+          let newLeaf: LeafNode;
+          if (minIdx >= 0) {
+            newLeaf = leaf(paneType);
+            minimized = minimized.filter((_, i) => i !== minIdx);
+          } else {
+            newLeaf = leaf(paneType);
+          }
+
+          // Find anchor by scanning current tree for the anchor pane type
+          const findByType = (
+            node: LayoutNode,
+            pt: PaneType,
+          ): string | null => {
+            if (node.type === "leaf")
+              return node.paneType === pt ? node.id : null;
+            return (
+              findByType(node.children[0], pt) ??
+              findByType(node.children[1], pt)
+            );
+          };
+
+          const anchorId = findByType(root, anchorType);
+          if (anchorId) {
+            const target = findNodeById(root, anchorId);
+            if (target) {
+              const newSplit = second
+                ? split(splitDir, target, newLeaf, ratio)
+                : split(splitDir, newLeaf, target, ratio);
+              root = replaceNode(root, anchorId, newSplit);
+              openPanes.add(paneType);
+              return;
+            }
+          }
+          // Fallback: split on root
+          root = second
+            ? split(splitDir, root, newLeaf, ratio)
+            : split(splitDir, newLeaf, root, ratio);
+          openPanes.add(paneType);
+        };
+
+        // 1. Dossier — right of globe (75/25)
+        ensurePane("dossier", "h", "globe", 0.75, true);
+
+        // 2. Alerts — below globe (65/35)
+        ensurePane("alert-log", "v", "globe", 0.65, true);
+
+        // 3. Intel — right of alerts (50/50)
+        ensurePane("intel-feed", "h", "alert-log", 0.5, true);
+
+        return { root, minimized };
+      });
+    });
+  }, []);
   const openTypes = useMemo(() => {
     const s = collectLeafTypes(layout.root);
     for (const m of layout.minimized) s.add(m.paneType);
@@ -132,7 +231,8 @@ export function PaneManager() {
   }, [layout.root, layout.minimized]);
 
   const availableTypes = useMemo<PaneType[]>(
-    () => (Object.keys(PANE_META) as PaneType[]).filter((t) => !openTypes.has(t)),
+    () =>
+      (Object.keys(PANE_META) as PaneType[]).filter((t) => !openTypes.has(t)),
     [openTypes],
   );
 
@@ -143,7 +243,8 @@ export function PaneManager() {
       setLayout((prev) => {
         const target = findNodeById(prev.root, leafId);
         if (!target) return prev;
-        const ratio = newType === "dossier" || newType === "video-feed" ? 0.75 : 0.5;
+        const ratio =
+          newType === "dossier" || newType === "video-feed" ? 0.75 : 0.5;
         const newSplit = split(dir, target, leaf(newType), ratio);
         return { ...prev, root: replaceNode(prev.root, leafId, newSplit) };
       });
@@ -194,7 +295,10 @@ export function PaneManager() {
           const newSplit = entry.wasSecond
             ? split(entry.dir, sibNode, newLeaf, entry.ratio)
             : split(entry.dir, newLeaf, sibNode, entry.ratio);
-          return { root: replaceNode(prev.root, entry.siblingId, newSplit), minimized };
+          return {
+            root: replaceNode(prev.root, entry.siblingId, newSplit),
+            minimized,
+          };
         }
       }
 
@@ -206,11 +310,17 @@ export function PaneManager() {
   }, []);
 
   const resizeSplit = useCallback((splitId: string, ratio: number) => {
-    setLayout((prev) => ({ ...prev, root: updateRatio(prev.root, splitId, ratio) }));
+    setLayout((prev) => ({
+      ...prev,
+      root: updateRatio(prev.root, splitId, ratio),
+    }));
   }, []);
 
   const changePaneType = useCallback((leafId: string, newType: PaneType) => {
-    setLayout((prev) => ({ ...prev, root: replaceNode(prev.root, leafId, leaf(newType)) }));
+    setLayout((prev) => ({
+      ...prev,
+      root: replaceNode(prev.root, leafId, leaf(newType)),
+    }));
   }, []);
 
   // ── Drag-to-swap ───────────────────────────────────────────────
@@ -218,44 +328,75 @@ export function PaneManager() {
   const [dragSourceId, setDragSourceId] = useState<string | null>(null);
   const [dragTargetId, setDragTargetId] = useState<string | null>(null);
 
-  const swapPanes = useCallback((sourceLeafId: string, targetLeafId: string) => {
-    if (sourceLeafId === targetLeafId) return;
-    setLayout((prev) => {
-      const findLeaf = (node: LayoutNode, id: string): LeafNode | null => {
-        if (node.type === "leaf") return node.id === id ? node : null;
-        return findLeaf(node.children[0], id) ?? findLeaf(node.children[1], id);
-      };
-      const srcLeaf = findLeaf(prev.root, sourceLeafId);
-      const tgtLeaf = findLeaf(prev.root, targetLeafId);
-      if (!srcLeaf || !tgtLeaf) return prev;
-      const srcType = srcLeaf.paneType;
-      const tgtType = tgtLeaf.paneType;
-      let newRoot = replaceNode(prev.root, sourceLeafId, { ...srcLeaf, paneType: tgtType });
-      newRoot = replaceNode(newRoot, targetLeafId, { ...tgtLeaf, paneType: srcType });
-      return { ...prev, root: newRoot };
-    });
-  }, []);
+  const movePaneToTarget = useCallback(
+    (sourceLeafId: string, targetLeafId: string) => {
+      if (sourceLeafId === targetLeafId) return;
+      setLayout((prev) => {
+        const findLeaf = (node: LayoutNode, id: string): LeafNode | null => {
+          if (node.type === "leaf") return node.id === id ? node : null;
+          return (
+            findLeaf(node.children[0], id) ?? findLeaf(node.children[1], id)
+          );
+        };
+        const srcLeaf = findLeaf(prev.root, sourceLeafId);
+        const tgtLeaf = findLeaf(prev.root, targetLeafId);
+        if (!srcLeaf || !tgtLeaf) return prev;
 
-  const handleDragStart = useCallback((leafId: string) => setDragSourceId(leafId), []);
-  const handleDragEnd = useCallback(() => { setDragSourceId(null); setDragTargetId(null); }, []);
+        // Remove source from tree (collapses its parent split)
+        const withoutSrc = removeLeaf(prev.root, sourceLeafId);
+        if (!withoutSrc) return prev; // source was the only node
+
+        // Create new leaf with the source's paneType
+        const newLeaf = leaf(srcLeaf.paneType);
+
+        // Find the target in the pruned tree and split to insert source beside it
+        const tgtInPruned = findLeaf(withoutSrc, targetLeafId);
+        if (!tgtInPruned) return prev;
+
+        // Insert to the right of target
+        const newSplit = split("h", tgtInPruned, newLeaf, 0.5);
+        const newRoot = replaceNode(withoutSrc, targetLeafId, newSplit);
+
+        return { ...prev, root: newRoot };
+      });
+    },
+    [],
+  );
+
+  const handleDragStart = useCallback(
+    (leafId: string) => setDragSourceId(leafId),
+    [],
+  );
+  const handleDragEnd = useCallback(() => {
+    setDragSourceId(null);
+    setDragTargetId(null);
+  }, []);
   const handleDrop = useCallback(
     (targetLeafId: string) => {
-      if (dragSourceId && dragSourceId !== targetLeafId) swapPanes(dragSourceId, targetLeafId);
+      if (dragSourceId && dragSourceId !== targetLeafId)
+        movePaneToTarget(dragSourceId, targetLeafId);
       setDragSourceId(null);
       setDragTargetId(null);
     },
-    [dragSourceId, swapPanes],
+    [dragSourceId, movePaneToTarget],
   );
 
   // ── Split menu ─────────────────────────────────────────────────
 
-  const [splitMenu, setSplitMenu] = useState<{ leafId: string; dir: "h" | "v" } | null>(null);
+  const [splitMenu, setSplitMenu] = useState<{
+    leafId: string;
+    dir: "h" | "v";
+  } | null>(null);
   const splitMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!splitMenu) return;
     const handler = (e: MouseEvent) => {
-      if (splitMenu && splitMenuRef.current && !splitMenuRef.current.contains(e.target as Node))
+      if (
+        splitMenu &&
+        splitMenuRef.current &&
+        !splitMenuRef.current.contains(e.target as Node)
+      )
         setSplitMenu(null);
     };
     document.addEventListener("mousedown", handler);
@@ -275,10 +416,15 @@ export function PaneManager() {
     },
     [presets, layout],
   );
-  const handleLoadPreset = useCallback((p: LayoutPreset) => setLayout(p.state), []);
+  const handleLoadPreset = useCallback(
+    (p: LayoutPreset) => setLayout(p.state),
+    [],
+  );
   const handleUpdatePreset = useCallback(
     (idx: number) => {
-      const next = presets.map((p, i) => (i === idx ? { ...p, state: layout } : p));
+      const next = presets.map((p, i) =>
+        i === idx ? { ...p, state: layout } : p,
+      );
       setPresets(next);
       savePresets(next);
     },
@@ -317,7 +463,8 @@ export function PaneManager() {
   // ── Render helpers ─────────────────────────────────────────────
 
   const renderSplitMenu = (leafId: string, dir: "h" | "v") => {
-    if (!splitMenu || splitMenu.leafId !== leafId || splitMenu.dir !== dir) return null;
+    if (!splitMenu || splitMenu.leafId !== leafId || splitMenu.dir !== dir)
+      return null;
     return (
       <div
         ref={splitMenuRef}
@@ -329,7 +476,10 @@ export function PaneManager() {
           return (
             <button
               key={type}
-              onClick={() => { splitPane(leafId, dir, type); setSplitMenu(null); }}
+              onClick={() => {
+                splitPane(leafId, dir, type);
+                setSplitMenu(null);
+              }}
               className="w-full text-left px-3 py-2 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
             >
               <Icon size={14} strokeWidth={2.5} className="text-sig-accent" />
@@ -352,11 +502,35 @@ export function PaneManager() {
         <div
           key={node.paneType}
           className={`flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full transition-shadow ${
-            dragTargetId === node.id ? "ring-2 ring-sig-accent/50 ring-inset" : ""
+            dragTargetId === node.id
+              ? "ring-2 ring-sig-accent/50 ring-inset"
+              : ""
           }`}
-          onDragOver={isDragOver ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragTargetId(node.id); } : undefined}
-          onDragLeave={isDragOver ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragTargetId(null); } : undefined}
-          onDrop={isDragOver ? (e) => { e.preventDefault(); handleDrop(node.id); } : undefined}
+          onDragOver={
+            isDragOver
+              ? (e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragTargetId(node.id);
+                }
+              : undefined
+          }
+          onDragLeave={
+            isDragOver
+              ? (e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                    setDragTargetId(null);
+                }
+              : undefined
+          }
+          onDrop={
+            isDragOver
+              ? (e) => {
+                  e.preventDefault();
+                  handleDrop(node.id);
+                }
+              : undefined
+          }
         >
           <div className="relative">
             <PaneHeader
@@ -366,11 +540,25 @@ export function PaneManager() {
               statusSlot={
                 node.paneType === "globe" ? (
                   <>
-                    <Satellite size={10} strokeWidth={2.5} className="text-sig-accent" />
-                    <span className="text-sig-accent font-semibold tabular-nums">{activeCount.toLocaleString()}</span>
-                    <span className="hidden sm:inline tracking-wider">TRACKS</span>
+                    <Satellite
+                      size={10}
+                      strokeWidth={2.5}
+                      className="text-sig-accent"
+                    />
+                    <span className="text-sig-accent font-semibold tabular-nums">
+                      {activeCount.toLocaleString()}
+                    </span>
+                    <span className="hidden sm:inline tracking-wider">
+                      TRACKS
+                    </span>
                     <span className="text-sig-dim hidden sm:inline">
-                      · {dataSources.filter((s) => s.status === "live" || s.status === "cached").length}/{dataSources.length} LIVE
+                      ·{" "}
+                      {
+                        dataSources.filter(
+                          (s) => s.status === "live" || s.status === "cached",
+                        ).length
+                      }
+                      /{dataSources.length} LIVE
                     </span>
                   </>
                 ) : undefined
@@ -378,16 +566,28 @@ export function PaneManager() {
               onSplitH={
                 availableTypes.length > 0
                   ? () => {
-                      if (availableTypes.length === 1) splitPane(node.id, "h", availableTypes[0]!);
-                      else setSplitMenu((prev) => prev?.leafId === node.id && prev.dir === "h" ? null : { leafId: node.id, dir: "h" });
+                      if (availableTypes.length === 1)
+                        splitPane(node.id, "h", availableTypes[0]!);
+                      else
+                        setSplitMenu((prev) =>
+                          prev?.leafId === node.id && prev.dir === "h"
+                            ? null
+                            : { leafId: node.id, dir: "h" },
+                        );
                     }
                   : undefined
               }
               onSplitV={
                 availableTypes.length > 0
                   ? () => {
-                      if (availableTypes.length === 1) splitPane(node.id, "v", availableTypes[0]!);
-                      else setSplitMenu((prev) => prev?.leafId === node.id && prev.dir === "v" ? null : { leafId: node.id, dir: "v" });
+                      if (availableTypes.length === 1)
+                        splitPane(node.id, "v", availableTypes[0]!);
+                      else
+                        setSplitMenu((prev) =>
+                          prev?.leafId === node.id && prev.dir === "v"
+                            ? null
+                            : { leafId: node.id, dir: "v" },
+                        );
                     }
                   : undefined
               }
@@ -422,12 +622,21 @@ export function PaneManager() {
         className="w-full h-full min-w-0 min-h-0 overflow-hidden"
         style={{
           display: "grid",
-          [isH ? "gridTemplateColumns" : "gridTemplateRows"]: `${r}fr 6px ${1 - r}fr`,
+          [isH ? "gridTemplateColumns" : "gridTemplateRows"]:
+            `${r}fr 6px ${1 - r}fr`,
         }}
       >
-        <div className="overflow-hidden min-w-0 min-h-0">{renderNode(node.children[0])}</div>
-        <ResizeHandle splitId={node.id} direction={node.direction} onResize={resizeSplit} />
-        <div className="overflow-hidden min-w-0 min-h-0">{renderNode(node.children[1])}</div>
+        <div className="overflow-hidden min-w-0 min-h-0">
+          {renderNode(node.children[0])}
+        </div>
+        <ResizeHandle
+          splitId={node.id}
+          direction={node.direction}
+          onResize={resizeSplit}
+        />
+        <div className="overflow-hidden min-w-0 min-h-0">
+          {renderNode(node.children[1])}
+        </div>
       </div>
     );
   };

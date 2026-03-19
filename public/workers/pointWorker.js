@@ -210,6 +210,9 @@ function matchesAF(d, f) {
   var onGround = d.onGround === true;
   if (!f.showAirborne && !onGround) return false;
   if (!f.showGround && onGround) return false;
+  var mf = f.milFilter || "all";
+  if (mf === "military" && !d.military) return false;
+  if (mf === "civilian" && d.military) return false;
   if (f.squawks.length > 0) {
     var sq = d.squawk || "";
     var bucket =
@@ -658,6 +661,9 @@ function renderFrame() {
     weather: colors.weather || "#aa66ff",
   };
 
+  // Military aircraft color — orange-red, distinct from civilian yellow
+  var milColor = light ? "#cc3300" : "#ff6644";
+
   var projFn;
   var fm;
   if (isFlat) {
@@ -1004,8 +1010,13 @@ function renderFrame() {
     }
 
     // Aircraft
+    var isMil = item.data && item.data.military;
     var acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
+    // Military aircraft: slightly higher base alpha so they stand out
+    if (isMil) acAlpha = Math.min(0.9, acAlpha + 0.15);
     var acSize = Math.min(4, 1 + Math.max(0, (zoomLevel - 1) * 0.5));
+    // Military aircraft: slightly larger
+    if (isMil) acSize = Math.min(5, acSize * 1.2);
     if (isSel) acSize *= 2;
     var status = item.data && item.data.squawkStatus;
     var isEmergency =
@@ -1020,7 +1031,9 @@ function renderFrame() {
           ? "#ff8800"
           : status === "hijack"
             ? "#cc44ff"
-            : baseColor;
+            : isMil
+              ? milColor
+              : baseColor;
     var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
     var s = acSize;
     ctx.beginPath();
@@ -1031,7 +1044,7 @@ function renderFrame() {
     ctx.fill();
     if (isSel) {
       ctx.globalAlpha = 0.85;
-      ctx.strokeStyle = baseColor;
+      ctx.strokeStyle = isMil ? milColor : baseColor;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
