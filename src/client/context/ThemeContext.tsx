@@ -1,5 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import { type ThemeMode, themes, applyThemeToRoot } from "@/config/theme";
+import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 type ThemeContextType = {
   mode: ThemeMode;
@@ -10,8 +18,16 @@ type ThemeContextType = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>("dark");
+  const [mode, setModeRaw] = useState<ThemeMode>(() => {
+    const saved = cacheGet<ThemeMode>(CACHE_KEYS.theme);
+    return saved === "light" ? "light" : "dark";
+  });
   const theme = themes[mode];
+
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeRaw(next);
+    cacheSet(CACHE_KEYS.theme, next);
+  }, []);
 
   useEffect(() => {
     applyThemeToRoot(theme);

@@ -3,11 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - .env
     environment:
       - NODE_ENV=development
     volumes:
       - ./src:/app/src
       - ./public:/app/public
+      - ./styles:/app/styles
     command: bun --hot src/server/index.ts
     healthcheck:
       test:
@@ -28,7 +31,7 @@ services:
       - "443:443"
       - "80:80"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

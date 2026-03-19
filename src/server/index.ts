@@ -59,6 +59,19 @@ const server = serve({
       return servePublicFile(pathname);
     },
 
+    "/sw.js": async () => {
+      return servePublicFile("/sw.js");
+    },
+
+    "/manifest.json": async () => {
+      return servePublicFile("/manifest.json");
+    },
+
+    "/icons/*": async (req) => {
+      const { pathname } = new URL(req.url);
+      return servePublicFile(pathname);
+    },
+
     ...apiRoutes,
 
     "/*": index,
@@ -70,7 +83,8 @@ const server = serve({
   },
 });
 
-console.log(`🚀 Server running at ${server.url}`);
+console.log(`🚀 Dev server running at ${server.url}`);
+console.log(`🔒 Access via https://localhost (Caddy reverse proxy)`);
 startGdeltPolling();
 startAisPolling();
 startFirmsPolling();

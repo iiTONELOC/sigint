@@ -7,6 +7,9 @@ export type ThemeColors = {
   accent: string;
   coast: string;
   coastFill: string;
+  ocean: string;
+  oceanDeep: string;
+  grid: string;
   ships: string;
   aircraft: string;
   events: string;
@@ -32,6 +35,9 @@ export const themes: Record<ThemeMode, Theme> = {
       accent: "#00d4f0",
       coast: "#1e4060",
       coastFill: "#0f1e2e",
+      ocean: "#0e1825",
+      oceanDeep: "#060c16",
+      grid: "#172033",
       ships: "#00d4f0",
       aircraft: "#ffcc00",
       events: "#dd44aa",
@@ -48,18 +54,21 @@ export const themes: Record<ThemeMode, Theme> = {
     colors: {
       bg: "#f0f2f5",
       panel: "#ffffff",
-      border: "#d0d7e0",
-      accent: "#0090b8",
-      coast: "#7aaccc",
-      coastFill: "#dce8f0",
-      ships: "#0090b8",
-      aircraft: "#cc8800",
-      events: "#aa2288",
-      quakes: "#228800",
-      fires: "#cc4400",
-      weather: "#7744cc",
-      text: "#3a4550",
-      dim: "#8898a8",
+      border: "#b0bcc8",
+      accent: "#006a90",
+      coast: "#8a9aaa",
+      coastFill: "#e8e0d4",
+      ocean: "#ddeaf4",
+      oceanDeep: "#c8daea",
+      grid: "#4a5568",
+      ships: "#7b2d8e",
+      aircraft: "#1a8a6e",
+      events: "#e62e8a",
+      quakes: "#2b5fb3",
+      fires: "#cc2200",
+      weather: "#e07000",
+      text: "#1a2530",
+      dim: "#4a5a6a",
       bright: "#0a1018",
       danger: "#cc1111",
     },

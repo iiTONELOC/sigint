@@ -1,0 +1,9 @@
+# ── Dev Caddyfile ─────────────────────────────────────────────────────
+# Self-signed TLS for local development.
+# Caddy generates a local CA + cert for localhost on first run.
+# Browser will show a warning — accept it once.
+
+localhost {
+	tls internal
+	reverse_proxy web:3000
+}

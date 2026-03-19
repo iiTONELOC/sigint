@@ -5,6 +5,9 @@ import {
   Moon,
   Trash2,
   HardDriveDownload,
+  HardDriveUpload,
+  Download,
+  Upload,
   RotateCcw,
   Info,
   Database,
@@ -18,6 +21,8 @@ import {
   cacheEstimateSize,
   cacheDelete,
   cacheClearAll,
+  cacheGet,
+  cacheSet,
 } from "@/lib/storageService";
 import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cacheKeys";
 
@@ -108,6 +113,80 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
     window.location.reload();
   }, [refreshStorage]);
 
+  // ── Export all data as JSON file ────────────────────────────────
+  const handleExport = useCallback(() => {
+    const allowedKeys = new Set(Object.values(CACHE_KEYS));
+    const keys = cacheListKeys().filter((k) => allowedKeys.has(k as typeof CACHE_KEYS[keyof typeof CACHE_KEYS]));
+    const exportData: Record<string, unknown> = {};
+    for (const key of keys) {
+      const value = cacheGet(key);
+      if (value != null) exportData[key] = value;
+    }
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sigint-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ── Import data from JSON file ─────────────────────────────────
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  const handleImport = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const raw = reader.result as string;
+          // Size guard — reject files over 50MB
+          if (raw.length > 50 * 1024 * 1024) {
+            setImportStatus("File too large (max 50MB)");
+            return;
+          }
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            setImportStatus("Invalid format — expected JSON object");
+            return;
+          }
+          // Sanitize: only accept known sigint.* keys
+          const allowedKeys = new Set(Object.values(CACHE_KEYS));
+          let imported = 0;
+          let skipped = 0;
+          for (const [key, value] of Object.entries(parsed)) {
+            if (!allowedKeys.has(key as typeof CACHE_KEYS[keyof typeof CACHE_KEYS])) {
+              skipped++;
+              continue;
+            }
+            if (value == null) {
+              skipped++;
+              continue;
+            }
+            cacheSet(key, value);
+            imported++;
+          }
+          refreshStorage();
+          setImportStatus(
+            `Imported ${imported} key${imported !== 1 ? "s" : ""}${skipped > 0 ? `, skipped ${skipped}` : ""}`,
+          );
+          setTimeout(() => setImportStatus(null), 4000);
+        } catch {
+          setImportStatus("Failed to parse JSON");
+          setTimeout(() => setImportStatus(null), 4000);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }, [refreshStorage]);
+
   const totalSize = Object.values(sizes).reduce((a, b) => a + b, 0);
 
   return (
@@ -166,6 +245,9 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
               onClearAll={handleClearAll}
               confirmClearAll={confirmClearAll}
               onResetLayout={handleResetLayout}
+              onExport={handleExport}
+              onImport={handleImport}
+              importStatus={importStatus}
             />
           )}
           {activeTab === "about" && <AboutTab />}
@@ -227,6 +309,9 @@ function StorageTab({
   onClearAll,
   confirmClearAll,
   onResetLayout,
+  onExport,
+  onImport,
+  importStatus,
 }: {
   keys: string[];
   sizes: Record<string, number>;
@@ -235,6 +320,9 @@ function StorageTab({
   onClearAll: () => void;
   confirmClearAll: boolean;
   onResetLayout: () => void;
+  onExport: () => void;
+  onImport: () => void;
+  importStatus: string | null;
 }) {
   const dataKeys = keys.filter((k) => CACHE_KEY_LABELS[k]?.group === "Data");
   const uiKeys = keys.filter((k) => CACHE_KEY_LABELS[k]?.group === "UI");
@@ -242,7 +330,7 @@ function StorageTab({
 
   return (
     <div className="space-y-5">
-      {/* Summary */}
+      {/* Summary + Export/Import */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sig-dim text-xs tracking-wider">
           <HardDriveDownload size={13} />
@@ -250,21 +338,61 @@ function StorageTab({
             {keys.length} keys · {formatBytes(totalSize)} total
           </span>
         </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onExport}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors"
+            title="Export all data as JSON"
+          >
+            <Download size={12} />
+            EXPORT
+          </button>
+          <button
+            onClick={onImport}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors"
+            title="Import data from JSON backup"
+          >
+            <Upload size={12} />
+            IMPORT
+          </button>
+        </div>
       </div>
+
+      {/* Import status feedback */}
+      {importStatus && (
+        <div className="text-xs text-sig-accent bg-sig-accent/10 border border-sig-accent/20 rounded px-2.5 py-1.5">
+          {importStatus}
+        </div>
+      )}
 
       {/* Data caches */}
       {dataKeys.length > 0 && (
-        <KeyGroup label="DATA CACHES" keys={dataKeys} sizes={sizes} onDelete={onDelete} />
+        <KeyGroup
+          label="DATA CACHES"
+          keys={dataKeys}
+          sizes={sizes}
+          onDelete={onDelete}
+        />
       )}
 
       {/* UI state */}
       {uiKeys.length > 0 && (
-        <KeyGroup label="UI STATE" keys={uiKeys} sizes={sizes} onDelete={onDelete} />
+        <KeyGroup
+          label="UI STATE"
+          keys={uiKeys}
+          sizes={sizes}
+          onDelete={onDelete}
+        />
       )}
 
       {/* Unknown keys */}
       {otherKeys.length > 0 && (
-        <KeyGroup label="OTHER" keys={otherKeys} sizes={sizes} onDelete={onDelete} />
+        <KeyGroup
+          label="OTHER"
+          keys={otherKeys}
+          sizes={sizes}
+          onDelete={onDelete}
+        />
       )}
 
       {/* Layout reset */}
@@ -351,27 +479,61 @@ function KeyGroup({
 
 function AboutTab() {
   const sources = [
-    { name: "OpenSky Network", url: "https://opensky-network.org", desc: "Aircraft positions" },
-    { name: "USGS Earthquake Hazards", url: "https://earthquake.usgs.gov", desc: "Seismic data" },
-    { name: "GDELT 2.0", url: "https://www.gdeltproject.org", desc: "Event intelligence" },
-    { name: "aisstream.io", url: "https://aisstream.io", desc: "AIS vessel tracking" },
-    { name: "NASA FIRMS", url: "https://firms.modaps.eosdis.nasa.gov", desc: "Fire hotspots" },
-    { name: "NOAA Weather", url: "https://api.weather.gov", desc: "Severe weather alerts" },
-    { name: "iptv-org", url: "https://github.com/iptv-org", desc: "Video feed channels" },
+    {
+      name: "OpenSky Network",
+      url: "https://opensky-network.org",
+      desc: "Aircraft positions",
+    },
+    {
+      name: "USGS Earthquake Hazards",
+      url: "https://earthquake.usgs.gov",
+      desc: "Seismic data",
+    },
+    {
+      name: "GDELT 2.0",
+      url: "https://www.gdeltproject.org",
+      desc: "Event intelligence",
+    },
+    {
+      name: "aisstream.io",
+      url: "https://aisstream.io",
+      desc: "AIS vessel tracking",
+    },
+    {
+      name: "NASA FIRMS",
+      url: "https://firms.modaps.eosdis.nasa.gov",
+      desc: "Fire hotspots",
+    },
+    {
+      name: "NOAA Weather",
+      url: "https://api.weather.gov",
+      desc: "Severe weather alerts",
+    },
+    {
+      name: "iptv-org",
+      url: "https://github.com/iptv-org",
+      desc: "Video feed channels",
+    },
   ];
 
   return (
     <div className="space-y-5">
       <div>
-        <div className="text-xs text-sig-dim tracking-widest mb-2">APPLICATION</div>
+        <div className="text-xs text-sig-dim tracking-widest mb-2">
+          APPLICATION
+        </div>
         <div className="space-y-1 text-sm">
           <div className="flex justify-between">
             <span className="text-sig-dim">Name</span>
-            <span className="text-sig-text font-semibold tracking-wider">SIGINT</span>
+            <span className="text-sig-text font-semibold tracking-wider">
+              SIGINT
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sig-dim">Stack</span>
-            <span className="text-sig-text">Bun · React 19 · Tailwind 4 · Canvas 2D</span>
+            <span className="text-sig-text">
+              Bun · React 19 · Tailwind 4 · Canvas 2D
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sig-dim">Rendering</span>
@@ -381,7 +543,9 @@ function AboutTab() {
       </div>
 
       <div>
-        <div className="text-xs text-sig-dim tracking-widest mb-2">DATA SOURCES</div>
+        <div className="text-xs text-sig-dim tracking-widest mb-2">
+          DATA SOURCES
+        </div>
         <div className="space-y-1">
           {sources.map((s) => (
             <a

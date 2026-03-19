@@ -15,9 +15,10 @@ COPY components.json .
 COPY bun-env.d.ts .
 COPY bunfig.toml .
 COPY build.ts .
+COPY postbuild.ts .
 
-# Build frontend assets at image build time
-RUN bun run build.ts
+# Build frontend assets + PWA service worker injection
+RUN bun run build.ts && bun run postbuild.ts
 
 ENV NODE_ENV=production
 

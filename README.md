@@ -1,6 +1,6 @@
 # SIGINT
 
-A real-time OSINT dashboard featuring live aircraft tracking, live AIS vessel tracking, live seismic monitoring, live fire hotspot monitoring, live severe weather alerts, live GDELT event intelligence, interactive globe/flat map visualization, and multi-layer geospatial intelligence. Built with Bun, React 19, and a custom Canvas 2D rendering engine with Web Worker offloading.
+A real-time OSINT dashboard featuring live aircraft tracking, live AIS vessel tracking, live seismic monitoring, live fire hotspot monitoring, live severe weather alerts, live GDELT event intelligence, interactive globe/flat map visualization, and multi-layer geospatial intelligence. Built with Bun, React 19, and a custom Canvas 2D rendering engine with Web Worker offloading. Installable as a PWA with offline support.
 
 ## Table of Contents
 
@@ -17,6 +17,7 @@ A real-time OSINT dashboard featuring live aircraft tracking, live AIS vessel tr
   - [Docker Architecture](#docker-architecture)
   - [Development](#development)
   - [Production](#production)
+  - [Self-Hosted Production with TLS](#self-hosted-production-with-tls)
   - [Heroku Deployment](#heroku-deployment)
   - [Cleanup](#cleanup)
   - [License](#license)
@@ -28,7 +29,7 @@ A real-time OSINT dashboard featuring live aircraft tracking, live AIS vessel tr
 
 ## Overview
 
-**SIGINT** is an open-source geospatial intelligence dashboard that renders live aircraft positions from the OpenSky Network, live AIS vessel positions from aisstream.io, live seismic data from the USGS, live fire hotspot data from NASA FIRMS, live severe weather alerts from NOAA, and live geolocated news events from GDELT 2.0 onto an interactive 3D globe or flat map projection. The UI is fully responsive, scaling from mobile to desktop with adaptive controls and touch support.
+**SIGINT** is an open-source geospatial intelligence dashboard that renders live aircraft positions from the OpenSky Network, live AIS vessel positions from aisstream.io, live seismic data from the USGS, live fire hotspot data from NASA FIRMS, live severe weather alerts from NOAA, and live geolocated news events from GDELT 2.0 onto an interactive 3D globe or flat map projection. The UI is fully responsive, scaling from mobile to desktop with adaptive controls and touch support. Installable as a Progressive Web App for offline access and home screen launch.
 
 Aircraft data is live — pulled directly from the OpenSky Network API every 4 minutes with smooth interpolation between refreshes. Ship data is live — the server maintains a persistent WebSocket connection to aisstream.io, streaming global AIS vessel positions in real-time, with clients polling every 5 minutes. Earthquake data is live — pulled from the USGS GeoJSON feed every 7 minutes, covering the last 7 days of global seismic activity with age-based rendering that visually distinguishes recent events from older ones. Fire data is live — the server fetches NASA FIRMS VIIRS CSV every 30 minutes, clients poll every 10 minutes. Weather data is live — severe weather alerts fetched client-side from NOAA every 5 minutes. Event data is live — the server fetches GDELT 2.0 raw export files every 15 minutes, parses geocoded conflict/crisis events, and serves them to clients with token authentication.
 
@@ -54,16 +55,18 @@ Aircraft data is live — pulled directly from the OpenSky Network API every 4 m
 - **Data table pane** — Virtual-scrolling sortable/filterable grid of all live data with column header tooltips. Click a row to select on the globe, crosshair button zooms to it. Selection syncs both ways — selecting from ticker or globe auto-scrolls the table to the item.
 - **Detail panel** — Swipe-to-dismiss bottom sheet on mobile, scrollable panel on desktop, showing feature-specific metadata rows. LOCATE button zooms to the selected entity on demand. FOCUS/SOLO isolation controls. Automatically repositions to the opposite side of the screen from the selected item with hysteresis to prevent jitter.
 - **Entity dossier** — Dedicated pane with enriched data per entity type: aircraft photos + route + telemetry, ship AIS details + intel links, event/quake/fire/weather metadata. Two-row responsive toolbar with LOCATE/FOCUS/SOLO controls.
+- **Settings modal** — Gear icon in header opens settings with appearance (dark/light theme), storage management (per-key cache clearing with sizes, reset layout, clear all), and about page with data source links.
 - **Live ticker** — Scrolling bottom feed of active tracked entities with round-robin interleaving across all 6 data types (aircraft, ships, events, quakes, fires, weather), sorted by recency. 80-item pool with Fisher-Yates shuffle for variety. Visible count scales with screen width (1–6). Hover glow feedback + native title tooltip. Clickable — selecting a ticker item zooms the globe and highlights in the data table. Non-moving aircraft and moored ships filtered from feed.
 - **Dynamic data source status** — Source health reporting accurately shows which data sources are live, cached, unavailable, or offline based on actual provider state — no hardcoded labels.
+- **Progressive Web App** — Installable to home screen on mobile and desktop. Service worker caches the app shell (HTML, JS, CSS, fonts, land data) for instant offline boot. Data loads from IndexedDB when offline. Automatic update detection with reload prompt on new deploys.
 - **Offline resilience** — IndexedDB caching for all live data sources (aircraft, ships, earthquakes, GDELT events, fires, weather, position trails, coastline geometry) enables instant boot from cache and graceful fallback on API errors. Auto-migrates from localStorage on first run. Trail entries expire after 24 hours and points are capped per entity to keep storage lean.
 - **Token-authenticated API** — All server API routes protected by HMAC-SHA256 signed tokens with 30-minute TTL and per-IP rate limiting (60 req/min). Clients auto-refresh tokens on expiry via shared `authService`.
-- **Dark and light themes** — Full theme system with CSS variable propagation
+- **Dark and light themes** — Full theme system with CSS variable propagation, toggled from settings modal
 - **Responsive design** — Adaptive header controls (single-row on desktop, two-row on mobile), icon-only layer toggles on small screens, touch-friendly interactions with 40px minimum touch targets
 
 ## Performance
 
-The rendering pipeline is designed to handle 25,000+ simultaneous tracks smoothly on both desktop and mobile:
+The rendering pipeline is designed to handle tens of thousands of simultaneous tracks smoothly on both desktop and mobile:
 
 - **Web Worker rendering** — All data point projection, interpolation, filtering, sorting, and drawing runs on a dedicated Web Worker with its own OffscreenCanvas. The main thread never blocks on point rendering — it just composites a finished bitmap each frame.
 - **Split messaging** — Heavy data payloads (20K+ items) are only sent to the worker when data actually changes (~every 240-300s). Each animation frame sends only camera state (~200 bytes) to the worker.
@@ -80,9 +83,10 @@ The rendering pipeline is designed to handle 25,000+ simultaneous tracks smoothl
 - **Styling**: Tailwind CSS 4
 - **Icons**: Lucide React
 - **Visualization**: Custom Canvas 2D rendering engine with Web Worker offloading (modular `globe/` directory + `public/workers/pointWorker.js`)
-- **Build**: Bun bundler with Tailwind plugin
+- **Build**: Bun bundler with Tailwind plugin + postbuild PWA injection
 - **Containerization**: Docker + Docker Compose
-- **Deployment**: Heroku container stack
+- **Reverse Proxy / TLS**: Caddy (dev: self-signed, prod: optional Let's Encrypt)
+- **Deployment**: Heroku container stack or self-hosted with Docker
 
 ## Architecture
 
@@ -97,6 +101,8 @@ Data features are organized by domain: `tracking/` for live position feeds (airc
 The server handles three data ingestion pipelines. For GDELT, it fetches the latest raw export CSV every 15 minutes, extracts geocoded conflict/crisis events, and caches them in memory. For AIS vessel data, it maintains a persistent WebSocket connection to aisstream.io, accumulating global ship positions in real-time. For NASA FIRMS, it fetches VIIRS fire hotspot CSV every 30 minutes. All three are served to clients via token-authenticated API routes with gzip compression. All API routes are protected by token authentication (HMAC-SHA256, 30-minute TTL) and per-IP rate limiting (60 req/min). Clients use a shared `authService` that handles token lifecycle automatically.
 
 Trail recording is centralized in `DataContext` — a single `useEffect` feeds both aircraft and ship position updates to the trail service, enabling smooth interpolation and trail rendering for all moving entities.
+
+The app is a Progressive Web App — a service worker caches the app shell (HTML, JS, CSS, fonts, coastline data, worker script) for offline boot. All live data is cached in IndexedDB by the providers, so the app boots from cache and shows last-known data when offline. The postbuild step (`postbuild.ts`) injects hashed asset filenames into the service worker's precache manifest.
 
 Full technical documentation is split into focused docs:
 
@@ -125,42 +131,66 @@ OpenSky API calls are made client-side because Heroku's IP ranges are blocked by
 | `SIGINT_SERVER_SECRET` | **Yes** | Server-only secret for signing auth tokens. Generate with `openssl rand -hex 32`. Server will refuse to start without it. |
 | `AISSTREAM_API_KEY` | No | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty but everything else works. |
 | `FIRMS_MAP_KEY` | No | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty but everything else works. |
+| `DOMAIN` | No | Required only for self-hosted TLS. Your domain name (e.g. `sigint.example.com`). Caddy uses this for Let's Encrypt certificate provisioning. |
 | `PORT` | No | Server port (default: 3000) |
 
 ## Docker Architecture
 
 Fully containerized with separate dev and production configurations:
 
-- **Dev**: Hot-reload with source volumes, Caddy reverse proxy (HTTPS), renders bundled TypeScript at runtime
-- **Prod**: Multi-stage build, compiles to static `dist/`, serves pre-built files at runtime, ready for Heroku container stack
-- **Network**: Dev compose exposes ports 80/443 (Caddy) + 3000 (API); prod exposes 3000 with configurable PORT override
+- **Dev**: Hot-reload with source volumes, Caddy reverse proxy with self-signed HTTPS, HTTP→HTTPS redirect
+- **Prod (Heroku)**: Multi-stage build, compiles to static `dist/` with PWA service worker injection, serves pre-built files at runtime. No TLS — Heroku handles it at the router.
+- **Prod (Self-hosted)**: Same build, optional Caddy sidecar for automatic Let's Encrypt TLS. Enabled via `--profile tls` flag.
+- **Network**: Dev compose exposes ports 80/443 (Caddy). Prod exposes PORT (default 3000) directly, or 80/443 via Caddy when TLS is enabled.
 
 ## Development
 
-Dev with hot-reload (Caddy handles HTTPS):
+Dev with hot-reload and HTTPS via Caddy (self-signed cert):
 
 ```bash
-npm run docker:dev:up
+bun run docker:dev:up
 ```
 
-Access over the network at `https://<machine-ip>`, or locally via localhost.
+Access at `https://localhost` (accept the self-signed certificate once). Also accessible at `https://<machine-ip>` from other devices on the network.
 
 Stop:
 
 ```bash
-npm run docker:dev:down
+bun run docker:dev:down
 ```
 
 ## Production
 
+Standard production (no TLS — for Heroku or behind an existing reverse proxy):
+
 ```bash
-npm run docker:prod:up
+bun run docker:prod:up
 ```
 
 Stop:
 
 ```bash
-npm run docker:prod:down
+bun run docker:prod:down
+```
+
+## Self-Hosted Production with TLS
+
+For self-hosted deploys with automatic Let's Encrypt TLS:
+
+```bash
+# Set your domain in .env
+echo "DOMAIN=sigint.example.com" >> .env
+
+# Start with TLS profile
+bun run docker:prod:tls:up
+```
+
+Caddy automatically obtains and renews Let's Encrypt certificates. Ports 80 and 443 must be accessible from the internet for certificate validation.
+
+Stop:
+
+```bash
+bun run docker:prod:tls:down
 ```
 
 ## Heroku Deployment
@@ -183,7 +213,13 @@ heroku container:release web -a your-app-name
 Remove containers, volumes, and images:
 
 ```bash
-npm run docker:clean
+bun run docker:clean
+```
+
+Full cleanup (dev + prod + images):
+
+```bash
+bun run docker:clean:all
 ```
 
 ## License

@@ -63,6 +63,19 @@ const server = serve({
       return servePublicFile(pathname);
     },
 
+    "/sw.js": async () => {
+      return servePublicFile("/sw.js");
+    },
+
+    "/manifest.json": async () => {
+      return servePublicFile("/manifest.json");
+    },
+
+    "/icons/*": async (req) => {
+      const { pathname } = new URL(req.url);
+      return servePublicFile(pathname);
+    },
+
     ...apiRoutes,
 
     "/*": async (req) => {
@@ -79,7 +92,13 @@ const server = serve({
   },
 });
 
-console.log(`🚀 Production server running at ${server.url}`);
+const domain = process.env.DOMAIN;
+if (domain) {
+  console.log(`🚀 Production server running at ${server.url}`);
+  console.log(`🔒 Access via https://${domain} (Caddy TLS)`);
+} else {
+  console.log(`🚀 Production server running at ${server.url}`);
+}
 startGdeltPolling();
 startAisPolling();
 startFirmsPolling();
