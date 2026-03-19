@@ -1,5 +1,3 @@
-// ── Source status type (moved from StatusBadge.tsx) ──────────────────
-
 export type SourceStatus = {
   id: string;
   label: string;

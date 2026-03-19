@@ -6,12 +6,13 @@ import { featureList } from "@/features/registry";
 import type { AircraftFilter } from "@/features/tracking/aircraft/types";
 import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip } from "@/components/Tooltip";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Settings } from "lucide-react";
 import {
   isSourceDown,
   buildSourceStatusMap,
   type SourceStatus,
 } from "@/lib/sourceHealth";
+import { SettingsModal } from "@/components/SettingsModal";
 
 type HeaderProps = {
   readonly layers: Record<string, boolean>;
@@ -148,6 +149,7 @@ function Toggles({
 
 export function Header(props: Readonly<HeaderProps>) {
   const [time, setTime] = useState(new Date());
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     const iv = setInterval(() => setTime(new Date()), 1000);
@@ -176,18 +178,28 @@ export function Header(props: Readonly<HeaderProps>) {
           <Toggles {...props} />
         </div>
 
-        {/* Clock */}
-        <div className="text-right shrink-0 ml-3">
-          <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
-            {time.toLocaleTimeString("en-US", { hour12: false })}
+        {/* Clock + Settings */}
+        <div className="flex items-center gap-2 shrink-0 ml-3">
+          <div className="text-right">
+            <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
+              {time.toLocaleTimeString("en-US", { hour12: false })}
+            </div>
+            <div className="tracking-wide text-sig-dim text-(length:--sig-text-sm)">
+              {time.toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </div>
           </div>
-          <div className="tracking-wide text-sig-dim text-(length:--sig-text-sm)">
-            {time.toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })}
-          </div>
+          <Tooltip content="Settings" placement="bottom">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
+            >
+              <Settings size={15} strokeWidth={2} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -203,23 +215,37 @@ export function Header(props: Readonly<HeaderProps>) {
               OSINT LIVE FEED
             </span>
           </div>
-          <div className="text-right shrink-0">
-            <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
-              {time.toLocaleTimeString("en-US", { hour12: false })}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="text-right">
+              <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
+                {time.toLocaleTimeString("en-US", { hour12: false })}
+              </div>
+              <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
+                {time.toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </div>
             </div>
-            <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
-              {time.toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
+              title="Settings"
+            >
+              <Settings size={14} strokeWidth={2} />
+            </button>
           </div>
         </div>
         <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 pb-1 sm:pb-1.5 overflow-x-auto sigint-scroll">
           <Toggles {...props} />
         </div>
       </div>
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
     </div>
   );
 }

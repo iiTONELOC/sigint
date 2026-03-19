@@ -1,5 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const FEED_URL =
   "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson";
@@ -83,7 +84,7 @@ async function fetchEarthquakes(): Promise<DataPoint[]> {
 
 export const earthquakeProvider = new BaseProvider({
   id: "earthquake",
-  cacheKey: "sigint.usgs.earthquake-cache.v1",
+  cacheKey: CACHE_KEYS.earthquake,
   maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchEarthquakes,
 });

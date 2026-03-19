@@ -1,8 +1,9 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 import type { Channel, GridLayout, SlotState, SavedSlot, SavedState, Preset } from "./videoFeedTypes";
 
-const CACHE_KEY = "sigint.videofeed.state.v1";
-const PRESETS_KEY = "sigint.videofeed.presets.v1";
+const CACHE_KEY = CACHE_KEYS.videoState;
+const PRESETS_KEY = CACHE_KEYS.videoPresets;
 
 export function saveState(grid: GridLayout, slots: SlotState[]) {
   const saved: SavedState = {

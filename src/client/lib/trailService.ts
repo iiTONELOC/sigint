@@ -1,6 +1,7 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
-const CACHE_KEY = "sigint.trails.v1";
+const CACHE_KEY = CACHE_KEYS.trails;
 const MIN_MOVE_DEG = 0.001; // ~100m — skip if hasn't moved
 const PERSIST_INTERVAL_MS = 30_000;
 const MAX_MISSED_REFRESHES = 3;

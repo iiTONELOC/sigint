@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
 import { authenticatedFetch } from "@/lib/authService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const SHIPS_URL = "/api/ships/latest";
 
@@ -97,7 +98,7 @@ async function fetchShips(): Promise<DataPoint[]> {
 
 export const shipProvider = new BaseProvider({
   id: "ais-ships",
-  cacheKey: "sigint.ais.ship-cache.v1",
+  cacheKey: CACHE_KEYS.ships,
   maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchShips,
 });

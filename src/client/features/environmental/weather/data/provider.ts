@@ -1,5 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
@@ -148,7 +149,7 @@ async function fetchWeather(): Promise<DataPoint[]> {
 
 export const weatherProvider = new BaseProvider({
   id: "noaa-weather",
-  cacheKey: "sigint.noaa.weather-cache.v1",
+  cacheKey: CACHE_KEYS.weather,
   maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchWeather,
 });

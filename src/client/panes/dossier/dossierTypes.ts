@@ -1,4 +1,5 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ export type DossierState = {
 
 // ── Cache ────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "sigint.dossier.cache.v1";
+const CACHE_KEY = CACHE_KEYS.dossier;
 const CACHE_TTL_MS = 30 * 60_000;
 
 type DossierCacheMap = Record<string, { dossier: AircraftDossier; ts: number }>;
