@@ -124,8 +124,8 @@ export function GlobeVisualization({
   const { theme, mode: themeMode } = useTheme();
   const colorsRef = useRef(theme.colors);
   colorsRef.current = theme.colors;
-  const themeModeRef = useRef(themeMode);
-  themeModeRef.current = themeMode;
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   // ── Point rendering worker ──────────────────────────────────────
   const workerRef = useRef<Worker | null>(null);
@@ -135,7 +135,7 @@ export function GlobeVisualization({
 
   // Track what was last sent to worker — skip re-sending heavy data
   const lastSentDataRef = useRef<DataPoint[] | null>(null);
-  const lastSentModeRef = useRef<string | null>(null);
+  const lastSentThemeRef = useRef<typeof theme | null>(null);
 
   // ── Progressive render limit ────────────────────────────────────
   const prevDataRef = useRef<DataPoint[] | null>(null);
@@ -361,7 +361,7 @@ export function GlobeVisualization({
         // ── Detect data changes — only re-send heavy payload when needed ──
         const selId = sel?.id ?? null;
         const dataChanged = renderData !== lastSentDataRef.current;
-        const colorsChanged = themeModeRef.current !== lastSentModeRef.current;
+        const colorsChanged = themeRef.current !== lastSentThemeRef.current;
 
         if (dataChanged || colorsChanged) {
           // Heavy message — full data array only
@@ -407,7 +407,7 @@ export function GlobeVisualization({
           });
 
           lastSentDataRef.current = renderData;
-          lastSentModeRef.current = themeModeRef.current;
+          lastSentThemeRef.current = themeRef.current;
         }
 
         // ── Light message — camera + interaction state every frame ──
