@@ -8,6 +8,12 @@ import { clampFlatPan } from "./projection";
  * lerp toward target, auto-rotate, and velocity decay.
  * Mutates cam and camTarget in place.
  */
+
+// Track whether we released the lock due to rotation being re-enabled.
+// This prevents re-releasing a NEW lock set by a click before React
+// has had a chance to flip shouldRotate back to false.
+let _rotationReleasedLock = false;
+
 export function updateCamera(
   cam: CamState,
   camTarget: CamTarget,
@@ -19,6 +25,21 @@ export function updateCamera(
   viewportW: number,
   viewportH: number,
 ) {
+  // When rotation is turned off (by selecting a point or clicking ROT again),
+  // reset the released flag so the next ROT click can release again.
+  if (!shouldRotate) {
+    _rotationReleasedLock = false;
+  }
+
+  // If user re-enabled rotation while locked on, release the lock ONCE.
+  // The flag prevents re-releasing a new lock set by a subsequent click
+  // during the 1-frame gap before React flips shouldRotate to false.
+  if (shouldRotate && !isFlat && camTarget.lockedId && !_rotationReleasedLock) {
+    camTarget.lockedId = null;
+    camTarget.active = false;
+    _rotationReleasedLock = true;
+  }
+
   // If locked onto a selected item, update target to follow it
   if (camTarget.lockedId && selected && selected.id === camTarget.lockedId) {
     const interp = getInterpolatedPosition(selected.id);
@@ -83,9 +104,8 @@ export function updateCamera(
     }
   }
 
-  // Auto-rotate (globe only, when idle)
-  if (!isFlat && !drag.active && shouldRotate && !camTarget.active)
-    cam.rotY += 0.002 * rotSpeed;
+  // Auto-rotate (globe only, not dragging)
+  if (!isFlat && !drag.active && shouldRotate) cam.rotY += 0.002 * rotSpeed;
 
   // Velocity decay
   cam.rotY += cam.vy;

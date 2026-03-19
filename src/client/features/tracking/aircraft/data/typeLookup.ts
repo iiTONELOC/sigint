@@ -8,6 +8,7 @@ export type AircraftMetadata = {
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
+  military?: boolean;
 };
 
 import { authenticatedFetch } from "@/lib/authService";
@@ -42,6 +43,7 @@ function safeMetadata(value: unknown): AircraftMetadata | null {
     operator: item.operator,
     operatorIcao: item.operatorIcao,
     categoryDescription: item.categoryDescription,
+    military: item.military === true,
   };
 }
 

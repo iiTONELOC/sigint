@@ -44,6 +44,7 @@ export function buildAircraftDetailRows(
     ["Type", aircraftType],
     ["Reg", registration],
     ["Operator", operator || operatorIcao || "UNK OP"],
+    ["Classification", data.military ? "MILITARY" : "CIVILIAN"],
     ["Manufacturer", manufacturerName],
     ["Model", model],
     ["Category", categoryDescription],

@@ -41,6 +41,7 @@ export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> =
         data.categoryDescription,
         data.originCountry,
         data.squawk,
+        data.military ? "military mil" : "",
       ]
         .filter(Boolean)
         .join(" "),

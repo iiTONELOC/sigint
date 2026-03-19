@@ -138,6 +138,43 @@ export function AircraftFilterControl({
             </div>
           </div>
 
+          {/* Military filter */}
+          <div className="mb-2">
+            <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
+              TYPE
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {(
+                [
+                  ["ALL", "all"],
+                  ["MIL", "military"],
+                  ["CIV", "civilian"],
+                ] as const
+              ).map(([label, value]) => {
+                const on = aircraftFilter.milFilter === value;
+                const milClr = value === "military" ? "#ff6644" : aircraftColor;
+                return (
+                  <button
+                    key={value}
+                    onClick={() =>
+                      setAircraftFilter((f) => ({ ...f, milFilter: value }))
+                    }
+                    className="rounded-sm px-1.5 py-0.5 text-[12px]"
+                    style={{
+                      background: on
+                        ? milClr + "24"
+                        : colors.panel + "55",
+                      border: `1px solid ${on ? milClr + "d0" : colors.bright + "66"}`,
+                      color: on ? milClr : colors.bright,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Squawk */}
           <div>
             <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">

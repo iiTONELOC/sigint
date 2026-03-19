@@ -18,7 +18,14 @@ import {
 } from "@/features/tracking/aircraft/lib/utils";
 import type { AircraftDossier, DossierState } from "./dossierTypes";
 import { getCachedDossier, setCachedDossier } from "./dossierTypes";
-import { IsoBtn, Section, Row, RouteAirport, LinkRow, formatEpoch } from "./DossierAtoms";
+import {
+  IsoBtn,
+  Section,
+  Row,
+  RouteAirport,
+  LinkRow,
+  formatEpoch,
+} from "./DossierAtoms";
 import { NonAircraftDossier } from "./NonAircraftDossier";
 
 export function DossierPane() {
@@ -165,6 +172,7 @@ export function DossierPane() {
     manufacturerName: liveMfr,
     acType: liveAcType,
     categoryDescription,
+    military: isMilitary,
   } = acData;
 
   // ── Toolbar (always visible even while loading) ─────────────────
@@ -176,6 +184,18 @@ export function DossierPane() {
         <span className="text-sig-bright font-mono tracking-wider text-base truncate flex-1">
           {callsign?.trim() || icao24.toUpperCase()}
         </span>
+        {isMilitary && (
+          <span
+            className="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded"
+            style={{
+              background: "#ff664420",
+              color: "#ff6644",
+              border: "1px solid #ff664460",
+            }}
+          >
+            MIL
+          </span>
+        )}
         <button
           onClick={handleClose}
           className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors shrink-0"
@@ -184,10 +204,25 @@ export function DossierPane() {
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex items-center gap-1 mt-1.5">
-        <IsoBtn active={false} label="LOCATE" icon={LocateFixed} onClick={handleLocate} />
-        <IsoBtn active={isolateMode === "focus"} label="FOCUS" icon={Eye} onClick={handleFocus} />
-        <IsoBtn active={isolateMode === "solo"} label="SOLO" icon={Crosshair} onClick={handleSolo} />
+      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+        <IsoBtn
+          active={false}
+          label="LOCATE"
+          icon={LocateFixed}
+          onClick={handleLocate}
+        />
+        <IsoBtn
+          active={isolateMode === "focus"}
+          label="FOCUS"
+          icon={Eye}
+          onClick={handleFocus}
+        />
+        <IsoBtn
+          active={isolateMode === "solo"}
+          label="SOLO"
+          icon={Crosshair}
+          onClick={handleSolo}
+        />
       </div>
     </div>
   );
@@ -212,7 +247,8 @@ export function DossierPane() {
   const typeFullName = dossier?.aircraft?.Type ?? "";
   const acTypeShort = liveAcType || (dossier?.aircraft?.ICAOTypeCode ?? "");
   const displayModel = liveModel ?? "";
-  const owner = dossier?.aircraft?.RegisteredOwners ?? liveOp ?? operatorIcao ?? "";
+  const owner =
+    dossier?.aircraft?.RegisteredOwners ?? liveOp ?? operatorIcao ?? "";
   const typeCode = dossier?.aircraft?.ICAOTypeCode ?? "";
   const { route, photo } = dossier ?? {};
 
@@ -285,12 +321,16 @@ export function DossierPane() {
             <Row label="CALLSIGN" value={callsign} />
             <Row label="ICAO24" value={icao24.toUpperCase()} />
             {acTypeShort && <Row label="TYPE" value={acTypeShort} />}
-            {typeCode && typeCode !== acTypeShort && <Row label="TYPE CODE" value={typeCode} />}
+            {typeCode && typeCode !== acTypeShort && (
+              <Row label="TYPE CODE" value={typeCode} />
+            )}
             {reg && <Row label="REG" value={reg} />}
             {owner && <Row label="OPERATOR" value={owner} />}
             {mfr && <Row label="MANUFACTURER" value={mfr} />}
             {displayModel && <Row label="MODEL" value={displayModel} />}
-            {typeFullName && typeFullName !== displayModel && <Row label="AIRCRAFT" value={typeFullName} />}
+            {typeFullName && typeFullName !== displayModel && (
+              <Row label="AIRCRAFT" value={typeFullName} />
+            )}
             {category && <Row label="CATEGORY" value={category} />}
             {originCountry && <Row label="ORIGIN" value={originCountry} />}
           </Section>
@@ -307,33 +347,69 @@ export function DossierPane() {
 
           {/* Route */}
           {route && (
-            <Section title={route.source === "flightaware" ? "ROUTE" : "ROUTE *"}>
+            <Section
+              title={route.source === "flightaware" ? "ROUTE" : "ROUTE *"}
+            >
               <div className="flex items-center gap-2 text-sm text-sig-text">
                 <RouteAirport apt={route.origin} />
                 <span className="text-sig-dim">→</span>
                 <RouteAirport apt={route.destination} />
               </div>
-              {route.status && <Row label="STATUS" value={route.status.toUpperCase().replace("_", " ")} />}
+              {route.status && (
+                <Row
+                  label="STATUS"
+                  value={route.status.toUpperCase().replace("_", " ")}
+                />
+              )}
               {route.origin?.name && (
-                <Row label="FROM" value={`${route.origin.name}${route.origin.city ? ` — ${route.origin.city}` : ""}`} />
+                <Row
+                  label="FROM"
+                  value={`${route.origin.name}${route.origin.city ? ` — ${route.origin.city}` : ""}`}
+                />
               )}
-              {route.origin?.gate && <Row label="GATE" value={route.origin.gate} />}
+              {route.origin?.gate && (
+                <Row label="GATE" value={route.origin.gate} />
+              )}
               {route.destination?.name && (
-                <Row label="TO" value={`${route.destination.name}${route.destination.city ? ` — ${route.destination.city}` : ""}`} />
+                <Row
+                  label="TO"
+                  value={`${route.destination.name}${route.destination.city ? ` — ${route.destination.city}` : ""}`}
+                />
               )}
-              {route.destination?.gate && <Row label="GATE" value={route.destination.gate} />}
+              {route.destination?.gate && (
+                <Row label="GATE" value={route.destination.gate} />
+              )}
               {route.departureTime && (
-                <Row label={route.departureActual ? "DEPARTED" : "DEP (EST)"} value={formatEpoch(route.departureTime)} />
+                <Row
+                  label={route.departureActual ? "DEPARTED" : "DEP (EST)"}
+                  value={formatEpoch(route.departureTime)}
+                />
               )}
               {route.arrivalTime && (
-                <Row label={route.arrivalActual ? "ARRIVED" : "ARR (EST)"} value={formatEpoch(route.arrivalTime)} />
+                <Row
+                  label={route.arrivalActual ? "ARRIVED" : "ARR (EST)"}
+                  value={formatEpoch(route.arrivalTime)}
+                />
               )}
-              {route.delays?.departure && <Row label="DEP DELAY" value={route.delays.departure} />}
-              {route.delays?.arrival && <Row label="ARR DELAY" value={route.delays.arrival} />}
+              {route.delays?.departure && (
+                <Row label="DEP DELAY" value={route.delays.departure} />
+              )}
+              {route.delays?.arrival && (
+                <Row label="ARR DELAY" value={route.delays.arrival} />
+              )}
               {route.airline && <Row label="AIRLINE" value={route.airline} />}
-              {route.distance && <Row label="DISTANCE" value={`${route.distance} nm`} />}
-              {route.filedAltitude && <Row label="FILED ALT" value={`FL${route.filedAltitude / 100}`} />}
-              {route.filedSpeed && <Row label="FILED SPD" value={`${route.filedSpeed} kn`} />}
+              {route.distance && (
+                <Row label="DISTANCE" value={`${route.distance} nm`} />
+              )}
+              {route.filedAltitude && (
+                <Row
+                  label="FILED ALT"
+                  value={`FL${route.filedAltitude / 100}`}
+                />
+              )}
+              {route.filedSpeed && (
+                <Row label="FILED SPD" value={`${route.filedSpeed} kn`} />
+              )}
               {route.filedRoute && (
                 <div className="mt-1">
                   <span className="text-xs text-sig-dim">FILED ROUTE</span>
@@ -364,13 +440,30 @@ export function DossierPane() {
           <Section title="INTEL LINKS">
             {callsign?.trim() && (
               <>
-                <LinkRow label="FlightAware" href={`https://flightaware.com/live/flight/${callsign.trim()}`} />
-                <LinkRow label="FlightRadar24" href={`https://www.flightradar24.com/${callsign.trim()}`} />
+                <LinkRow
+                  label="FlightAware"
+                  href={`https://flightaware.com/live/flight/${callsign.trim()}`}
+                />
+                <LinkRow
+                  label="FlightRadar24"
+                  href={`https://www.flightradar24.com/${callsign.trim()}`}
+                />
               </>
             )}
-            <LinkRow label="ADS-B Exchange" href={`https://globe.adsbexchange.com/?icao=${icao24}`} />
-            <LinkRow label="Planespotters" href={`https://www.planespotters.net/hex/${icao24.toUpperCase()}`} />
-            {reg && <LinkRow label="JetPhotos" href={`https://www.jetphotos.com/registration/${reg}`} />}
+            <LinkRow
+              label="ADS-B Exchange"
+              href={`https://globe.adsbexchange.com/?icao=${icao24}`}
+            />
+            <LinkRow
+              label="Planespotters"
+              href={`https://www.planespotters.net/hex/${icao24.toUpperCase()}`}
+            />
+            {reg && (
+              <LinkRow
+                label="JetPhotos"
+                href={`https://www.jetphotos.com/registration/${reg}`}
+              />
+            )}
           </Section>
         </div>
       </div>

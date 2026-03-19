@@ -25,6 +25,7 @@ type StoredMetadata = {
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
+  military?: boolean;
 };
 
 function normalizeIcao24(value: string | undefined): string | null {
@@ -108,6 +109,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
           operator: d.operator,
           operatorIcao: d.operatorIcao,
           categoryDescription: d.categoryDescription,
+          military: d.military,
         });
         this.attemptedMetadataIcao.add(key);
       }
@@ -135,6 +137,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
           operator: meta.operator,
           operatorIcao: meta.operatorIcao,
           categoryDescription: meta.categoryDescription,
+          military: meta.military,
         },
       } as DataPoint;
     });
@@ -304,6 +307,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
         operator: meta.operator,
         operatorIcao: meta.operatorIcao,
         categoryDescription: meta.categoryDescription,
+        military: meta.military,
       });
     }
 

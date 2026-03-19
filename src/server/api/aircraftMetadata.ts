@@ -8,7 +8,67 @@ export type AircraftMetadata = {
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
+  military?: boolean;
 };
+
+// ── Military classification heuristic ────────────────────────────────
+// Uses three independent signals: ICAO type code, operator name, and
+// US DoD ICAO hex range. Any single signal is sufficient.
+
+const MIL_TYPECODES = new Set([
+  // Fighters
+  "F16", "F15", "F18S", "F18H", "F22", "F35", "FA18", "F14", "F5", "F4",
+  "EUFI", "RFAL", "TOR", "GRIF", "HAWK", "TEX2", "T38", "TUCA",
+  // Bombers
+  "B52", "B1", "B2",
+  // Attack
+  "A10",
+  // Transport (mil-only)
+  "C17", "C5", "C5M", "C30J", "C130", "C160", "A400", "C27J",
+  // Tankers
+  "K35R", "K35E", "KC10", "K46A",
+  // Recon / ISR / AWACS
+  "U2", "R135", "E3TF", "E3CF", "E6", "P3", "P8", "E314",
+  // Rotary (mil-specific)
+  "H64", "H47", "H53", "H60", "V22", "LYNX", "NH90", "TIGR", "EH10",
+  "PUMA", "GAZL",
+  // UAV
+  "PRED", "REAP", "GLHK",
+]);
+
+const MIL_OPERATOR_KEYWORDS = [
+  "air force", "navy", "army", "military", "luftwaffe",
+  "marine nationale", "fuerza aerea", "aeronautica militar",
+  "armada", "armée de l", "ejercito", "força aérea",
+  "force aerienne", "forsvaret", "flygvapnet",
+];
+
+// US DoD ICAO hex block: AE0000–AFFFFF
+const US_MIL_HEX_LO = 0xae0000;
+const US_MIL_HEX_HI = 0xafffff;
+
+function classifyMilitary(
+  icao24: string,
+  typecode?: string,
+  operator?: string,
+): boolean {
+  // Signal 1: type code is an inherently military platform
+  if (typecode && MIL_TYPECODES.has(typecode.toUpperCase())) return true;
+
+  // Signal 2: operator name contains military keyword
+  if (operator) {
+    const opLower = operator.toLowerCase();
+    for (const kw of MIL_OPERATOR_KEYWORDS) {
+      if (opLower.includes(kw)) return true;
+    }
+  }
+
+  // Signal 3: ICAO hex falls in US DoD block
+  const hex = parseInt(icao24, 16);
+  if (hex >= US_MIL_HEX_LO && hex <= US_MIL_HEX_HI) return true;
+
+  return false;
+}
 
 /**
  * Points at the pre-built NDJSON (sorted by icao24, one JSON object per line).
@@ -90,6 +150,7 @@ function parseRow(line: string): AircraftMetadata | null {
       operator: o.op,
       operatorIcao: o.oi,
       categoryDescription: o.ca,
+      military: classifyMilitary(o.i, o.tc, o.op),
     };
   } catch {
     return null;

@@ -454,6 +454,7 @@ export function GlobeVisualization({
               showGround: af.showGround,
               squawks: Array.from(af.squawks),
               countries: Array.from(af.countries),
+              milFilter: af.milFilter ?? "all",
             },
             searchMatchIds: searchIds,
             selectedItem,

@@ -39,20 +39,21 @@ function extractAlerts(allData: DataPoint[]): AlertItem[] {
 
     if (item.type === "aircraft") {
       const sq = (d.squawk as string) ?? "";
+      const isMil = d.military === true;
       if (sq === "7700") {
         alerts.push({
           item,
-          alertLabel: "SQUAWK 7700 — EMERGENCY",
-          priority: 10,
+          alertLabel: isMil ? "MIL SQUAWK 7700 — EMERGENCY" : "SQUAWK 7700 — EMERGENCY",
+          priority: isMil ? 10 : 10,
         });
       } else if (sq === "7600") {
         alerts.push({
           item,
-          alertLabel: "SQUAWK 7600 — RADIO FAILURE",
-          priority: 9,
+          alertLabel: isMil ? "MIL SQUAWK 7600 — RADIO FAILURE" : "SQUAWK 7600 — RADIO FAILURE",
+          priority: isMil ? 10 : 9,
         });
       } else if (sq === "7500") {
-        alerts.push({ item, alertLabel: "SQUAWK 7500 — HIJACK", priority: 10 });
+        alerts.push({ item, alertLabel: isMil ? "MIL SQUAWK 7500 — HIJACK" : "SQUAWK 7500 — HIJACK", priority: 10 });
       }
       continue;
     }
