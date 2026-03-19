@@ -64,7 +64,7 @@ export function NonAircraftDossier({
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex items-center gap-1 mt-1.5">
+      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
         <IsoBtn
           active={false}
           label="LOCATE"
@@ -98,8 +98,19 @@ export function NonAircraftDossier({
 
   if (item.type === "ships") {
     const {
-      name, mmsi, imo, callSign, shipTypeLabel, navStatusLabel,
-      sog, cog, heading, destination, draught, length, width,
+      name,
+      mmsi,
+      imo,
+      callSign,
+      shipTypeLabel,
+      navStatusLabel,
+      sog,
+      cog,
+      heading,
+      destination,
+      draught,
+      length,
+      width,
     } = d;
     const country = mmsi ? mmsiCountry(mmsi) : null;
     return (
@@ -167,15 +178,29 @@ export function NonAircraftDossier({
   }
 
   if (item.type === "events") {
-    const { headline, category, severity, tone, source, sourceCountry, locationName, url } = d;
+    const {
+      headline,
+      category,
+      severity,
+      tone,
+      source,
+      sourceCountry,
+      locationName,
+      url,
+    } = d;
     const toneLabel =
       tone != null
-        ? tone <= -15 ? "VERY NEGATIVE"
-          : tone <= -5 ? "NEGATIVE"
-          : tone <= -1 ? "SLIGHTLY NEGATIVE"
-          : tone <= 1 ? "NEUTRAL"
-          : tone <= 5 ? "SLIGHTLY POSITIVE"
-          : "POSITIVE"
+        ? tone <= -15
+          ? "VERY NEGATIVE"
+          : tone <= -5
+            ? "NEGATIVE"
+            : tone <= -1
+              ? "SLIGHTLY NEGATIVE"
+              : tone <= 1
+                ? "NEUTRAL"
+                : tone <= 5
+                  ? "SLIGHTLY POSITIVE"
+                  : "POSITIVE"
         : null;
 
     return (
@@ -191,7 +216,9 @@ export function NonAircraftDossier({
               {severity != null && (
                 <Row
                   label="SEVERITY"
-                  value={"\u2588".repeat(severity) + "\u2591".repeat(5 - severity)}
+                  value={
+                    "\u2588".repeat(severity) + "\u2591".repeat(5 - severity)
+                  }
                 />
               )}
               {tone != null && (
@@ -249,8 +276,19 @@ export function NonAircraftDossier({
 
   if (item.type === "weather") {
     const {
-      event, severity, urgency, certainty, headline, description,
-      instruction, senderName, areaDesc, onset, expires, category, response,
+      event,
+      severity,
+      urgency,
+      certainty,
+      headline,
+      description,
+      instruction,
+      senderName,
+      areaDesc,
+      onset,
+      expires,
+      category,
+      response,
     } = d;
     return (
       <div className="h-full flex flex-col">
@@ -266,9 +304,16 @@ export function NonAircraftDossier({
               </div>
             )}
             <Section title="ALERT">
-              {severity && <Row label="SEVERITY" value={(severity as string).toUpperCase()} />}
+              {severity && (
+                <Row
+                  label="SEVERITY"
+                  value={(severity as string).toUpperCase()}
+                />
+              )}
               {urgency && <Row label="URGENCY" value={urgency as string} />}
-              {certainty && <Row label="CERTAINTY" value={certainty as string} />}
+              {certainty && (
+                <Row label="CERTAINTY" value={certainty as string} />
+              )}
               {category && <Row label="CATEGORY" value={category as string} />}
               {response && <Row label="RESPONSE" value={response as string} />}
             </Section>
@@ -279,11 +324,23 @@ export function NonAircraftDossier({
                   {(areaDesc as string).split(";").length > 5 && "..."}
                 </div>
               )}
-              {senderName && <Row label="ISSUER" value={senderName as string} />}
+              {senderName && (
+                <Row label="ISSUER" value={senderName as string} />
+              )}
             </Section>
             <Section title="TIMING">
-              {onset && <Row label="ONSET" value={new Date(onset as string).toLocaleString()} />}
-              {expires && <Row label="EXPIRES" value={new Date(expires as string).toLocaleString()} />}
+              {onset && (
+                <Row
+                  label="ONSET"
+                  value={new Date(onset as string).toLocaleString()}
+                />
+              )}
+              {expires && (
+                <Row
+                  label="EXPIRES"
+                  value={new Date(expires as string).toLocaleString()}
+                />
+              )}
             </Section>
             {description && (
               <Section title="DETAILS">
@@ -310,8 +367,17 @@ export function NonAircraftDossier({
 
   if (item.type === "fires") {
     const {
-      frp, brightness, brightT31, confidence, satellite, instrument,
-      daynight, scan, track, acqDate, acqTime,
+      frp,
+      brightness,
+      brightT31,
+      confidence,
+      satellite,
+      instrument,
+      daynight,
+      scan,
+      track,
+      acqDate,
+      acqTime,
     } = d;
     return (
       <div className="h-full flex flex-col">
@@ -327,19 +393,42 @@ export function NonAircraftDossier({
                 <Row label="FRP" value={`${(frp as number).toFixed(1)} MW`} />
               )}
               {brightness != null && (brightness as number) > 0 && (
-                <Row label="BRIGHTNESS" value={`${(brightness as number).toFixed(1)} K`} />
+                <Row
+                  label="BRIGHTNESS"
+                  value={`${(brightness as number).toFixed(1)} K`}
+                />
               )}
               {brightT31 != null && (brightT31 as number) > 0 && (
-                <Row label="BRIGHT T31" value={`${(brightT31 as number).toFixed(1)} K`} />
+                <Row
+                  label="BRIGHT T31"
+                  value={`${(brightT31 as number).toFixed(1)} K`}
+                />
               )}
-              {confidence && <Row label="CONFIDENCE" value={(confidence as string).toUpperCase()} />}
+              {confidence && (
+                <Row
+                  label="CONFIDENCE"
+                  value={(confidence as string).toUpperCase()}
+                />
+              )}
             </Section>
             <Section title="DETECTION">
-              {satellite && <Row label="SATELLITE" value={satellite as string} />}
-              {instrument && <Row label="INSTRUMENT" value={instrument as string} />}
-              {daynight && <Row label="TIME" value={daynight === "D" ? "DAYTIME" : "NIGHTTIME"} />}
+              {satellite && (
+                <Row label="SATELLITE" value={satellite as string} />
+              )}
+              {instrument && (
+                <Row label="INSTRUMENT" value={instrument as string} />
+              )}
+              {daynight && (
+                <Row
+                  label="TIME"
+                  value={daynight === "D" ? "DAYTIME" : "NIGHTTIME"}
+                />
+              )}
               {scan != null && track != null && (
-                <Row label="PIXEL" value={`${(scan as number).toFixed(1)} × ${(track as number).toFixed(1)} km`} />
+                <Row
+                  label="PIXEL"
+                  value={`${(scan as number).toFixed(1)} × ${(track as number).toFixed(1)} km`}
+                />
               )}
               {acqDate && (
                 <Row

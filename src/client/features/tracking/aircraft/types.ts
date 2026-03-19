@@ -31,6 +31,7 @@ export type AircraftData = {
   manufacturerName?: string;
   categoryDescription?: string;
   squawk?: SquawkStatus | string;
+  military?: boolean;
 };
 
 export type AircraftFilter = {
@@ -39,4 +40,6 @@ export type AircraftFilter = {
   showGround: boolean;
   squawks: Set<SquawkCode>;
   countries: Set<string>;
+  /** "all" = show everything, "military" = mil only, "civilian" = civ only */
+  milFilter: "all" | "military" | "civilian";
 };

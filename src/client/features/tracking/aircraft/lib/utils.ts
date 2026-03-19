@@ -36,6 +36,8 @@ export function matchesAircraftFilter(
   const onGround: boolean = d?.onGround === true;
   if (!f.showAirborne && !onGround) return false;
   if (!f.showGround && onGround) return false;
+  if (f.milFilter === "military" && !d?.military) return false;
+  if (f.milFilter === "civilian" && d?.military) return false;
   if (f.squawks.size > 0) {
     const sq: string = d?.squawk ?? "";
     const bucket =

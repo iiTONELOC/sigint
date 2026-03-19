@@ -40,12 +40,14 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
   const status = onGround ? "GROUND" : "AIRBORNE";
   const hdg = typeof heading === "number" ? `${heading}°` : "---";
 
+  const milBadge = d.military ? " MIL" : "";
+
   return (
     <>
       <div className="leading-snug text-sig-text text-(length:--sig-text-md)">
         {callsign}
         {reg} {acType} {altitude}ft {speedText}
-        {sq}
+        {sq}{milBadge}
       </div>
       <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
         {metaLine}

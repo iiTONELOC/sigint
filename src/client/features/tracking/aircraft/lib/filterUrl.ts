@@ -6,6 +6,7 @@ export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   showGround: true,
   squawks: new Set(),
   countries: new Set(),
+  milFilter: "all",
 };
 
 function parseBoolParam(
@@ -47,6 +48,10 @@ export function getInitialAircraftFilter(): AircraftFilter {
     );
   }
 
+  const milRaw = (params.get("mil") ?? "").trim().toLowerCase();
+  const milFilter: "all" | "military" | "civilian" =
+    milRaw === "military" ? "military" : milRaw === "civilian" ? "civilian" : "all";
+
   return {
     enabled: parseBoolParam(params, "ac", DEFAULT_AIRCRAFT_FILTER.enabled),
     showAirborne: parseBoolParam(
@@ -61,6 +66,7 @@ export function getInitialAircraftFilter(): AircraftFilter {
     ),
     squawks,
     countries,
+    milFilter,
   };
 }
 
@@ -79,6 +85,10 @@ export function syncAircraftFilterToUrl(aircraftFilter: AircraftFilter): void {
   if (countryValues.length > 0)
     params.set("countries", countryValues.join(","));
   else params.delete("countries");
+
+  if (aircraftFilter.milFilter !== "all")
+    params.set("mil", aircraftFilter.milFilter);
+  else params.delete("mil");
 
   const query = params.toString();
   const nextUrl =
