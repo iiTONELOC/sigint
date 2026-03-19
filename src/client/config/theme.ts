@@ -20,6 +20,7 @@ export type ThemeColors = {
   dim: string;
   bright: string;
   danger: string;
+  warn: string;
 };
 
 export type Theme = {
@@ -48,6 +49,7 @@ export const themes: Record<ThemeMode, Theme> = {
       dim: "#556070",
       bright: "#e8eef4",
       danger: "#ff3333",
+      warn: "#facc15",
     },
   },
   light: {
@@ -71,9 +73,46 @@ export const themes: Record<ThemeMode, Theme> = {
       dim: "#4a5a6a",
       bright: "#0a1018",
       danger: "#cc1111",
+      warn: "#b45309",
     },
   },
 };
+
+/** The 6 layer color keys that users can customize */
+export const LAYER_COLOR_KEYS = [
+  "aircraft",
+  "ships",
+  "events",
+  "quakes",
+  "fires",
+  "weather",
+] as const;
+
+export type LayerColorKey = (typeof LAYER_COLOR_KEYS)[number];
+
+export const LAYER_COLOR_LABELS: Record<LayerColorKey, string> = {
+  aircraft: "Aircraft",
+  ships: "AIS Vessels",
+  events: "GDELT Events",
+  quakes: "Seismic",
+  fires: "Fires",
+  weather: "Weather",
+};
+
+/** Per-theme color overrides — only layer colors, not UI chrome */
+export type ColorOverrides = {
+  dark: Partial<Record<LayerColorKey, string>>;
+  light: Partial<Record<LayerColorKey, string>>;
+};
+
+/** Merge user overrides into a theme's colors */
+export function applyColorOverrides(
+  base: ThemeColors,
+  overrides: Partial<Record<LayerColorKey, string>> | undefined,
+): ThemeColors {
+  if (!overrides) return base;
+  return { ...base, ...overrides };
+}
 
 /** Color map keyed by feature id */
 export function getColorMap(theme: Theme): Record<string, string> {
