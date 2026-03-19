@@ -56,11 +56,19 @@ Every feature uses an explicit subdirectory layout. All live features have the f
 |-----------|---------|----------|------------|-------|--------|-------|---------|
 | `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent | TickerContent | TickerContent |
 | `hooks/` | React hooks | useAircraftData | useEarthquakeData | useShipData | useEventData | useFireData | useWeatherData |
-| `data/` | Provider + fetching | AircraftProvider, typeLookup | EarthquakeProvider | ShipProvider | GdeltProvider | FireProvider | WeatherProvider |
+| `data/` | Provider + fetching | AircraftProvider (class), typeLookup | earthquakeProvider (BaseProvider) | shipProvider (BaseProvider) | gdeltProvider (BaseProvider, mergeFn) | fireProvider (BaseProvider) | weatherProvider (BaseProvider) |
 | `lib/` | Pure utilities | filterUrl, utils | _(none)_ | _(none)_ | _(none)_ | _(none)_ | _(none)_ |
 | _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
 All external imports go through the barrel `index.ts` — never from subdirectories directly.
+
+### BaseProvider (DRY Base Class)
+
+The 5 non-aircraft providers share a common `BaseProvider` class (`features/base/BaseProvider.ts`) that handles all caching boilerplate: `persistCache`, `readPersistedCache`, `hydrate`, `refresh` (with error fallback), and `getData` (poll-aware background refresh). Each provider only supplies a config object: `id`, `cacheKey`, `maxCacheAgeMs`, `fetchFn()`, and optional `mergeFn()` (used by GDELT for URL-based dedup and 7-day rolling window pruning).
+
+Similarly, the 5 non-aircraft hooks are thin wrappers around `useProviderData` (`features/base/useProviderData.ts`), which handles state, hydration, polling, and data source status resolution. Fire and ship hooks pass a custom `resolveDataSource` callback for 503→`"unavailable"` logic.
+
+The aircraft provider remains a standalone class due to its unique requirements: client-side OpenSky fetch, metadata enrichment, `fetchInProgress` dedup, and mock data fallback.
 
 ---
 

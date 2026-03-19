@@ -2,7 +2,7 @@
 export { earthquakeFeature } from "./definition";
 export { useEarthquakeData } from "./hooks/useEarthquakeData";
 export type { EarthquakeDataSource } from "./hooks/useEarthquakeData";
-export { EarthquakeProvider } from "./data/provider";
+export { earthquakeProvider } from "./data/provider";
 
 // Re-export types
 export type { EarthquakeData, EarthquakeFilter } from "./types";

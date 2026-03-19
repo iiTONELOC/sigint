@@ -2,7 +2,7 @@
 export { eventsFeature } from "./definition";
 export { useEventData } from "./hooks/useEventData";
 export type { EventDataSource } from "./hooks/useEventData";
-export { GdeltProvider } from "./data/provider";
+export { gdeltProvider } from "./data/provider";
 
 // Re-export types
 export type { EventData, EventFilter } from "./types";
