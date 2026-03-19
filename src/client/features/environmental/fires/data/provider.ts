@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
 import { authenticatedFetch } from "@/lib/authService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const FIRES_URL = "/api/fires/latest";
 
@@ -95,7 +96,7 @@ async function fetchFires(): Promise<DataPoint[]> {
 
 export const fireProvider = new BaseProvider({
   id: "firms-fires",
-  cacheKey: "sigint.firms.fire-cache.v1",
+  cacheKey: CACHE_KEYS.fires,
   maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchFires,
 });

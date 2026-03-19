@@ -7,9 +7,10 @@ import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus } from "../lib/utils";
 import { getAircraftMetadataBatch } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const DEFAULT_CACHE_DURATION = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
-const DEFAULT_CACHE_KEY = "sigint.opensky.aircraft-cache.v1";
+const DEFAULT_CACHE_KEY = CACHE_KEYS.aircraft;
 
 export type AircraftProviderConfig = {
   cacheDurationMs?: number;

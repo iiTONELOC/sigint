@@ -1,4 +1,5 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -166,8 +167,8 @@ export function collectLeaves(node: LayoutNode): LeafNode[] {
 
 // ── Persistence ──────────────────────────────────────────────────────
 
-const CACHE_KEY = "sigint.layout.v1";
-const PRESETS_KEY = "sigint.layout.presets.v1";
+const CACHE_KEY = CACHE_KEYS.layout;
+const PRESETS_KEY = CACHE_KEYS.layoutPresets;
 
 export function defaultLayout(): LayoutState {
   return { root: leaf("globe"), minimized: [] };

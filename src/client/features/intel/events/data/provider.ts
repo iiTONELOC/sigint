@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
 import { authenticatedFetch } from "@/lib/authService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const EVENTS_URL = "/api/events/latest";
 const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60_000; // 7 days — rolling window
@@ -186,7 +187,7 @@ async function fetchEvents(): Promise<DataPoint[]> {
 
 export const gdeltProvider = new BaseProvider({
   id: "gdelt-events",
-  cacheKey: "sigint.gdelt.events-cache.v1",
+  cacheKey: CACHE_KEYS.events,
   maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchEvents,
   mergeFn: mergeAndPrune,

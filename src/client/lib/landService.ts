@@ -1,6 +1,7 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
-const CACHE_KEY = "sigint.land.hd.v1";
+const CACHE_KEY = CACHE_KEYS.land;
 const HD_URL = "/data/ne_50m_land.json";
 
 let landData: number[][][] | null = null;

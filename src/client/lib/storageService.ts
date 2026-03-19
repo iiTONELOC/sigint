@@ -10,6 +10,8 @@
 // All reads are synchronous from an in-memory Map (populated at init).
 // All writes go to both memory (immediate) and IndexedDB (fire-and-forget).
 
+import { CACHE_KEYS } from "@/lib/cacheKeys";
+
 const DB_NAME = "sigint-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "cache";
@@ -102,9 +104,9 @@ function idbGetAll(): Promise<Array<{ key: string; value: unknown }>> {
 
 async function migrateFromLocalStorage(): Promise<void> {
   const keys = [
-    "sigint.opensky.aircraft-cache.v1",
-    "sigint.trails.v1",
-    "sigint.land.hd.v1",
+    CACHE_KEYS.aircraft,
+    CACHE_KEYS.trails,
+    CACHE_KEYS.land,
   ];
 
   for (const key of keys) {
@@ -121,7 +123,7 @@ async function migrateFromLocalStorage(): Promise<void> {
 
 // ── Staleness cleanup ────────────────────────────────────────────────
 
-const TRAILS_CACHE_KEY = "sigint.trails.v1";
+const TRAILS_CACHE_KEY = CACHE_KEYS.trails;
 const MAX_TRAIL_POINTS = 50; // ~3.3 hours at 4-min intervals
 const TRAIL_MAX_AGE = 24 * 60 * 60_000; // 24 hours
 
@@ -216,4 +218,35 @@ export function cacheSet(key: string, value: unknown): void {
 export function cacheDelete(key: string): void {
   memoryCache.delete(key);
   idbDelete(key).catch(() => {});
+}
+
+/**
+ * List all cache keys currently in memory.
+ */
+export function cacheListKeys(): string[] {
+  return Array.from(memoryCache.keys()).sort();
+}
+
+/**
+ * Estimate the byte size of a cached value (JSON serialization length).
+ */
+export function cacheEstimateSize(key: string): number {
+  const value = memoryCache.get(key);
+  if (value == null) return 0;
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Clear all cache entries from memory and IndexedDB.
+ */
+export function cacheClearAll(): void {
+  const keys = Array.from(memoryCache.keys());
+  for (const key of keys) {
+    memoryCache.delete(key);
+    idbDelete(key).catch(() => {});
+  }
 }
