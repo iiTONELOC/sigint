@@ -13,13 +13,15 @@
   },
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
-    "start": "NODE_ENV=production bun src/server/index.ts",
-    "build": "bun run build.ts",
+    "start": "NODE_ENV=production bun src/server/index.prod.ts",
+    "build": "bun run build.ts && bun run postbuild.ts",
     "docker:dev:up": "docker compose -f docker-compose.dev.yml up",
     "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
     "docker:dev:clean": "docker compose -f docker-compose.dev.yml down -v",
     "docker:prod:up": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml up",
     "docker:prod:down": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml down",
+    "docker:prod:tls:up": "docker compose -f docker-compose.prod.yml --profile tls up",
+    "docker:prod:tls:down": "docker compose -f docker-compose.prod.yml --profile tls down",
     "docker:prod:clean": "PORT=${PORT:-3000} docker compose -f docker-compose.prod.yml down -v",
     "docker:clean": "bun run docker:dev:clean",
     "docker:clean:all": "bun run docker:dev:clean && bun run docker:prod:clean && docker image rm sigint-web --force 2>/dev/null || true"

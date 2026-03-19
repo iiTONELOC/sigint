@@ -1,3 +1,15 @@
+# ── Production Docker Compose ─────────────────────────────────────────
+#
+# Default (Heroku): just the app on PORT, no TLS.
+#   docker compose -f docker-compose.prod.yml up
+#
+# Self-hosted with TLS: set ENABLE_TLS=true and DOMAIN in .env
+#   ENABLE_TLS=true DOMAIN=sigint.example.com docker compose -f docker-compose.prod.yml --profile tls up
+#
+# The "tls" profile gates the Caddy service — it only starts when
+# you pass --profile tls. Without it, Caddy doesn't exist and the
+# app runs exactly as before on Heroku.
+
 services:
   web:
     build:
@@ -24,3 +36,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+
+  caddy:
+    image: caddy:alpine
+    profiles:
+      - tls
+    ports:
+      - "443:443"
+      - "80:80"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - PORT=${PORT:-3000}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:

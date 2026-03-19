@@ -56,6 +56,39 @@ function getInterp(id) {
   return { lat: e.lat + dLat, lon: e.lon + dLon };
 }
 
+// ── Theme detection ─────────────────────────────────────────────────
+
+function isLightTheme(colors) {
+  // Parse bg hex to check luminance — light themes have bright backgrounds
+  var bg = colors.bg || "#080a0f";
+  var r = parseInt(bg.slice(1, 3), 16) || 0;
+  var g = parseInt(bg.slice(3, 5), 16) || 0;
+  var b = parseInt(bg.slice(5, 7), 16) || 0;
+  return (r + g + b) / 3 > 128;
+}
+
+// ── Generic color fading — derives aged variants from the theme base ─
+
+function parseHex(hex) {
+  var r = parseInt(hex.slice(1, 3), 16) || 0;
+  var g = parseInt(hex.slice(3, 5), 16) || 0;
+  var b = parseInt(hex.slice(5, 7), 16) || 0;
+  return [r, g, b];
+}
+
+function toHex(r, g, b) {
+  var rr = Math.max(0, Math.min(255, Math.round(r)));
+  var gg = Math.max(0, Math.min(255, Math.round(g)));
+  var bb = Math.max(0, Math.min(255, Math.round(b)));
+  return "#" + ((1 << 24) + (rr << 16) + (gg << 8) + bb).toString(16).slice(1);
+}
+
+function fadeColor(base, factor) {
+  if (factor >= 0.95) return base;
+  var c = parseHex(base);
+  return toHex(c[0] * factor, c[1] * factor, c[2] * factor);
+}
+
 // ── Age/size helpers ────────────────────────────────────────────────
 
 var HR = 3600000,
@@ -75,13 +108,7 @@ function quakeAgeFactor(ts) {
           : 0.5;
 }
 function quakeColor(af, base) {
-  return af >= 0.9
-    ? base
-    : af >= 0.8
-      ? "#44dd33"
-      : af >= 0.65
-        ? "#33aa33"
-        : "#2d8835";
+  return fadeColor(base, af);
 }
 function quakeSize(m) {
   return m < 1
@@ -114,13 +141,7 @@ function eventAgeFactor(ts) {
           : 0.45;
 }
 function eventColor(af, base) {
-  return af >= 0.9
-    ? base
-    : af >= 0.75
-      ? "#bb3399"
-      : af >= 0.6
-        ? "#993377"
-        : "#772860";
+  return fadeColor(base, af);
 }
 function eventSize(s) {
   return s <= 1 ? 1 : s <= 2 ? 1.3 : s <= 3 ? 1.8 : s <= 4 ? 2.5 : 3.5;
@@ -142,13 +163,7 @@ function fireAgeFactor(ts) {
           : 0.5;
 }
 function fireColor(af, base) {
-  return af >= 0.9
-    ? base
-    : af >= 0.8
-      ? "#dd6622"
-      : af >= 0.65
-        ? "#aa4420"
-        : "#883318";
+  return fadeColor(base, af);
 }
 function fireSize(frp) {
   return frp < 1
@@ -166,8 +181,6 @@ function fireSize(frp) {
               : 4.5;
 }
 
-// Zoom-aware size multiplier: small at globe level, grows as you zoom.
-// zoom 1 → 0.5x, zoom 3 → 1.0x, zoom 5 → 1.5x, zoom 6.2+ → 1.8x (capped)
 function zoomScale(zoom) {
   return Math.min(1.8, 0.5 + Math.max(0, (zoom - 1) / 4));
 }
@@ -296,7 +309,16 @@ function findReentryPoint(pts, startIndex) {
   return null;
 }
 
-function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
+function drawClippedPoly(
+  ctx,
+  pts,
+  gcx,
+  gcy,
+  gr,
+  fillColor,
+  strokeColor,
+  landAlpha,
+) {
   var n = pts.length;
   var path = [];
   for (var i = 0; i < n; i++) {
@@ -331,32 +353,32 @@ function drawClippedPoly(ctx, pts, gcx, gcy, gr, fillColor, strokeColor) {
   for (var i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y);
   ctx.closePath();
   ctx.fillStyle = fillColor;
-  ctx.globalAlpha = 0.7;
+  ctx.globalAlpha = landAlpha;
   ctx.fill();
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = 0.7;
-  ctx.globalAlpha = 0.8;
+  ctx.globalAlpha = landAlpha + 0.1;
   ctx.stroke();
   ctx.globalAlpha = 1;
 }
 
-function simpleDraw(ctx, pts, fillColor, strokeColor) {
+function simpleDraw(ctx, pts, fillColor, strokeColor, landAlpha) {
   if (pts.length < 3) return;
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
   for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
   ctx.fillStyle = fillColor;
-  ctx.globalAlpha = 0.7;
+  ctx.globalAlpha = landAlpha;
   ctx.fill();
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = 0.7;
-  ctx.globalAlpha = 0.8;
+  ctx.globalAlpha = landAlpha + 0.1;
   ctx.stroke();
   ctx.globalAlpha = 1;
 }
 
-function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
+function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr, landAlpha) {
   for (var pi = 0; pi < landPolygons.length; pi++) {
     var poly = landPolygons[pi];
     var pts = [];
@@ -386,7 +408,7 @@ function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
       }
       if (seg.length >= 3) segments.push(seg);
       for (var s = 0; s < segments.length; s++) {
-        simpleDraw(ctx, segments[s], colors.coastFill, colors.coast);
+        simpleDraw(ctx, segments[s], colors.coastFill, colors.coast, landAlpha);
       }
       continue;
     }
@@ -398,10 +420,19 @@ function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
     }
     if (!anyVis) continue;
     if (allVis) {
-      simpleDraw(ctx, pts, colors.coastFill, colors.coast);
+      simpleDraw(ctx, pts, colors.coastFill, colors.coast, landAlpha);
       continue;
     }
-    drawClippedPoly(ctx, pts, gcx, gcy, gr, colors.coastFill, colors.coast);
+    drawClippedPoly(
+      ctx,
+      pts,
+      gcx,
+      gcy,
+      gr,
+      colors.coastFill,
+      colors.coast,
+      landAlpha,
+    );
   }
 }
 
@@ -409,7 +440,7 @@ function drawLand(ctx, projFn, colors, isFlat, gcx, gcy, gr) {
 
 function drawGrid(ctx, projFn, cfg) {
   ctx.strokeStyle = cfg.accentColor || "#000";
-  ctx.globalAlpha = 0.11;
+  ctx.globalAlpha = cfg.gridAlpha || 0.11;
   ctx.lineWidth = 0.4;
   if (cfg.isFlat) {
     var cx = cfg.cx,
@@ -596,8 +627,15 @@ function renderFrame() {
   var searchIds = p.searchMatchIds;
   var selectedItem = p.selectedItem;
 
-  // Zoom level for zoom-aware rendering
   var zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
+  var light = isLightTheme(colors);
+
+  // Land alpha: higher in light mode so coastlines are clearly visible
+  var landAlpha = light ? 0.9 : 0.7;
+  // Grid alpha: more visible in light mode
+  var gridAlpha = light ? 0.18 : 0.11;
+  // Glow intensity: subtle in light mode
+  var glowAlpha = light ? "08" : "0d";
 
   var cw = Math.round(W * dpr),
     ch = Math.round(H * dpr);
@@ -637,32 +675,42 @@ function renderFrame() {
   // ── Draw static layer ─────────────────────────────────────────
   if (!isFlat) {
     var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+
+    // Atmospheric glow
     var glow = ctx.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 1.4);
-    glow.addColorStop(0, colors.accent + "0d");
+    glow.addColorStop(0, colors.accent + glowAlpha);
     glow.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
+
+    // Ocean gradient — uses theme colors
     var bg = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 0, cx, cy, r);
-    bg.addColorStop(0, "#0e1825");
-    bg.addColorStop(1, "#060c16");
+    bg.addColorStop(0, colors.ocean || "#0e1825");
+    bg.addColorStop(1, colors.oceanDeep || "#060c16");
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = bg;
     ctx.fill();
+
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
     ctx.clip();
-    drawLand(ctx, projFn, colors, false, cx, cy, r - 0.5);
-    drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.accent });
+    drawLand(ctx, projFn, colors, false, cx, cy, r - 0.5, landAlpha);
+    drawGrid(ctx, projFn, {
+      isFlat: false,
+      accentColor: colors.grid || colors.accent,
+      gridAlpha: gridAlpha,
+    });
   } else {
-    ctx.fillStyle = "#081018";
+    // Flat map ocean — uses theme color
+    ctx.fillStyle = colors.oceanDeep || "#081018";
     ctx.fillRect(fm.mx, fm.my, fm.mW, fm.mH);
     ctx.save();
     ctx.beginPath();
     ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
     ctx.clip();
-    drawLand(ctx, projFn, colors, true, 0, 0, 0);
+    drawLand(ctx, projFn, colors, true, 0, 0, 0, landAlpha);
     drawGrid(ctx, projFn, {
       isFlat: true,
       cx: cx,
@@ -671,7 +719,8 @@ function renderFrame() {
       mH: fm.mH,
       mx: fm.mx,
       my: fm.my,
-      accentColor: colors.accent,
+      accentColor: colors.grid || colors.accent,
+      gridAlpha: gridAlpha,
     });
   }
 
@@ -719,9 +768,6 @@ function renderFrame() {
     pts.push({ x: pt.x, y: pt.y, z: pt.z, item: item });
   }
 
-  // Layer priority: lower = drawn first (underneath), higher = drawn last (on top)
-  // Aircraft and ships are moving vehicles — draw them first.
-  // Ground truth data (fires, quakes, events, weather) draws on top.
   var layerOrder = {
     aircraft: 0,
     ships: 1,
@@ -840,9 +886,6 @@ function renderFrame() {
       var fc = fireColor(af2, baseColor);
       var s = fireSize(frp) * zoomScale(zoomLevel);
       if (isSel) s *= 2;
-
-      // Zoom-aware glow: invisible at globe level, fades in as you zoom.
-      // glowFactor: 0 at zoom<=1.5, ramps to 1 at zoom>=4
       var glowFactor = Math.max(0, Math.min(1, (zoomLevel - 1.5) / 2.5));
       if (frp > 15 && glowFactor > 0.01) {
         var pi = Math.min(1, (frp - 15) / 85);
@@ -860,14 +903,11 @@ function renderFrame() {
         ctx.arc(x, y, gr, 0, Math.PI * 2);
         ctx.fill();
       }
-
-      // Core dot — semi-transparent so dense clusters don't become solid
       ctx.globalAlpha = depthAlpha * af2 * 0.5;
       ctx.fillStyle = fc;
       ctx.beginPath();
       ctx.arc(x, y, s, 0, Math.PI * 2);
       ctx.fill();
-
       if (isSel) {
         ctx.globalAlpha = 0.85;
         ctx.strokeStyle = fc;
@@ -963,14 +1003,8 @@ function renderFrame() {
       continue;
     }
 
-    // Aircraft — zoom-aware: faint at globe level so ground data shows through,
-    // solid when zoomed in. Emergency squawks always full visibility.
-    // acAlpha: 0.2 at zoom<=1, slowly ramps to 0.8 at zoom>=5
-    // Stays faint through mid-zoom so ground data stays visible
+    // Aircraft
     var acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
-    // Aircraft get their own size curve — smaller base, slower ramp through
-    // mid-zoom where density causes blanket, but reaches good size at deep zoom
-    // zoom 1 → 1.0px, zoom 3 → 1.8px, zoom 5 → 2.8px, zoom 7+ → 4px
     var acSize = Math.min(4, 1 + Math.max(0, (zoomLevel - 1) * 0.5));
     if (isSel) acSize *= 2;
     var status = item.data && item.data.squawkStatus;
@@ -1013,11 +1047,11 @@ function renderFrame() {
     var r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = colors.accent + "1f";
+    ctx.strokeStyle = colors.accent + (light ? "30" : "1f");
     ctx.lineWidth = 1.5;
     ctx.stroke();
   } else {
-    ctx.strokeStyle = colors.accent + "1a";
+    ctx.strokeStyle = colors.accent + (light ? "25" : "1a");
     ctx.lineWidth = 1;
     ctx.strokeRect(fm.mx, fm.my, fm.mW, fm.mH);
     ctx.globalAlpha = 1;

@@ -159,13 +159,13 @@ const TYPE_ICONS: Record<string, typeof Plane> = {
 
 function getPrioBorderClass(priority: number): string {
   if (priority >= 8) return "border-l-sig-danger";
-  if (priority >= 5) return "border-l-yellow-400";
+  if (priority >= 5) return "border-l-amber-600";
   return "border-l-sig-accent";
 }
 
 function getPrioTextClass(priority: number): string {
   if (priority >= 8) return "text-sig-danger";
-  if (priority >= 5) return "text-yellow-400";
+  if (priority >= 5) return "text-amber-600";
   return "text-sig-accent";
 }
 

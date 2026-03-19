@@ -1,0 +1,12 @@
+# ── Prod Caddyfile ────────────────────────────────────────────────────
+# Real Let's Encrypt TLS for self-hosted production deploys.
+# Requires DOMAIN env var (e.g. sigint.example.com).
+# Caddy auto-obtains and renews certs from Let's Encrypt.
+# HTTP on :80 auto-redirects to HTTPS on :443.
+#
+# NOT used on Heroku — Heroku handles TLS at the router level.
+# Only used when ENABLE_TLS=true in docker-compose.prod.yml.
+
+{$DOMAIN:localhost} {
+	reverse_proxy web:{$PORT:3000}
+}
