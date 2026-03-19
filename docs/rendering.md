@@ -18,14 +18,13 @@ The globe visualization is split into a modular `components/globe/` directory. T
 
 **React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps.
 
-The globe uses a ResizeObserver on its parent container, so it correctly handles being resized by the PaneManager grid.
+The globe uses a ResizeObserver on its parent container, so it correctly handles being resized by the PaneManager grid. Canvas buffer resize is deferred via `pendingResizeRef` — applied atomically right before the next worker frame composite. The canvas shows the old frame (CSS-stretched) until a new frame arrives, preventing flash-to-black on split resize.
 
 | File | Purpose |
 |---|---|
 | `GlobeVisualization.tsx` | Shell: refs, render loop, worker lifecycle, camera, input, tooltip JSX |
 | `cameraSystem.ts` | Lock-on follow, lerp, shortest-path rotation, auto-rotate |
 | `inputHandlers.ts` | Mouse, touch, wheel, keyboard handler factory |
-| `pointRenderer.ts` | Legacy — rendering logic now lives in the Web Worker |
 | `landRenderer.ts` | Coastline polygons, globe clipping |
 | `gridRenderer.ts` | Lat/lon grid lines |
 | `projection.ts` | projGlobe, projFlat, getFlatMetrics, clampFlatPan |
@@ -235,7 +234,7 @@ The worker inlines its own copies of these projection functions (plain JS, no im
 
 ## Point Rendering by Type
 
-Each data type has its own rendering block in the worker with a `continue`, keeping rendering logic cleanly separated. `pointRenderer.ts` in the globe directory is **dead code** — not imported anywhere. All rendering lives in the Web Worker.
+Each data type has its own rendering block in the worker with a `continue`, keeping rendering logic cleanly separated. All rendering lives in the Web Worker.
 
 ### Zoom-Aware Sizing
 

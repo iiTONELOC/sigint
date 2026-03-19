@@ -37,10 +37,11 @@ Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridT
 |---|---|
 | **Split H / Split V** | Wraps the current leaf in a split node with a new pane as sibling. If only one type available, splits immediately; otherwise opens a dropdown menu. |
 | **Close** | X button removes the pane via `removeLeaf()`, promotes sibling. Cannot close the last pane — falls back to default layout. |
-| **Minimize** | Minus button collapses to a tab in the toolbar. Click tab to restore. |
+| **Minimize** | Minus button records the pane's parent split direction, ratio, side (wasSecond), and sibling ID, then collapses to a tab in the toolbar. Click tab to restore at the exact original position (finds sibling in tree, re-inserts). Falls back to root if sibling was removed. |
 | **Change Type** | Click pane title → dropdown of all other pane types → swaps in place via `replaceNode()`. |
-| **Drag to Swap** | Drag grip handle on pane header → drop on another pane's header → `swapPanes()` exchanges their `paneType` values. Tree structure unchanged. |
+| **Drag to Swap** | Drag grip handle on pane header → drop on another pane's header → `swapPanes()` performs a 3-step placeholder tree-position swap (source→placeholder, target→source, placeholder→target). Leaf nodes physically move in the tree — no content swap. React keys are based on `paneType` for stable unmount/remount. |
 | **Resize** | Drag the handle between split children. Min ratio 0.1, max 0.9. Visual indicator line during drag. |
+| **Layout Presets** | VIEWS button in PaneManager toolbar opens `LayoutPresetMenu`. Save current layout as a named preset, load a saved preset, update an existing preset (pencil icon overwrites with current layout), or delete. Persisted to `sigint.layout.presets.v1`. |
 
 ### Pane Types
 
@@ -86,13 +87,11 @@ Reads everything from `useData()`. Only local state is `panelSide` (which side t
 Renders:
 
 - `GlobeVisualization` — full-size Canvas 2D with Web Worker point rendering
-- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis. Shows "OPEN IN DOSSIER" button when no dossier pane is open (fires `requestDossierOpen()`); shows intel links when dossier IS open. Header layout: label + close on top row, FOCUS/SOLO on their own row below.
-- `LayerLegend` — bottom-left layer counts. Items are clickable `<button>` elements that toggle layers via `toggleLayer`. Numbers right-aligned with `tabular-nums`. Disabled layers show at 50% opacity.
-- `StatusBadge` — bottom-right data source status
+- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis. LOCATE button zooms to selected entity on demand (no auto-zoom on Focus/Solo toggle). Shows "OPEN IN DOSSIER" button when no dossier pane is open (fires `requestDossierOpen()`); shows intel links when dossier IS open. Two-row toolbar: icon + title + close X on top row, LOCATE/FOCUS/SOLO buttons on second row.
 
 Passes `spatialGrid` and `filteredIds` from DataContext to GlobeVisualization for O(1) click/hover lookups.
 
-All four overlays are gated on `chromeHidden` except the globe itself.
+All overlays are gated on `chromeHidden` except the globe itself.
 
 Selecting a data point stops auto-rotation, unhides chrome if hidden.
 
@@ -119,7 +118,7 @@ Only renders rows visible in the viewport plus 8 overscan rows. Fixed row height
 | AGE | `age` | Relative age (LIVE, 5m, 2h, 3d) |
 | — | zoom | Crosshair button — zooms to item on globe |
 
-All columns are sortable (click header to toggle asc/desc).
+All columns are sortable (click header to toggle asc/desc). Each column header has a descriptive tooltip.
 
 ### Filtering
 
@@ -154,7 +153,7 @@ Shows enriched data for the currently selected entity. Content varies by type:
 
 **Ships**: MMSI, IMO, call sign, type, flag (derived from MMSI MID), destination, telemetry (SOG, COG, heading, nav status), dimensions, intel links (MarineTraffic, VesselFinder, Equasis).
 
-**Events**: Actors, CAMEO code, Goldstein scale, mentions, sources, article link.
+**Events**: Headline, category, severity, tone, source, origin country, location, article link.
 
 **Earthquakes**: Magnitude, depth, tsunami alert, felt reports, USGS detail link.
 
@@ -162,7 +161,9 @@ Shows enriched data for the currently selected entity. Content varies by type:
 
 **Weather**: Severity, event type, area description, onset/expiry, headline.
 
-Server endpoint for aircraft: `/api/dossier/aircraft/:icao24?callsign=` — hexdb.io for aircraft info + route, planespotters.net for photos. Memory cache (30min text, 12h photos). Client-side IndexedDB cache under `sigint.dossier.cache.v2` (30min TTL, max 200 entries).
+Server endpoint for aircraft: `/api/dossier/aircraft/:icao24?callsign=` — hexdb.io for aircraft info + route, planespotters.net for photos. Memory cache (30min text, 12h photos). Client-side IndexedDB cache under `sigint.dossier.cache.v1` (30min TTL, max 200 entries).
+
+Dossier toolbar is two-row responsive: row 1 has icon + title + close X, row 2 has LOCATE/FOCUS/SOLO buttons with full text labels (IsoBtn). LOCATE zooms to the entity on demand. "Open in Dossier" from DetailPanel checks the minimized array first and restores at original position instead of creating a new pane.
 
 ### Cross-Pane Signal
 
@@ -233,7 +234,7 @@ Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org
 - **Error recovery**: RETRY / CHANGE / CLOSE buttons on stream failure, 15s load timeout, max 2 retries
 - **Audio**: only one slot unmuted at a time
 - **Auto-save**: grid layout + channel selections persist to `sigint.videofeed.state.v1`. Restored on mount.
-- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Stored under `sigint.videofeed.presets.v1`.
+- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Pencil icon on each preset overwrites with current grid + channels (no delete + recreate needed). Stored under `sigint.videofeed.presets.v1`.
 
 **Dependency**: `bun add hls.js` required.
 
@@ -251,7 +252,12 @@ Shows a raw JSON view of incoming data streams for debugging and monitoring.
 
 Under 768px, PaneManager switches to single-pane mode with tab switching. Mobile-specific adaptations:
 
-- Tab buttons and add-pane button have 40px minimum touch targets
+- Scroll-snap tab bar with `min-h-8` touch targets, cyan bottom-bar active indicator
+- Close button (X) on active tab when multiple panes open
+- Mobile status bar above tab bar showing track count + source status (replaces desktop globe pane header info)
+- Layer toggles go icon-only (no count label) below `sm` breakpoint with tighter gaps/padding
+- On `lg:` and up, Header renders as a single row (logo + search + toggles + aircraft filter + clock). Below `lg`, two-row layout (logo+clock / toggles centered).
+- Detail panel renders as a bottom sheet (`max-h-[40vh]`) with `useSheetDismiss` hook — touch drag to dismiss with velocity detection (>80px or >0.5 px/ms). Snaps back on insufficient drag. Wider drag handle.
+- Detail panel on desktop: `max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll` — scrolls when content exceeds pane height.
 - Add-pane button positioned before the flex spacer (always visible, not pushed off-screen)
 - Add-pane dropdown items have 44px minimum touch targets
-- Detail panel renders as a compact bottom sheet (28vh max) with a drag handle affordance

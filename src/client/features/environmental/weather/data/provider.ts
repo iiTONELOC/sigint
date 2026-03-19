@@ -1,14 +1,8 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { BaseProvider } from "@/features/base/BaseProvider";
 
-// Active alerts — GeoJSON FeatureCollection, US-only
-// No API key required, just User-Agent header
 const ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
-
-const CACHE_KEY = "sigint.noaa.weather-cache.v1";
-const MAX_CACHE_AGE_MS = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
 
 // ── NWS GeoJSON shape ────────────────────────────────────────────────
 
@@ -123,125 +117,38 @@ function toDataPoint(f: NWSFeature): DataPoint | null {
   } as DataPoint;
 }
 
-// ── Provider ─────────────────────────────────────────────────────────
+// ── Fetch logic ──────────────────────────────────────────────────────
 
-export class WeatherProvider implements DataProvider<DataPoint> {
-  readonly id = "noaa-weather";
-  private cache: { data: DataPoint[]; timestamp: number } | null = null;
+async function fetchWeather(): Promise<DataPoint[]> {
+  const response = await fetch(ALERTS_URL, {
+    headers: {
+      "User-Agent": "(sigint-dashboard, osint-tool)",
+      Accept: "application/geo+json",
+    },
+  });
 
-  private snapshot: ProviderSnapshot<DataPoint> = {
-    entities: [],
-    error: null,
-    loading: false,
-    lastUpdatedAt: null,
-  };
-
-  // ── Persistence ─────────────────────────────────────────────────
-
-  private persistCache(data: DataPoint[]): void {
-    cacheSet(CACHE_KEY, { timestamp: Date.now(), data });
+  if (!response.ok) {
+    throw new Error(`NWS API error: ${response.status}`);
   }
 
-  private readPersistedCache(): {
-    data: DataPoint[];
-    timestamp: number;
-  } | null {
-    const cached = cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
-      CACHE_KEY,
-    );
-    if (!cached || !Array.isArray(cached.data)) return null;
-    return {
-      data: cached.data,
-      timestamp:
-        typeof cached.timestamp === "number" &&
-        Number.isFinite(cached.timestamp)
-          ? cached.timestamp
-          : 0,
-    };
+  const raw: NWSResponse = await response.json();
+  if (!raw.features || !Array.isArray(raw.features)) {
+    throw new Error("Invalid NWS response format");
   }
 
-  // ── Hydrate ─────────────────────────────────────────────────────
-
-  hydrate(): DataPoint[] | null {
-    if (this.cache) return this.cache.data;
-
-    const persisted = this.readPersistedCache();
-    if (!persisted || persisted.data.length === 0) return null;
-    if (Date.now() - persisted.timestamp > MAX_CACHE_AGE_MS) return null;
-
-    this.cache = { data: persisted.data, timestamp: persisted.timestamp };
-    this.snapshot = {
-      entities: persisted.data,
-      lastUpdatedAt: persisted.timestamp,
-      loading: false,
-      error: null,
-    };
-    return persisted.data;
+  const data: DataPoint[] = [];
+  for (const f of raw.features) {
+    const point = toDataPoint(f);
+    if (point) data.push(point);
   }
-
-  // ── Fetch ───────────────────────────────────────────────────────
-
-  async refresh(): Promise<DataPoint[]> {
-    this.snapshot = { ...this.snapshot, loading: true, error: null };
-
-    try {
-      const response = await fetch(ALERTS_URL, {
-        headers: {
-          "User-Agent": "(sigint-dashboard, osint-tool)",
-          Accept: "application/geo+json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`NWS API error: ${response.status}`);
-      }
-
-      const raw: NWSResponse = await response.json();
-      if (!raw.features || !Array.isArray(raw.features)) {
-        throw new Error("Invalid NWS response format");
-      }
-
-      const data: DataPoint[] = [];
-      for (const f of raw.features) {
-        const point = toDataPoint(f);
-        if (point) data.push(point);
-      }
-
-      this.cache = { data, timestamp: Date.now() };
-      this.persistCache(data);
-      this.snapshot = {
-        entities: data,
-        lastUpdatedAt: Date.now(),
-        loading: false,
-        error: null,
-      };
-      return data;
-    } catch (error) {
-      const persisted = this.readPersistedCache();
-      const fallback = this.cache?.data ?? persisted?.data ?? [];
-      this.snapshot = {
-        entities: fallback,
-        lastUpdatedAt: Date.now(),
-        loading: false,
-        error: error instanceof Error ? error : new Error("Unknown error"),
-      };
-      return fallback;
-    }
-  }
-
-  async getData(pollInterval?: number): Promise<DataPoint[]> {
-    if (this.cache) {
-      // If cache is older than poll interval, kick off background refresh
-      // so next read gets fresh data — but return cached data immediately
-      if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        this.refresh().catch(() => {});
-      }
-      return this.cache.data;
-    }
-    return this.refresh();
-  }
-
-  getSnapshot(): ProviderSnapshot<DataPoint> {
-    return this.snapshot;
-  }
+  return data;
 }
+
+// ── Provider instance ────────────────────────────────────────────────
+
+export const weatherProvider = new BaseProvider({
+  id: "noaa-weather",
+  cacheKey: "sigint.noaa.weather-cache.v1",
+  maxCacheAgeMs: 30 * 60_000,
+  fetchFn: fetchWeather,
+});

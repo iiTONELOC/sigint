@@ -8,13 +8,13 @@
 
 ## Shared Data Context
 
-All application state lives in `context/DataContext.tsx`, exposed via the `useData()` hook. The context provider calls the data hooks (`useAircraftData`, `useEarthquakeData`, `useEventData`, `useShipData`), merges their output into `allData`, centralizes trail recording, and computes all derived values. Every component — Header, PaneManager, LiveTrafficPane, DataTablePane, Ticker — reads from this single context.
+All application state lives in `context/DataContext.tsx`, exposed via the `useData()` hook. The context provider calls the data hooks (`useAircraftData`, `useEarthquakeData`, `useEventData`, `useShipData`, `useFireData`, `useWeatherData`), merges their output into `allData`, centralizes trail recording, and computes all derived values. Every component — Header, PaneManager, LiveTrafficPane, DataTablePane, Ticker — reads from this single context.
 
 ### What lives in DataContext
 
 | Category | State | Purpose |
 |---|---|---|
-| **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event + FIRMS fire DataPoints |
+| **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event + FIRMS fire + NOAA weather DataPoints |
 | **Selection** | `selected`, `selectedCurrent`, `setSelected` | Currently selected item (selectedCurrent stays fresh across data refreshes) |
 | **Isolation** | `isolateMode`, `setIsolateMode` | FOCUS (layer only) or SOLO (single point) |
 | **Layers** | `layers`, `toggleLayer` | Per-feature on/off toggles |
@@ -226,4 +226,4 @@ flowchart TD
 
 ## Ticker Feed
 
-The live ticker at the bottom of the screen shows a round-robin interleave of the most recent items from each active data type. Items are sorted by recency within each type, then interleaved: one aircraft, one ship, one event, one quake, repeat. Emergency aircraft (squawk 7700/7600/7500) always appear first. Grounded aircraft and moored ships (SOG < 0.5) are filtered out. The ticker cycles through 24 items, displaying 1-3 at a time depending on screen width, rotating every 6.5 seconds. Ticker items are clickable — clicking selects the item and zooms the globe to it.
+The live ticker at the bottom of the screen shows a round-robin interleave of the most recent items from each active data type. Items are sorted by recency within each type, then interleaved: one aircraft, one ship, one event, one quake, one fire, one weather alert, repeat. Emergency aircraft (squawk 7700/7600/7500) always appear first. Non-emergency items are Fisher-Yates shuffled for variety. Grounded aircraft and moored ships (SOG < 0.5) are filtered out. The ticker draws from a pool of 80 items, displaying 1–6 at a time depending on screen width (1 below 640px, scaling to 6 at 1920px+), rotating every 6.5 seconds. Hover feedback shows a border glow. Native title tooltip shows entity summary. Ticker items are clickable — clicking selects the item and zooms the globe to it.

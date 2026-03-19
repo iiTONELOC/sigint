@@ -22,11 +22,11 @@ graph TB
         Worker["Web Worker<br/>(pointWorker.js — OffscreenCanvas)<br/>land, grid, ocean, points, trails"]
         IDB["IndexedDB<br/>(sigint-cache)"]
         AircraftProv["AircraftProvider"]
-        QuakeProv["EarthquakeProvider"]
-        GdeltProv["GdeltProvider"]
-        ShipProv["ShipProvider"]
-        FireProv["FireProvider"]
-        WeatherProv["WeatherProvider"]
+        QuakeProv["earthquakeProvider<br/>(BaseProvider)"]
+        GdeltProv["gdeltProvider<br/>(BaseProvider)"]
+        ShipProv["shipProvider<br/>(BaseProvider)"]
+        FireProv["fireProvider<br/>(BaseProvider)"]
+        WeatherProv["weatherProvider<br/>(BaseProvider)"]
 
         SPA -->|"props via propsRef"| MainCanvas
         MainCanvas -->|"drawImage bitmap"| Worker
@@ -93,7 +93,6 @@ NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alert
 | `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
 | `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
 | `/api/dossier/aircraft/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
-| `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
 
 ### Auth + Rate Limiting
 
@@ -205,35 +204,42 @@ src/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
         dataPoints.ts                 DataPoint union type (imports from feature folders)
+        BaseProvider.ts               Config-driven base class for non-aircraft providers
+        useProviderData.ts            Generic hook replacing per-feature boilerplate hooks
       tracking/
         aircraft/                     Live data — OpenSky Network
           index.ts, types.ts, definition.ts, detailRows.ts
           ui/                         AircraftFilterControl, AircraftTickerContent
           hooks/                      useAircraftData
-          data/                       AircraftProvider, typeLookup
+          data/                       AircraftProvider (class — unique enrichment/mock logic), typeLookup
           lib/                        filterUrl, utils
         ships/                        Live data — aisstream.io AIS
           index.ts, types.ts, definition.ts, detailRows.ts
           ui/                         ShipTickerContent (3-line detail with mph conversion)
-          hooks/                      useShipData
-          data/                       ShipProvider
+          hooks/                      useShipData (thin wrapper around useProviderData)
+          data/                       shipProvider (BaseProvider instance)
       environmental/
         earthquake/                   Live data — USGS
           index.ts, types.ts, definition.ts, detailRows.ts
           ui/                         EarthquakeTickerContent
-          hooks/                      useEarthquakeData
-          data/                       EarthquakeProvider
+          hooks/                      useEarthquakeData (thin wrapper around useProviderData)
+          data/                       earthquakeProvider (BaseProvider instance)
         fires/                        Live data — NASA FIRMS
           index.ts, types.ts, definition.ts, detailRows.ts
           ui/                         FireTickerContent
-          hooks/                      useFireData
-          data/                       FireProvider
+          hooks/                      useFireData (thin wrapper around useProviderData)
+          data/                       fireProvider (BaseProvider instance)
+        weather/                      Live data — NOAA Weather
+          index.ts, types.ts, definition.ts, detailRows.ts
+          ui/                         WeatherTickerContent
+          hooks/                      useWeatherData (thin wrapper around useProviderData)
+          data/                       weatherProvider (BaseProvider instance)
       intel/
         events/                       Live data — GDELT 2.0
           index.ts, types.ts, definition.ts, detailRows.ts
           ui/                         EventTickerContent
-          hooks/                      useEventData
-          data/                       GdeltProvider (client-side caching + server token auth)
+          hooks/                      useEventData (thin wrapper around useProviderData)
+          data/                       gdeltProvider (BaseProvider instance, with mergeFn for dedup)
       registry.tsx                    Feature registry (imports all definitions)
     components/
       globe/                          Canvas 2D visualization (modular)
@@ -242,15 +248,14 @@ src/
         projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
         landRenderer.ts               Coastline polygons, globe clipping
         gridRenderer.ts               Lat/lon grid lines
-        pointRenderer.ts              Legacy — rendering logic now in Web Worker
         cameraSystem.ts               Lock-on follow, lerp, shortest-path rotation, auto-rotate
         inputHandlers.ts              Mouse, touch, wheel, keyboard + spatial grid click/hover
       Search.tsx                      Global search with zoom-to
-      Header.tsx                      Top bar: logo, search, toggles, controls, clock
-      DetailPanel.tsx                 Selected item detail with intel links (hysteresis side, compact mobile)
-      Ticker.tsx                      Bottom live feed scroll (clickable items → select + zoom)
-      LayerLegend.tsx                 Bottom-left layer counts
-      StatusBadge.tsx                 Dynamic data source status
+      Header.tsx                      Top bar: logo, search, toggles, controls, clock (single-row on lg+)
+      DetailPanel.tsx                 Selected item detail — LOCATE/FOCUS/SOLO, swipe-to-dismiss mobile, desktop scroll
+      Ticker.tsx                      Bottom live feed (80-item pool, fires+weather, hover glow, responsive count)
+      Tooltip.tsx                     Reusable tooltip wrapper
+      LayerLegend.tsx                 DEAD CODE — safe to delete
       styles.tsx                      Canvas-only constants
     lib/
       authService.ts                  Shared token management + authenticatedFetch()
@@ -290,9 +295,7 @@ graph TD
     PM --> VFP["VideoFeedPane<br/><i>HLS.js news streams</i>"]
 
     LTP --> GlobeViz["globe/<br/><i>Main thread: camera, input<br/>Worker: all rendering (land, points, trails)</i>"]
-    LTP --> DetailPanel["DetailPanel<br/><i>Auto-positions, Open in Dossier button, intel links</i>"]
-    LTP --> LayerLegend["LayerLegend"]
-    LTP --> StatusBadge["StatusBadge"]
+    LTP --> DetailPanel["DetailPanel<br/><i>LOCATE/FOCUS/SOLO, swipe-to-dismiss mobile, desktop scroll</i>"]
 
     AppShell --> Ticker["Ticker<br/><i>Clickable items, live feed</i>"]
 ```
@@ -303,20 +306,19 @@ All shared state lives in `DataContext`, exposed via `useData()`. There is no ex
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
 - **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
-- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
+- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
+- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Layout presets (save/load/update/delete named views). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
 - **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
-- **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Auto-scrolls to selected item when selection changes from external source (ticker, globe).
+- **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Column header tooltips. Auto-scrolls to selected item when selection changes from external source (ticker, globe).
 
 ### Chrome Visibility
 
-When `chromeHidden` is true (toggled by clicking empty globe area): Header, Ticker, PaneManager toolbar, pane headers, DetailPanel, LayerLegend, and StatusBadge all hide. Clicking a data point while chrome is hidden selects it AND unhides chrome automatically.
+When `chromeHidden` is true (toggled by clicking empty globe area): Header, Ticker, PaneManager toolbar, pane headers, and DetailPanel all hide. Clicking a data point while chrome is hidden selects it AND unhides chrome automatically.
 
 ### Z-Index Stack
 
 | z-index | Component |
 |---|---|
-| z-10 | LayerLegend, StatusBadge |
 | (none) | Header — no stacking context (preserves dropdown rendering) |
 | z-30 | Trail waypoint tooltip |
 | z-40 | DetailPanel |

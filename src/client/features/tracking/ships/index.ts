@@ -2,7 +2,7 @@
 export { shipsFeature } from "./definition";
 export { useShipData } from "./hooks/useShipData";
 export type { ShipDataSource } from "./hooks/useShipData";
-export { ShipProvider } from "./data/provider";
+export { shipProvider } from "./data/provider";
 
 // Re-export types
 export type { ShipData } from "./types";
