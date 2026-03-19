@@ -7,6 +7,7 @@ import { IntelFeedPane } from "@/panes/intel-feed/IntelFeedPane";
 import { AlertLogPane } from "@/panes/alert-log/AlertLogPane";
 import { RawConsolePane } from "@/panes/raw-console/RawConsolePane";
 import { VideoFeedPane } from "@/panes/video-feed/VideoFeedPane";
+import { NewsFeedPane } from "@/panes/news-feed/NewsFeedPane";
 import { PaneHeader } from "@/panes/PaneHeader";
 import {
   setDossierOpen,
@@ -17,6 +18,7 @@ import {
   Table2,
   FileSearch,
   Newspaper,
+  Rss,
   Bell,
   Terminal,
   Tv,
@@ -42,6 +44,7 @@ const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
   "data-table": { label: "DATA TABLE", icon: Table2 },
   dossier: { label: "DOSSIER", icon: FileSearch },
   "intel-feed": { label: "INTEL FEED", icon: Newspaper },
+  "news-feed": { label: "NEWS FEED", icon: Rss },
   "alert-log": { label: "ALERTS", icon: Bell },
   "raw-console": { label: "CONSOLE", icon: Terminal },
   "video-feed": { label: "VIDEO FEED", icon: Tv },
@@ -52,6 +55,7 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   "data-table": DataTablePane,
   dossier: DossierPane,
   "intel-feed": IntelFeedPane,
+  "news-feed": NewsFeedPane,
   "alert-log": AlertLogPane,
   "raw-console": RawConsolePane,
   "video-feed": VideoFeedPane,

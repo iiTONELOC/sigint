@@ -12,6 +12,7 @@ import {
   Info,
   Database,
   Palette,
+  Rss,
   Layout,
   ExternalLink,
 } from "lucide-react";
@@ -46,10 +47,11 @@ function getKeyLabel(key: string): string {
 
 // ── Tabs ─────────────────────────────────────────────────────────────
 
-type Tab = "appearance" | "storage" | "about";
+type Tab = "appearance" | "news" | "storage" | "about";
 
 const TABS: { key: Tab; label: string; icon: typeof Palette }[] = [
   { key: "appearance", label: "APPEARANCE", icon: Palette },
+  { key: "news", label: "NEWS FEEDS", icon: Rss },
   { key: "storage", label: "STORAGE", icon: Database },
   { key: "about", label: "ABOUT", icon: Info },
 ];
@@ -262,6 +264,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
               resetAllColors={resetAllColors}
             />
           )}
+          {activeTab === "news" && <NewsFeedsTab />}
           {activeTab === "storage" && (
             <StorageTab
               keys={storageKeys}
@@ -688,6 +691,66 @@ function AboutTab() {
           Anthony Tropeano
           <ExternalLink size={12} />
         </a>
+      </div>
+    </div>
+  );
+}
+
+// ── News Feeds tab ──────────────────────────────────────────────────
+
+const NEWS_SOURCES = [
+  "Reuters via Google",
+  "NYT World",
+  "BBC World",
+  "Al Jazeera",
+  "The Guardian",
+  "NPR World",
+] as const;
+
+function NewsFeedsTab() {
+  const handleClearCache = useCallback(() => {
+    cacheDelete(CACHE_KEYS.news);
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-2">
+          DEFAULT SOURCES
+        </div>
+        <div className="text-xs text-sig-dim/70 mb-2 leading-snug">
+          These feeds are polled server-side every 10 minutes and cached locally.
+        </div>
+        <div className="space-y-1">
+          {NEWS_SOURCES.map((name) => (
+            <div
+              key={name}
+              className="flex items-center gap-2 px-2 py-1.5 rounded border border-sig-border/30"
+            >
+              <Rss size={11} className="text-sig-dim shrink-0" />
+              <span className="text-sm font-mono tracking-wider flex-1 text-sig-text">
+                {name}
+              </span>
+              <span className="text-xs text-sig-dim tracking-wider">RSS</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-2">CACHE</div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleClearCache}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-danger hover:border-sig-danger/30 transition-colors"
+          >
+            <Trash2 size={12} />
+            CLEAR NEWS CACHE
+          </button>
+          <span className="text-xs text-sig-dim/60">
+            Articles cached locally for 30 min
+          </span>
+        </div>
       </div>
     </div>
   );

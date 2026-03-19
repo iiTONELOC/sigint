@@ -5,6 +5,7 @@ import { apiRoutes } from "./api";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
+import { startNewsPolling } from "./api/newsCache";
 
 const publicDir = resolve(import.meta.dir, "../../public");
 
@@ -88,3 +89,4 @@ console.log(`🔒 Access via https://localhost (Caddy reverse proxy)`);
 startGdeltPolling();
 startAisPolling();
 startFirmsPolling();
+startNewsPolling();

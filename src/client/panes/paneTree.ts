@@ -10,7 +10,8 @@ export type PaneType =
   | "intel-feed"
   | "alert-log"
   | "raw-console"
-  | "video-feed";
+  | "video-feed"
+  | "news-feed";
 
 export type LeafNode = {
   type: "leaf";

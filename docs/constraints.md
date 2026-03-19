@@ -140,7 +140,17 @@ Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go
 
 ## Server-Side Stale Cache Retention
 
-FIRMS and GDELT server caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage). This prevents the client from seeing an empty layer when the upstream API is temporarily down. The `sourceHealth` module on the client treats `"empty"` as NOT a down state for the same reason.
+FIRMS and GDELT server caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage). This prevents the client from seeing an empty layer when the upstream API is temporarily down. The `sourceHealth` module on the client treats `"empty"` as NOT a down state for the same reason. The news cache follows the same pattern — stale articles retained if all RSS feeds fail.
+
+---
+
+## News and Video Are NOT Geographic Features
+
+Two pane types operate entirely outside the geographic data pipeline:
+
+**RSS News** (`panes/news-feed/`): No lat/lon coordinates. Does NOT go into `DataPoint` union, `allData`, `DataContext`, feature registry, globe rendering, spatial index, or ticker feed. Self-contained pane with its own provider (`NewsProvider` — mirrors BaseProvider contract for `NewsArticle[]`), hook (`useNewsData`), and cache keys. Server-side RSS polling via `newsCache.ts`.
+
+**Video Feed** (`panes/video-feed/`): Not a data source at all — plays live HLS video streams from iptv-org. No data pipeline, no provider, no hook, no DataPoint. Self-contained pane with its own channel service (`channelService.ts`), persistence (`videoFeedPersistence.ts`), preset system, and HLS player. Channel list fetched client-side from `iptv-org.github.io`. Depends on `hls.js` (Apache 2.0) — `bun add hls.js` required.
 
 ---
 

@@ -101,3 +101,12 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 | AIS Ships | Live vessel positions | aisstream.io WebSocket | **Live** — server-side WebSocket stream, token auth, client polls /api/ships/latest | 300s (client) / real-time (server) |
 | NASA FIRMS | Fire hotspots (24h) | firms.modaps.eosdis.nasa.gov VIIRS CSV | **Live** — server-side fetch + parse, token auth, client polls /api/fires/latest | 600s (client) / 30 min (server) |
 | NOAA Weather | Severe weather alerts (US) | api.weather.gov/alerts/active | **Live** — client-side, free, no auth (User-Agent only) | 300s |
+| RSS News | World news articles | 6 RSS feeds (see architecture.md) | **Live** — server-side fetch + parse, token auth, client polls /api/news/latest | 600s (client) / 10 min (server) |
+
+### Non-Feature Data Sources
+
+Not all data sources are features. Two pane types operate entirely outside the feature system:
+
+**RSS News** (`panes/news-feed/`): Non-geographic (no lat/lon). Does NOT use FeatureDefinition, DataPoint union, feature registry, or BaseProvider. Has its own provider class (`NewsProvider`) that mirrors BaseProvider's API surface. Own hook (`useNewsData`) following `useProviderData` pattern. Consumed directly by `NewsFeedPane` — not through `DataContext` or `allData`.
+
+**Video Feed** (`panes/video-feed/`): Not a data source at all — plays live HLS video streams from the iptv-org community channel directory. No data pipeline, no provider, no hook. Self-contained pane with its own channel service, persistence, and preset system. Depends on `hls.js` (Apache 2.0).

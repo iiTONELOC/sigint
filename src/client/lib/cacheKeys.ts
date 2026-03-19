@@ -20,6 +20,8 @@ export const CACHE_KEYS = {
   videoPresets: `sigint.videofeed.presets.${V}`,
   theme: `sigint.theme.${V}`,
   colorOverrides: `sigint.color-overrides.${V}`,
+  news: `sigint.news.articles.${V}`,
+  newsState: `sigint.news.state.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -44,4 +46,6 @@ export const CACHE_KEY_LABELS: Record<
   [CACHE_KEYS.videoPresets]: { label: "Video feed presets", group: "UI" },
   [CACHE_KEYS.theme]: { label: "Theme preference", group: "UI" },
   [CACHE_KEYS.colorOverrides]: { label: "Custom layer colors", group: "UI" },
+  [CACHE_KEYS.news]: { label: "News articles", group: "Data" },
+  [CACHE_KEYS.newsState]: { label: "News feed state", group: "UI" },
 };

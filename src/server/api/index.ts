@@ -6,6 +6,7 @@ import { generateToken, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
+import { getNewsCache } from "./newsCache";
 import {
   getAircraftDossier,
   isValidIcao24,
@@ -137,6 +138,28 @@ export const apiRoutes = {
         data: cache.data,
         fetchedAt: cache.fetchedAt,
         fireCount: cache.fireCount,
+      });
+    },
+  },
+
+  // ── News (RSS feeds) ─────────────────────────────────────────────
+  "/api/news/latest": {
+    GET(req: Request) {
+      const blocked = guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getNewsCache();
+      if (!cache.items || cache.items.length === 0) {
+        return Response.json(
+          { error: cache.error ?? "No news data available yet" },
+          { status: 503 },
+        );
+      }
+
+      return jsonResponse(req, {
+        items: cache.items,
+        fetchedAt: cache.fetchedAt,
+        itemCount: cache.itemCount,
       });
     },
   },

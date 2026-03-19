@@ -206,6 +206,16 @@ Unlike the server-proxied sources (GDELT, ships, fires), weather alerts are fetc
 
 ---
 
+## RSS News Data Flow
+
+**Important**: News is a non-geographic data source. It does NOT participate in `allData`, `DataContext`, the feature registry, or the globe rendering pipeline. It is entirely self-contained within the `panes/news-feed/` directory.
+
+**Server** (`newsCache.ts`): Every 10 minutes, fetches RSS/Atom XML from 6 world news sources in parallel (Reuters via Google News, NYT World, BBC World, Al Jazeera, The Guardian, NPR World). Parses XML items, strips HTML entities/tags from titles and descriptions, deduplicates by URL, sorts newest-first, caps at 200 articles. Caches in memory. Serves via `/api/news/latest` with token auth and gzip compression. Stale cache retained on upstream failure.
+
+**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads from IndexedDB with 30-min staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook follows the `useProviderData` pattern: `isMounted` local variable inside `useEffect`, `getData()` for initial call (StrictMode safe), `refresh()` for interval polls (600s), hydration skip when cache is fresh. The `NewsFeedPane` consumes the hook directly — no DataContext involvement.
+
+---
+
 ## Enrichment Pipeline
 
 Aircraft metadata enrichment runs as a side effect in `DataContext`, scoped to the currently selected aircraft only (prevents cache bloat).
