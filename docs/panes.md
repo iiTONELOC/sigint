@@ -54,6 +54,7 @@ Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridT
 | `alert-log` | AlertLogPane | 1 | Priority alerts — emergency squawks, high-FRP fires, severe weather, crisis events. Filter by type, sort by time/priority. |
 | `raw-console` | RawConsolePane | 1 | Raw data console — JSON view of incoming data streams |
 | `video-feed` | VideoFeedPane | 1 | Live HLS video streams — iptv-org news channels, grid layout, presets |
+| `news-feed` | NewsFeedPane | 1 | RSS news feed — 6 world news sources, source filters, inline article detail |
 
 Each type can only appear once (no duplicate globes).
 
@@ -244,7 +245,43 @@ Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org
 
 `panes/raw-console/RawConsolePane.tsx` — raw data console pane.
 
-Shows a raw JSON view of incoming data streams for debugging and monitoring.
+Shows a raw JSON view of incoming data streams for debugging and monitoring. JSON output uses syntax highlighting via `jsonHighlight.tsx` — zero-dependency tokenizer that wraps keys, strings, numbers, booleans, and null/brackets in `<span>` elements styled with CSS variables for automatic dark/light theme support.
+
+---
+
+## NewsFeedPane
+
+`panes/news-feed/NewsFeedPane.tsx` — RSS news feed pane.
+
+Displays aggregated world news from 6 RSS sources fetched server-side. This is a **non-geographic** data source — it does NOT use DataPoint, allData, DataContext, the feature registry, or the globe. It is entirely self-contained within the pane folder.
+
+### Architecture
+
+- **Server**: `newsCache.ts` polls 6 RSS feeds every 10 minutes, parses XML, deduplicates, caches up to 200 articles in memory. Served via `/api/news/latest` with token auth and gzip.
+- **Client provider**: `newsProvider.ts` mirrors the BaseProvider contract (hydrate/refresh/getData/getSnapshot) for `NewsArticle[]` instead of `DataPoint[]`. IndexedDB persistence under `sigint.news.articles.v1`. 30-minute staleness threshold.
+- **Client hook**: `useNewsData.ts` follows the `useProviderData` pattern exactly — `isMounted` local variable inside `useEffect`, `getData()` for initial call (StrictMode safe), `refresh()` for interval polls, hydration skip when cache is fresh.
+
+### Features
+
+- **List view**: Virtual-scrolled article list (72px row height, 6 row overscan). Each row shows source name, headline, description snippet, and relative age.
+- **Source filter buttons**: ALL + per-source buttons with counts. Buttons wrap to multiple rows in narrow panels. Source labels shortened for compact display (Reuters, NYT, BBC, etc.).
+- **Inline detail view**: Click article → shows headline, description, source, age. External link button opens full article in new tab. BACK button returns to list.
+- **State persistence**: Selected article ID and source filter persisted to IndexedDB under `sigint.news.state.v1`. Survives drag-to-swap, minimize/restore, and pane type switching. One-time restore on mount (does not re-trigger on BACK).
+
+### Sources
+
+| Source | Feed URL | Type |
+|--------|----------|------|
+| Reuters via Google | `news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US` | RSS |
+| NYT World | `rss.nytimes.com/services/xml/rss/nyt/World.xml` | RSS |
+| BBC World | `feeds.bbci.co.uk/news/world/rss.xml` | RSS |
+| Al Jazeera | `www.aljazeera.com/xml/rss/all.xml` | RSS |
+| The Guardian | `www.theguardian.com/world/rss` | RSS |
+| NPR World | `feeds.npr.org/1004/rss.xml` | RSS |
+
+### Settings
+
+"NEWS FEEDS" tab in SettingsModal shows default source list (informational) and a cache clear button.
 
 ---
 

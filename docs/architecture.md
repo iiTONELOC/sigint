@@ -10,7 +10,7 @@
 
 ## System Overview
 
-SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), and live AIS vessel positions (via aisstream.io) onto an interactive globe or flat map projection. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
+SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), and severe weather alerts (via NOAA) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data, FIRMS fire data, and RSS news feeds server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
 
 The rendering pipeline uses a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, data points, trails, and selection rings — on a separate CPU core. The main thread handles camera updates, input handling, and composites the finished `ImageBitmap` via a single `drawImage` call.
 
@@ -92,13 +92,14 @@ NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alert
 | `/api/aircraft/metadata/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Single aircraft metadata lookup |
 | `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
 | `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
+| `/api/news/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached RSS news articles (gzip compressed) |
 | `/api/dossier/aircraft/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
 
 ### Auth + Rate Limiting
 
 All API routes are rate limited at 60 requests per minute per IP (sliding window). Protected routes additionally require a valid `X-SIGINT-Token` header. Auth and rate limiting live in `api/auth.ts` — every route calls either `guardAuth` (token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
 
-Clients use a shared `lib/authService.ts` that fetches a token once on first API call, caches it in memory, and auto-refreshes on 401. All server-bound fetches (aircraft metadata, GDELT events, AIS ships, FIRMS fires) go through `authenticatedFetch()`.
+Clients use a shared `lib/authService.ts` that fetches a token once on first API call, caches it in memory, and auto-refreshes on 401. All server-bound fetches (aircraft metadata, GDELT events, AIS ships, FIRMS fires, RSS news) go through `authenticatedFetch()`.
 
 ### GDELT Server Pipeline
 
@@ -141,6 +142,31 @@ On boot, `startFirmsPolling()` kicks off a 30-minute interval:
 
 If `FIRMS_MAP_KEY` is not set, polling is skipped and `/api/fires/latest` returns 503. Fires layer shows empty. All other features work normally.
 
+### RSS News Server Pipeline
+
+On boot, `startNewsPolling()` kicks off a 10-minute interval:
+
+1. Fetch RSS/Atom XML from 6 world news sources in parallel (15s timeout per feed)
+2. Parse XML — extract title, link, pubDate, description from `<item>` (RSS) or `<entry>` (Atom) elements, strip HTML entities and tags
+3. Deduplicate by URL across all sources
+4. Sort by publication date (newest first), cap at 200 articles
+5. Cache in memory — stale cache retained if all upstream feeds fail
+
+**Feed sources (all verified working):**
+- Reuters via Google News RSS: `https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US`
+- NYT World: `https://rss.nytimes.com/services/xml/rss/nyt/World.xml`
+- BBC World: `https://feeds.bbci.co.uk/news/world/rss.xml`
+- Al Jazeera: `https://www.aljazeera.com/xml/rss/all.xml`
+- The Guardian: `https://www.theguardian.com/world/rss`
+- NPR World: `https://feeds.npr.org/1004/rss.xml`
+
+**Dead feeds — DO NOT USE:**
+- `feeds.reuters.com/*` — Reuters killed all RSS feeds in June 2020. Domain does not resolve.
+- `rsshub.app/*` — Third-party proxy, unreliable, frequently returns 403.
+- `reddit.com/r/*/.json` — Returns 403 from server-side without OAuth authentication.
+
+No API key or env var required. All feeds are public. News is non-geographic (no lat/lon) — it does NOT go into the DataPoint union, allData, or the feature registry. It lives in its own self-contained pane.
+
 Token auth and rate limiting prevent the API from being abused as an open proxy. Tokens are signed with `SIGINT_SERVER_SECRET` (env var, required) using HMAC-SHA256 with constant-time comparison. Rate limiting uses a per-IP sliding window (60 req/min) applied to every route including the token endpoint. Clients fetch a token on boot via `authenticatedFetch()` in `lib/authService.ts` and auto-refresh on 401.
 
 ### Environment Variables
@@ -177,6 +203,7 @@ src/
       gdeltCache.ts                   GDELT fetch, parse, in-memory cache
       aisCache.ts                     AIS WebSocket connection, vessel accumulation, in-memory cache
       firmsCache.ts                   NASA FIRMS CSV fetch, parse, in-memory cache
+      newsCache.ts                    RSS news feed fetch, parse, in-memory cache
     data/
       ac-db.ndjson                    Local aircraft database (~180k records)
   client/
@@ -200,6 +227,24 @@ src/
         DossierPane.tsx               Entity dossier — aircraft photos/route, ship details, event/quake/fire info
       intel-feed/
         IntelFeedPane.tsx             Scrollable intel feed — GDELT events, quakes, fires with severity badges
+      alert-log/
+        AlertLogPane.tsx              Priority alerts — emergency squawks, high-FRP fires, severe weather, crisis events
+      raw-console/
+        RawConsolePane.tsx            Raw data console — JSON view with syntax highlighting
+        jsonHighlight.tsx             Zero-dep JSON syntax highlighter using CSS vars
+      video-feed/
+        VideoFeedPane.tsx             Live HLS video streams — iptv-org channels, grid layout, presets
+        VideoSlot.tsx                 Single video slot with HLS player and controls
+        HlsPlayer.tsx                HLS.js wrapper component
+        ChannelPicker.tsx             Channel search + region tabs
+        PresetMenu.tsx                Save/load/delete channel presets
+        channelService.ts             Fetch + parse iptv-org channel data
+        videoFeedPersistence.ts       Grid + channel state persistence
+        videoFeedTypes.ts             Video feed type definitions
+      news-feed/
+        NewsFeedPane.tsx              RSS news feed — list + inline detail, source filters, state persistence
+        newsProvider.ts               NewsProvider class (mirrors BaseProvider contract for NewsArticle[])
+        useNewsData.ts                useNewsData hook (follows useProviderData pattern)
     features/
       base/
         types.ts                      FeatureDefinition<TData, TFilter> contract
@@ -293,6 +338,7 @@ graph TD
     PM --> ALP["AlertLogPane<br/><i>Priority alerts</i>"]
     PM --> RCP["RawConsolePane<br/><i>Raw data console</i>"]
     PM --> VFP["VideoFeedPane<br/><i>HLS.js news streams</i>"]
+    PM --> NFP["NewsFeedPane<br/><i>RSS news feed</i>"]
 
     LTP --> GlobeViz["globe/<br/><i>Main thread: camera, input<br/>Worker: all rendering (land, points, trails)</i>"]
     LTP --> DetailPanel["DetailPanel<br/><i>LOCATE/FOCUS/SOLO, swipe-to-dismiss mobile, desktop scroll</i>"]

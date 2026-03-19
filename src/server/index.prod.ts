@@ -4,6 +4,7 @@ import { apiRoutes } from "./api";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
+import { startNewsPolling } from "./api/newsCache";
 
 const port = Number(process.env.PORT ?? 3000);
 const distDir = resolve(import.meta.dir, "../../dist");
@@ -102,3 +103,4 @@ if (domain) {
 startGdeltPolling();
 startAisPolling();
 startFirmsPolling();
+startNewsPolling();
