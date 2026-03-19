@@ -148,13 +148,25 @@ FIRMS and GDELT server caches retain stale data when upstream returns 0 records 
 
 Two pane types operate entirely outside the geographic data pipeline:
 
-**RSS News** (`panes/news-feed/`): No lat/lon coordinates. Does NOT go into `DataPoint` union, `allData`, `DataContext`, feature registry, globe rendering, spatial index, or ticker feed. Self-contained pane with its own provider (`NewsProvider` — mirrors BaseProvider contract for `NewsArticle[]`), hook (`useNewsData`), and cache keys. Server-side RSS polling via `newsCache.ts`.
+**RSS News** (`panes/news-feed/`): No lat/lon coordinates. Does NOT go into `DataPoint` union, `allData`, feature registry, globe rendering, spatial index, or ticker feed. Self-contained provider (`NewsProvider` — mirrors BaseProvider contract for `NewsArticle[]`), hook (`useNewsData`), and cache keys. Server-side RSS polling via `newsCache.ts`. However, news IS lifted to `DataContext` — the `useNewsData()` hook is called in the DataProvider, and `newsArticles` is exposed on the context value. This enables the correlation engine to link news articles to active regions, and any pane to access news without duplicate hook instances. `NewsFeedPane` reads from `useData()` — does NOT call `useNewsData()` directly.
 
 **Video Feed** (`panes/video-feed/`): Not a data source at all — plays live HLS video streams from iptv-org. No data pipeline, no provider, no hook, no DataPoint. Self-contained pane with its own channel service (`channelService.ts`), persistence (`videoFeedPersistence.ts`), preset system, and HLS player. Channel list fetched client-side from `iptv-org.github.io`. Depends on `hls.js` (Apache 2.0) — `bun add hls.js` required.
 
 ---
 
-## Preferences (Development)
+## Correlation Engine
+
+`lib/correlationEngine.ts` runs synchronously inside a `useMemo` in `DataContext`. It processes all `allData` + `newsArticles` on every data refresh.
+
+**Performance**: Cross-source spatial matching uses a 2° grid index (same approach as `spatialIndex.ts`). Each query point checks ~9 neighboring cells — total cost is O(n) regardless of dataset size. Do NOT revert to naive nested loops (O(n²)) — with 60K+ data points this would block the main thread for seconds.
+
+**Baseline persistence**: Regional baselines are persisted to IndexedDB under `sigint.intel.baseline.v1`. The baseline accumulates over days of use — do not clear it on data refresh. Users can clear it from Settings.
+
+**Alert dedup**: Post-scoring dedup groups alerts by country + type + 1-hour bucket. The representative alert keeps the highest score and merged factors. The `count` field tracks how many events were collapsed. The `groupedItems` array holds all underlying DataPoints.
+
+**Watch mode**: Watch state lives in `DataContext`, not in individual panes. The watch loop uses `setInterval` with refs (`watchItemsRef`, `watchEntriesRef`, `watchStateRef`) to avoid stale closures. The effect is keyed on `[watchState.active, watchState.paused, watchState.source]` — it does NOT restart when data refreshes (that would reset the timer). `currentItemSource` tracks which list ("alerts" or "intel") the current item came from — panes use this to gate highlight/scroll so only one pane lights up at a time during ALL mode.
+
+---
 
 - **Types ONLY, never interfaces** — intellisense populates types better
 - **Tailwind classes ONLY** — no inline `style=` except dynamic per-item colors

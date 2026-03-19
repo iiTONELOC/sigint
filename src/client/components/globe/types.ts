@@ -84,6 +84,8 @@ export type GlobeVisualizationProps = {
   readonly onMiddleClick?: () => void;
   readonly onSelectedSide?: (side: "left" | "right") => void;
   readonly zoomToId?: string | null;
+  /** Gentle reveal — rotate to show point at ISS-level zoom, no lock-on */
+  readonly revealId?: string | null;
   readonly searchMatchIds?: Set<string> | null;
   readonly spatialGrid: SpatialGrid;
   readonly filteredIds: Set<string>;

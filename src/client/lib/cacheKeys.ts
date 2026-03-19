@@ -22,6 +22,8 @@ export const CACHE_KEYS = {
   colorOverrides: `sigint.color-overrides.${V}`,
   news: `sigint.news.articles.${V}`,
   newsState: `sigint.news.state.${V}`,
+  intelBaseline: `sigint.intel.baseline.${V}`,
+  dismissedAlerts: `sigint.alerts.dismissed.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -48,4 +50,9 @@ export const CACHE_KEY_LABELS: Record<
   [CACHE_KEYS.colorOverrides]: { label: "Custom layer colors", group: "UI" },
   [CACHE_KEYS.news]: { label: "News articles", group: "Data" },
   [CACHE_KEYS.newsState]: { label: "News feed state", group: "UI" },
+  [CACHE_KEYS.intelBaseline]: {
+    label: "Intel regional baselines",
+    group: "Data",
+  },
+  [CACHE_KEYS.dismissedAlerts]: { label: "Dismissed alerts", group: "UI" },
 };

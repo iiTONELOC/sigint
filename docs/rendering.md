@@ -163,8 +163,10 @@ Target + lerp model for smooth transitions. `updateCamera()` in `cameraSystem.ts
 | Scroll wheel (locked) | Adjusts `camTargetRef.zoom`, stays locked and centered |
 | Scroll wheel (unlocked) | Directly modifies `camRef` zoom |
 | Pinch zoom | Breaks camera lock. Anchored to finger midpoint on flat map (same math as wheel). |
-| Auto-rotate | Only active when: globe mode, not dragging, not animating to target. Stops permanently on point selection. |
+| Auto-rotate | Only active when: globe mode, not dragging, not animating to target. Default is paused. Watch mode enables it. |
 | Click empty area | Deselects current item, clears isolation |
+| ISS Reveal (`revealId`) | Rotates globe to show the point at 2.5x zoom (ISS altitude). No `lockedId` — camera is free after pan completes. Used by pane clicks (alert log, intel feed, data table). Always rotates — no visibility guessing. |
+| Zoom-to (`zoomToId`) | Full deep zoom + lock-on. Used by LOCATE button. Clears `lastZoomToIdRef` when `zoomToId` goes null, allowing re-locate of the same item. |
 
 **Zoom limits**: Globe mode min 0.55, max 350. Flat mode min 0.85, max 500.
 
@@ -312,6 +314,8 @@ var acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
 ```
 
 Emergency squawk codes always render at full alpha: 7700 (emergency) = red, 7600 (radio failure) = orange, 7500 (hijack) = purple.
+
+**Military aircraft**: When `military === true` in the aircraft data, rendered in orange-red (`#ff6644`) with higher alpha (0.6 base vs 0.2) and larger triangles (1.5x scale). Military aircraft are visually distinct at all zoom levels. The `milFilter` field on the aircraft filter controls visibility: `"all"` (default), `"mil"` (military only), `"civ"` (civilian only). Filter matching is inlined in `pointWorker.js`.
 
 ---
 

@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useHasDossier, requestDossierOpen } from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Tooltip } from "@/components/Tooltip";
+import { ScanEye, Pause } from "lucide-react";
 
 export function LiveTrafficPane() {
   const {
@@ -25,13 +26,37 @@ export function LiveTrafficPane() {
     setChromeHidden,
     zoomToId,
     setZoomToId,
+    revealId,
     searchMatchIds,
     spatialGrid,
     filteredIds,
+    watchActive,
+    watchPaused,
+    watchMode,
+    startWatch,
+    stopWatch,
+    pauseWatch,
+    resumeWatch,
   } = useData();
 
   const [panelSide, setPanelSide] = useState<"left" | "right">("right");
+  const [watchMenuOpen, setWatchMenuOpen] = useState(false);
+  const watchMenuRef = useRef<HTMLDivElement>(null);
   const hasDossier = useHasDossier();
+
+  // Close watch menu on outside click
+  useEffect(() => {
+    if (!watchMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        watchMenuRef.current &&
+        !watchMenuRef.current.contains(e.target as Node)
+      )
+        setWatchMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [watchMenuOpen]);
 
   const handleSetIsolateMode = useCallback(
     (mode: null | "solo" | "focus") => {
@@ -98,6 +123,7 @@ export function LiveTrafficPane() {
         isolatedId={isolateMode ? (selectedCurrent?.id ?? null) : null}
         isolateMode={isolateMode}
         zoomToId={zoomToId}
+        revealId={revealId}
         searchMatchIds={searchMatchIds}
         onSelectedSide={setPanelSide}
         spatialGrid={spatialGrid}
@@ -106,7 +132,7 @@ export function LiveTrafficPane() {
 
       {/* ── View controls — top-left overlay on globe ─────────────── */}
       {!chromeHidden && (
-        <div className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1">
+        <div className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap">
           <Tooltip
             content={flat ? "Switch to globe view" : "Switch to flat map"}
             placement="bottom"
@@ -135,6 +161,87 @@ export function LiveTrafficPane() {
               {autoRotate ? "⏸ ROT" : "▶ ROT"}
             </button>
           </Tooltip>
+
+          {/* Watch mode */}
+          <div className="relative" ref={watchMenuRef}>
+            {!watchActive && (
+              <Tooltip
+                content="Auto-tour alerts/intel on globe"
+                placement="bottom"
+              >
+                <button
+                  onClick={() => setWatchMenuOpen((v) => !v)}
+                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel"
+                >
+                  👁 WATCH
+                </button>
+              </Tooltip>
+            )}
+            {watchActive && !watchPaused && (
+              <Tooltip content="Pause watch" placement="bottom">
+                <button
+                  onClick={pauseWatch}
+                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45"
+                >
+                  ⏸ WATCH
+                </button>
+              </Tooltip>
+            )}
+            {watchActive && watchPaused && (
+              <div className="flex items-center gap-0.5">
+                <Tooltip content="Resume watch" placement="bottom">
+                  <button
+                    onClick={resumeWatch}
+                    className="px-1.5 py-0.5 rounded-l tracking-wider font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20"
+                  >
+                    ▶ RESUME
+                  </button>
+                </Tooltip>
+                <Tooltip content="Stop watch" placement="bottom">
+                  <button
+                    onClick={stopWatch}
+                    className="px-1 py-0.5 rounded-r tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger"
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+            {watchMenuOpen && !watchActive && (
+              <div className="absolute top-full left-0 mt-1 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-24 z-30">
+                {(["alerts", "intel", "all"] as const).map((src) => (
+                  <button
+                    key={src}
+                    onClick={() => {
+                      startWatch(src);
+                      setWatchMenuOpen(false);
+                    }}
+                    className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider"
+                  >
+                    {src === "alerts"
+                      ? "⚡ ALERTS"
+                      : src === "intel"
+                        ? "🔗 INTEL"
+                        : "📡 ALL"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {watchActive && (
+            <span
+              className={`text-[10px] tracking-wider font-mono bg-sig-panel/75 px-1.5 py-0.5 rounded border ${
+                watchPaused
+                  ? "text-yellow-400 border-yellow-400/30"
+                  : "text-sig-accent border-sig-accent/30"
+              }`}
+            >
+              {watchPaused ? "PAUSED " : ""}
+              {watchMode.index + 1}/{watchMode.items.length} ·{" "}
+              {watchMode.source.toUpperCase()}
+            </span>
+          )}
 
           <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded bg-sig-panel/75 border border-sig-border/50">
             <span className="text-sig-dim text-(length:--sig-text-sm)">

@@ -90,6 +90,22 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 ---
 
+## Military Aircraft Classification
+
+Aircraft are classified as military via a heuristic system in `server/api/aircraftMetadata.ts`. Three signals are checked against the `ac-db.ndjson` database:
+
+1. **ICAO type codes** — 50+ known military type designators (F-16, C-17, KC-135, MQ-9, etc.)
+2. **Operator keywords** — 15 military operator strings (Air Force, Navy, Marines, Army, RAF, etc.)
+3. **US DoD ICAO24 hex range** — AE0000–AFFFFF (US military block)
+
+Any match sets `military: true` on the `AircraftMetadata` response. ~15,700 aircraft flagged across ~616K records.
+
+**Client-side flow**: `AircraftData` type includes `military: boolean`. The aircraft filter has a `milFilter` field (`"all" | "mil" | "civ"`). Filter URL syncs milFilter to query params.
+
+**Rendering**: Military aircraft render in orange-red (`#ff6644`) with higher alpha and larger triangles in `pointWorker.js`. MIL badge shows in the ticker and dossier. Emergency squawk alerts include "MIL" prefix for military aircraft. The correlation engine uses military classification for the "military aircraft near conflict zone" cross-source rule.
+
+---
+
 ## Data Sources
 
 | Source | Type | API | Status | Poll Interval |
@@ -107,6 +123,6 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 Not all data sources are features. Two pane types operate entirely outside the feature system:
 
-**RSS News** (`panes/news-feed/`): Non-geographic (no lat/lon). Does NOT use FeatureDefinition, DataPoint union, feature registry, or BaseProvider. Has its own provider class (`NewsProvider`) that mirrors BaseProvider's API surface. Own hook (`useNewsData`) following `useProviderData` pattern. Consumed directly by `NewsFeedPane` — not through `DataContext` or `allData`.
+**RSS News** (`panes/news-feed/`): Non-geographic (no lat/lon). Does NOT use FeatureDefinition, DataPoint union, feature registry, or BaseProvider. Has its own provider class (`NewsProvider`) that mirrors BaseProvider's API surface. Own hook (`useNewsData`) following `useProviderData` pattern. Hook called in `DataContext`, `newsArticles` exposed on context value. Consumed by `NewsFeedPane` via `useData()` and by the correlation engine for news linking.
 
 **Video Feed** (`panes/video-feed/`): Not a data source at all — plays live HLS video streams from the iptv-org community channel directory. No data pipeline, no provider, no hook. Self-contained pane with its own channel service, persistence, and preset system. Depends on `hls.js` (Apache 2.0).

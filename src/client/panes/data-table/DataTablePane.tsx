@@ -199,6 +199,7 @@ export function DataTablePane() {
     selectedCurrent,
     setSelected,
     selectAndZoom,
+    setRevealId,
     colorMap,
   } = useData();
   const { theme } = useTheme();
@@ -318,8 +319,10 @@ export function DataTablePane() {
   const handleRowClick = useCallback(
     (item: DataPoint) => {
       setSelected(item);
+      setRevealId(item.id);
+      setTimeout(() => setRevealId(null), 200);
     },
-    [setSelected],
+    [setSelected, setRevealId],
   );
 
   const handleZoomTo = useCallback(

@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
-
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
+import { cacheGet, cacheSet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   Bell,
@@ -13,123 +14,38 @@ import {
   Activity,
   Flame,
   CloudAlert,
+  XCircle,
+  Trash2,
 } from "lucide-react";
 import { relativeAge } from "@/lib/timeFormat";
+import type { ScoredAlert } from "@/lib/correlationEngine";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const ROW_HEIGHT = 56;
+const ROW_HEIGHT = 64;
 const OVERSCAN = 6;
 
-// ── Alert types ──────────────────────────────────────────────────────
+// ── Dismissed alerts persistence ────────────────────────────────────
 
-type AlertItem = {
-  item: DataPoint;
-  alertLabel: string;
-  priority: number;
-};
-
-// ── Detect notable items ─────────────────────────────────────────────
-
-function extractAlerts(allData: DataPoint[]): AlertItem[] {
-  const alerts: AlertItem[] = [];
-
-  for (const item of allData) {
-    const d = item.data as Record<string, unknown>;
-
-    if (item.type === "aircraft") {
-      const sq = (d.squawk as string) ?? "";
-      const isMil = d.military === true;
-      if (sq === "7700") {
-        alerts.push({
-          item,
-          alertLabel: isMil ? "MIL SQUAWK 7700 — EMERGENCY" : "SQUAWK 7700 — EMERGENCY",
-          priority: isMil ? 10 : 10,
-        });
-      } else if (sq === "7600") {
-        alerts.push({
-          item,
-          alertLabel: isMil ? "MIL SQUAWK 7600 — RADIO FAILURE" : "SQUAWK 7600 — RADIO FAILURE",
-          priority: isMil ? 10 : 9,
-        });
-      } else if (sq === "7500") {
-        alerts.push({ item, alertLabel: isMil ? "MIL SQUAWK 7500 — HIJACK" : "SQUAWK 7500 — HIJACK", priority: 10 });
-      }
-      continue;
-    }
-
-    if (item.type === "events") {
-      const sev = (d.severity as number) ?? 0;
-      if (sev >= 4) {
-        alerts.push({
-          item,
-          alertLabel: sev >= 5 ? "CRISIS EVENT" : "CONFLICT EVENT",
-          priority: sev >= 5 ? 8 : 6,
-        });
-      }
-      continue;
-    }
-
-    if (item.type === "quakes") {
-      const mag = (d.magnitude as number) ?? 0;
-      if (mag >= 4.5) {
-        const tsunami = d.tsunami === true;
-        alerts.push({
-          item,
-          alertLabel: `M${mag.toFixed(1)} EARTHQUAKE${tsunami ? " — TSUNAMI" : ""}`,
-          priority: mag >= 6 ? 9 : mag >= 5 ? 7 : 5,
-        });
-      }
-      continue;
-    }
-
-    if (item.type === "fires") {
-      const frp = (d.frp as number) ?? 0;
-      if (frp >= 50) {
-        alerts.push({
-          item,
-          alertLabel: `HIGH-INTENSITY FIRE — FRP ${frp.toFixed(0)} MW`,
-          priority: frp >= 100 ? 7 : 5,
-        });
-      }
-      continue;
-    }
-
-    if (item.type === "weather") {
-      const sev = (d.severity as string) ?? "";
-      if (sev === "Extreme" || sev === "Severe") {
-        alerts.push({
-          item,
-          alertLabel: `${sev.toUpperCase()} — ${(d.event as string) || "WEATHER ALERT"}`,
-          priority: sev === "Extreme" ? 8 : 6,
-        });
-      }
-      continue;
-    }
-  }
-
-  // Filter to last 24h only
-  const cutoff = Date.now() - 24 * 60 * 60_000;
-  const recent = alerts.filter((a) => {
-    if (!a.item.timestamp) return true; // no timestamp = treat as current
-    return new Date(a.item.timestamp).getTime() > cutoff;
-  });
-
-  // Sort by timestamp descending (newest first)
-  recent.sort((a, b) => {
-    const ta = a.item.timestamp
-      ? new Date(a.item.timestamp).getTime()
-      : Date.now();
-    const tb = b.item.timestamp
-      ? new Date(b.item.timestamp).getTime()
-      : Date.now();
-    return tb - ta;
-  });
-
-  return recent;
+function loadDismissed(): Set<string> {
+  const arr = cacheGet<string[]>(CACHE_KEYS.dismissedAlerts);
+  return new Set(Array.isArray(arr) ? arr : []);
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
+function persistDismissed(ids: Set<string>): void {
+  cacheSet(CACHE_KEYS.dismissedAlerts, Array.from(ids));
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+const TYPE_ICONS: Record<string, typeof Plane> = {
+  aircraft: Plane,
+  ships: Anchor,
+  events: Zap,
+  quakes: Activity,
+  fires: Flame,
+  weather: CloudAlert,
+};
 
 function getDetail(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
@@ -149,59 +65,116 @@ function getDetail(item: DataPoint): string {
   }
 }
 
-const TYPE_ICONS: Record<string, typeof Plane> = {
-  aircraft: Plane,
-  ships: Anchor,
-  events: Zap,
-  quakes: Activity,
-  fires: Flame,
-  weather: CloudAlert,
-};
-
-function getPrioBorderClass(priority: number): string {
-  if (priority >= 8) return "border-l-sig-danger";
-  if (priority >= 5) return "border-l-[var(--sigint-warn)]";
+function scoreBorderClass(score: number): string {
+  if (score >= 8) return "border-l-sig-danger";
+  if (score >= 5) return "border-l-[var(--sigint-warn)]";
   return "border-l-sig-accent";
 }
 
-function getPrioTextClass(priority: number): string {
-  if (priority >= 8) return "text-sig-danger";
-  if (priority >= 5) return "text-[var(--sigint-warn)]";
+function scoreTextClass(score: number): string {
+  if (score >= 8) return "text-sig-danger";
+  if (score >= 5) return "text-[var(--sigint-warn)]";
   return "text-sig-accent";
+}
+
+function scoreBadgeClass(score: number): string {
+  if (score >= 8) return "text-red-400 bg-red-400/10 border-red-400/30";
+  if (score >= 5)
+    return "text-orange-400 bg-orange-400/10 border-orange-400/30";
+  return "text-yellow-400 bg-yellow-400/10 border-yellow-400/30";
 }
 
 // ── Component ───────────────────────────────────────────────────────
 
 export function AlertLogPane() {
-  const { allData, selectedCurrent, setSelected, selectAndZoom, colorMap } =
-    useData();
+  const {
+    selectedCurrent,
+    setSelected,
+    selectAndZoom,
+    setRevealId,
+    colorMap,
+    correlation,
+    watchActive,
+    watchMode,
+    watchProgress,
+  } = useData();
   const { theme } = useTheme();
 
-  const alerts = useMemo(() => extractAlerts(allData), [allData]);
+  const alerts = correlation.alerts;
 
-  // ── Filter / sort state ─────────────────────────────────────────
+  // ── Dismissed state ─────────────────────────────────────────────
+
+  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed);
+
+  const dismissAlert = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      persistDismissed(next);
+      return next;
+    });
+  }, []);
+
+  const clearAllDismissed = useCallback(() => {
+    setDismissed(new Set());
+    persistDismissed(new Set());
+  }, []);
+
+  // ── Filter / sort ───────────────────────────────────────────────
+
   const [filterType, setFilterType] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"time" | "priority">("time");
+  const [sortBy, setSortBy] = useState<"score" | "time">("score");
 
   const filteredAlerts = useMemo(() => {
-    let list = alerts;
+    let list = alerts.filter((a) => !dismissed.has(a.item.id));
     if (filterType) list = list.filter((a) => a.item.type === filterType);
-    if (sortBy === "priority") {
-      list = [...list].sort(
-        (a, b) =>
-          b.priority - a.priority ||
-          (b.item.timestamp
-            ? new Date(b.item.timestamp).getTime()
-            : Date.now()) -
-            (a.item.timestamp
-              ? new Date(a.item.timestamp).getTime()
-              : Date.now()),
-      );
+    if (sortBy === "time") {
+      list = [...list].sort((a, b) => {
+        const ta = a.item.timestamp
+          ? new Date(a.item.timestamp).getTime()
+          : Date.now();
+        const tb = b.item.timestamp
+          ? new Date(b.item.timestamp).getTime()
+          : Date.now();
+        return tb - ta;
+      });
     }
     return list;
-  }, [alerts, filterType, sortBy]);
+  }, [alerts, dismissed, filterType, sortBy]);
+
+  const activeCount = alerts.filter((a) => !dismissed.has(a.item.id)).length;
+
+  // ── Watch — read from shared context (no local WATCH button) ───
+
+  const isWatchingAlerts =
+    watchActive &&
+    (watchMode.source === "alerts" || watchMode.source === "all");
+
+  // Only highlight/scroll when the current watch item is actually from alerts
+  const isAlertActive =
+    isWatchingAlerts && watchMode.currentItemSource === "alerts";
+
+  // ── Type counts ─────────────────────────────────────────────────
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const visible = alerts.filter((a) => !dismissed.has(a.item.id));
+    for (const a of visible)
+      counts[a.item.type] = (counts[a.item.type] ?? 0) + 1;
+    return counts;
+  }, [alerts, dismissed]);
+
+  const filterTypes = useMemo(
+    () =>
+      Object.keys(typeCounts).sort(
+        (a, b) => (typeCounts[b] ?? 0) - (typeCounts[a] ?? 0),
+      ),
+    [typeCounts],
+  );
 
   // ── Virtual scroll ──────────────────────────────────────────────
+
   const {
     scrollRef,
     totalHeight,
@@ -210,43 +183,40 @@ export function AlertLogPane() {
     endIdx,
     onScroll,
     scrollToTop,
+    scrollToIndex,
   } = useVirtualScroll({
     itemCount: filteredAlerts.length,
     rowHeight: ROW_HEIGHT,
     overscan: OVERSCAN,
   });
 
-  // Reset scroll on filter change
   useEffect(() => {
     scrollToTop();
   }, [filterType, sortBy, scrollToTop]);
+
+  // Auto-scroll to watch target (only when current item is from alerts)
+  useEffect(() => {
+    if (!isAlertActive || !watchMode.currentId) return;
+    const idx = filteredAlerts.findIndex(
+      (a) => a.item.id === watchMode.currentId,
+    );
+    if (idx >= 0) scrollToIndex(idx);
+  }, [isAlertActive, watchMode.currentId, filteredAlerts, scrollToIndex]);
 
   const visibleAlerts = useMemo(
     () => filteredAlerts.slice(startIdx, endIdx),
     [filteredAlerts, startIdx, endIdx],
   );
 
-  // ── Type counts for filter tabs ─────────────────────────────────
-  const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const a of alerts) {
-      counts[a.item.type] = (counts[a.item.type] ?? 0) + 1;
-    }
-    return counts;
-  }, [alerts]);
-
-  const filterTypes = useMemo(() => {
-    const types = Object.keys(typeCounts).sort(
-      (a, b) => (typeCounts[b] ?? 0) - (typeCounts[a] ?? 0),
-    );
-    return types;
-  }, [typeCounts]);
-
   // ── Handlers ────────────────────────────────────────────────────
 
   const handleClick = useCallback(
-    (item: DataPoint) => setSelected(item),
-    [setSelected],
+    (item: DataPoint) => {
+      setSelected(item);
+      setRevealId(item.id);
+      setTimeout(() => setRevealId(null), 200);
+    },
+    [setSelected, setRevealId],
   );
 
   const handleZoom = useCallback(
@@ -261,19 +231,25 @@ export function AlertLogPane() {
 
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
-      {/* Filter / sort toolbar */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 overflow-x-auto sigint-scroll">
+      {/* ── Toolbar ─────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 flex-wrap">
+        {/* Watch indicator (no button — controlled from globe) */}
+        {isAlertActive && (
+          <span className="text-[10px] text-sig-accent tracking-wider font-mono shrink-0 px-1.5 py-0.5 rounded bg-sig-accent/10 border border-sig-accent/30">
+            WATCHING {watchMode.index + 1}/{watchMode.items.length}
+          </span>
+        )}
+
         <span className="text-sig-danger text-(length:--sig-text-sm) font-semibold shrink-0">
-          {alerts.length} active
+          {activeCount}
         </span>
-        <div className="w-px h-3 bg-sig-border/40 shrink-0 mx-0.5" />
-        {/* Type filter tabs */}
+
         <button
           onClick={() => setFilterType(null)}
           className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             filterType === null
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-              : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+              : "text-sig-dim bg-transparent border-sig-border/40"
           }`}
         >
           ALL
@@ -288,7 +264,7 @@ export function AlertLogPane() {
               className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border flex items-center gap-1 ${
                 filterType === t
                   ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                  : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+                  : "text-sig-dim bg-transparent border-sig-border/40"
               }`}
             >
               <Icon size={9} strokeWidth={2.5} style={{ color }} />
@@ -296,22 +272,44 @@ export function AlertLogPane() {
             </button>
           );
         })}
+
         <div className="flex-1" />
-        {/* Sort toggle */}
+
+        {dismissed.size > 0 && (
+          <button
+            onClick={clearAllDismissed}
+            className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+            title={`Restore ${dismissed.size} dismissed alert${dismissed.size > 1 ? "s" : ""}`}
+          >
+            <Trash2 size={9} strokeWidth={2.5} className="inline mr-0.5" />
+            {dismissed.size}
+          </button>
+        )}
+
         <button
-          onClick={() => setSortBy((s) => (s === "time" ? "priority" : "time"))}
+          onClick={() => setSortBy((s) => (s === "score" ? "time" : "score"))}
           className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
           title={
-            sortBy === "time"
-              ? "Sorted by time — click for priority"
-              : "Sorted by priority — click for time"
+            sortBy === "score"
+              ? "Sorted by score — click for time"
+              : "Sorted by time — click for score"
           }
         >
-          {sortBy === "time" ? "⏱ NEW" : "⚡ PRI"}
+          {sortBy === "score" ? "⚡ SCORE" : "⏱ NEW"}
         </button>
       </div>
 
-      {/* Virtual scrolling alert list */}
+      {/* Watch progress bar */}
+      {isAlertActive && (
+        <div className="h-0.5 bg-sig-border/20 shrink-0">
+          <div
+            className="h-full bg-sig-accent transition-all duration-100"
+            style={{ width: `${watchProgress * 100}%` }}
+          />
+        </div>
+      )}
+
+      {/* ── Alert list ──────────────────────────────────────────────── */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -325,19 +323,27 @@ export function AlertLogPane() {
               const Icon = TYPE_ICONS[alert.item.type] ?? Activity;
               const color = colorMap[alert.item.type] ?? theme.colors.dim;
               const isSelected = selectedCurrent?.id === alert.item.id;
+              const isWatchTarget =
+                isAlertActive && watchMode.currentId === alert.item.id;
+              // During ALL watch, suppress selection glow when watch is currently on an intel item
+              // During watch, suppress selection highlight when this isn't the active source
+              const showSelected =
+                isSelected && (!watchActive || isWatchTarget);
               const age = relativeAge(alert.item.timestamp);
               const detail = getDetail(alert.item);
-              const borderCls = getPrioBorderClass(alert.priority);
-              const textCls = getPrioTextClass(alert.priority);
+              const borderCls = scoreBorderClass(alert.score);
+              const textCls = scoreTextClass(alert.score);
 
               return (
                 <div
                   key={`${alert.item.id}-${startIdx + localIdx}`}
                   onClick={() => handleClick(alert.item)}
                   className={`px-3 py-1.5 border-b border-sig-border/20 border-l-2 cursor-pointer transition-colors ${borderCls} ${
-                    isSelected
-                      ? "bg-sig-accent/10"
-                      : "bg-transparent hover:bg-sig-panel/40"
+                    isWatchTarget
+                      ? "bg-sig-accent/15"
+                      : showSelected
+                        ? "bg-sig-accent/10"
+                        : "bg-transparent hover:bg-sig-panel/40"
                   }`}
                   style={{ height: ROW_HEIGHT }}
                 >
@@ -351,7 +357,12 @@ export function AlertLogPane() {
                     <span
                       className={`text-(length:--sig-text-sm) font-bold tracking-wider truncate ${textCls}`}
                     >
-                      {alert.alertLabel}
+                      {alert.label}
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-1 py-0 rounded text-[9px] font-bold tracking-wider border shrink-0 ${scoreBadgeClass(alert.score)}`}
+                    >
+                      {alert.score}
                     </span>
                     <span className="ml-auto text-(length:--sig-text-sm) text-sig-dim shrink-0">
                       {age}
@@ -360,30 +371,50 @@ export function AlertLogPane() {
                   <div className="text-sig-text text-(length:--sig-text-sm) mt-0.5 truncate ml-5">
                     {detail}
                   </div>
-                  <div className="flex items-center mt-0.5 ml-5">
-                    <div className="flex-1" />
-                    <button
-                      onClick={(e) => handleZoom(alert.item, e)}
-                      className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-                      title="Zoom to"
-                    >
-                      <Locate size={11} strokeWidth={2.5} />
-                    </button>
+                  <div className="flex items-center mt-0.5 ml-5 gap-1">
+                    <span className="text-[9px] text-sig-dim truncate">
+                      {alert.factors.join(" · ")}
+                    </span>
+                    <div className="ml-auto flex items-center gap-0.5 shrink-0">
+                      <button
+                        onClick={(e) => dismissAlert(alert.item.id, e)}
+                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
+                        title="Dismiss alert"
+                      >
+                        <XCircle size={11} strokeWidth={2} />
+                      </button>
+                      <button
+                        onClick={(e) => handleZoom(alert.item, e)}
+                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+                        title="Zoom to"
+                      >
+                        <Locate size={11} strokeWidth={2.5} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-        {alerts.length === 0 && (
+        {filteredAlerts.length === 0 && activeCount > 0 && (
           <div className="flex flex-col items-center justify-center h-full text-sig-dim">
             <Bell size={24} className="opacity-20 mb-2" />
             <span className="text-(length:--sig-text-md)">
-              No active alerts
+              No alerts match filter
+            </span>
+          </div>
+        )}
+        {activeCount === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-sig-dim">
+            <Bell size={24} className="opacity-20 mb-2" />
+            <span className="text-(length:--sig-text-md)">
+              {dismissed.size > 0 ? "All alerts dismissed" : "No active alerts"}
             </span>
             <span className="text-(length:--sig-text-sm) mt-1 text-center px-4">
-              Monitoring for squawk codes, severe weather, large quakes,
-              high-FRP fires, crisis events
+              {dismissed.size > 0
+                ? `${dismissed.size} dismissed — click restore button to see them`
+                : "Context-scored monitoring for emergency squawks, severe events, large quakes, high-FRP fires, extreme weather"}
             </span>
           </div>
         )}

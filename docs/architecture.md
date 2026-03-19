@@ -10,7 +10,7 @@
 
 ## System Overview
 
-SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), and severe weather alerts (via NOAA) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data, FIRMS fire data, and RSS news feeds server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
+SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), and severe weather alerts (via NOAA) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A correlation engine derives intelligence products and context-scored alerts from cross-source spatial-temporal matching, anomaly detection, and news linking. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data, FIRMS fire data, and RSS news feeds server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
 
 The rendering pipeline uses a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, data points, trails, and selection rings — on a separate CPU core. The main thread handles camera updates, input handling, and composites the finished `ImageBitmap` via a single `drawImage` call.
 
@@ -216,9 +216,9 @@ src/
       ThemeContext.tsx                 Theme provider (dark/light)
       DataContext.tsx                  Shared data context — all app state, idMap, spatialGrid, filteredIds
     panes/
-      PaneManager.tsx                 Multi-pane layout engine (grid, resize, minimize, mobile tabs)
+      PaneManager.tsx                 Multi-pane layout engine (grid, resize, minimize, mobile tabs, watch layout)
       PaneHeader.tsx                  Pane header bar (title, controls, rearrange)
-      paneLayoutContext.ts            useSyncExternalStore signal (NOT React context)
+      paneLayoutContext.ts            useSyncExternalStore signals: dossier open + watch layout (NOT React context)
       live-traffic/
         LiveTrafficPane.tsx           Globe + overlays (detail panel, legend, status badge)
       data-table/
@@ -226,12 +226,11 @@ src/
       dossier/
         DossierPane.tsx               Entity dossier — aircraft photos/route, ship details, event/quake/fire info
       intel-feed/
-        IntelFeedPane.tsx             Scrollable intel feed — GDELT events, quakes, fires with severity badges
+        IntelFeedPane.tsx             Correlated intel feed — INTEL view (products: clusters, correlations, anomalies, news links) + RAW view (chronological firehose)
       alert-log/
-        AlertLogPane.tsx              Priority alerts — emergency squawks, high-FRP fires, severe weather, crisis events
+        AlertLogPane.tsx              Context-scored priority alerts — correlation engine output, dismiss to IndexedDB, watch integration
       raw-console/
-        RawConsolePane.tsx            Raw data console — JSON view with syntax highlighting
-        jsonHighlight.tsx             Zero-dep JSON syntax highlighter using CSS vars
+        RawConsolePane.tsx            Raw data console — JSON view with inline syntax highlighting (theme-aware, zero deps)
       video-feed/
         VideoFeedPane.tsx             Live HLS video streams — iptv-org channels, grid layout, presets
         VideoSlot.tsx                 Single video slot with HLS player and controls
@@ -310,6 +309,9 @@ src/
       spatialIndex.ts                 Grid-based spatial hash + inverse projection for click/hover
       tickerFeed.ts                   Ticker items — round-robin interleave, non-moving filtered out
       uiSelectors.ts                  Derived counts, active totals, country lists
+      correlationEngine.ts            Cross-source correlation, anomaly detection, alert scoring, news linking
+      cacheKeys.ts                    All IndexedDB cache key constants + labels
+      timeFormat.ts                   Relative age formatting (relativeAge)
     data/
       mockData.ts                     Mock aircraft (fallback only — no mock ships)
 ```
@@ -352,7 +354,7 @@ All shared state lives in `DataContext`, exposed via `useData()`. There is no ex
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
 - **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather), selection, isolation, layers, filters, view controls, search, derived values. Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set).
+- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather, news), selection, isolation, layers, filters, view controls, search, derived values. Runs the correlation engine (`computeCorrelations`) as a `useMemo` on `allData` + `newsArticles` — shared via `correlation` on context. Manages watch mode state (active/paused, source, cycling, progress). Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set). Default rotation is paused.
 - **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Layout presets (save/load/update/delete named views). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
 - **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
 - **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Column header tooltips. Auto-scrolls to selected item when selection changes from external source (ticker, globe).

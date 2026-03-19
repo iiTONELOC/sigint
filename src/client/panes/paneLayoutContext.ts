@@ -35,3 +35,16 @@ export function onDossierOpenRequest(cb: () => void): () => void {
   dossierRequestListeners.add(cb);
   return () => dossierRequestListeners.delete(cb);
 }
+
+// ── Request watch layout (ensures dossier + alerts + intel open) ──
+
+const watchLayoutListeners = new Set<() => void>();
+
+export function requestWatchLayout() {
+  watchLayoutListeners.forEach((cb) => cb());
+}
+
+export function onWatchLayoutRequest(cb: () => void): () => void {
+  watchLayoutListeners.add(cb);
+  return () => watchLayoutListeners.delete(cb);
+}

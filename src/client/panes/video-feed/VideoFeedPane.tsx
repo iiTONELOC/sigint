@@ -1,13 +1,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Square,
+  Columns2,
   LayoutGrid,
   Loader2,
   Bookmark,
   Minimize,
   Maximize,
 } from "lucide-react";
-import type { Channel, GridLayout, SlotState, SavedState } from "./videoFeedTypes";
+import type {
+  Channel,
+  GridLayout,
+  SlotState,
+  SavedState,
+} from "./videoFeedTypes";
 import { fetchNewsChannels } from "./channelService";
 import {
   saveState,
@@ -201,6 +207,8 @@ export function VideoFeedPane() {
     switch (gridLayout) {
       case 1:
         return "grid-cols-1 grid-rows-1";
+      case 2:
+        return "grid-cols-2 grid-rows-1";
       case 4:
         return "grid-cols-2 grid-rows-2";
       case 9:
@@ -229,16 +237,18 @@ export function VideoFeedPane() {
           >
             <Minimize size={10} strokeWidth={2.5} />
             RESTORE{" "}
-            {prePromoteGrid === 4
-              ? "2×2"
-              : prePromoteGrid === 9
-                ? "3×3"
-                : "GRID"}
+            {prePromoteGrid === 2
+              ? "2×1"
+              : prePromoteGrid === 4
+                ? "2×2"
+                : prePromoteGrid === 9
+                  ? "3×3"
+                  : "GRID"}
           </button>
         )}
 
         <div className="flex items-center gap-0.5">
-          {([1, 4, 9] as GridLayout[]).map((g) => (
+          {([1, 2, 4, 9] as GridLayout[]).map((g) => (
             <button
               key={g}
               onClick={() => {
@@ -251,10 +261,14 @@ export function VideoFeedPane() {
                   ? "text-sig-accent bg-sig-accent/15"
                   : "text-sig-dim bg-transparent hover:text-sig-bright"
               }`}
-              title={g === 1 ? "Single" : g === 4 ? "2×2" : "3×3"}
+              title={
+                g === 1 ? "Single" : g === 2 ? "2×1" : g === 4 ? "2×2" : "3×3"
+              }
             >
               {g === 1 ? (
                 <Square size={12} strokeWidth={2.5} />
+              ) : g === 2 ? (
+                <Columns2 size={12} strokeWidth={2.5} />
               ) : g === 4 ? (
                 <LayoutGrid size={12} strokeWidth={2.5} />
               ) : (
