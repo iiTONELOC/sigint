@@ -29,7 +29,7 @@ type NewsSnapshot = {
 
 const NEWS_URL = "/api/news/latest";
 const CACHE_KEY = CACHE_KEYS.news;
-const MAX_CACHE_AGE_MS = 30 * 60_000; // 30 min staleness
+const MAX_CACHE_AGE_MS = 12 * 60 * 60_000; // 12 hours staleness
 
 class NewsProvider {
   private cache: { data: NewsArticle[]; timestamp: number } | null = null;
@@ -46,13 +46,19 @@ class NewsProvider {
     cacheSet(CACHE_KEY, { timestamp: Date.now(), data });
   }
 
-  private readPersistedCache(): { data: NewsArticle[]; timestamp: number } | null {
-    const cached = cacheGet<{ data?: NewsArticle[]; timestamp?: number }>(CACHE_KEY);
+  private readPersistedCache(): {
+    data: NewsArticle[];
+    timestamp: number;
+  } | null {
+    const cached = cacheGet<{ data?: NewsArticle[]; timestamp?: number }>(
+      CACHE_KEY,
+    );
     if (!cached || !Array.isArray(cached.data)) return null;
     return {
       data: cached.data,
       timestamp:
-        typeof cached.timestamp === "number" && Number.isFinite(cached.timestamp)
+        typeof cached.timestamp === "number" &&
+        Number.isFinite(cached.timestamp)
           ? cached.timestamp
           : 0,
     };

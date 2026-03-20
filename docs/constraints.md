@@ -142,6 +142,8 @@ Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go
 
 FIRMS and GDELT server caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage). This prevents the client from seeing an empty layer when the upstream API is temporarily down. The `sourceHealth` module on the client treats `"empty"` as NOT a down state for the same reason. The news cache follows the same pattern — stale articles retained if all RSS feeds fail.
 
+**Client-side**: `BaseProvider.refresh()` applies the same stale retention — if the fetch returns 0 records but the cache has data, the cache is kept with a bumped timestamp. On boot, `cacheInit()` purges any poisoned empty caches (entries with `{ data: [] }`) so hydration falls through to a fresh fetch.
+
 ---
 
 ## News and Video Are NOT Geographic Features

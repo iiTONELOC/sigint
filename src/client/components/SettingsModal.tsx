@@ -311,6 +311,25 @@ function AppearanceTab({
   const overrides = colorOverrides[modeKey];
   const hasAnyOverride = Object.keys(overrides).length > 0;
 
+  // Ticker speed
+  const [tickerSpeed, setTickerSpeed] = useState(() => {
+    const saved = cacheGet<number>(CACHE_KEYS.tickerSpeed);
+    return typeof saved === "number" ? saved : 10;
+  });
+  const handleTickerSpeed = useCallback((val: number) => {
+    setTickerSpeed(val);
+    cacheSet(CACHE_KEYS.tickerSpeed, val);
+  }, []);
+
+  const speedLabel =
+    tickerSpeed === 0
+      ? "STOPPED"
+      : tickerSpeed <= 25
+        ? "SLOW"
+        : tickerSpeed <= 60
+          ? "NORMAL"
+          : "FAST";
+
   return (
     <div className="space-y-5">
       {/* Theme toggle */}
@@ -339,6 +358,35 @@ function AppearanceTab({
             <Sun size={16} />
             <span className="text-sm font-semibold tracking-wider">LIGHT</span>
           </button>
+        </div>
+      </div>
+
+      {/* Ticker speed */}
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-3">
+          LIVE FEED TICKER
+        </div>
+        <div className="flex items-center gap-3 px-2.5 py-2 rounded bg-sig-bg/30 border border-sig-border/20">
+          <span className="text-sm text-sig-text font-semibold tracking-wider w-16 shrink-0">
+            {speedLabel}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={tickerSpeed}
+            onChange={(e) => handleTickerSpeed(Number(e.target.value))}
+            className="flex-1 accent-sig-accent cursor-pointer"
+            title={`Ticker speed: ${tickerSpeed} px/s`}
+          />
+          <span className="text-xs text-sig-dim tabular-nums w-10 text-right shrink-0">
+            {tickerSpeed === 0 ? "OFF" : `${tickerSpeed}`}
+          </span>
+        </div>
+        <div className="text-xs text-sig-dim/60 mt-1.5 leading-snug">
+          Controls scroll speed of the live feed ticker. Set to 0 to stop
+          scrolling (items swap periodically).
         </div>
       </div>
 
@@ -719,7 +767,8 @@ function NewsFeedsTab() {
           DEFAULT SOURCES
         </div>
         <div className="text-xs text-sig-dim/70 mb-2 leading-snug">
-          These feeds are polled server-side every 10 minutes and cached locally.
+          These feeds are polled server-side every 10 minutes and cached
+          locally.
         </div>
         <div className="space-y-1">
           {NEWS_SOURCES.map((name) => (
@@ -748,7 +797,7 @@ function NewsFeedsTab() {
             CLEAR NEWS CACHE
           </button>
           <span className="text-xs text-sig-dim/60">
-            Articles cached locally for 30 min
+            Articles cached locally for 12 hours
           </span>
         </div>
       </div>

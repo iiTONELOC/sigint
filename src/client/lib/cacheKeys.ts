@@ -24,6 +24,7 @@ export const CACHE_KEYS = {
   newsState: `sigint.news.state.${V}`,
   intelBaseline: `sigint.intel.baseline.${V}`,
   dismissedAlerts: `sigint.alerts.dismissed.${V}`,
+  tickerSpeed: `sigint.ticker.speed.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -55,4 +56,5 @@ export const CACHE_KEY_LABELS: Record<
     group: "Data",
   },
   [CACHE_KEYS.dismissedAlerts]: { label: "Dismissed alerts", group: "UI" },
+  [CACHE_KEYS.tickerSpeed]: { label: "Ticker speed", group: "UI" },
 };

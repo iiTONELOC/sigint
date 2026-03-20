@@ -332,7 +332,7 @@ graph TD
     Header --> ViewControls["Globe/flat, rotation"]
     Header --> Clock["Clock"]
 
-    AppShell --> PM["PaneManager<br/><i>Binary split tree, resize, drag-to-swap, type switcher</i>"]
+    AppShell --> PM["PaneManager<br/><i>Binary split tree, resize, drag-to-move (swap + insert), type switcher</i>"]
     PM --> LTP["LiveTrafficPane<br/><i>Globe + overlays</i>"]
     PM --> DTP["DataTablePane<br/><i>Virtual-scrolling table</i>"]
     PM --> DSP["DossierPane<br/><i>Entity dossier</i>"]

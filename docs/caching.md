@@ -33,10 +33,11 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 | `sigint.dossier.cache.v1` | DossierPane | Aircraft dossier responses (max 200 entries) | On each dossier fetch | 30 min TTL per entry |
 | `sigint.videofeed.state.v1` | VideoFeedPane | Grid layout + channel selections | On slot/grid change | Never expires |
 | `sigint.videofeed.presets.v1` | VideoFeedPane | Named channel preset configurations | On save/delete | Never expires |
-| `sigint.news.articles.v1` | newsProvider | RSS news articles (up to 200) | Every 600s | Rejected on hydrate if >30min |
+| `sigint.news.articles.v1` | newsProvider | RSS news articles (up to 200) | Every 600s | Rejected on hydrate if >12h |
 | `sigint.news.state.v1` | NewsFeedPane | Selected article ID + source filter | On selection/filter change | Never expires |
 | `sigint.intel.baseline.v1` | correlationEngine | Regional per-country event count baselines (168 hourly buckets per country, 7-day rolling window) | On every correlation computation | Pruned to 7 days on each run. User clearable from Settings. |
 | `sigint.alerts.dismissed.v1` | AlertLogPane | Set of dismissed alert item IDs | On dismiss/restore | Never expires (user clearable) |
+| `sigint.ticker.speed.v1` | Ticker | Scroll speed (0–100 px/s) | On settings change | Never expires |
 
 ---
 
@@ -52,8 +53,17 @@ Each provider's hydration staleness threshold is set so that stale cache is reje
 | Ships | 300s | 30 min | Generous hydration window — positions update within 5 min |
 | Fires | 600s | 30 min | FIRMS updates every 30 min server-side; matches server poll |
 | Weather | 300s | 30 min | Generous hydration window — alerts update within 5 min |
+| News | 600s | 12 hours | Non-geographic, stale articles are still useful — generous window |
 
-All providers use a **uniform 30-minute hydration staleness window**. This was standardized to prevent the "mock data flash" problem — when the cache TTL was too tight (e.g., 235s for aircraft, 5min for ships), reloading the page would show mock/empty data for several seconds before live data arrived.
+The 5 geographic providers (plus aircraft) use a **uniform 30-minute hydration staleness window**. This was standardized to prevent the "mock data flash" problem — when the cache TTL was too tight (e.g., 235s for aircraft, 5min for ships), reloading the page would show mock/empty data for several seconds before live data arrived. News uses a 12-hour window since stale articles remain useful.
+
+### Client-Side Stale Cache Retention
+
+`BaseProvider.refresh()` retains existing cached data when the upstream fetch returns 0 records (quota exhausted, temporary outage). This mirrors the server-side pattern in `firmsCache.ts` and `gdeltCache.ts`. The cache timestamp is bumped so it doesn't appear stale to `getData()`, and the next poll retries. This prevents the "empty wipe" bug where a single empty upstream response would destroy hours of accumulated data.
+
+### Poisoned Cache Purge
+
+On boot, `cacheInit()` scans all 7 data cache keys. Any entry holding `{ data: [] }` (poisoned by a previous empty upstream response that was persisted before the stale retention fix) is deleted from both memory and IndexedDB. This ensures hydration falls through and the next poll fetches fresh data from the server.
 
 ---
 

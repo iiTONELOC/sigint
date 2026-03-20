@@ -351,6 +351,7 @@ export function VideoFeedPane() {
             onToggleMute={toggleMute}
             gridSize={promotedIdx !== null ? 1 : gridLayout}
             onPromote={gridLayout > 1 ? handlePromote : undefined}
+            onUnfocus={promotedIdx === idx ? handleRestoreGrid : undefined}
           />
         ))}
       </div>

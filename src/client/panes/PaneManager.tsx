@@ -323,13 +323,71 @@ export function PaneManager() {
     }));
   }, []);
 
-  // ── Drag-to-swap ───────────────────────────────────────────────
+  // ── Drag-to-move (swap + directional insert) ────────────────────
+
+  type DropZone = "center" | "top" | "bottom" | "left" | "right";
 
   const [dragSourceId, setDragSourceId] = useState<string | null>(null);
   const [dragTargetId, setDragTargetId] = useState<string | null>(null);
+  const [dropZone, setDropZone] = useState<DropZone | null>(null);
 
-  const movePaneToTarget = useCallback(
+  /** Determine which zone the cursor is in based on position within the pane */
+  const calcDropZone = useCallback(
+    (e: React.DragEvent, el: HTMLElement): DropZone => {
+      const rect = el.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      const EDGE = 0.25; // outer 25% = edge zone
+      if (y < EDGE) return "top";
+      if (y > 1 - EDGE) return "bottom";
+      if (x < EDGE) return "left";
+      if (x > 1 - EDGE) return "right";
+      return "center";
+    },
+    [],
+  );
+
+  /** Swap two panes in place */
+  const swapPanes = useCallback(
     (sourceLeafId: string, targetLeafId: string) => {
+      if (sourceLeafId === targetLeafId) return;
+      setLayout((prev) => {
+        const findLeaf = (node: LayoutNode, id: string): LeafNode | null => {
+          if (node.type === "leaf") return node.id === id ? node : null;
+          return (
+            findLeaf(node.children[0], id) ?? findLeaf(node.children[1], id)
+          );
+        };
+        const src = findLeaf(prev.root, sourceLeafId);
+        const tgt = findLeaf(prev.root, targetLeafId);
+        if (!src || !tgt) return prev;
+
+        // Swap pane types in the tree
+        const srcType = src.paneType;
+        const tgtType = tgt.paneType;
+        const swapInTree = (node: LayoutNode): LayoutNode => {
+          if (node.type === "leaf") {
+            if (node.id === sourceLeafId) return { ...node, paneType: tgtType };
+            if (node.id === targetLeafId) return { ...node, paneType: srcType };
+            return node;
+          }
+          return {
+            ...node,
+            children: [
+              swapInTree(node.children[0]),
+              swapInTree(node.children[1]),
+            ],
+          };
+        };
+        return { ...prev, root: swapInTree(prev.root) };
+      });
+    },
+    [],
+  );
+
+  /** Move source pane and insert beside target in specified direction */
+  const insertPaneBeside = useCallback(
+    (sourceLeafId: string, targetLeafId: string, zone: DropZone) => {
       if (sourceLeafId === targetLeafId) return;
       setLayout((prev) => {
         const findLeaf = (node: LayoutNode, id: string): LeafNode | null => {
@@ -344,17 +402,20 @@ export function PaneManager() {
 
         // Remove source from tree (collapses its parent split)
         const withoutSrc = removeLeaf(prev.root, sourceLeafId);
-        if (!withoutSrc) return prev; // source was the only node
+        if (!withoutSrc) return prev;
 
-        // Create new leaf with the source's paneType
         const newLeaf = leaf(srcLeaf.paneType);
 
-        // Find the target in the pruned tree and split to insert source beside it
+        // Find target in pruned tree
         const tgtInPruned = findLeaf(withoutSrc, targetLeafId);
         if (!tgtInPruned) return prev;
 
-        // Insert to the right of target
-        const newSplit = split("h", tgtInPruned, newLeaf, 0.5);
+        // Determine split direction and order
+        const dir: "h" | "v" = zone === "left" || zone === "right" ? "h" : "v";
+        const sourceFirst = zone === "left" || zone === "top";
+        const newSplit = sourceFirst
+          ? split(dir, newLeaf, tgtInPruned, 0.5)
+          : split(dir, tgtInPruned, newLeaf, 0.5);
         const newRoot = replaceNode(withoutSrc, targetLeafId, newSplit);
 
         return { ...prev, root: newRoot };
@@ -370,15 +431,22 @@ export function PaneManager() {
   const handleDragEnd = useCallback(() => {
     setDragSourceId(null);
     setDragTargetId(null);
+    setDropZone(null);
   }, []);
   const handleDrop = useCallback(
     (targetLeafId: string) => {
-      if (dragSourceId && dragSourceId !== targetLeafId)
-        movePaneToTarget(dragSourceId, targetLeafId);
+      if (dragSourceId && dragSourceId !== targetLeafId && dropZone) {
+        if (dropZone === "center") {
+          swapPanes(dragSourceId, targetLeafId);
+        } else {
+          insertPaneBeside(dragSourceId, targetLeafId, dropZone);
+        }
+      }
       setDragSourceId(null);
       setDragTargetId(null);
+      setDropZone(null);
     },
-    [dragSourceId, movePaneToTarget],
+    [dragSourceId, dropZone, swapPanes, insertPaneBeside],
   );
 
   // ── Split menu ─────────────────────────────────────────────────
@@ -497,29 +565,72 @@ export function PaneManager() {
       const PaneComponent = PANE_COMPONENTS[node.paneType];
       const canClose = leafCount(layout.root) > 1;
       const isDragOver = dragSourceId !== null && dragSourceId !== node.id;
+      const isTarget = dragTargetId === node.id;
+      const zone = isTarget ? dropZone : null;
+
+      // Drop zone ghost overlay style
+      const ghostStyle: React.CSSProperties | undefined =
+        isTarget && zone
+          ? {
+              position: "absolute",
+              zIndex: 20,
+              pointerEvents: "none",
+              background: "rgba(0, 212, 240, 0.12)",
+              border: "2px solid rgba(0, 212, 240, 0.4)",
+              borderRadius: 4,
+              transition: "all 0.1s ease-out",
+              ...(zone === "center"
+                ? { inset: 4 }
+                : zone === "left"
+                  ? { top: 4, bottom: 4, left: 4, width: "calc(50% - 6px)" }
+                  : zone === "right"
+                    ? { top: 4, bottom: 4, right: 4, width: "calc(50% - 6px)" }
+                    : zone === "top"
+                      ? { top: 4, left: 4, right: 4, height: "calc(50% - 6px)" }
+                      : {
+                          bottom: 4,
+                          left: 4,
+                          right: 4,
+                          height: "calc(50% - 6px)",
+                        }),
+            }
+          : undefined;
+
+      // Ghost label
+      const ghostLabel =
+        isTarget && zone
+          ? zone === "center"
+            ? "⇄ SWAP"
+            : zone === "left"
+              ? "← INSERT"
+              : zone === "right"
+                ? "→ INSERT"
+                : zone === "top"
+                  ? "↑ INSERT"
+                  : "↓ INSERT"
+          : null;
 
       return (
         <div
           key={node.paneType}
-          className={`flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full transition-shadow ${
-            dragTargetId === node.id
-              ? "ring-2 ring-sig-accent/50 ring-inset"
-              : ""
-          }`}
+          className="flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full relative"
           onDragOver={
             isDragOver
               ? (e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
                   setDragTargetId(node.id);
+                  setDropZone(calcDropZone(e, e.currentTarget as HTMLElement));
                 }
               : undefined
           }
           onDragLeave={
             isDragOver
               ? (e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                     setDragTargetId(null);
+                    setDropZone(null);
+                  }
                 }
               : undefined
           }
@@ -532,6 +643,19 @@ export function PaneManager() {
               : undefined
           }
         >
+          {/* Drop zone ghost overlay */}
+          {ghostStyle && (
+            <div style={ghostStyle}>
+              {ghostLabel && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center text-sig-accent font-bold tracking-widest text-(length:--sig-text-btn)"
+                  style={{ textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}
+                >
+                  {ghostLabel}
+                </div>
+              )}
+            </div>
+          )}
           <div className="relative">
             <PaneHeader
               label={meta.label}

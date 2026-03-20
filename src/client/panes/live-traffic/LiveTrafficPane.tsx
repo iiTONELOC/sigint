@@ -5,7 +5,17 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Tooltip } from "@/components/Tooltip";
-import { ScanEye, Pause } from "lucide-react";
+import {
+  Eye,
+  Pause,
+  Play,
+  X,
+  Globe as GlobeIcon,
+  Map,
+  Zap,
+  Link2,
+  Radio,
+} from "lucide-react";
 
 export function LiveTrafficPane() {
   const {
@@ -139,9 +149,17 @@ export function LiveTrafficPane() {
           >
             <button
               onClick={() => setFlat(!flat)}
-              className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors"
+              className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors flex items-center gap-1"
             >
-              {flat ? "\u25C9 GLOBE" : "\u25AD FLAT"}
+              {flat ? (
+                <>
+                  <GlobeIcon size={12} strokeWidth={2.5} /> GLOBE
+                </>
+              ) : (
+                <>
+                  <Map size={12} strokeWidth={2.5} /> FLAT
+                </>
+              )}
             </button>
           </Tooltip>
 
@@ -152,13 +170,21 @@ export function LiveTrafficPane() {
           >
             <button
               onClick={() => setAutoRotate(!autoRotate)}
-              className={`px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors ${
+              className={`px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors flex items-center gap-1 ${
                 autoRotate
                   ? "text-sig-accent bg-sig-accent/15 border-sig-accent/45"
                   : "text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel"
               }`}
             >
-              {autoRotate ? "⏸ ROT" : "▶ ROT"}
+              {autoRotate ? (
+                <>
+                  <Pause size={11} strokeWidth={2.5} /> ROT
+                </>
+              ) : (
+                <>
+                  <Play size={11} strokeWidth={2.5} /> ROT
+                </>
+              )}
             </button>
           </Tooltip>
 
@@ -171,9 +197,9 @@ export function LiveTrafficPane() {
               >
                 <button
                   onClick={() => setWatchMenuOpen((v) => !v)}
-                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel"
+                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel flex items-center gap-1"
                 >
-                  👁 WATCH
+                  <Eye size={11} strokeWidth={2.5} /> WATCH
                 </button>
               </Tooltip>
             )}
@@ -181,9 +207,9 @@ export function LiveTrafficPane() {
               <Tooltip content="Pause watch" placement="bottom">
                 <button
                   onClick={pauseWatch}
-                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45"
+                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45 flex items-center gap-1"
                 >
-                  ⏸ WATCH
+                  <Pause size={11} strokeWidth={2.5} /> WATCH
                 </button>
               </Tooltip>
             )}
@@ -192,17 +218,17 @@ export function LiveTrafficPane() {
                 <Tooltip content="Resume watch" placement="bottom">
                   <button
                     onClick={resumeWatch}
-                    className="px-1.5 py-0.5 rounded-l tracking-wider font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20"
+                    className="px-1.5 py-0.5 rounded-l tracking-wider font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20 flex items-center gap-1"
                   >
-                    ▶ RESUME
+                    <Play size={11} strokeWidth={2.5} /> RESUME
                   </button>
                 </Tooltip>
                 <Tooltip content="Stop watch" placement="bottom">
                   <button
                     onClick={stopWatch}
-                    className="px-1 py-0.5 rounded-r tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger"
+                    className="px-1 py-0.5 rounded-r tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger flex items-center justify-center"
                   >
-                    ✕
+                    <X size={12} strokeWidth={2.5} />
                   </button>
                 </Tooltip>
               </div>
@@ -216,13 +242,21 @@ export function LiveTrafficPane() {
                       startWatch(src);
                       setWatchMenuOpen(false);
                     }}
-                    className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider"
+                    className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider flex items-center gap-1.5"
                   >
-                    {src === "alerts"
-                      ? "⚡ ALERTS"
-                      : src === "intel"
-                        ? "🔗 INTEL"
-                        : "📡 ALL"}
+                    {src === "alerts" ? (
+                      <>
+                        <Zap size={11} strokeWidth={2.5} /> ALERTS
+                      </>
+                    ) : src === "intel" ? (
+                      <>
+                        <Link2 size={11} strokeWidth={2.5} /> INTEL
+                      </>
+                    ) : (
+                      <>
+                        <Radio size={11} strokeWidth={2.5} /> ALL
+                      </>
+                    )}
                   </button>
                 ))}
               </div>
