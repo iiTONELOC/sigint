@@ -39,7 +39,7 @@ Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridT
 | **Close** | X button removes the pane via `removeLeaf()`, promotes sibling. Cannot close the last pane — falls back to default layout. |
 | **Minimize** | Minus button records the pane's parent split direction, ratio, side (wasSecond), and sibling ID, then collapses to a tab in the toolbar. Click tab to restore at the exact original position (finds sibling in tree, re-inserts). Falls back to root if sibling was removed. |
 | **Change Type** | Click pane title → dropdown of all other pane types → swaps in place via `replaceNode()`. |
-| **Drag to Move** | Drag grip handle on pane header → drop on another pane's header → `movePaneToTarget()` removes source from its original position (collapses parent split), then splits the source beside the drop target as a new horizontal split (50/50). Target stays in place, source's original position is freed. |
+| **Drag to Move** | Drag grip handle on pane header → drop on another pane. Drop zone determined by cursor position: **center** (inner 50%) swaps pane types in place, **edges** (outer 25%) inserts source beside target in that direction (left/right = horizontal split, top/bottom = vertical split). Ghost overlay shows translucent blue half-fill with directional label (⇄ SWAP, ← → ↑ ↓ INSERT). |
 | **Resize** | Drag the handle between split children. Min ratio 0.1, max 0.9. Visual indicator line during drag. |
 | **Layout Presets** | VIEWS button in PaneManager toolbar opens `LayoutPresetMenu`. Save current layout as a named preset, load a saved preset, update an existing preset (pencil icon overwrites with current layout), or delete. Persisted to `sigint.layout.presets.v1`. |
 
@@ -160,7 +160,7 @@ Data is first filtered through each feature's `matchesFilter()` (respects layer 
 
 `panes/PaneHeader.tsx` — thin header bar rendered above each pane.
 
-Shows: drag grip handle (GripVertical, left), clickable label with chevron (opens pane type dropdown for in-place swap), split right (Columns2) and split down (Rows2) buttons, minimize button, close button. All buttons have 36px minimum touch targets. Drop target highlight shows accent border when another pane is being dragged over.
+Shows: drag grip handle (GripVertical, left, "Drag to move" tooltip), clickable label with chevron (opens pane type dropdown for in-place swap), split right (Columns2) and split down (Rows2) buttons, minimize button, close button. All buttons have 36px minimum touch targets.
 
 ---
 
@@ -246,7 +246,7 @@ Reads `correlation.alerts` from `useData()` context. Alerts are produced by the 
 - **Factor breakdown** — each alert shows its scoring factors (e.g., "Severity 5/5 · Region elevated (5.0× baseline) · Correlated with other source")
 - **Dedup labels** — "CRISIS EVENT (+4 similar)" when multiple events in the same country/type/hour are collapsed
 - **Dismiss alerts** — X button per alert, persisted to IndexedDB (`sigint.alerts.dismissed.v1`). Dismissed alerts filtered from list and watch cycle. Restore button in toolbar shows count and clears all dismissed.
-- **Virtual scrolling** — ROW_HEIGHT 64px, OVERSCAN 6 rows. Scroll resets on filter/sort change.
+- **Virtual scrolling** — ROW_HEIGHT 72px, OVERSCAN 6 rows. Scroll resets on filter/sort change.
 - **Cross-pane interaction** — click uses ISS reveal (`setSelected` + `setRevealId`), locate button does full deep zoom (`selectAndZoom`)
 
 ### Watch Integration
@@ -274,7 +274,9 @@ Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org
 - **Virtual-scrolled channel list** — full ~3K channels, no cap
 - **Featured channels** pinned to top: Al Jazeera, Sky News, BBC, CNN, Fox, C-SPAN, PBS, NewsMax, Bloomberg, etc.
 - **Error recovery**: RETRY / CHANGE / CLOSE buttons on stream failure, 15s load timeout, max 2 retries
+- **Focus/unfocus**: In grid mode (2×1, 2×2, 3×3), Minimize2 icon focuses a single channel to 1×1. When focused, the same icon (cyan) appears in the controls bar to restore the previous grid layout.
 - **Audio**: only one slot unmuted at a time
+- **Theme-aware backgrounds**: Video container and `<video>` element use `bg-sig-bg` — follows light/dark theme. Scrims over video content stay dark for readability. Video control tooltips use native `title` attributes (not Tooltip component) to prevent stuck tooltips when `pointer-events` toggles.
 - **Auto-save**: grid layout + channel selections persist to `sigint.videofeed.state.v1`. Restored on mount.
 - **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Pencil icon on each preset overwrites with current grid + channels (no delete + recreate needed). Stored under `sigint.videofeed.presets.v1`.
 
@@ -339,14 +341,17 @@ Displays aggregated world news from 6 RSS sources fetched server-side. This is a
 
 ## Mobile Layout
 
-Under 768px, PaneManager switches to single-pane mode with tab switching. Mobile-specific adaptations:
+Under 768px, PaneManager switches to mobile mode via `PaneMobile`. Mobile-specific adaptations:
 
-- Scroll-snap tab bar with `min-h-8` touch targets, cyan bottom-bar active indicator
+- **Safe area insets** — `AppShell` root div applies `env(safe-area-inset-*)` padding on all four sides. Header clears the iPhone notch/status bar, ticker clears the home indicator.
+- **Single-pane mode** with scroll-snap tab bar (`min-h-8` touch targets, cyan bottom-bar active indicator)
+- **2-pane vertical split** — non-active tabs show a split icon (Rows2). Tapping it opens a 50/50 vertical stack with that pane in the bottom half. Second pane tab shows a collapse button (Maximize2). Tapping the secondary tab promotes it to primary and collapses the split. Only one split allowed at a time.
 - Close button (X) on active tab when multiple panes open
 - Mobile status bar above tab bar showing track count + source status (replaces desktop globe pane header info)
 - Layer toggles go icon-only (no count label) below `sm` breakpoint with tighter gaps/padding
 - On `lg:` and up, Header renders as a single row (logo + search + toggles + aircraft filter + clock). Below `lg`, two-row layout (logo+clock / toggles centered).
 - Detail panel renders as a bottom sheet (`max-h-[40vh]`) with `useSheetDismiss` hook — touch drag to dismiss with velocity detection (>80px or >0.5 px/ms). Snaps back on insufficient drag. Wider drag handle.
 - Detail panel on desktop: `max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll` — scrolls when content exceeds pane height.
+- **Ticker compact mode** — below `sm` (640px), ticker items render as single-line strips instead of full cards. "LIVE FEED" label hidden. Tighter padding.
 - Add-pane button positioned before the flex spacer (always visible, not pushed off-screen)
 - Add-pane dropdown items have 44px minimum touch targets

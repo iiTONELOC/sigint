@@ -22,7 +22,15 @@ export function AppShell() {
   } = useData();
 
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden">
+    <div
+      className="w-full h-full flex flex-col overflow-hidden"
+      style={{
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+      }}
+    >
       {/* ── HEADER ── */}
       {!chromeHidden && (
         <Header
@@ -51,8 +59,8 @@ export function AppShell() {
 
       {/* ── TICKER ── */}
       {!chromeHidden && (
-        <div className="shrink-0 px-3 pt-1 pb-2 border-t border-sig-border bg-sig-panel/95">
-          <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
+        <div className="shrink-0 px-2 sm:px-3 pt-0.5 sm:pt-1 pb-1 sm:pb-2 border-t border-sig-border bg-sig-panel/95">
+          <div className="tracking-wider mb-0.5 hidden sm:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
             <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
               ●
             </span>{" "}

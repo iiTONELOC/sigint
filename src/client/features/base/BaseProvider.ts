@@ -36,7 +36,10 @@ export class BaseProvider implements DataProvider<DataPoint> {
   private cacheKey: string;
   private maxCacheAgeMs: number;
   private fetchFn: () => Promise<DataPoint[]>;
-  private mergeFn?: (existing: DataPoint[], incoming: DataPoint[]) => DataPoint[];
+  private mergeFn?: (
+    existing: DataPoint[],
+    incoming: DataPoint[],
+  ) => DataPoint[];
 
   protected cache: { data: DataPoint[]; timestamp: number } | null = null;
 
@@ -113,6 +116,19 @@ export class BaseProvider implements DataProvider<DataPoint> {
       const data = this.mergeFn
         ? this.mergeFn(this.cache?.data ?? [], incoming)
         : incoming;
+
+      // Retain stale cache when upstream returns 0 records (quota exhausted /
+      // temporary outage). Same pattern as server-side FIRMS and GDELT caches.
+      if (data.length === 0 && this.cache && this.cache.data.length > 0) {
+        this.cache = { ...this.cache, timestamp: Date.now() };
+        this.snapshot = {
+          entities: this.cache.data,
+          lastUpdatedAt: Date.now(),
+          loading: false,
+          error: null,
+        };
+        return this.cache.data;
+      }
 
       this.cache = { data, timestamp: Date.now() };
       this.persistCache(data);

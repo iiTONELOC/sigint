@@ -21,7 +21,6 @@ import type {
 } from "./videoFeedTypes";
 import { HlsPlayer } from "./HlsPlayer";
 import { ChannelPicker } from "./ChannelPicker";
-import { Tooltip } from "@/components/Tooltip";
 
 // ── Icons (custom SVG — visually distinct from Lucide) ──────────────
 
@@ -65,6 +64,7 @@ export function VideoSlot({
   onToggleMute,
   gridSize,
   onPromote,
+  onUnfocus,
 }: {
   readonly slot: SlotState;
   readonly slotIdx: number;
@@ -77,6 +77,7 @@ export function VideoSlot({
   readonly onToggleMute: (idx: number) => void;
   readonly gridSize: GridLayout;
   readonly onPromote?: (idx: number) => void;
+  readonly onUnfocus?: () => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [ccEnabled, setCcEnabled] = useState(false);
@@ -232,7 +233,7 @@ export function VideoSlot({
   // ── Empty slot ─────────────────────────────────────────────────
   if (!slot.channel) {
     return (
-      <div className="relative w-full h-full flex items-center justify-center bg-black/50 border border-sig-border/30 rounded overflow-hidden">
+      <div className="relative w-full h-full flex items-center justify-center bg-sig-bg rounded overflow-hidden">
         <button
           onClick={() => setShowPicker(true)}
           className="flex flex-col items-center gap-2 text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-h-11 min-w-11"
@@ -260,7 +261,7 @@ export function VideoSlot({
   // ── Error state ────────────────────────────────────────────────
   if (slot.error) {
     return (
-      <div className="relative w-full h-full flex flex-col items-center justify-center bg-black/80 border border-sig-border/30 rounded overflow-hidden gap-2">
+      <div className="relative w-full h-full flex flex-col items-center justify-center bg-sig-bg rounded overflow-hidden gap-2">
         <AlertTriangle size={20} className="text-sig-danger" />
         <span className="text-sig-dim text-(length:--sig-text-sm)">
           {slot.channel.name} — stream unavailable
@@ -325,7 +326,7 @@ export function VideoSlot({
   return (
     <div
       ref={slotRef}
-      className="relative w-full h-full bg-black border border-sig-border/30 rounded overflow-hidden"
+      className="relative w-full h-full bg-sig-bg rounded overflow-hidden"
       onClick={showControls}
       onMouseMove={showControls}
     >
@@ -433,83 +434,84 @@ export function VideoSlot({
           )}
 
           {/* Play / Pause */}
-          <Tooltip content={localPaused ? "Play" : "Pause"} placement="top">
-            <button
-              onClick={guardClick(handleTogglePause)}
-              className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center rounded ${localPaused ? "text-yellow-400" : "text-white/80"}`}
-            >
-              {localPaused ? (
-                <PlayIcon className="w-5 h-5" />
-              ) : (
-                <PauseIcon className="w-5 h-5" />
-              )}
-            </button>
-          </Tooltip>
+          <button
+            onClick={guardClick(handleTogglePause)}
+            title={localPaused ? "Play" : "Pause"}
+            className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center rounded ${localPaused ? "text-yellow-400" : "text-white/80"}`}
+          >
+            {localPaused ? (
+              <PlayIcon className="w-5 h-5" />
+            ) : (
+              <PauseIcon className="w-5 h-5" />
+            )}
+          </button>
 
           {/* Mute */}
-          <Tooltip content={muted ? "Unmute" : "Mute"} placement="top">
-            <button
-              onClick={guardClick(() => onToggleMute(slotIdx))}
-              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
-            >
-              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-          </Tooltip>
+          <button
+            onClick={guardClick(() => onToggleMute(slotIdx))}
+            title={muted ? "Unmute" : "Mute"}
+            className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
 
           {/* CC */}
-          <Tooltip
-            content={ccEnabled ? "Hide captions" : "Captions"}
-            placement="top"
+          <button
+            onClick={guardClick(() => setCcEnabled((v) => !v))}
+            title={ccEnabled ? "Hide captions" : "Captions"}
+            className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center ${ccEnabled ? "text-sig-accent" : "text-white/80"}`}
           >
-            <button
-              onClick={guardClick(() => setCcEnabled((v) => !v))}
-              className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center ${ccEnabled ? "text-sig-accent" : "text-white/80"}`}
-            >
-              <Subtitles size={18} />
-            </button>
-          </Tooltip>
+            <Subtitles size={18} />
+          </button>
 
           {/* Focus this channel (grid mode) — Minimize2 icon distinct from Maximize */}
           {onPromote && compact && (
-            <Tooltip content="Focus channel" placement="top">
-              <button
-                onClick={guardClick(() => onPromote(slotIdx))}
-                className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
-              >
-                <Minimize2 size={18} />
-              </button>
-            </Tooltip>
+            <button
+              onClick={guardClick(() => onPromote(slotIdx))}
+              title="Focus channel"
+              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              <Minimize2 size={18} />
+            </button>
+          )}
+
+          {/* Unfocus — restore grid (shown when this slot is promoted to 1×1) */}
+          {onUnfocus && !compact && (
+            <button
+              onClick={guardClick(onUnfocus)}
+              title="Restore grid"
+              className="text-sig-accent bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              <Minimize2 size={18} />
+            </button>
           )}
 
           {/* Browser fullscreen */}
-          <Tooltip content="Fullscreen" placement="top">
-            <button
-              onClick={guardClick(handleFullscreen)}
-              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
-            >
-              <Maximize size={18} />
-            </button>
-          </Tooltip>
+          <button
+            onClick={guardClick(handleFullscreen)}
+            title="Fullscreen"
+            className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+          >
+            <Maximize size={18} />
+          </button>
 
           {/* Change channel */}
-          <Tooltip content="Change channel" placement="top">
-            <button
-              onClick={guardClick(() => setShowPicker(true))}
-              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
-            >
-              <ChevronDown size={18} />
-            </button>
-          </Tooltip>
+          <button
+            onClick={guardClick(() => setShowPicker(true))}
+            title="Change channel"
+            className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+          >
+            <ChevronDown size={18} />
+          </button>
 
           {/* Close */}
-          <Tooltip content="Close" placement="top">
-            <button
-              onClick={guardClick(() => onClear(slotIdx))}
-              className="text-white/80 bg-transparent border-none hover:text-sig-danger transition-colors min-h-11 min-w-11 flex items-center justify-center"
-            >
-              <X size={18} />
-            </button>
-          </Tooltip>
+          <button
+            onClick={guardClick(() => onClear(slotIdx))}
+            title="Close"
+            className="text-white/80 bg-transparent border-none hover:text-sig-danger transition-colors min-h-11 min-w-11 flex items-center justify-center"
+          >
+            <X size={18} />
+          </button>
         </div>
       </div>
 

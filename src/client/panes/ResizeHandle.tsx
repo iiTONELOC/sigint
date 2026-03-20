@@ -79,8 +79,8 @@ export function ResizeHandle({
       <div
         className={`absolute ${
           isH
-            ? "inset-y-0 -left-[10px] w-[26px]"
-            : "inset-x-0 -top-[10px] h-[26px]"
+            ? "inset-y-0 -left-[4px] w-[14px]"
+            : "inset-x-0 -top-[4px] h-[14px]"
         } touch-none`}
         onPointerDown={onPointerDown}
       />

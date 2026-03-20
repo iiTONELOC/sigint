@@ -16,13 +16,13 @@ import {
   CloudAlert,
   XCircle,
   Trash2,
+  Clock,
 } from "lucide-react";
 import { relativeAge } from "@/lib/timeFormat";
-import type { ScoredAlert } from "@/lib/correlationEngine";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const ROW_HEIGHT = 64;
+const ROW_HEIGHT = 72;
 const OVERSCAN = 6;
 
 // ── Dismissed alerts persistence ────────────────────────────────────
@@ -288,14 +288,22 @@ export function AlertLogPane() {
 
         <button
           onClick={() => setSortBy((s) => (s === "score" ? "time" : "score"))}
-          className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+          className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright flex items-center gap-1"
           title={
             sortBy === "score"
               ? "Sorted by score — click for time"
               : "Sorted by time — click for score"
           }
         >
-          {sortBy === "score" ? "⚡ SCORE" : "⏱ NEW"}
+          {sortBy === "score" ? (
+            <>
+              <Zap size={9} strokeWidth={2.5} /> SCORE
+            </>
+          ) : (
+            <>
+              <Clock size={9} strokeWidth={2.5} /> NEW
+            </>
+          )}
         </button>
       </div>
 
@@ -375,20 +383,20 @@ export function AlertLogPane() {
                     <span className="text-[9px] text-sig-dim truncate">
                       {alert.factors.join(" · ")}
                     </span>
-                    <div className="ml-auto flex items-center gap-0.5 shrink-0">
+                    <div className="ml-auto flex items-center shrink-0">
                       <button
                         onClick={(e) => dismissAlert(alert.item.id, e)}
-                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
+                        className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
                         title="Dismiss alert"
                       >
-                        <XCircle size={11} strokeWidth={2} />
+                        <XCircle size={14} strokeWidth={2} />
                       </button>
                       <button
                         onClick={(e) => handleZoom(alert.item, e)}
-                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+                        className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
                         title="Zoom to"
                       >
-                        <Locate size={11} strokeWidth={2.5} />
+                        <Locate size={14} strokeWidth={2.5} />
                       </button>
                     </div>
                   </div>

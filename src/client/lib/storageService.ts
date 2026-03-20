@@ -103,11 +103,7 @@ function idbGetAll(): Promise<Array<{ key: string; value: unknown }>> {
 // don't lose their cached aircraft/trail/land data.
 
 async function migrateFromLocalStorage(): Promise<void> {
-  const keys = [
-    CACHE_KEYS.aircraft,
-    CACHE_KEYS.trails,
-    CACHE_KEYS.land,
-  ];
+  const keys = [CACHE_KEYS.aircraft, CACHE_KEYS.trails, CACHE_KEYS.land];
 
   for (const key of keys) {
     try {
@@ -194,6 +190,34 @@ export async function cacheInit(): Promise<void> {
 
   // Clean up stale data
   await pruneTrailData();
+
+  // Purge poisoned data caches — if a provider's cache has { data: [] }
+  // from a previous empty upstream response, nuke it so hydration falls
+  // through and the next poll fetches fresh data from the server.
+  const dataCacheKeys = [
+    CACHE_KEYS.aircraft,
+    CACHE_KEYS.earthquake,
+    CACHE_KEYS.events,
+    CACHE_KEYS.ships,
+    CACHE_KEYS.fires,
+    CACHE_KEYS.weather,
+    CACHE_KEYS.news,
+  ];
+  for (const key of dataCacheKeys) {
+    const entry = memoryCache.get(key) as
+      | { data?: unknown[]; timestamp?: number }
+      | null
+      | undefined;
+    if (
+      entry &&
+      typeof entry === "object" &&
+      Array.isArray(entry.data) &&
+      entry.data.length === 0
+    ) {
+      memoryCache.delete(key);
+      idbDelete(key).catch(() => {});
+    }
+  }
 }
 
 /**
