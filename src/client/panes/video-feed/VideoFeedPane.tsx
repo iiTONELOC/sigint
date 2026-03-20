@@ -208,7 +208,7 @@ export function VideoFeedPane() {
       case 1:
         return "grid-cols-1 grid-rows-1";
       case 2:
-        return "grid-cols-2 grid-rows-1";
+        return "grid-cols-1 grid-rows-2";
       case 4:
         return "grid-cols-2 grid-rows-2";
       case 9:

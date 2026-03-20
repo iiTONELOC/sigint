@@ -511,6 +511,7 @@ function buildProducts(
   now: number,
 ): IntelProduct[] {
   const products: IntelProduct[] = [];
+  const consumedIds = new Set<string>(); // prevent same item in multiple products
   let idCounter = 0;
 
   // 1. Cross-source correlations — highest value intel
@@ -529,6 +530,7 @@ function buildProducts(
       newsLinks: news,
       timestamp: now,
     });
+    for (const item of allItems) consumedIds.add(item.id);
   }
 
   // 2. Anomalies — baseline deviations
@@ -555,9 +557,10 @@ function buildProducts(
     }
   }
 
-  // 3. Regional clusters
+  // 3. Regional clusters — skip items already consumed by cross-source
   for (const cluster of clusters) {
-    if (cluster.items.length < 3) continue; // only significant clusters
+    const remaining = cluster.items.filter((i) => !consumedIds.has(i.id));
+    if (remaining.length < 3) continue; // only significant clusters
     const news = newsLinks.get(cluster.country.toLowerCase());
 
     const typeLabel: Record<string, string> = {
@@ -570,14 +573,15 @@ function buildProducts(
     products.push({
       id: `CLST-${++idCounter}`,
       type: "cluster",
-      priority: Math.min(8, 3 + Math.floor(cluster.items.length / 2)),
-      title: `${cluster.items.length} ${typeLabel[cluster.type] ?? cluster.type} in ${cluster.country}`,
+      priority: Math.min(8, 3 + Math.floor(remaining.length / 2)),
+      title: `${remaining.length} ${typeLabel[cluster.type] ?? cluster.type} in ${cluster.country}`,
       summary: `Clustered activity within ${CLUSTER_TIME_WINDOW / HOUR}h window`,
       region: cluster.country,
-      sources: cluster.items,
+      sources: remaining,
       newsLinks: news,
       timestamp: now,
     });
+    for (const item of remaining) consumedIds.add(item.id);
   }
 
   // 4. News-linked regions (only if no other product already covers this country)
@@ -802,41 +806,53 @@ function scoreAlerts(
     }
   }
 
-  // ── Dedup: collapse same country + type within 1h into one alert ──
-  const DEDUP_WINDOW = HOUR;
-  const dedupMap = new Map<string, ScoredAlert>();
+  // ── Dedup: collapse same country + type within 2h (sliding window) ──
+  const DEDUP_WINDOW = 2 * HOUR;
+
+  // Sort alerts by type+country+time so consecutive entries can merge
+  alerts.sort((a, b) => {
+    const ka = `${a.item.type}:${getCountry(a.item).toLowerCase()}`;
+    const kb = `${b.item.type}:${getCountry(b.item).toLowerCase()}`;
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return getTs(a.item) - getTs(b.item);
+  });
+
+  const deduped: ScoredAlert[] = [];
+  let current: ScoredAlert | null = null;
+  let currentKey = "";
+  let currentTs = 0;
 
   for (const alert of alerts) {
-    const country = getCountry(alert.item);
+    const country = getCountry(alert.item).toLowerCase().trim();
+    const key = `${alert.item.type}:${country}`;
     const ts = getTs(alert.item);
-    const hourBucket = Math.floor(ts / DEDUP_WINDOW);
-    const key = `${alert.item.type}:${country}:${hourBucket}`;
 
-    const existing = dedupMap.get(key);
-    if (!existing) {
-      alert.groupedItems = [alert.item];
-      dedupMap.set(key, alert);
-    } else {
-      // Keep the higher-scored one as the representative
-      existing.groupedItems = existing.groupedItems ?? [existing.item];
-      existing.groupedItems.push(alert.item);
-      existing.count = existing.groupedItems.length;
+    if (current && key === currentKey && ts - currentTs < DEDUP_WINDOW) {
+      // Merge into current group
+      current.groupedItems = current.groupedItems ?? [current.item];
+      current.groupedItems.push(alert.item);
+      current.count = current.groupedItems.length;
 
-      if (alert.score > existing.score) {
-        existing.item = alert.item;
-        existing.label = alert.label;
-        existing.score = alert.score;
-        existing.factors = alert.factors;
+      if (alert.score > current.score) {
+        current.item = alert.item;
+        current.label = alert.label;
+        current.score = alert.score;
+        current.factors = alert.factors;
       }
 
       // Merge unique factors
       for (const f of alert.factors) {
-        if (!existing.factors.includes(f)) existing.factors.push(f);
+        if (!current.factors.includes(f)) current.factors.push(f);
       }
+    } else {
+      // Start new group
+      if (current) deduped.push(current);
+      current = { ...alert, groupedItems: [alert.item] };
+      currentKey = key;
+      currentTs = ts;
     }
   }
-
-  const deduped = Array.from(dedupMap.values());
+  if (current) deduped.push(current);
 
   // Update labels with count
   for (const alert of deduped) {

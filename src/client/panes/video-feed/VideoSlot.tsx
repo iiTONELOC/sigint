@@ -10,15 +10,39 @@ import {
   RefreshCw,
   Subtitles,
   Maximize,
-  Play,
-  Pause,
   Radio,
-  Scan,
+  Minimize2,
 } from "lucide-react";
-import type { Channel, GridLayout, SlotState, PlayerHandle } from "./videoFeedTypes";
-import { DVR_BACK_BUFFER } from "./videoFeedTypes";
+import type {
+  Channel,
+  GridLayout,
+  SlotState,
+  PlayerHandle,
+} from "./videoFeedTypes";
 import { HlsPlayer } from "./HlsPlayer";
 import { ChannelPicker } from "./ChannelPicker";
+import { Tooltip } from "@/components/Tooltip";
+
+// ── Icons (custom SVG — visually distinct from Lucide) ──────────────
+
+function PlayIcon({ className }: { readonly className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <polygon points="6,4 20,12 6,20" />
+    </svg>
+  );
+}
+
+function PauseIcon({ className }: { readonly className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <rect x="5" y="4" width="4" height="16" rx="1" />
+      <rect x="15" y="4" width="4" height="16" rx="1" />
+    </svg>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 function formatDelay(seconds: number): string {
   if (seconds < 1) return "";
@@ -26,6 +50,8 @@ function formatDelay(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return m > 0 ? `-${m}:${String(s).padStart(2, "0")}` : `-${s}s`;
 }
+
+// ── Component ───────────────────────────────────────────────────────
 
 export function VideoSlot({
   slot,
@@ -54,11 +80,57 @@ export function VideoSlot({
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [ccEnabled, setCcEnabled] = useState(false);
+  const [localPaused, setLocalPaused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const justShownRef = useRef(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const compact = gridSize > 1;
 
+  // ── Controls show/hide with 5s auto-hide ──────────────────────
+  const startHideTimer = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setControlsVisible(false), 5000);
+  }, []);
+
+  const showControls = useCallback(() => {
+    if (!controlsVisible) {
+      // First interaction after hidden — set flag to eat the click
+      justShownRef.current = true;
+      setTimeout(() => {
+        justShownRef.current = false;
+      }, 300);
+    }
+    setControlsVisible(true);
+    startHideTimer();
+  }, [controlsVisible, startHideTimer]);
+
+  const resetTimer = useCallback(() => {
+    startHideTimer();
+  }, [startHideTimer]);
+
+  // Keep visible when paused or picker open
+  useEffect(() => {
+    if (localPaused || showPicker) {
+      setControlsVisible(true);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    } else {
+      startHideTimer();
+    }
+  }, [localPaused, showPicker, startHideTimer]);
+
+  // Show controls briefly on mount, then start hiding
+  useEffect(() => {
+    setControlsVisible(true);
+    const t = setTimeout(() => setControlsVisible(false), 3000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ── Outside click for picker ───────────────────────────────────
   useEffect(() => {
     if (!showPicker) return;
     const handler = (e: MouseEvent) => {
@@ -69,6 +141,7 @@ export function VideoSlot({
     return () => document.removeEventListener("mousedown", handler);
   }, [showPicker]);
 
+  // ── Actions ────────────────────────────────────────────────────
   const handleFullscreen = useCallback(() => {
     const el = slotRef.current;
     if (!el) return;
@@ -79,13 +152,90 @@ export function VideoSlot({
     }
   }, []);
 
+  const handleTogglePause = useCallback(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (localPaused) {
+      p.play();
+      setLocalPaused(false);
+    } else {
+      p.pause();
+      setLocalPaused(true);
+    }
+  }, [localPaused]);
+
+  const handleGoLive = useCallback(() => {
+    const p = playerRef.current;
+    if (!p) return;
+    p.goLive();
+    setLocalPaused(false);
+  }, []);
+
+  // ── Scrub via bar position ─────────────────────────────────────
+  const seekFromPosition = useCallback((clientX: number) => {
+    const p = playerRef.current;
+    const bar = barRef.current;
+    if (!p || !bar) return;
+    const br = p.bufferRange;
+    if (!br || br[1] - br[0] < 0.5) return;
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    p.seekTo(br[0] + pct * (br[1] - br[0]));
+  }, []);
+
+  const handleBarMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      seekFromPosition(e.clientX);
+      setIsDragging(true);
+      const move = (mv: MouseEvent) => seekFromPosition(mv.clientX);
+      const up = () => {
+        setIsDragging(false);
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    },
+    [seekFromPosition],
+  );
+
+  const handleBarTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches[0]) seekFromPosition(e.touches[0].clientX);
+      setIsDragging(true);
+      const move = (mv: TouchEvent) => {
+        if (mv.touches[0]) seekFromPosition(mv.touches[0].clientX);
+      };
+      const end = () => {
+        setIsDragging(false);
+        document.removeEventListener("touchmove", move);
+        document.removeEventListener("touchend", end);
+      };
+      document.addEventListener("touchmove", move, { passive: true });
+      document.addEventListener("touchend", end);
+    },
+    [seekFromPosition],
+  );
+
+  // Guard: eat clicks when controls just appeared
+  const guardClick = useCallback(
+    (fn: () => void) => {
+      return () => {
+        if (justShownRef.current) return;
+        resetTimer();
+        fn();
+      };
+    },
+    [resetTimer],
+  );
+
   // ── Empty slot ─────────────────────────────────────────────────
   if (!slot.channel) {
     return (
       <div className="relative w-full h-full flex items-center justify-center bg-black/50 border border-sig-border/30 rounded overflow-hidden">
         <button
           onClick={() => setShowPicker(true)}
-          className="flex flex-col items-center gap-2 text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+          className="flex flex-col items-center gap-2 text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors min-h-11 min-w-11"
         >
           <Tv size={compact ? 20 : 28} strokeWidth={1.5} />
           <span className="text-(length:--sig-text-sm) tracking-wider">
@@ -118,21 +268,21 @@ export function VideoSlot({
         <div className="flex items-center gap-2">
           <button
             onClick={() => onAssign(slotIdx, slot.channel!)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-sig-accent text-(length:--sig-text-sm) bg-transparent border border-sig-accent/30 hover:bg-sig-accent/10 transition-colors"
+            className="flex items-center gap-1 px-3 py-2 rounded text-sig-accent text-(length:--sig-text-sm) bg-transparent border border-sig-accent/30 hover:bg-sig-accent/10 transition-colors min-h-11"
           >
-            <RefreshCw size={10} /> RETRY
+            <RefreshCw size={12} /> RETRY
           </button>
           <button
             onClick={() => setShowPicker(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-sig-bright text-(length:--sig-text-sm) bg-transparent border border-sig-border hover:bg-sig-panel transition-colors"
+            className="flex items-center gap-1 px-3 py-2 rounded text-sig-bright text-(length:--sig-text-sm) bg-transparent border border-sig-border hover:bg-sig-panel transition-colors min-h-11"
           >
-            <ChevronDown size={10} /> CHANGE
+            <ChevronDown size={12} /> CHANGE
           </button>
           <button
             onClick={() => onClear(slotIdx)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border hover:text-sig-danger transition-colors"
+            className="flex items-center gap-1 px-3 py-2 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border hover:text-sig-danger transition-colors min-h-11"
           >
-            <X size={10} /> CLOSE
+            <X size={12} /> CLOSE
           </button>
         </div>
         {showPicker && (
@@ -150,16 +300,34 @@ export function VideoSlot({
     );
   }
 
-  // ── Playing / Loading state ────────────────────────────────────
+  // ── Playing / Loading ──────────────────────────────────────────
   const player = playerRef.current;
-  const isPaused = player?.isPaused ?? false;
   const isLive = player?.isLive ?? true;
   const delay = player?.currentDelay ?? 0;
+  const bufferRange = player?.bufferRange ?? null;
+  const currentTime = player?.currentTime ?? 0;
+
+  const hasRange = bufferRange != null && bufferRange[1] - bufferRange[0] > 0.5;
+  const progressPct = hasRange
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          ((currentTime - bufferRange![0]) /
+            (bufferRange![1] - bufferRange![0])) *
+            100,
+        ),
+      )
+    : 100;
+
+  const showBar = localPaused || (!isLive && delay > 2);
 
   return (
     <div
       ref={slotRef}
-      className="relative w-full h-full bg-black border border-sig-border/30 rounded overflow-hidden group"
+      className="relative w-full h-full bg-black border border-sig-border/30 rounded overflow-hidden"
+      onClick={showControls}
+      onMouseMove={showControls}
     >
       {slot.loading && (
         <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/70">
@@ -176,33 +344,75 @@ export function VideoSlot({
         playerRef={playerRef}
       />
 
-      {/* Controls — always visible on touch, hover-reveal on desktop */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity px-2 pt-4 pb-1.5">
-        {/* DVR bar — shows when not live */}
-        {!isLive && delay > 2 && (
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="text-yellow-400 text-[9px] font-semibold tracking-wider tabular-nums shrink-0">
-              {formatDelay(delay)}
+      {/* ── Paused overlay ─────────────────────────────────────── */}
+      {localPaused && !slot.loading && (
+        <div
+          className="absolute inset-x-0 top-0 bottom-20 flex items-center justify-center z-10 bg-black/40"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleTogglePause();
+          }}
+        >
+          <button className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 active:bg-white/40 transition-colors border-none">
+            <PlayIcon className="w-8 h-8 ml-1" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Bottom controls ───────────────────────────────────── */}
+      <div
+        className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent px-2 pt-6 pb-1.5 video-controls ${controlsVisible ? "video-controls-visible" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── Progress bar ─────────────────────────────────────── */}
+        {showBar && hasRange && (
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-yellow-400 text-[10px] font-semibold tracking-wider tabular-nums shrink-0 min-w-12">
+              {localPaused ? "PAUSED" : formatDelay(delay)}
             </span>
-            <div className="flex-1 h-0.5 bg-white/20 rounded-full overflow-hidden">
+            <div
+              ref={barRef}
+              className="flex-1 relative cursor-pointer"
+              style={{ height: 44, touchAction: "none" }}
+              onMouseDown={handleBarMouseDown}
+              onTouchStart={handleBarTouchStart}
+            >
+              <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/20 overflow-hidden">
+                <div
+                  className="h-full bg-yellow-400 rounded-full"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
               <div
-                className="h-full bg-yellow-400/60 rounded-full"
+                className={`absolute top-1/2 -translate-y-1/2 rounded-full bg-yellow-400 shadow transition-transform ${isDragging ? "scale-125" : ""}`}
                 style={{
-                  width: `${Math.max(2, 100 - (delay / DVR_BACK_BUFFER) * 100)}%`,
+                  width: 20,
+                  height: 20,
+                  left: `calc(${progressPct}% - 10px)`,
                 }}
               />
             </div>
             <button
-              onClick={() => player?.goLive()}
-              className="text-yellow-400 text-[9px] font-bold tracking-wider bg-transparent border-none hover:text-white transition-colors shrink-0"
+              onClick={guardClick(handleGoLive)}
+              className={`text-[10px] font-bold tracking-wider bg-transparent border-none transition-colors shrink-0 min-h-11 min-w-11 flex items-center justify-center ${
+                isLive && !localPaused
+                  ? "text-sig-danger"
+                  : "text-yellow-400 hover:text-white"
+              }`}
             >
-              GO LIVE
+              {isLive && !localPaused ? (
+                <span className="flex items-center gap-0.5">
+                  <Radio size={8} /> LIVE
+                </span>
+              ) : (
+                "GO LIVE"
+              )}
             </button>
           </div>
         )}
 
-        {/* Main control row */}
-        <div className="flex items-center gap-1.5">
+        {/* ── Button row ───────────────────────────────────────── */}
+        <div className="flex items-center gap-0.5">
           {slot.channel.logo && (
             <img
               src={slot.channel.logo}
@@ -211,84 +421,99 @@ export function VideoSlot({
               loading="lazy"
             />
           )}
-          <span className="text-white text-(length:--sig-text-sm) font-semibold truncate flex-1 tracking-wide">
+          <span className="text-white text-(length:--sig-text-sm) font-semibold truncate flex-1 tracking-wide ml-1">
             {slot.channel.name}
           </span>
 
-          {/* Live indicator */}
-          {isLive && !isPaused && (
-            <span className="flex items-center gap-0.5 text-sig-danger text-[8px] font-bold tracking-wider shrink-0">
+          {/* LIVE badge */}
+          {isLive && !localPaused && !showBar && (
+            <span className="flex items-center gap-0.5 text-sig-danger text-[9px] font-bold tracking-wider shrink-0 mr-1">
               <Radio size={8} className="animate-[pulse_1.5s_infinite]" /> LIVE
             </span>
           )}
 
-          {/* Pause/Play */}
-          <button
-            onClick={() => (isPaused ? player?.play() : player?.pause())}
-            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-            title={isPaused ? "Play" : "Pause (DVR buffer: 5 min)"}
-          >
-            {isPaused ? <Play size={12} /> : <Pause size={12} />}
-          </button>
+          {/* Play / Pause */}
+          <Tooltip content={localPaused ? "Play" : "Pause"} placement="top">
+            <button
+              onClick={guardClick(handleTogglePause)}
+              className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center rounded ${localPaused ? "text-yellow-400" : "text-white/80"}`}
+            >
+              {localPaused ? (
+                <PlayIcon className="w-5 h-5" />
+              ) : (
+                <PauseIcon className="w-5 h-5" />
+              )}
+            </button>
+          </Tooltip>
 
-          {/* Mute toggle */}
-          <button
-            onClick={() => onToggleMute(slotIdx)}
-            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-            title={muted ? "Unmute" : "Mute"}
-          >
-            {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
-          </button>
+          {/* Mute */}
+          <Tooltip content={muted ? "Unmute" : "Mute"} placement="top">
+            <button
+              onClick={guardClick(() => onToggleMute(slotIdx))}
+              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+          </Tooltip>
 
           {/* CC */}
-          <button
-            onClick={() => setCcEnabled((v) => !v)}
-            className={`bg-transparent border-none transition-colors p-0.5 ${ccEnabled ? "text-sig-accent" : "text-white/70 hover:text-white"}`}
-            title={ccEnabled ? "Hide captions" : "Show captions"}
+          <Tooltip
+            content={ccEnabled ? "Hide captions" : "Captions"}
+            placement="top"
           >
-            <Subtitles size={12} />
-          </button>
-
-          {/* Promote to 1×1 (only in grid mode) */}
-          {onPromote && compact && (
             <button
-              onClick={() => onPromote(slotIdx)}
-              className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-              title="Focus this channel"
+              onClick={guardClick(() => setCcEnabled((v) => !v))}
+              className={`bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center ${ccEnabled ? "text-sig-accent" : "text-white/80"}`}
             >
-              <Scan size={12} />
+              <Subtitles size={18} />
             </button>
+          </Tooltip>
+
+          {/* Focus this channel (grid mode) — Minimize2 icon distinct from Maximize */}
+          {onPromote && compact && (
+            <Tooltip content="Focus channel" placement="top">
+              <button
+                onClick={guardClick(() => onPromote(slotIdx))}
+                className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+              >
+                <Minimize2 size={18} />
+              </button>
+            </Tooltip>
           )}
 
           {/* Browser fullscreen */}
-          <button
-            onClick={handleFullscreen}
-            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-            title="Fullscreen"
-          >
-            <Maximize size={12} />
-          </button>
+          <Tooltip content="Fullscreen" placement="top">
+            <button
+              onClick={guardClick(handleFullscreen)}
+              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              <Maximize size={18} />
+            </button>
+          </Tooltip>
 
           {/* Change channel */}
-          <button
-            onClick={() => setShowPicker(true)}
-            className="text-white/70 bg-transparent border-none hover:text-white transition-colors p-0.5"
-            title="Change channel"
-          >
-            <ChevronDown size={12} />
-          </button>
+          <Tooltip content="Change channel" placement="top">
+            <button
+              onClick={guardClick(() => setShowPicker(true))}
+              className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              <ChevronDown size={18} />
+            </button>
+          </Tooltip>
 
           {/* Close */}
-          <button
-            onClick={() => onClear(slotIdx)}
-            className="text-white/70 bg-transparent border-none hover:text-sig-danger transition-colors p-0.5"
-            title="Close"
-          >
-            <X size={12} />
-          </button>
+          <Tooltip content="Close" placement="top">
+            <button
+              onClick={guardClick(() => onClear(slotIdx))}
+              className="text-white/80 bg-transparent border-none hover:text-sig-danger transition-colors min-h-11 min-w-11 flex items-center justify-center"
+            >
+              <X size={18} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
+      {/* Compact channel label (grid mode) */}
       {compact && (
         <div className="absolute top-0 left-0 px-1.5 py-0.5 bg-black/60 rounded-br">
           <span className="text-white/80 text-[9px] tracking-wider font-semibold truncate max-w-20 block">
@@ -297,6 +522,7 @@ export function VideoSlot({
         </div>
       )}
 
+      {/* Channel picker overlay */}
       {showPicker && (
         <ChannelPicker
           ref={pickerRef}
