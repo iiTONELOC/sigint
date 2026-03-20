@@ -31,11 +31,19 @@ export function VideoFeedPane() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<Preset[]>(loadPresets);
+  const [presets, setPresets] = useState<Preset[]>([]);
+
+  useEffect(() => {
+    loadPresets().then(setPresets);
+  }, []);
   const paneRef = useRef<HTMLDivElement>(null);
 
   // Restore saved state or default
-  const savedState = useMemo(() => loadState(), []);
+  const [savedState, setSavedState] = useState<SavedState | null>(null);
+
+  useEffect(() => {
+    loadState().then(setSavedState);
+  }, []);
   const [gridLayout, setGridLayout] = useState<GridLayout>(
     savedState?.grid ?? 1,
   );

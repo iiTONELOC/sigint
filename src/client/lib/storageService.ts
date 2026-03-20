@@ -3,7 +3,6 @@
 //
 // Usage:
 //   await cacheInit();              // call once at boot before anything reads
-//   cacheGet<T>("key")              // sync read from memory
 //   cacheSet("key", value)          // async write to IndexedDB + memory
 //   cacheDelete("key")              // async delete from IndexedDB + memory
 //
@@ -222,9 +221,8 @@ export async function cacheInit(): Promise<void> {
 /**
  * Async read — checks memory first, falls back to IndexedDB.
  * Use this for non-blocking data loading (Suspense path).
- * The sync cacheGet() remains for non-critical reads (layout, settings).
  */
-export async function cacheGetAsync<T = unknown>(
+export async function cacheGet<T = unknown>(
   key: string,
 ): Promise<T | null> {
   const mem = memoryCache.get(key);
@@ -237,13 +235,6 @@ export async function cacheGetAsync<T = unknown>(
   return null;
 }
 
-/**
- * Sync read from in-memory cache. Returns null if key doesn't exist.
- */
-export function cacheGet<T = unknown>(key: string): T | null {
-  const value = memoryCache.get(key);
-  return (value as T) ?? null;
-}
 
 /**
  * Write to memory (immediate) and IndexedDB (async, fire-and-forget).

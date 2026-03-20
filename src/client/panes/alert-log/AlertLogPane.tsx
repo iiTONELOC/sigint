@@ -27,8 +27,8 @@ const OVERSCAN = 6;
 
 // ── Dismissed alerts persistence ────────────────────────────────────
 
-function loadDismissed(): Set<string> {
-  const arr = cacheGet<string[]>(CACHE_KEYS.dismissedAlerts);
+async function loadDismissed(): Promise<Set<string>> {
+  const arr = await cacheGet<string[]>(CACHE_KEYS.dismissedAlerts);
   return new Set(Array.isArray(arr) ? arr : []);
 }
 
@@ -104,7 +104,11 @@ export function AlertLogPane() {
 
   // ── Dismissed state ─────────────────────────────────────────────
 
-  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    loadDismissed().then(setDismissed);
+  }, []);
 
   const dismissAlert = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();

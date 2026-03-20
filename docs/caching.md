@@ -8,11 +8,11 @@
 
 ## Overview
 
-The application uses a unified IndexedDB-backed storage service (`lib/storageService.ts`) for all persistent caching. On first run it auto-migrates any existing localStorage data. All reads are synchronous from an in-memory Map (populated at boot via `await cacheInit()`), while writes go to IndexedDB asynchronously (fire-and-forget) to avoid blocking the render loop.
+The application uses a unified IndexedDB-backed storage service (`lib/storageService.ts`) for all persistent caching. On first run it auto-migrates any existing localStorage data. All reads use `cacheGet()` which is async (memory first, IndexedDB fallback). `cacheInit()` fires non-blocking at boot, populating memory in the background. Writes go to both memory and IndexedDB (fire-and-forget).
 
 At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours are removed, and trail points are capped at 50 per entity (~3.3 hours at 4-minute intervals) to prevent unbounded growth.
 
-**Every live data provider follows the same caching pattern**: hydrate from IndexedDB on boot (with staleness rejection), persist after every successful fetch, and fall back through memory cache → IndexedDB cache → empty on error. The 5 non-aircraft providers inherit this pattern from `BaseProvider` (`features/base/BaseProvider.ts`). Server-side, FIRMS and GDELT caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage).
+**Every live data provider follows the same caching pattern**: hydrate asynchronously from IndexedDB via `cacheGet()` (with staleness rejection), persist after every successful fetch, and fall back through memory cache → IndexedDB cache → empty on error. The 5 non-aircraft providers inherit this pattern from `BaseProvider` (`features/base/BaseProvider.ts`). Server-side, FIRMS and GDELT caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage).
 
 ---
 
@@ -88,7 +88,7 @@ On boot, `hydrate()` populates both from cached DataPoints where `acType ≠ "Un
 
 ## Ship Data Cache
 
-The `ShipProvider` follows the standard provider pattern. Server-side, vessel data is never persisted — the in-memory Map is populated in real-time from the aisstream.io WebSocket and repopulates within seconds of a server restart. Client-side, the provider persists to IndexedDB after each successful poll and hydrates on boot with a 30-min staleness threshold.
+Standard provider pattern. Server-side data is in-memory only (repopulates from aisstream.io WebSocket on restart). Client persists to IndexedDB, hydrates on boot with 30-min staleness.
 
 ---
 

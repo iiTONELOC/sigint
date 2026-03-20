@@ -85,7 +85,15 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
 
 export function PaneManager() {
   const { chromeHidden, activeCount, dataSources, counts } = useData();
-  const [layout, setLayout] = useState<LayoutState>(loadLayout);
+  const [layout, setLayout] = useState<LayoutState>(defaultLayout);
+
+  useEffect(() => {
+    let mounted = true;
+    loadLayout().then((loaded) => {
+      if (mounted) setLayout(loaded);
+    });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     persistLayout(layout);
@@ -474,7 +482,11 @@ export function PaneManager() {
   // ── Layout presets ─────────────────────────────────────────────
 
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<LayoutPreset[]>(loadPresets);
+  const [presets, setPresets] = useState<LayoutPreset[]>([]);
+
+  useEffect(() => {
+    loadPresets().then(setPresets);
+  }, []);
 
   const handleSavePreset = useCallback(
     (name: string) => {

@@ -43,10 +43,17 @@ function parseGeoJSON(geojson: any): number[][][] {
 
 // ── Cache ────────────────────────────────────────────────────────────
 
-function readCache(): number[][][] | null {
-  const cached = cacheGet<number[][][]>(CACHE_KEY);
+async function readCache(): Promise<number[][][] | null> {
+  const cached = await cacheGet<number[][][]>(CACHE_KEY);
   if (Array.isArray(cached) && cached.length > 0) return cached;
   return null;
+}
+
+/** Call once at boot to load land data from IndexedDB */
+export async function initLand(): Promise<void> {
+  if (landData) return;
+  const cached = await readCache();
+  if (cached) landData = cached;
 }
 
 function writeCache(data: number[][][]): void {
@@ -60,15 +67,7 @@ function writeCache(data: number[][][]): void {
  * Returns cached data if available, empty array if still loading.
  */
 export function getLand(): number[][][] {
-  if (landData) return landData;
-
-  const cached = readCache();
-  if (cached) {
-    landData = cached;
-    return landData;
-  }
-
-  return [];
+  return landData ?? [];
 }
 
 /**
@@ -76,11 +75,7 @@ export function getLand(): number[][][] {
  * then network. Calls `onReady` when data becomes available.
  */
 export function enrichLand(onReady: (land: number[][][]) => void): void {
-  if (landData) return;
-
-  const cached = readCache();
-  if (cached) {
-    landData = cached;
+  if (landData) {
     onReady(landData);
     return;
   }

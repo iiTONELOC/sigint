@@ -1,9 +1,10 @@
 // ── Server auth + rate limiting ──────────────────────────────────────
-// HMAC-SHA256 token generation/verification.
+// HMAC-SHA256 token generation/verification via Web Crypto API (async).
+// Token is set as an HttpOnly Secure cookie — never exposed to JS.
+// Verification uses crypto.timingSafeEqual for constant-time comparison.
 // Per-IP sliding window rate limiter applied to ALL routes.
-// Token auth applied to protected routes only.
 
-import { createHmac } from "crypto";
+import { timingSafeEqual } from "crypto";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -15,21 +16,42 @@ if (!SERVER_SECRET) {
 }
 
 const TOKEN_TTL_MS = 30 * 60_000;
+const TOKEN_TTL_S = Math.floor(TOKEN_TTL_MS / 1000);
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 60; // requests per minute per IP
 
-// ── Token generation ─────────────────────────────────────────────────
+const COOKIE_NAME = "sigint_token";
 
-function signPayload(payload: string): string {
-  return createHmac("sha256", SERVER_SECRET as string)
-    .update(payload)
-    .digest("hex");
+// ── Crypto key (imported once, reused) ──────────────────────────────
+
+let cryptoKey: CryptoKey | null = null;
+
+async function getKey(): Promise<CryptoKey> {
+  if (cryptoKey) return cryptoKey;
+  const encoder = new TextEncoder();
+  cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(SERVER_SECRET as string),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  return cryptoKey;
 }
 
-export function generateToken(): string {
+// ── Token generation (async) ─────────────────────────────────────────
+
+async function signPayload(payload: string): Promise<string> {
+  const key = await getKey();
+  const encoder = new TextEncoder();
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return Buffer.from(sig).toString("hex");
+}
+
+export async function generateToken(): Promise<string> {
   const exp = Date.now() + TOKEN_TTL_MS;
   const payload = JSON.stringify({ exp });
-  const sig = signPayload(payload);
+  const sig = await signPayload(payload);
   return (
     Buffer.from(payload).toString("base64url") +
     "." +
@@ -37,9 +59,29 @@ export function generateToken(): string {
   );
 }
 
-// ── Token verification ───────────────────────────────────────────────
+/**
+ * Build Set-Cookie header value for the auth token.
+ * HttpOnly — not accessible from JS.
+ * Secure — only sent over HTTPS.
+ * SameSite=Strict — not sent on cross-origin requests.
+ * Path=/ — available to all routes.
+ */
+export function tokenCookieHeader(token: string): string {
+  const isDev = process.env.NODE_ENV !== "production";
+  const parts = [
+    `${COOKIE_NAME}=${token}`,
+    "HttpOnly",
+    "Path=/",
+    "SameSite=Strict",
+    `Max-Age=${TOKEN_TTL_S}`,
+  ];
+  if (!isDev) parts.push("Secure");
+  return parts.join("; ");
+}
 
-export function verifyToken(token: string | null): boolean {
+// ── Token verification (async, constant-time) ────────────────────────
+
+export async function verifyToken(token: string | null): Promise<boolean> {
   if (!token) return false;
   try {
     const parts = token.split(".");
@@ -48,13 +90,13 @@ export function verifyToken(token: string | null): boolean {
     const payload = Buffer.from(parts[0]!, "base64url").toString();
     const sig = Buffer.from(parts[1]!, "base64url").toString();
 
-    const expected = signPayload(payload);
-    if (expected.length !== sig.length) return false;
-    let mismatch = 0;
-    for (let i = 0; i < expected.length; i++) {
-      mismatch |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-    }
-    if (mismatch !== 0) return false;
+    const expected = await signPayload(payload);
+
+    // Constant-time comparison — prevents timing attacks
+    const sigBuf = Buffer.from(sig);
+    const expectedBuf = Buffer.from(expected);
+    if (sigBuf.length !== expectedBuf.length) return false;
+    if (!timingSafeEqual(sigBuf, expectedBuf)) return false;
 
     const parsed = JSON.parse(payload);
     if (typeof parsed.exp !== "number") return false;
@@ -66,11 +108,21 @@ export function verifyToken(token: string | null): boolean {
   }
 }
 
+// ── Cookie parsing ──────────────────────────────────────────────────
+
+function getTokenFromCookie(req: Request): string | null {
+  const cookieHeader = req.headers.get("cookie");
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(
+    new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`),
+  );
+  return match?.[1] ?? null;
+}
+
 // ── Rate limiting (per-IP sliding window) ────────────────────────────
 
 const buckets = new Map<string, number[]>();
 
-// Purge stale buckets every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, timestamps] of buckets) {
@@ -105,7 +157,6 @@ function getClientIp(req: Request): string {
   );
 }
 
-// Rate limit only — for token endpoint
 export function guardRateLimit(req: Request): Response | null {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) {
@@ -117,13 +168,13 @@ export function guardRateLimit(req: Request): Response | null {
   return null;
 }
 
-// Rate limit + token auth — for all protected routes
-export function guardAuth(req: Request): Response | null {
+// Rate limit + token auth — reads token from HttpOnly cookie
+export async function guardAuth(req: Request): Promise<Response | null> {
   const rateLimited = guardRateLimit(req);
   if (rateLimited) return rateLimited;
 
-  const token = req.headers.get("X-SIGINT-Token");
-  if (!verifyToken(token)) {
+  const token = getTokenFromCookie(req);
+  if (!(await verifyToken(token))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   return null;

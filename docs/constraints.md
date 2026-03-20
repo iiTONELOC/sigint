@@ -20,19 +20,15 @@
 
 **NOAA Weather**: No API key required — only a `User-Agent` header. No explicit rate limit documented but standard courtesy applies. Client polls every 300 seconds. Returns GeoJSON FeatureCollection of active severe weather alerts (US only).
 
-**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships, FIRMS fires) additionally require a valid `X-SIGINT-Token` header. Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes.
+**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships, FIRMS fires) additionally require a valid auth token in the `sigint_token` HttpOnly cookie. Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes.
 
 ---
 
 ## Client-Side vs Server-Side Fetching
 
-OpenSky, USGS, and NOAA Weather are fetched client-side — OpenSky blocks Heroku IPs, USGS and NOAA have no CORS restrictions. Cannot proxy OpenSky through the server, cannot add auth headers.
+Client-side: OpenSky (Heroku IPs blocked), USGS, NOAA Weather (no CORS restrictions).
 
-GDELT raw export files have CORS restrictions — must be fetched server-side. The server downloads, unzips (using `zlib.inflateRaw`, zero deps), parses the tab-delimited CSV, filters to conflict/crisis CAMEO codes, and caches in memory. Clients fetch the parsed result from `/api/events/latest` with a server-issued token.
-
-AIS data from aisstream.io does not support browser CORS and requires an API key that must not be exposed client-side. The server maintains a persistent WebSocket, accumulates vessel positions in an in-memory Map keyed by MMSI, and serves snapshots from `/api/ships/latest` with token auth. Clients poll every 300 seconds.
-
-NASA FIRMS fire data requires an API key and returns large CSV payloads (30-100k records). Fetched server-side every 30 minutes, parsed, and cached in memory. Served from `/api/fires/latest` with token auth and gzip compression. Clients poll every 600 seconds.
+Server-side: GDELT (CORS restrictions), AIS (API key, no browser CORS), FIRMS (API key, large payloads). See [Architecture](./architecture.md) for pipeline details.
 
 ---
 
@@ -134,7 +130,7 @@ The 5 non-aircraft providers inherit this from `BaseProvider`. New providers sho
 
 ## All Server API Calls Use authenticatedFetch
 
-Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go through `lib/authService.ts`'s `authenticatedFetch()`. This handles token acquisition, caching, and auto-refresh on 401. Never call `fetch()` directly for server API routes.
+Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go through `lib/authService.ts`'s `authenticatedFetch()`. This wraps `fetch()` with `credentials: "same-origin"` so the browser sends the auth cookie automatically. On 401, refreshes the cookie and retries. Never call `fetch()` directly for server API routes.
 
 ---
 

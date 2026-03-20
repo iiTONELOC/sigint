@@ -58,7 +58,7 @@ export function DossierPane() {
       return;
     }
     const cacheKey = `${icao24}:${callsign ?? ""}`;
-    const cached = getCachedDossier(cacheKey);
+    const cached = await getCachedDossier(cacheKey);
     if (cached) {
       setState({ status: "loaded", data: cached, entityId: item.id });
       setPhotoError(false);
@@ -81,7 +81,7 @@ export function DossierPane() {
         return;
       }
       const { dossier } = (await res.json()) as { dossier: AircraftDossier };
-      setCachedDossier(cacheKey, dossier);
+      void setCachedDossier(cacheKey, dossier);
       setState({ status: "loaded", data: dossier, entityId: item.id });
     } catch (err: any) {
       if (err?.name === "AbortError") return;

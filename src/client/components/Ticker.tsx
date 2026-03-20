@@ -23,18 +23,19 @@ const STOPPED_SWAP_MS = 8000; // when speed=0, swap visible set every 8s
 // 0 = stopped, 25 = slow, 50 = normal, 100 = fast
 
 function useTickerSpeed(): number {
-  const [speed, setSpeed] = useState(() => {
-    const saved = cacheGet<number>(CACHE_KEYS.tickerSpeed);
-    return typeof saved === "number" ? saved : 10;
-  });
+  const [speed, setSpeed] = useState(10);
 
-  // Poll for external changes (settings modal writes to cache)
+  // Load from cache + poll for external changes
   useEffect(() => {
-    const iv = setInterval(() => {
-      const saved = cacheGet<number>(CACHE_KEYS.tickerSpeed);
-      if (typeof saved === "number" && saved !== speed) setSpeed(saved);
+    let mounted = true;
+    cacheGet<number>(CACHE_KEYS.tickerSpeed).then((saved) => {
+      if (mounted && typeof saved === "number") setSpeed(saved);
+    });
+    const iv = setInterval(async () => {
+      const saved = await cacheGet<number>(CACHE_KEYS.tickerSpeed);
+      if (mounted && typeof saved === "number" && saved !== speed) setSpeed(saved);
     }, 1000);
-    return () => clearInterval(iv);
+    return () => { mounted = false; clearInterval(iv); };
   }, [speed]);
 
   return speed;

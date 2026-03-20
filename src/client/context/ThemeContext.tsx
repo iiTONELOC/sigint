@@ -31,8 +31,8 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const EMPTY_OVERRIDES: ColorOverrides = { dark: {}, light: {} };
 
-function loadOverrides(): ColorOverrides {
-  const saved = cacheGet<ColorOverrides>(CACHE_KEYS.colorOverrides);
+async function loadOverrides(): Promise<ColorOverrides> {
+  const saved = await cacheGet<ColorOverrides>(CACHE_KEYS.colorOverrides);
   if (saved && typeof saved === "object" && saved.dark && saved.light) {
     return saved;
   }
@@ -40,12 +40,20 @@ function loadOverrides(): ColorOverrides {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeRaw] = useState<ThemeMode>(() => {
-    const saved = cacheGet<ThemeMode>(CACHE_KEYS.theme);
-    return saved === "light" ? "light" : "dark";
-  });
+  const [mode, setModeRaw] = useState<ThemeMode>("dark");
+  const [overrides, setOverrides] = useState<ColorOverrides>(EMPTY_OVERRIDES);
 
-  const [overrides, setOverrides] = useState<ColorOverrides>(loadOverrides);
+  // Load persisted theme + overrides asynchronously
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const savedMode = await cacheGet<ThemeMode>(CACHE_KEYS.theme);
+      if (mounted && savedMode === "light") setModeRaw("light");
+      const savedOverrides = await loadOverrides();
+      if (mounted) setOverrides(savedOverrides);
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const theme = useMemo(() => {
     const base = themes[mode];

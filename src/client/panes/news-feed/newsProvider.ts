@@ -4,7 +4,7 @@
 // IndexedDB persistence via storageService.
 
 import { authenticatedFetch } from "@/lib/authService";
-import { cacheGetAsync, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ class NewsProvider {
     data: NewsArticle[];
     timestamp: number;
   } | null> {
-    const cached = await cacheGetAsync<{ data?: NewsArticle[]; timestamp?: number }>(
+    const cached = await cacheGet<{ data?: NewsArticle[]; timestamp?: number }>(
       CACHE_KEY,
     );
     if (!cached || !Array.isArray(cached.data)) return null;

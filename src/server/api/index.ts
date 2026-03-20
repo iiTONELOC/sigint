@@ -2,7 +2,7 @@ import {
   lookupAircraftMetadata,
   lookupAircraftMetadataBatch,
 } from "./aircraftMetadata";
-import { generateToken, guardAuth, guardRateLimit } from "./auth";
+import { generateToken, tokenCookieHeader, guardAuth, guardRateLimit } from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
@@ -33,20 +33,26 @@ function jsonResponse(req: Request, body: unknown): Response {
 }
 
 export const apiRoutes = {
-  // ── Auth token ──────────────────────────────────────────────────
+  // ── Auth token — sets HttpOnly cookie ──────────────────────────
   "/api/auth/token": {
-    GET(req: Request) {
+    async GET(req: Request) {
       const blocked = guardRateLimit(req);
       if (blocked) return blocked;
 
-      const token = generateToken();
-      return Response.json({ token });
+      const token = await generateToken();
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Set-Cookie": tokenCookieHeader(token),
+        },
+      });
     },
   },
 
   // ── Aircraft metadata ──────────────────────────────────────────
   "/api/aircraft/metadata/:icao24": async (req: any) => {
-    const blocked = guardAuth(req);
+    const blocked = await guardAuth(req);
     if (blocked) return blocked;
 
     const { method, params } = req;
@@ -62,7 +68,7 @@ export const apiRoutes = {
 
   "/api/aircraft/metadata/batch": {
     async GET(req: Request) {
-      const blocked = guardAuth(req);
+      const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const url = new URL(req.url);
@@ -79,8 +85,8 @@ export const apiRoutes = {
 
   // ── GDELT events ───────────────────────────────────────────────
   "/api/events/latest": {
-    GET(req: Request) {
-      const blocked = guardAuth(req);
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const cache = getGdeltCache();
@@ -100,8 +106,8 @@ export const apiRoutes = {
 
   // ── AIS ships ──────────────────────────────────────────────────
   "/api/ships/latest": {
-    GET(req: Request) {
-      const blocked = guardAuth(req);
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const cache = getAisCache();
@@ -122,8 +128,8 @@ export const apiRoutes = {
 
   // ── NASA FIRMS fires ───────────────────────────────────────────
   "/api/fires/latest": {
-    GET(req: Request) {
-      const blocked = guardAuth(req);
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const cache = getFirmsCache();
@@ -144,8 +150,8 @@ export const apiRoutes = {
 
   // ── News (RSS feeds) ─────────────────────────────────────────────
   "/api/news/latest": {
-    GET(req: Request) {
-      const blocked = guardAuth(req);
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const cache = getNewsCache();
@@ -166,7 +172,7 @@ export const apiRoutes = {
 
   // ── Dossier: Aircraft enrichment ───────────────────────────────
   "/api/dossier/aircraft/:icao24": async (req: any) => {
-    const blocked = guardAuth(req);
+    const blocked = await guardAuth(req);
     if (blocked) return blocked;
 
     const { method, params } = req;
