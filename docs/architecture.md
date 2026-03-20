@@ -86,88 +86,22 @@ NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alert
 
 | Route | Method | Auth | Rate Limit | Purpose |
 |-------|--------|------|------------|---------|
-| `/api/auth/token` | GET | None | 60 req/min per IP | Issues a signed token (HMAC-SHA256, 30 min TTL) |
-| `/api/events/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached GDELT events (gzip compressed) |
-| `/api/ships/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
-| `/api/aircraft/metadata/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Single aircraft metadata lookup |
-| `/api/aircraft/metadata/batch` | GET | `X-SIGINT-Token` | 60 req/min per IP | Batch aircraft metadata lookup |
-| `/api/fires/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
-| `/api/news/latest` | GET | `X-SIGINT-Token` | 60 req/min per IP | Returns cached RSS news articles (gzip compressed) |
-| `/api/dossier/aircraft/:icao24` | GET | `X-SIGINT-Token` | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
+| `/api/auth/token` | GET | None | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL) |
+| `/api/events/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed) |
+| `/api/ships/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
+| `/api/aircraft/metadata/:icao24` | GET | HttpOnly cookie | 60 req/min per IP | Single aircraft metadata lookup |
+| `/api/aircraft/metadata/batch` | GET | HttpOnly cookie | 60 req/min per IP | Batch aircraft metadata lookup |
+| `/api/fires/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
+| `/api/news/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed) |
+| `/api/dossier/aircraft/:icao24` | GET | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
 
 ### Auth + Rate Limiting
 
-All API routes are rate limited at 60 requests per minute per IP (sliding window). Protected routes additionally require a valid `X-SIGINT-Token` header. Auth and rate limiting live in `api/auth.ts` — every route calls either `guardAuth` (token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
+All API routes are rate limited at 60 requests per minute per IP (sliding window). Protected routes require a valid auth token in an HttpOnly cookie (`sigint_token`). Auth and rate limiting live in `api/auth.ts` — every route calls either `guardAuth` (cookie token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
 
-Clients use a shared `lib/authService.ts` that fetches a token once on first API call, caches it in memory, and auto-refreshes on 401. All server-bound fetches (aircraft metadata, GDELT events, AIS ships, FIRMS fires, RSS news) go through `authenticatedFetch()`.
+Tokens are generated via Web Crypto API (async HMAC-SHA256) and verified with `crypto.timingSafeEqual`. The token endpoint sets the token as an `HttpOnly; Secure; SameSite=Strict` cookie.
 
-### GDELT Server Pipeline
-
-On boot, `startGdeltPolling()` kicks off a 15-minute interval:
-
-1. Fetch `http://data.gdeltproject.org/gdeltv2/lastupdate.txt` — returns URLs to the latest 15-min export files
-2. Download the `.export.CSV.zip` file
-3. Extract CSV from ZIP using `zlib.inflateRaw` (zero dependencies — manual ZIP header parsing)
-4. Parse tab-delimited CSV (61 columns per GDELT 2.0 Event Codebook)
-5. Filter to conflict/crisis CAMEO root codes (10, 13, 14, 15, 17, 18, 19, 20)
-6. Extract geocoded events with lat/lon, actors, Goldstein scale, tone, source URL
-7. Convert to GeoJSON format matching client expectations
-8. Cache in memory — dedupes by checking if the export URL changed since last fetch
-
-### AIS Server Pipeline
-
-On boot, `startAisPolling()` opens a persistent WebSocket to aisstream.io:
-
-1. Connect to `wss://stream.aisstream.io/v0/stream`
-2. Send subscription: API key, global bounding box `[[[-90,-180],[90,180]]]`, filter to `PositionReport` + `ShipStaticData` messages
-3. Messages stream in real-time (~300/sec globally)
-4. `PositionReport` messages update lat/lon/speed/heading/course/nav status per MMSI
-5. `ShipStaticData` messages enrich with name/callsign/IMO/type/destination/draught/dimensions
-6. In-memory Map keyed by MMSI — always current, no polling interval
-7. Stale vessels (not seen for 60 min) pruned every 5 minutes
-8. Auto-reconnect on disconnect with 10s delay
-9. `/api/ships/latest` snapshots the Map into an array for client consumption
-
-If `AISSTREAM_API_KEY` is not set, the WebSocket is never opened and `/api/ships/latest` returns 503. Ships layer shows empty. All other features work normally.
-
-### FIRMS Server Pipeline
-
-On boot, `startFirmsPolling()` kicks off a 30-minute interval:
-
-1. Fetch VIIRS NOAA-20 global fire hotspot CSV from `https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/VIIRS_NOAA20_NRT/world/1` (last 24 hours)
-2. Parse CSV — columns: latitude, longitude, brightness, scan, track, acquisition date/time, satellite, instrument, confidence, version, bright_ti5, FRP, day/night
-3. Filter out null-island (0,0) records
-4. Cache parsed records in memory
-5. Serve via `/api/fires/latest` with token auth and gzip compression
-
-If `FIRMS_MAP_KEY` is not set, polling is skipped and `/api/fires/latest` returns 503. Fires layer shows empty. All other features work normally.
-
-### RSS News Server Pipeline
-
-On boot, `startNewsPolling()` kicks off a 10-minute interval:
-
-1. Fetch RSS/Atom XML from 6 world news sources in parallel (15s timeout per feed)
-2. Parse XML — extract title, link, pubDate, description from `<item>` (RSS) or `<entry>` (Atom) elements, strip HTML entities and tags
-3. Deduplicate by URL across all sources
-4. Sort by publication date (newest first), cap at 200 articles
-5. Cache in memory — stale cache retained if all upstream feeds fail
-
-**Feed sources (all verified working):**
-- Reuters via Google News RSS: `https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US`
-- NYT World: `https://rss.nytimes.com/services/xml/rss/nyt/World.xml`
-- BBC World: `https://feeds.bbci.co.uk/news/world/rss.xml`
-- Al Jazeera: `https://www.aljazeera.com/xml/rss/all.xml`
-- The Guardian: `https://www.theguardian.com/world/rss`
-- NPR World: `https://feeds.npr.org/1004/rss.xml`
-
-**Dead feeds — DO NOT USE:**
-- `feeds.reuters.com/*` — Reuters killed all RSS feeds in June 2020. Domain does not resolve.
-- `rsshub.app/*` — Third-party proxy, unreliable, frequently returns 403.
-- `reddit.com/r/*/.json` — Returns 403 from server-side without OAuth authentication.
-
-No API key or env var required. All feeds are public. News is non-geographic (no lat/lon) — it does NOT go into the DataPoint union, allData, or the feature registry. It lives in its own self-contained pane.
-
-Token auth and rate limiting prevent the API from being abused as an open proxy. Tokens are signed with `SIGINT_SERVER_SECRET` (env var, required) using HMAC-SHA256 with constant-time comparison. Rate limiting uses a per-IP sliding window (60 req/min) applied to every route including the token endpoint. Clients fetch a token on boot via `authenticatedFetch()` in `lib/authService.ts` and auto-refresh on 401.
+Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-origin"`. On 401, the cookie is refreshed and the request retried.
 
 ### Environment Variables
 
@@ -209,7 +143,7 @@ src/
   client/
     App.tsx                           Thin shell — DataProvider → AppShell
     AppShell.tsx                      Layout: Header + PaneManager + Ticker (wires ticker click → select + zoom)
-    frontend.tsx                      React DOM entry point (async boot with cacheInit)
+    frontend.tsx                      React DOM entry point (non-blocking boot, cacheInit fire-and-forget)
     config/
       theme.ts                        Color definitions, ThemeColors type, getColorMap()
     context/
@@ -302,7 +236,7 @@ src/
       LayerLegend.tsx                 DEAD CODE — safe to delete
       styles.tsx                      Canvas-only constants
     lib/
-      authService.ts                  Shared token management + authenticatedFetch()
+      authService.ts                  Cookie-based auth — fetch with credentials + 401 cookie refresh
       storageService.ts               IndexedDB-backed cache
       trailService.ts                 Position recording, interpolation, trails
       landService.ts                  HD coastline data fetch + cache

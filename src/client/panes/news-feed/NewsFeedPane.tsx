@@ -19,8 +19,8 @@ type SavedNewsState = {
   sourceFilter: string | null;
 };
 
-function loadNewsState(): SavedNewsState {
-  const saved = cacheGet<SavedNewsState>(CACHE_KEYS.newsState);
+async function loadNewsState(): Promise<SavedNewsState> {
+  const saved = await cacheGet<SavedNewsState>(CACHE_KEYS.newsState);
   if (saved && typeof saved === "object") {
     return {
       selectedId: saved.selectedId ?? null,
@@ -50,14 +50,19 @@ const ALL_SOURCES = [
 export function NewsFeedPane() {
   const { newsArticles: articles } = useData();
 
-  const [sourceFilter, setSourceFilter] = useState<string | null>(
-    () => loadNewsState().sourceFilter,
-  );
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadNewsState().then((state) => {
+      setSourceFilter(state.sourceFilter);
+      setSavedId(state.selectedId);
+    });
+  }, []);
   const [selected, setSelected] = useState<NewsArticle | null>(null);
 
   // Restore selected article from saved ID once articles load (one-time only)
   const [restored, setRestored] = useState(false);
-  const savedId = useMemo(() => loadNewsState().selectedId, []);
   useEffect(() => {
     if (restored || !savedId || articles.length === 0) return;
     const match = articles.find((a) => a.id === savedId);

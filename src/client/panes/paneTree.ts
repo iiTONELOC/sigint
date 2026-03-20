@@ -194,9 +194,9 @@ function isValidTree(node: unknown): node is LayoutNode {
   return false;
 }
 
-export function loadLayout(): LayoutState {
+export async function loadLayout(): Promise<LayoutState> {
   try {
-    const cached = cacheGet<LayoutState>(CACHE_KEY);
+    const cached = await cacheGet<LayoutState>(CACHE_KEY);
     if (cached && isValidTree(cached.root)) {
       const minimized = (cached.minimized ?? []).map((m: any) => ({
         id: m.id,
@@ -218,8 +218,8 @@ export function persistLayout(layout: LayoutState) {
   cacheSet(CACHE_KEY, layout);
 }
 
-export function loadPresets(): LayoutPreset[] {
-  return cacheGet<LayoutPreset[]>(PRESETS_KEY) ?? [];
+export async function loadPresets(): Promise<LayoutPreset[]> {
+  return await cacheGet<LayoutPreset[]>(PRESETS_KEY) ?? [];
 }
 
 export function savePresets(presets: LayoutPreset[]) {

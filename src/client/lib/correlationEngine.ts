@@ -117,10 +117,20 @@ function getTs(item: DataPoint): number {
 
 const BASELINE_KEY = CACHE_KEYS.intelBaseline;
 
-function loadBaseline(): RegionBaseline {
-  const cached = cacheGet<RegionBaseline>(BASELINE_KEY);
+// Module-level baseline cache, populated async at boot
+let _baselineCache: RegionBaseline | null = null;
+
+/** Call once at boot to load baseline from IndexedDB */
+export async function initBaseline(): Promise<void> {
+  const cached = await cacheGet<RegionBaseline>(BASELINE_KEY);
   if (cached && cached.countries && typeof cached.lastUpdated === "number") {
-    return cached;
+    _baselineCache = cached;
+  }
+}
+
+function loadBaseline(): RegionBaseline {
+  if (_baselineCache && _baselineCache.countries && typeof _baselineCache.lastUpdated === "number") {
+    return _baselineCache;
   }
   return { countries: {}, lastUpdated: 0 };
 }

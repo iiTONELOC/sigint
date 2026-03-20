@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheGetAsync, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheGet, cacheSet } from "@/lib/storageService";
 
 // ── Config each concrete provider supplies ───────────────────────────
 
@@ -68,7 +68,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     data: DataPoint[];
     timestamp: number;
   } | null> {
-    const cached = await cacheGetAsync<{ data?: DataPoint[]; timestamp?: number }>(
+    const cached = await cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
       this.cacheKey,
     );
     if (!cached || !Array.isArray(cached.data)) return null;

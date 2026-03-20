@@ -58,6 +58,15 @@ Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridT
 
 Each type can only appear once (no duplicate globes).
 
+### Lazy Loading + Error Boundaries
+
+All non-globe panes are lazy-loaded via `React.lazy()` with per-pane `Suspense` boundaries and `ErrorBoundary` wrappers. Each pane directory contains:
+
+- `index.tsx` — exports the lazy wrapper: `ErrorBoundary` → `Suspense` (with skeleton fallback) → lazy-loaded pane component
+- `*Skeleton.tsx` — animate-pulse placeholder matching the pane's layout structure
+
+Globe loads eagerly (default pane). If a lazy pane crashes, its `ErrorBoundary` shows a RETRY button with auto-retry (3 attempts, 5s). An app-level `ErrorBoundary` wraps everything as a last resort.
+
 ### Persistence
 
 Layout state (pane configs, split tree, ratios) is persisted under key `sigint.layout.v1`. Restored on boot. Every layout change triggers a persist. Invalid or corrupt layouts fall back to default (single globe pane).

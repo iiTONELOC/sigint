@@ -129,14 +129,14 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
   }, [refreshStorage]);
 
   // ── Export all data as JSON file ────────────────────────────────
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     const allowedKeys = new Set(Object.values(CACHE_KEYS));
     const keys = cacheListKeys().filter((k) =>
       allowedKeys.has(k as (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS]),
     );
     const exportData: Record<string, unknown> = {};
     for (const key of keys) {
-      const value = cacheGet(key);
+      const value = await cacheGet(key);
       if (value != null) exportData[key] = value;
     }
     const json = JSON.stringify(exportData, null, 2);
@@ -312,10 +312,13 @@ function AppearanceTab({
   const hasAnyOverride = Object.keys(overrides).length > 0;
 
   // Ticker speed
-  const [tickerSpeed, setTickerSpeed] = useState(() => {
-    const saved = cacheGet<number>(CACHE_KEYS.tickerSpeed);
-    return typeof saved === "number" ? saved : 10;
-  });
+  const [tickerSpeed, setTickerSpeed] = useState(10);
+
+  useEffect(() => {
+    cacheGet<number>(CACHE_KEYS.tickerSpeed).then((saved) => {
+      if (typeof saved === "number") setTickerSpeed(saved);
+    });
+  }, []);
   const handleTickerSpeed = useCallback((val: number) => {
     setTickerSpeed(val);
     cacheSet(CACHE_KEYS.tickerSpeed, val);

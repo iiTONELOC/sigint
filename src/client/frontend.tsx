@@ -9,6 +9,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
 import { cacheInit } from "./lib/storageService";
+import { initBaseline } from "./lib/correlationEngine";
+import { initTrails } from "./lib/trailService";
+import { initLand } from "./lib/landService";
 import { registerSW } from "./lib/swRegistration";
 
 const fontsLink = document.createElement("link");
@@ -35,10 +38,12 @@ const app = (
   </StrictMode>
 );
 
-// Fire cacheInit non-blocking — providers use cacheGetAsync which
+// Fire cacheInit non-blocking — providers use cacheGet() which
 // reads from IndexedDB directly if the memory cache isn't ready yet.
 // App renders immediately, data trickles in as providers resolve.
-cacheInit().catch(() => {});
+cacheInit()
+  .then(() => Promise.all([initBaseline(), initTrails(), initLand()]))
+  .catch(() => {});
 
 if (import.meta.hot) {
   const root = (import.meta.hot.data.root ??= createRoot(elem));

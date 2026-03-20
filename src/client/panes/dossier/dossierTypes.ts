@@ -68,24 +68,24 @@ const CACHE_TTL_MS = 30 * 60_000;
 
 type DossierCacheMap = Record<string, { dossier: AircraftDossier; ts: number }>;
 
-function loadCache(): DossierCacheMap {
+async function loadCache(): Promise<DossierCacheMap> {
   try {
-    return cacheGet<DossierCacheMap>(CACHE_KEY) ?? {};
+    return await cacheGet<DossierCacheMap>(CACHE_KEY) ?? {};
   } catch {
     return {};
   }
 }
 
-export function getCachedDossier(key: string): AircraftDossier | null {
-  const cache = loadCache();
+export async function getCachedDossier(key: string): Promise<AircraftDossier | null> {
+  const cache = await loadCache();
   const entry = cache[key];
   if (!entry) return null;
   if (Date.now() - entry.ts > CACHE_TTL_MS) return null;
   return entry.dossier;
 }
 
-export function setCachedDossier(key: string, dossier: AircraftDossier): void {
-  const cache = loadCache();
+export async function setCachedDossier(key: string, dossier: AircraftDossier): Promise<void> {
+  const cache = await loadCache();
   cache[key] = { dossier, ts: Date.now() };
   const keys = Object.keys(cache);
   if (keys.length > 200) {

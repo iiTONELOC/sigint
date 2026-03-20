@@ -108,16 +108,16 @@ Any match sets `military: true` on the `AircraftMetadata` response. ~15,700 airc
 
 ## Data Sources
 
-| Source | Type | API | Status | Poll Interval |
-|--------|------|-----|--------|---------------|
-| OpenSky Network | Live aircraft positions | opensky-network.org/api/states/all | **Live** — client-side, anonymous, 400 cred/day | 240s |
-| Aircraft metadata | Type/reg/operator lookup | Local ac-db.ndjson (~180k records) | **Live** — server-side | On selection |
-| USGS Earthquakes | Seismic events (7 days) | earthquake.usgs.gov all_week.geojson | **Live** — client-side, free, no auth | 420s |
-| GDELT 2.0 | Geolocated news events | data.gdeltproject.org raw export CSV | **Live** — server-side fetch + parse, token auth, client polls /api/events/latest | 15 min |
-| AIS Ships | Live vessel positions | aisstream.io WebSocket | **Live** — server-side WebSocket stream, token auth, client polls /api/ships/latest | 300s (client) / real-time (server) |
-| NASA FIRMS | Fire hotspots (24h) | firms.modaps.eosdis.nasa.gov VIIRS CSV | **Live** — server-side fetch + parse, token auth, client polls /api/fires/latest | 600s (client) / 30 min (server) |
-| NOAA Weather | Severe weather alerts (US) | api.weather.gov/alerts/active | **Live** — client-side, free, no auth (User-Agent only) | 300s |
-| RSS News | World news articles | 6 RSS feeds (see architecture.md) | **Live** — server-side fetch + parse, token auth, client polls /api/news/latest | 600s (client) / 10 min (server) |
+| Source | Type | Fetch | Poll |
+|--------|------|-------|------|
+| OpenSky Network | Live aircraft positions | Client-side, anonymous | 240s |
+| Aircraft metadata | Type/reg/operator lookup | Server-side, local NDJSON | On selection |
+| USGS Earthquakes | Seismic events (7 days) | Client-side, no auth | 420s |
+| GDELT 2.0 | Geolocated news events | Server-side, token auth | 15 min |
+| AIS Ships | Live vessel positions | Server WebSocket, token auth | 300s |
+| NASA FIRMS | Fire hotspots (24h) | Server-side, token auth | 600s |
+| NOAA Weather | Severe weather alerts (US) | Client-side, no auth | 300s |
+| RSS News | World news articles | Server-side, token auth | 600s |
 
 ### Non-Feature Data Sources
 

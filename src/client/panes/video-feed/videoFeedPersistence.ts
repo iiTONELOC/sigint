@@ -23,12 +23,12 @@ export function saveState(grid: GridLayout, slots: SlotState[]) {
   cacheSet(CACHE_KEY, saved);
 }
 
-export function loadState(): SavedState | null {
-  return cacheGet<SavedState>(CACHE_KEY);
+export async function loadState(): Promise<SavedState | null> {
+  return await cacheGet<SavedState>(CACHE_KEY);
 }
 
-export function loadPresets(): Preset[] {
-  return cacheGet<Preset[]>(PRESETS_KEY) ?? [];
+export async function loadPresets(): Promise<Preset[]> {
+  return await cacheGet<Preset[]>(PRESETS_KEY) ?? [];
 }
 
 export function savePresets(presets: Preset[]) {

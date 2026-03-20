@@ -30,8 +30,8 @@ let loaded = false;
 
 // ── Cache ────────────────────────────────────────────────────────────
 
-function readCache(): Map<string, TrailEntry> {
-  const cached = cacheGet<Record<string, TrailEntry>>(CACHE_KEY);
+async function readCache(): Promise<Map<string, TrailEntry>> {
+  const cached = await cacheGet<Record<string, TrailEntry>>(CACHE_KEY);
   if (!cached) return new Map();
   const map = new Map<string, TrailEntry>();
   for (const [id, entry] of Object.entries(cached)) {
@@ -58,12 +58,16 @@ function maybePersist(): void {
   }
 }
 
+/** Call once at boot to load trails from IndexedDB */
+export async function initTrails(): Promise<void> {
+  if (loaded) return;
+  const cached = await readCache();
+  if (cached.size > 0) trails = cached;
+  loaded = true;
+}
+
 function ensureLoaded(): void {
-  if (!loaded) {
-    const cached = readCache();
-    if (cached.size > 0) trails = cached;
-    loaded = true;
-  }
+  // No-op if initTrails hasn't run yet - trails start empty, populate async
 }
 
 // ── Earth math ───────────────────────────────────────────────────────

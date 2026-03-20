@@ -6,7 +6,7 @@ import {
 import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus } from "../lib/utils";
 import { getAircraftMetadataBatch } from "./typeLookup";
-import { cacheGetAsync, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const DEFAULT_CACHE_DURATION = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
@@ -65,7 +65,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     data: DataPoint[];
     timestamp: number;
   } | null> {
-    const cached = await cacheGetAsync<{ data?: DataPoint[]; timestamp?: number }>(
+    const cached = await cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
       this.cacheKey,
     );
     if (!cached || !Array.isArray(cached.data)) return null;
@@ -256,9 +256,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
     // No usable cache — must wait for fetch
     if (this.fetchInProgress) {
-      return this.cache
-        ? this.cache.data
-        : this.fetchInProgress;
+      return this.cache ? this.cache.data : this.fetchInProgress;
     }
 
     this.fetchInProgress = this.refresh().finally(() => {

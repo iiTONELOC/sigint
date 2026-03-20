@@ -60,7 +60,7 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 
 ```mermaid
 flowchart TD
-    Boot["Application Boot<br/>await cacheInit()"] --> HydrateAC["AircraftProvider.hydrate()<br/>(rejects if >30min stale)"]
+    Boot["Application Boot<br/>cacheInit() fire-and-forget"] --> HydrateAC["AircraftProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateEQ["EarthquakeProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateEV["GdeltProvider.hydrate()<br/>(rejects if >30min stale)"]
     Boot --> HydrateSH["ShipProvider.hydrate()<br/>(rejects if >30min stale)"]
@@ -120,7 +120,7 @@ flowchart TD
     PersistWX --> SetState
 ```
 
-All six hooks skip the immediate fetch on boot if hydration returned fresh data. All providers use a uniform 30-minute staleness threshold — cached data shows instantly on reload, live data replaces within one poll cycle.
+Boot is non-blocking. `cacheInit()` fires without awaiting, the app renders immediately. Providers use async `hydrate()` via `cacheGet()` (memory first, IndexedDB fallback). Hooks start empty, data arrives as providers resolve. All providers use a uniform 30-minute staleness threshold.
 
 ---
 
@@ -182,35 +182,31 @@ The AIS pipeline has both server-side and client-side components:
 
 **Server** (`aisCache.ts`): On boot, opens a persistent WebSocket to `wss://stream.aisstream.io/v0/stream`. Subscribes to global `PositionReport` and `ShipStaticData` messages. Accumulates latest position per MMSI in an in-memory Map. `PositionReport` provides lat/lon/speed/heading/course/nav status. `ShipStaticData` enriches with name/callsign/IMO/type/destination/draught/dimensions. Stale vessels (not seen for 60 min) pruned every 5 min. Auto-reconnects on disconnect. Serves snapshot via `/api/ships/latest` with token auth.
 
-**Client** (`ShipProvider`): Polls `/api/ships/latest` every 300 seconds using `authenticatedFetch()` from `lib/authService.ts`. Converts server vessel records to DataPoints with `id: S{mmsi}`, type `ships`. Persists to IndexedDB. Hydrates on boot with 30-min staleness threshold.
+**Client** (`ShipProvider`): Polls `/api/ships/latest` every 300 seconds using `authenticatedFetch()` from `lib/authService.ts` . Converts server vessel records to DataPoints with `id: S{mmsi}`, type `ships`. Persists to IndexedDB. Hydrates on boot with 30-min staleness threshold.
 
 ---
 
 ## GDELT Event Data Flow
 
-The GDELT pipeline has both server-side and client-side components:
+**Server** (`gdeltCache.ts`): Fetches GDELT export CSV every 15 min, filters to conflict/crisis CAMEO codes. See [Architecture](./architecture.md) for full pipeline.
 
-**Server** (`gdeltCache.ts`): Every 15 minutes, fetches `lastupdate.txt` from GDELT, downloads the latest `.export.CSV.zip`, extracts and parses the tab-delimited CSV, filters to conflict/crisis CAMEO codes, converts to GeoJSON, and caches in memory. Serves via `/api/events/latest` with token auth.
-
-**Client** (`GdeltProvider`): Polls `/api/events/latest` every 15 minutes using `authenticatedFetch()` from `lib/authService.ts`, which handles token acquisition and auto-refresh. Incoming events are merged with existing cache (URL-based dedup), events older than 7 days are pruned, and the result is persisted to IndexedDB.
+**Client** (`GdeltProvider`): Polls `/api/events/latest` every 15 min via `authenticatedFetch()`. Merges with existing cache (URL dedup), prunes events older than 7 days. Persists to IndexedDB.
 
 ---
 
 ## NASA FIRMS Fire Data Flow
 
-The FIRMS pipeline has both server-side and client-side components:
+**Server** (`firmsCache.ts`): Fetches VIIRS NOAA-20 CSV every 30 min. See [Architecture](./architecture.md) for full pipeline.
 
-**Server** (`firmsCache.ts`): Every 30 minutes, fetches the VIIRS NOAA-20 global CSV from the NASA FIRMS API (`/api/area/csv/{MAP_KEY}/VIIRS_NOAA20_NRT/world/1`). Parses CSV columns (latitude, longitude, brightness, FRP, confidence, satellite, instrument, acquisition date/time, day/night). Caches parsed records in memory. Serves via `/api/fires/latest` with token auth and gzip compression. If `FIRMS_MAP_KEY` is not set, polling is skipped.
-
-**Client** (`FireProvider`): Polls `/api/fires/latest` every 600 seconds (10 min) using `authenticatedFetch()`. Converts server fire records to DataPoints with `id: FI{idx}-{lat}-{lon}`, type `fires`. Persists to IndexedDB under `sigint.firms.fire-cache.v1`. Hydrates on boot with 30-min staleness threshold.
+**Client** (`FireProvider`): Polls `/api/fires/latest` every 600s via `authenticatedFetch()`. Converts to DataPoints (`id: FI{idx}-{lat}-{lon}`, type `fires`). Persists to IndexedDB, 30-min staleness.
 
 ---
 
 ## NOAA Weather Data Flow
 
-Unlike the server-proxied sources (GDELT, ships, fires), weather alerts are fetched **client-side** directly from `api.weather.gov/alerts/active?status=actual&message_type=alert`. No API key required — only a `User-Agent` header. The NWS API returns a GeoJSON FeatureCollection.
+Client-side fetch from `api.weather.gov/alerts/active`. No API key, just `User-Agent` header.
 
-**Client** (`WeatherProvider`): Polls every 300 seconds (5 min). Extracts centroid coordinates from each feature's geometry (skips alerts without geometry). Maps to DataPoints with `id: WX{nws_id}`, type `weather`. Data includes severity, certainty, urgency, event type, headline, description, area description, onset, and expiry. Persists under `sigint.noaa.weather-cache.v1`. Hydrates on boot with 30-min staleness threshold. US-only coverage.
+**Client** (`WeatherProvider`): Polls every 300s. Extracts centroid from GeoJSON geometry. Maps to DataPoints (`id: WX{nws_id}`, type `weather`). US-only. Persists to IndexedDB, 30-min staleness.
 
 ---
 
@@ -218,9 +214,9 @@ Unlike the server-proxied sources (GDELT, ships, fires), weather alerts are fetc
 
 **Important**: News is a non-geographic data source. It does NOT participate in `allData`, the feature registry, or the globe rendering pipeline. However, news data IS lifted to `DataContext` — the `useNewsData()` hook is called in the DataProvider, and `newsArticles` is exposed on the context value. This enables the correlation engine and any pane to access news without duplicate hook instances.
 
-**Server** (`newsCache.ts`): Every 10 minutes, fetches RSS/Atom XML from 6 world news sources in parallel (Reuters via Google News, NYT World, BBC World, Al Jazeera, The Guardian, NPR World). Parses XML items, strips HTML entities/tags from titles and descriptions, deduplicates by URL, sorts newest-first, caps at 200 articles. Caches in memory. Serves via `/api/news/latest` with token auth and gzip compression. Stale cache retained on upstream failure.
+**Server** (`newsCache.ts`): Fetches 6 RSS feeds every 10 min, deduplicates, caps at 200 articles. See [Architecture](./architecture.md) for feed list and details.
 
-**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads from IndexedDB with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook follows the `useProviderData` pattern: `isMounted` local variable inside `useEffect`, `getData()` for initial call (StrictMode safe), `refresh()` for interval polls (600s), hydration skip when cache is fresh.
+**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads asynchronously from IndexedDB via `cacheGet()` with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` (HttpOnly cookie auth) and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook starts empty and calls `getData()` in a `useEffect`.
 
 **Context integration**: `DataContext` calls `useNewsData()` and exposes `newsArticles` on the context value. `NewsFeedPane` reads from `useData()` instead of calling the hook directly. News also appears in the `dataSources` array as `{ id: "news", label: "NEWS" }` for status reporting.
 
@@ -242,16 +238,16 @@ Unlike the server-proxied sources (GDELT, ships, fires), weather alerts are fetc
 
 ```mermaid
 flowchart TD
-    IN["allData + newsArticles"] --> CLUSTER["1. Regional Clustering<br/>Group by country+type within 6h"]
-    IN --> CROSS["2. Cross-Source Correlation<br/>Grid-indexed O(n) spatial matching"]
-    IN --> ANOMALY["3. Anomaly Detection<br/>7-day rolling baseline comparison"]
-    CLUSTER --> NEWS["4. News Linking<br/>Match articles to active regions"]
+    IN["allData + newsArticles"] --> CLUSTER["Regional Clustering<br/>Group by country+type within 6h"]
+    IN --> CROSS["Cross-Source Correlation<br/>Grid-indexed O(n) spatial matching"]
+    IN --> ANOMALY["Anomaly Detection<br/>7-day rolling baseline comparison"]
+    CLUSTER --> NEWS["News Linking<br/>Match articles to active regions"]
     ANOMALY --> NEWS
     CROSS --> PRODUCTS["buildProducts()"]
     CLUSTER --> PRODUCTS
     ANOMALY --> PRODUCTS
     NEWS --> PRODUCTS
-    IN --> ALERTS["5. Alert Scoring<br/>Composite 1-10 score per event"]
+    IN --> ALERTS["Alert Scoring<br/>Composite 1-10 score per event"]
     CROSS --> ALERTS
     ANOMALY --> ALERTS
     PRODUCTS --> OUT["CorrelationResult"]
