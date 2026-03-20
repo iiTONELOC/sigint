@@ -6,6 +6,14 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 GlobalRegistrator.register();
 
+// Suppress act() warnings in tests that don't wrap updates in act().
+const originalError = console.error;
+console.error = (...args: any[]) => {
+  if (typeof args[0] === "string" && args[0].includes("not wrapped in act"))
+    return;
+  originalError(...args);
+};
+
 // Tell React we're in a test environment — suppresses act() warnings
 // @ts-ignore
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
