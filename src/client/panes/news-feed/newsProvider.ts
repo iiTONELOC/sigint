@@ -4,7 +4,7 @@
 // IndexedDB persistence via storageService.
 
 import { authenticatedFetch } from "@/lib/authService";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGetAsync, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -46,11 +46,11 @@ class NewsProvider {
     cacheSet(CACHE_KEY, { timestamp: Date.now(), data });
   }
 
-  private readPersistedCache(): {
+  private async readPersistedCache(): Promise<{
     data: NewsArticle[];
     timestamp: number;
-  } | null {
-    const cached = cacheGet<{ data?: NewsArticle[]; timestamp?: number }>(
+  } | null> {
+    const cached = await cacheGetAsync<{ data?: NewsArticle[]; timestamp?: number }>(
       CACHE_KEY,
     );
     if (!cached || !Array.isArray(cached.data)) return null;
@@ -66,10 +66,10 @@ class NewsProvider {
 
   // ── Hydrate ─────────────────────────────────────────────────────
 
-  hydrate(): NewsArticle[] | null {
+  async hydrate(): Promise<NewsArticle[] | null> {
     if (this.cache) return this.cache.data;
 
-    const persisted = this.readPersistedCache();
+    const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
     if (Date.now() - persisted.timestamp > MAX_CACHE_AGE_MS) return null;
 
@@ -108,7 +108,7 @@ class NewsProvider {
       };
       return data;
     } catch (error) {
-      const persisted = this.readPersistedCache();
+      const persisted = await this.readPersistedCache();
       const fallback = this.cache?.data ?? persisted?.data ?? [];
       this.snapshot = {
         items: fallback,
@@ -127,6 +127,13 @@ class NewsProvider {
       }
       return this.cache.data;
     }
+
+    // Try async hydration first
+    const hydrated = await this.hydrate();
+    if (hydrated && hydrated.length > 0) {
+      return hydrated;
+    }
+
     return this.refresh();
   }
 

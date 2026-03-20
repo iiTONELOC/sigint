@@ -10,7 +10,6 @@ services:
     volumes:
       - ./src:/app/src
       - ./public:/app/public
-      - ./styles:/app/styles
     command: bun --hot src/server/index.ts
     healthcheck:
       test:

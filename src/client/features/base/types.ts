@@ -9,7 +9,7 @@ export type ProviderSnapshot<TEntity> = {
 
 export type DataProvider<TEntity> = {
   readonly id: string;
-  hydrate(): TEntity[] | null;
+  hydrate(): Promise<TEntity[] | null>;
   refresh(): Promise<TEntity[]>;
   getData(pollInterval?: number): Promise<TEntity[]>;
   getSnapshot(): ProviderSnapshot<TEntity>;

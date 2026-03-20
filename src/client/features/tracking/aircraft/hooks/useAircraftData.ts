@@ -18,22 +18,10 @@ type UseAircraftDataResult = {
 export function useAircraftData(
   pollInterval: number = 240_000,
 ): UseAircraftDataResult {
-  const hydratedAircraft = aircraftProvider.hydrate();
-
-  const [data, setData] = useState<DataPoint[]>(() => {
-    if (hydratedAircraft && hydratedAircraft.length > 0) {
-      return hydratedAircraft;
-    }
-    return generateMockAircraft();
-  });
-  const [loading, setLoading] = useState(
-    !(hydratedAircraft && hydratedAircraft.length > 0),
-  );
+  const [data, setData] = useState<DataPoint[]>(() => generateMockAircraft());
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [dataSource, setDataSource] = useState<AircraftDataSource>(() => {
-    if (hydratedAircraft && hydratedAircraft.length > 0) return "cached";
-    return "loading";
-  });
+  const [dataSource, setDataSource] = useState<AircraftDataSource>("loading");
 
   useEffect(() => {
     let isMounted = true;
@@ -75,8 +63,7 @@ export function useAircraftData(
       }
     };
 
-    // Always fetch on mount — hydrated data is shown instantly but may be stale.
-    // getData() deduplicates in-flight requests (safe for StrictMode double-mount).
+    // Always fetch on mount — getData() handles hydration internally now.
     poll(true);
     intervalId = setInterval(poll, pollInterval);
 
