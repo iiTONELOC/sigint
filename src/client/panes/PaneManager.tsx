@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useData } from "@/context/DataContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
-import { DataTablePane } from "@/panes/data-table/DataTablePane";
-import { DossierPane } from "@/panes/dossier/DossierPane";
-import { IntelFeedPane } from "@/panes/intel-feed/IntelFeedPane";
-import { AlertLogPane } from "@/panes/alert-log/AlertLogPane";
-import { RawConsolePane } from "@/panes/raw-console/RawConsolePane";
-import { VideoFeedPane } from "@/panes/video-feed/VideoFeedPane";
-import { NewsFeedPane } from "@/panes/news-feed/NewsFeedPane";
+import { DataTable } from "@/panes/data-table";
+import { Dossier } from "@/panes/dossier";
+import { IntelFeed } from "@/panes/intel-feed";
+import { AlertLog } from "@/panes/alert-log";
+import { RawConsole } from "@/panes/raw-console";
+import { VideoFeed } from "@/panes/video-feed";
+import { NewsFeed } from "@/panes/news-feed";
 import { PaneHeader } from "@/panes/PaneHeader";
 import {
   setDossierOpen,
@@ -72,13 +72,13 @@ const PANE_META: Record<PaneType, { label: string; icon: typeof Globe }> = {
 
 const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
   globe: LiveTrafficPane,
-  "data-table": DataTablePane,
-  dossier: DossierPane,
-  "intel-feed": IntelFeedPane,
-  "news-feed": NewsFeedPane,
-  "alert-log": AlertLogPane,
-  "raw-console": RawConsolePane,
-  "video-feed": VideoFeedPane,
+  "data-table": DataTable,
+  dossier: Dossier,
+  "intel-feed": IntelFeed,
+  "news-feed": NewsFeed,
+  "alert-log": AlertLog,
+  "raw-console": RawConsole,
+  "video-feed": VideoFeed,
 };
 
 // ── Component ────────────────────────────────────────────────────────
