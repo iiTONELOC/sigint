@@ -23,9 +23,13 @@ export type PlayerHandle = {
   isPaused: boolean;
   isLive: boolean;
   currentDelay: number;
+  /** Buffered range: [start, end] in seconds, or null if no buffer */
+  bufferRange: [number, number] | null;
+  currentTime: number;
   play: () => void;
   pause: () => void;
   goLive: () => void;
+  seekTo: (time: number) => void;
 };
 
 export type SavedSlot = {

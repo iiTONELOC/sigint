@@ -159,3 +159,18 @@
     @apply bg-background text-foreground font-mono;
   }
 }
+
+/* ── Video player controls ────────────────────────────────────────── */
+/* Hidden by default. JS toggles .video-controls-visible on click/tap. */
+/* 5s idle timer hides them. pointer-events: none prevents ghost clicks */
+
+.video-controls {
+  opacity: 0 !important;
+  transition: opacity 0.25s;
+  pointer-events: none !important;
+}
+
+.video-controls-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}

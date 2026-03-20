@@ -24,6 +24,8 @@ export function HlsPlayer({
   const [, tick] = useState(0);
 
   // Expose player handle
+  const userSeekedRef = useRef(false);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !playerRef) return;
@@ -32,20 +34,14 @@ export function HlsPlayer({
         return video.paused;
       },
       get isLive() {
-        if (!isFinite(video.duration)) {
-          if (video.buffered.length === 0) return true;
-          const liveEdge = video.buffered.end(video.buffered.length - 1);
-          return liveEdge - video.currentTime < 3;
-        }
-        return video.duration - video.currentTime < 3;
+        // If user hasn't manually seeked, they're live. Period.
+        // HLS pre-buffers ahead so buffered.end is always > currentTime.
+        return !userSeekedRef.current;
       },
       get currentDelay() {
-        if (!isFinite(video.duration)) {
-          if (video.buffered.length === 0) return 0;
-          const liveEdge = video.buffered.end(video.buffered.length - 1);
-          return Math.max(0, liveEdge - video.currentTime);
-        }
-        return Math.max(0, video.duration - video.currentTime);
+        if (video.buffered.length === 0) return 0;
+        const bufEnd = video.buffered.end(video.buffered.length - 1);
+        return Math.max(0, bufEnd - video.currentTime);
       },
       play() {
         video.play().catch(() => {});
@@ -56,15 +52,44 @@ export function HlsPlayer({
         tick((n) => n + 1);
       },
       goLive() {
+        const hls = hlsRef.current;
+        if (hls) {
+          hls.startLoad(-1);
+        }
         if (video.buffered.length > 0) {
-          video.currentTime = video.buffered.end(video.buffered.length - 1);
+          const liveEdge = video.buffered.end(video.buffered.length - 1);
+          video.currentTime = liveEdge - 0.5;
         } else if (isFinite(video.duration)) {
           video.currentTime = video.duration;
+        } else {
+          video.currentTime = 1e10;
         }
-        if (hlsRef.current) {
-          hlsRef.current.startLoad(-1);
-        }
+        userSeekedRef.current = false;
         video.play().catch(() => {});
+        tick((n) => n + 1);
+      },
+      get bufferRange(): [number, number] | null {
+        // Use seekable range — this is what we can actually seek to
+        if (video.seekable.length > 0) {
+          return [
+            video.seekable.start(0),
+            video.seekable.end(video.seekable.length - 1),
+          ];
+        }
+        if (video.buffered.length > 0) {
+          return [
+            video.buffered.start(0),
+            video.buffered.end(video.buffered.length - 1),
+          ];
+        }
+        return null;
+      },
+      get currentTime() {
+        return video.currentTime;
+      },
+      seekTo(time: number) {
+        video.currentTime = time;
+        userSeekedRef.current = true;
         tick((n) => n + 1);
       },
     };

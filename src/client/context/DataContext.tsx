@@ -495,12 +495,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }, 0);
   }, [setAutoRotate, setRevealId]);
 
+  const resumeGraceRef = useRef(false);
+
   const resumeWatch = useCallback(() => {
+    resumeGraceRef.current = true;
     setWatchState((prev) => {
       if (!prev.active) return prev;
       return { ...prev, paused: false };
     });
-    setTimeout(() => setAutoRotate(true), 0);
+    setTimeout(() => {
+      setAutoRotate(true);
+      // Clear grace after the watch loop has had a chance to set currentId
+      setTimeout(() => {
+        resumeGraceRef.current = false;
+      }, 500);
+    }, 0);
   }, [setAutoRotate]);
 
   // Keep watch layout alive during watch
@@ -580,6 +589,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Manual selection pauses watch (not stops) so user can resume
   useEffect(() => {
     if (!watchState.active || watchState.paused || !selectedCurrent) return;
+    if (resumeGraceRef.current) return;
     if (watchState.currentId && selectedCurrent.id !== watchState.currentId) {
       pauseWatch();
     }
