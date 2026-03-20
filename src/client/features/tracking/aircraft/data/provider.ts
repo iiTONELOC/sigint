@@ -6,7 +6,7 @@ import {
 import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus } from "../lib/utils";
 import { getAircraftMetadataBatch } from "./typeLookup";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGetAsync, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const DEFAULT_CACHE_DURATION = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
@@ -61,11 +61,11 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     cacheSet(this.cacheKey, { timestamp: Date.now(), data });
   }
 
-  private readPersistedCache(): {
+  private async readPersistedCache(): Promise<{
     data: DataPoint[];
     timestamp: number;
-  } | null {
-    const cached = cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
+  } | null> {
+    const cached = await cacheGetAsync<{ data?: DataPoint[]; timestamp?: number }>(
       this.cacheKey,
     );
     if (!cached || !Array.isArray(cached.data)) return null;
@@ -79,9 +79,9 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     };
   }
 
-  private hydrateMemoryCacheFromPersisted(): void {
+  private async hydrateMemoryCacheFromPersisted(): Promise<void> {
     if (this.cache) return;
-    const persisted = this.readPersistedCache();
+    const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return;
 
     // Reject stale cache — must be fresher than poll interval
@@ -193,8 +193,8 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     return enriched;
   }
 
-  hydrate(): DataPoint[] | null {
-    this.hydrateMemoryCacheFromPersisted();
+  async hydrate(): Promise<DataPoint[] | null> {
+    await this.hydrateMemoryCacheFromPersisted();
     return this.cache?.data ?? null;
   }
 
@@ -212,7 +212,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       };
       return data;
     } catch (error) {
-      const persisted = this.readPersistedCache();
+      const persisted = await this.readPersistedCache();
       const fallback =
         this.cache?.data ?? persisted?.data ?? generateMockAircraft();
       // Keep cached data available but update timestamp so it doesn't
@@ -232,15 +232,15 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     }
   }
 
-  getData(pollInterval: number = 240_000): Promise<DataPoint[]> {
-    this.hydrateMemoryCacheFromPersisted();
+  async getData(pollInterval: number = 240_000): Promise<DataPoint[]> {
+    await this.hydrateMemoryCacheFromPersisted();
 
     const now = Date.now();
     const cacheAge = this.cache ? now - this.cache.timestamp : Infinity;
 
     // Cache is fresh enough — no fetch needed
     if (cacheAge < pollInterval) {
-      return Promise.resolve(this.cache!.data);
+      return this.cache!.data;
     }
 
     // Cache exists but is older than poll interval — return it immediately
@@ -251,13 +251,13 @@ export class AircraftProvider implements DataProvider<DataPoint> {
           this.fetchInProgress = null;
         });
       }
-      return Promise.resolve(this.cache.data);
+      return this.cache.data;
     }
 
     // No usable cache — must wait for fetch
     if (this.fetchInProgress) {
       return this.cache
-        ? Promise.resolve(this.cache.data)
+        ? this.cache.data
         : this.fetchInProgress;
     }
 
@@ -265,7 +265,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       this.fetchInProgress = null;
     });
 
-    if (this.cache) return Promise.resolve(this.cache.data);
+    if (this.cache) return this.cache.data;
     return this.fetchInProgress;
   }
 

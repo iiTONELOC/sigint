@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheGetAsync, cacheSet } from "@/lib/storageService";
 
 // ── Config each concrete provider supplies ───────────────────────────
 
@@ -64,11 +64,11 @@ export class BaseProvider implements DataProvider<DataPoint> {
     cacheSet(this.cacheKey, { timestamp: Date.now(), data });
   }
 
-  private readPersistedCache(): {
+  private async readPersistedCache(): Promise<{
     data: DataPoint[];
     timestamp: number;
-  } | null {
-    const cached = cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
+  } | null> {
+    const cached = await cacheGetAsync<{ data?: DataPoint[]; timestamp?: number }>(
       this.cacheKey,
     );
     if (!cached || !Array.isArray(cached.data)) return null;
@@ -84,10 +84,10 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   // ── Hydrate ───────────────────────────────────────────────────────
 
-  hydrate(): DataPoint[] | null {
+  async hydrate(): Promise<DataPoint[] | null> {
     if (this.cache) return this.cache.data;
 
-    const persisted = this.readPersistedCache();
+    const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
     if (Date.now() - persisted.timestamp > this.maxCacheAgeMs) return null;
 
@@ -140,7 +140,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
       };
       return data;
     } catch (error) {
-      const persisted = this.readPersistedCache();
+      const persisted = await this.readPersistedCache();
       const fallback = this.cache?.data ?? persisted?.data ?? [];
       this.snapshot = {
         entities: fallback,
@@ -159,6 +159,13 @@ export class BaseProvider implements DataProvider<DataPoint> {
       }
       return this.cache.data;
     }
+
+    // Try async hydration first
+    const hydrated = await this.hydrate();
+    if (hydrated && hydrated.length > 0) {
+      return hydrated;
+    }
+
     return this.refresh();
   }
 

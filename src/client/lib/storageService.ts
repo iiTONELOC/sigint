@@ -219,6 +219,23 @@ export async function cacheInit(): Promise<void> {
     }
   }
 }
+/**
+ * Async read — checks memory first, falls back to IndexedDB.
+ * Use this for non-blocking data loading (Suspense path).
+ * The sync cacheGet() remains for non-critical reads (layout, settings).
+ */
+export async function cacheGetAsync<T = unknown>(
+  key: string,
+): Promise<T | null> {
+  const mem = memoryCache.get(key);
+  if (mem !== undefined) return mem as T;
+  const idb = await idbGet(key);
+  if (idb !== undefined && idb !== null) {
+    memoryCache.set(key, idb);
+    return idb as T;
+  }
+  return null;
+}
 
 /**
  * Sync read from in-memory cache. Returns null if key doesn't exist.

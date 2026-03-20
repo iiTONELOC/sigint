@@ -1,7 +1,6 @@
 // ── useNewsData ─────────────────────────────────────────────────────
-// Follows useProviderData pattern: local isMounted inside useEffect,
-// getData() for initial call (StrictMode safe), refresh() for polls,
-// hydration skip when cache is fresh.
+// Fully async — no sync hydrate call during render.
+// getData() handles hydration internally. Starts empty, data trickles in.
 
 import { useEffect, useState } from "react";
 import { newsProvider, type NewsArticle } from "./newsProvider";
@@ -18,19 +17,10 @@ type UseNewsDataResult = {
 const POLL_INTERVAL = 600_000; // 10 min
 
 export function useNewsData(): UseNewsDataResult {
-  const hydratedData = newsProvider.hydrate();
-
-  const [data, setData] = useState<NewsArticle[]>(() =>
-    hydratedData && hydratedData.length > 0 ? hydratedData : [],
-  );
-  const [loading, setLoading] = useState(
-    !(hydratedData && hydratedData.length > 0),
-  );
+  const [data, setData] = useState<NewsArticle[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [dataSource, setDataSource] = useState<NewsDataSource>(() => {
-    if (hydratedData && hydratedData.length > 0) return "cached";
-    return "loading";
-  });
+  const [dataSource, setDataSource] = useState<NewsDataSource>("loading");
 
   useEffect(() => {
     let isMounted = true;
@@ -63,13 +53,8 @@ export function useNewsData(): UseNewsDataResult {
       }
     };
 
-    // Skip immediate fetch if hydration returned fresh data
-    if (hydratedData && hydratedData.length > 0) {
-      intervalId = setInterval(poll, POLL_INTERVAL);
-    } else {
-      poll(true);
-      intervalId = setInterval(poll, POLL_INTERVAL);
-    }
+    poll(true);
+    intervalId = setInterval(poll, POLL_INTERVAL);
 
     return () => {
       isMounted = false;

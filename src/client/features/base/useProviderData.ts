@@ -45,19 +45,10 @@ export function useProviderData(
   pollInterval: number,
   resolveDataSource: ResolveDataSource = defaultResolveDataSource,
 ): UseProviderDataResult {
-  const hydratedData = provider.hydrate();
-
-  const [data, setData] = useState<DataPoint[]>(() =>
-    hydratedData && hydratedData.length > 0 ? hydratedData : [],
-  );
-  const [loading, setLoading] = useState(
-    !(hydratedData && hydratedData.length > 0),
-  );
+  const [data, setData] = useState<DataPoint[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [dataSource, setDataSource] = useState<ProviderDataSource>(() => {
-    if (hydratedData && hydratedData.length > 0) return "cached";
-    return "loading";
-  });
+  const [dataSource, setDataSource] = useState<ProviderDataSource>("loading");
 
   useEffect(() => {
     let isMounted = true;

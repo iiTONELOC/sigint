@@ -35,30 +35,29 @@ const app = (
   </StrictMode>
 );
 
-async function boot() {
-  await cacheInit();
+// Fire cacheInit non-blocking — providers use cacheGetAsync which
+// reads from IndexedDB directly if the memory cache isn't ready yet.
+// App renders immediately, data trickles in as providers resolve.
+cacheInit().catch(() => {});
 
-  if (import.meta.hot) {
-    const root = (import.meta.hot.data.root ??= createRoot(elem));
-    root.render(app);
-  } else {
-    createRoot(elem).render(app);
+if (import.meta.hot) {
+  const root = (import.meta.hot.data.root ??= createRoot(elem));
+  root.render(app);
+} else {
+  createRoot(elem).render(app);
 
-    // Register SW in production only (HMR and SW don't mix)
-    registerSW({
-      onUpdate: () => {
-        // New version available — show a subtle banner
-        const banner = document.createElement("div");
-        banner.className = "sw-update-banner";
-        banner.innerHTML = `
-          <span>Update available</span>
-          <button onclick="window.location.reload()">RELOAD</button>
-          <button onclick="this.parentElement.remove()">✕</button>
-        `;
-        document.body.appendChild(banner);
-      },
-    });
-  }
+  // Register SW in production only (HMR and SW don't mix)
+  registerSW({
+    onUpdate: () => {
+      // New version available — show a subtle banner
+      const banner = document.createElement("div");
+      banner.className = "sw-update-banner";
+      banner.innerHTML = `
+        <span>Update available</span>
+        <button onclick="window.location.reload()">RELOAD</button>
+        <button onclick="this.parentElement.remove()">✕</button>
+      `;
+      document.body.appendChild(banner);
+    },
+  });
 }
-
-boot();
