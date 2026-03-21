@@ -119,11 +119,27 @@ export function Ticker({ items }: Readonly<TickerProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const step = itemWidth + GAP;
 
-  // How many items fill the screen + 2 buffer
+  // Track container width so bufferCount updates when viewport resizes
+  const [containerWidth, setContainerWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1200,
+  );
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // How many items fill the container + 2 buffer
   const bufferCount = useMemo(() => {
-    if (typeof window === "undefined") return 8;
-    return Math.ceil(window.innerWidth / step) + 2;
-  }, [step]);
+    if (containerWidth <= 0) return 8;
+    return Math.ceil(containerWidth / step) + 2;
+  }, [step, containerWidth]);
 
   // Stable ref to items — prevents spaz on data refresh
   const itemsRef = useRef(items);

@@ -89,7 +89,7 @@ export function LiveTrafficPane() {
         setIsolateMode(null);
         return;
       }
-      if (chromeHidden) setChromeHidden(false);
+      if (chromeHidden && window.innerWidth >= 768) setChromeHidden(false);
       setAutoRotate(false);
       setSelected(item);
     },
@@ -97,6 +97,10 @@ export function LiveTrafficPane() {
   );
 
   const handleRawCanvasClick = useCallback(() => {
+    // On mobile, tapping empty canvas should NOT toggle chrome or deselect.
+    // Users scroll via the vertical pane column; chrome toggle is desktop-only.
+    if (window.innerWidth < 768) return;
+
     if (selectedCurrent) {
       setSelected(null);
       setIsolateMode(null);

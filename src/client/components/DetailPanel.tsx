@@ -240,25 +240,29 @@ export function DetailPanel({
 
   return (
     <>
-      {/* Mobile: swipe-to-dismiss bottom sheet */}
-      <div
-        ref={sheet.sheetRef}
-        className="fixed inset-x-0 bottom-0 rounded-t-lg backdrop-blur-sm z-40 md:hidden max-h-[40vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
-        style={{
-          transform: `translateY(${sheet.offsetY}px)`,
-          transition: sheet.settling ? "transform 200ms ease-out" : "none",
-          willChange: "transform",
-        }}
-        onClick={(e) => e.stopPropagation()}
-        onTouchStart={sheet.onTouchStart}
-        onTouchMove={sheet.onTouchMove}
-        onTouchEnd={sheet.onTouchEnd}
-      >
-        {/* Drag handle — wider touch target */}
-        <div className="flex justify-center py-2.5 -mx-2.5 cursor-grab touch-none">
-          <div className="w-10 h-1 rounded-full bg-sig-dim/50" />
+      {/* Mobile: bottom sheet — pointer-events-none wrapper lets touches pass through edges */}
+      <div className="fixed inset-x-0 bottom-0 z-40 md:hidden pointer-events-none">
+        <div
+          ref={sheet.sheetRef}
+          className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm max-h-[30vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
+          style={{
+            transform: `translateY(${sheet.offsetY}px)`,
+            transition: sheet.settling ? "transform 200ms ease-out" : "none",
+            willChange: "transform",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Drag handle — swipe-to-dismiss touch target */}
+          <div
+            className="flex justify-center py-2.5 -mx-2.5 cursor-grab touch-none"
+            onTouchStart={sheet.onTouchStart}
+            onTouchMove={sheet.onTouchMove}
+            onTouchEnd={sheet.onTouchEnd}
+          >
+            <div className="w-10 h-1 rounded-full bg-sig-dim/50" />
+          </div>
+          {content}
         </div>
-        {content}
       </div>
 
       {/* Desktop: draggable floating card */}

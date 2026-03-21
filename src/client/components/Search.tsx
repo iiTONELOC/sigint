@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Search as SearchIcon, X } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
@@ -130,6 +131,7 @@ export function Search({
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { allMatches, topResults } = useMemo(
     () => searchData(query, data),
@@ -208,6 +210,20 @@ export function Search({
       onSelect(result.item);
       onZoomTo(result.item);
       commitFilter();
+
+      // On mobile, scroll back to the top of the pane column so the user
+      // sees the globe zoom. The scroll container is the overflow-y-auto
+      // parent of [data-pane-id] elements.
+      if (window.innerWidth < 768) {
+        requestAnimationFrame(() => {
+          const firstPane =
+            document.querySelector<HTMLElement>("[data-pane-id]");
+          if (firstPane) {
+            const scrollParent = firstPane.parentElement;
+            scrollParent?.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        });
+      }
     },
     [onSelect, onZoomTo, commitFilter],
   );
@@ -218,15 +234,21 @@ export function Search({
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
       if (
         containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
+        !containerRef.current.contains(target) &&
+        (!dropdownRef.current || !dropdownRef.current.contains(target))
       )
         closeDropdown();
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
   }, [open, closeDropdown]);
 
   const handleKeyDown = useCallback(
@@ -331,63 +353,90 @@ export function Search({
         </button>
       </div>
 
-      {query.trim() && (
-        <div className="absolute top-full left-0 mt-1 rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80 min-w-65 w-max max-w-[min(360px,90vw)]">
-          {topResults.length === 0 ? (
-            <div className="px-3 py-2.5 text-sig-dim text-(length:--sig-text-sm)">
-              No results for &ldquo;{query}&rdquo;
-            </div>
-          ) : (
-            Array.from(grouped.entries()).map(([type, items]) => {
-              const feature = featureRegistry.get(type);
-              if (!feature) return null;
-              const Icon = feature.icon;
-              const color = colorMap[type] ?? C.dim;
-              return (
-                <div key={type}>
-                  <div
-                    className="px-3 py-1 tracking-wider text-(length:--sig-text-sm) border-b border-sig-border"
-                    style={{ color, background: `${color}10` }}
-                  >
-                    {feature.label}
-                  </div>
-                  {items.map((result) => {
-                    const flatIdx = topResults.indexOf(result);
-                    const isActive = flatIdx === activeIndex;
-                    return (
-                      <button
-                        key={result.item.id}
-                        onClick={() => selectResult(result)}
-                        className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30 ${
-                          isActive ? "bg-sig-accent/10" : "bg-transparent"
-                        }`}
-                        onMouseEnter={() => setActiveIndex(flatIdx)}
-                      >
-                        <Icon
-                          size={12}
-                          style={{ color }}
-                          className="shrink-0"
-                          strokeWidth={2.5}
-                        />
-                        <div className="min-w-0 flex-1 overflow-hidden">
-                          <div className="truncate text-sig-bright text-(length:--sig-text-md)">
-                            {result.primary}
-                          </div>
-                          {result.secondary && (
-                            <div className="truncate text-sig-dim text-(length:--sig-text-sm)">
-                              {result.secondary}
+      {query.trim() &&
+        containerRef.current &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="fixed z-[80] rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
+            style={
+              window.innerWidth < 768
+                ? {
+                    top:
+                      containerRef.current.getBoundingClientRect().bottom + 4,
+                    left: 8,
+                    right: 8,
+                  }
+                : {
+                    top:
+                      containerRef.current.getBoundingClientRect().bottom + 4,
+                    left: Math.min(
+                      containerRef.current.getBoundingClientRect().left,
+                      window.innerWidth -
+                        Math.min(360, window.innerWidth * 0.9),
+                    ),
+                    minWidth: 260,
+                    width: "max-content",
+                    maxWidth: Math.min(360, window.innerWidth * 0.9),
+                  }
+            }
+          >
+            {topResults.length === 0 ? (
+              <div className="px-3 py-2.5 text-sig-dim text-(length:--sig-text-sm)">
+                No results for &ldquo;{query}&rdquo;
+              </div>
+            ) : (
+              Array.from(grouped.entries()).map(([type, items]) => {
+                const feature = featureRegistry.get(type);
+                if (!feature) return null;
+                const Icon = feature.icon;
+                const color = colorMap[type] ?? C.dim;
+                return (
+                  <div key={type}>
+                    <div
+                      className="px-3 py-1 tracking-wider text-(length:--sig-text-sm) border-b border-sig-border"
+                      style={{ color, background: `${color}10` }}
+                    >
+                      {feature.label}
+                    </div>
+                    {items.map((result) => {
+                      const flatIdx = topResults.indexOf(result);
+                      const isActive = flatIdx === activeIndex;
+                      return (
+                        <button
+                          key={result.item.id}
+                          onClick={() => selectResult(result)}
+                          className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30 ${
+                            isActive ? "bg-sig-accent/10" : "bg-transparent"
+                          }`}
+                          onMouseEnter={() => setActiveIndex(flatIdx)}
+                        >
+                          <Icon
+                            size={12}
+                            style={{ color }}
+                            className="shrink-0"
+                            strokeWidth={2.5}
+                          />
+                          <div className="min-w-0 flex-1 overflow-hidden">
+                            <div className="truncate text-sig-bright text-(length:--sig-text-md)">
+                              {result.primary}
                             </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
+                            {result.secondary && (
+                              <div className="truncate text-sig-dim text-(length:--sig-text-sm)">
+                                {result.secondary}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

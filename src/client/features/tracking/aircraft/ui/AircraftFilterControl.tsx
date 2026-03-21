@@ -114,7 +114,7 @@ export function AircraftFilterControl({
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-[80] rounded bg-sig-panel border border-sig-border p-2.5 min-w-55 shadow-2xl"
+            className="fixed z-[80] rounded bg-sig-panel border border-sig-border p-2.5 min-w-55 max-w-72 shadow-2xl"
             style={{ top: dropPos.top, right: dropPos.right }}
           >
             {/* Header */}
