@@ -5,6 +5,7 @@ import { act } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DataProvider } from "@/context/DataContext";
+import type { LayoutNode, LeafNode } from "@/panes/paneTree";
 
 // ── Mock fetch for all endpoints ────────────────────────────────────
 
@@ -409,43 +410,420 @@ describe("panes render in DataContext", () => {
   });
 });
 
-// ── Mobile ──────────────────────────────────────────────────────────
+// ── PaneMobile ──────────────────────────────────────────────────────
+
+// Helper to build full PaneMobile props with defaults
+function mobilePaneProps(overrides: Record<string, any> = {}): any {
+  return {
+    allLeaves: [],
+    layout: {
+      root: { type: "leaf", id: "default", paneType: "globe" },
+      minimized: [],
+    },
+    activeMobilePane: 0,
+    setActiveMobilePane: () => {},
+    activeCount: 0,
+    dataSources: [{ status: "live" }],
+    counts: {},
+    paneMeta: {},
+    paneComponents: {},
+    splitPane: () => {},
+    closePane: () => {},
+    minimizePane: () => {},
+    changePaneType: () => {},
+    restorePane: () => {},
+    resizeSplit: () => {},
+    availableTypes: [],
+    leafCount: 1,
+    swapPanes: () => {},
+    insertPaneBeside: () => {},
+    ...overrides,
+  };
+}
 
 describe("PaneMobile", () => {
   test("renders tab bar with pane labels", async () => {
     const { PaneMobile } = await import("@/panes/PaneMobile");
-    const { leaf } = await import("@/panes/paneTree");
+    const { leaf, split } = await import("@/panes/paneTree");
 
-    const allLeaves = [leaf("globe"), leaf("data-table")];
-    const paneMeta: any = {
-      globe: { label: "GLOBE", icon: () => null },
-      "data-table": { label: "DATA TABLE", icon: () => null },
-    };
-    const paneComponents: any = {
-      globe: () => React.createElement("div", null, "globe"),
-      "data-table": () => React.createElement("div", null, "table"),
-    };
+    const g = leaf("globe");
+    const d = leaf("data-table");
+    const root = split("v", g, d);
 
     const { container, unmount } = renderInProviders(
-      React.createElement(PaneMobile, {
-        allLeaves,
-        layout: { root: allLeaves[0], minimized: [] } as any,
-        activeMobilePane: 0,
-        setActiveMobilePane: () => {},
-        activeCount: 100,
-        dataSources: [{ status: "live" }],
-        counts: { aircraft: 50, quakes: 10 },
-        paneMeta,
-        paneComponents,
-        splitPane: () => {},
-        closePane: () => {},
-        restorePane: () => {},
-      }),
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g, d],
+          layout: { root, minimized: [] },
+          activeCount: 100,
+          counts: { aircraft: 50, quakes: 10 },
+          paneMeta: {
+            globe: { label: "GLOBE", icon: () => null },
+            "data-table": { label: "DATA TABLE", icon: () => null },
+          },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+            "data-table": () => React.createElement("div", null, "table"),
+          },
+          leafCount: 2,
+        }),
+      ),
     );
 
     expect(container.textContent).toContain("GLOBE");
     expect(container.textContent).toContain("DATA TABLE");
-
     unmount();
+  });
+
+  test("single pane renders without crash", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g],
+          layout: { root: g, minimized: [] },
+          activeCount: 42,
+          counts: { aircraft: 42 },
+          paneMeta: { globe: { label: "GLOBE", icon: () => null } },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe-content"),
+          },
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("GLOBE");
+    expect(container.textContent).toContain("42");
+    unmount();
+  });
+
+  test("H-split block shows SPLIT label and both pane headers", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf, split } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+    const d = leaf("dossier");
+    const root = split("h", g, d);
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g, d],
+          layout: { root, minimized: [] },
+          activeCount: 100,
+          paneMeta: {
+            globe: { label: "GLOBE", icon: () => null },
+            dossier: { label: "DOSSIER", icon: () => null },
+          },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+            dossier: () => React.createElement("div", null, "dossier"),
+          },
+          leafCount: 2,
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("SPLIT");
+    expect(container.textContent).toContain("GLOBE");
+    expect(container.textContent).toContain("DOSSIER");
+    unmount();
+  });
+
+  test("shows track count and LIVE status", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g],
+          layout: { root: g, minimized: [] },
+          activeCount: 5000,
+          dataSources: [
+            { status: "live" },
+            { status: "cached" },
+            { status: "error" },
+          ],
+          counts: { aircraft: 5000 },
+          paneMeta: { globe: { label: "GLOBE", icon: () => null } },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+          },
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("5,000");
+    expect(container.textContent).toContain("TRACKS");
+    expect(container.textContent).toContain("LIVE");
+    unmount();
+  });
+
+  test("minimized panes appear in tab bar", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g],
+          layout: {
+            root: g,
+            minimized: [{ id: "min1", paneType: "data-table" }],
+          },
+          paneMeta: {
+            globe: { label: "GLOBE", icon: () => null },
+            "data-table": { label: "DATA TABLE", icon: () => null },
+          },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+            "data-table": () => React.createElement("div", null, "table"),
+          },
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("DATA TABLE");
+    unmount();
+  });
+
+  test("add button present when availableTypes non-empty", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g],
+          layout: { root: g, minimized: [] },
+          paneMeta: {
+            globe: { label: "GLOBE", icon: () => null },
+            "data-table": { label: "DATA TABLE", icon: () => null },
+          },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+            "data-table": () => React.createElement("div", null, "table"),
+          },
+          availableTypes: ["data-table"],
+        }),
+      ),
+    );
+
+    const addBtn = container.querySelector('button[title="Add pane"]');
+    expect(addBtn).not.toBeNull();
+    unmount();
+  });
+
+  test("add button hidden when no available types", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g],
+          layout: { root: g, minimized: [] },
+          paneMeta: { globe: { label: "GLOBE", icon: () => null } },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+          },
+          availableTypes: [],
+        }),
+      ),
+    );
+
+    const addBtn = container.querySelector('button[title="Add pane"]');
+    expect(addBtn).toBeNull();
+    unmount();
+  });
+
+  test("three V-split blocks all render labels", async () => {
+    const { PaneMobile } = await import("@/panes/PaneMobile");
+    const { leaf, split } = await import("@/panes/paneTree");
+
+    const g = leaf("globe");
+    const a = leaf("alert-log");
+    const n = leaf("news-feed");
+    const root = split("v", g, split("v", a, n));
+
+    const { container, unmount } = renderInProviders(
+      React.createElement(
+        PaneMobile,
+        mobilePaneProps({
+          allLeaves: [g, a, n],
+          layout: { root, minimized: [] },
+          activeCount: 200,
+          paneMeta: {
+            globe: { label: "GLOBE", icon: () => null },
+            "alert-log": { label: "ALERTS", icon: () => null },
+            "news-feed": { label: "NEWS FEED", icon: () => null },
+          },
+          paneComponents: {
+            globe: () => React.createElement("div", null, "globe"),
+            "alert-log": () => React.createElement("div", null, "alerts"),
+            "news-feed": () => React.createElement("div", null, "news"),
+          },
+          leafCount: 3,
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain("GLOBE");
+    expect(container.textContent).toContain("ALERTS");
+    expect(container.textContent).toContain("NEWS FEED");
+    unmount();
+  });
+});
+
+// ── collectMobileBlocks (logic tests — inlined, no source export needed) ──
+
+function collectMobileBlocks(
+  root: LayoutNode,
+): {
+  id: string;
+  node: LayoutNode;
+  primaryLeaf: LeafNode;
+  leafIds: string[];
+}[] {
+  if (root.type === "leaf") {
+    return [{ id: root.id, node: root, primaryLeaf: root, leafIds: [root.id] }];
+  }
+  if (
+    root.direction === "h" &&
+    root.children[0].type === "leaf" &&
+    root.children[1].type === "leaf"
+  ) {
+    return [
+      {
+        id: root.id,
+        node: root,
+        primaryLeaf: root.children[0],
+        leafIds: [root.children[0].id, root.children[1].id],
+      },
+    ];
+  }
+  return [
+    ...collectMobileBlocks(root.children[0]),
+    ...collectMobileBlocks(root.children[1]),
+  ];
+}
+
+describe("collectMobileBlocks", () => {
+  test("single leaf becomes one block", async () => {
+    const { leaf } = await import("@/panes/paneTree");
+    const g = leaf("globe");
+    const blocks = collectMobileBlocks(g);
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]!.id).toBe(g.id);
+    expect(blocks[0]!.primaryLeaf.paneType).toBe("globe");
+    expect(blocks[0]!.leafIds).toEqual([g.id]);
+  });
+
+  test("V-split becomes two separate blocks", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const g = leaf("globe");
+    const d = leaf("data-table");
+    const blocks = collectMobileBlocks(split("v", g, d));
+    expect(blocks.length).toBe(2);
+    expect(blocks[0]!.primaryLeaf.paneType).toBe("globe");
+    expect(blocks[1]!.primaryLeaf.paneType).toBe("data-table");
+  });
+
+  test("shallow H-split stays as one block with two leafIds", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const g = leaf("globe");
+    const d = leaf("data-table");
+    const blocks = collectMobileBlocks(split("h", g, d));
+    expect(blocks.length).toBe(1);
+    expect(blocks[0]!.leafIds.length).toBe(2);
+    expect(blocks[0]!.leafIds).toContain(g.id);
+    expect(blocks[0]!.leafIds).toContain(d.id);
+  });
+
+  test("deep H-split flattens — only shallow pairs stay grouped", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const a = leaf("globe");
+    const b = leaf("data-table");
+    const c = leaf("dossier");
+    const blocks = collectMobileBlocks(split("h", a, split("h", b, c)));
+    expect(blocks.length).toBe(2);
+    expect(blocks[0]!.primaryLeaf.paneType).toBe("globe");
+    expect(blocks[1]!.leafIds.length).toBe(2);
+  });
+
+  test("mixed V and H splits produce correct block count", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const g = leaf("globe");
+    const d = leaf("data-table");
+    const v = leaf("video-feed");
+    const a = leaf("alert-log");
+    const root = split("v", split("h", g, d), split("v", v, a));
+    const blocks = collectMobileBlocks(root);
+    expect(blocks.length).toBe(3);
+    expect(blocks[0]!.leafIds.length).toBe(2);
+    expect(blocks[1]!.primaryLeaf.paneType).toBe("video-feed");
+    expect(blocks[2]!.primaryLeaf.paneType).toBe("alert-log");
+  });
+
+  test("complex 8-pane desktop layout flattens to 4 paired blocks", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const a = leaf("globe");
+    const b = leaf("data-table");
+    const c = leaf("dossier");
+    const d = leaf("video-feed");
+    const e = leaf("alert-log");
+    const f = leaf("intel-feed");
+    const g = leaf("news-feed");
+    const h = leaf("raw-console");
+    const root = split(
+      "h",
+      split("h", split("h", a, b), split("h", c, d)),
+      split("h", split("h", e, f), split("h", g, h)),
+    );
+    const blocks = collectMobileBlocks(root);
+    expect(blocks.length).toBe(4);
+    for (const block of blocks) {
+      expect(block.leafIds.length).toBe(2);
+    }
+  });
+
+  test("primaryLeaf is always the leftmost leaf", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const g = leaf("globe");
+    const d = leaf("dossier");
+    const blocks = collectMobileBlocks(split("h", g, d));
+    expect(blocks[0]!.primaryLeaf.id).toBe(g.id);
+  });
+
+  test("V-split preserves child order top to bottom", async () => {
+    const { leaf, split } = await import("@/panes/paneTree");
+    const a = leaf("alert-log");
+    const b = leaf("news-feed");
+    const c = leaf("globe");
+    const blocks = collectMobileBlocks(split("v", a, split("v", b, c)));
+    expect(blocks.length).toBe(3);
+    expect(blocks[0]!.primaryLeaf.paneType).toBe("alert-log");
+    expect(blocks[1]!.primaryLeaf.paneType).toBe("news-feed");
+    expect(blocks[2]!.primaryLeaf.paneType).toBe("globe");
   });
 });

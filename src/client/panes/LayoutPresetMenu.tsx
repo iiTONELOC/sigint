@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Save, Trash2, Pencil } from "lucide-react";
 import type { LayoutPreset } from "./paneTree";
 import { leafCount } from "./paneTree";
@@ -11,6 +12,7 @@ export function LayoutPresetMenu({
   onDelete,
   onClose,
   presetsLoaded = true,
+  anchorRect,
 }: {
   presets: LayoutPreset[];
   onLoad: (p: LayoutPreset) => void;
@@ -19,6 +21,7 @@ export function LayoutPresetMenu({
   onDelete: (idx: number) => void;
   onClose: () => void;
   presetsLoaded?: boolean;
+  anchorRect?: DOMRect | null;
 }) {
   const [newName, setNewName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -38,10 +41,18 @@ export function LayoutPresetMenu({
     return min > 0 ? `${count}+${min}` : `${count}`;
   };
 
-  return (
+  const posStyle: React.CSSProperties = anchorRect
+    ? {
+        top: anchorRect.bottom + 2,
+        right: window.innerWidth - anchorRect.right,
+      }
+    : {};
+
+  const menu = (
     <div
       ref={menuRef}
-      className="absolute right-0 top-full z-50 mt-0.5 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52"
+      className={`${anchorRect ? "fixed" : "absolute right-0 top-full mt-0.5"} z-[80] bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52`}
+      style={posStyle}
     >
       <div className="px-2 py-1 text-sig-dim text-[10px] tracking-wider font-semibold border-b border-sig-border/30">
         LAYOUT PRESETS
@@ -113,4 +124,6 @@ export function LayoutPresetMenu({
       </div>
     </div>
   );
+
+  return anchorRect ? createPortal(menu, document.body) : menu;
 }

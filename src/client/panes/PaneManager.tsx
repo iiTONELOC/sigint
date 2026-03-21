@@ -464,6 +464,79 @@ export function PaneManager() {
     [dragSourceId, dropZone, swapPanes, insertPaneBeside],
   );
 
+  // ── Touch drag support (for tablets / touch desktops) ──────────
+  // When dragSourceId is set via touch, track finger position to
+  // find target pane and drop zone, same as mouse drag.
+
+  useEffect(() => {
+    if (!dragSourceId) return;
+
+    const calcZoneFromPoint = (
+      cx: number,
+      cy: number,
+      el: HTMLElement,
+    ): DropZone => {
+      const rect = el.getBoundingClientRect();
+      const x = (cx - rect.left) / rect.width;
+      const y = (cy - rect.top) / rect.height;
+      const EDGE = 0.25;
+      if (y < EDGE) return "top";
+      if (y > 1 - EDGE) return "bottom";
+      if (x < EDGE) return "left";
+      if (x > 1 - EDGE) return "right";
+      return "center";
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+
+      // Find the pane element under the finger
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (!el) {
+        setDragTargetId(null);
+        setDropZone(null);
+        return;
+      }
+
+      // Walk up to find the pane container with data-pane-leaf-id
+      const paneEl = el.closest<HTMLElement>("[data-pane-leaf-id]");
+      if (!paneEl || paneEl.dataset.paneLeafId === dragSourceId) {
+        setDragTargetId(null);
+        setDropZone(null);
+        return;
+      }
+
+      const targetId = paneEl.dataset.paneLeafId!;
+      setDragTargetId(targetId);
+      setDropZone(calcZoneFromPoint(touch.clientX, touch.clientY, paneEl));
+    };
+
+    const onTouchEnd = () => {
+      // Complete the drop with current state
+      if (dragSourceId && dragTargetId && dropZone) {
+        if (dropZone === "center") {
+          swapPanes(dragSourceId, dragTargetId);
+        } else {
+          insertPaneBeside(dragSourceId, dragTargetId, dropZone);
+        }
+      }
+      setDragSourceId(null);
+      setDragTargetId(null);
+      setDropZone(null);
+    };
+
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("touchcancel", onTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [dragSourceId, dragTargetId, dropZone, swapPanes, insertPaneBeside]);
+
   // ── Split menu ─────────────────────────────────────────────────
 
   const [splitMenu, setSplitMenu] = useState<{
@@ -636,6 +709,7 @@ export function PaneManager() {
       return (
         <div
           key={node.paneType}
+          data-pane-leaf-id={node.id}
           className="flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full relative"
           onDragOver={
             isDragOver
@@ -712,7 +786,7 @@ export function PaneManager() {
               }
               onSplitH={
                 availableTypes.length > 0
-                  ? () => {
+                  ? (_e: React.MouseEvent) => {
                       if (availableTypes.length === 1)
                         splitPane(node.id, "h", availableTypes[0]!);
                       else
@@ -726,7 +800,7 @@ export function PaneManager() {
               }
               onSplitV={
                 availableTypes.length > 0
-                  ? () => {
+                  ? (_e: React.MouseEvent) => {
                       if (availableTypes.length === 1)
                         splitPane(node.id, "v", availableTypes[0]!);
                       else
@@ -747,6 +821,7 @@ export function PaneManager() {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
               onDrop={handleDrop}
+              onTouchDragStart={handleDragStart}
               isDragTarget={dragSourceId !== null && dragSourceId !== node.id}
             />
             {renderSplitMenu(node.id, "h")}
@@ -803,8 +878,15 @@ export function PaneManager() {
         paneMeta={PANE_META}
         paneComponents={PANE_COMPONENTS}
         closePane={closePane}
+        minimizePane={minimizePane}
+        changePaneType={changePaneType}
         restorePane={restorePane}
         splitPane={splitPane}
+        resizeSplit={resizeSplit}
+        availableTypes={availableTypes}
+        leafCount={leafCount(layout.root)}
+        swapPanes={swapPanes}
+        insertPaneBeside={insertPaneBeside}
       />
     );
   }

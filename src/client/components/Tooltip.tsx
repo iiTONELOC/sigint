@@ -113,8 +113,9 @@ export function Tooltip({
 
   const show = useCallback(() => {
     if (disabled) return;
-    // Skip tooltips on touch devices — they interfere with tap targets
+    // Skip tooltips on touch devices and narrow viewports (mobile)
     if (window.matchMedia("(pointer: coarse)").matches) return;
+    if (window.innerWidth < 768) return;
     timerRef.current = setTimeout(() => {
       setVisible(true);
     }, delay);

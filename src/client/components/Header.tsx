@@ -237,15 +237,13 @@ export function Header(props: Readonly<HeaderProps>) {
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 pb-1 sm:pb-1.5 overflow-x-auto sigint-scroll">
+        <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 pb-1 sm:pb-1.5 flex-wrap">
           <Toggles {...props} />
         </div>
       </div>
 
       {/* Settings modal */}
-      {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} />
-      )}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

@@ -216,22 +216,22 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       style={{ overscrollBehavior: "none", touchAction: "none" }}
     >
-      <div className="bg-sig-panel border border-sig-border rounded-lg shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col overflow-hidden">
+      <div className="bg-sig-panel sm:border sm:border-sig-border sm:rounded-lg shadow-2xl w-full h-full sm:w-auto sm:min-w-[28rem] sm:max-w-lg sm:mx-4 sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-sig-border/50">
+        <div className="relative flex items-center justify-center px-3 sm:px-4 py-3 border-b border-sig-border/50">
           <span className="font-semibold tracking-widest text-sig-bright text-sm">
             SETTINGS
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded text-sig-dim hover:text-sig-bright transition-colors"
+            className="absolute right-3 sm:right-4 p-1 rounded text-sig-dim hover:text-sig-bright transition-colors"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-0.5 px-4 pt-2 pb-0 border-b border-sig-border/30">
+        <div className="flex items-center justify-center flex-wrap gap-0.5 px-2 sm:px-4 pt-2 pb-0 border-b border-sig-border/30">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.key;
@@ -239,7 +239,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold tracking-wider transition-colors border-b-2 -mb-px ${
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 text-[10px] sm:text-xs font-semibold tracking-wider transition-colors border-b-2 -mb-px whitespace-nowrap ${
                   active
                     ? "text-sig-accent border-sig-accent"
                     : "text-sig-dim border-transparent hover:text-sig-text"
@@ -254,13 +254,12 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
 
         {/* Content */}
         <div
-          className="flex-1 overflow-y-auto overscroll-contain sigint-scroll p-4"
+          className="flex-1 overflow-y-auto overscroll-contain sigint-scroll p-3 sm:p-4"
           style={{
             overscrollBehavior: "contain",
             WebkitOverflowScrolling: "touch",
             touchAction: "pan-y",
           }}
-          onTouchMove={(e) => e.stopPropagation()}
         >
           {activeTab === "appearance" && (
             <AppearanceTab
@@ -417,7 +416,7 @@ function AppearanceTab({
             </button>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="divide-y divide-gray-700">
           {LAYER_COLOR_KEYS.map((key) => {
             const defaultColor = defaults[key];
             const currentColor = overrides[key] ?? defaultColor;
@@ -426,7 +425,7 @@ function AppearanceTab({
             return (
               <div
                 key={key}
-                className="flex items-center gap-3 px-2.5 py-2 rounded bg-sig-bg/30 border border-sig-border/20"
+                className="flex items-center gap-3 px-2.5 py-2.5 rounded"
               >
                 <label className="relative cursor-pointer shrink-0">
                   <input
@@ -502,7 +501,7 @@ function StorageTab({
   return (
     <div className="space-y-5">
       {/* Summary + Export/Import */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center flex-wrap gap-2 justify-between">
         <div className="flex items-center gap-2 text-sig-dim text-xs tracking-wider">
           <HardDriveDownload size={13} />
           <span>
@@ -615,12 +614,9 @@ function KeyGroup({
   return (
     <div>
       <div className="text-xs text-sig-dim tracking-widest mb-2">{label}</div>
-      <div className="space-y-1">
+      <div className="divide-y divide-gray-700">
         {keys.map((key) => (
-          <div
-            key={key}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-sig-bg/30 border border-sig-border/20 group"
-          >
+          <div key={key} className="flex items-center gap-2 px-2.5 py-2 group">
             <div className="flex-1 min-w-0">
               <div className="text-sm text-sig-text truncate">
                 {getKeyLabel(key)}
@@ -693,20 +689,20 @@ function AboutTab() {
         <div className="text-xs text-sig-dim tracking-widest mb-2">
           APPLICATION
         </div>
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between">
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
             <span className="text-sig-dim">Name</span>
             <span className="text-sig-text font-semibold tracking-wider">
               SIGINT
             </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
             <span className="text-sig-dim">Stack</span>
             <span className="text-sig-text">
               Bun · React 19 · Tailwind 4 · Canvas 2D
             </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
             <span className="text-sig-dim">Rendering</span>
             <span className="text-sig-text">Web Worker + OffscreenCanvas</span>
           </div>
@@ -717,14 +713,14 @@ function AboutTab() {
         <div className="text-xs text-sig-dim tracking-widest mb-2">
           DATA SOURCES
         </div>
-        <div className="space-y-1">
+        <div className="divide-y divide-gray-700">
           {sources.map((s) => (
             <a
               key={s.name}
               href={s.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded text-sm text-sig-text hover:bg-sig-accent/5 transition-colors group"
+              className="flex items-center gap-2 px-2.5 py-2 text-sm text-sig-text hover:bg-sig-accent/5 transition-colors group"
             >
               <div className="flex-1 min-w-0">
                 <span className="text-sig-bright">{s.name}</span>
@@ -782,12 +778,9 @@ function NewsFeedsTab() {
           These feeds are polled server-side every 10 minutes and cached
           locally.
         </div>
-        <div className="space-y-1">
+        <div className="divide-y divide-gray-700">
           {NEWS_SOURCES.map((name) => (
-            <div
-              key={name}
-              className="flex items-center gap-2 px-2 py-1.5 rounded border border-sig-border/30"
-            >
+            <div key={name} className="flex items-center gap-2 px-2 py-2">
               <Rss size={11} className="text-sig-dim shrink-0" />
               <span className="text-sm font-mono tracking-wider flex-1 text-sig-text">
                 {name}
@@ -800,7 +793,7 @@ function NewsFeedsTab() {
 
       <div>
         <div className="text-xs text-sig-dim tracking-widest mb-2">CACHE</div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <button
             onClick={handleClearCache}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-danger hover:border-sig-danger/30 transition-colors"

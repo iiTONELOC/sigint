@@ -692,7 +692,14 @@ export function GlobeVisualization({
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        style={{ cursor: "default", display: "block", touchAction: "none" }}
+        style={{
+          cursor: "default",
+          display: "block",
+          touchAction:
+            typeof window !== "undefined" && window.innerWidth < 768
+              ? "pan-y"
+              : "none",
+        }}
       />
       {trailTooltip && (
         <div

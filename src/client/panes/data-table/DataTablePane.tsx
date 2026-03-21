@@ -145,26 +145,37 @@ const COLUMNS: {
   shortLabel: string;
   tooltip: string;
   width: string;
+  mobileWidth?: string;
+  hideOnMobile?: boolean;
   align?: "right";
 }[] = [
-  { key: "type", shortLabel: "TYPE", tooltip: "Entity type", width: "64px" },
+  {
+    key: "type",
+    shortLabel: "TYPE",
+    tooltip: "Entity type",
+    width: "64px",
+    mobileWidth: "52px",
+  },
   {
     key: "name",
     shortLabel: "NAME",
     tooltip: "Callsign / name / headline",
     width: "1fr",
+    mobileWidth: "1fr",
   },
   {
     key: "value1",
     shortLabel: "CLS",
     tooltip: "Classification (aircraft type, vessel type, category, magnitude)",
     width: "90px",
+    hideOnMobile: true,
   },
   {
     key: "value2",
     shortLabel: "DTL",
     tooltip: "Detail (altitude, speed, severity, FRP)",
     width: "80px",
+    mobileWidth: "70px",
     align: "right",
   },
   {
@@ -172,6 +183,7 @@ const COLUMNS: {
     shortLabel: "LAT",
     tooltip: "Latitude",
     width: "72px",
+    mobileWidth: "60px",
     align: "right",
   },
   {
@@ -179,6 +191,7 @@ const COLUMNS: {
     shortLabel: "LON",
     tooltip: "Longitude",
     width: "72px",
+    hideOnMobile: true,
     align: "right",
   },
   {
@@ -186,6 +199,7 @@ const COLUMNS: {
     shortLabel: "AGE",
     tooltip: "Time since last update",
     width: "48px",
+    mobileWidth: "40px",
     align: "right",
   },
 ];
@@ -333,7 +347,15 @@ export function DataTablePane() {
     [selectAndZoom],
   );
 
-  const gridTemplate = COLUMNS.map((c) => c.width).join(" ") + " 32px";
+  const isMobileTable =
+    typeof window !== "undefined" && window.innerWidth < 768;
+  const visibleColumns = isMobileTable
+    ? COLUMNS.filter((c) => !c.hideOnMobile)
+    : COLUMNS;
+  const gridTemplate =
+    visibleColumns
+      .map((c) => (isMobileTable && c.mobileWidth ? c.mobileWidth : c.width))
+      .join(" ") + (isMobileTable ? "" : " 32px");
 
   const typeAbbr: Record<string, string> = {
     aircraft: "AC",
@@ -349,7 +371,7 @@ export function DataTablePane() {
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
       {/* Filter bar */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40">
+      <div className="shrink-0 flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/40">
         <Filter size={11} strokeWidth={2.5} className="text-sig-dim shrink-0" />
         <button
           onClick={() => setTypeFilter(null)}
@@ -359,7 +381,7 @@ export function DataTablePane() {
               : "text-sig-dim bg-transparent border-sig-border/50"
           }`}
         >
-          ALL ({filteredData.length})
+          ALL
         </button>
         {featureList.map((f) => {
           const Icon = f.icon;
@@ -392,7 +414,7 @@ export function DataTablePane() {
         className="shrink-0 grid items-center px-2 py-1 border-b border-sig-border/40 bg-sig-panel/40 select-none"
         style={{ gridTemplateColumns: gridTemplate }}
       >
-        {COLUMNS.map((col) => {
+        {visibleColumns.map((col) => {
           const active = sortKey === col.key;
           return (
             <Tooltip key={col.key} content={col.tooltip} placement="bottom">
@@ -420,7 +442,7 @@ export function DataTablePane() {
             </Tooltip>
           );
         })}
-        <div />
+        {!isMobileTable && <div />}
       </div>
 
       {/* Virtual scrolling rows */}
@@ -471,30 +493,36 @@ export function DataTablePane() {
                   <div className="truncate text-sig-bright text-(length:--sig-text-md)">
                     {getName(item)}
                   </div>
-                  <div className="truncate text-sig-text text-(length:--sig-text-sm)">
-                    {getValue1(item)}
-                  </div>
+                  {!isMobileTable && (
+                    <div className="truncate text-sig-text text-(length:--sig-text-sm)">
+                      {getValue1(item)}
+                    </div>
+                  )}
                   <div className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
                     {getValue2(item)}
                   </div>
                   <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
                     {item.lat.toFixed(2)}
                   </div>
-                  <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
-                    {item.lon.toFixed(2)}
-                  </div>
+                  {!isMobileTable && (
+                    <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
+                      {item.lon.toFixed(2)}
+                    </div>
+                  )}
                   <div className="text-right text-sig-dim text-(length:--sig-text-sm)">
                     {relativeAge(item.timestamp)}
                   </div>
-                  <div className="flex justify-center">
-                    <button
-                      onClick={(e) => handleZoomTo(item, e)}
-                      className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-                      title="Zoom to on globe"
-                    >
-                      <Locate size={11} strokeWidth={2.5} />
-                    </button>
-                  </div>
+                  {!isMobileTable && (
+                    <div className="flex justify-center">
+                      <button
+                        onClick={(e) => handleZoomTo(item, e)}
+                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+                        title="Zoom to on globe"
+                      >
+                        <Locate size={11} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
