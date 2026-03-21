@@ -14,6 +14,14 @@ import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
 import { registerSW } from "./lib/swRegistration";
 
+// Singleton providers — hydrate before first render
+import { shipProvider } from "./features/tracking/ships/data/provider";
+import { gdeltProvider } from "./features/intel/events/data/provider";
+import { fireProvider } from "./features/environmental/fires/data/provider";
+import { weatherProvider } from "./features/environmental/weather/data/provider";
+import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
+import { newsProvider } from "./panes/news-feed/newsProvider";
+
 const fontsLink = document.createElement("link");
 fontsLink.rel = "stylesheet";
 fontsLink.href = "/fonts.css";
@@ -38,31 +46,50 @@ const app = (
   </StrictMode>
 );
 
-// Fire cacheInit non-blocking — providers use cacheGet() which
-// reads from IndexedDB directly if the memory cache isn't ready yet.
-// App renders immediately, data trickles in as providers resolve.
-cacheInit()
-  .then(() => Promise.all([initBaseline(), initTrails(), initLand()]))
-  .catch(() => {});
+// ── Boot sequence ────────────────────────────────────────────────────
+// 1. Open IDB, load all entries into memoryCache
+// 2. Hydrate all singleton providers from memoryCache (parallel)
+// 3. THEN render React — hooks read snapshot immediately, data on first paint
+// 4. Background: initBaseline/trails/land, provider refreshes stream in via onChange
 
-if (import.meta.hot) {
-  const root = (import.meta.hot.data.root ??= createRoot(elem));
-  root.render(app);
-} else {
-  createRoot(elem).render(app);
+async function boot() {
+  await cacheInit();
 
-  // Register SW in production only (HMR and SW don't mix)
-  registerSW({
-    onUpdate: () => {
-      // New version available — show a subtle banner
-      const banner = document.createElement("div");
-      banner.className = "sw-update-banner";
-      banner.innerHTML = `
-        <span>Update available</span>
-        <button onclick="window.location.reload()">RELOAD</button>
-        <button onclick="this.parentElement.remove()">✕</button>
-      `;
-      document.body.appendChild(banner);
-    },
-  });
+  // Hydrate all providers in parallel from memoryCache.
+  // Each populates this.cache + this.snapshot so hooks get data on mount.
+  await Promise.all([
+    shipProvider.hydrate().catch(() => {}),
+    gdeltProvider.hydrate().catch(() => {}),
+    fireProvider.hydrate().catch(() => {}),
+    weatherProvider.hydrate().catch(() => {}),
+    earthquakeProvider.hydrate().catch(() => {}),
+    newsProvider.hydrate().catch(() => {}),
+    // AircraftProvider hydrates inside its hook (client-side OpenSky fetch)
+  ]);
+
+  // Non-blocking background work — don't gate render on these
+  Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
+
+  // NOW render — providers have cached data, hooks init from snapshot
+  if (import.meta.hot) {
+    const root = (import.meta.hot.data.root ??= createRoot(elem));
+    root.render(app);
+  } else {
+    createRoot(elem).render(app);
+
+    registerSW({
+      onUpdate: () => {
+        const banner = document.createElement("div");
+        banner.className = "sw-update-banner";
+        banner.innerHTML = `
+          <span>Update available</span>
+          <button onclick="window.location.reload()">RELOAD</button>
+          <button onclick="this.parentElement.remove()">✕</button>
+        `;
+        document.body.appendChild(banner);
+      },
+    });
+  }
 }
+
+boot();

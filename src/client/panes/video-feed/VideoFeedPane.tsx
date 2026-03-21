@@ -40,21 +40,14 @@ export function VideoFeedPane() {
 
   // Restore saved state or default
   const [savedState, setSavedState] = useState<SavedState | null>(null);
-
   useEffect(() => {
     loadState().then(setSavedState);
   }, []);
-  const [gridLayout, setGridLayout] = useState<GridLayout>(
-    savedState?.grid ?? 1,
-  );
-  const [slots, setSlots] = useState<SlotState[]>(() => {
-    if (savedState?.slots) {
-      return savedState.slots.map(
-        () => ({ channel: null, error: false, loading: false }) as SlotState,
-      );
-    }
-    return [{ channel: null, error: false, loading: false }];
-  });
+
+  const [gridLayout, setGridLayout] = useState<GridLayout>(1);
+  const [slots, setSlots] = useState<SlotState[]>([
+    { channel: null, error: false, loading: false },
+  ]);
   const [mutedSlot, setMutedSlot] = useState<number | null>(null);
   const restoredRef = useRef(false);
 
@@ -85,18 +78,25 @@ export function VideoFeedPane() {
     }
   }, []);
 
-  // Fetch channels, then restore saved slots
+  // Fetch channels
   useEffect(() => {
     fetchNewsChannels().then((chs) => {
       setChannels(chs);
       setLoading(false);
-      if (savedState?.slots && !restoredRef.current) {
-        restoredRef.current = true;
-        const restored = restoreChannels(savedState.slots, chs);
-        setSlots(restored);
-      }
     });
   }, []);
+
+  // Restore saved state once both savedState and channels are ready
+  useEffect(() => {
+    if (!savedState || channels.length === 0 || restoredRef.current) return;
+    restoredRef.current = true;
+    if (savedState.grid) setGridLayout(savedState.grid);
+    if (savedState.unmutedSlot != null) setMutedSlot(savedState.unmutedSlot);
+    if (savedState.slots) {
+      const restored = restoreChannels(savedState.slots, channels);
+      setSlots(restored);
+    }
+  }, [savedState, channels]);
 
   // Adjust slot count when grid changes
   useEffect(() => {
@@ -121,8 +121,8 @@ export function VideoFeedPane() {
   useEffect(() => {
     const hasContent = slots.some((s) => s.channel !== null);
     if (!restoredRef.current && !hasContent) return;
-    saveState(gridLayout, slots);
-  }, [gridLayout, slots]);
+    saveState(gridLayout, slots, mutedSlot);
+  }, [gridLayout, slots, mutedSlot]);
 
   const assignChannel = useCallback(
     (idx: number, ch: Channel) => {

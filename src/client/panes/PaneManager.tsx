@@ -86,16 +86,23 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
 export function PaneManager() {
   const { chromeHidden, activeCount, dataSources, counts } = useData();
   const [layout, setLayout] = useState<LayoutState>(defaultLayout);
+  const layoutLoaded = useRef(false);
 
   useEffect(() => {
     let mounted = true;
     loadLayout().then((loaded) => {
-      if (mounted) setLayout(loaded);
+      if (mounted) {
+        setLayout(loaded);
+        layoutLoaded.current = true;
+      }
     });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!layoutLoaded.current) return;
     persistLayout(layout);
   }, [layout]);
 
@@ -483,9 +490,13 @@ export function PaneManager() {
 
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<LayoutPreset[]>([]);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
 
   useEffect(() => {
-    loadPresets().then(setPresets);
+    loadPresets().then((loaded) => {
+      setPresets(loaded);
+      setPresetsLoaded(true);
+    });
   }, []);
 
   const handleSavePreset = useCallback(
@@ -793,6 +804,7 @@ export function PaneManager() {
         paneComponents={PANE_COMPONENTS}
         closePane={closePane}
         restorePane={restorePane}
+        splitPane={splitPane}
       />
     );
   }
@@ -832,6 +844,7 @@ export function PaneManager() {
             {showPresets && (
               <LayoutPresetMenu
                 presets={presets}
+                presetsLoaded={presetsLoaded}
                 onLoad={handleLoadPreset}
                 onSave={handleSavePreset}
                 onUpdate={handleUpdatePreset}

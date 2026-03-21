@@ -74,11 +74,11 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
   const backdropRef = useRef<HTMLDivElement>(null);
 
   // Load storage info
-  const refreshStorage = useCallback(() => {
-    const keys = cacheListKeys();
+  const refreshStorage = useCallback(async () => {
+    const keys = await cacheListKeys();
     setStorageKeys(keys);
     const s: Record<string, number> = {};
-    for (const k of keys) s[k] = cacheEstimateSize(k);
+    for (const k of keys) s[k] = await cacheEstimateSize(k);
     setSizes(s);
   }, []);
 
@@ -104,26 +104,25 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
   );
 
   const handleDeleteKey = useCallback(
-    (key: string) => {
-      cacheDelete(key);
+    async (key: string) => {
+      await cacheDelete(key);
       refreshStorage();
     },
     [refreshStorage],
   );
 
-  const handleClearAll = useCallback(() => {
+  const handleClearAll = useCallback(async () => {
     if (!confirmClearAll) {
       setConfirmClearAll(true);
       return;
     }
-    cacheClearAll();
-    refreshStorage();
-    setConfirmClearAll(false);
-  }, [confirmClearAll, refreshStorage]);
+    await cacheClearAll();
+    window.location.reload();
+  }, [confirmClearAll]);
 
-  const handleResetLayout = useCallback(() => {
-    cacheDelete(CACHE_KEYS.layout);
-    cacheDelete(CACHE_KEYS.layoutPresets);
+  const handleResetLayout = useCallback(async () => {
+    await cacheDelete(CACHE_KEYS.layout);
+    await cacheDelete(CACHE_KEYS.layoutPresets);
     refreshStorage();
     window.location.reload();
   }, [refreshStorage]);
@@ -131,7 +130,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
   // ── Export all data as JSON file ────────────────────────────────
   const handleExport = useCallback(async () => {
     const allowedKeys = new Set(Object.values(CACHE_KEYS));
-    const keys = cacheListKeys().filter((k) =>
+    const keys = (await cacheListKeys()).filter((k) =>
       allowedKeys.has(k as (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS]),
     );
     const exportData: Record<string, unknown> = {};
@@ -197,7 +196,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
           setImportStatus(
             `Imported ${imported} key${imported !== 1 ? "s" : ""}${skipped > 0 ? `, skipped ${skipped}` : ""}`,
           );
-          setTimeout(() => setImportStatus(null), 4000);
+          setTimeout(() => window.location.reload(), 1000);
         } catch {
           setImportStatus("Failed to parse JSON");
           setTimeout(() => setImportStatus(null), 4000);
@@ -215,6 +214,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
       ref={backdropRef}
       onClick={handleBackdropClick}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      style={{ overscrollBehavior: "none", touchAction: "none" }}
     >
       <div className="bg-sig-panel border border-sig-border rounded-lg shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
@@ -253,7 +253,15 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto sigint-scroll p-4">
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain sigint-scroll p-4"
+          style={{
+            overscrollBehavior: "contain",
+            WebkitOverflowScrolling: "touch",
+            touchAction: "pan-y",
+          }}
+          onTouchMove={(e) => e.stopPropagation()}
+        >
           {activeTab === "appearance" && (
             <AppearanceTab
               mode={mode}
@@ -761,6 +769,7 @@ const NEWS_SOURCES = [
 function NewsFeedsTab() {
   const handleClearCache = useCallback(() => {
     cacheDelete(CACHE_KEYS.news);
+    window.location.reload();
   }, []);
 
   return (

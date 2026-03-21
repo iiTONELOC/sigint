@@ -10,6 +10,7 @@ export function LayoutPresetMenu({
   onUpdate,
   onDelete,
   onClose,
+  presetsLoaded = true,
 }: {
   presets: LayoutPreset[];
   onLoad: (p: LayoutPreset) => void;
@@ -17,6 +18,7 @@ export function LayoutPresetMenu({
   onUpdate: (idx: number) => void;
   onDelete: (idx: number) => void;
   onClose: () => void;
+  presetsLoaded?: boolean;
 }) {
   const [newName, setNewName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -44,7 +46,7 @@ export function LayoutPresetMenu({
       <div className="px-2 py-1 text-sig-dim text-[10px] tracking-wider font-semibold border-b border-sig-border/30">
         LAYOUT PRESETS
       </div>
-      {presets.length === 0 && (
+      {presetsLoaded && presets.length === 0 && (
         <div className="px-2 py-2 text-sig-dim text-(length:--sig-text-sm)">
           No saved presets
         </div>

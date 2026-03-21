@@ -40,7 +40,11 @@ export type SavedSlot = {
   country: string;
 } | null;
 
-export type SavedState = { grid: GridLayout; slots: SavedSlot[] };
+export type SavedState = {
+  grid: GridLayout;
+  slots: SavedSlot[];
+  unmutedSlot?: number | null;
+};
 
 export type Preset = { name: string; state: SavedState };
 

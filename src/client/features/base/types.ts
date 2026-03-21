@@ -9,10 +9,11 @@ export type ProviderSnapshot<TEntity> = {
 
 export type DataProvider<TEntity> = {
   readonly id: string;
-  hydrate(): Promise<TEntity[] | null>;
+  hydrate(): Promise<{ data: TEntity[]; stale: boolean } | TEntity[] | null>;
   refresh(): Promise<TEntity[]>;
   getData(pollInterval?: number): Promise<TEntity[]>;
   getSnapshot(): ProviderSnapshot<TEntity>;
+  onChange?(cb: (() => void) | null): void;
 };
 
 // ── Base point shape ─────────────────────────────────────────────────

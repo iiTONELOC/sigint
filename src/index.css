@@ -217,24 +217,27 @@ button:focus-visible {
   scrollbar-color: var(--sigint-dim) var(--sigint-panel);
 }
 
-.sigint-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+/* Custom scrollbar only on pointer devices (desktop) */
+@media (pointer: fine) {
+  .sigint-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
 
-.sigint-scroll::-webkit-scrollbar-track {
-  background: var(--sigint-panel);
-  border-radius: 8px;
-}
+  .sigint-scroll::-webkit-scrollbar-track {
+    background: var(--sigint-panel);
+    border-radius: 8px;
+  }
 
-.sigint-scroll::-webkit-scrollbar-thumb {
-  background: var(--sigint-dim);
-  border-radius: 8px;
-  border: 2px solid var(--sigint-panel);
-}
+  .sigint-scroll::-webkit-scrollbar-thumb {
+    background: var(--sigint-dim);
+    border-radius: 8px;
+    border: 2px solid var(--sigint-panel);
+  }
 
-.sigint-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--sigint-bright);
+  .sigint-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--sigint-bright);
+  }
 }
 
 /* ── SW update banner ────────────────────────────────────────────── */

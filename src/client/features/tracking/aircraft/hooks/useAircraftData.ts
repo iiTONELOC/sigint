@@ -27,20 +27,42 @@ export function useAircraftData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async (isInitial = false) => {
-      try {
-        // Initial call uses getData() which deduplicates in-flight requests
-        // (prevents StrictMode double-mount from firing two API calls).
-        // Interval polls use refresh() to always get fresh data.
-        const aircraftData = isInitial
-          ? await aircraftProvider.getData(pollInterval)
-          : await aircraftProvider.refresh();
+    const applySnapshot = () => {
+      const snapshot = aircraftProvider.getSnapshot();
+      const result = snapshot.entities;
+      setData(result.length > 0 ? [...result] : generateMockAircraft());
+      setLoading(false);
+      if (snapshot.error) {
+        setError(snapshot.error);
+        const hasRealCache =
+          result.length > 0 &&
+          result.some((d) => d.type === "aircraft" && (d.data as any)?.icao24);
+        setDataSource(hasRealCache ? "cached" : "mock");
+      } else {
+        setError(null);
+        setDataSource(result.length > 0 ? "live" : "mock");
+      }
+    };
+
+    // Subscribe to background refresh completions
+    aircraftProvider.onChange(() => {
+      if (isMounted) applySnapshot();
+    });
+
+    // Sync read: if provider was hydrated before mount, show data NOW
+    const snap = aircraftProvider.getSnapshot();
+    if (snap.entities.length > 0) {
+      applySnapshot();
+    }
+
+    // Async: getData triggers background refresh if stale
+    aircraftProvider
+      .getData(pollInterval)
+      .then((aircraftData) => {
         if (!isMounted) return;
-
-        const snapshot = aircraftProvider.getSnapshot();
-        setData(aircraftData);
+        setData([...aircraftData]);
         setLoading(false);
-
+        const snapshot = aircraftProvider.getSnapshot();
         if (snapshot.error) {
           setError(snapshot.error);
           const hasRealCache =
@@ -53,6 +75,30 @@ export function useAircraftData(
           setError(null);
           setDataSource("live");
         }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setError(
+          err instanceof Error ? err : new Error("Unknown error occurred"),
+        );
+        setLoading(false);
+        setDataSource("mock");
+      });
+
+    intervalId = setInterval(async () => {
+      try {
+        const aircraftData = await aircraftProvider.refresh();
+        if (!isMounted) return;
+        setData([...aircraftData]);
+        setLoading(false);
+        const snapshot = aircraftProvider.getSnapshot();
+        if (snapshot.error) {
+          setError(snapshot.error);
+          setDataSource(aircraftData.length > 0 ? "cached" : "mock");
+        } else {
+          setError(null);
+          setDataSource("live");
+        }
       } catch (err) {
         if (!isMounted) return;
         setError(
@@ -61,14 +107,11 @@ export function useAircraftData(
         setLoading(false);
         setDataSource("mock");
       }
-    };
-
-    // Always fetch on mount — getData() handles hydration internally now.
-    poll(true);
-    intervalId = setInterval(poll, pollInterval);
+    }, pollInterval);
 
     return () => {
       isMounted = false;
+      aircraftProvider.onChange(null);
       if (intervalId) clearInterval(intervalId);
     };
   }, [pollInterval]);
@@ -80,7 +123,7 @@ export function useAircraftData(
         const enrichedAircraft =
           await aircraftProvider.enrichAircraftByIcao24(icao24List);
         if (!enrichedAircraft) return;
-        setData(enrichedAircraft);
+        setData([...enrichedAircraft]);
       } catch {
         // Non-fatal: enrichment is best effort.
       }

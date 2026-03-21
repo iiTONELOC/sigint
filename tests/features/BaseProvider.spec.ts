@@ -46,7 +46,7 @@ describe("BaseProvider.hydrate()", () => {
     await provider.getData();
     const result = await provider.hydrate();
     expect(result).not.toBeNull();
-    expect(result!.length).toBe(2);
+    expect(result!.data.length).toBe(2);
   });
 });
 

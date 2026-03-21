@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
 
@@ -50,19 +50,61 @@ export function useProviderData(
   const [error, setError] = useState<Error | null>(null);
   const [dataSource, setDataSource] = useState<ProviderDataSource>("loading");
 
+  // Sync state from provider snapshot
+  const syncFromSnapshot = useCallback(() => {
+    const snapshot = provider.getSnapshot();
+    if (snapshot.entities.length > 0 || !snapshot.loading) {
+      setData([...snapshot.entities]);
+      setLoading(snapshot.loading);
+      setError(snapshot.error ?? null);
+      setDataSource(resolveDataSource(snapshot.entities, snapshot));
+    }
+  }, [provider, resolveDataSource]);
+
   useEffect(() => {
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    const poll = async (isInitial = false) => {
-      try {
-        const result = isInitial
-          ? await provider.getData(pollInterval)
-          : await provider.refresh();
-        if (!isMounted) return;
+    // Subscribe to background refresh completions
+    provider.onChange?.(() => {
+      if (isMounted) syncFromSnapshot();
+    });
 
+    // Sync read: if provider was hydrated before mount, show data NOW
+    const snap = provider.getSnapshot();
+    if (snap.entities.length > 0) {
+      setData([...snap.entities]);
+      setLoading(false);
+      setError(snap.error ?? null);
+      setDataSource(resolveDataSource(snap.entities, snap));
+    }
+
+    // Async: getData triggers background refresh if stale
+    provider
+      .getData(pollInterval)
+      .then((result) => {
+        if (!isMounted) return;
         const snapshot = provider.getSnapshot();
-        setData(result);
+        setData([...result]);
+        setLoading(false);
+        setError(snapshot.error ?? null);
+        setDataSource(resolveDataSource(result, snapshot));
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setError(
+          err instanceof Error ? err : new Error("Unknown error occurred"),
+        );
+        setLoading(false);
+        setDataSource("error");
+      });
+
+    intervalId = setInterval(async () => {
+      try {
+        const result = await provider.refresh();
+        if (!isMounted) return;
+        const snapshot = provider.getSnapshot();
+        setData([...result]);
         setLoading(false);
         setError(snapshot.error ?? null);
         setDataSource(resolveDataSource(result, snapshot));
@@ -74,16 +116,14 @@ export function useProviderData(
         setLoading(false);
         setDataSource("error");
       }
-    };
-
-    poll(true);
-    intervalId = setInterval(poll, pollInterval);
+    }, pollInterval);
 
     return () => {
       isMounted = false;
+      provider.onChange?.(null);
       if (intervalId) clearInterval(intervalId);
     };
-  }, [provider, pollInterval, resolveDataSource]);
+  }, [provider, pollInterval, resolveDataSource, syncFromSnapshot]);
 
   return { data, loading, error, dataSource };
 }

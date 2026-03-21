@@ -437,6 +437,7 @@ describe("PaneMobile", () => {
         counts: { aircraft: 50, quakes: 10 },
         paneMeta,
         paneComponents,
+        splitPane: () => {},
         closePane: () => {},
         restorePane: () => {},
       }),

@@ -4,7 +4,7 @@ import { AppShell } from "@/AppShell";
 
 export function App() {
   return (
-    <div className="w-screen h-screen overflow-hidden min-w-[320px] bg-sig-bg font-mono">
+    <div className="w-screen h-screen overflow-hidden min-w-48 bg-sig-bg font-mono">
       <DataProvider>
         <AppShell />
       </DataProvider>
