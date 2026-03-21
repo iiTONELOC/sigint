@@ -84,9 +84,6 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return;
 
-    // Reject stale cache — must be fresher than poll interval
-    if (Date.now() - persisted.timestamp > this.cacheDurationMs) return;
-
     this.cache = { data: persisted.data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: persisted.data,
@@ -193,9 +190,11 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     return enriched;
   }
 
-  async hydrate(): Promise<DataPoint[] | null> {
+  async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
     await this.hydrateMemoryCacheFromPersisted();
-    return this.cache?.data ?? null;
+    if (!this.cache) return null;
+    const stale = Date.now() - this.cache.timestamp > this.cacheDurationMs;
+    return { data: this.cache.data, stale };
   }
 
   async refresh(): Promise<DataPoint[]> {
@@ -232,6 +231,16 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     }
   }
 
+  /** Register a listener called whenever background refresh completes. */
+  private _onChange: (() => void) | null = null;
+  onChange(cb: (() => void) | null): void {
+    this._onChange = cb;
+  }
+
+  private notifyChange(): void {
+    this._onChange?.();
+  }
+
   async getData(pollInterval: number = 240_000): Promise<DataPoint[]> {
     await this.hydrateMemoryCacheFromPersisted();
 
@@ -243,11 +252,14 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       return this.cache!.data;
     }
 
-    // Cache exists but is older than poll interval — return it immediately
-    // but kick off a background refresh so next read gets fresh data
-    if (this.cache && cacheAge < this.cacheDurationMs) {
+    // Cache exists (fresh or stale) — return it immediately,
+    // kick off background refresh so next read gets fresh data
+    if (this.cache) {
       if (!this.fetchInProgress) {
-        this.fetchInProgress = this.refresh().finally(() => {
+        this.fetchInProgress = this.refresh().then((data) => {
+          this.notifyChange();
+          return data;
+        }).finally(() => {
           this.fetchInProgress = null;
         });
       }
@@ -256,14 +268,12 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
     // No usable cache — must wait for fetch
     if (this.fetchInProgress) {
-      return this.cache ? this.cache.data : this.fetchInProgress;
+      return this.fetchInProgress;
     }
 
     this.fetchInProgress = this.refresh().finally(() => {
       this.fetchInProgress = null;
     });
-
-    if (this.cache) return this.cache.data;
     return this.fetchInProgress;
   }
 

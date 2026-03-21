@@ -59,8 +59,8 @@ export function AppShell() {
 
       {/* ── TICKER ── */}
       {!chromeHidden && (
-        <div className="shrink-0 px-2 sm:px-3 pt-0.5 sm:pt-1 pb-1 sm:pb-2 border-t border-sig-border bg-sig-panel/95">
-          <div className="tracking-wider mb-0.5 hidden sm:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
+        <div className="shrink-0 px-2 md:px-3 pt-0.5 md:pt-1 pb-1 md:pb-2 border-t border-sig-border bg-sig-panel/95">
+          <div className="tracking-wider mb-0.5 hidden md:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
             <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
               ●
             </span>{" "}

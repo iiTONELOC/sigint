@@ -113,6 +113,8 @@ export function Tooltip({
 
   const show = useCallback(() => {
     if (disabled) return;
+    // Skip tooltips on touch devices — they interfere with tap targets
+    if (window.matchMedia("(pointer: coarse)").matches) return;
     timerRef.current = setTimeout(() => {
       setVisible(true);
     }, delay);
@@ -153,6 +155,7 @@ export function Tooltip({
         ref={triggerRef}
         onMouseEnter={show}
         onMouseLeave={hide}
+        onMouseDown={hide}
         onFocus={show}
         onBlur={hide}
         className="inline-flex"
@@ -164,7 +167,7 @@ export function Tooltip({
           <div
             ref={tooltipRef}
             role="tooltip"
-            className="fixed z-9999 pointer-events-none"
+            className="fixed z-40 pointer-events-none"
             style={{
               left: position?.x ?? -9999,
               top: position?.y ?? -9999,

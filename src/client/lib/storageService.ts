@@ -3,11 +3,12 @@
 //
 // Usage:
 //   await cacheInit();              // call once at boot before anything reads
-//   cacheSet("key", value)          // async write to IndexedDB + memory
-//   cacheDelete("key")              // async delete from IndexedDB + memory
+//   await cacheSet("key", value)    // async write to IndexedDB + memory
+//   await cacheDelete("key")        // async delete from IndexedDB + memory
 //
-// All reads are synchronous from an in-memory Map (populated at init).
-// All writes go to both memory (immediate) and IndexedDB (fire-and-forget).
+// All reads await dbReady so they never return null just because
+// IndexedDB hasn't opened yet. The dbReady promise resolves once
+// cacheInit finishes (or immediately if init was already done/skipped).
 
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
@@ -17,6 +18,21 @@ const STORE_NAME = "cache";
 
 let db: IDBDatabase | null = null;
 const memoryCache = new Map<string, unknown>();
+
+// ── dbReady gate ─────────────────────────────────────────────────────
+// Resolves when cacheInit() completes (success or failure).
+// If cacheInit was never called (e.g. test env), public functions
+// skip the gate and use the in-memory cache directly.
+let _resolveReady: () => void;
+let _initCalled = false;
+const _dbReadyPromise: Promise<void> = new Promise((resolve) => {
+  _resolveReady = resolve;
+});
+
+/** Await only if cacheInit has been called; otherwise proceed immediately. */
+function dbReady(): Promise<void> {
+  return _initCalled ? _dbReadyPromise : Promise.resolve();
+}
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -164,15 +180,22 @@ async function pruneTrailData(): Promise<void> {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
- * Initialize the cache service. Must be called once before any reads.
- * Loads all IndexedDB entries into memory for sync access.
+ * Initialize the cache service. Must be called once at boot.
+ * Loads all IndexedDB entries into memory, then resolves dbReady
+ * so all subsequent reads/writes proceed.
  */
 export async function cacheInit(): Promise<void> {
-  if (typeof window === "undefined") return;
+  _initCalled = true;
+
+  if (typeof window === "undefined") {
+    _resolveReady();
+    return;
+  }
 
   try {
     db = await openDB();
   } catch {
+    _resolveReady();
     return;
   }
 
@@ -187,12 +210,10 @@ export async function cacheInit(): Promise<void> {
     }
   } catch {}
 
-  // Clean up stale data
-  await pruneTrailData();
-
   // Purge poisoned data caches — if a provider's cache has { data: [] }
   // from a previous empty upstream response, nuke it so hydration falls
   // through and the next poll fetches fresh data from the server.
+  // MUST run before _resolveReady so providers don't hydrate poisoned entries.
   const dataCacheKeys = [
     CACHE_KEYS.aircraft,
     CACHE_KEYS.earthquake,
@@ -217,16 +238,30 @@ export async function cacheInit(): Promise<void> {
       idbDelete(key).catch(() => {});
     }
   }
+
+  // Signal that the database is ready — readers unblock NOW.
+  _resolveReady();
+
+  // Clean up stale data (non-blocking — readers already unblocked)
+  await pruneTrailData();
 }
+
 /**
- * Async read — checks memory first, falls back to IndexedDB.
- * Use this for non-blocking data loading (Suspense path).
+ * Async read — checks memory first (instant, no await). Only gates
+ * on dbReady for the IDB fallback so providers aren't blocked during init.
  */
-export async function cacheGet<T = unknown>(
-  key: string,
-): Promise<T | null> {
+export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
+  // Fast path — memory hit returns immediately, no waiting on init
   const mem = memoryCache.get(key);
   if (mem !== undefined) return mem as T;
+
+  // Slow path — wait for init to finish, then try IDB
+  await dbReady();
+
+  // Re-check memory — cacheInit may have populated it while we waited
+  const mem2 = memoryCache.get(key);
+  if (mem2 !== undefined) return mem2 as T;
+
   const idb = await idbGet(key);
   if (idb !== undefined && idb !== null) {
     memoryCache.set(key, idb);
@@ -235,34 +270,40 @@ export async function cacheGet<T = unknown>(
   return null;
 }
 
-
 /**
- * Write to memory (immediate) and IndexedDB (async, fire-and-forget).
+ * Write to memory (immediate) + IndexedDB (after dbReady).
+ * Memory write is instant so subsequent cacheGet hits immediately.
  */
-export function cacheSet(key: string, value: unknown): void {
+export async function cacheSet(key: string, value: unknown): Promise<void> {
   memoryCache.set(key, value);
+  await dbReady();
   idbSet(key, value).catch(() => {});
 }
 
 /**
- * Delete from memory (immediate) and IndexedDB (async, fire-and-forget).
+ * Delete from memory (immediate) + IndexedDB (awaited).
  */
-export function cacheDelete(key: string): void {
+export async function cacheDelete(key: string): Promise<void> {
   memoryCache.delete(key);
-  idbDelete(key).catch(() => {});
+  await dbReady();
+  await idbDelete(key);
 }
 
 /**
  * List all cache keys currently in memory.
+ * Awaits dbReady so the full set is available.
  */
-export function cacheListKeys(): string[] {
+export async function cacheListKeys(): Promise<string[]> {
+  await dbReady();
   return Array.from(memoryCache.keys()).sort();
 }
 
 /**
  * Estimate the byte size of a cached value (JSON serialization length).
+ * Awaits dbReady so the value is available.
  */
-export function cacheEstimateSize(key: string): number {
+export async function cacheEstimateSize(key: string): Promise<number> {
+  await dbReady();
   const value = memoryCache.get(key);
   if (value == null) return 0;
   try {
@@ -274,11 +315,13 @@ export function cacheEstimateSize(key: string): number {
 
 /**
  * Clear all cache entries from memory and IndexedDB.
+ * Awaits all IDB deletes so callers can safely reload after.
  */
-export function cacheClearAll(): void {
+export async function cacheClearAll(): Promise<void> {
   const keys = Array.from(memoryCache.keys());
   for (const key of keys) {
     memoryCache.delete(key);
-    idbDelete(key).catch(() => {});
   }
+  await dbReady();
+  await Promise.all(keys.map((key) => idbDelete(key)));
 }

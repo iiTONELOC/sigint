@@ -43,15 +43,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeRaw] = useState<ThemeMode>("dark");
   const [overrides, setOverrides] = useState<ColorOverrides>(EMPTY_OVERRIDES);
 
-  // Load persisted theme + overrides asynchronously
+  // Load persisted theme + overrides in parallel
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      const savedMode = await cacheGet<ThemeMode>(CACHE_KEYS.theme);
+    const modeP = cacheGet<ThemeMode>(CACHE_KEYS.theme);
+    const overridesP = loadOverrides();
+    modeP.then((savedMode) => {
       if (mounted && savedMode === "light") setModeRaw("light");
-      const savedOverrides = await loadOverrides();
+    });
+    overridesP.then((savedOverrides) => {
       if (mounted) setOverrides(savedOverrides);
-    })();
+    });
     return () => { mounted = false; };
   }, []);
 

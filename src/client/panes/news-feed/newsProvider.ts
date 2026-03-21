@@ -66,21 +66,22 @@ class NewsProvider {
 
   // ── Hydrate ─────────────────────────────────────────────────────
 
-  async hydrate(): Promise<NewsArticle[] | null> {
-    if (this.cache) return this.cache.data;
+  async hydrate(): Promise<{ data: NewsArticle[]; stale: boolean } | null> {
+    if (this.cache) return { data: this.cache.data, stale: false };
 
     const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
-    if (Date.now() - persisted.timestamp > MAX_CACHE_AGE_MS) return null;
+
+    const stale = Date.now() - persisted.timestamp > MAX_CACHE_AGE_MS;
 
     this.cache = { data: persisted.data, timestamp: persisted.timestamp };
     this.snapshot = {
       items: persisted.data,
       lastUpdatedAt: persisted.timestamp,
-      loading: false,
+      loading: stale,
       error: null,
     };
-    return persisted.data;
+    return { data: persisted.data, stale };
   }
 
   // ── Fetch ───────────────────────────────────────────────────────
@@ -120,18 +121,30 @@ class NewsProvider {
     }
   }
 
+  /** Register a listener called whenever background refresh completes. */
+  private _onChange: (() => void) | null = null;
+  onChange(cb: (() => void) | null): void {
+    this._onChange = cb;
+  }
+
+  private notifyChange(): void {
+    this._onChange?.();
+  }
+
   async getData(pollInterval?: number): Promise<NewsArticle[]> {
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        this.refresh().catch(() => {});
+        this.refresh().then(() => this.notifyChange()).catch(() => {});
       }
       return this.cache.data;
     }
 
-    // Try async hydration first
     const hydrated = await this.hydrate();
-    if (hydrated && hydrated.length > 0) {
-      return hydrated;
+    if (hydrated && hydrated.data.length > 0) {
+      if (hydrated.stale) {
+        this.refresh().then(() => this.notifyChange()).catch(() => {});
+      }
+      return hydrated.data;
     }
 
     return this.refresh();

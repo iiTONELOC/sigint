@@ -1,6 +1,8 @@
-import { useState, useCallback } from "react";
-import { Satellite, X, Rows2, Maximize2 } from "lucide-react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { Satellite, X, Rows2, Maximize2, Plus } from "lucide-react";
 import type { PaneType, LeafNode, LayoutState } from "./paneTree";
+import { collectLeafTypes } from "./paneTree";
+import { useData } from "@/context/DataContext";
 import type { Globe } from "lucide-react";
 
 type PaneMobileProps = {
@@ -15,6 +17,11 @@ type PaneMobileProps = {
   readonly paneComponents: Record<PaneType, React.ComponentType>;
   readonly closePane: (leafId: string) => void;
   readonly restorePane: (idx: number) => void;
+  readonly splitPane: (
+    leafId: string,
+    dir: "h" | "v",
+    newType: PaneType,
+  ) => void;
 };
 
 export function PaneMobile({
@@ -29,11 +36,54 @@ export function PaneMobile({
   paneComponents,
   closePane,
   restorePane,
+  splitPane,
 }: PaneMobileProps) {
+  const { colorMap } = useData();
   const canCloseMobile = allLeaves.length > 1;
 
+  // ── Add pane menu ───────────────────────────────────────────────
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  const availableTypes = useMemo(() => {
+    const openTypes = collectLeafTypes(layout.root);
+    const minimizedTypes = new Set(layout.minimized.map((m) => m.paneType));
+    return (Object.keys(paneMeta) as PaneType[]).filter(
+      (t) => !openTypes.has(t) && !minimizedTypes.has(t),
+    );
+  }, [layout, paneMeta]);
+
+  const handleAddPane = useCallback(
+    (type: PaneType) => {
+      const activeLeaf = allLeaves[activeMobilePane];
+      if (activeLeaf) {
+        splitPane(activeLeaf.id, "v", type);
+      }
+      setAddMenuOpen(false);
+    },
+    [allLeaves, activeMobilePane, splitPane],
+  );
+
+  // Close add menu on outside click
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (
+        addMenuRef.current &&
+        !addMenuRef.current.contains(e.target as Node)
+      ) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("touchstart", onDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("touchstart", onDown, true);
+    };
+  }, [addMenuOpen]);
+
   // ── 2-pane split state ──────────────────────────────────────────
-  // secondPaneIdx: index of the pane shown in the bottom half, or null for single-pane mode
   const [secondPaneIdx, setSecondPaneIdx] = useState<number | null>(null);
 
   const isSplit =
@@ -72,57 +122,73 @@ export function PaneMobile({
     ],
   );
 
+  // Count order matching header toggle order
+  const countOrder = [
+    "ships",
+    "events",
+    "quakes",
+    "fires",
+    "weather",
+    "aircraft",
+  ] as const;
+
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
-      {/* Mobile status bar — track count + source status */}
-      <div className="shrink-0 flex items-center gap-2 px-2 py-0.5 border-b border-sig-border/30 bg-sig-panel/60">
-        <Satellite
-          size={10}
-          strokeWidth={2.5}
-          className="text-sig-accent shrink-0"
-        />
-        <span className="text-sig-accent font-semibold tabular-nums text-(length:--sig-text-sm)">
-          {activeCount.toLocaleString()}
-        </span>
-        <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
-          TRACKS
-        </span>
-        <span className="text-sig-dim text-(length:--sig-text-sm)">
-          ·{" "}
-          {
-            dataSources.filter(
-              (s) => s.status === "live" || s.status === "cached",
-            ).length
-          }
-          /{dataSources.length} LIVE
-        </span>
-        <div className="flex-1" />
-        {Object.entries(counts).map(([key, count]) => (
-          <span
-            key={key}
-            className="text-sig-dim text-(length:--sig-text-xs) tabular-nums"
-          >
-            {count > 0 ? count : null}
+      {/* Mobile status bar */}
+      <div className="shrink-0 flex items-center flex-wrap justify-center gap-x-2 gap-y-0 px-2 py-0.5 border-b border-sig-border/30 bg-sig-panel/60">
+        <div className="flex items-center gap-2">
+          <Satellite
+            size={10}
+            strokeWidth={2.5}
+            className="text-sig-accent shrink-0"
+          />
+          <span className="text-sig-accent font-semibold tabular-nums text-(length:--sig-text-sm)">
+            {activeCount.toLocaleString()}
           </span>
-        ))}
+          <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
+            TRACKS
+          </span>
+          <span className="text-sig-dim text-(length:--sig-text-sm)">
+            ·{" "}
+            {
+              dataSources.filter(
+                (s) => s.status === "live" || s.status === "cached",
+              ).length
+            }
+            /{dataSources.length} LIVE
+          </span>
+        </div>
+        <div className="flex items-center gap-2 sm:hidden">
+          {countOrder.map((key) => {
+            const count = counts[key] ?? 0;
+            return (
+              <span
+                key={key}
+                className="text-(length:--sig-text-sm) tabular-nums font-semibold"
+                style={{
+                  color: count > 0 ? colorMap[key] : undefined,
+                  opacity: count > 0 ? 1 : 0.3,
+                }}
+              >
+                {count > 0 ? count.toLocaleString() : "0"}
+              </span>
+            );
+          })}
+        </div>
       </div>
 
       {/* Mobile tab bar */}
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/80 overflow-x-auto sigint-scroll snap-x snap-mandatory">
+      <div className="shrink-0 flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/80">
         {allLeaves.map((lf, i) => {
           const meta = paneMeta[lf.paneType];
           const Icon = meta.icon;
           const isActive = i === activeMobilePane;
           const isSecond = secondPaneIdx === i;
           return (
-            <div
-              key={lf.id}
-              className="relative flex items-center shrink-0 snap-start"
-            >
+            <div key={lf.id} className="relative flex items-center">
               <button
                 onClick={() => {
                   if (isSecond) {
-                    // Tapping the secondary tab promotes it to primary, collapses split
                     setActiveMobilePane(i);
                     setSecondPaneIdx(null);
                   } else {
@@ -143,10 +209,10 @@ export function PaneMobile({
                 }`}
               >
                 <Icon size={12} strokeWidth={2.5} />
-                <span className="max-w-16 truncate">{meta.label}</span>
+                <span>{meta.label}</span>
               </button>
 
-              {/* Split button — on non-active, non-second tabs */}
+              {/* Split button */}
               {allLeaves.length > 1 && !isActive && !isSecond && (
                 <button
                   onClick={() => toggleSplit(i)}
@@ -190,6 +256,8 @@ export function PaneMobile({
             </div>
           );
         })}
+
+        {/* Minimized pane tabs */}
         {layout.minimized.map((m, i) => {
           const meta = paneMeta[m.paneType];
           const Icon = meta.icon;
@@ -205,13 +273,44 @@ export function PaneMobile({
             </button>
           );
         })}
+
+        {/* Add pane button */}
+        {availableTypes.length > 0 && (
+          <div ref={addMenuRef} className="relative shrink-0 snap-start">
+            <button
+              onClick={() => setAddMenuOpen((o) => !o)}
+              className="flex items-center justify-center px-2 py-1.5 min-h-8 min-w-8 rounded text-sig-dim hover:text-sig-accent transition-colors"
+              title="Add pane"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+            </button>
+            {addMenuOpen && (
+              <div className="absolute bottom-full right-0 mb-1 rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36 py-1 z-50">
+                {availableTypes.map((type) => {
+                  const meta = paneMeta[type];
+                  const Icon = meta.icon;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => handleAddPane(type)}
+                      className="flex items-center gap-2 w-full px-3 py-2 min-h-11 text-left text-sig-dim text-(length:--sig-text-sm) tracking-wide hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                    >
+                      <Icon size={14} strokeWidth={2} />
+                      {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex-1" />
       </div>
 
-      {/* Pane content area — single or 2-pane vertical split */}
+      {/* Pane content area */}
       {isSplit ? (
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top pane */}
           <div className="flex-1 relative overflow-hidden min-h-0 border-b border-sig-border/40">
             {allLeaves[activeMobilePane] &&
               (() => {
@@ -220,11 +319,9 @@ export function PaneMobile({
                 return <PaneComponent />;
               })()}
           </div>
-          {/* Split separator */}
           <div className="shrink-0 h-1 bg-sig-border/20 flex items-center justify-center">
             <div className="w-8 h-0.5 rounded-full bg-sig-dim/40" />
           </div>
-          {/* Bottom pane */}
           <div className="flex-1 relative overflow-hidden min-h-0">
             {allLeaves[secondPaneIdx!] &&
               (() => {

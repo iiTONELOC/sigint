@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheSet } from "@/lib/storageService";
 
 // ── Config each concrete provider supplies ───────────────────────────
 
@@ -42,6 +42,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
   ) => DataPoint[];
 
   protected cache: { data: DataPoint[]; timestamp: number } | null = null;
+  private fetchInProgress: Promise<DataPoint[]> | null = null;
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
@@ -84,25 +85,26 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   // ── Hydrate ───────────────────────────────────────────────────────
 
-  async hydrate(): Promise<DataPoint[] | null> {
-    if (this.cache) return this.cache.data;
+  async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
+    if (this.cache) return { data: this.cache.data, stale: false };
 
     const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
-    if (Date.now() - persisted.timestamp > this.maxCacheAgeMs) return null;
 
     const data = this.mergeFn
       ? this.mergeFn(persisted.data, [])
       : persisted.data;
 
+    const stale = Date.now() - persisted.timestamp > this.maxCacheAgeMs;
+
     this.cache = { data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: data,
       lastUpdatedAt: persisted.timestamp,
-      loading: false,
+      loading: stale, // signal that a refresh is needed
       error: null,
     };
-    return data;
+    return { data, stale };
   }
 
   // ── Fetch ─────────────────────────────────────────────────────────
@@ -117,17 +119,21 @@ export class BaseProvider implements DataProvider<DataPoint> {
         ? this.mergeFn(this.cache?.data ?? [], incoming)
         : incoming;
 
-      // Retain stale cache when upstream returns 0 records (quota exhausted /
-      // temporary outage). Same pattern as server-side FIRMS and GDELT caches.
-      if (data.length === 0 && this.cache && this.cache.data.length > 0) {
-        this.cache = { ...this.cache, timestamp: Date.now() };
+      // Upstream returned 0 records (satellite down, quota exhausted,
+      // temporary outage). NEVER persist empty data — retain whatever
+      // we have and treat it as a soft error.
+      if (data.length === 0) {
+        const fallback = this.cache?.data ?? [];
+        if (fallback.length > 0) {
+          this.cache = { ...this.cache!, timestamp: Date.now() };
+        }
         this.snapshot = {
-          entities: this.cache.data,
+          entities: fallback,
           lastUpdatedAt: Date.now(),
           loading: false,
           error: null,
         };
-        return this.cache.data;
+        return fallback;
       }
 
       this.cache = { data, timestamp: Date.now() };
@@ -152,21 +158,60 @@ export class BaseProvider implements DataProvider<DataPoint> {
     }
   }
 
+  /** Register a listener called whenever background refresh completes. */
+  private _onChange: (() => void) | null = null;
+  onChange(cb: (() => void) | null): void {
+    this._onChange = cb;
+  }
+
+  private notifyChange(): void {
+    this._onChange?.();
+  }
+
   async getData(pollInterval?: number): Promise<DataPoint[]> {
+    // 1. Memory cache hit — return immediately, maybe background refresh
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        this.refresh().catch(() => {});
+        if (!this.fetchInProgress) {
+          this.fetchInProgress = this.refresh()
+            .then((data) => {
+              this.notifyChange();
+              return data;
+            })
+            .finally(() => {
+              this.fetchInProgress = null;
+            });
+        }
       }
       return this.cache.data;
     }
 
-    // Try async hydration first
+    // 2. Try IDB hydration — returns stale data immediately
     const hydrated = await this.hydrate();
-    if (hydrated && hydrated.length > 0) {
-      return hydrated;
+    if (hydrated && hydrated.data.length > 0) {
+      // Kick off background refresh if stale, don't block
+      if (hydrated.stale && !this.fetchInProgress) {
+        this.fetchInProgress = this.refresh()
+          .then((data) => {
+            this.notifyChange();
+            return data;
+          })
+          .finally(() => {
+            this.fetchInProgress = null;
+          });
+      }
+      return hydrated.data;
     }
 
-    return this.refresh();
+    // 3. No cache at all — must wait for fetch
+    if (this.fetchInProgress) {
+      return this.fetchInProgress;
+    }
+
+    this.fetchInProgress = this.refresh().finally(() => {
+      this.fetchInProgress = null;
+    });
+    return this.fetchInProgress;
   }
 
   getSnapshot(): ProviderSnapshot<DataPoint> {

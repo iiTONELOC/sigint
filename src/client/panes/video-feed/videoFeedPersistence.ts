@@ -1,13 +1,25 @@
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
-import type { Channel, GridLayout, SlotState, SavedSlot, SavedState, Preset } from "./videoFeedTypes";
+import type {
+  Channel,
+  GridLayout,
+  SlotState,
+  SavedSlot,
+  SavedState,
+  Preset,
+} from "./videoFeedTypes";
 
 const CACHE_KEY = CACHE_KEYS.videoState;
 const PRESETS_KEY = CACHE_KEYS.videoPresets;
 
-export function saveState(grid: GridLayout, slots: SlotState[]) {
+export function saveState(
+  grid: GridLayout,
+  slots: SlotState[],
+  unmutedSlot?: number | null,
+) {
   const saved: SavedState = {
     grid,
+    unmutedSlot: unmutedSlot ?? null,
     slots: slots.map((s) =>
       s.channel
         ? {
@@ -28,14 +40,17 @@ export async function loadState(): Promise<SavedState | null> {
 }
 
 export async function loadPresets(): Promise<Preset[]> {
-  return await cacheGet<Preset[]>(PRESETS_KEY) ?? [];
+  return (await cacheGet<Preset[]>(PRESETS_KEY)) ?? [];
 }
 
 export function savePresets(presets: Preset[]) {
   cacheSet(PRESETS_KEY, presets);
 }
 
-export function restoreChannels(saved: SavedSlot[], channels: Channel[]): SlotState[] {
+export function restoreChannels(
+  saved: SavedSlot[],
+  channels: Channel[],
+): SlotState[] {
   const chanMap = new Map(channels.map((c) => [c.id, c]));
   return saved.map((s) => {
     if (!s) return { channel: null, error: false, loading: false };
@@ -60,7 +75,10 @@ export function restoreChannels(saved: SavedSlot[], channels: Channel[]): SlotSt
   });
 }
 
-export function buildSavedState(grid: GridLayout, slots: SlotState[]): SavedState {
+export function buildSavedState(
+  grid: GridLayout,
+  slots: SlotState[],
+): SavedState {
   return {
     grid,
     slots: slots.map((s) =>

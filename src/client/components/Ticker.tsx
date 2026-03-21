@@ -33,9 +33,13 @@ function useTickerSpeed(): number {
     });
     const iv = setInterval(async () => {
       const saved = await cacheGet<number>(CACHE_KEYS.tickerSpeed);
-      if (mounted && typeof saved === "number" && saved !== speed) setSpeed(saved);
+      if (mounted && typeof saved === "number" && saved !== speed)
+        setSpeed(saved);
     }, 1000);
-    return () => { mounted = false; clearInterval(iv); };
+    return () => {
+      mounted = false;
+      clearInterval(iv);
+    };
   }, [speed]);
 
   return speed;
@@ -248,8 +252,8 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 borderLeft: `3px solid ${color}`,
               }}
             >
-              {/* Compact single-line mode for small screens */}
-              <div className="sm:hidden flex items-center gap-1.5 px-2 py-1 min-h-8">
+              {/* Compact single-line mode for small/medium screens */}
+              <div className="md:hidden flex items-center gap-1.5 px-2 py-1 min-h-8">
                 <Icon
                   size={11}
                   style={{ color }}
@@ -267,8 +271,8 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 </span>
               </div>
 
-              {/* Full card mode for larger screens */}
-              <div className="hidden sm:block px-2.5 py-1.5 h-22.5">
+              {/* Full card mode for desktop */}
+              <div className="hidden md:block px-2.5 py-1.5 h-22.5">
                 <div className="flex justify-between mb-0.5">
                   <span
                     className="tracking-wider flex items-center gap-1 text-(length:--sig-text-md)"
