@@ -2,9 +2,12 @@
 // Caches the app shell for offline boot. Data stays in IndexedDB.
 // API routes pass through to network — providers handle failures.
 //
-// Update flow: bump CACHE_VERSION or deploy new JS bundle → browser
-// detects new SW → installs → posts 'SW_UPDATE_AVAILABLE' to client
-// → client can reload to activate.
+// Update flow:
+//   1. Deploy new code → browser detects new SW on periodic check
+//   2. New SW installs in background (does NOT skipWaiting)
+//   3. New SW posts 'SW_UPDATE_AVAILABLE' to all clients
+//   4. Client shows update banner → user clicks RELOAD
+//   5. Client posts 'SW_SKIP_WAITING' → new SW activates → page reloads
 
 const CACHE_VERSION = "v1";
 const CACHE_NAME = `sigint-shell-${CACHE_VERSION}`;
@@ -30,22 +33,30 @@ if (self.__PRECACHE_MANIFEST) {
 }
 
 // ── Install: precache app shell ──────────────────────────────────────
+// Do NOT skipWaiting here — let the user choose when to activate.
+// The new SW sits in "waiting" state until the client sends SW_SKIP_WAITING.
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
       .then((cache) => {
-        // Use addAll for known URLs, but don't fail install if some are missing
         return Promise.allSettled(
           PRECACHE_URLS.map((url) =>
             cache.add(url).catch((err) => {
               console.warn(`[SW] Failed to precache ${url}:`, err.message);
-            })
-          )
+            }),
+          ),
         );
       })
-      .then(() => self.skipWaiting())
+      .then(() => {
+        // Notify all clients that an update is ready
+        self.clients.matchAll({ type: "window" }).then((clients) => {
+          for (const client of clients) {
+            client.postMessage({ type: "SW_UPDATE_AVAILABLE" });
+          }
+        });
+      }),
   );
 });
 
@@ -59,19 +70,18 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           keys
             .filter((key) => key.startsWith("sigint-") && key !== CACHE_NAME)
-            .map((key) => caches.delete(key))
-        )
+            .map((key) => caches.delete(key)),
+        ),
       )
-      .then(() => self.clients.claim())
+      .then(() => self.clients.claim()),
   );
 });
 
 // ── Fetch strategy ───────────────────────────────────────────────────
 //
 // /api/*          → network only (data lives in IndexedDB, not SW cache)
-// hashed assets   → cache first (immutable — hash changes on new deploy)
 // HTML (/)        → network first, fall back to cache (picks up updates)
-// everything else → cache first, fall back to network
+// everything else → cache first, fall back to network (fonts, JS, CSS, data)
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -91,41 +101,36 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Cache the fresh HTML
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match("/") || caches.match(request))
+        .catch(() => caches.match("/").then((r) => r || caches.match(request))),
     );
     return;
   }
 
-  // Hashed assets (JS/CSS chunks) — cache first, immutable
-  // Also fonts, land data, worker script, icons
+  // All other assets — cache first, fall back to network
+  // Includes: JS/CSS chunks, fonts, land data, worker script, icons, manifest
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
-        // Cache successful responses for next time
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
       });
-    })
+    }),
   );
 });
 
-// ── Update notification ──────────────────────────────────────────────
-// When a new SW is installed and waiting, notify all clients
+// ── Message handling ────────────────────────────────────────────────
+// SW_SKIP_WAITING — user clicked "RELOAD" in the update banner
+// SW_CHECK_UPDATE — client asking if there's a waiting update
 
 self.addEventListener("message", (event) => {
-  if (event.data === "SW_CHECK_UPDATE") {
-    // Client is asking if there's an update — respond if we're the new SW
-    event.source?.postMessage({ type: "SW_UPDATE_AVAILABLE" });
-  }
   if (event.data === "SW_SKIP_WAITING") {
     self.skipWaiting();
   }
