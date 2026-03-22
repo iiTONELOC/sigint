@@ -12,13 +12,17 @@ import {
 import {
   requestWalkthroughReset,
   requestWalkthroughUndo,
+  setWalkthroughStepId,
   useWalkthroughLeafTypes,
   useWalkthroughLeafCount,
   useWalkthroughPresetCount,
+  useVideoPresetCount,
 } from "@/panes/paneLayoutContext";
+import { useData } from "@/context/DataContext";
 
 type WalkthroughProps = {
   readonly onComplete: () => void;
+  readonly startMode?: "essential" | "advanced" | "both";
 };
 
 type Phase = "essential" | "transition" | "advanced";
@@ -53,6 +57,9 @@ const COLOR_KEYWORDS: [RegExp, string][] = [
   [/\bNEWS FEED\b/g, "var(--sigint-accent)"],
   [/\bALERTS\b/g, "var(--sigint-danger)"],
   [/\bVIEWS\b/g, "var(--sigint-accent)"],
+  [/\bsave icon\b/gi, "var(--sigint-warn)"],
+  [/\bbookmark icon\b/gi, "#e040fb"],
+  [/\bVIDEO FEED\b/g, "var(--sigint-warn)"],
 ];
 
 function colorizeDescription(text: string): React.ReactNode {
@@ -110,7 +117,8 @@ function computeTooltipPos(
   tooltipW: number,
   tooltipH: number,
 ): { x: number; y: number } {
-  if (!target) {
+  // Center placement — always centered on screen regardless of target
+  if (placement === "center" || !target) {
     return {
       x: (window.innerWidth - tooltipW) / 2,
       y: (window.innerHeight - tooltipH) / 2,
@@ -120,7 +128,7 @@ function computeTooltipPos(
   const cx = target.left + target.width / 2;
   const cy = target.top + target.height / 2;
 
-  const positions: Record<StepPlacement, { x: number; y: number }> = {
+  const positions = {
     top: {
       x: cx - tooltipW / 2,
       y: target.top - CUTOUT_PAD - TOOLTIP_GAP - tooltipH,
@@ -137,18 +145,19 @@ function computeTooltipPos(
       x: target.left + target.width + CUTOUT_PAD + TOOLTIP_GAP,
       y: cy - tooltipH / 2,
     },
-  };
+  } as const;
 
-  const flip: Record<StepPlacement, StepPlacement> = {
+  const flip = {
     top: "bottom",
     bottom: "top",
     left: "right",
     right: "left",
-  };
-  const order: StepPlacement[] = [placement, flip[placement]];
+  } as const;
+  const p = placement as "top" | "bottom" | "left" | "right";
+  const order = [p, flip[p]] as const;
 
-  for (const p of order) {
-    const pos = positions[p]!;
+  for (const dir of order) {
+    const pos = positions[dir];
     const fitsX =
       pos.x >= VIEWPORT_PAD &&
       pos.x + tooltipW <= window.innerWidth - VIEWPORT_PAD;
@@ -158,7 +167,7 @@ function computeTooltipPos(
     if (fitsX && fitsY) return pos;
   }
 
-  const pos = positions[placement]!;
+  const pos = positions[p];
   return {
     x: Math.max(
       VIEWPORT_PAD,
@@ -173,13 +182,36 @@ function computeTooltipPos(
 
 // ── Highlight ring — own portal per ring ─────────────────────────────
 
-function HighlightRing({ selector }: { readonly selector: string }) {
+function HighlightRing({
+  selector,
+  color,
+}: {
+  readonly selector: string;
+  readonly color?: string;
+}) {
+  const isMagenta = color === "magenta";
+  const isWarn = color === "warn";
+  const isDanger = color === "danger";
+  const borderColor = isMagenta
+    ? "#e040fb"
+    : isDanger
+      ? "var(--sigint-danger, #ff4444)"
+      : isWarn
+        ? "#f5a623"
+        : "var(--sigint-accent, #00d4f0)";
+  const shadow = isMagenta
+    ? "0 0 16px rgba(224,64,251,0.5), 0 0 6px rgba(224,64,251,0.3), inset 0 0 8px rgba(224,64,251,0.1)"
+    : isDanger
+      ? "0 0 16px rgba(255,68,68,0.5), 0 0 6px rgba(255,68,68,0.3), inset 0 0 8px rgba(255,68,68,0.1)"
+      : isWarn
+        ? "0 0 16px rgba(245,166,35,0.5), 0 0 6px rgba(245,166,35,0.3), inset 0 0 8px rgba(245,166,35,0.1)"
+        : "0 0 16px rgba(0,212,240,0.5), 0 0 6px rgba(0,212,240,0.3), inset 0 0 8px rgba(0,212,240,0.1)";
   const [rect, setRect] = useState<TargetRect | null>(null);
 
   useEffect(() => {
     const tick = () => setRect(getTargetRect(selector));
     tick();
-    const iv = setInterval(tick, 200);
+    const iv = setInterval(tick, 50);
     return () => clearInterval(iv);
   }, [selector]);
 
@@ -195,9 +227,8 @@ function HighlightRing({ selector }: { readonly selector: string }) {
         width: rect.width + 10,
         height: rect.height + 10,
         borderRadius: 6,
-        border: "2px solid var(--sigint-accent, #00d4f0)",
-        boxShadow:
-          "0 0 16px rgba(0,212,240,0.5), 0 0 6px rgba(0,212,240,0.3), inset 0 0 8px rgba(0,212,240,0.1)",
+        border: `2px solid ${borderColor}`,
+        boxShadow: shadow,
         pointerEvents: "none",
         animation: "pulse 1.5s infinite",
       }}
@@ -206,10 +237,128 @@ function HighlightRing({ selector }: { readonly selector: string }) {
   );
 }
 
+// ── Click indicator — pulsing dot with expanding rings ───────────────
+
+function ClickIndicator({
+  mode,
+}: {
+  readonly mode: "select" | "deselect" | "focus";
+}) {
+  const [pos, setPos] = useState<{ top: string; left: string }>({
+    top: "50%",
+    left: "50%",
+  });
+
+  useEffect(() => {
+    const el = document.querySelector('[data-tour="globe-pane"]');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+
+    if (mode === "select") {
+      // The globe sphere is centered in the pane. Its radius is roughly half the min dimension.
+      const globeR = Math.min(r.width, r.height) / 2;
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      // North America on default rotation: roughly 20° up from center, 15° left of center
+      setPos({
+        top: `${cy - globeR * 0.2}px`,
+        left: `${cx - globeR * 0.15}px`,
+      });
+    } else {
+      // Outside globe on the RIGHT side — detail panel is likely on left after drag step
+      setPos({
+        top: `${r.top + r.height * 0.7}px`,
+        left: `${r.left + r.width * 0.88}px`,
+      });
+    }
+  }, [mode]);
+
+  const label = mode === "select" ? "CLICK A POINT" : "CLICK EMPTY SPACE";
+
+  const isWarn = mode === "focus";
+  const dotColor = isWarn ? "#f5a623" : "var(--sigint-accent, #00d4f0)";
+  const ringRgba1 = isWarn ? "rgba(245,166,35,0.3)" : "rgba(0,212,240,0.3)";
+  const ringRgba2 = isWarn ? "rgba(245,166,35,0.2)" : "rgba(0,212,240,0.2)";
+  const glowRgba = isWarn ? "rgba(245,166,35,0.6)" : "rgba(0,212,240,0.6)";
+  const labelColor = isWarn ? "rgba(245,166,35,0.7)" : "rgba(0,212,240,0.7)";
+
+  return createPortal(
+    <div
+      className="fixed z-[9998] pointer-events-none"
+      style={{ ...pos, transform: "translate(-50%, -50%)" }}
+    >
+      <div
+        className="absolute rounded-full"
+        style={{
+          top: "50%",
+          left: "50%",
+          width: 60,
+          height: 60,
+          marginTop: -30,
+          marginLeft: -30,
+          border: `1.5px solid ${ringRgba1}`,
+          animation: "wt-ring 2s ease-out infinite",
+        }}
+      />
+      <div
+        className="absolute rounded-full"
+        style={{
+          top: "50%",
+          left: "50%",
+          width: 60,
+          height: 60,
+          marginTop: -30,
+          marginLeft: -30,
+          border: `1.5px solid ${ringRgba2}`,
+          animation: "wt-ring 2s ease-out infinite 0.6s",
+        }}
+      />
+      <div
+        className="absolute rounded-full"
+        style={{
+          top: "50%",
+          left: "50%",
+          width: 10,
+          height: 10,
+          marginTop: -5,
+          marginLeft: -5,
+          backgroundColor: dotColor,
+          animation: "pulse 1.5s infinite",
+          boxShadow: `0 0 12px ${glowRgba}`,
+        }}
+      />
+      <div
+        className="absolute text-[10px] tracking-widest font-semibold whitespace-nowrap"
+        style={{
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, 24px)",
+          color: labelColor,
+        }}
+      >
+        {label}
+      </div>
+      <style>{`
+        @keyframes wt-ring {
+          0% { transform: scale(1); opacity: 0.6; }
+          100% { transform: scale(3); opacity: 0; }
+        }
+      `}</style>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────
 
-export function Walkthrough({ onComplete }: WalkthroughProps) {
-  const [phase, setPhase] = useState<Phase>("essential");
+export function Walkthrough({
+  onComplete,
+  startMode = "both",
+}: WalkthroughProps) {
+  const [phase, setPhase] = useState<Phase>(
+    startMode === "advanced" ? "advanced" : "essential",
+  );
+  const skipTransition = startMode !== "both";
   const [stepIdx, setStepIdx] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{
@@ -224,6 +373,8 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
   const leafTypes = useWalkthroughLeafTypes();
   const leafCount = useWalkthroughLeafCount();
   const presetCount = useWalkthroughPresetCount();
+  const { selectedCurrent, chromeHidden } = useData();
+  const videoPresetCount = useVideoPresetCount();
 
   const steps: WalkthroughStep[] =
     phase === "essential" ? ESSENTIAL_STEPS : ADVANCED_STEPS;
@@ -231,12 +382,19 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
   const totalInPhase = steps.length;
   const isLastInPhase = stepIdx === totalInPhase - 1;
 
+  // Push current step ID so LiveTrafficPane knows which step is active
+  useEffect(() => {
+    setWalkthroughStepId(currentStep?.id ?? null);
+  }, [currentStep]);
+
   useEffect(() => {
     if (!hasResetRef.current) {
       hasResetRef.current = true;
       requestWalkthroughReset();
     }
   }, []);
+
+  const baselineVideoPresetCountRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!currentStep || currentStep.mode !== "action") return;
@@ -249,24 +407,59 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
       baselinePresetCountRef.current = presetCount;
     }
 
+    if (
+      currentStep.id === "save-video-preset" &&
+      baselineVideoPresetCountRef.current === null
+    ) {
+      baselineVideoPresetCountRef.current = videoPresetCount;
+    }
+
     const effectivePresetCount =
       currentStep.id === "save-preset"
-        ? presetCount - (baselinePresetCountRef.current ?? 0)
+        ? Math.max(0, presetCount - (baselinePresetCountRef.current ?? 0))
         : presetCount;
 
+    const effectiveVideoPresetCount =
+      currentStep.id === "save-video-preset"
+        ? Math.max(
+            0,
+            videoPresetCount - (baselineVideoPresetCountRef.current ?? 0),
+          )
+        : videoPresetCount;
+
+    const selectedId = selectedCurrent?.id ?? null;
+
     if (
-      currentStep.completionCheck(leafTypes, leafCount, effectivePresetCount)
+      currentStep.completionCheck(
+        leafTypes,
+        leafCount,
+        effectivePresetCount,
+        selectedId,
+        chromeHidden,
+        effectiveVideoPresetCount,
+      )
     ) {
       const timer = setTimeout(() => {
         if (currentStep.id === "save-preset") {
           baselinePresetCountRef.current = null;
+        }
+        if (currentStep.id === "save-video-preset") {
+          baselineVideoPresetCountRef.current = null;
         }
         prevLeafTypesRef.current = leafTypes;
         setStepIdx((i) => i + 1);
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [currentStep, leafTypes, leafCount, presetCount]);
+  }, [
+    currentStep,
+    leafTypes,
+    leafCount,
+    presetCount,
+    selectedCurrent,
+    chromeHidden,
+    videoPresetCount,
+  ]);
 
   useEffect(() => {
     if (
@@ -328,8 +521,22 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
     onComplete();
   }, [onComplete]);
 
+  /** Session-only close — walkthrough shows again next visit */
+  const handleSkip = useCallback(() => {
+    onComplete();
+  }, [onComplete]);
+
+  /** Permanent dismiss — never shows again */
+  const handleDismiss = useCallback(() => {
+    markComplete();
+  }, [markComplete]);
+
   const handleNext = useCallback(() => {
     if (phase === "essential" && isLastInPhase) {
+      if (skipTransition) {
+        markComplete();
+        return;
+      }
       setPhase("transition");
       return;
     }
@@ -338,15 +545,11 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
       return;
     }
     setStepIdx((i) => i + 1);
-  }, [phase, isLastInPhase, markComplete]);
+  }, [phase, isLastInPhase, markComplete, skipTransition]);
 
   const handleBack = useCallback(() => {
     if (stepIdx > 0) setStepIdx((i) => i - 1);
   }, [stepIdx]);
-
-  const handleSkip = useCallback(() => {
-    markComplete();
-  }, [markComplete]);
 
   const handleAcceptAdvanced = useCallback(() => {
     setPhase("advanced");
@@ -359,11 +562,11 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") markComplete();
+      if (e.key === "Escape") handleSkip();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [markComplete]);
+  }, [handleSkip]);
 
   // ── Transition prompt ──────────────────────────────────────────
 
@@ -423,29 +626,68 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
     : null;
 
   const isAction = currentStep.mode === "action";
+  const isCentered = currentStep.placement === "center";
+  const showBackdrop = !isAction && !isCentered && cutout;
   const nextLabel = phase === "advanced" && isLastInPhase ? "FINISH" : "NEXT";
 
   // Determine which selectors get highlight rings
-  const primaryRingSelector = isAction
-    ? currentStep.buttonSelector || currentStep.targetSelector
-    : null;
-  const secondaryRingSelector = isAction
-    ? currentStep.highlightSelector || null
-    : null;
+  // Show rings for any step that specifies them (action or info)
+  const primaryRingSelector = currentStep.buttonSelector || null;
+  const secondaryRingSelector = currentStep.highlightSelector || null;
+  const tertiaryRingSelector = currentStep.tertiarySelector || null;
+  const quaternaryRingSelector = currentStep.quaternarySelector || null;
+
+  const showClickIndicator =
+    currentStep.id === "globe-select" ||
+    currentStep.id === "focus-enter" ||
+    currentStep.id === "focus-exit" ||
+    currentStep.id === "globe-deselect";
+
+  const clickMode: "select" | "deselect" | "focus" =
+    currentStep.id === "globe-select"
+      ? "select"
+      : currentStep.id === "focus-enter" || currentStep.id === "focus-exit"
+        ? "focus"
+        : "deselect";
 
   return (
     <>
-      {primaryRingSelector && <HighlightRing selector={primaryRingSelector} />}
+      {showClickIndicator && <ClickIndicator mode={clickMode} />}
+      {primaryRingSelector && (
+        <HighlightRing
+          key={`p-${currentStep?.id}`}
+          selector={primaryRingSelector}
+          color={currentStep.buttonColor}
+        />
+      )}
       {secondaryRingSelector && (
-        <HighlightRing selector={secondaryRingSelector} />
+        <HighlightRing
+          key={`s-${currentStep?.id}`}
+          selector={secondaryRingSelector}
+          color={currentStep.highlightColor ?? "warn"}
+        />
+      )}
+      {tertiaryRingSelector && (
+        <HighlightRing
+          key={`t-${currentStep?.id}`}
+          selector={tertiaryRingSelector}
+          color={currentStep.buttonColor ?? "warn"}
+        />
+      )}
+      {quaternaryRingSelector && (
+        <HighlightRing
+          key={`q-${currentStep?.id}`}
+          selector={quaternaryRingSelector}
+          color="magenta"
+        />
       )}
 
       {createPortal(
         <div
           className="fixed inset-0 z-[9997]"
-          style={{ pointerEvents: isAction ? "none" : "auto" }}
+          style={{ pointerEvents: "none" }}
         >
-          {!isAction && (
+          {showBackdrop && (
             <svg
               className="absolute inset-0 w-full h-full"
               style={{ pointerEvents: "none" }}
@@ -474,7 +716,7 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
             </svg>
           )}
 
-          {!isAction && cutout && (
+          {showBackdrop && cutout && (
             <div
               className="absolute border-2 border-sig-accent/60 rounded-lg pointer-events-none"
               style={{
@@ -485,13 +727,6 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
                 boxShadow:
                   "0 0 0 4px rgba(0,212,240,0.12), 0 0 20px rgba(0,212,240,0.08)",
               }}
-            />
-          )}
-
-          {!isAction && (
-            <div
-              className="absolute inset-0"
-              onClick={(e) => e.stopPropagation()}
             />
           )}
 
@@ -561,6 +796,13 @@ export function Walkthrough({ onComplete }: WalkthroughProps) {
                   >
                     <X size={11} strokeWidth={2.5} />
                     SKIP
+                  </button>
+
+                  <button
+                    onClick={handleDismiss}
+                    className="px-2 py-1.5 rounded text-[10px] tracking-wider text-sig-dim/50 hover:text-sig-dim transition-colors"
+                  >
+                    DON'T SHOW AGAIN
                   </button>
 
                   <div className="flex-1" />

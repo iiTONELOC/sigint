@@ -15,6 +15,7 @@ import {
   Rss,
   Layout,
   ExternalLink,
+  BookOpen,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import {
@@ -32,6 +33,7 @@ import {
   LAYER_COLOR_LABELS,
   type LayerColorKey,
 } from "@/config/theme";
+import { requestWalkthroughLaunch } from "@/panes/paneLayoutContext";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -47,11 +49,12 @@ function getKeyLabel(key: string): string {
 
 // ── Tabs ─────────────────────────────────────────────────────────────
 
-type Tab = "appearance" | "news" | "storage" | "about";
+type Tab = "appearance" | "news" | "walkthrough" | "storage" | "about";
 
 const TABS: { key: Tab; label: string; icon: typeof Palette }[] = [
   { key: "appearance", label: "APPEARANCE", icon: Palette },
   { key: "news", label: "NEWS FEEDS", icon: Rss },
+  { key: "walkthrough", label: "WALKTHROUGH", icon: BookOpen },
   { key: "storage", label: "STORAGE", icon: Database },
   { key: "about", label: "ABOUT", icon: Info },
 ];
@@ -282,6 +285,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
             />
           )}
           {activeTab === "news" && <NewsFeedsTab />}
+          {activeTab === "walkthrough" && <WalkthroughTab onClose={onClose} />}
           {activeTab === "storage" && (
             <StorageTab
               keys={storageKeys}
@@ -760,18 +764,107 @@ function AboutTab() {
       </div>
 
       <div className="pt-2 border-t border-sig-border/30">
-        <div className="text-xs text-sig-dim tracking-widest mb-2">WALKTHROUGH</div>
-        <button
-          onClick={() => {
-            cacheDelete(CACHE_KEYS.walkthroughComplete);
-            window.location.reload();
-          }}
-          className="flex items-center gap-2 px-3 py-2 rounded text-sm text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full"
-        >
-          <RotateCcw size={14} />
-          <span className="font-semibold tracking-wider">RESTART TOUR</span>
-          <span className="text-xs ml-auto opacity-60">Reloads page</span>
-        </button>
+        <div className="text-xs text-sig-dim/60 leading-snug">
+          Guided tours available in the WALKTHROUGH tab.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Walkthrough tab ─────────────────────────────────────────────────
+
+function WalkthroughTab({ onClose }: { onClose: () => void }) {
+  const [completionStatus, setCompletionStatus] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    cacheGet<boolean>(CACHE_KEYS.walkthroughComplete).then((done) => {
+      setCompletionStatus(done ?? false);
+    });
+  }, []);
+
+  const launch = useCallback(
+    (mode: "essential" | "advanced" | "both") => {
+      onClose();
+      setTimeout(() => requestWalkthroughLaunch(mode), 300);
+    },
+    [onClose],
+  );
+
+  const handleResetCompletion = useCallback(async () => {
+    await cacheDelete(CACHE_KEYS.walkthroughComplete);
+    setCompletionStatus(false);
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-2">
+          GUIDED TOURS
+        </div>
+        <div className="text-xs text-sig-dim/70 mb-3 leading-snug">
+          Interactive walkthroughs that guide you through SIGINT's features.
+          Each tour can be replayed anytime.
+        </div>
+        <div className="space-y-2">
+          <button
+            onClick={() => launch("both")}
+            className="flex items-center gap-2 px-3 py-2.5 rounded text-sm text-sig-text border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full"
+          >
+            <BookOpen size={14} className="text-sig-accent shrink-0" />
+            <div className="flex-1 text-left">
+              <span className="font-semibold tracking-wider">FULL TOUR</span>
+              <span className="text-xs text-sig-dim ml-2">Essentials + Advanced</span>
+            </div>
+          </button>
+          <button
+            onClick={() => launch("essential")}
+            className="flex items-center gap-2 px-3 py-2.5 rounded text-sm text-sig-text border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full"
+          >
+            <BookOpen size={14} className="text-sig-dim shrink-0" />
+            <div className="flex-1 text-left">
+              <span className="font-semibold tracking-wider">ESSENTIALS ONLY</span>
+              <span className="text-xs text-sig-dim ml-2">Globe, panes, presets</span>
+            </div>
+          </button>
+          <button
+            onClick={() => launch("advanced")}
+            className="flex items-center gap-2 px-3 py-2.5 rounded text-sm text-sig-text border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full"
+          >
+            <BookOpen size={14} className="text-sig-dim shrink-0" />
+            <div className="flex-1 text-left">
+              <span className="font-semibold tracking-wider">ADVANCED ONLY</span>
+              <span className="text-xs text-sig-dim ml-2">Watch mode, filters, settings</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div className="pt-2 border-t border-sig-border/30">
+        <div className="text-xs text-sig-dim tracking-widest mb-2">
+          COMPLETION STATUS
+        </div>
+        <div className="flex items-center gap-2 px-2.5 py-2 rounded bg-sig-bg/30 border border-sig-border/20">
+          <div
+            className={`w-2 h-2 rounded-full shrink-0 ${completionStatus ? "bg-sig-accent" : "bg-sig-dim/40"}`}
+          />
+          <span className="text-sm text-sig-text flex-1">
+            {completionStatus ? "Tour completed" : "Tour not completed"}
+          </span>
+          {completionStatus && (
+            <button
+              onClick={handleResetCompletion}
+              className="flex items-center gap-1 text-xs text-sig-dim hover:text-sig-accent transition-colors"
+            >
+              <RotateCcw size={10} />
+              RESET
+            </button>
+          )}
+        </div>
+        <div className="text-xs text-sig-dim/60 mt-1.5 leading-snug">
+          Resetting allows the tour to auto-start on next visit. You can also
+          replay tours manually using the buttons above.
+        </div>
       </div>
     </div>
   );

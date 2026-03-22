@@ -482,7 +482,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       currentId: null,
       currentItemSource: null,
     }));
-  }, []);
+    setAutoRotate(false);
+    setRevealId(null);
+  }, [setAutoRotate, setRevealId]);
 
   const pauseWatch = useCallback(() => {
     setWatchState((prev) => {

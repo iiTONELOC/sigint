@@ -561,6 +561,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       }
       camTarget.active = true;
     } else if (propsRef.current.flat) {
+      camTarget.active = false;
       const { w: W, h: H } = sizeRef.current;
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left - W / 2;
@@ -572,6 +573,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       camState.panY = my - actualFactor * (my - camState.panY);
       clampFlatPan(camState, W, H);
     } else {
+      camTarget.active = false;
       camState.zoomGlobe = Math.max(
         0.55,
         Math.min(350.0, camState.zoomGlobe * factor),

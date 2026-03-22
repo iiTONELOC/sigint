@@ -8,7 +8,7 @@
 //   - "action" → user performs an action, walkthrough detects completion
 //                 via leafTypes/leafCount/presetCount and auto-advances
 
-export type StepPlacement = "top" | "bottom" | "left" | "right";
+export type StepPlacement = "top" | "bottom" | "left" | "right" | "center";
 
 export type WalkthroughStep = {
   /** Unique key for this step */
@@ -28,12 +28,15 @@ export type WalkthroughStep = {
   mode: "info" | "action";
   /**
    * For action steps: returns true when the user has completed the action.
-   * Receives current leaf type set, leaf count, and preset count.
+   * Receives current leaf type set, leaf count, preset count, selected item id, and chrome hidden state.
    */
   completionCheck?: (
     leafTypes: Set<string>,
     leafCount: number,
     presetCount: number,
+    selectedId: string | null,
+    chromeHidden: boolean,
+    videoPresetCount: number,
   ) => boolean;
   /**
    * For action steps: the pane type that SHOULD be added.
@@ -47,10 +50,27 @@ export type WalkthroughStep = {
    */
   buttonSelector?: string;
   /**
+   * Color for the buttonSelector ring. Defaults to cyan.
+   */
+  buttonColor?: string;
+  /**
    * Optional secondary selector to highlight with a pulsing ring
    * (e.g. the menu item the user should pick after clicking the button).
    */
   highlightSelector?: string;
+  /**
+   * Color for the highlightSelector ring. Defaults to "warn" (yellow).
+   * Options: "warn" | "magenta" | "danger"
+   */
+  highlightColor?: string;
+  /**
+   * Optional tertiary selector for a third highlight ring (warn color).
+   */
+  tertiarySelector?: string;
+  /**
+   * Optional fourth highlight ring (magenta color).
+   */
+  quaternarySelector?: string;
 };
 
 // ── Essential steps (Tier 1) — always shown on first visit ──────────
@@ -74,50 +94,96 @@ export const ESSENTIAL_STEPS: WalkthroughStep[] = [
     placement: "bottom",
     mode: "info",
   },
+  // ── Globe interaction sequence (3 action steps) ─────────────────
   {
-    id: "globe",
+    id: "globe-select",
     targetSelector: '[data-tour="globe-pane"]',
-    title: "The Globe",
+    title: "Select a Target",
     description:
-      "Click any point to select it. Double-click to zoom in. Drag to rotate, scroll to zoom. Click empty space to deselect.",
+      "Click any point on the globe to select it. A detail panel will appear.",
+    placement: "right",
+    mode: "action",
+    completionCheck: (_t, _c, _p, selectedId) => selectedId !== null,
+    buttonSelector: '[data-tour="globe-pane"]',
+  },
+  {
+    id: "globe-drag-detail",
+    targetSelector: '[data-tour="globe-pane"]',
+    title: "Move the Detail Panel",
+    description:
+      "Grab the drag handle at the top of the detail panel and drag it out of the way.",
     placement: "right",
     mode: "info",
+    buttonSelector: '[data-tour="detail-drag-handle"]',
+  },
+  {
+    id: "globe-deselect",
+    targetSelector: '[data-tour="globe-pane"]',
+    title: "Deselect",
+    description:
+      "Click empty space outside the globe to deselect. The detail panel will close.",
+    placement: "right",
+    mode: "action",
+    completionCheck: (_t, _c, _p, selectedId) => selectedId === null,
+  },
+  // ── Focus mode sequence (2 action steps) ────────────────────────
+  {
+    id: "focus-enter",
+    targetSelector: '[data-tour="globe-pane"]',
+    title: "Enter Focus Mode",
+    description:
+      "Click empty space on the globe to hide all chrome and go fullscreen.",
+    placement: "center",
+    mode: "action",
+    completionCheck: (_t, _c, _p, _s, chromeHidden) => chromeHidden === true,
+  },
+  {
+    id: "focus-exit",
+    targetSelector: "",
+    title: "Exit Focus Mode",
+    description:
+      "Click empty space to restore all controls. Great for presentations and briefings.",
+    placement: "center",
+    mode: "action",
+    completionCheck: (_t, _c, _p, _s, chromeHidden) => chromeHidden === false,
   },
   {
     id: "search",
-    targetSelector: '[data-tour="search"]',
+    targetSelector: "",
     title: "Global Search",
     description:
-      "Search across all data — callsigns, vessel names, locations. Matching results filter the globe in real-time.",
-    placement: "bottom",
+      "Search across all data — callsigns, vessel names, locations. Results filter the globe in real-time. Try it out or press NEXT.",
+    placement: "center",
     mode: "info",
+    buttonSelector: '[data-tour="search"]',
   },
+  // ── Pane action steps (centered so they don't block menus) ──────
   {
     id: "split-right",
-    targetSelector: '[data-tour="globe-pane"]',
+    targetSelector: '[data-tour="split-right-btn"]',
     title: "Add a Pane — Split Right",
     description:
-      'Click the highlighted "Split right" button, then pick NEWS FEED from the menu.',
-    placement: "left",
+      'Click the highlighted "Split right" button, then pick VIDEO FEED from the menu.',
+    placement: "center",
     mode: "action",
-    completionCheck: (types) => types.has("news-feed"),
-    expectedPaneType: "news-feed",
+    completionCheck: (types) => types.has("video-feed"),
+    expectedPaneType: "video-feed",
     buttonSelector: '[data-tour="split-right-btn"]',
-    highlightSelector: '[data-tour="split-menu-news-feed"]',
+    highlightSelector: '[data-tour="split-menu-video-feed"]',
   },
   {
     id: "split-down",
-    targetSelector: '[data-tour="globe-pane"]',
+    targetSelector: '[data-tour="split-down-btn"]',
     title: "Add Another — Split Down",
-    description:
-      'Click the highlighted "Split down" button, then pick ALERTS.',
-    placement: "left",
+    description: 'Click the highlighted "Split down" button, then pick ALERTS.',
+    placement: "center",
     mode: "action",
     completionCheck: (types, count) =>
-      types.has("news-feed") && types.has("alert-log") && count >= 3,
+      types.has("video-feed") && types.has("alert-log") && count >= 3,
     expectedPaneType: "alert-log",
     buttonSelector: '[data-tour="split-down-btn"]',
     highlightSelector: '[data-tour="split-menu-alert-log"]',
+    highlightColor: "danger",
   },
   {
     id: "save-preset",
@@ -125,10 +191,28 @@ export const ESSENTIAL_STEPS: WalkthroughStep[] = [
     title: "Save Your Layout",
     description:
       "Click VIEWS, type a name, and click the save icon. Your layout is now a reusable preset.",
-    placement: "bottom",
+    placement: "center",
     mode: "action",
     completionCheck: (_types, _count, presetCount) => presetCount >= 1,
     buttonSelector: '[data-tour="views-btn"]',
+    highlightSelector: '[data-tour="preset-input"]',
+    tertiarySelector: '[data-tour="preset-save-btn"]',
+  },
+  {
+    id: "save-video-preset",
+    targetSelector: "",
+    title: "Save Video Channels",
+    description:
+      "Click the bookmark icon on the video pane, type a name, and save. Your channel selections are now a reusable preset.",
+    placement: "center",
+    mode: "action",
+    completionCheck: (_types, _count, _presetCount, _selectedId, _chromeHidden, videoPresetCount) =>
+      videoPresetCount >= 1,
+    buttonSelector: '[data-tour="video-preset-btn"]',
+    buttonColor: "magenta",
+    highlightSelector: '[data-tour="video-preset-input"]',
+    highlightColor: "magenta",
+    tertiarySelector: '[data-tour="video-preset-save-btn"]',
   },
   {
     id: "ticker",

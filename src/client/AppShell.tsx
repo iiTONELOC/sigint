@@ -6,6 +6,11 @@ import { Ticker } from "@/components/Ticker";
 import { PaneManager } from "@/panes/PaneManager";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { Walkthrough } from "@/components/Walkthrough";
+import {
+  setWalkthroughActive,
+  onWalkthroughLaunch,
+  type WalkthroughLaunchMode,
+} from "@/panes/paneLayoutContext";
 import { cacheGet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
@@ -28,6 +33,20 @@ export function AppShell() {
 
   // ── Walkthrough state ──────────────────────────────────────────
   const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [walkthroughMode, setWalkthroughMode] =
+    useState<WalkthroughLaunchMode>("both");
+
+  useEffect(() => {
+    setWalkthroughActive(showWalkthrough);
+  }, [showWalkthrough]);
+
+  // Listen for walkthrough launch from SettingsModal
+  useEffect(() => {
+    return onWalkthroughLaunch((mode) => {
+      setWalkthroughMode(mode);
+      setShowWalkthrough(true);
+    });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -104,7 +123,10 @@ export function AppShell() {
 
       {/* ── WALKTHROUGH OVERLAY ── */}
       {showWalkthrough && (
-        <Walkthrough onComplete={() => setShowWalkthrough(false)} />
+        <Walkthrough
+          startMode={walkthroughMode}
+          onComplete={() => setShowWalkthrough(false)}
+        />
       )}
     </div>
   );
