@@ -13,6 +13,9 @@ import {
   setDossierOpen,
   onDossierOpenRequest,
   onWatchLayoutRequest,
+  onWalkthroughReset,
+  onWalkthroughUndo,
+  setWalkthroughLayoutSnapshot,
 } from "@/panes/paneLayoutContext";
 import {
   Globe,
@@ -253,6 +256,28 @@ export function PaneManager() {
       });
     });
   }, []);
+
+  // ── Walkthrough: reset to globe-only on tour start ──────────────
+  useEffect(() => {
+    return onWalkthroughReset(() => {
+      setLayout({ root: leaf("globe"), minimized: [] });
+    });
+  }, []);
+
+  // ── Walkthrough: undo wrong pane pick ─────────────────────────
+  useEffect(() => {
+    return onWalkthroughUndo((paneType: string) => {
+      setLayout((prev) => {
+        const leaves = collectLeaves(prev.root);
+        const target = leaves.find((l) => l.paneType === paneType);
+        if (!target) return prev;
+        const result = removeLeaf(prev.root, target.id);
+        if (!result) return defaultLayout();
+        return { root: result, minimized: prev.minimized };
+      });
+    });
+  }, []);
+
   const openTypes = useMemo(() => {
     const s = collectLeafTypes(layout.root);
     for (const m of layout.minimized) s.add(m.paneType);
@@ -579,6 +604,13 @@ export function PaneManager() {
   const [presets, setPresets] = useState<LayoutPreset[]>([]);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
 
+  // ── Walkthrough: push layout snapshot for action step detection ──
+  useEffect(() => {
+    const types = collectLeafTypes(layout.root);
+    const count = leafCount(layout.root);
+    setWalkthroughLayoutSnapshot(types, count, presets.length);
+  }, [layout.root, presets.length]);
+
   useEffect(() => {
     loadPresets(isMobile).then((loaded) => {
       setPresets(loaded);
@@ -645,6 +677,7 @@ export function PaneManager() {
           return (
             <button
               key={type}
+              data-tour={`split-menu-${type}`}
               onClick={() => {
                 splitPane(leafId, dir, type);
                 setSplitMenu(null);
@@ -715,6 +748,7 @@ export function PaneManager() {
         <div
           key={node.paneType}
           data-pane-leaf-id={node.id}
+          data-tour={node.paneType === "globe" ? "globe-pane" : undefined}
           className="flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full relative"
           onDragOver={
             isDragOver
@@ -763,6 +797,7 @@ export function PaneManager() {
               label={meta.label}
               icon={meta.icon}
               leafId={node.id}
+              paneType={node.paneType}
               statusSlot={
                 node.paneType === "globe" ? (
                   <>
@@ -908,7 +943,7 @@ export function PaneManager() {
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* Toolbar — minimized panes + layout presets */}
       {(layout.minimized.length > 0 || true) && (
-        <div className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
+        <div data-tour="pane-toolbar" className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
           {layout.minimized.map((m, i) => {
             const meta = PANE_META[m.paneType];
             const Icon = meta.icon;
@@ -927,6 +962,7 @@ export function PaneManager() {
           <div className="flex-1" />
           <div className="relative">
             <button
+              data-tour="views-btn"
               onClick={() => setShowPresets((v) => !v)}
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) border border-sig-border/50 hover:text-sig-accent transition-colors"
               title="Layout presets"

@@ -1,9 +1,13 @@
+import { useState, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
 import { PaneManager } from "@/panes/PaneManager";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { Walkthrough } from "@/components/Walkthrough";
+import { cacheGet } from "@/lib/storageService";
+import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 export function AppShell() {
   const {
@@ -21,6 +25,27 @@ export function AppShell() {
     handleSearchZoomTo,
     handleSearchMatchIds,
   } = useData();
+
+  // ── Walkthrough state ──────────────────────────────────────────
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    // Check if walkthrough was already completed
+    cacheGet<boolean>(CACHE_KEYS.walkthroughComplete).then((done) => {
+      if (!mounted) return;
+      if (!done) {
+        // Delay to let data load and globe render before overlay
+        const timer = setTimeout(() => {
+          if (mounted) setShowWalkthrough(true);
+        }, 2500);
+        return () => clearTimeout(timer);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div
@@ -63,6 +88,7 @@ export function AppShell() {
       {/* ── TICKER ── */}
       {!chromeHidden && (
         <div
+          data-tour="ticker"
           className="shrink-0 px-2 md:px-3 pt-0.5 md:pt-1 pb-1 md:pb-2 border-t border-sig-border bg-sig-panel/95"
           style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
         >
@@ -74,6 +100,11 @@ export function AppShell() {
           </div>
           <Ticker items={tickerItems} />
         </div>
+      )}
+
+      {/* ── WALKTHROUGH OVERLAY ── */}
+      {showWalkthrough && (
+        <Walkthrough onComplete={() => setShowWalkthrough(false)} />
       )}
     </div>
   );

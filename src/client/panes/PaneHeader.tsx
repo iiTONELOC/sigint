@@ -23,6 +23,7 @@ type PaneHeaderProps = {
   readonly label: string;
   readonly icon: React.ForwardRefExoticComponent<any>;
   readonly leafId: string;
+  readonly paneType?: string;
   readonly statusSlot?: React.ReactNode;
   readonly onSplitH?: (e: React.MouseEvent) => void;
   readonly onSplitV?: (e: React.MouseEvent) => void;
@@ -41,6 +42,7 @@ export function PaneHeader({
   label,
   icon: Icon,
   leafId,
+  paneType,
   statusSlot,
   onSplitH,
   onSplitV,
@@ -199,6 +201,7 @@ export function PaneHeader({
         {onSplitH && (
           <Tooltip content="Split right" placement="bottom">
             <button
+              data-tour={paneType === "globe" ? "split-right-btn" : undefined}
               onClick={onSplitH}
               className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
@@ -209,6 +212,7 @@ export function PaneHeader({
         {onSplitV && (
           <Tooltip content="Split down" placement="bottom">
             <button
+              data-tour={paneType === "globe" ? "split-down-btn" : undefined}
               onClick={onSplitV}
               className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
