@@ -122,9 +122,9 @@ describe("walkthroughSteps — essential", () => {
     const step = ESSENTIAL_STEPS.find((s) => s.id === "split-right");
     expect(step).toBeDefined();
     expect(step!.placement).toBe("center");
-    expect(step!.completionCheck!(new Set(["globe"]), 1, 0, null, false, 0)).toBe(
-      false,
-    );
+    expect(
+      step!.completionCheck!(new Set(["globe"]), 1, 0, null, false, 0),
+    ).toBe(false);
     expect(
       step!.completionCheck!(
         new Set(["globe", "video-feed"]),
@@ -369,5 +369,63 @@ describe("walkthroughSteps — constants", () => {
   test("TOTAL_STEPS = essential + advanced", () => {
     expect(TOTAL_STEPS).toBe(ESSENTIAL_COUNT + ADVANCED_COUNT);
     expect(TOTAL_STEPS).toBe(18);
+  });
+});
+
+describe("walkthroughSteps — video preset step", () => {
+  test("save-video-preset completionCheck uses videoPresetCount (7th param)", () => {
+    const step = ESSENTIAL_STEPS.find((s) => s.id === "save-video-preset");
+    expect(step).toBeDefined();
+    expect(step!.completionCheck!(new Set(), 3, 1, null, false, 0)).toBe(false);
+    expect(step!.completionCheck!(new Set(), 3, 1, null, false, 1)).toBe(true);
+  });
+
+  test("save-video-preset has magenta buttonColor", () => {
+    const step = ESSENTIAL_STEPS.find((s) => s.id === "save-video-preset");
+    expect(step!.buttonColor).toBe("magenta");
+  });
+
+  test("save-video-preset has magenta highlightColor", () => {
+    const step = ESSENTIAL_STEPS.find((s) => s.id === "save-video-preset");
+    expect(step!.highlightColor).toBe("magenta");
+  });
+
+  test("save-video-preset targets video preset elements", () => {
+    const step = ESSENTIAL_STEPS.find((s) => s.id === "save-video-preset");
+    expect(step!.buttonSelector).toBe('[data-tour="video-preset-btn"]');
+    expect(step!.highlightSelector).toBe('[data-tour="video-preset-input"]');
+    expect(step!.tertiarySelector).toBe('[data-tour="video-preset-save-btn"]');
+  });
+});
+
+describe("walkthroughSteps — watch-mode step", () => {
+  test("watch-mode uses center placement so dropdown is not blocked", () => {
+    const step = ADVANCED_STEPS.find((s) => s.id === "watch-mode");
+    expect(step).toBeDefined();
+    expect(step!.placement).toBe("center");
+    expect(step!.targetSelector).toBe("");
+  });
+
+  test("watch-mode has buttonSelector for globe controls highlight", () => {
+    const step = ADVANCED_STEPS.find((s) => s.id === "watch-mode");
+    expect(step!.buttonSelector).toBe('[data-tour="globe-controls"]');
+  });
+});
+
+describe("walkthroughSteps — complete step text", () => {
+  test("complete step references Settings → Walkthrough", () => {
+    const step = ADVANCED_STEPS.find((s) => s.id === "complete");
+    expect(step!.description).toContain("Settings");
+    expect(step!.description).toContain("Walkthrough");
+    expect(step!.description).not.toContain("About");
+  });
+});
+
+describe("walkthroughSteps — ticker independence", () => {
+  test("buildTickerItems accepts only allData param", () => {
+    // Verify the function signature — should work with 1 arg
+    const { buildTickerItems } = require("@/lib/tickerFeed");
+    const result = buildTickerItems([]);
+    expect(Array.isArray(result)).toBe(true);
   });
 });

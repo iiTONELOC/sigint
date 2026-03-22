@@ -132,7 +132,7 @@ export const ESSENTIAL_STEPS: WalkthroughStep[] = [
     targetSelector: '[data-tour="globe-pane"]',
     title: "Enter Focus Mode",
     description:
-      "Click empty space on the globe to hide all chrome and go fullscreen.",
+      "Click empty space outside the globe to hide all chrome and go fullscreen.",
     placement: "center",
     mode: "action",
     completionCheck: (_t, _c, _p, _s, chromeHidden) => chromeHidden === true,
@@ -142,7 +142,7 @@ export const ESSENTIAL_STEPS: WalkthroughStep[] = [
     targetSelector: "",
     title: "Exit Focus Mode",
     description:
-      "Click empty space to restore all controls. Great for presentations and briefings.",
+      "Click empty space outside the globe to restore all controls. Great for presentations and briefings.",
     placement: "center",
     mode: "action",
     completionCheck: (_t, _c, _p, _s, chromeHidden) => chromeHidden === false,
@@ -206,8 +206,14 @@ export const ESSENTIAL_STEPS: WalkthroughStep[] = [
       "Click the bookmark icon on the video pane, type a name, and save. Your channel selections are now a reusable preset.",
     placement: "center",
     mode: "action",
-    completionCheck: (_types, _count, _presetCount, _selectedId, _chromeHidden, videoPresetCount) =>
-      videoPresetCount >= 1,
+    completionCheck: (
+      _types,
+      _count,
+      _presetCount,
+      _selectedId,
+      _chromeHidden,
+      videoPresetCount,
+    ) => videoPresetCount >= 1,
     buttonSelector: '[data-tour="video-preset-btn"]',
     buttonColor: "magenta",
     highlightSelector: '[data-tour="video-preset-input"]',
@@ -239,12 +245,13 @@ export const ADVANCED_STEPS: WalkthroughStep[] = [
   },
   {
     id: "watch-mode",
-    targetSelector: '[data-tour="globe-controls"]',
+    targetSelector: "",
     title: "Watch Mode",
     description:
-      "Auto-tour through alerts and intel products. The globe cycles through high-priority events every 8 seconds.",
-    placement: "bottom",
+      "Auto-tour through alerts and intel products. The globe cycles through high-priority events every 8 seconds. Try clicking WATCH on the globe controls.",
+    placement: "center",
     mode: "info",
+    buttonSelector: '[data-tour="globe-controls"]',
   },
   {
     id: "globe-controls",
@@ -269,7 +276,7 @@ export const ADVANCED_STEPS: WalkthroughStep[] = [
     targetSelector: "",
     title: "You're Ready",
     description:
-      "That's the full tour. Relaunch anytime from Settings → About. Happy hunting.",
+      "That's the full tour. Relaunch anytime from Settings → Walkthrough. Happy hunting.",
     placement: "bottom",
     mode: "info",
   },

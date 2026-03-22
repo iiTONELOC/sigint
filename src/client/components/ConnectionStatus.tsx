@@ -21,7 +21,8 @@ export function ConnectionStatus() {
   const [pullDistance, setPullDistance] = useState(0);
   const [pulling, setPulling] = useState(false);
   const touchStartRef = useRef<{ y: number } | null>(null);
-  const PULL_THRESHOLD = 80;
+  const PULL_THRESHOLD = 120;
+  const PULL_DEAD_ZONE = 30; // Must drag 30px before pull starts
 
   useEffect(() => {
     const goOnline = () => {
@@ -50,16 +51,16 @@ export function ConnectionStatus() {
     const onTouchStart = (e: TouchEvent) => {
       const scrollTop =
         document.documentElement.scrollTop || document.body.scrollTop || 0;
-      if (scrollTop > 5) return;
+      if (scrollTop > 2) return;
       touchStartRef.current = { y: e.touches[0]!.clientY };
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (!touchStartRef.current) return;
       const dy = e.touches[0]!.clientY - touchStartRef.current.y;
-      if (dy > 0) {
+      if (dy > PULL_DEAD_ZONE) {
         setPulling(true);
-        setPullDistance(Math.min(120, dy * 0.5));
+        setPullDistance(Math.min(160, (dy - PULL_DEAD_ZONE) * 0.4));
       } else {
         setPulling(false);
         setPullDistance(0);

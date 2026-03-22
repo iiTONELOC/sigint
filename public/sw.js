@@ -51,10 +51,16 @@ self.addEventListener("install", (event) => {
       })
       .then(() => {
         // Notify all clients that an update is ready
-        self.clients.matchAll({ type: "window" }).then((clients) => {
-          for (const client of clients) {
-            client.postMessage({ type: "SW_UPDATE_AVAILABLE" });
-          }
+        // Use a slight delay so clients have time to set up message listeners
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            self.clients.matchAll({ type: "window" }).then((clients) => {
+              for (const client of clients) {
+                client.postMessage({ type: "SW_UPDATE_AVAILABLE" });
+              }
+              resolve();
+            });
+          }, 500);
         });
       }),
   );
@@ -73,14 +79,22 @@ self.addEventListener("activate", (event) => {
             .map((key) => caches.delete(key)),
         ),
       )
-      .then(() => self.clients.claim()),
+      .then(() => self.clients.claim())
+      .then(() => {
+        // After claiming, notify again in case install message was missed
+        self.clients.matchAll({ type: "window" }).then((clients) => {
+          for (const client of clients) {
+            client.postMessage({ type: "SW_UPDATE_AVAILABLE" });
+          }
+        });
+      }),
   );
 });
 
 // ── Fetch strategy ───────────────────────────────────────────────────
 //
 // /api/*          → network only (data lives in IndexedDB, not SW cache)
-// HTML (/)        → network first, fall back to cache (picks up updates)
+// HTML (/)        → cache first (app loads instantly), background update
 // everything else → cache first, fall back to network (fonts, JS, CSS, data)
 
 self.addEventListener("fetch", (event) => {
@@ -96,41 +110,47 @@ self.addEventListener("fetch", (event) => {
   // API routes — network only, let providers handle errors via IndexedDB
   if (url.pathname.startsWith("/api/")) return;
 
-  // HTML navigation — network first so deploys land immediately
-  // On failure (offline), serve cached "/" for ANY navigation request.
-  // This is an SPA — all routes render the same index.html.
+  // HTML navigation — cache first so app loads instantly like a native app.
+  // Background fetch updates the cache for next load.
+  // If no cache exists (first visit), fall through to network.
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache the HTML under both the actual URL and "/" for fallback
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clone);
-            // Also ensure "/" is cached for offline fallback
-            if (url.pathname !== "/") {
-              cache.put(new Request("/"), response.clone());
+      caches.match("/").then((cached) => {
+        // Background: fetch fresh HTML and update cache
+        const fetchAndUpdate = fetch(request)
+          .then((response) => {
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(new Request("/"), clone);
+                if (url.pathname !== "/") {
+                  cache.put(request, response.clone());
+                }
+              });
             }
-          });
-          return response;
-        })
-        .catch(() =>
-          // Try exact URL first, then root, then any cached HTML
-          caches
-            .match(request)
-            .then((r) => r || caches.match("/"))
-            .then(
-              (r) => r || caches.match(new Request(self.location.origin + "/")),
-            )
-            .then(
-              (r) =>
-                r ||
-                new Response("Offline — no cached page available", {
-                  status: 503,
-                  headers: { "Content-Type": "text/plain" },
-                }),
+            return response;
+          })
+          .catch(() => null);
+
+        if (cached) {
+          // Serve cached immediately — background fetch updates for next time
+          fetchAndUpdate; // fire and forget
+          return cached;
+        }
+
+        // No cache (first visit) — wait for network
+        return fetchAndUpdate.then(
+          (response) =>
+            response ||
+            new Response(
+              '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SIGINT</title><style>body{margin:0;background:#0a1420;color:#00d4f0;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center}.c{max-width:320px}.d{width:8px;height:8px;background:#00d4f0;border-radius:50%;margin:0 auto 16px;animation:p 1.5s infinite}@keyframes p{0%,100%{opacity:.3}50%{opacity:1}}button{background:none;border:1px solid #00d4f0;color:#00d4f0;padding:8px 20px;font-family:monospace;cursor:pointer;margin-top:12px;border-radius:4px}button:hover{background:#00d4f020}</style></head><body><div class="c"><div class="d"></div><div>SIGINT</div><div style="font-size:11px;margin-top:8px;opacity:.6">Waiting for server...</div><button onclick="location.reload()">RETRY</button><script>setInterval(()=>{fetch("/").then(r=>{if(r.ok)location.reload()}).catch(()=>{})},10000)</script></div></body></html>',
+              {
+                status: 503,
+                headers: { "Content-Type": "text/html" },
+              },
             ),
-        ),
+        );
+      }),
     );
     return;
   }
@@ -153,7 +173,6 @@ self.addEventListener("fetch", (event) => {
 
 // ── Message handling ────────────────────────────────────────────────
 // SW_SKIP_WAITING — user clicked "RELOAD" in the update banner
-// SW_CHECK_UPDATE — client asking if there's a waiting update
 
 self.addEventListener("message", (event) => {
   if (event.data === "SW_SKIP_WAITING") {
