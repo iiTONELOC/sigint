@@ -4,22 +4,33 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 
 ## Table of Contents
 
-- [Screenshot](#screenshot)
-- [Features](#features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Environment Variables](#environment-variables)
-- [Data Sources](#data-sources)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [PWA](#pwa)
-- [Documentation](#documentation)
-- [License](#license)
-- [Author](#author)
+- [SIGINT](#sigint)
+  - [Table of Contents](#table-of-contents)
+  - [Screenshot](#screenshot)
+  - [Features](#features)
+    - [Live Data](#live-data)
+    - [Intelligence](#intelligence)
+    - [Visualization](#visualization)
+    - [Platform](#platform)
+  - [Installation](#installation)
+  - [Quick Start](#quick-start)
+  - [Environment Variables](#environment-variables)
+  - [Data Sources](#data-sources)
+  - [Testing](#testing)
+  - [Deployment](#deployment)
+    - [Development](#development)
+    - [Production](#production)
+    - [Production with TLS](#production-with-tls)
+    - [Heroku](#heroku)
+    - [Cleanup](#cleanup)
+  - [PWA](#pwa)
+  - [Documentation](#documentation)
+  - [License](#license)
+  - [Author](#author)
 
 ## Screenshot
 
-![SIGINT](./sigint.gif)
+![SIGINT](./screenshot.png)
 
 ## Features
 
@@ -53,8 +64,9 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 ### Platform
 
 - Dark/light themes
-- Mobile responsive
-- PWA with offline support
+- Mobile responsive with separate layout presets
+- PWA with offline support, update notifications, pull-to-refresh
+- Offline indicator with connectivity detection
 - Cookie-authenticated API (HMAC-SHA256, HttpOnly)
 
 ## Installation
@@ -155,7 +167,7 @@ SIGINT is installable as a Progressive Web App. After visiting the deployed app:
 - **iOS Safari**: Share > Add to Home Screen
 - **Android Chrome**: Menu > Add to Home Screen
 
-The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline.
+The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When an update is available, a banner prompts the user to reload — no silent mid-session code swaps.
 
 ## Documentation
 

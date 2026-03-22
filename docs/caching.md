@@ -28,8 +28,12 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 | `sigint.noaa.weather-cache.v1` | weatherProvider | NOAA severe weather alert DataPoint[] | Every 300s | Rejected on hydrate if >30min |
 | `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot, 50 points/entity cap |
 | `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
-| `sigint.layout.v1` | PaneManager | Binary split tree layout + minimized panes | On every layout change | Never expires |
-| `sigint.layout.presets.v1` | PaneManager | Named layout preset configurations | On save/update/delete | Never expires |
+| `sigint.layout.v1` | PaneManager | Binary split tree layout + minimized panes (LEGACY — migration fallback) | On every layout change | Never expires |
+| `sigint.layout.desktop.v1` | PaneManager | Desktop binary split tree layout + minimized panes | On every layout change (desktop) | Never expires |
+| `sigint.layout.mobile.v1` | PaneManager | Mobile binary split tree layout + minimized panes | On every layout change (mobile) | Never expires |
+| `sigint.layout.presets.v1` | PaneManager | Named layout preset configurations (LEGACY — migrated to desktop on first load) | On save/update/delete | Never expires |
+| `sigint.layout.presets.desktop.v1` | PaneManager | Desktop named layout preset configurations | On save/update/delete (desktop) | Never expires |
+| `sigint.layout.presets.mobile.v1` | PaneManager | Mobile named layout preset configurations | On save/update/delete (mobile) | Never expires |
 | `sigint.dossier.cache.v1` | DossierPane | Aircraft dossier responses (max 200 entries) | On each dossier fetch | 30 min TTL per entry |
 | `sigint.videofeed.state.v1` | VideoFeedPane | Grid layout + channel selections | On slot/grid change | Never expires |
 | `sigint.videofeed.presets.v1` | VideoFeedPane | Named channel preset configurations | On save/delete | Never expires |

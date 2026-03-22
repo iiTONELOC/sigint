@@ -117,137 +117,122 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 ## Directory Structure
 
 ```
-public/
-  workers/
-    pointWorker.js                    Web Worker — point rendering on OffscreenCanvas
-  data/
-    ne_50m_land.json                  HD coastline geometry
-  fonts/
-    jetbrains-mono/                   JetBrains Mono woff2 files
-  fonts.css                           Font-face declarations
-src/
-  index.html                          Entry HTML
-  server/
-    index.ts                          Dev server (Bun, HMR) — routes: fonts, data, workers, API, SPA
-    index.prod.ts                     Prod server — routes: fonts, data, workers, API, dist
-    api/
-      index.ts                        API route registration + gzip response helper
-      auth.ts                         Token generation/verification + per-IP rate limiting
-      aircraftMetadata.ts             Metadata lookup from ac-db.ndjson
-      gdeltCache.ts                   GDELT fetch, parse, in-memory cache
-      aisCache.ts                     AIS WebSocket connection, vessel accumulation, in-memory cache
-      firmsCache.ts                   NASA FIRMS CSV fetch, parse, in-memory cache
-      newsCache.ts                    RSS news feed fetch, parse, in-memory cache
-    data/
-      ac-db.ndjson                    Local aircraft database (~180k records)
-  client/
-    App.tsx                           Thin shell — DataProvider → AppShell
-    AppShell.tsx                      Layout: Header + PaneManager + Ticker (wires ticker click → select + zoom)
-    frontend.tsx                      React DOM entry point (non-blocking boot, cacheInit fire-and-forget)
-    config/
-      theme.ts                        Color definitions, ThemeColors type, getColorMap()
-    context/
-      ThemeContext.tsx                 Theme provider (dark/light)
-      DataContext.tsx                  Shared data context — all app state, idMap, spatialGrid, filteredIds
-    panes/
-      PaneManager.tsx                 Multi-pane layout engine (grid, resize, minimize, mobile tabs, watch layout)
-      PaneHeader.tsx                  Pane header bar (title, controls, rearrange)
-      paneLayoutContext.ts            useSyncExternalStore signals: dossier open + watch layout (NOT React context)
-      live-traffic/
-        LiveTrafficPane.tsx           Globe + overlays (detail panel, legend, status badge)
-      data-table/
-        DataTablePane.tsx             Virtual-scrolling sortable/filterable data table (auto-scrolls to selection)
-      dossier/
-        DossierPane.tsx               Entity dossier — aircraft photos/route, ship details, event/quake/fire info
-      intel-feed/
-        IntelFeedPane.tsx             Correlated intel feed — INTEL view (products: clusters, correlations, anomalies, news links) + RAW view (chronological firehose)
-      alert-log/
-        AlertLogPane.tsx              Context-scored priority alerts — correlation engine output, dismiss to IndexedDB, watch integration
-      raw-console/
-        RawConsolePane.tsx            Raw data console — JSON view with inline syntax highlighting (theme-aware, zero deps)
-      video-feed/
-        VideoFeedPane.tsx             Live HLS video streams — iptv-org channels, grid layout, presets
-        VideoSlot.tsx                 Single video slot with HLS player and controls
-        HlsPlayer.tsx                HLS.js wrapper component
-        ChannelPicker.tsx             Channel search + region tabs
-        PresetMenu.tsx                Save/load/delete channel presets
-        channelService.ts             Fetch + parse iptv-org channel data
-        videoFeedPersistence.ts       Grid + channel state persistence
-        videoFeedTypes.ts             Video feed type definitions
-      news-feed/
-        NewsFeedPane.tsx              RSS news feed — list + inline detail, source filters, state persistence
-        newsProvider.ts               NewsProvider class (mirrors BaseProvider contract for NewsArticle[])
-        useNewsData.ts                useNewsData hook (follows useProviderData pattern)
-    features/
-      base/
-        types.ts                      FeatureDefinition<TData, TFilter> contract
-        dataPoints.ts                 DataPoint union type (imports from feature folders)
-        BaseProvider.ts               Config-driven base class for non-aircraft providers
-        useProviderData.ts            Generic hook replacing per-feature boilerplate hooks
-      tracking/
-        aircraft/                     Live data — OpenSky Network
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         AircraftFilterControl, AircraftTickerContent
-          hooks/                      useAircraftData
-          data/                       AircraftProvider (class — unique enrichment/mock logic), typeLookup
-          lib/                        filterUrl, utils
-        ships/                        Live data — aisstream.io AIS
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         ShipTickerContent (3-line detail with mph conversion)
-          hooks/                      useShipData (thin wrapper around useProviderData)
-          data/                       shipProvider (BaseProvider instance)
-      environmental/
-        earthquake/                   Live data — USGS
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         EarthquakeTickerContent
-          hooks/                      useEarthquakeData (thin wrapper around useProviderData)
-          data/                       earthquakeProvider (BaseProvider instance)
-        fires/                        Live data — NASA FIRMS
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         FireTickerContent
-          hooks/                      useFireData (thin wrapper around useProviderData)
-          data/                       fireProvider (BaseProvider instance)
-        weather/                      Live data — NOAA Weather
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         WeatherTickerContent
-          hooks/                      useWeatherData (thin wrapper around useProviderData)
-          data/                       weatherProvider (BaseProvider instance)
-      intel/
-        events/                       Live data — GDELT 2.0
-          index.ts, types.ts, definition.ts, detailRows.ts
-          ui/                         EventTickerContent
-          hooks/                      useEventData (thin wrapper around useProviderData)
-          data/                       gdeltProvider (BaseProvider instance, with mergeFn for dedup)
-      registry.tsx                    Feature registry (imports all definitions)
-    components/
-      globe/                          Canvas 2D visualization (modular)
-        GlobeVisualization.tsx        Shell: refs, render loop, worker lifecycle, composite
-        types.ts                      Shared types + SpatialGrid prop types
-        projection.ts                 projGlobe, projFlat, getFlatMetrics, clampFlatPan
-        landRenderer.ts               Coastline polygons, globe clipping
-        gridRenderer.ts               Lat/lon grid lines
-        cameraSystem.ts               Lock-on follow, lerp, shortest-path rotation, auto-rotate
-        inputHandlers.ts              Mouse, touch, wheel, keyboard + spatial grid click/hover
-      Search.tsx                      Global search with zoom-to
-      Header.tsx                      Top bar: logo, search, toggles, controls, clock (single-row on lg+)
-      DetailPanel.tsx                 Selected item detail — LOCATE/FOCUS/SOLO, swipe-to-dismiss mobile, desktop scroll
-      Ticker.tsx                      Bottom live feed (80-item pool, fires+weather, hover glow, responsive count)
-      Tooltip.tsx                     Reusable tooltip wrapper
-      LayerLegend.tsx                 DEAD CODE — safe to delete
-      styles.tsx                      Canvas-only constants
-    lib/
-      authService.ts                  Cookie-based auth — fetch with credentials + 401 cookie refresh
-      storageService.ts               IndexedDB-backed cache
-      trailService.ts                 Position recording, interpolation, trails
-      landService.ts                  HD coastline data fetch + cache
-      spatialIndex.ts                 Grid-based spatial hash + inverse projection for click/hover
-      tickerFeed.ts                   Ticker items — round-robin interleave, non-moving filtered out
-      uiSelectors.ts                  Derived counts, active totals, country lists
-      correlationEngine.ts            Cross-source correlation, anomaly detection, alert scoring, news linking
-      cacheKeys.ts                    All IndexedDB cache key constants + labels
-      timeFormat.ts                   Relative age formatting (relativeAge)
-    data/
-      mockData.ts                     Mock aircraft (fallback only — no mock ships)
+.
+├── docs/                               Technical documentation (this folder)
+├── public/
+│   ├── data/ne_50m_land.json           HD coastline geometry
+│   ├── fonts/jetbrains-mono/           JetBrains Mono woff2 files
+│   ├── icons/                          PWA icons (72–512px)
+│   ├── workers/pointWorker.js          Web Worker — all rendering on OffscreenCanvas
+│   ├── fonts.css                       Font-face declarations
+│   ├── manifest.json                   PWA manifest
+│   └── sw.js                           Service worker — precache + runtime cache, update flow
+├── scripts/
+│   ├── convert-aircraft-csv.ts        CSV→NDJSON converter for ac-db
+│   └── fetch-hd-land.ts               Download HD coastline data
+├── src/
+│   ├── index.html                      Entry HTML
+│   ├── index.css                       Global CSS (Tailwind + SIGINT theme vars + SW update banner)
+│   ├── logo.svg
+│   ├── server/
+│   │   ├── index.ts                   Dev server (Bun, HMR)
+│   │   ├── index.prod.ts              Prod server
+│   │   ├── api/
+│   │   │   ├── index.ts               Route registration + gzip helper
+│   │   │   ├── auth.ts                HMAC-SHA256 tokens + rate limiting
+│   │   │   ├── aircraftMetadata.ts    ICAO DB lookup + military classification
+│   │   │   ├── dossierCache.ts        Aircraft dossier (hexdb.io + planespotters)
+│   │   │   ├── gdeltCache.ts          GDELT fetch/parse/cache
+│   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache
+│   │   │   ├── firmsCache.ts          NASA FIRMS CSV fetch/parse/cache
+│   │   │   └── newsCache.ts           RSS feed fetch/parse/cache
+│   │   └── data/ac-db.ndjson          Local aircraft database (~180k records)
+│   └── client/
+│       ├── App.tsx                     ErrorBoundary → DataProvider → AppShell
+│       ├── AppShell.tsx                ConnectionStatus + Header + PaneManager + Ticker
+│       ├── frontend.tsx                Boot sequence, registerSW in both dev + prod
+│       ├── config/theme.ts             Colors, getColorMap(), LAYER_COLOR_KEYS
+│       ├── context/
+│       │   ├── DataContext.tsx          All shared state, correlation engine, watch mode
+│       │   └── ThemeContext.tsx         Dark/light + color overrides
+│       ├── hooks/useVirtualScroll.ts    Virtual scroll (startIdx, endIdx, offsetY)
+│       ├── lib/
+│       │   ├── authService.ts          authenticatedFetch() + cookie refresh
+│       │   ├── storageService.ts       IndexedDB wrapper with dbReady gate
+│       │   ├── cacheKeys.ts            23 cache keys (incl mobile/desktop layout)
+│       │   ├── swRegistration.ts       SW registration + update detection + applyUpdate
+│       │   ├── correlationEngine.ts    Cross-source correlation, alerts, baselines
+│       │   ├── spatialIndex.ts         Grid-based spatial hash + inverse projection
+│       │   ├── trailService.ts         Position recording + interpolation
+│       │   ├── landService.ts          HD coastline fetch + cache
+│       │   ├── sourceHealth.ts         Source up/down status
+│       │   ├── tickerFeed.ts           Ticker item interleaving
+│       │   ├── uiSelectors.ts          Derived counts, country lists
+│       │   ├── timeFormat.ts           Relative age formatting
+│       │   └── utils.ts                Shared utilities
+│       ├── components/
+│       │   ├── globe/                  Canvas 2D visualization (modular)
+│       │   │   ├── GlobeVisualization  Shell: refs, render loop, worker lifecycle
+│       │   │   ├── cameraSystem.ts     Lock-on, lerp, auto-rotate
+│       │   │   ├── inputHandlers.ts    Mouse/touch/wheel/keyboard
+│       │   │   ├── projection.ts       projGlobe, projFlat, getFlatMetrics
+│       │   │   ├── landRenderer.ts     Coastline polygons
+│       │   │   ├── gridRenderer.ts     Lat/lon grid lines
+│       │   │   └── types.ts            Shared types
+│       │   ├── ConnectionStatus.tsx    Offline bar, RETRY, pull-to-refresh, RECONNECTED
+│       │   ├── Header.tsx              Logo, search, toggles, clock, settings
+│       │   ├── Search.tsx              Portal dropdown, zoom-to
+│       │   ├── DetailPanel.tsx         Bottom sheet / side panel
+│       │   ├── Ticker.tsx              Scrolling ticker with compact mobile mode
+│       │   ├── SettingsModal.tsx       Settings (safe-area, always-visible delete)
+│       │   ├── ErrorBoundary.tsx       App-level error boundary
+│       │   └── Tooltip.tsx             Reusable tooltip wrapper
+│       ├── panes/
+│       │   ├── PaneManager.tsx         Layout engine (device-specific keys, preset props to PaneMobile)
+│       │   ├── PaneMobile.tsx          Mobile layout (VIEWS button, flex-wrap headers, move mode)
+│       │   ├── PaneHeader.tsx          Per-pane header bar
+│       │   ├── ResizeHandle.tsx        Split resize interaction
+│       │   ├── LayoutPresetMenu.tsx    Save/load/update/delete presets (save icon)
+│       │   ├── paneTree.ts             Binary split tree + persistence (mobile/desktop)
+│       │   ├── paneLayoutContext.ts    useSyncExternalStore signals (dossier, watch)
+│       │   ├── alert-log/             AlertLogPane + skeleton
+│       │   ├── data-table/            DataTablePane + skeleton
+│       │   ├── dossier/               DossierPane + atoms + skeleton
+│       │   ├── intel-feed/            IntelFeedPane + skeleton
+│       │   ├── live-traffic/          LiveTrafficPane
+│       │   ├── news-feed/             NewsFeedPane + provider + hook + skeleton
+│       │   ├── raw-console/           RawConsolePane + skeleton
+│       │   └── video-feed/            VideoFeedPane + slots + HLS + channels + presets
+│       ├── features/
+│       │   ├── base/                  BaseProvider, useProviderData, DataPoint types
+│       │   ├── tracking/aircraft/     OpenSky — provider, filter, enrichment, utils
+│       │   ├── tracking/ships/        AIS — provider, hook, ticker
+│       │   ├── environmental/earthquake/ USGS — provider, hook, ticker
+│       │   ├── environmental/fires/   FIRMS — provider, hook, ticker
+│       │   ├── environmental/weather/ NOAA — provider, hook, ticker
+│       │   ├── intel/events/          GDELT — provider, hook, ticker
+│       │   └── registry.tsx           Feature registry (imports all definitions)
+│       └── data/mockData.ts           Mock aircraft (fallback only)
+├── tests/                              bun:test + happy-dom
+│   ├── setup.ts                       happy-dom global registrator
+│   ├── hookHelper.ts                  Custom renderHook + act utilities
+│   ├── components/                    Header, Search, DetailPanel, Ticker, ResizeHandle, etc.
+│   │   └── globe/                     cameraSystem, projection
+│   ├── config/                        theme
+│   ├── context/                       DataContext, ThemeContext
+│   ├── features/                      BaseProvider, AircraftProvider, newsProvider, utils
+│   ├── hooks/                         hooks, virtualScroll
+│   ├── lib/                           cacheKeys, correlationEngine, services, spatialIndex, storage, trails
+│   ├── panes/                         PaneManager, paneTree, paneWrappers, skeletons
+│   ├── pwa/                           SW cache strategy, fetch routing, offline, manifest, update flow
+│   └── server/                        auth, auth.pen, routes.pen, serverCaches, aircraftMetadata, dossier
+├── Dockerfile / Dockerfile.prod       Dev + prod Docker images
+├── docker-compose.*.yml               Dev, prod, test compose configs
+├── Caddyfile.dev / Caddyfile.prod     TLS reverse proxy configs
+├── heroku.yml                         Heroku deployment
+├── build.ts / postbuild.ts            Bun build + SW manifest injection
+├── package.json / bun.lock / bunfig.toml
+└── tsconfig.json
 ```
 
 ---
@@ -257,8 +242,9 @@ src/
 ```mermaid
 graph TD
     App["App.tsx<br/><i>DataProvider → AppShell</i>"]
-    App --> AppShell["AppShell.tsx<br/><i>Header + PaneManager + Ticker</i>"]
+    App --> AppShell["AppShell.tsx<br/><i>ConnectionStatus + Header + PaneManager + Ticker</i>"]
 
+    AppShell --> ConnStatus["ConnectionStatus<br/><i>Offline bar, RETRY, pull-to-refresh</i>"]
     AppShell --> Header["Header<br/><i>Logo, search, toggles, controls, clock</i>"]
     Header --> SearchComp["Search<br/><i>searchSlot prop, z-[60]</i>"]
     Header --> LayerToggles["Layer toggle buttons"]
@@ -287,9 +273,9 @@ graph TD
 All shared state lives in `DataContext`, exposed via `useData()`. There is no external state management library.
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
-- **`AppShell.tsx`** — reads from context, renders Header + PaneManager + Ticker. Gates Header and Ticker on `chromeHidden`.
+- **`AppShell.tsx`** — reads from context, renders ConnectionStatus + Header + PaneManager + Ticker. ConnectionStatus always visible. Gates Header and Ticker on `chromeHidden`. Ticker container has `paddingBottom: max(0.25rem, env(safe-area-inset-bottom))` for iPhone home bar.
 - **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather, news), selection, isolation, layers, filters, view controls, search, derived values. Runs the correlation engine (`computeCorrelations`) as a `useMemo` on `allData` + `newsArticles` — shared via `correlation` on context. Manages watch mode state (active/paused, source, cycling, progress). Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set). Default rotation is paused.
-- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB). Layout presets (save/load/update/delete named views). Gates its toolbar and pane headers on `chromeHidden`. Mobile responsive — single pane with tab switching under 768px. Touch-friendly button targets (40px minimum).
+- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB with separate mobile/desktop keys). Layout presets (save/load/update/delete named views — device-specific). `isMobile` state hoisted before layout load. Passes preset props to PaneMobile. Gates toolbar and pane headers on `chromeHidden`. Mobile responsive — vertical scrollable column under 768px. Touch-friendly button targets (40px minimum).
 - **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
 - **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Column header tooltips. Auto-scrolls to selected item when selection changes from external source (ticker, globe).
 
@@ -302,7 +288,11 @@ When `chromeHidden` is true (toggled by clicking empty globe area): Header, Tick
 | z-index | Component |
 |---|---|
 | (none) | Header — no stacking context (preserves dropdown rendering) |
-| z-30 | Trail waypoint tooltip |
+| z-30 | Trail waypoint tooltip, PaneMobile sticky tab bar |
 | z-40 | DetailPanel |
 | z-50 | PaneManager add-pane menu |
 | z-[60] | AircraftFilterControl dropdown, Search dropdown |
+| z-[70] | SettingsModal |
+| z-[80] | LayoutPresetMenu portal, PaneMobile add-pane dropdown |
+| z-[9998] | Pull-to-refresh spinner |
+| z-[9999] | ConnectionStatus offline/reconnected bar, SW update banner |

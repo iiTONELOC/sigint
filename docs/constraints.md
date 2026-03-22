@@ -166,6 +166,39 @@ Two pane types operate entirely outside the geographic data pipeline:
 
 ---
 
+## PWA & Offline
+
+### Service Worker (`public/sw.js`)
+
+Cache strategy: precache app shell on install (HTML, fonts, land data, worker, manifest), cache-first for same-origin assets, network-first for HTML navigation (fallback to cached `/` when offline), network-only for `/api/*` routes (data lives in IndexedDB, not SW cache). Cross-origin requests (OpenSky, USGS, NOAA, iptv-org) are not intercepted.
+
+**Update flow**: New SW installs in background but does NOT call `self.skipWaiting()` during install. Instead it posts `SW_UPDATE_AVAILABLE` to all clients. The client shows an update banner. User clicks RELOAD → client posts `SW_SKIP_WAITING` → new SW activates → `controllerchange` fires → page reloads. This prevents silent mid-session code swaps.
+
+**Registration** (`lib/swRegistration.ts`): Calls `navigator.serviceWorker.register()` immediately — no `window.addEventListener("load")` wrapper. Boot is async (awaits cacheInit + provider hydrate), so the load event fires before `registerSW()` runs. Wrapping in load event would silently skip registration. Three update detection paths: (1) `registration.waiting` check on load, (2) `updatefound` + `statechange === "installed"`, (3) `message` listener for `SW_UPDATE_AVAILABLE`. Dedup guard prevents double banners. Reload guard prevents double reload on `controllerchange`.
+
+**`applyUpdate()`**: Gets the registration via `navigator.serviceWorker.getRegistration()` and posts `SW_SKIP_WAITING` to the waiting worker directly. Does NOT post to the controller (which is the OLD worker).
+
+### ConnectionStatus (`components/ConnectionStatus.tsx`)
+
+Renders as the first child in AppShell — always visible regardless of `chromeHidden`.
+
+- **Offline**: Fixed red bar at top (`bg-sig-danger/90`, z-[9999]) with pulsing white dot + "OFFLINE — CACHED DATA ONLY" + RETRY button
+- **RETRY**: Uses `new Image()` probe against `/icons/icon-72x72.png?_=${Date.now()}` — NOT `fetch()`. A failed `fetch()` to an API route can trigger the browser's dinosaur error page (replaces the SPA). Image loads are background requests that can never trigger navigation. If the image loads (server reachable), then reload. If `onerror` fires, reset button.
+- **Pull-to-refresh**: Touch drag down from top of viewport (only when `scrollTop <= 5`). Rubber-band effect (capped at 120px, 0.5x diminishing). At 80px threshold, RefreshCw icon starts spinning. Release triggers `window.location.reload()` ONLY if `navigator.onLine` or `navigator.serviceWorker.controller` exists (cached page available). Never triggers dinosaur.
+- **Reconnected**: Green bar with "RECONNECTED" auto-dismisses after 3 seconds. Only shows if the device was previously offline (`wasOffline` ref).
+
+### Layout Preset Device Isolation
+
+Layout presets use separate cache keys for mobile and desktop: `layoutPresetsDesktop` / `layoutPresetsMobile`. This prevents a 7-pane desktop layout from being loaded on a phone. Legacy presets (from `sigint.layout.presets.v1`) are migrated to desktop only on first load. Mobile starts with no presets. The SettingsModal "RESET LAYOUT" button clears all 6 layout keys (legacy + desktop + mobile).
+
+### SettingsModal
+
+- `paddingTop: env(safe-area-inset-top)` on the full-screen mobile panel so the close button isn't behind the iPhone status bar/Dynamic Island.
+- Close button has 44×44px minimum tap target.
+- Per-key delete buttons in the Storage tab are always visible (no hover-to-reveal — mobile has no hover). `hover:text-sig-danger` for visual feedback on desktop.
+
+---
+
 - **Types ONLY, never interfaces** — intellisense populates types better
 - **Tailwind classes ONLY** — no inline `style=` except dynamic per-item colors
 - **Async storage** — IndexedDB for all persistence, no localStorage
