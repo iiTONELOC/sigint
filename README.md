@@ -2,11 +2,15 @@
 
 Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, and event tracking on an interactive globe. Built with Bun, React 19, and a custom Canvas 2D + Web Worker rendering engine. Installable as a PWA.
 
+## Screenshot
+
+![SIGINT](./screenshot.png)
+
 ## Table of Contents
 
 - [SIGINT](#sigint)
-  - [Table of Contents](#table-of-contents)
   - [Screenshot](#screenshot)
+  - [Table of Contents](#table-of-contents)
   - [Features](#features)
     - [Live Data](#live-data)
     - [Intelligence](#intelligence)
@@ -27,10 +31,6 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
   - [Documentation](#documentation)
   - [License](#license)
   - [Author](#author)
-
-## Screenshot
-
-![SIGINT](./screenshot.png)
 
 ## Features
 
