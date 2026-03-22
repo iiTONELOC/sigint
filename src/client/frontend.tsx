@@ -12,7 +12,7 @@ import { cacheInit } from "./lib/storageService";
 import { initBaseline } from "./lib/correlationEngine";
 import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
-import { registerSW } from "./lib/swRegistration";
+import { registerSW, applyUpdate } from "./lib/swRegistration";
 
 // Singleton providers — hydrate before first render
 import { shipProvider } from "./features/tracking/ships/data/provider";
@@ -76,20 +76,28 @@ async function boot() {
     root.render(app);
   } else {
     createRoot(elem).render(app);
-
-    registerSW({
-      onUpdate: () => {
-        const banner = document.createElement("div");
-        banner.className = "sw-update-banner";
-        banner.innerHTML = `
-          <span>Update available</span>
-          <button onclick="window.location.reload()">RELOAD</button>
-          <button onclick="this.parentElement.remove()">✕</button>
-        `;
-        document.body.appendChild(banner);
-      },
-    });
   }
+
+  // Register SW in both dev and prod — requires secure context (HTTPS or localhost)
+  registerSW({
+    onUpdate: () => {
+      const banner = document.createElement("div");
+      banner.className = "sw-update-banner";
+      banner.innerHTML = `
+        <span>Update available</span>
+        <button id="sw-reload-btn">RELOAD</button>
+        <button id="sw-dismiss-btn">✕</button>
+      `;
+      document.body.appendChild(banner);
+
+      banner.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
+        applyUpdate();
+      });
+      banner.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
+        banner.remove();
+      });
+    },
+  });
 }
 
 boot();
