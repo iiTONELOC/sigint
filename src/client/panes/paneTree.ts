@@ -99,7 +99,10 @@ export function replaceNode(
   };
 }
 
-export function removeLeaf(root: LayoutNode, targetId: string): LayoutNode | null {
+export function removeLeaf(
+  root: LayoutNode,
+  targetId: string,
+): LayoutNode | null {
   if (root.type === "leaf") {
     return root.id === targetId ? null : root;
   }
@@ -125,9 +128,19 @@ export function findParentSplit(
   if (root.type === "leaf") return null;
   const [a, b] = root.children;
   if (a.type === "leaf" && a.id === leafId)
-    return { dir: root.direction, ratio: root.ratio, wasSecond: false, siblingId: b.id };
+    return {
+      dir: root.direction,
+      ratio: root.ratio,
+      wasSecond: false,
+      siblingId: b.id,
+    };
   if (b.type === "leaf" && b.id === leafId)
-    return { dir: root.direction, ratio: root.ratio, wasSecond: true, siblingId: a.id };
+    return {
+      dir: root.direction,
+      ratio: root.ratio,
+      wasSecond: true,
+      siblingId: a.id,
+    };
   return findParentSplit(a, leafId) ?? findParentSplit(b, leafId);
 }
 
@@ -150,7 +163,9 @@ export function updateRatio(
 export function findNodeById(node: LayoutNode, id: string): LayoutNode | null {
   if (node.id === id) return node;
   if (node.type === "split")
-    return findNodeById(node.children[0], id) ?? findNodeById(node.children[1], id);
+    return (
+      findNodeById(node.children[0], id) ?? findNodeById(node.children[1], id)
+    );
   return null;
 }
 
@@ -163,13 +178,23 @@ export function hasNodeId(node: LayoutNode, id: string): boolean {
 
 export function collectLeaves(node: LayoutNode): LeafNode[] {
   if (node.type === "leaf") return [node];
-  return [...collectLeaves(node.children[0]), ...collectLeaves(node.children[1])];
+  return [
+    ...collectLeaves(node.children[0]),
+    ...collectLeaves(node.children[1]),
+  ];
 }
 
 // ── Persistence ──────────────────────────────────────────────────────
 
-const CACHE_KEY = CACHE_KEYS.layout;
-const PRESETS_KEY = CACHE_KEYS.layoutPresets;
+function layoutKey(mobile: boolean): string {
+  return mobile ? CACHE_KEYS.layoutMobile : CACHE_KEYS.layoutDesktop;
+}
+
+function presetsKey(mobile: boolean): string {
+  return mobile
+    ? CACHE_KEYS.layoutPresetsMobile
+    : CACHE_KEYS.layoutPresetsDesktop;
+}
 
 export function defaultLayout(): LayoutState {
   return { root: leaf("globe"), minimized: [] };
@@ -194,34 +219,45 @@ function isValidTree(node: unknown): node is LayoutNode {
   return false;
 }
 
-export async function loadLayout(): Promise<LayoutState> {
+function parseLayout(cached: LayoutState | null): LayoutState | null {
+  if (!cached || !isValidTree(cached.root)) return null;
+  const minimized = (cached.minimized ?? []).map((m: any) => ({
+    id: m.id,
+    paneType: m.paneType,
+    dir: m.dir ?? "h",
+    ratio: m.ratio ?? 0.5,
+    wasSecond: m.wasSecond ?? true,
+    siblingId: m.siblingId ?? null,
+  }));
+  return { root: cached.root, minimized };
+}
+
+export async function loadLayout(mobile: boolean): Promise<LayoutState> {
   try {
-    const cached = await cacheGet<LayoutState>(CACHE_KEY);
-    if (cached && isValidTree(cached.root)) {
-      const minimized = (cached.minimized ?? []).map((m: any) => ({
-        id: m.id,
-        paneType: m.paneType,
-        dir: m.dir ?? "h",
-        ratio: m.ratio ?? 0.5,
-        wasSecond: m.wasSecond ?? true,
-        siblingId: m.siblingId ?? null,
-      }));
-      return { root: cached.root, minimized };
-    }
+    // Try the device-specific key first
+    const cached = await cacheGet<LayoutState>(layoutKey(mobile));
+    const parsed = parseLayout(cached);
+    if (parsed) return parsed;
+
+    // Fall back to legacy key (migrates existing users)
+    const legacy = await cacheGet<LayoutState>(CACHE_KEYS.layout);
+    const legacyParsed = parseLayout(legacy);
+    if (legacyParsed) return legacyParsed;
   } catch {
     /* ignore */
   }
   return defaultLayout();
 }
 
-export function persistLayout(layout: LayoutState) {
-  cacheSet(CACHE_KEY, layout);
+export function persistLayout(layout: LayoutState, mobile: boolean) {
+  cacheSet(layoutKey(mobile), layout);
 }
 
-export async function loadPresets(): Promise<LayoutPreset[]> {
-  return await cacheGet<LayoutPreset[]>(PRESETS_KEY) ?? [];
+export async function loadPresets(mobile: boolean): Promise<LayoutPreset[]> {
+  const key = presetsKey(mobile);
+  return (await cacheGet<LayoutPreset[]>(key)) ?? [];
 }
 
-export function savePresets(presets: LayoutPreset[]) {
-  cacheSet(PRESETS_KEY, presets);
+export function savePresets(presets: LayoutPreset[], mobile: boolean) {
+  cacheSet(presetsKey(mobile), presets);
 }

@@ -85,12 +85,26 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
 
 export function PaneManager() {
   const { chromeHidden, activeCount, dataSources, counts } = useData();
+
+  // ── Mobile detection (must be before layout load) ─────────────
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const [layout, setLayout] = useState<LayoutState>(defaultLayout);
   const layoutLoaded = useRef(false);
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
 
   useEffect(() => {
     let mounted = true;
-    loadLayout().then((loaded) => {
+    loadLayout(isMobile).then((loaded) => {
       if (mounted) {
         setLayout(loaded);
         layoutLoaded.current = true;
@@ -103,7 +117,7 @@ export function PaneManager() {
 
   useEffect(() => {
     if (!layoutLoaded.current) return;
-    persistLayout(layout);
+    persistLayout(layout, isMobileRef.current);
   }, [layout]);
 
   // ── Dossier signal ──────────────────────────────────────────────
@@ -566,7 +580,7 @@ export function PaneManager() {
   const [presetsLoaded, setPresetsLoaded] = useState(false);
 
   useEffect(() => {
-    loadPresets().then((loaded) => {
+    loadPresets(isMobile).then((loaded) => {
       setPresets(loaded);
       setPresetsLoaded(true);
     });
@@ -576,7 +590,7 @@ export function PaneManager() {
     (name: string) => {
       const next = [...presets, { name, state: layout }];
       setPresets(next);
-      savePresets(next);
+      savePresets(next, isMobileRef.current);
     },
     [presets, layout],
   );
@@ -590,7 +604,7 @@ export function PaneManager() {
         i === idx ? { ...p, state: layout } : p,
       );
       setPresets(next);
-      savePresets(next);
+      savePresets(next, isMobileRef.current);
     },
     [presets, layout],
   );
@@ -598,23 +612,14 @@ export function PaneManager() {
     (idx: number) => {
       const next = presets.filter((_, i) => i !== idx);
       setPresets(next);
-      savePresets(next);
+      savePresets(next, isMobileRef.current);
     },
     [presets],
   );
 
   // ── Mobile ─────────────────────────────────────────────────────
 
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  );
   const [activeMobilePane, setActiveMobilePane] = useState(0);
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
 
   const allLeaves = useMemo(() => collectLeaves(layout.root), [layout.root]);
 
@@ -887,6 +892,12 @@ export function PaneManager() {
         leafCount={leafCount(layout.root)}
         swapPanes={swapPanes}
         insertPaneBeside={insertPaneBeside}
+        presets={presets}
+        presetsLoaded={presetsLoaded}
+        onLoadPreset={handleLoadPreset}
+        onSavePreset={handleSavePreset}
+        onUpdatePreset={handleUpdatePreset}
+        onDeletePreset={handleDeletePreset}
       />
     );
   }

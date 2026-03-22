@@ -3,6 +3,7 @@ import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
 import { PaneManager } from "@/panes/PaneManager";
+import { ConnectionStatus } from "@/components/ConnectionStatus";
 
 export function AppShell() {
   const {
@@ -31,6 +32,8 @@ export function AppShell() {
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
+      <ConnectionStatus />
+
       {/* ── HEADER ── */}
       {!chromeHidden && (
         <Header
@@ -59,7 +62,10 @@ export function AppShell() {
 
       {/* ── TICKER ── */}
       {!chromeHidden && (
-        <div className="shrink-0 px-2 md:px-3 pt-0.5 md:pt-1 pb-1 md:pb-2 border-t border-sig-border bg-sig-panel/95">
+        <div
+          className="shrink-0 px-2 md:px-3 pt-0.5 md:pt-1 pb-1 md:pb-2 border-t border-sig-border bg-sig-panel/95"
+          style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
+        >
           <div className="tracking-wider mb-0.5 hidden md:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
             <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
               ●

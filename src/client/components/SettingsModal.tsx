@@ -122,7 +122,11 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
 
   const handleResetLayout = useCallback(async () => {
     await cacheDelete(CACHE_KEYS.layout);
+    await cacheDelete(CACHE_KEYS.layoutDesktop);
+    await cacheDelete(CACHE_KEYS.layoutMobile);
     await cacheDelete(CACHE_KEYS.layoutPresets);
+    await cacheDelete(CACHE_KEYS.layoutPresetsDesktop);
+    await cacheDelete(CACHE_KEYS.layoutPresetsMobile);
     refreshStorage();
     window.location.reload();
   }, [refreshStorage]);
@@ -216,7 +220,12 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       style={{ overscrollBehavior: "none", touchAction: "none" }}
     >
-      <div className="bg-sig-panel sm:border sm:border-sig-border sm:rounded-lg shadow-2xl w-full h-full sm:w-auto sm:min-w-[28rem] sm:max-w-lg sm:mx-4 sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden">
+      <div
+        className="bg-sig-panel sm:border sm:border-sig-border sm:rounded-lg shadow-2xl w-full h-full sm:w-auto sm:min-w-[28rem] sm:max-w-lg sm:mx-4 sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+        }}
+      >
         {/* Header */}
         <div className="relative flex items-center justify-center px-3 sm:px-4 py-3 border-b border-sig-border/50">
           <span className="font-semibold tracking-widest text-sig-bright text-sm">
@@ -224,9 +233,10 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
           </span>
           <button
             onClick={onClose}
-            className="absolute right-3 sm:right-4 p-1 rounded text-sig-dim hover:text-sig-bright transition-colors"
+            className="absolute right-3 sm:right-4 p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors"
+            style={{ minWidth: 44, minHeight: 44 }}
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
@@ -630,10 +640,11 @@ function KeyGroup({
             </span>
             <button
               onClick={() => onDelete(key)}
-              className="p-1 rounded text-sig-dim opacity-0 group-hover:opacity-100 hover:text-sig-danger transition-all shrink-0"
+              className="p-1.5 rounded text-sig-dim hover:text-sig-danger transition-all shrink-0"
               title={`Clear ${getKeyLabel(key)}`}
+              style={{ minWidth: 32, minHeight: 32 }}
             >
-              <Trash2 size={12} />
+              <Trash2 size={13} />
             </button>
           </div>
         ))}
