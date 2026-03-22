@@ -15,7 +15,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 | [Rendering Pipeline](./rendering.md) | Web Worker rendering, worker architecture, split messaging, camera, input handlers, interpolation, projections, isolation modes |
 | [Global Search](./search.md) | Two-phase search, scoring, globe filtering, zoom-to, stash/restore |
 | [Caching Architecture](./caching.md) | IndexedDB service, cache keys, staleness, metadata dedup, migration |
-| [Constraints & Gotchas](./constraints.md) | Rate limits, client-side fetching, Canvas vs React, Web Worker constraints, dev preferences |
+| [Constraints & Gotchas](./constraints.md) | Rate limits, client-side fetching, Canvas vs React, Web Worker constraints, PWA/offline, dev preferences |
 
 ---
 
@@ -27,9 +27,11 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **State**: All shared state in `DataContext` via `useData()` hook — no external state library. News data lifted to DataContext (non-geographic, not in allData — exposed as `newsArticles`). Correlation engine runs in DataContext, shared via `correlation` on context value.
 
-**Persistence**: storageService (in-memory + persistence) for data caches, pane layout, video feed presets, news feed state, intel baselines, dismissed alerts
+**Persistence**: storageService (in-memory + persistence) for data caches, pane layout (separate mobile/desktop keys: `layoutDesktop`, `layoutMobile`, `layoutPresetsDesktop`, `layoutPresetsMobile`), video feed presets, news feed state, intel baselines, dismissed alerts
 
 **Rendering**: All drawing offloaded to a dedicated Web Worker with OffscreenCanvas — land, grid, ocean, points, trails rendered on a separate CPU core. Main thread handles camera, input, and composites a single `ImageBitmap` per frame via `drawImage`.
+
+**PWA/Offline**: Service worker caches app shell (cache-first assets, network-first HTML). ConnectionStatus component shows offline bar with RETRY (image probe) + pull-to-refresh on touch. Update banner with controlled activation via SW_SKIP_WAITING.
 
 **Required env**: `SIGINT_SERVER_SECRET` — generate with `openssl rand -hex 32`
 

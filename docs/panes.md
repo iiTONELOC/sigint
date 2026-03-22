@@ -41,7 +41,7 @@ Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridT
 | **Change Type** | Click pane title → dropdown of all other pane types → swaps in place via `replaceNode()`. |
 | **Drag to Move** | Drag grip handle on pane header → drop on another pane. Drop zone determined by cursor position: **center** (inner 50%) swaps pane types in place, **edges** (outer 25%) inserts source beside target in that direction (left/right = horizontal split, top/bottom = vertical split). Ghost overlay shows translucent blue half-fill with directional label (⇄ SWAP, ← → ↑ ↓ INSERT). |
 | **Resize** | Drag the handle between split children. Min ratio 0.1, max 0.9. Visual indicator line during drag. |
-| **Layout Presets** | VIEWS button in PaneManager toolbar opens `LayoutPresetMenu`. Save current layout as a named preset, load a saved preset, update an existing preset (pencil icon overwrites with current layout), or delete. Persisted to `sigint.layout.presets.v1`. |
+| **Layout Presets** | VIEWS button in PaneManager toolbar (desktop) and PaneMobile tab bar (mobile) opens `LayoutPresetMenu`. Save current layout as a named preset, load a saved preset, update an existing preset (save icon overwrites with current layout), or delete. Presets are device-specific — desktop presets stored under `sigint.layout.presets.desktop.v1`, mobile under `sigint.layout.presets.mobile.v1`. Legacy presets (from `sigint.layout.presets.v1`) are migrated to desktop on first load; mobile starts fresh. |
 
 ### Pane Types
 
@@ -69,7 +69,7 @@ Globe loads eagerly (default pane). If a lazy pane crashes, its `ErrorBoundary` 
 
 ### Persistence
 
-Layout state (pane configs, split tree, ratios) is persisted under key `sigint.layout.v1`. Restored on boot. Every layout change triggers a persist. Invalid or corrupt layouts fall back to default (single globe pane).
+Layout state (pane configs, split tree, ratios) is persisted with separate keys for mobile and desktop: `sigint.layout.desktop.v1` / `sigint.layout.mobile.v1`. The legacy key `sigint.layout.v1` is checked as a fallback for migration. `isMobile` is determined before layout load in PaneManager. Every layout change triggers a persist to the device-appropriate key. Invalid or corrupt layouts fall back to default (single globe pane).
 
 ### Dossier Open Bridge
 
@@ -287,7 +287,7 @@ Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org
 - **Audio**: only one slot unmuted at a time
 - **Theme-aware backgrounds**: Video container and `<video>` element use `bg-sig-bg` — follows light/dark theme. Scrims over video content stay dark for readability. Video control tooltips use native `title` attributes (not Tooltip component) to prevent stuck tooltips when `pointer-events` toggles.
 - **Auto-save**: grid layout + channel selections persist to `sigint.videofeed.state.v1`. Restored on mount.
-- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Pencil icon on each preset overwrites with current grid + channels (no delete + recreate needed). Stored under `sigint.videofeed.presets.v1`.
+- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Save icon on each preset overwrites with current grid + channels (no delete + recreate needed). Stored under `sigint.videofeed.presets.v1`.
 
 **Dependency**: `bun add hls.js` required.
 
@@ -352,15 +352,21 @@ Displays aggregated world news from 6 RSS sources fetched server-side. This is a
 
 Under 768px, PaneManager switches to mobile mode via `PaneMobile`. Mobile-specific adaptations:
 
-- **Safe area insets** — `AppShell` root div applies `env(safe-area-inset-*)` padding on all four sides. Header clears the iPhone notch/status bar, ticker clears the home indicator.
-- **Single-pane mode** with scroll-snap tab bar (`min-h-8` touch targets, cyan bottom-bar active indicator)
-- **2-pane vertical split** — non-active tabs show a split icon (Rows2). Tapping it opens a 50/50 vertical stack with that pane in the bottom half. Second pane tab shows a collapse button (Maximize2). Tapping the secondary tab promotes it to primary and collapses the split. Only one split allowed at a time.
-- Close button (X) on active tab when multiple panes open
-- Mobile status bar above tab bar showing track count + source status (replaces desktop globe pane header info)
-- Layer toggles go icon-only (no count label) below `sm` breakpoint with tighter gaps/padding
+- **Safe area insets** — `AppShell` root div applies `env(safe-area-inset-*)` padding on all four sides. Header clears the iPhone notch/status bar, ticker has `paddingBottom: max(0.25rem, env(safe-area-inset-bottom))` for iPhone home bar. SettingsModal has `paddingTop: env(safe-area-inset-top)` so close button isn't behind status bar/Dynamic Island.
+- **Vertical scrollable column** — blocks from binary split tree. Vertical splits become separate column blocks, horizontal splits stay as one block rendered side-by-side with ResizeHandle.
+- **Sticky tab bar** with IntersectionObserver for active block tracking. Per-block tabs with icons and labels. Minimized panes show as dimmed tabs. `min-h-8` touch targets.
+- **VIEWS button** — in the tab bar with `ml-auto` (pushed to right edge). Opens `LayoutPresetMenu` with device-specific mobile presets. Save icon for overwrite (not pencil).
+- **Per-leaf headers** use `flex-wrap` so action buttons (pop-out, minimize, close) wrap to a second row on narrow H-splits instead of being clipped off-screen. Action buttons grouped in a `shrink-0` div to wrap as a unit.
+- **Per-block height state** with drag resize handle at bottom.
+- **HTML5 drag-to-reorder** between blocks.
+- **IntersectionObserver lazy rendering** (200px rootMargin) — off-screen blocks show placeholder.
+- Single pane fills full viewport height (`calc(100vh - 120px)`).
+- Split H → stays in same block. Split V → new block below. Add pane → splits last block vertically.
+- Close button (X) on active tab when multiple panes open.
+- Layer toggles go icon-only (no count label) below `sm` breakpoint with tighter gaps/padding.
 - On `lg:` and up, Header renders as a single row (logo + search + toggles + aircraft filter + clock). Below `lg`, two-row layout (logo+clock / toggles centered).
 - Detail panel renders as a bottom sheet (`max-h-[40vh]`) with `useSheetDismiss` hook — touch drag to dismiss with velocity detection (>80px or >0.5 px/ms). Snaps back on insufficient drag. Wider drag handle.
 - Detail panel on desktop: `max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll` — scrolls when content exceeds pane height.
 - **Ticker compact mode** — below `sm` (640px), ticker items render as single-line strips instead of full cards. "LIVE FEED" label hidden. Tighter padding.
-- Add-pane button positioned before the flex spacer (always visible, not pushed off-screen)
-- Add-pane dropdown items have 44px minimum touch targets
+- Add-pane button positioned before the flex spacer (always visible, not pushed off-screen).
+- Add-pane dropdown items have 44px minimum touch targets.
