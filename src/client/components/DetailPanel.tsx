@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   Eye,
   Crosshair,
@@ -45,35 +45,43 @@ function useDrag() {
     origX: 0,
     origY: 0,
   });
+  const posRef = useRef(pos);
+  posRef.current = pos;
 
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      dragState.current = {
-        active: true,
-        startX: e.clientX,
-        startY: e.clientY,
-        origX: pos.x,
-        origY: pos.y,
-      };
-    },
-    [pos],
-  );
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragState.current.active) return;
-    const dx = e.clientX - dragState.current.startX;
-    const dy = e.clientY - dragState.current.startY;
-    setPos({
-      x: dragState.current.origX + dx,
-      y: dragState.current.origY + dy,
-    });
-    setDragged(true);
+  // Window-level move/up so touch drag works reliably
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragState.current.active) return;
+      const dx = e.clientX - dragState.current.startX;
+      const dy = e.clientY - dragState.current.startY;
+      setPos({
+        x: dragState.current.origX + dx,
+        y: dragState.current.origY + dy,
+      });
+      setDragged(true);
+    };
+    const onUp = () => {
+      dragState.current.active = false;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
   }, []);
 
-  const onPointerUp = useCallback(() => {
-    dragState.current.active = false;
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    dragState.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: posRef.current.x,
+      origY: posRef.current.y,
+    };
   }, []);
 
   const reset = useCallback(() => {
@@ -81,14 +89,20 @@ function useDrag() {
     setDragged(false);
   }, []);
 
-  return { pos, dragged, onPointerDown, onPointerMove, onPointerUp, reset };
+  return { pos, dragged, onPointerDown, reset };
 }
 
-// ── Mobile bottom-sheet swipe-to-dismiss ─────────────────────────────
+// ── Mobile bottom-sheet with snap heights ────────────────────────────
+
+const SNAP_HEIGHTS = [20, 45, 75]; // vh: peek, half, full
 
 function useSheetDismiss(onClose: () => void) {
   const offsetRef = useRef(0);
   const settlingRef = useRef(false);
+  const [heightVh, setHeightVh] = useState(SNAP_HEIGHTS[1]!);
+  const heightRef = useRef(SNAP_HEIGHTS[1]!);
+  heightRef.current = heightVh;
+  const heightAtDragStart = useRef(SNAP_HEIGHTS[1]!);
   const [, forceRender] = useState(0);
   const dragRef = useRef({
     active: false,
@@ -105,7 +119,17 @@ function useSheetDismiss(onClose: () => void) {
     forceRender((n) => n + 1);
   }, []);
 
-  // Reset — safe to call during render because it only triggers update when needed
+  const snapTo = useCallback((vh: number) => {
+    settlingRef.current = true;
+    setHeightVh(vh);
+    if (offsetRef.current !== 0) offsetRef.current = 0;
+    forceRender((n) => n + 1);
+    setTimeout(() => {
+      settlingRef.current = false;
+      forceRender((n) => n + 1);
+    }, 250);
+  }, []);
+
   const reset = useCallback(() => {
     dragRef.current = {
       active: false,
@@ -114,6 +138,9 @@ function useSheetDismiss(onClose: () => void) {
       lastT: 0,
       velocity: 0,
     };
+    if (heightRef.current !== SNAP_HEIGHTS[1]!) {
+      setHeightVh(SNAP_HEIGHTS[1]!);
+    }
     if (offsetRef.current !== 0 || settlingRef.current) {
       offsetRef.current = 0;
       settlingRef.current = false;
@@ -126,6 +153,7 @@ function useSheetDismiss(onClose: () => void) {
     if (sheet && sheet.scrollTop > 0) return;
     const touch = e.touches[0];
     if (!touch) return;
+    heightAtDragStart.current = heightRef.current;
     dragRef.current = {
       active: true,
       startY: touch.clientY,
@@ -141,10 +169,6 @@ function useSheetDismiss(onClose: () => void) {
       const touch = e.touches[0];
       if (!touch) return;
       const dy = touch.clientY - dragRef.current.startY;
-      if (dy < 0) {
-        if (offsetRef.current !== 0) update(0, false);
-        return;
-      }
       const now = Date.now();
       const dt = now - dragRef.current.lastT;
       if (dt > 0) {
@@ -152,7 +176,20 @@ function useSheetDismiss(onClose: () => void) {
       }
       dragRef.current.lastY = touch.clientY;
       dragRef.current.lastT = now;
-      update(dy, false);
+      const dvh = (dy / window.innerHeight) * 100;
+      const newH = Math.max(10, Math.min(85, heightAtDragStart.current - dvh));
+      setHeightVh(newH);
+      if (newH <= 10) {
+        update(
+          Math.max(
+            0,
+            dy - (heightAtDragStart.current / 100) * window.innerHeight * 0.5,
+          ),
+          false,
+        );
+      } else {
+        if (offsetRef.current !== 0) update(0, false);
+      }
     },
     [update],
   );
@@ -161,21 +198,41 @@ function useSheetDismiss(onClose: () => void) {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
     const vel = dragRef.current.velocity;
-    const offset = offsetRef.current;
-    if (offset > 80 || vel > 0.5) {
+    const h = heightRef.current;
+
+    if (vel > 0.8) {
       update(400, true);
       setTimeout(onClose, 200);
-    } else {
-      update(0, true);
-      setTimeout(() => {
-        settlingRef.current = false;
-        forceRender((n) => n + 1);
-      }, 200);
+      return;
     }
-  }, [onClose, update]);
+    if (vel < -0.5) {
+      const next =
+        SNAP_HEIGHTS.find((s) => s > h + 5) ??
+        SNAP_HEIGHTS[SNAP_HEIGHTS.length - 1]!;
+      snapTo(next);
+      return;
+    }
+    if (h < 12) {
+      update(400, true);
+      setTimeout(onClose, 200);
+      return;
+    }
+
+    let best = SNAP_HEIGHTS[0]!;
+    let bestDist = Infinity;
+    for (const s of SNAP_HEIGHTS) {
+      const d = Math.abs(s - h);
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
+      }
+    }
+    snapTo(best);
+  }, [onClose, update, snapTo]);
 
   return {
     sheetRef,
+    heightVh,
     get offsetY() {
       return offsetRef.current;
     },
@@ -244,17 +301,20 @@ export function DetailPanel({
       <div className="fixed inset-x-0 bottom-0 z-40 md:hidden pointer-events-none">
         <div
           ref={sheet.sheetRef}
-          className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm max-h-[30vh] overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
+          className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
           style={{
+            height: `${sheet.heightVh}vh`,
             transform: `translateY(${sheet.offsetY}px)`,
-            transition: sheet.settling ? "transform 200ms ease-out" : "none",
-            willChange: "transform",
+            transition: sheet.settling
+              ? "transform 200ms ease-out, height 200ms ease-out"
+              : "none",
+            willChange: "transform, height",
           }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Drag handle — swipe-to-dismiss touch target */}
           <div
-            className="flex justify-center py-2.5 -mx-2.5 cursor-grab touch-none"
+            className="flex flex-col items-center py-2.5 -mx-2.5 cursor-grab touch-none sticky top-0 z-10 bg-sig-panel/96 rounded-t-lg"
             onTouchStart={sheet.onTouchStart}
             onTouchMove={sheet.onTouchMove}
             onTouchEnd={sheet.onTouchEnd}
@@ -262,6 +322,8 @@ export function DetailPanel({
             <div className="w-10 h-1 rounded-full bg-sig-dim/50" />
           </div>
           {content}
+          {/* Scroll indicator */}
+          <MobileScrollHint sheetRef={sheet.sheetRef} />
         </div>
       </div>
 
@@ -270,12 +332,11 @@ export function DetailPanel({
         className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll ${side === "left" ? "left-3.5" : "right-3.5"}`}
         style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
-        onPointerMove={drag.onPointerMove}
-        onPointerUp={drag.onPointerUp}
       >
         <div
           data-tour="detail-drag-handle"
           className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing"
+          style={{ touchAction: "none" }}
           onPointerDown={drag.onPointerDown}
         >
           <GripHorizontal size={14} />
@@ -283,6 +344,39 @@ export function DetailPanel({
         {content}
       </div>
     </>
+  );
+}
+
+function MobileScrollHint({
+  sheetRef,
+}: {
+  readonly sheetRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+    const check = () => {
+      const hasOverflow = el.scrollHeight > el.clientHeight + 10;
+      const nearTop = el.scrollTop < 5;
+      setShow(hasOverflow && nearTop);
+    };
+    check();
+    el.addEventListener("scroll", check);
+    const ob = new ResizeObserver(check);
+    ob.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ob.disconnect();
+    };
+  }, [sheetRef]);
+  if (!show) return null;
+  return (
+    <div className="sticky bottom-0 left-0 right-0 flex justify-center py-1 pointer-events-none">
+      <div className="text-[9px] tracking-widest text-sig-dim/50 animate-bounce">
+        ▼ SCROLL
+      </div>
+    </div>
   );
 }
 

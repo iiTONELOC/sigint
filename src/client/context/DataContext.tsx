@@ -310,8 +310,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // ── Derived values ─────────────────────────────────────────────
   const tickerItems = useMemo(
-    () => buildTickerItems(allData, filters, layers),
-    [allData, filters, layers],
+    () => buildTickerItems(allData),
+    [allData],
   );
 
   const selectedCurrent = useMemo(() => {

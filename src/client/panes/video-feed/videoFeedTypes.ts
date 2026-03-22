@@ -30,6 +30,7 @@ export type PlayerHandle = {
   pause: () => void;
   goLive: () => void;
   seekTo: (time: number) => void;
+  getVideoElement: () => HTMLVideoElement | null;
 };
 
 export type SavedSlot = {

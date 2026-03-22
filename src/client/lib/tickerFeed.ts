@@ -49,11 +49,7 @@ const TYPE_ORDER = [
  * Emergency aircraft always lead. Then round-robin newest from each type.
  * Grounded aircraft and moored ships (sog < 0.5) are excluded.
  */
-export function buildTickerItems(
-  allData: DataPoint[],
-  _filters: Record<string, unknown>,
-  _layers: Record<string, boolean>,
-): DataPoint[] {
+export function buildTickerItems(allData: DataPoint[]): DataPoint[] {
   // Bucket by type, sorted by recency within each bucket
   const byType = new Map<string, DataPoint[]>();
   for (const type of TYPE_ORDER) byType.set(type, []);

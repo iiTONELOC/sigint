@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ChevronLeft, X, Sparkles } from "lucide-react";
+import {
+  ChevronRight,
+  ChevronLeft,
+  X,
+  Sparkles,
+  GripHorizontal,
+} from "lucide-react";
 import { cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import {
@@ -116,7 +122,22 @@ function computeTooltipPos(
   placement: StepPlacement,
   tooltipW: number,
   tooltipH: number,
+  stepId?: string,
 ): { x: number; y: number } {
+  // Steps with dropdown menus — push tooltip to bottom so menu is clear
+  const menuSteps = new Set([
+    "split-right",
+    "split-down",
+    "save-preset",
+    "save-video-preset",
+  ]);
+  if (placement === "center" && stepId && menuSteps.has(stepId)) {
+    return {
+      x: (window.innerWidth - tooltipW) / 2,
+      y: window.innerHeight - tooltipH - 60,
+    };
+  }
+
   // Center placement — always centered on screen regardless of target
   if (placement === "center" || !target) {
     return {
@@ -249,38 +270,113 @@ function ClickIndicator({
     left: "50%",
   });
 
-  useEffect(() => {
-    const el = document.querySelector('[data-tour="globe-pane"]');
-    if (!el) return;
-    const r = el.getBoundingClientRect();
+  const recalc = useCallback(() => {
+    const canvas = document.querySelector('[data-tour="globe-pane"] canvas');
+    if (!canvas) return;
+    const r = canvas.getBoundingClientRect();
+    // Globe rendering: center = canvas center, radius = min(W,H) * 0.4 at zoom 1
+    // (from projection.ts: projGlobe uses Math.min(W, H) * 0.4 * zoomGlobe)
+    const W = r.width;
+    const H = r.height;
+    const globeR = Math.min(W, H) * 0.4; // default zoom = 1
+    const cx = r.left + W / 2;
+    const cy = r.top + H / 2;
 
     if (mode === "select") {
-      // The globe sphere is centered in the pane. Its radius is roughly half the min dimension.
-      const globeR = Math.min(r.width, r.height) / 2;
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      // North America on default rotation: roughly 20° up from center, 15° left of center
+      // Over North America — slight offset up and left of sphere center
       setPos({
-        top: `${cy - globeR * 0.2}px`,
+        top: `${cy - globeR * 0.115}px`,
         left: `${cx - globeR * 0.15}px`,
       });
     } else {
-      // Outside globe on the RIGHT side — detail panel is likely on left after drag step
-      setPos({
-        top: `${r.top + r.height * 0.7}px`,
-        left: `${r.left + r.width * 0.88}px`,
-      });
+      // Runtime collision check — find empty space avoiding globe, panel, and tooltip
+      const canvas = document.querySelector('[data-tour="globe-pane"] canvas');
+      if (!canvas) return;
+      const cr = canvas.getBoundingClientRect();
+
+      // Collect all obstacle rects
+      const obstacles: DOMRect[] = [];
+
+      // Globe sphere as a rect
+      const sphereRect = new DOMRect(
+        cx - globeR,
+        cy - globeR,
+        globeR * 2,
+        globeR * 2,
+      );
+      obstacles.push(sphereRect);
+
+      // Detail panel
+      const panel = document
+        .querySelector('[data-tour="detail-drag-handle"]')
+        ?.closest("div.absolute, div.fixed");
+      if (panel) obstacles.push(panel.getBoundingClientRect());
+
+      // Walkthrough tooltip
+      const tooltip = document.querySelector(".cursor-grab");
+      if (tooltip) obstacles.push(tooltip.getBoundingClientRect());
+
+      // Indicator is ~80x50 including rings and label
+      const IW = 100;
+      const IH = 80;
+
+      // Candidate positions — corners and midpoints of canvas dark areas
+      const candidates = [
+        { x: cr.left + 60, y: cr.top + cr.height - 80 }, // bottom-left
+        { x: cr.left + cr.width - 60, y: cr.top + cr.height - 80 }, // bottom-right
+        { x: cr.left + 60, y: cr.top + 60 }, // top-left
+        { x: cr.left + cr.width - 60, y: cr.top + 60 }, // top-right
+        { x: cr.left + 60, y: cy }, // mid-left
+        { x: cr.left + cr.width - 60, y: cy }, // mid-right
+        { x: cx, y: cr.top + cr.height - 60 }, // bottom-center
+        { x: cx, y: cr.top + 60 }, // top-center
+      ];
+
+      const overlaps = (px: number, py: number) => {
+        for (const ob of obstacles) {
+          if (
+            px + IW / 2 > ob.left &&
+            px - IW / 2 < ob.right &&
+            py + IH / 2 > ob.top &&
+            py - IH / 2 < ob.bottom
+          )
+            return true;
+        }
+        return false;
+      };
+
+      // Pick the first candidate that doesn't overlap anything
+      let best = candidates[0]!;
+      for (const c of candidates) {
+        if (!overlaps(c.x, c.y)) {
+          best = c;
+          break;
+        }
+      }
+
+      setPos({ top: `${best.y}px`, left: `${best.x}px` });
     }
   }, [mode]);
+
+  useEffect(() => {
+    recalc();
+    window.addEventListener("resize", recalc);
+    // For deselect/focus modes, poll since panel/tooltip can move
+    const iv = mode !== "select" ? setInterval(recalc, 300) : null;
+    return () => {
+      window.removeEventListener("resize", recalc);
+      if (iv) clearInterval(iv);
+    };
+  }, [recalc, mode]);
 
   const label = mode === "select" ? "CLICK A POINT" : "CLICK EMPTY SPACE";
 
   const isWarn = mode === "focus";
-  const dotColor = isWarn ? "#f5a623" : "var(--sigint-accent, #00d4f0)";
-  const ringRgba1 = isWarn ? "rgba(245,166,35,0.3)" : "rgba(0,212,240,0.3)";
-  const ringRgba2 = isWarn ? "rgba(245,166,35,0.2)" : "rgba(0,212,240,0.2)";
-  const glowRgba = isWarn ? "rgba(245,166,35,0.6)" : "rgba(0,212,240,0.6)";
-  const labelColor = isWarn ? "rgba(245,166,35,0.7)" : "rgba(0,212,240,0.7)";
+  const dotColor = isWarn ? "#f5a623" : "#00d4f0";
+  const ringRgba1 = isWarn ? "rgba(245,166,35,0.6)" : "rgba(0,212,240,0.6)";
+  const ringRgba2 = isWarn ? "rgba(245,166,35,0.4)" : "rgba(0,212,240,0.4)";
+  const glowRgba = isWarn ? "rgba(245,166,35,0.9)" : "rgba(0,212,240,0.9)";
+  const labelColor = isWarn ? "#f5a623" : "#00d4f0";
 
   return createPortal(
     <div
@@ -292,11 +388,11 @@ function ClickIndicator({
         style={{
           top: "50%",
           left: "50%",
-          width: 60,
-          height: 60,
-          marginTop: -30,
-          marginLeft: -30,
-          border: `1.5px solid ${ringRgba1}`,
+          width: 80,
+          height: 80,
+          marginTop: -40,
+          marginLeft: -40,
+          border: `2px solid ${ringRgba1}`,
           animation: "wt-ring 2s ease-out infinite",
         }}
       />
@@ -305,11 +401,11 @@ function ClickIndicator({
         style={{
           top: "50%",
           left: "50%",
-          width: 60,
-          height: 60,
-          marginTop: -30,
-          marginLeft: -30,
-          border: `1.5px solid ${ringRgba2}`,
+          width: 80,
+          height: 80,
+          marginTop: -40,
+          marginLeft: -40,
+          border: `2px solid ${ringRgba2}`,
           animation: "wt-ring 2s ease-out infinite 0.6s",
         }}
       />
@@ -318,22 +414,23 @@ function ClickIndicator({
         style={{
           top: "50%",
           left: "50%",
-          width: 10,
-          height: 10,
-          marginTop: -5,
-          marginLeft: -5,
+          width: 14,
+          height: 14,
+          marginTop: -7,
+          marginLeft: -7,
           backgroundColor: dotColor,
           animation: "pulse 1.5s infinite",
-          boxShadow: `0 0 12px ${glowRgba}`,
+          boxShadow: `0 0 20px ${glowRgba}, 0 0 40px ${glowRgba}`,
         }}
       />
       <div
-        className="absolute text-[10px] tracking-widest font-semibold whitespace-nowrap"
+        className="absolute text-[11px] tracking-widest font-bold whitespace-nowrap"
         style={{
           top: "50%",
           left: "50%",
-          transform: "translate(-50%, 24px)",
+          transform: "translate(-50%, 30px)",
           color: labelColor,
+          textShadow: `0 0 8px ${glowRgba}`,
         }}
       >
         {label}
@@ -344,6 +441,96 @@ function ClickIndicator({
           100% { transform: scale(3); opacity: 0; }
         }
       `}</style>
+    </div>,
+    document.body,
+  );
+}
+
+// ── Landing zone — shows where to drag the detail panel ──────────────
+
+function LandingZone({ onDrop }: { readonly onDrop: () => void }) {
+  const [rect, setRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [dropped, setDropped] = useState(false);
+
+  useEffect(() => {
+    const calc = () => {
+      const canvas = document.querySelector('[data-tour="globe-pane"] canvas');
+      if (!canvas) return;
+      const r = canvas.getBoundingClientRect();
+      setRect({
+        top: r.top + 40,
+        left: r.left + 12,
+        width: r.width * 0.28,
+        height: r.height * 0.55,
+      });
+    };
+    calc();
+    window.addEventListener("resize", calc);
+    return () => window.removeEventListener("resize", calc);
+  }, []);
+
+  // Detect drop — only check position after pointer is released
+  useEffect(() => {
+    if (dropped || !rect) return;
+    let dragging = false;
+    const onDown = () => {
+      dragging = true;
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      // Check position after release
+      setTimeout(() => {
+        const handle = document.querySelector(
+          '[data-tour="detail-drag-handle"]',
+        );
+        if (!handle) return;
+        const hr = handle.getBoundingClientRect();
+        const hcx = hr.left + hr.width / 2;
+        if (hcx >= rect.left && hcx <= rect.left + rect.width) {
+          setDropped(true);
+          setTimeout(() => onDrop(), 600);
+        }
+      }, 50);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("pointerup", onUp);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointerup", onUp);
+    };
+  }, [rect, dropped, onDrop]);
+
+  if (!rect || dropped) return null;
+
+  return createPortal(
+    <div
+      className="fixed z-[9996] pointer-events-none"
+      style={{
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        border: "2px dashed rgba(0,212,240,0.3)",
+        borderRadius: 8,
+        background: "rgba(0,212,240,0.03)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "pulse 2s infinite",
+      }}
+    >
+      <span
+        className="text-[10px] tracking-widest font-bold"
+        style={{ color: "rgba(0,212,240,0.5)" }}
+      >
+        DROP HERE
+      </span>
     </div>,
     document.body,
   );
@@ -370,10 +557,63 @@ export function Walkthrough({
   const baselinePresetCountRef = useRef<number | null>(null);
   const prevLeafTypesRef = useRef<Set<string>>(new Set(["globe"]));
 
+  // Draggable tooltip — window listeners for touch support
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragRef.current) return;
+      setDragOffset({
+        x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
+        y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
+  const onTooltipPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      if (!tooltipPos) return;
+      e.preventDefault();
+      const cur = dragOffset ?? { x: 0, y: 0 };
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: cur.x,
+        origY: cur.y,
+      };
+    },
+    [tooltipPos, dragOffset],
+  );
+
+  // Reset drag offset on step change
+  useEffect(() => {
+    setDragOffset(null);
+  }, [stepIdx, phase]);
+
   const leafTypes = useWalkthroughLeafTypes();
   const leafCount = useWalkthroughLeafCount();
   const presetCount = useWalkthroughPresetCount();
-  const { selectedCurrent, chromeHidden } = useData();
+  const { selectedCurrent, chromeHidden, setSelected } = useData();
   const videoPresetCount = useVideoPresetCount();
 
   const steps: WalkthroughStep[] =
@@ -498,6 +738,7 @@ export function Walkthrough({
         currentStep.placement,
         ttRect.width,
         ttRect.height,
+        currentStep.id,
       );
       setTooltipPos(pos);
     });
@@ -548,8 +789,14 @@ export function Walkthrough({
   }, [phase, isLastInPhase, markComplete, skipTransition]);
 
   const handleBack = useCallback(() => {
-    if (stepIdx > 0) setStepIdx((i) => i - 1);
-  }, [stepIdx]);
+    if (stepIdx <= 0) return;
+    const prevStep = steps[stepIdx - 1];
+    // Going back to globe-select: deselect so completionCheck resets
+    if (prevStep?.id === "globe-select") {
+      setSelected(null);
+    }
+    setStepIdx((i) => i - 1);
+  }, [stepIdx, steps, setSelected]);
 
   const handleAcceptAdvanced = useCallback(() => {
     setPhase("advanced");
@@ -653,6 +900,9 @@ export function Walkthrough({
   return (
     <>
       {showClickIndicator && <ClickIndicator mode={clickMode} />}
+      {currentStep.id === "globe-drag-detail" && (
+        <LandingZone onDrop={() => setStepIdx((i) => i + 1)} />
+      )}
       {primaryRingSelector && (
         <HighlightRing
           key={`p-${currentStep?.id}`}
@@ -732,23 +982,30 @@ export function Walkthrough({
 
           <div
             ref={tooltipRef}
-            className="absolute"
+            className="absolute cursor-grab active:cursor-grabbing"
+            onPointerDown={onTooltipPointerDown}
             style={{
-              left: tooltipPos?.x ?? -9999,
-              top: tooltipPos?.y ?? -9999,
+              touchAction: "none",
+              left: (tooltipPos?.x ?? -9999) + (dragOffset?.x ?? 0),
+              top: (tooltipPos?.y ?? -9999) + (dragOffset?.y ?? 0),
               opacity: tooltipPos ? 1 : 0,
               maxWidth: TOOLTIP_MAX_W,
               pointerEvents: "auto",
-              transition:
-                "opacity 0.2s ease-out, left 0.25s ease-out, top 0.25s ease-out",
+              transition: dragRef.current
+                ? "opacity 0.2s ease-out"
+                : "opacity 0.2s ease-out, left 0.25s ease-out, top 0.25s ease-out",
             }}
           >
             <div className="bg-sig-panel border border-sig-border/80 rounded-lg shadow-2xl overflow-hidden">
               <div
                 className={`h-0.5 ${isAction ? "bg-sig-warn" : "bg-sig-accent"}`}
               />
+              {/* Drag handle */}
+              <div className="flex justify-center py-1 text-sig-dim/30 cursor-grab active:cursor-grabbing">
+                <GripHorizontal size={14} />
+              </div>
 
-              <div className="px-4 pt-3 pb-4">
+              <div className="px-4 pt-0 pb-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] text-sig-dim tracking-widest font-semibold">
                     {stepIdx + 1} / {totalInPhase}
@@ -807,7 +1064,7 @@ export function Walkthrough({
 
                   <div className="flex-1" />
 
-                  {stepIdx > 0 && !isAction && (
+                  {stepIdx > 0 && (
                     <button
                       onClick={handleBack}
                       className="px-2.5 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors flex items-center gap-1"

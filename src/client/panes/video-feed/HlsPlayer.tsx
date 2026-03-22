@@ -92,6 +92,9 @@ export function HlsPlayer({
         userSeekedRef.current = true;
         tick((n) => n + 1);
       },
+      getVideoElement() {
+        return videoRef.current;
+      },
     };
     const iv = setInterval(() => tick((n) => n + 1), 1000);
     return () => {

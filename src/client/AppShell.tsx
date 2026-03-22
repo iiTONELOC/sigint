@@ -11,8 +11,9 @@ import {
   onWalkthroughLaunch,
   type WalkthroughLaunchMode,
 } from "@/panes/paneLayoutContext";
-import { cacheGet } from "@/lib/storageService";
+import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { GripHorizontal } from "lucide-react";
 
 export function AppShell() {
   const {
@@ -42,29 +43,63 @@ export function AppShell() {
 
   // Listen for walkthrough launch from SettingsModal
   useEffect(() => {
-    return onWalkthroughLaunch((mode) => {
+    const unsub = onWalkthroughLaunch((mode) => {
       setWalkthroughMode(mode);
       setShowWalkthrough(true);
     });
+    return () => {
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
     let mounted = true;
-    // Check if walkthrough was already completed
+    let timer: ReturnType<typeof setTimeout> | null = null;
     cacheGet<boolean>(CACHE_KEYS.walkthroughComplete).then((done) => {
       if (!mounted) return;
       if (!done) {
-        // Delay to let data load and globe render before overlay
-        const timer = setTimeout(() => {
+        timer = setTimeout(() => {
           if (mounted) setShowWalkthrough(true);
         }, 2500);
-        return () => clearTimeout(timer);
       }
     });
     return () => {
       mounted = false;
+      if (timer) clearTimeout(timer);
     };
   }, []);
+
+  // ── Ticker height mode ──────────────────────────────────────────
+  type TickerMode = "full" | "compact" | "collapsed";
+  const [tickerMode, setTickerMode] = useState<TickerMode>("full");
+
+  useEffect(() => {
+    cacheGet<TickerMode>(CACHE_KEYS.tickerHeight).then((saved) => {
+      if (saved === "full" || saved === "compact" || saved === "collapsed") {
+        setTickerMode(saved);
+      }
+    });
+  }, []);
+
+  const cycleTickerMode = () => {
+    const isMobile = window.innerWidth < 768;
+    setTickerMode((prev) => {
+      let next: TickerMode;
+      if (isMobile) {
+        // Mobile: just toggle show/hide (always compact when visible)
+        next = prev === "collapsed" ? "compact" : "collapsed";
+      } else {
+        next =
+          prev === "full"
+            ? "compact"
+            : prev === "compact"
+              ? "collapsed"
+              : "full";
+      }
+      cacheSet(CACHE_KEYS.tickerHeight, next);
+      return next;
+    });
+  };
 
   return (
     <div
@@ -106,19 +141,56 @@ export function AppShell() {
 
       {/* ── TICKER ── */}
       {!chromeHidden && (
-        <div
-          data-tour="ticker"
-          className="shrink-0 px-2 md:px-3 pt-0.5 md:pt-1 pb-1 md:pb-2 border-t border-sig-border bg-sig-panel/95"
-          style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
-        >
-          <div className="tracking-wider mb-0.5 hidden md:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
-            <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
-              ●
-            </span>{" "}
-            LIVE FEED
+        <>
+          {/* Grip bar — always visible, full width */}
+          <div
+            onClick={cycleTickerMode}
+            className="shrink-0 border-t border-sig-border bg-sig-panel/95 cursor-pointer hover:bg-sig-accent/5 transition-colors group"
+          >
+            <div className="flex items-center justify-center gap-2 py-1">
+              <GripHorizontal
+                size={14}
+                className="text-sig-dim/40 group-hover:text-sig-accent/60 transition-colors"
+              />
+              <span className="text-[10px] tracking-widest text-sig-dim/60 group-hover:text-sig-accent/60 transition-colors font-semibold">
+                {tickerMode === "collapsed"
+                  ? "SHOW LIVE FEED"
+                  : tickerMode === "compact"
+                    ? "EXPAND"
+                    : "COLLAPSE"}
+              </span>
+              <GripHorizontal
+                size={14}
+                className="text-sig-dim/40 group-hover:text-sig-accent/60 transition-colors"
+              />
+            </div>
           </div>
-          <Ticker items={tickerItems} />
-        </div>
+          {/* Ticker content */}
+          {tickerMode !== "collapsed" && (
+            <div
+              data-tour="ticker"
+              className={`shrink-0 px-2 md:px-3 bg-sig-panel/95 ${
+                tickerMode === "compact"
+                  ? "py-0.5"
+                  : "pt-0.5 md:pt-1 pb-1 md:pb-2"
+              }`}
+              style={{
+                paddingBottom:
+                  tickerMode === "full"
+                    ? "max(0.25rem, env(safe-area-inset-bottom))"
+                    : undefined,
+              }}
+            >
+              <div className="tracking-wider mb-0.5 hidden md:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
+                <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
+                  ●
+                </span>{" "}
+                LIVE FEED
+              </div>
+              <Ticker items={tickerItems} compact={tickerMode === "compact"} />
+            </div>
+          )}
+        </>
       )}
 
       {/* ── WALKTHROUGH OVERLAY ── */}

@@ -10,6 +10,7 @@ import { featureRegistry } from "@/features/registry";
 
 type TickerProps = {
   readonly items: DataPoint[];
+  readonly compact?: boolean;
 };
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -106,12 +107,13 @@ function useItemWidth(): number {
 
 // ── Component ───────────────────────────────────────────────────────
 
-export function Ticker({ items }: Readonly<TickerProps>) {
+export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const { selectedCurrent, selectAndZoom, colorMap } = useData();
   const selectedId = selectedCurrent?.id ?? null;
   const { theme } = useTheme();
   const C = theme.colors;
-  const itemWidth = useItemWidth();
+  const baseItemWidth = useItemWidth();
+  const itemWidth = compact ? ITEM_WIDTH_MOBILE : baseItemWidth;
   const speed = useTickerSpeed();
 
   useAgeRefresh();
@@ -268,8 +270,8 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                 borderLeft: `3px solid ${color}`,
               }}
             >
-              {/* Compact single-line mode for small/medium screens */}
-              <div className="md:hidden flex items-center gap-1.5 px-2 py-1 min-h-8">
+              {/* Compact single-line mode */}
+              <div className={compact ? "flex items-center gap-1.5 px-2 py-1 min-h-8" : "md:hidden flex items-center gap-1.5 px-2 py-1 min-h-8"}>
                 <Icon
                   size={11}
                   style={{ color }}
@@ -288,6 +290,7 @@ export function Ticker({ items }: Readonly<TickerProps>) {
               </div>
 
               {/* Full card mode for desktop */}
+              {!compact && (
               <div className="hidden md:block px-2.5 py-1.5 h-22.5">
                 <div className="flex justify-between mb-0.5">
                   <span
@@ -308,6 +311,7 @@ export function Ticker({ items }: Readonly<TickerProps>) {
                   dimColor={C.dim}
                 />
               </div>
+              )}
             </div>
           );
         })}
