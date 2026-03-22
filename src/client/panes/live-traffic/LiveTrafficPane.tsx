@@ -146,7 +146,7 @@ export function LiveTrafficPane() {
 
       {/* ── View controls — top-left overlay on globe ─────────────── */}
       {!chromeHidden && (
-        <div className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap">
+        <div data-tour="globe-controls" className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap">
           <Tooltip
             content={flat ? "Switch to globe view" : "Switch to flat map"}
             placement="bottom"

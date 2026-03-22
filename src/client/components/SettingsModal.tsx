@@ -758,6 +758,21 @@ function AboutTab() {
           <ExternalLink size={12} />
         </a>
       </div>
+
+      <div className="pt-2 border-t border-sig-border/30">
+        <div className="text-xs text-sig-dim tracking-widest mb-2">WALKTHROUGH</div>
+        <button
+          onClick={() => {
+            cacheDelete(CACHE_KEYS.walkthroughComplete);
+            window.location.reload();
+          }}
+          className="flex items-center gap-2 px-3 py-2 rounded text-sm text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full"
+        >
+          <RotateCcw size={14} />
+          <span className="font-semibold tracking-wider">RESTART TOUR</span>
+          <span className="text-xs ml-auto opacity-60">Reloads page</span>
+        </button>
+      </div>
     </div>
   );
 }

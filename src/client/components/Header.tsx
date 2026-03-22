@@ -103,44 +103,48 @@ function Toggles({
 
   return (
     <>
-      {searchSlot}
+      <div data-tour="search">{searchSlot}</div>
       <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
-      {featureList
-        .filter((f) => f.id !== "aircraft")
-        .map((f) => {
-          const on = layers[f.id] ?? false;
-          const color = colorMap[f.id] ?? C.dim;
-          const status = sourceStatusMap.get(f.id);
-          const count = counts[f.id] ?? 0;
-          const down = isSourceDown(status, count, f.id);
-          return (
-            <LayerToggle
-              key={f.id}
-              label={f.label}
-              icon={f.icon}
-              on={on}
-              color={color}
-              count={count}
-              down={down}
-              iconProps={f.iconProps}
-              onToggle={() => toggleLayer(f.id)}
-            />
-          );
-        })}
-      <AircraftFilterControl
-        aircraftFilter={aircraftFilter}
-        setAircraftFilter={setAircraftFilter}
-        aircraftCount={counts.aircraft ?? 0}
-        aircraftColor={colorMap.aircraft ?? C.aircraft}
-        availableCountries={availableCountries}
-        colors={{
-          panel: C.panel,
-          border: C.border,
-          bright: mode === "dark" ? "#00b8d4" : C.accent,
-          dim: C.dim,
-          danger: C.danger,
-        }}
-      />
+      <div data-tour="layer-toggles" className="flex items-center gap-0.5 sm:gap-1">
+        {featureList
+          .filter((f) => f.id !== "aircraft")
+          .map((f) => {
+            const on = layers[f.id] ?? false;
+            const color = colorMap[f.id] ?? C.dim;
+            const status = sourceStatusMap.get(f.id);
+            const count = counts[f.id] ?? 0;
+            const down = isSourceDown(status, count, f.id);
+            return (
+              <LayerToggle
+                key={f.id}
+                label={f.label}
+                icon={f.icon}
+                on={on}
+                color={color}
+                count={count}
+                down={down}
+                iconProps={f.iconProps}
+                onToggle={() => toggleLayer(f.id)}
+              />
+            );
+          })}
+        <div data-tour="aircraft-filter">
+          <AircraftFilterControl
+            aircraftFilter={aircraftFilter}
+            setAircraftFilter={setAircraftFilter}
+            aircraftCount={counts.aircraft ?? 0}
+            aircraftColor={colorMap.aircraft ?? C.aircraft}
+            availableCountries={availableCountries}
+            colors={{
+              panel: C.panel,
+              border: C.border,
+              bright: mode === "dark" ? "#00b8d4" : C.accent,
+              dim: C.dim,
+              danger: C.danger,
+            }}
+        />
+        </div>
+      </div>
     </>
   );
 }
@@ -161,7 +165,7 @@ export function Header(props: Readonly<HeaderProps>) {
       {/* ── LARGE SCREENS: Single row ─────────────────────────────── */}
       <div className="hidden lg:flex items-center gap-1.5 px-3 md:px-4 py-1.5">
         {/* Logo */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div data-tour="header-brand" className="flex items-center gap-2 shrink-0">
           <div className="w-1.75 h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
           <span className="font-bold tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
             SIGINT
@@ -194,6 +198,7 @@ export function Header(props: Readonly<HeaderProps>) {
           </div>
           <Tooltip content="Settings" placement="bottom">
             <button
+              data-tour="settings-button"
               onClick={() => setShowSettings(true)}
               className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
             >
@@ -206,7 +211,7 @@ export function Header(props: Readonly<HeaderProps>) {
       {/* ── SMALL SCREENS: Two rows ───────────────────────────────── */}
       <div className="lg:hidden">
         <div className="flex items-center justify-between px-2 sm:px-3 py-1 sm:py-1.5">
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div data-tour="header-brand" className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
             <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
               SIGINT
@@ -229,6 +234,7 @@ export function Header(props: Readonly<HeaderProps>) {
               </div>
             </div>
             <button
+              data-tour="settings-button"
               onClick={() => setShowSettings(true)}
               className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
               title="Settings"
