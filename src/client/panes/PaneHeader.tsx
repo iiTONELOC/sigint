@@ -170,7 +170,7 @@ export function PaneHeader({
                     onChangePaneType(opt.id);
                     setShowMenu(false);
                   }}
-                  className="w-full flex items-center gap-1.5 px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors"
+                  className="w-full flex items-center gap-1.5 px-2.5 py-2 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors min-h-11"
                 >
                   <OptIcon
                     size={11}
@@ -196,16 +196,16 @@ export function PaneHeader({
 
       <div className="flex-1" />
 
-      {/* Control buttons — grouped tighter */}
+      {/* Control buttons — touch-friendly (min 36px targets) */}
       <div className="flex items-center">
         {onSplitH && (
           <Tooltip content="Split right" placement="bottom">
             <button
               data-tour={paneType === "globe" ? "split-right-btn" : undefined}
               onClick={onSplitH}
-              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
-              <Columns2 size={11} strokeWidth={2.5} />
+              <Columns2 size={13} strokeWidth={2.5} />
             </button>
           </Tooltip>
         )}
@@ -214,9 +214,9 @@ export function PaneHeader({
             <button
               data-tour={paneType === "globe" ? "split-down-btn" : undefined}
               onClick={onSplitV}
-              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
-              <Rows2 size={11} strokeWidth={2.5} />
+              <Rows2 size={13} strokeWidth={2.5} />
             </button>
           </Tooltip>
         )}
@@ -227,12 +227,12 @@ export function PaneHeader({
         >
           <button
             onClick={() => setChromeHidden((v) => !v)}
-            className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
             {chromeHidden ? (
-              <Minimize2 size={11} strokeWidth={2.5} />
+              <Minimize2 size={13} strokeWidth={2.5} />
             ) : (
-              <Maximize2 size={11} strokeWidth={2.5} />
+              <Maximize2 size={13} strokeWidth={2.5} />
             )}
           </button>
         </Tooltip>
@@ -240,9 +240,9 @@ export function PaneHeader({
         <Tooltip content="Minimize" placement="bottom">
           <button
             onClick={onMinimize}
-            className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
-            <Minus size={11} strokeWidth={2.5} />
+            <Minus size={13} strokeWidth={2.5} />
           </button>
         </Tooltip>
 
@@ -250,9 +250,9 @@ export function PaneHeader({
           <Tooltip content="Close pane" placement="bottom">
             <button
               onClick={onClose}
-              className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
             >
-              <X size={11} strokeWidth={2.5} />
+              <X size={13} strokeWidth={2.5} />
             </button>
           </Tooltip>
         )}

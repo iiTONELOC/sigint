@@ -274,6 +274,7 @@ export function DetailPanel({
         onPointerUp={drag.onPointerUp}
       >
         <div
+          data-tour="detail-drag-handle"
           className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing"
           onPointerDown={drag.onPointerDown}
         >
@@ -367,7 +368,7 @@ function PanelContent({
           </div>
           <span
             onClick={onClose}
-            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim min-w-8 min-h-8 flex items-center justify-center hover:text-sig-bright transition-colors"
+            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim min-w-9 min-h-9 flex items-center justify-center hover:text-sig-bright transition-colors"
           >
             ✕
           </span>

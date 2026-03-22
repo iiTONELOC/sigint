@@ -298,7 +298,7 @@ export function Search({
         </button>
         <button
           onClick={clearFilter}
-          className="text-sig-dim bg-transparent border-none p-0 pl-0.5"
+          className="text-sig-dim bg-transparent border-none p-0 pl-0.5 min-w-9 min-h-9 flex items-center justify-center"
           title="Clear filter"
         >
           <X size={12} strokeWidth={2.5} />

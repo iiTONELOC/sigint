@@ -75,12 +75,13 @@ export function PresetMenu({
           </button>
         </div>
       ))}
-      <div className="border-t border-sig-border/30 mt-1 pt-1 px-2 flex items-center gap-1">
+      <div className="border-t border-sig-border/30 mt-1 pt-1 px-2 flex items-center gap-3">
         <input
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="Preset name..."
+          data-tour="video-preset-input"
           className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) min-w-0 caret-sig-accent"
           onKeyDown={(e) => {
             if (e.key === "Enter" && newName.trim()) {
@@ -100,6 +101,7 @@ export function PresetMenu({
           }}
           className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
           title="Save current as preset"
+          data-tour="video-preset-save-btn"
         >
           <Save size={11} />
         </button>

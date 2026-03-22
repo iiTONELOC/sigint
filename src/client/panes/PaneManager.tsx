@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useData } from "@/context/DataContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTable } from "@/panes/data-table";
@@ -104,6 +105,8 @@ export function PaneManager() {
   const layoutLoaded = useRef(false);
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
 
   useEffect(() => {
     let mounted = true;
@@ -258,8 +261,42 @@ export function PaneManager() {
   }, []);
 
   // ── Walkthrough: reset to globe-only on tour start ──────────────
+  // If user has a non-default layout, save it as a preset first so it's not lost.
   useEffect(() => {
     return onWalkthroughReset(() => {
+      const cur = layoutRef.current;
+      const count = leafCount(cur.root);
+      const hasMinimized = cur.minimized.length > 0;
+      const leaves = collectLeaves(cur.root);
+      const isDefaultGlobe = count === 1 && !hasMinimized && leaves[0]?.paneType === "globe";
+
+      // Skip if layout is the walkthrough layout (globe + video-feed + alert-log)
+      const curTypes = leaves.map((l) => l.paneType).sort().join(",");
+      const isWalkthroughLayout = curTypes === "alert-log,globe,video-feed";
+
+      // Check if current layout already matches a saved preset
+      const existing = presetsRef.current;
+      const matchesPreset = existing.some((p) => {
+        const pLeaves = collectLeaves(p.state.root);
+        return pLeaves.map((l) => l.paneType).sort().join(",") === curTypes;
+      });
+
+      if (!isDefaultGlobe && !isWalkthroughLayout && !matchesPreset) {
+        const preTourIdx = existing.findIndex(
+          (p) => p.name === "Pre-Tour Layout",
+        );
+        let next: LayoutPreset[];
+        if (preTourIdx >= 0) {
+          next = existing.map((p, i) =>
+            i === preTourIdx ? { ...p, state: cur } : p,
+          );
+        } else {
+          next = [...existing, { name: "Pre-Tour Layout", state: cur }];
+        }
+        setPresets(next);
+        savePresets(next, isMobileRef.current);
+      }
+
       setLayout({ root: leaf("globe"), minimized: [] });
     });
   }, []);
@@ -581,6 +618,8 @@ export function PaneManager() {
   const [splitMenu, setSplitMenu] = useState<{
     leafId: string;
     dir: "h" | "v";
+    top: number;
+    left: number;
   } | null>(null);
   const splitMenuRef = useRef<HTMLDivElement>(null);
 
@@ -603,6 +642,8 @@ export function PaneManager() {
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<LayoutPreset[]>([]);
   const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const presetsRef = useRef(presets);
+  presetsRef.current = presets;
 
   // ── Walkthrough: push layout snapshot for action step detection ──
   useEffect(() => {
@@ -666,10 +707,14 @@ export function PaneManager() {
   const renderSplitMenu = (leafId: string, dir: "h" | "v") => {
     if (!splitMenu || splitMenu.leafId !== leafId || splitMenu.dir !== dir)
       return null;
-    return (
+    return createPortal(
       <div
         ref={splitMenuRef}
-        className="absolute right-0 top-full mt-1 z-50 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
+        className="fixed z-[80] rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
+        style={{
+          top: splitMenu.top,
+          left: Math.max(8, Math.min(splitMenu.left, window.innerWidth - 200)),
+        }}
       >
         {availableTypes.map((type) => {
           const meta = PANE_META[type];
@@ -682,14 +727,15 @@ export function PaneManager() {
                 splitPane(leafId, dir, type);
                 setSplitMenu(null);
               }}
-              className="w-full text-left px-3 py-2 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
+              className="w-full text-left px-3 py-2.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
             >
               <Icon size={14} strokeWidth={2.5} className="text-sig-accent" />
               {meta.label}
             </button>
           );
         })}
-      </div>
+      </div>,
+      document.body,
     );
   };
 
@@ -826,29 +872,47 @@ export function PaneManager() {
               }
               onSplitH={
                 availableTypes.length > 0
-                  ? (_e: React.MouseEvent) => {
+                  ? (e: React.MouseEvent) => {
                       if (availableTypes.length === 1)
                         splitPane(node.id, "h", availableTypes[0]!);
-                      else
+                      else {
+                        const rect = (
+                          e.currentTarget as HTMLElement
+                        ).getBoundingClientRect();
                         setSplitMenu((prev) =>
                           prev?.leafId === node.id && prev.dir === "h"
                             ? null
-                            : { leafId: node.id, dir: "h" },
+                            : {
+                                leafId: node.id,
+                                dir: "h",
+                                top: rect.bottom + 4,
+                                left: rect.right - 200,
+                              },
                         );
+                      }
                     }
                   : undefined
               }
               onSplitV={
                 availableTypes.length > 0
-                  ? (_e: React.MouseEvent) => {
+                  ? (e: React.MouseEvent) => {
                       if (availableTypes.length === 1)
                         splitPane(node.id, "v", availableTypes[0]!);
-                      else
+                      else {
+                        const rect = (
+                          e.currentTarget as HTMLElement
+                        ).getBoundingClientRect();
                         setSplitMenu((prev) =>
                           prev?.leafId === node.id && prev.dir === "v"
                             ? null
-                            : { leafId: node.id, dir: "v" },
+                            : {
+                                leafId: node.id,
+                                dir: "v",
+                                top: rect.bottom + 4,
+                                left: rect.right - 200,
+                              },
                         );
+                      }
                     }
                   : undefined
               }
@@ -943,7 +1007,10 @@ export function PaneManager() {
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* Toolbar — minimized panes + layout presets */}
       {(layout.minimized.length > 0 || true) && (
-        <div data-tour="pane-toolbar" className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60">
+        <div
+          data-tour="pane-toolbar"
+          className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60"
+        >
           {layout.minimized.map((m, i) => {
             const meta = PANE_META[m.paneType];
             const Icon = meta.icon;

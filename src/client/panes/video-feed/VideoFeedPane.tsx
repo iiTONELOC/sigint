@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useWalkthroughActive, setVideoPresetCount } from "@/panes/paneLayoutContext";
 import {
   Square,
   Columns2,
@@ -36,6 +37,12 @@ export function VideoFeedPane() {
   useEffect(() => {
     loadPresets().then(setPresets);
   }, []);
+
+  // Push video preset count for walkthrough
+  useEffect(() => {
+    setVideoPresetCount(presets.length);
+  }, [presets]);
+
   const paneRef = useRef<HTMLDivElement>(null);
 
   // Restore saved state or default
@@ -97,6 +104,23 @@ export function VideoFeedPane() {
       setSlots(restored);
     }
   }, [savedState, channels]);
+
+  // Walkthrough: override to 2x1 NBC News NOW + OAN Encore when active
+  const walkthroughActive = useWalkthroughActive();
+  const walkthroughSetRef = useRef(false);
+  useEffect(() => {
+    if (!walkthroughActive || channels.length === 0 || walkthroughSetRef.current) return;
+    walkthroughSetRef.current = true;
+    const nbc = channels.find((c) => c.name.toLowerCase().includes("nbc news now"));
+    const oan = channels.find((c) => c.name.toLowerCase().includes("oan"));
+    if (nbc || oan) {
+      setGridLayout(2);
+      setSlots([
+        { channel: nbc ?? null, error: false, loading: false },
+        { channel: oan ?? null, error: false, loading: false },
+      ]);
+    }
+  }, [walkthroughActive, channels]);
 
   // Adjust slot count when grid changes
   useEffect(() => {
@@ -314,6 +338,7 @@ export function VideoFeedPane() {
               : "text-sig-dim bg-transparent hover:text-sig-bright"
           }`}
           title="Presets"
+          data-tour="video-preset-btn"
         >
           <Bookmark size={12} strokeWidth={2.5} />
         </button>

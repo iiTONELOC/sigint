@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useData } from "@/context/DataContext";
-import { useHasDossier, requestDossierOpen } from "@/panes/paneLayoutContext";
+import { useHasDossier, requestDossierOpen, useWalkthroughActive, useWalkthroughStepId } from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -53,6 +53,8 @@ export function LiveTrafficPane() {
   const [watchMenuOpen, setWatchMenuOpen] = useState(false);
   const watchMenuRef = useRef<HTMLDivElement>(null);
   const hasDossier = useHasDossier();
+  const walkthroughActive = useWalkthroughActive();
+  const walkthroughStepId = useWalkthroughStepId();
 
   // Close watch menu on outside click
   useEffect(() => {
@@ -96,10 +98,18 @@ export function LiveTrafficPane() {
     [chromeHidden, setChromeHidden, setSelected, setAutoRotate, setIsolateMode],
   );
 
+  // Step IDs where globe click-through is allowed during walkthrough
+  const WALKTHROUGH_CLICK_STEPS = new Set([
+    "globe-select", "globe-deselect", "focus-enter", "focus-exit",
+  ]);
+
   const handleRawCanvasClick = useCallback(() => {
     // On mobile, tapping empty canvas should NOT toggle chrome or deselect.
     // Users scroll via the vertical pane column; chrome toggle is desktop-only.
     if (window.innerWidth < 768) return;
+
+    // During walkthrough, only allow interaction on specific steps
+    if (walkthroughActive && !WALKTHROUGH_CLICK_STEPS.has(walkthroughStepId ?? "")) return;
 
     if (selectedCurrent) {
       setSelected(null);
@@ -114,7 +124,7 @@ export function LiveTrafficPane() {
       }
       return next;
     });
-  }, [selectedCurrent, setChromeHidden, setSelected, setIsolateMode]);
+  }, [selectedCurrent, setChromeHidden, setSelected, setIsolateMode, walkthroughActive, walkthroughStepId]);
 
   const handleClose = useCallback(() => {
     setSelected(null);
@@ -153,7 +163,7 @@ export function LiveTrafficPane() {
           >
             <button
               onClick={() => setFlat(!flat)}
-              className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors flex items-center gap-1"
+              className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors flex items-center gap-1"
             >
               {flat ? (
                 <>
@@ -174,7 +184,7 @@ export function LiveTrafficPane() {
           >
             <button
               onClick={() => setAutoRotate(!autoRotate)}
-              className={`px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors flex items-center gap-1 ${
+              className={`px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors flex items-center gap-1 ${
                 autoRotate
                   ? "text-sig-accent bg-sig-accent/15 border-sig-accent/45"
                   : "text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel"
@@ -201,7 +211,7 @@ export function LiveTrafficPane() {
               >
                 <button
                   onClick={() => setWatchMenuOpen((v) => !v)}
-                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel flex items-center gap-1"
+                  className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel flex items-center gap-1"
                 >
                   <Eye size={11} strokeWidth={2.5} /> WATCH
                 </button>
@@ -211,7 +221,7 @@ export function LiveTrafficPane() {
               <Tooltip content="Pause watch" placement="bottom">
                 <button
                   onClick={pauseWatch}
-                  className="px-1.5 py-0.5 rounded tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45 flex items-center gap-1"
+                  className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45 flex items-center gap-1"
                 >
                   <Pause size={11} strokeWidth={2.5} /> WATCH
                 </button>
@@ -222,7 +232,7 @@ export function LiveTrafficPane() {
                 <Tooltip content="Resume watch" placement="bottom">
                   <button
                     onClick={resumeWatch}
-                    className="px-1.5 py-0.5 rounded-l tracking-wider font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20 flex items-center gap-1"
+                    className="px-2 py-1 rounded-l tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20 flex items-center gap-1"
                   >
                     <Play size={11} strokeWidth={2.5} /> RESUME
                   </button>
@@ -230,7 +240,7 @@ export function LiveTrafficPane() {
                 <Tooltip content="Stop watch" placement="bottom">
                   <button
                     onClick={stopWatch}
-                    className="px-1 py-0.5 rounded-r tracking-wider font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger flex items-center justify-center"
+                    className="px-2 py-1 rounded-r tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger flex items-center justify-center"
                   >
                     <X size={12} strokeWidth={2.5} />
                   </button>
