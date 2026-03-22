@@ -11,10 +11,18 @@ import {
   Minus,
   ChevronRight,
   Maximize2,
+  Bookmark,
 } from "lucide-react";
-import type { PaneType, LeafNode, LayoutNode, LayoutState } from "./paneTree";
+import type {
+  PaneType,
+  LeafNode,
+  LayoutNode,
+  LayoutState,
+  LayoutPreset,
+} from "./paneTree";
 import { useData } from "@/context/DataContext";
 import { ResizeHandle } from "./ResizeHandle";
+import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import type { Globe } from "lucide-react";
 
 // ── Default heights per pane type ────────────────────────────────────
@@ -62,6 +70,12 @@ type PaneMobileProps = {
     targetLeafId: string,
     zone: "left" | "right" | "top" | "bottom",
   ) => void;
+  readonly presets?: LayoutPreset[];
+  readonly presetsLoaded?: boolean;
+  readonly onLoadPreset?: (p: LayoutPreset) => void;
+  readonly onSavePreset?: (name: string) => void;
+  readonly onUpdatePreset?: (idx: number) => void;
+  readonly onDeletePreset?: (idx: number) => void;
 };
 
 // ── Mobile block model ──────────────────────────────────────────────
@@ -145,8 +159,15 @@ export function PaneMobile({
   leafCount: totalLeafCount,
   swapPanes,
   insertPaneBeside,
+  presets,
+  presetsLoaded,
+  onLoadPreset,
+  onSavePreset,
+  onUpdatePreset,
+  onDeletePreset,
 }: PaneMobileProps) {
   const { colorMap, chromeHidden, selectedCurrent } = useData();
+  const [showPresets, setShowPresets] = useState(false);
 
   // ── Build blocks from layout tree ──────────────────────────────
   const rawBlocks = useMemo(
@@ -564,11 +585,11 @@ export function PaneMobile({
       return (
         <div className="flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden">
           {/* Per-pane header */}
-          <div className="shrink-0 flex items-center flex-wrap gap-0.5 px-1 py-px bg-sig-panel/80 border-b border-sig-border/40 select-none min-w-0">
+          <div className="shrink-0 flex flex-wrap items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b border-sig-border/40 select-none">
             {/* Move grip — tap to enter move mode for this leaf */}
             <button
               onClick={() => handleGripTap(lf.id)}
-              className={`shrink-0 bg-transparent border-none p-0 px-0.5 py-1 -ml-0.5 transition-colors ${
+              className={`bg-transparent border-none p-0 px-0.5 py-1 -ml-0.5 transition-colors ${
                 moveSourceLeafId === lf.id
                   ? "text-sig-accent"
                   : "text-sig-dim hover:text-sig-accent"
@@ -595,7 +616,7 @@ export function PaneMobile({
                       },
                 );
               }}
-              className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group min-w-0"
+              className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group"
             >
               <LfIcon
                 size={10}
@@ -612,9 +633,8 @@ export function PaneMobile({
               />
             </button>
 
-            <div className="flex-1 min-w-2" />
+            <div className="flex-1" />
 
-            {/* Controls — grouped so they wrap together */}
             <div className="flex items-center gap-0.5 shrink-0">
               {/* Pop out — extract from split into its own block */}
               {siblingLeafId && (
@@ -1008,6 +1028,43 @@ export function PaneMobile({
               </div>,
               document.body,
             )}
+
+          {/* VIEWS — layout presets */}
+          {presets && onLoadPreset && (
+            <div className="relative ml-auto shrink-0">
+              <button
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setShowPresets((v) => !v);
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 min-h-8 rounded text-sig-dim text-(length:--sig-text-sm) hover:text-sig-accent transition-colors"
+                title="Layout presets"
+              >
+                <Bookmark size={12} strokeWidth={2.5} />
+                VIEWS
+              </button>
+              {showPresets && (
+                <LayoutPresetMenu
+                  presets={presets}
+                  presetsLoaded={presetsLoaded ?? true}
+                  onLoad={(p) => {
+                    onLoadPreset(p);
+                    setShowPresets(false);
+                  }}
+                  onSave={(name) => {
+                    onSavePreset?.(name);
+                  }}
+                  onUpdate={(idx) => {
+                    onUpdatePreset?.(idx);
+                  }}
+                  onDelete={(idx) => {
+                    onDeletePreset?.(idx);
+                  }}
+                  onClose={() => setShowPresets(false)}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
 

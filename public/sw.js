@@ -97,15 +97,40 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
 
   // HTML navigation — network first so deploys land immediately
-  if (request.mode === "navigate" || url.pathname === "/") {
+  // On failure (offline), serve cached "/" for ANY navigation request.
+  // This is an SPA — all routes render the same index.html.
+  if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((response) => {
+          // Cache the HTML under both the actual URL and "/" for fallback
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, clone);
+            // Also ensure "/" is cached for offline fallback
+            if (url.pathname !== "/") {
+              cache.put(new Request("/"), response.clone());
+            }
+          });
           return response;
         })
-        .catch(() => caches.match("/").then((r) => r || caches.match(request))),
+        .catch(() =>
+          // Try exact URL first, then root, then any cached HTML
+          caches
+            .match(request)
+            .then((r) => r || caches.match("/"))
+            .then(
+              (r) => r || caches.match(new Request(self.location.origin + "/")),
+            )
+            .then(
+              (r) =>
+                r ||
+                new Response("Offline — no cached page available", {
+                  status: 503,
+                  headers: { "Content-Type": "text/plain" },
+                }),
+            ),
+        ),
     );
     return;
   }

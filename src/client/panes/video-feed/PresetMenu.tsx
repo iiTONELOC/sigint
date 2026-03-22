@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Save, Trash2, Pencil } from "lucide-react";
+import { Save, Trash2 } from "lucide-react";
 import type { Preset } from "./videoFeedTypes";
 
 export function PresetMenu({
@@ -64,7 +64,7 @@ export function PresetMenu({
             onClick={() => onUpdate(i)}
             className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
           >
-            <Pencil size={10} />
+            <Save size={10} />
           </button>
           <button
             title="Delete preset"

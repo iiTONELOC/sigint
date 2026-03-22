@@ -31,6 +31,24 @@ describe("cacheKeys", () => {
     expect(CACHE_KEYS.videoState).toBeDefined();
   });
 
+  test("mobile and desktop layout keys exist and are distinct", () => {
+    expect(CACHE_KEYS.layoutDesktop).toBeDefined();
+    expect(CACHE_KEYS.layoutMobile).toBeDefined();
+    expect(CACHE_KEYS.layoutPresetsDesktop).toBeDefined();
+    expect(CACHE_KEYS.layoutPresetsMobile).toBeDefined();
+    expect(CACHE_KEYS.layoutDesktop).not.toBe(CACHE_KEYS.layoutMobile);
+    expect(CACHE_KEYS.layoutPresetsDesktop).not.toBe(
+      CACHE_KEYS.layoutPresetsMobile,
+    );
+  });
+
+  test("legacy layout keys still exist for migration", () => {
+    expect(CACHE_KEYS.layout).toBeDefined();
+    expect(CACHE_KEYS.layoutPresets).toBeDefined();
+    expect(CACHE_KEYS.layout).not.toBe(CACHE_KEYS.layoutDesktop);
+    expect(CACHE_KEYS.layout).not.toBe(CACHE_KEYS.layoutMobile);
+  });
+
   test("every key has a label", () => {
     for (const value of Object.values(CACHE_KEYS)) {
       const label = CACHE_KEY_LABELS[value];

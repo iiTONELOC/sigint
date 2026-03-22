@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Save, Trash2, Pencil } from "lucide-react";
+import { Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "./paneTree";
 import { leafCount } from "./paneTree";
 
@@ -82,7 +82,7 @@ export function LayoutPresetMenu({
             onClick={() => onUpdate(i)}
             className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
           >
-            <Pencil size={10} />
+            <Save size={10} />
           </button>
           <button
             title="Delete preset"
