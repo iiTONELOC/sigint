@@ -1,6 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useData } from "@/context/DataContext";
-import { useHasDossier, requestDossierOpen, useWalkthroughActive, useWalkthroughStepId } from "@/panes/paneLayoutContext";
+import {
+  useHasDossier,
+  requestDossierOpen,
+  useWalkthroughActive,
+  useWalkthroughStepId,
+} from "@/panes/paneLayoutContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -100,7 +105,10 @@ export function LiveTrafficPane() {
 
   // Step IDs where globe click-through is allowed during walkthrough
   const WALKTHROUGH_CLICK_STEPS = new Set([
-    "globe-select", "globe-deselect", "focus-enter", "focus-exit",
+    "globe-select",
+    "globe-deselect",
+    "focus-enter",
+    "focus-exit",
   ]);
 
   const handleRawCanvasClick = useCallback(() => {
@@ -109,7 +117,11 @@ export function LiveTrafficPane() {
     if (window.innerWidth < 768) return;
 
     // During walkthrough, only allow interaction on specific steps
-    if (walkthroughActive && !WALKTHROUGH_CLICK_STEPS.has(walkthroughStepId ?? "")) return;
+    if (
+      walkthroughActive &&
+      !WALKTHROUGH_CLICK_STEPS.has(walkthroughStepId ?? "")
+    )
+      return;
 
     if (selectedCurrent) {
       setSelected(null);
@@ -124,7 +136,14 @@ export function LiveTrafficPane() {
       }
       return next;
     });
-  }, [selectedCurrent, setChromeHidden, setSelected, setIsolateMode, walkthroughActive, walkthroughStepId]);
+  }, [
+    selectedCurrent,
+    setChromeHidden,
+    setSelected,
+    setIsolateMode,
+    walkthroughActive,
+    walkthroughStepId,
+  ]);
 
   const handleClose = useCallback(() => {
     setSelected(null);
@@ -156,7 +175,10 @@ export function LiveTrafficPane() {
 
       {/* ── View controls — top-left overlay on globe ─────────────── */}
       {!chromeHidden && (
-        <div data-tour="globe-controls" className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap">
+        <div
+          data-tour="globe-controls"
+          className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap"
+        >
           <Tooltip
             content={flat ? "Switch to globe view" : "Switch to flat map"}
             placement="bottom"
@@ -305,6 +327,7 @@ export function LiveTrafficPane() {
               value={rotationSpeed}
               onChange={(e) => setRotationSpeed(Number(e.target.value))}
               className="w-12 md:w-15 cursor-pointer accent-sig-accent"
+              style={{ touchAction: "none" }}
             />
           </div>
         </div>

@@ -215,12 +215,22 @@ button:focus-visible {
 
 /* Touch devices: native scrollbars, auto-hide */
 @media (pointer: coarse) {
+  .touch-target {
+    min-height: 36px;
+    min-width: 36px;
+  }
   .sigint-scroll {
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
   .sigint-scroll::-webkit-scrollbar {
     display: none;
+  }
+  .touch-resize.cursor-col-resize {
+    width: 16px;
+  }
+  .touch-resize.cursor-row-resize {
+    height: 16px;
   }
 }
 

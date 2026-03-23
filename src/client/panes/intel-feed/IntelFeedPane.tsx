@@ -22,7 +22,6 @@ import {
   List,
 } from "lucide-react";
 import { relativeAge } from "@/lib/timeFormat";
-import { type IntelProduct } from "@/lib/correlationEngine";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -315,7 +314,7 @@ export function IntelFeedPane() {
         {/* View mode toggle */}
         <button
           onClick={() => setViewMode("intel")}
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+          className={`flex items-center gap-1 touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             viewMode === "intel"
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
               : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
@@ -326,7 +325,7 @@ export function IntelFeedPane() {
         </button>
         <button
           onClick={() => setViewMode("raw")}
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+          className={`flex items-center gap-1 touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             viewMode === "raw"
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
               : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
@@ -346,7 +345,7 @@ export function IntelFeedPane() {
             />
             <button
               onClick={() => setFeedFilter("all")}
-              className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+              className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
                 feedFilter === "all"
                   ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
                   : "text-sig-dim bg-transparent border-sig-border/40"
@@ -362,7 +361,7 @@ export function IntelFeedPane() {
                 <button
                   key={type}
                   onClick={() => setFeedFilter(active ? "all" : type)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+                  className={`flex items-center gap-1 touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
                     active
                       ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
                       : "text-sig-dim bg-transparent border-sig-border/40"

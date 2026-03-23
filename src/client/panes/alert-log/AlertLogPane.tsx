@@ -250,7 +250,7 @@ export function AlertLogPane() {
 
         <button
           onClick={() => setFilterType(null)}
-          className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
+          className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             filterType === null
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
               : "text-sig-dim bg-transparent border-sig-border/40"
@@ -265,7 +265,7 @@ export function AlertLogPane() {
             <button
               key={t}
               onClick={() => setFilterType(filterType === t ? null : t)}
-              className={`px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border flex items-center gap-1 ${
+              className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border flex items-center gap-1 ${
                 filterType === t
                   ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
                   : "text-sig-dim bg-transparent border-sig-border/40"
@@ -282,7 +282,7 @@ export function AlertLogPane() {
         {dismissed.size > 0 && (
           <button
             onClick={clearAllDismissed}
-            className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
+            className="touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
             title={`Restore ${dismissed.size} dismissed alert${dismissed.size > 1 ? "s" : ""}`}
           >
             <Trash2 size={9} strokeWidth={2.5} className="inline mr-0.5" />
@@ -292,7 +292,7 @@ export function AlertLogPane() {
 
         <button
           onClick={() => setSortBy((s) => (s === "score" ? "time" : "score"))}
-          className="px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright flex items-center gap-1"
+          className="touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright flex items-center gap-1"
           title={
             sortBy === "score"
               ? "Sorted by score — click for time"

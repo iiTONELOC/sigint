@@ -183,7 +183,7 @@ export function NewsFeedPane() {
         <Filter size={11} strokeWidth={2.5} className="text-sig-dim shrink-0" />
         <button
           onClick={() => updateSourceFilter(null)}
-          className={`shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
+          className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
             sourceFilter === null
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
               : "text-sig-dim bg-transparent border-sig-border/50"
@@ -199,7 +199,7 @@ export function NewsFeedPane() {
             <button
               key={src}
               onClick={() => updateSourceFilter(active ? null : src)}
-              className={`shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
+              className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
                 active
                   ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
                   : "text-sig-dim bg-transparent border-sig-border/50"

@@ -142,34 +142,11 @@ export function AppShell() {
       {/* ── TICKER ── */}
       {!chromeHidden && (
         <>
-          {/* Grip bar — always visible, full width */}
-          <div
-            onClick={cycleTickerMode}
-            className="shrink-0 border-t border-sig-border bg-sig-panel/95 cursor-pointer hover:bg-sig-accent/5 transition-colors group"
-          >
-            <div className="flex items-center justify-center gap-2 py-1">
-              <GripHorizontal
-                size={14}
-                className="text-sig-dim/40 group-hover:text-sig-accent/60 transition-colors"
-              />
-              <span className="text-[10px] tracking-widest text-sig-dim/60 group-hover:text-sig-accent/60 transition-colors font-semibold">
-                {tickerMode === "collapsed"
-                  ? "SHOW LIVE FEED"
-                  : tickerMode === "compact"
-                    ? "EXPAND"
-                    : "COLLAPSE"}
-              </span>
-              <GripHorizontal
-                size={14}
-                className="text-sig-dim/40 group-hover:text-sig-accent/60 transition-colors"
-              />
-            </div>
-          </div>
           {/* Ticker content */}
-          {tickerMode !== "collapsed" && (
+          {tickerMode !== "collapsed" ? (
             <div
               data-tour="ticker"
-              className={`shrink-0 px-2 md:px-3 bg-sig-panel/95 ${
+              className={`shrink-0 px-2 md:px-3 border-t border-sig-border bg-sig-panel/95 ${
                 tickerMode === "compact"
                   ? "py-0.5"
                   : "pt-0.5 md:pt-1 pb-1 md:pb-2"
@@ -181,13 +158,38 @@ export function AppShell() {
                     : undefined,
               }}
             >
-              <div className="tracking-wider mb-0.5 hidden md:flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
-                <span className="text-sig-danger animate-[pulse_1.5s_infinite]">
+              <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
+                <span className="text-sig-danger animate-[pulse_1.5s_infinite] hidden md:inline">
                   ●
-                </span>{" "}
-                LIVE FEED
+                </span>
+                <span className="hidden md:inline">LIVE FEED</span>
+                <button
+                  onClick={cycleTickerMode}
+                  className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim/50 hover:text-sig-accent/60 transition-colors cursor-pointer bg-transparent border-none group touch-target"
+                >
+                  <GripHorizontal
+                    size={10}
+                    className="group-hover:text-sig-accent/60"
+                  />
+                  <span className="text-[9px] tracking-widest font-semibold">
+                    {tickerMode === "full" ? "COMPACT" : "HIDE"}
+                  </span>
+                </button>
               </div>
               <Ticker items={tickerItems} compact={tickerMode === "compact"} />
+            </div>
+          ) : (
+            <div
+              className="shrink-0 border-t border-sig-border bg-sig-panel/95 cursor-pointer hover:bg-sig-accent/5 transition-colors"
+              onClick={cycleTickerMode}
+            >
+              <div className="flex items-center justify-center gap-1.5 py-0.5 text-sig-dim/50 hover:text-sig-accent/60">
+                <GripHorizontal size={10} />
+                <span className="text-[9px] tracking-widest font-semibold">
+                  SHOW LIVE FEED
+                </span>
+                <GripHorizontal size={10} />
+              </div>
             </div>
           )}
         </>

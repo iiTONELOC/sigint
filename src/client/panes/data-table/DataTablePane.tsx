@@ -375,7 +375,7 @@ export function DataTablePane() {
         <Filter size={11} strokeWidth={2.5} className="text-sig-dim shrink-0" />
         <button
           onClick={() => setTypeFilter(null)}
-          className={`px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
+          className={`touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
             typeFilter === null
               ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
               : "text-sig-dim bg-transparent border-sig-border/50"
@@ -391,7 +391,7 @@ export function DataTablePane() {
             <button
               key={f.id}
               onClick={() => setTypeFilter(active ? null : f.id)}
-              className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
+              className={`flex items-center gap-0.5 touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
                 active
                   ? "bg-sig-accent/10 border-sig-accent/30"
                   : "text-sig-dim bg-transparent border-sig-border/50"

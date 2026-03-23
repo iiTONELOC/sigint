@@ -91,7 +91,7 @@ export function PaneHeader({
 
   return (
     <div
-      className={`shrink-0 flex items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b select-none relative transition-colors ${
+      className={`shrink-0 flex flex-wrap items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b select-none relative transition-colors ${
         isDragTarget
           ? "border-sig-accent border-b-2 bg-sig-accent/10"
           : "border-sig-border/40"
@@ -203,7 +203,7 @@ export function PaneHeader({
             <button
               data-tour={paneType === "globe" ? "split-right-btn" : undefined}
               onClick={onSplitH}
-              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
               <Columns2 size={13} strokeWidth={2.5} />
             </button>
@@ -214,7 +214,7 @@ export function PaneHeader({
             <button
               data-tour={paneType === "globe" ? "split-down-btn" : undefined}
               onClick={onSplitV}
-              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
               <Rows2 size={13} strokeWidth={2.5} />
             </button>
@@ -227,7 +227,7 @@ export function PaneHeader({
         >
           <button
             onClick={() => setChromeHidden((v) => !v)}
-            className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
             {chromeHidden ? (
               <Minimize2 size={13} strokeWidth={2.5} />
@@ -240,7 +240,7 @@ export function PaneHeader({
         <Tooltip content="Minimize" placement="bottom">
           <button
             onClick={onMinimize}
-            className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
             <Minus size={13} strokeWidth={2.5} />
           </button>
@@ -250,7 +250,7 @@ export function PaneHeader({
           <Tooltip content="Close pane" placement="bottom">
             <button
               onClick={onClose}
-              className="p-2 min-w-9 min-h-9 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
             >
               <X size={13} strokeWidth={2.5} />
             </button>

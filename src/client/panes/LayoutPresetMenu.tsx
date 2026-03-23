@@ -28,8 +28,14 @@ export function LayoutPresetMenu({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        // Don't close if clicking the toggle button itself — let its onClick handle it
+        const toggle = (e.target as HTMLElement).closest(
+          '[data-tour="views-btn"]',
+        );
+        if (toggle) return;
         onClose();
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -80,16 +86,16 @@ export function LayoutPresetMenu({
           <button
             title="Update with current layout"
             onClick={() => onUpdate(i)}
-            className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
+            className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors touch-target p-0.5 shrink-0 flex items-center justify-center"
           >
-            <Save size={10} />
+            <Save size={14} />
           </button>
           <button
             title="Delete preset"
             onClick={() => onDelete(i)}
-            className="text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors p-0.5 shrink-0"
+            className="text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors touch-target p-0.5 shrink-0 flex items-center justify-center"
           >
-            <Trash2 size={10} />
+            <Trash2 size={14} />
           </button>
         </div>
       ))}
@@ -117,11 +123,11 @@ export function LayoutPresetMenu({
               onClose();
             }
           }}
-          className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors p-0.5 shrink-0"
+          className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors touch-target p-0.5 shrink-0 flex items-center justify-center"
           title="Save current layout as preset"
           data-tour="preset-save-btn"
         >
-          <Save size={11} />
+          <Save size={14} />
         </button>
       </div>
     </div>

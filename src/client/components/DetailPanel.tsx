@@ -124,20 +124,11 @@ function useSheetDismiss(onClose: () => void) {
     setHeightVh(vh);
     if (offsetRef.current !== 0) offsetRef.current = 0;
     forceRender((n) => n + 1);
-    setTimeout(() => {
-      settlingRef.current = false;
-      forceRender((n) => n + 1);
-    }, 250);
+    setTimeout(() => { settlingRef.current = false; forceRender((n) => n + 1); }, 250);
   }, []);
 
   const reset = useCallback(() => {
-    dragRef.current = {
-      active: false,
-      startY: 0,
-      lastY: 0,
-      lastT: 0,
-      velocity: 0,
-    };
+    dragRef.current = { active: false, startY: 0, lastY: 0, lastT: 0, velocity: 0 };
     if (heightRef.current !== SNAP_HEIGHTS[1]!) {
       setHeightVh(SNAP_HEIGHTS[1]!);
     }
@@ -154,45 +145,30 @@ function useSheetDismiss(onClose: () => void) {
     const touch = e.touches[0];
     if (!touch) return;
     heightAtDragStart.current = heightRef.current;
-    dragRef.current = {
-      active: true,
-      startY: touch.clientY,
-      lastY: touch.clientY,
-      lastT: Date.now(),
-      velocity: 0,
-    };
+    dragRef.current = { active: true, startY: touch.clientY, lastY: touch.clientY, lastT: Date.now(), velocity: 0 };
   }, []);
 
-  const onTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (!dragRef.current.active) return;
-      const touch = e.touches[0];
-      if (!touch) return;
-      const dy = touch.clientY - dragRef.current.startY;
-      const now = Date.now();
-      const dt = now - dragRef.current.lastT;
-      if (dt > 0) {
-        dragRef.current.velocity = (touch.clientY - dragRef.current.lastY) / dt;
-      }
-      dragRef.current.lastY = touch.clientY;
-      dragRef.current.lastT = now;
-      const dvh = (dy / window.innerHeight) * 100;
-      const newH = Math.max(10, Math.min(85, heightAtDragStart.current - dvh));
-      setHeightVh(newH);
-      if (newH <= 10) {
-        update(
-          Math.max(
-            0,
-            dy - (heightAtDragStart.current / 100) * window.innerHeight * 0.5,
-          ),
-          false,
-        );
-      } else {
-        if (offsetRef.current !== 0) update(0, false);
-      }
-    },
-    [update],
-  );
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!dragRef.current.active) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dy = touch.clientY - dragRef.current.startY;
+    const now = Date.now();
+    const dt = now - dragRef.current.lastT;
+    if (dt > 0) {
+      dragRef.current.velocity = (touch.clientY - dragRef.current.lastY) / dt;
+    }
+    dragRef.current.lastY = touch.clientY;
+    dragRef.current.lastT = now;
+    const dvh = (dy / window.innerHeight) * 100;
+    const newH = Math.max(10, Math.min(85, heightAtDragStart.current - dvh));
+    setHeightVh(newH);
+    if (newH <= 10) {
+      update(Math.max(0, dy - (heightAtDragStart.current / 100) * window.innerHeight * 0.5), false);
+    } else {
+      if (offsetRef.current !== 0) update(0, false);
+    }
+  }, [update]);
 
   const onTouchEnd = useCallback(() => {
     if (!dragRef.current.active) return;
@@ -200,32 +176,19 @@ function useSheetDismiss(onClose: () => void) {
     const vel = dragRef.current.velocity;
     const h = heightRef.current;
 
-    if (vel > 0.8) {
-      update(400, true);
-      setTimeout(onClose, 200);
-      return;
-    }
+    if (vel > 0.8) { update(400, true); setTimeout(onClose, 200); return; }
     if (vel < -0.5) {
-      const next =
-        SNAP_HEIGHTS.find((s) => s > h + 5) ??
-        SNAP_HEIGHTS[SNAP_HEIGHTS.length - 1]!;
+      const next = SNAP_HEIGHTS.find((s) => s > h + 5) ?? SNAP_HEIGHTS[SNAP_HEIGHTS.length - 1]!;
       snapTo(next);
       return;
     }
-    if (h < 12) {
-      update(400, true);
-      setTimeout(onClose, 200);
-      return;
-    }
+    if (h < 12) { update(400, true); setTimeout(onClose, 200); return; }
 
     let best = SNAP_HEIGHTS[0]!;
     let bestDist = Infinity;
     for (const s of SNAP_HEIGHTS) {
       const d = Math.abs(s - h);
-      if (d < bestDist) {
-        bestDist = d;
-        best = s;
-      }
+      if (d < bestDist) { bestDist = d; best = s; }
     }
     snapTo(best);
   }, [onClose, update, snapTo]);
@@ -462,7 +425,7 @@ function PanelContent({
           </div>
           <span
             onClick={onClose}
-            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim min-w-9 min-h-9 flex items-center justify-center hover:text-sig-bright transition-colors"
+            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
           >
             ✕
           </span>

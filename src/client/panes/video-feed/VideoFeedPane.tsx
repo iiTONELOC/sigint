@@ -7,7 +7,7 @@ import {
   Loader2,
   Bookmark,
   Minimize,
-  Maximize,
+  Fullscreen,
 } from "lucide-react";
 import type {
   Channel,
@@ -288,7 +288,7 @@ export function VideoFeedPane() {
                 setPromotedIdx(null);
                 setPrePromoteGrid(null);
               }}
-              className={`p-1 rounded transition-colors border-none ${
+              className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
                 gridLayout === g
                   ? "text-sig-accent bg-sig-accent/15"
                   : "text-sig-dim bg-transparent hover:text-sig-bright"
@@ -332,7 +332,7 @@ export function VideoFeedPane() {
         {/* Presets button */}
         <button
           onClick={() => setShowPresets((v) => !v)}
-          className={`p-1 rounded transition-colors border-none ${
+          className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
             showPresets
               ? "text-sig-accent bg-sig-accent/15"
               : "text-sig-dim bg-transparent hover:text-sig-bright"
@@ -352,10 +352,10 @@ export function VideoFeedPane() {
         <div className="w-px h-4 bg-sig-border/50" />
         <button
           onClick={handlePaneFullscreen}
-          className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
+          className="p-1.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
           title="Fullscreen pane"
         >
-          <Maximize size={12} strokeWidth={2.5} />
+          <Fullscreen size={12} strokeWidth={2.5} />
         </button>
         {showPresets && (
           <PresetMenu
