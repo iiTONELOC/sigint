@@ -57,7 +57,7 @@ function LayerToggle({
     <Tooltip content={tooltipText} placement="bottom">
       <button
         onClick={onToggle}
-        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 min-h-9 min-w-9 justify-center sm:justify-start"
+        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start"
         style={{
           color: on ? color : undefined,
           background: on ? `${color}15` : undefined,
@@ -200,7 +200,7 @@ export function Header(props: Readonly<HeaderProps>) {
             <button
               data-tour="settings-button"
               onClick={() => setShowSettings(true)}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors min-h-9 min-w-9 flex items-center justify-center"
+              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
             >
               <Settings size={15} strokeWidth={2} />
             </button>
@@ -236,7 +236,7 @@ export function Header(props: Readonly<HeaderProps>) {
             <button
               data-tour="settings-button"
               onClick={() => setShowSettings(true)}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors min-h-9 min-w-9 flex items-center justify-center"
+              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
               title="Settings"
             >
               <Settings size={14} strokeWidth={2} />

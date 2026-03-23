@@ -11,7 +11,8 @@ import {
   Subtitles,
   Maximize,
   Radio,
-  Minimize2,
+  Focus,
+  LayoutGrid,
 } from "lucide-react";
 import type {
   Channel,
@@ -473,25 +474,25 @@ export function VideoSlot({
             <Subtitles size={18} />
           </button>
 
-          {/* Focus this channel (grid mode) — Minimize2 icon distinct from Maximize */}
+          {/* Focus this channel (grid mode) */}
           {onPromote && compact && (
             <button
               onClick={guardClick(() => onPromote(slotIdx))}
               title="Focus channel"
               className="text-white/80 bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
             >
-              <Minimize2 size={18} />
+              <Focus size={18} />
             </button>
           )}
 
-          {/* Unfocus — restore grid (shown when this slot is promoted to 1×1) */}
+          {/* Unfocus — restore grid */}
           {onUnfocus && !compact && (
             <button
               onClick={guardClick(onUnfocus)}
               title="Restore grid"
               className="text-sig-accent bg-transparent border-none transition-colors min-h-11 min-w-11 flex items-center justify-center"
             >
-              <Minimize2 size={18} />
+              <LayoutGrid size={18} />
             </button>
           )}
 

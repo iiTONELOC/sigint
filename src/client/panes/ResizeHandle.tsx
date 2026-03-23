@@ -55,7 +55,7 @@ export function ResizeHandle({
   return (
     <div
       ref={handleRef}
-      className={`relative flex items-center justify-center ${
+      className={`relative flex items-center justify-center touch-resize ${
         isH ? "cursor-col-resize w-[6px]" : "cursor-row-resize h-[6px]"
       } ${
         dragging
