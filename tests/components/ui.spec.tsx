@@ -5,6 +5,7 @@ import { act } from "react";
 import { Globe } from "lucide-react";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DataProvider } from "@/context/DataContext";
+import { LayoutModeProvider } from "@/context/LayoutModeContext";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 // ── Mock fetch ──────────────────────────────────────────────────────
@@ -106,7 +107,13 @@ function renderWithTheme(element: React.ReactElement) {
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(React.createElement(ThemeProvider, null, element));
+    root.render(
+      React.createElement(
+        LayoutModeProvider,
+        null,
+        React.createElement(ThemeProvider, null, element),
+      ),
+    );
   });
   const unmount = () => {
     act(() => {
@@ -124,9 +131,13 @@ function renderWithProviders(element: React.ReactElement) {
   act(() => {
     root.render(
       React.createElement(
-        ThemeProvider,
+        LayoutModeProvider,
         null,
-        React.createElement(DataProvider, null, element),
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(DataProvider, null, element),
+        ),
       ),
     );
   });

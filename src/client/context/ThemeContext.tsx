@@ -17,10 +17,22 @@ import {
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
+/** Resolve "auto" to the actual dark/light based on system preference */
+function resolveMode(mode: ThemeMode): "dark" | "light" {
+  if (mode !== "auto") return mode;
+  if (typeof window === "undefined") return "dark";
+  return window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+}
+
 type ThemeContextType = {
+  /** The user's chosen setting: "dark" | "light" | "auto" */
   mode: ThemeMode;
+  /** The resolved mode actually applied: "dark" | "light" */
+  resolvedMode: "dark" | "light";
   setMode: (mode: ThemeMode) => void;
-  theme: (typeof themes)[ThemeMode];
+  theme: (typeof themes)["dark" | "light"];
   colorOverrides: ColorOverrides;
   setLayerColor: (key: LayerColorKey, color: string) => void;
   resetLayerColor: (key: LayerColorKey) => void;
@@ -41,6 +53,9 @@ async function loadOverrides(): Promise<ColorOverrides> {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeRaw] = useState<ThemeMode>("dark");
+  const [systemPreference, setSystemPreference] = useState<"dark" | "light">(
+    () => resolveMode("auto"),
+  );
   const [overrides, setOverrides] = useState<ColorOverrides>(EMPTY_OVERRIDES);
 
   // Load persisted theme + overrides in parallel
@@ -49,7 +64,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const modeP = cacheGet<ThemeMode>(CACHE_KEYS.theme);
     const overridesP = loadOverrides();
     modeP.then((savedMode) => {
-      if (mounted && savedMode === "light") setModeRaw("light");
+      if (!mounted) return;
+      if (savedMode === "light" || savedMode === "dark" || savedMode === "auto") {
+        setModeRaw(savedMode);
+      }
     });
     overridesP.then((savedOverrides) => {
       if (mounted) setOverrides(savedOverrides);
@@ -57,12 +75,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => { mounted = false; };
   }, []);
 
+  // Listen for system color scheme changes (only matters when mode === "auto")
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(prefers-color-scheme: light)");
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemPreference(e.matches ? "light" : "dark");
+    };
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  const resolvedMode: "dark" | "light" =
+    mode === "auto" ? systemPreference : mode;
+
   const theme = useMemo(() => {
-    const base = themes[mode];
-    const modeOverrides = overrides[mode];
+    const base = themes[resolvedMode];
+    const modeOverrides = overrides[resolvedMode];
     const merged = applyColorOverrides(base.colors, modeOverrides);
     return { colors: merged };
-  }, [mode, overrides]);
+  }, [resolvedMode, overrides]);
 
   const setMode = useCallback((next: ThemeMode) => {
     setModeRaw(next);
@@ -74,26 +106,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       setOverrides((prev) => {
         const next = {
           ...prev,
-          [mode]: { ...prev[mode], [key]: color },
+          [resolvedMode]: { ...prev[resolvedMode], [key]: color },
         };
         cacheSet(CACHE_KEYS.colorOverrides, next);
         return next;
       });
     },
-    [mode],
+    [resolvedMode],
   );
 
   const resetLayerColor = useCallback(
     (key: LayerColorKey) => {
       setOverrides((prev) => {
-        const modeOverrides = { ...prev[mode] };
+        const modeOverrides = { ...prev[resolvedMode] };
         delete modeOverrides[key];
-        const next = { ...prev, [mode]: modeOverrides };
+        const next = { ...prev, [resolvedMode]: modeOverrides };
         cacheSet(CACHE_KEYS.colorOverrides, next);
         return next;
       });
     },
-    [mode],
+    [resolvedMode],
   );
 
   const resetAllColors = useCallback(() => {
@@ -109,6 +141,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     <ThemeContext.Provider
       value={{
         mode,
+        resolvedMode,
         setMode,
         theme,
         colorOverrides: overrides,

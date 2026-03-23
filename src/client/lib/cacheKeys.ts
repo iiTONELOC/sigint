@@ -33,6 +33,7 @@ export const CACHE_KEYS = {
   tickerSpeed: `sigint.ticker.speed.${V}`,
   tickerHeight: `sigint.ticker.height.${V}`,
   walkthroughComplete: `sigint.walkthrough.complete.${V}`,
+  layoutMode: `sigint.layout.mode.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -71,4 +72,5 @@ export const CACHE_KEY_LABELS: Record<
   [CACHE_KEYS.tickerSpeed]: { label: "Ticker speed", group: "UI" },
   [CACHE_KEYS.tickerHeight]: { label: "Ticker height mode", group: "UI" },
   [CACHE_KEYS.walkthroughComplete]: { label: "Walkthrough completed", group: "UI" },
+  [CACHE_KEYS.layoutMode]: { label: "Layout mode override", group: "UI" },
 };

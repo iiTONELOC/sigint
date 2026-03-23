@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "@/context/ThemeContext";
+import { useLayoutMode, type LayoutMode } from "@/context/LayoutModeContext";
 import { getColorMap } from "@/config/theme";
 
 import { featureList } from "@/features/registry";
 import type { AircraftFilter } from "@/features/tracking/aircraft/types";
 import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip } from "@/components/Tooltip";
-import { AlertTriangle, Settings } from "lucide-react";
+import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
 import {
   isSourceDown,
   buildSourceStatusMap,
@@ -93,7 +94,7 @@ function Toggles({
   availableCountries,
   searchSlot,
 }: Readonly<HeaderProps>) {
-  const { theme, mode } = useTheme();
+  const { theme, resolvedMode } = useTheme();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
   const sourceStatusMap = useMemo(
@@ -138,7 +139,7 @@ function Toggles({
             colors={{
               panel: C.panel,
               border: C.border,
-              bright: mode === "dark" ? "#00b8d4" : C.accent,
+              bright: resolvedMode === "dark" ? "#00b8d4" : C.accent,
               dim: C.dim,
               danger: C.danger,
             }}
@@ -146,6 +147,48 @@ function Toggles({
         </div>
       </div>
     </>
+  );
+}
+
+// ── Layout mode toggle button ───────────────────────────────────────
+
+const MODE_LABELS: Record<LayoutMode, string> = {
+  auto: "AUTO",
+  mobile: "MOBILE",
+  desktop: "DESKTOP",
+};
+
+const MODE_TOOLTIPS: Record<LayoutMode, string> = {
+  auto: "Layout: Auto (viewport-based) — click to force mobile",
+  mobile: "Layout: Forced mobile — click to force desktop",
+  desktop: "Layout: Forced desktop — click for auto",
+};
+
+function LayoutModeToggle() {
+  const { mode, cycleMode } = useLayoutMode();
+  const Icon = mode === "mobile" ? Smartphone : Monitor;
+  const isForced = mode !== "auto";
+
+  return (
+    <Tooltip content={MODE_TOOLTIPS[mode]} placement="bottom">
+      <button
+        data-tour="layout-mode-toggle"
+        onClick={cycleMode}
+        className={`p-1.5 rounded transition-colors touch-target flex items-center justify-center gap-1 ${
+          isForced
+            ? "text-sig-accent"
+            : "text-sig-dim hover:text-sig-accent"
+        }`}
+        aria-label={`Layout mode: ${MODE_LABELS[mode]}`}
+      >
+        <Icon size={14} strokeWidth={2} />
+        {isForced && (
+          <span className="text-[8px] tracking-widest font-bold hidden sm:inline">
+            {MODE_LABELS[mode]}
+          </span>
+        )}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -182,7 +225,7 @@ export function Header(props: Readonly<HeaderProps>) {
           <Toggles {...props} />
         </div>
 
-        {/* Clock + Settings */}
+        {/* Clock + Layout Mode + Settings */}
         <div className="flex items-center gap-2 shrink-0 ml-3">
           <div className="text-right">
             <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
@@ -196,6 +239,7 @@ export function Header(props: Readonly<HeaderProps>) {
               })}
             </div>
           </div>
+          <LayoutModeToggle />
           <Tooltip content="Settings" placement="bottom">
             <button
               data-tour="settings-button"
@@ -233,6 +277,7 @@ export function Header(props: Readonly<HeaderProps>) {
                 })}
               </div>
             </div>
+            <LayoutModeToggle />
             <button
               data-tour="settings-button"
               onClick={() => setShowSettings(true)}

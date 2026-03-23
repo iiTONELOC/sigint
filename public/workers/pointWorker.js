@@ -791,8 +791,42 @@ function renderFrame() {
     });
   }
 
-  // ── Draw trail ────────────────────────────────────────────────
-  var hitTargets = drawTrail(ctx, projFn, selectedItem, colors, t);
+  // ── Draw trail (only if selected item passes current filters) ──
+  var drawSelectedTrail = false;
+  if (selectedItem) {
+    drawSelectedTrail = true;
+    // Search filter
+    if (searchSet && !searchSet.has(selectedItem.id)) drawSelectedTrail = false;
+    // Isolation modes
+    if (drawSelectedTrail && isoMode === "solo" && selectedItem.id !== isoId)
+      drawSelectedTrail = false;
+    if (
+      drawSelectedTrail &&
+      isoMode === "focus" &&
+      isolatedType &&
+      selectedItem.type !== isolatedType
+    )
+      drawSelectedTrail = false;
+    // Layer/aircraft filter — look up full item from data array for .data field
+    if (drawSelectedTrail) {
+      if (selectedItem.type === "aircraft") {
+        var fullItem = null;
+        for (var fi = 0; fi < data.length; fi++) {
+          if (data[fi].id === selectedItem.id) {
+            fullItem = data[fi];
+            break;
+          }
+        }
+        if (!fullItem || !matchesAF(fullItem.data || {}, af))
+          drawSelectedTrail = false;
+      } else {
+        if (layers[selectedItem.type] === false) drawSelectedTrail = false;
+      }
+    }
+  }
+  var hitTargets = drawSelectedTrail
+    ? drawTrail(ctx, projFn, selectedItem, colors, t)
+    : [];
   ctx.globalAlpha = 1;
 
   // ── Draw points ───────────────────────────────────────────────

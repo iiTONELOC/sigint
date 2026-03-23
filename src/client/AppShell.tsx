@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useData } from "@/context/DataContext";
+import { useIsMobileLayout } from "@/context/LayoutModeContext";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
@@ -31,6 +32,8 @@ export function AppShell() {
     handleSearchZoomTo,
     handleSearchMatchIds,
   } = useData();
+
+  const isMobileLayout = useIsMobileLayout();
 
   // ── Walkthrough state ──────────────────────────────────────────
   const [showWalkthrough, setShowWalkthrough] = useState(false);
@@ -82,10 +85,9 @@ export function AppShell() {
   }, []);
 
   const cycleTickerMode = () => {
-    const isMobile = window.innerWidth < 768;
     setTickerMode((prev) => {
       let next: TickerMode;
-      if (isMobile) {
+      if (isMobileLayout) {
         // Mobile: just toggle show/hide (always compact when visible)
         next = prev === "collapsed" ? "compact" : "collapsed";
       } else {
@@ -153,9 +155,7 @@ export function AppShell() {
               }`}
               style={{
                 paddingBottom:
-                  tickerMode === "full"
-                    ? "max(0.25rem, env(safe-area-inset-bottom))"
-                    : undefined,
+                  "max(0.25rem, env(safe-area-inset-bottom))",
               }}
             >
               <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
@@ -181,6 +181,9 @@ export function AppShell() {
           ) : (
             <div
               className="shrink-0 border-t border-sig-border bg-sig-panel/95 cursor-pointer hover:bg-sig-accent/5 transition-colors"
+              style={{
+                paddingBottom: "env(safe-area-inset-bottom)",
+              }}
               onClick={cycleTickerMode}
             >
               <div className="flex items-center justify-center gap-1.5 py-0.5 text-sig-dim/50 hover:text-sig-accent/60">

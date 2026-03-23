@@ -1,4 +1,4 @@
-export type ThemeMode = "dark" | "light";
+export type ThemeMode = "dark" | "light" | "auto";
 
 export type ThemeColors = {
   bg: string;

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DataProvider } from "@/context/DataContext";
+import { LayoutModeProvider } from "@/context/LayoutModeContext";
 import { Header } from "@/components/Header";
 
 function render(props: Record<string, any> = {}) {
@@ -30,12 +31,16 @@ function render(props: Record<string, any> = {}) {
   act(() => {
     root.render(
       React.createElement(
-        ThemeProvider,
+        LayoutModeProvider,
         null,
         React.createElement(
-          DataProvider,
+          ThemeProvider,
           null,
-          React.createElement(Header, defaults as any),
+          React.createElement(
+            DataProvider,
+            null,
+            React.createElement(Header, defaults as any),
+          ),
         ),
       ),
     );
@@ -73,6 +78,20 @@ describe("Header", () => {
     const { container, unmount } = render();
     // Clock shows time in HH:MM:SS format
     expect(container.textContent).toMatch(/\d{1,2}:\d{2}:\d{2}/);
+    unmount();
+  });
+
+  test("renders layout mode toggle button", () => {
+    const { container, unmount } = render();
+    const btn = container.querySelector('[data-tour="layout-mode-toggle"]');
+    expect(btn).not.toBeNull();
+    unmount();
+  });
+
+  test("layout mode toggle has accessible label", () => {
+    const { container, unmount } = render();
+    const btn = container.querySelector('[data-tour="layout-mode-toggle"]');
+    expect(btn?.getAttribute("aria-label")).toContain("Layout mode");
     unmount();
   });
 });

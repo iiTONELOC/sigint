@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useData } from "@/context/DataContext";
+import { useIsMobileLayout } from "@/context/LayoutModeContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTable } from "@/panes/data-table";
 import { Dossier } from "@/panes/dossier";
@@ -90,16 +91,8 @@ const PANE_COMPONENTS: Record<PaneType, React.ComponentType> = {
 export function PaneManager() {
   const { chromeHidden, activeCount, dataSources, counts } = useData();
 
-  // ── Mobile detection (must be before layout load) ─────────────
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  );
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
+  // ── Mobile detection (from LayoutModeContext — respects force mode) ──
+  const isMobile = useIsMobileLayout();
 
   const [layout, setLayout] = useState<LayoutState>(defaultLayout);
   const layoutLoaded = useRef(false);
@@ -119,7 +112,7 @@ export function PaneManager() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!layoutLoaded.current) return;
