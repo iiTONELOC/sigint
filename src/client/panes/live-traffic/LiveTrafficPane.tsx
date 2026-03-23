@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useData } from "@/context/DataContext";
+import { useIsMobileLayout } from "@/context/LayoutModeContext";
 import {
   useHasDossier,
   requestDossierOpen,
@@ -60,6 +61,7 @@ export function LiveTrafficPane() {
   const hasDossier = useHasDossier();
   const walkthroughActive = useWalkthroughActive();
   const walkthroughStepId = useWalkthroughStepId();
+  const isMobileLayout = useIsMobileLayout();
 
   // Close watch menu on outside click
   useEffect(() => {
@@ -96,11 +98,11 @@ export function LiveTrafficPane() {
         setIsolateMode(null);
         return;
       }
-      if (chromeHidden && window.innerWidth >= 768) setChromeHidden(false);
+      if (chromeHidden && !isMobileLayout) setChromeHidden(false);
       setAutoRotate(false);
       setSelected(item);
     },
-    [chromeHidden, setChromeHidden, setSelected, setAutoRotate, setIsolateMode],
+    [chromeHidden, setChromeHidden, setSelected, setAutoRotate, setIsolateMode, isMobileLayout],
   );
 
   // Step IDs where globe click-through is allowed during walkthrough
@@ -114,7 +116,7 @@ export function LiveTrafficPane() {
   const handleRawCanvasClick = useCallback(() => {
     // On mobile, tapping empty canvas should NOT toggle chrome or deselect.
     // Users scroll via the vertical pane column; chrome toggle is desktop-only.
-    if (window.innerWidth < 768) return;
+    if (isMobileLayout) return;
 
     // During walkthrough, only allow interaction on specific steps
     if (
@@ -143,6 +145,7 @@ export function LiveTrafficPane() {
     setIsolateMode,
     walkthroughActive,
     walkthroughStepId,
+    isMobileLayout,
   ]);
 
   const handleClose = useCallback(() => {

@@ -29,6 +29,13 @@ describe("cacheKeys", () => {
     expect(CACHE_KEYS.theme).toBeDefined();
     expect(CACHE_KEYS.colorOverrides).toBeDefined();
     expect(CACHE_KEYS.videoState).toBeDefined();
+    expect(CACHE_KEYS.layoutMode).toBeDefined();
+  });
+
+  test("layoutMode key is distinct from layout keys", () => {
+    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layout);
+    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layoutDesktop);
+    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layoutMobile);
   });
 
   test("mobile and desktop layout keys exist and are distinct", () => {

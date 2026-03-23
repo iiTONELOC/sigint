@@ -16,6 +16,9 @@ import {
   Layout,
   ExternalLink,
   BookOpen,
+  Smartphone,
+  Monitor,
+  MonitorSmartphone,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import {
@@ -34,6 +37,10 @@ import {
   type LayerColorKey,
 } from "@/config/theme";
 import { requestWalkthroughLaunch } from "@/panes/paneLayoutContext";
+import {
+  useLayoutMode,
+  type LayoutMode as LayoutModeType,
+} from "@/context/LayoutModeContext";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -64,6 +71,7 @@ const TABS: { key: Tab; label: string; icon: typeof Palette }[] = [
 export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
   const {
     mode,
+    resolvedMode,
     setMode,
     colorOverrides,
     setLayerColor,
@@ -277,6 +285,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
           {activeTab === "appearance" && (
             <AppearanceTab
               mode={mode}
+              resolvedMode={resolvedMode}
               setMode={setMode}
               colorOverrides={colorOverrides}
               setLayerColor={setLayerColor}
@@ -311,6 +320,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
 
 function AppearanceTab({
   mode,
+  resolvedMode,
   setMode,
   colorOverrides,
   setLayerColor,
@@ -318,7 +328,8 @@ function AppearanceTab({
   resetAllColors,
 }: {
   mode: string;
-  setMode: (m: "dark" | "light") => void;
+  resolvedMode: "dark" | "light";
+  setMode: (m: "dark" | "light" | "auto") => void;
   colorOverrides: {
     dark: Partial<Record<LayerColorKey, string>>;
     light: Partial<Record<LayerColorKey, string>>;
@@ -327,7 +338,7 @@ function AppearanceTab({
   resetLayerColor: (key: LayerColorKey) => void;
   resetAllColors: () => void;
 }) {
-  const modeKey = mode as "dark" | "light";
+  const modeKey = resolvedMode;
   const defaults = themes[modeKey].colors;
   const overrides = colorOverrides[modeKey];
   const hasAnyOverride = Object.keys(overrides).length > 0;
@@ -361,28 +372,47 @@ function AppearanceTab({
         <div className="text-xs text-sig-dim tracking-widest mb-3">THEME</div>
         <div className="flex gap-2">
           <button
+            onClick={() => setMode("auto")}
+            className={`flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded border transition-all ${
+              mode === "auto"
+                ? "bg-sig-accent/10 border-sig-accent/40 text-sig-accent"
+                : "bg-transparent border-sig-border/50 text-sig-dim hover:text-sig-text hover:border-sig-border"
+            }`}
+          >
+            <MonitorSmartphone size={18} />
+            <span className="text-[10px] font-semibold tracking-wider">AUTO</span>
+          </button>
+          <button
             onClick={() => setMode("dark")}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded border transition-all ${
+            className={`flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded border transition-all ${
               mode === "dark"
                 ? "bg-sig-accent/10 border-sig-accent/40 text-sig-accent"
                 : "bg-transparent border-sig-border/50 text-sig-dim hover:text-sig-text hover:border-sig-border"
             }`}
           >
-            <Moon size={16} />
-            <span className="text-sm font-semibold tracking-wider">DARK</span>
+            <Moon size={18} />
+            <span className="text-[10px] font-semibold tracking-wider">DARK</span>
           </button>
           <button
             onClick={() => setMode("light")}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded border transition-all ${
+            className={`flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded border transition-all ${
               mode === "light"
                 ? "bg-sig-accent/10 border-sig-accent/40 text-sig-accent"
                 : "bg-transparent border-sig-border/50 text-sig-dim hover:text-sig-text hover:border-sig-border"
             }`}
           >
-            <Sun size={16} />
-            <span className="text-sm font-semibold tracking-wider">LIGHT</span>
+            <Sun size={18} />
+            <span className="text-[10px] font-semibold tracking-wider">LIGHT</span>
           </button>
         </div>
+      </div>
+
+      {/* Ticker speed */}
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-3">
+          LAYOUT MODE
+        </div>
+        <LayoutModeSelector />
       </div>
 
       {/* Ticker speed */}
@@ -418,7 +448,7 @@ function AppearanceTab({
       <div>
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs text-sig-dim tracking-widest">
-            LAYER COLORS ({mode.toUpperCase()})
+            LAYER COLORS ({resolvedMode.toUpperCase()})
           </div>
           {hasAnyOverride && (
             <button
@@ -478,6 +508,50 @@ function AppearanceTab({
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Layout mode selector ─────────────────────────────────────────────
+
+const LAYOUT_MODES: { key: LayoutModeType; label: string; icon: typeof Monitor; desc: string }[] = [
+  { key: "auto", label: "AUTO", icon: MonitorSmartphone, desc: "Viewport width" },
+  { key: "mobile", label: "MOBILE", icon: Smartphone, desc: "Force app layout" },
+  { key: "desktop", label: "DESKTOP", icon: Monitor, desc: "Force pane layout" },
+];
+
+function LayoutModeSelector() {
+  const { mode, setMode } = useLayoutMode();
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        {LAYOUT_MODES.map((m) => {
+          const Icon = m.icon;
+          const active = mode === m.key;
+          return (
+            <button
+              key={m.key}
+              onClick={() => setMode(m.key)}
+              className={`flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded border transition-all ${
+                active
+                  ? "bg-sig-accent/10 border-sig-accent/40 text-sig-accent"
+                  : "bg-transparent border-sig-border/50 text-sig-dim hover:text-sig-text hover:border-sig-border"
+              }`}
+            >
+              <Icon size={18} />
+              <span className="text-[10px] font-semibold tracking-wider">{m.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="text-xs text-sig-dim/60 mt-1.5 leading-snug">
+        {mode === "auto"
+          ? "Layout switches automatically based on viewport width (768px breakpoint). iPads may render desktop layout."
+          : mode === "mobile"
+            ? "Mobile layout forced — vertical scrollable pane column, compact controls. Use on tablets for an app-like experience."
+            : "Desktop layout forced — multi-pane split grid with drag, resize, and presets. Use on large tablets or narrow desktop windows."}
       </div>
     </div>
   );

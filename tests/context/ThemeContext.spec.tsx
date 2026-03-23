@@ -226,4 +226,150 @@ describe("ThemeContext", () => {
     });
     container.remove();
   });
+
+  test("setMode accepts auto", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let ctx: ReturnType<typeof useTheme>;
+
+    function Consumer() {
+      ctx = useTheme();
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(ThemeProvider, {
+          children: React.createElement(Consumer),
+        }),
+      );
+    });
+
+    act(() => {
+      ctx!.setMode("auto");
+    });
+
+    expect(ctx!.mode).toBe("auto");
+    // resolvedMode should be "dark" or "light" (never "auto")
+    expect(["dark", "light"]).toContain(ctx!.resolvedMode);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("resolvedMode is dark or light even when mode is auto", () => {
+    renderWithTheme((ctx) => {
+      // Default mode is dark
+      expect(ctx.resolvedMode).toBe("dark");
+    });
+  });
+
+  test("resolvedMode matches mode when explicitly set", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let ctx: ReturnType<typeof useTheme>;
+
+    function Consumer() {
+      ctx = useTheme();
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(ThemeProvider, {
+          children: React.createElement(Consumer),
+        }),
+      );
+    });
+
+    act(() => {
+      ctx!.setMode("light");
+    });
+    expect(ctx!.resolvedMode).toBe("light");
+
+    act(() => {
+      ctx!.setMode("dark");
+    });
+    expect(ctx!.resolvedMode).toBe("dark");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("all three modes are accepted without error", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let ctx: ReturnType<typeof useTheme>;
+
+    function Consumer() {
+      ctx = useTheme();
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(ThemeProvider, {
+          children: React.createElement(Consumer),
+        }),
+      );
+    });
+
+    for (const m of ["dark", "light", "auto"] as const) {
+      act(() => {
+        ctx!.setMode(m);
+      });
+      expect(ctx!.mode).toBe(m);
+      expect(["dark", "light"]).toContain(ctx!.resolvedMode);
+    }
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  test("layer color overrides apply to resolvedMode not mode", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let ctx: ReturnType<typeof useTheme>;
+
+    function Consumer() {
+      ctx = useTheme();
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(ThemeProvider, {
+          children: React.createElement(Consumer),
+        }),
+      );
+    });
+
+    // Set to auto (resolves to dark in test env)
+    act(() => {
+      ctx!.setMode("auto");
+    });
+
+    act(() => {
+      ctx!.setLayerColor("aircraft", "#ff0000");
+    });
+
+    // Override should be on the resolved mode's bucket
+    const resolved = ctx!.resolvedMode;
+    expect(ctx!.colorOverrides[resolved].aircraft).toBe("#ff0000");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });
