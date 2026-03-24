@@ -5,9 +5,9 @@ import { act } from "react";
 
 // ── Mocks (storageService + paneLayoutContext only — NOT DataContext) ──
 
-let mockStorage: Map<string, unknown>;
-let resetCalls: number;
-let lastStepId: string | null;
+let mockStorage = new Map<string, unknown>();
+let resetCalls = 0;
+let lastStepId: string | null = null;
 
 mock.module("@/lib/storageService", () => ({
   cacheGet: async (key: string) => mockStorage.get(key) ?? null,
@@ -31,12 +31,14 @@ mock.module("@/panes/paneLayoutContext", () => ({
   useWalkthroughLeafTypes: () => new Set(["globe"]),
   useWalkthroughLeafCount: () => 1,
   useWalkthroughPresetCount: () => 0,
+  useVideoPresetCount: () => 0,
 }));
 
 const { Walkthrough } = await import("@/components/Walkthrough");
 const { CACHE_KEYS } = await import("@/lib/cacheKeys");
 const { ThemeProvider } = await import("@/context/ThemeContext");
 const { DataProvider } = await import("@/context/DataContext");
+const { LayoutModeProvider } = await import("@/context/LayoutModeContext");
 
 // ── Mock fetch for DataProvider ─────────────────────────────────────
 
@@ -47,16 +49,40 @@ function mockAllFetch() {
   globalThis.fetch = async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/api/auth/token"))
-      return { ok: true, status: 200, json: async () => ({ ok: true }) } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as unknown as Response;
     if (url.includes("opensky"))
-      return { ok: true, status: 200, json: async () => ({ states: [] }) } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ states: [] }),
+      } as unknown as Response;
     if (url.includes("earthquake.usgs.gov"))
-      return { ok: true, status: 200, json: async () => ({ features: [] }) } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ features: [] }),
+      } as unknown as Response;
     if (url.includes("api.weather.gov"))
-      return { ok: true, status: 200, json: async () => ({ type: "FeatureCollection", features: [] }) } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ type: "FeatureCollection", features: [] }),
+      } as unknown as Response;
     if (url.includes("/api/"))
-      return { ok: true, status: 200, json: async () => ({ data: [], items: [] }) } as unknown as Response;
-    return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [], items: [] }),
+      } as unknown as Response;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    } as unknown as Response;
   };
 }
 
@@ -99,12 +125,16 @@ function render(props: Record<string, any> = {}) {
         ThemeProvider,
         null,
         React.createElement(
-          DataProvider,
+          LayoutModeProvider,
           null,
-          React.createElement(Walkthrough, {
-            onComplete: () => closeCalls.push(true),
-            ...props,
-          }),
+          React.createElement(
+            DataProvider,
+            null,
+            React.createElement(Walkthrough, {
+              onComplete: () => closeCalls.push(true),
+              ...props,
+            }),
+          ),
         ),
       ),
     );
@@ -307,7 +337,7 @@ describe("Walkthrough", () => {
 
   test("overlay has correct z-index", () => {
     const { unmount } = render();
-    const overlay = document.body.querySelector("[class*='z-[9997]']");
+    const overlay = document.body.querySelector("[class*='z-[9999]']");
     expect(overlay).not.toBeNull();
     unmount();
   });
@@ -321,7 +351,7 @@ describe("Walkthrough", () => {
 
   test("info step overlay has pointer-events none for interactivity", () => {
     const { unmount } = render();
-    const overlay = document.body.querySelector("[class*='z-[9997]']");
+    const overlay = document.body.querySelector("[class*='z-[9999]']");
     expect(overlay).not.toBeNull();
     expect((overlay as HTMLElement).style.pointerEvents).toBe("none");
     unmount();
@@ -330,7 +360,7 @@ describe("Walkthrough", () => {
   test("action step overlay also has pointer-events none", () => {
     const { unmount } = render();
     advanceInfoSteps(2);
-    const overlay = document.body.querySelector("[class*='z-[9997]']");
+    const overlay = document.body.querySelector("[class*='z-[9999]']");
     expect(overlay).not.toBeNull();
     expect((overlay as HTMLElement).style.pointerEvents).toBe("none");
     unmount();

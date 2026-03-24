@@ -74,15 +74,19 @@ export function AppShell() {
 
   // ── Ticker height mode ──────────────────────────────────────────
   type TickerMode = "full" | "compact" | "collapsed";
-  const [tickerMode, setTickerMode] = useState<TickerMode>("full");
+  const [tickerMode, setTickerMode] = useState<TickerMode>(
+    isMobileLayout ? "collapsed" : "full",
+  );
 
   useEffect(() => {
     cacheGet<TickerMode>(CACHE_KEYS.tickerHeight).then((saved) => {
       if (saved === "full" || saved === "compact" || saved === "collapsed") {
         setTickerMode(saved);
+      } else if (isMobileLayout) {
+        setTickerMode("collapsed");
       }
     });
-  }, []);
+  }, [isMobileLayout]);
 
   const cycleTickerMode = () => {
     setTickerMode((prev) => {
@@ -154,8 +158,7 @@ export function AppShell() {
                   : "pt-0.5 md:pt-1 pb-1 md:pb-2"
               }`}
               style={{
-                paddingBottom:
-                  "max(0.25rem, env(safe-area-inset-bottom))",
+                paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
               }}
             >
               <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">

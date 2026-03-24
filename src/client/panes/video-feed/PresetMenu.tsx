@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Save, Trash2 } from "lucide-react";
+import { useWalkthroughStepId } from "@/panes/paneLayoutContext";
 import type { Preset } from "./videoFeedTypes";
 
 export function PresetMenu({
@@ -19,9 +20,12 @@ export function PresetMenu({
 }) {
   const [newName, setNewName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const stepId = useWalkthroughStepId();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      // Don't close during walkthrough save-video-preset step
+      if (stepId === "save-video-preset") return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         const toggle = (e.target as HTMLElement).closest(
           '[data-tour="video-preset-btn"]',
@@ -32,11 +36,12 @@ export function PresetMenu({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
+  }, [onClose, stepId]);
 
   return (
     <div
       ref={menuRef}
+      data-wt-menu=""
       className="absolute right-0 top-full z-30 mt-0.5 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-48"
     >
       <div className="px-2 py-1 text-sig-dim text-[10px] tracking-wider font-semibold border-b border-sig-border/30">

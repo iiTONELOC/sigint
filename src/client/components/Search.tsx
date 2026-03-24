@@ -169,8 +169,13 @@ export function Search({
     onMatchingIdsChange(null);
   }, [onMatchingIdsChange]);
 
+  // Ref to focus input immediately when transitioning from button to input.
+  // iOS Safari requires .focus() to originate from the user gesture call stack.
+  const pendingFocusRef = useRef(false);
+
   const openSearch = useCallback(() => {
     if (committedQuery && !query) setQuery(committedQuery);
+    pendingFocusRef.current = true;
     setOpen(true);
   }, [committedQuery, query]);
 
@@ -228,9 +233,15 @@ export function Search({
     [onSelect, onZoomTo, commitFilter],
   );
 
-  useEffect(() => {
-    if (open) requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open]);
+  // Focus via ref callback — fires the instant the input mounts into the DOM,
+  // which is still within the same user gesture microtask on iOS Safari.
+  const inputRefCallback = useCallback((el: HTMLInputElement | null) => {
+    (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+    if (el && pendingFocusRef.current) {
+      pendingFocusRef.current = false;
+      el.focus();
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -331,7 +342,7 @@ export function Search({
           className="text-sig-accent shrink-0"
         />
         <input
-          ref={inputRef}
+          ref={inputRefCallback}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

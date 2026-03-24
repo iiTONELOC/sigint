@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "./paneTree";
 import { leafCount } from "./paneTree";
+import { useWalkthroughStepId } from "./paneLayoutContext";
 
 export function LayoutPresetMenu({
   presets,
@@ -25,9 +26,12 @@ export function LayoutPresetMenu({
 }) {
   const [newName, setNewName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const stepId = useWalkthroughStepId();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      // Don't close during walkthrough save-preset step
+      if (stepId === "save-preset") return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         // Don't close if clicking the toggle button itself — let its onClick handle it
         const toggle = (e.target as HTMLElement).closest(
@@ -39,7 +43,7 @@ export function LayoutPresetMenu({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
+  }, [onClose, stepId]);
 
   const paneCount = (p: LayoutPreset) => {
     const count = leafCount(p.state.root);
@@ -57,6 +61,7 @@ export function LayoutPresetMenu({
   const menu = (
     <div
       ref={menuRef}
+      data-wt-menu=""
       className={`${anchorRect ? "fixed" : "absolute right-0 top-full mt-0.5"} z-[80] bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52`}
       style={posStyle}
     >
