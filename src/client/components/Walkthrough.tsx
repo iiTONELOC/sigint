@@ -12,6 +12,8 @@ import { CACHE_KEYS } from "@/lib/cacheKeys";
 import {
   ESSENTIAL_STEPS,
   ADVANCED_STEPS,
+  MOBILE_ESSENTIAL_STEPS,
+  MOBILE_ADVANCED_STEPS,
   type WalkthroughStep,
   type StepPlacement,
 } from "@/lib/walkthroughSteps";
@@ -25,6 +27,7 @@ import {
   useVideoPresetCount,
 } from "@/panes/paneLayoutContext";
 import { useData } from "@/context/DataContext";
+import { useIsMobileLayout } from "@/context/LayoutModeContext";
 
 type WalkthroughProps = {
   readonly onComplete: () => void;
@@ -44,6 +47,7 @@ const CUTOUT_PAD = 8;
 const CUTOUT_RADIUS = 8;
 const TOOLTIP_GAP = 14;
 const TOOLTIP_MAX_W = 340;
+const TOOLTIP_MAX_W_MOBILE = 280;
 const VIEWPORT_PAD = 12;
 
 // ── Colorize data type keywords in descriptions ──────────────────────
@@ -66,6 +70,7 @@ const COLOR_KEYWORDS: [RegExp, string][] = [
   [/\bsave icon\b/gi, "var(--sigint-warn)"],
   [/\bbookmark icon\b/gi, "#e040fb"],
   [/\bVIDEO FEED\b/g, "var(--sigint-warn)"],
+  [/\bINTEL FEED\b/g, "var(--sigint-accent)"],
 ];
 
 function colorizeDescription(text: string): React.ReactNode {
@@ -111,7 +116,17 @@ function colorizeDescription(text: string): React.ReactNode {
 
 function getTargetRect(selector: string): TargetRect | null {
   if (!selector) return null;
-  const el = document.querySelector(selector);
+  const all = document.querySelectorAll(selector);
+  let el: Element | null = null;
+  //@ts-ignore
+  for (const candidate of all) {
+    const r = candidate.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) {
+      el = candidate;
+      break;
+    }
+  }
+  if (!el) el = all[0] ?? null;
   if (!el) return null;
   const r = el.getBoundingClientRect();
   return { top: r.top, left: r.left, width: r.width, height: r.height };
@@ -123,82 +138,147 @@ function computeTooltipPos(
   tooltipW: number,
   tooltipH: number,
   stepId?: string,
+  stepSelectors?: string[],
 ): { x: number; y: number } {
-  // Steps with dropdown menus — push tooltip to bottom so menu is clear
-  const menuSteps = new Set([
-    "split-right",
-    "split-down",
-    "save-preset",
-    "save-video-preset",
-  ]);
-  if (placement === "center" && stepId && menuSteps.has(stepId)) {
-    return {
-      x: (window.innerWidth - tooltipW) / 2,
-      y: window.innerHeight - tooltipH - 60,
-    };
+  const vv = window.visualViewport;
+  const vw = vv?.width ?? window.innerWidth;
+  const vh = vv?.height ?? window.innerHeight;
+  const vvTop = vv?.offsetTop ?? 0;
+  const pad = VIEWPORT_PAD;
+  const cx = (vw - tooltipW) / 2;
+
+  // ── Collect all obstacles from the step's highlighted selectors ──
+  const obstacles: DOMRect[] = [];
+
+  // Resolve actual target elements from step selectors (buttonSelector, highlightSelector, etc.)
+  if (stepSelectors) {
+    for (const sel of stepSelectors) {
+      if (!sel) continue;
+      const rect = getTargetRect(sel);
+      if (rect && rect.width > 0) {
+        obstacles.push(
+          new DOMRect(
+            rect.left - 10,
+            rect.top - 10,
+            rect.width + 20,
+            rect.height + 20,
+          ),
+        );
+      }
+    }
   }
 
-  // Center placement — always centered on screen regardless of target
-  if (placement === "center" || !target) {
-    return {
-      x: (window.innerWidth - tooltipW) / 2,
-      y: (window.innerHeight - tooltipH) / 2,
-    };
+  // Any open split/type menus
+  const menus = document.querySelectorAll("[data-wt-menu]");
+  //@ts-ignore
+  for (const menu of menus) {
+    const r = (menu as HTMLElement).getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) obstacles.push(r);
   }
 
-  const cx = target.left + target.width / 2;
-  const cy = target.top + target.height / 2;
-
-  const positions = {
-    top: {
-      x: cx - tooltipW / 2,
-      y: target.top - CUTOUT_PAD - TOOLTIP_GAP - tooltipH,
-    },
-    bottom: {
-      x: cx - tooltipW / 2,
-      y: target.top + target.height + CUTOUT_PAD + TOOLTIP_GAP,
-    },
-    left: {
-      x: target.left - CUTOUT_PAD - TOOLTIP_GAP - tooltipW,
-      y: cy - tooltipH / 2,
-    },
-    right: {
-      x: target.left + target.width + CUTOUT_PAD + TOOLTIP_GAP,
-      y: cy - tooltipH / 2,
-    },
-  } as const;
-
-  const flip = {
-    top: "bottom",
-    bottom: "top",
-    left: "right",
-    right: "left",
-  } as const;
-  const p = placement as "top" | "bottom" | "left" | "right";
-  const order = [p, flip[p]] as const;
-
-  for (const dir of order) {
-    const pos = positions[dir];
-    const fitsX =
-      pos.x >= VIEWPORT_PAD &&
-      pos.x + tooltipW <= window.innerWidth - VIEWPORT_PAD;
-    const fitsY =
-      pos.y >= VIEWPORT_PAD &&
-      pos.y + tooltipH <= window.innerHeight - VIEWPORT_PAD;
-    if (fitsX && fitsY) return pos;
+  // Click indicator
+  const indicator = document.querySelector("[data-wt-indicator]");
+  if (indicator) {
+    const r = (indicator as HTMLElement).getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) obstacles.push(r);
   }
 
-  const pos = positions[p];
-  return {
-    x: Math.max(
-      VIEWPORT_PAD,
-      Math.min(window.innerWidth - tooltipW - VIEWPORT_PAD, pos.x),
-    ),
-    y: Math.max(
-      VIEWPORT_PAD,
-      Math.min(window.innerHeight - tooltipH - VIEWPORT_PAD, pos.y),
-    ),
+  // Target element itself (cutout area)
+  if (target && target.width > 0) {
+    obstacles.push(
+      new DOMRect(
+        target.left - CUTOUT_PAD,
+        target.top - CUTOUT_PAD,
+        target.width + CUTOUT_PAD * 2,
+        target.height + CUTOUT_PAD * 2,
+      ),
+    );
+  }
+
+  // ── Overlap check ──
+  const overlaps = (x: number, y: number) => {
+    for (const ob of obstacles) {
+      if (
+        x + tooltipW > ob.left &&
+        x < ob.right &&
+        y + tooltipH > ob.top &&
+        y < ob.bottom
+      )
+        return true;
+    }
+    return false;
   };
+
+  // ── Candidate positions (visual viewport aware) ──
+  const candidates: { x: number; y: number }[] = [];
+
+  // Position directly above or below each obstacle (most important)
+  for (const ob of obstacles) {
+    // Above the obstacle
+    candidates.push({ x: cx, y: ob.top - tooltipH - 8 });
+    // Below the obstacle
+    candidates.push({ x: cx, y: ob.bottom + 8 });
+  }
+
+  // Standard positions
+  candidates.push(
+    { x: cx, y: vvTop + pad },
+    { x: cx, y: vvTop + vh - tooltipH - pad },
+    { x: cx, y: vvTop + (vh - tooltipH) / 2 },
+    { x: pad, y: vvTop + pad },
+    { x: vw - tooltipW - pad, y: vvTop + pad },
+    { x: pad, y: vvTop + vh - tooltipH - pad },
+    { x: vw - tooltipW - pad, y: vvTop + vh - tooltipH - pad },
+  );
+
+  // For directional placement, prioritize the requested direction
+  if (placement !== "center" && target) {
+    const tcx = target.left + target.width / 2;
+    const tcy = target.top + target.height / 2;
+    candidates.unshift(
+      {
+        x: tcx - tooltipW / 2,
+        y: target.top - CUTOUT_PAD - TOOLTIP_GAP - tooltipH,
+      },
+      {
+        x: tcx - tooltipW / 2,
+        y: target.top + target.height + CUTOUT_PAD + TOOLTIP_GAP,
+      },
+      {
+        x: target.left + target.width + CUTOUT_PAD + TOOLTIP_GAP,
+        y: tcy - tooltipH / 2,
+      },
+      {
+        x: target.left - CUTOUT_PAD - TOOLTIP_GAP - tooltipW,
+        y: tcy - tooltipH / 2,
+      },
+    );
+  }
+
+  // Globe action steps — prefer top
+  const globeActionSteps = new Set([
+    "globe-select",
+    "globe-deselect",
+    "mobile-detail-sheet",
+  ]);
+  if (stepId && globeActionSteps.has(stepId)) {
+    candidates.unshift({ x: cx, y: vvTop + pad });
+  }
+
+  // Find first candidate that doesn't overlap any obstacle
+  for (const c of candidates) {
+    const clampedX = Math.max(pad, Math.min(vw - tooltipW - pad, c.x));
+    const clampedY = Math.max(
+      vvTop + pad,
+      Math.min(vvTop + vh - tooltipH - pad, c.y),
+    );
+    if (!overlaps(clampedX, clampedY)) {
+      return { x: clampedX, y: clampedY };
+    }
+  }
+
+  // Absolute fallback — top of visible viewport
+  return { x: Math.max(pad, cx), y: vvTop + pad };
 }
 
 // ── Highlight ring — own portal per ring ─────────────────────────────
@@ -227,31 +307,50 @@ function HighlightRing({
       : isWarn
         ? "0 0 16px rgba(245,166,35,0.5), 0 0 6px rgba(245,166,35,0.3), inset 0 0 8px rgba(245,166,35,0.1)"
         : "0 0 16px rgba(0,212,240,0.5), 0 0 6px rgba(0,212,240,0.3), inset 0 0 8px rgba(0,212,240,0.1)";
-  const [rect, setRect] = useState<TargetRect | null>(null);
+
+  const ringRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
-    const tick = () => setRect(getTargetRect(selector));
-    tick();
-    const iv = setInterval(tick, 50);
-    return () => clearInterval(iv);
+    let mounted = true;
+    const track = () => {
+      if (!mounted) return;
+      const rect = getTargetRect(selector);
+      const el = ringRef.current;
+      if (el && rect && rect.width > 0) {
+        // Use scroll offsets for absolute positioning (fixes iOS keyboard shift)
+        const sx = window.scrollX;
+        const sy = window.scrollY;
+        el.style.top = `${rect.top + sy - 5}px`;
+        el.style.left = `${rect.left + sx - 5}px`;
+        el.style.width = `${rect.width + 10}px`;
+        el.style.height = `${rect.height + 10}px`;
+        el.style.display = "block";
+      } else if (el) {
+        el.style.display = "none";
+      }
+      rafRef.current = requestAnimationFrame(track);
+    };
+    rafRef.current = requestAnimationFrame(track);
+    return () => {
+      mounted = false;
+      cancelAnimationFrame(rafRef.current);
+    };
   }, [selector]);
-
-  if (!rect) return null;
 
   return createPortal(
     <div
+      ref={ringRef}
+      data-wt-ring=""
       style={{
-        position: "fixed",
+        position: "absolute",
         zIndex: 9998,
-        top: rect.top - 5,
-        left: rect.left - 5,
-        width: rect.width + 10,
-        height: rect.height + 10,
         borderRadius: 6,
         border: `2px solid ${borderColor}`,
         boxShadow: shadow,
         pointerEvents: "none",
         animation: "pulse 1.5s infinite",
+        display: "none",
       }}
     />,
     document.body,
@@ -283,10 +382,10 @@ function ClickIndicator({
     const cy = r.top + H / 2;
 
     if (mode === "select") {
-      // Over North America — slight offset up and left of sphere center
+      // Over North America — Texas/Oklahoma area
       setPos({
-        top: `${cy - globeR * 0.115}px`,
-        left: `${cx - globeR * 0.15}px`,
+        top: `${cy - globeR * 0.25}px`,
+        left: `${cx - globeR * 0.22}px`,
       });
     } else {
       // Runtime collision check — find empty space avoiding globe, panel, and tooltip
@@ -361,11 +460,8 @@ function ClickIndicator({
   useEffect(() => {
     recalc();
     window.addEventListener("resize", recalc);
-    // For deselect/focus modes, poll since panel/tooltip can move
-    const iv = mode !== "select" ? setInterval(recalc, 300) : null;
     return () => {
       window.removeEventListener("resize", recalc);
-      if (iv) clearInterval(iv);
     };
   }, [recalc, mode]);
 
@@ -380,7 +476,8 @@ function ClickIndicator({
 
   return createPortal(
     <div
-      className="fixed z-[9998] pointer-events-none"
+      className="fixed z-[9996] pointer-events-none"
+      data-wt-indicator=""
       style={{ ...pos, transform: "translate(-50%, -50%)" }}
     >
       <div
@@ -615,9 +712,13 @@ export function Walkthrough({
   const presetCount = useWalkthroughPresetCount();
   const { selectedCurrent, chromeHidden, setSelected } = useData();
   const videoPresetCount = useVideoPresetCount();
+  const isMobile = useIsMobileLayout();
+
+  const essentialSteps = isMobile ? MOBILE_ESSENTIAL_STEPS : ESSENTIAL_STEPS;
+  const advancedSteps = isMobile ? MOBILE_ADVANCED_STEPS : ADVANCED_STEPS;
 
   const steps: WalkthroughStep[] =
-    phase === "essential" ? ESSENTIAL_STEPS : ADVANCED_STEPS;
+    phase === "essential" ? essentialSteps : advancedSteps;
   const currentStep = steps[stepIdx];
   const totalInPhase = steps.length;
   const isLastInPhase = stepIdx === totalInPhase - 1;
@@ -739,6 +840,12 @@ export function Walkthrough({
         ttRect.width,
         ttRect.height,
         currentStep.id,
+        [
+          currentStep.buttonSelector,
+          currentStep.highlightSelector,
+          currentStep.tertiarySelector,
+          currentStep.quaternarySelector,
+        ].filter(Boolean) as string[],
       );
       setTooltipPos(pos);
     });
@@ -748,12 +855,22 @@ export function Walkthrough({
     measure();
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
-    const interval =
-      currentStep?.mode === "action" ? setInterval(measure, 500) : null;
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener("resize", measure);
+      vv.addEventListener("scroll", measure);
+    }
+    // Re-measure when DOM changes (menus opening, preset lists changing)
+    const mo = new MutationObserver(() => measure());
+    mo.observe(document.body, { childList: true, subtree: true });
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
-      if (interval) clearInterval(interval);
+      if (vv) {
+        vv.removeEventListener("resize", measure);
+        vv.removeEventListener("scroll", measure);
+      }
+      mo.disconnect();
     };
   }, [measure, currentStep]);
 
@@ -774,7 +891,7 @@ export function Walkthrough({
 
   const handleNext = useCallback(() => {
     if (phase === "essential" && isLastInPhase) {
-      if (skipTransition) {
+      if (skipTransition || isMobile) {
         markComplete();
         return;
       }
@@ -786,7 +903,7 @@ export function Walkthrough({
       return;
     }
     setStepIdx((i) => i + 1);
-  }, [phase, isLastInPhase, markComplete, skipTransition]);
+  }, [phase, isLastInPhase, markComplete, skipTransition, isMobile]);
 
   const handleBack = useCallback(() => {
     if (stepIdx <= 0) return;
@@ -819,7 +936,7 @@ export function Walkthrough({
 
   if (phase === "transition") {
     return createPortal(
-      <div className="fixed inset-0 z-[9997] flex items-center justify-center">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center">
         <svg className="absolute inset-0 w-full h-full">
           <rect width="100%" height="100%" fill="rgba(0,0,0,0.72)" />
         </svg>
@@ -875,7 +992,10 @@ export function Walkthrough({
   const isAction = currentStep.mode === "action";
   const isCentered = currentStep.placement === "center";
   const showBackdrop = !isAction && !isCentered && cutout;
-  const nextLabel = phase === "advanced" && isLastInPhase ? "FINISH" : "NEXT";
+  const nextLabel =
+    (phase === "advanced" && isLastInPhase) || (isMobile && isLastInPhase)
+      ? "FINISH"
+      : "NEXT";
 
   // Determine which selectors get highlight rings
   // Show rings for any step that specifies them (action or info)
@@ -884,11 +1004,12 @@ export function Walkthrough({
   const tertiaryRingSelector = currentStep.tertiarySelector || null;
   const quaternaryRingSelector = currentStep.quaternarySelector || null;
 
+  const selectedId = selectedCurrent?.id ?? null;
   const showClickIndicator =
-    currentStep.id === "globe-select" ||
-    currentStep.id === "focus-enter" ||
-    currentStep.id === "focus-exit" ||
-    currentStep.id === "globe-deselect";
+    (currentStep.id === "globe-select" && selectedId === null) ||
+    (currentStep.id === "globe-deselect" && selectedId !== null) ||
+    (currentStep.id === "focus-enter" && !chromeHidden) ||
+    (currentStep.id === "focus-exit" && chromeHidden);
 
   const clickMode: "select" | "deselect" | "focus" =
     currentStep.id === "globe-select"
@@ -896,6 +1017,8 @@ export function Walkthrough({
       : currentStep.id === "focus-enter" || currentStep.id === "focus-exit"
         ? "focus"
         : "deselect";
+
+  const effectiveMaxW = isMobile ? TOOLTIP_MAX_W_MOBILE : TOOLTIP_MAX_W;
 
   return (
     <>
@@ -934,8 +1057,8 @@ export function Walkthrough({
 
       {createPortal(
         <div
-          className="fixed inset-0 z-[9997]"
-          style={{ pointerEvents: "none" }}
+          className="fixed inset-0 z-[9999]"
+          style={{ pointerEvents: "none", overscrollBehavior: "contain" }}
         >
           {showBackdrop && (
             <svg
@@ -986,112 +1109,142 @@ export function Walkthrough({
             onPointerDown={onTooltipPointerDown}
             style={{
               touchAction: "none",
+              overscrollBehavior: "none",
               left: (tooltipPos?.x ?? -9999) + (dragOffset?.x ?? 0),
               top: (tooltipPos?.y ?? -9999) + (dragOffset?.y ?? 0),
               opacity: tooltipPos ? 1 : 0,
-              maxWidth: TOOLTIP_MAX_W,
+              maxWidth:
+                isMobile && isAction
+                  ? window.innerWidth - VIEWPORT_PAD * 2
+                  : effectiveMaxW,
               pointerEvents: "auto",
               transition: dragRef.current
                 ? "opacity 0.2s ease-out"
                 : "opacity 0.2s ease-out, left 0.25s ease-out, top 0.25s ease-out",
             }}
           >
-            <div className="bg-sig-panel border border-sig-border/80 rounded-lg shadow-2xl overflow-hidden">
-              <div
-                className={`h-0.5 ${isAction ? "bg-sig-warn" : "bg-sig-accent"}`}
-              />
-              {/* Drag handle */}
-              <div className="flex justify-center py-1 text-sig-dim/30 cursor-grab active:cursor-grabbing">
-                <GripHorizontal size={14} />
-              </div>
-
-              <div className="px-4 pt-0 pb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-sig-dim tracking-widest font-semibold">
-                    {stepIdx + 1} / {totalInPhase}
+            {/* ── Mobile action: compact single-line bar ── */}
+            {isMobile && isAction ? (
+              <div className="bg-sig-panel border border-sig-accent/60 rounded-lg shadow-2xl overflow-hidden">
+                <div className="h-0.5 bg-sig-warn" />
+                <div className="px-3 py-2 flex items-center gap-2">
+                  <span className="text-[10px] text-sig-dim tracking-widest font-semibold shrink-0">
+                    {stepIdx + 1}/{totalInPhase}
                   </span>
-                  <span className="text-[10px] tracking-wider uppercase">
-                    {isAction ? (
-                      <span className="text-sig-warn">DO THIS</span>
-                    ) : (
-                      <span className="text-sig-dim/60">
-                        {phase === "essential" ? "essentials" : "advanced"}
-                      </span>
-                    )}
+                  <span className="text-[11px] font-semibold text-sig-bright tracking-wider truncate">
+                    {currentStep.title}
                   </span>
-                </div>
-
-                <div className="text-sm font-semibold text-sig-bright tracking-wider mb-1.5">
-                  {currentStep.title}
-                </div>
-
-                <div className="text-sm text-sig-text leading-relaxed mb-4">
-                  {colorizeDescription(currentStep.description)}
-                </div>
-
-                <div className="flex items-center gap-1 mb-4">
-                  {Array.from({ length: totalInPhase }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`h-1 rounded-full transition-all ${
-                        i === stepIdx
-                          ? isAction
-                            ? "w-4 bg-sig-warn"
-                            : "w-4 bg-sig-accent"
-                          : i < stepIdx
-                            ? "w-1.5 bg-sig-accent/40"
-                            : "w-1.5 bg-sig-border"
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-sig-warn/70 tracking-wider animate-pulse shrink-0 ml-auto">
+                    DO THIS
+                  </span>
                   <button
                     onClick={handleSkip}
-                    className="px-2 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-1"
+                    className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-0.5"
                   >
-                    <X size={11} strokeWidth={2.5} />
+                    <X size={10} strokeWidth={2.5} />
                     SKIP
                   </button>
-
-                  <button
-                    onClick={handleDismiss}
-                    className="px-2 py-1.5 rounded text-[10px] tracking-wider text-sig-dim/50 hover:text-sig-dim transition-colors"
-                  >
-                    DON'T SHOW AGAIN
-                  </button>
-
-                  <div className="flex-1" />
-
-                  {stepIdx > 0 && (
-                    <button
-                      onClick={handleBack}
-                      className="px-2.5 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors flex items-center gap-1"
-                    >
-                      <ChevronLeft size={12} strokeWidth={2.5} />
-                      BACK
-                    </button>
-                  )}
-
-                  {!isAction && (
-                    <button
-                      onClick={handleNext}
-                      className="px-3 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-bg bg-sig-accent hover:bg-sig-accent/90 transition-colors flex items-center gap-1"
-                    >
-                      {nextLabel}
-                      <ChevronRight size={12} strokeWidth={2.5} />
-                    </button>
-                  )}
-
-                  {isAction && (
-                    <span className="text-[10px] text-sig-warn/70 tracking-wider animate-pulse">
-                      WAITING FOR ACTION...
-                    </span>
-                  )}
                 </div>
               </div>
-            </div>
+            ) : (
+              /* ── Full tooltip (info steps + desktop) ── */
+              <div className="bg-sig-panel border border-sig-border/80 rounded-lg shadow-2xl overflow-hidden">
+                <div
+                  className={`h-0.5 ${isAction ? "bg-sig-warn" : "bg-sig-accent"}`}
+                />
+                {/* Drag handle */}
+                <div className="flex justify-center py-1 text-sig-dim/30 cursor-grab active:cursor-grabbing">
+                  <GripHorizontal size={14} />
+                </div>
+
+                <div className="px-4 pt-0 pb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-sig-dim tracking-widest font-semibold">
+                      {stepIdx + 1} / {totalInPhase}
+                    </span>
+                    <span className="text-[10px] tracking-wider uppercase">
+                      {isAction ? (
+                        <span className="text-sig-warn">DO THIS</span>
+                      ) : (
+                        <span className="text-sig-dim/60">
+                          {phase === "essential" ? "essentials" : "advanced"}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="text-sm font-semibold text-sig-bright tracking-wider mb-1.5">
+                    {currentStep.title}
+                  </div>
+
+                  <div className="text-sm text-sig-text leading-relaxed mb-4">
+                    {colorizeDescription(currentStep.description)}
+                  </div>
+
+                  <div className="flex items-center gap-1 mb-4">
+                    {Array.from({ length: totalInPhase }).map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-1 rounded-full transition-all ${
+                          i === stepIdx
+                            ? isAction
+                              ? "w-4 bg-sig-warn"
+                              : "w-4 bg-sig-accent"
+                            : i < stepIdx
+                              ? "w-1.5 bg-sig-accent/40"
+                              : "w-1.5 bg-sig-border"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handleSkip}
+                      className="px-2 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-1"
+                    >
+                      <X size={11} strokeWidth={2.5} />
+                      SKIP
+                    </button>
+
+                    <button
+                      onClick={handleDismiss}
+                      className="px-2 py-1.5 rounded text-[10px] tracking-wider text-sig-dim/50 hover:text-sig-dim transition-colors"
+                    >
+                      DON'T SHOW AGAIN
+                    </button>
+
+                    <div className="flex-1 basis-full sm:basis-0" />
+
+                    {stepIdx > 0 && (
+                      <button
+                        onClick={handleBack}
+                        className="px-2.5 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors flex items-center gap-1"
+                      >
+                        <ChevronLeft size={12} strokeWidth={2.5} />
+                        BACK
+                      </button>
+                    )}
+
+                    {!isAction && (
+                      <button
+                        onClick={handleNext}
+                        className="px-3 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-bg bg-sig-accent hover:bg-sig-accent/90 transition-colors flex items-center gap-1"
+                      >
+                        {nextLabel}
+                        <ChevronRight size={12} strokeWidth={2.5} />
+                      </button>
+                    )}
+
+                    {isAction && (
+                      <span className="text-[10px] text-sig-warn/70 tracking-wider animate-pulse">
+                        WAITING FOR ACTION...
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>,
         document.body,

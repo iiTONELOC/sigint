@@ -816,6 +816,7 @@ export function PaneMobile({
         createPortal(
           <div
             ref={splitMenuRef}
+            data-wt-menu=""
             className="fixed z-[80] rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
             style={{
               top: splitMenu.top,
@@ -828,6 +829,7 @@ export function PaneMobile({
               return (
                 <button
                   key={type}
+                  data-tour={`split-menu-${type}`}
                   onClick={() => {
                     splitPane(splitMenu.leafId, splitMenu.dir, type);
                     setSplitMenu(null);
@@ -1033,6 +1035,7 @@ export function PaneMobile({
           {presets && onLoadPreset && (
             <div className="relative ml-auto shrink-0">
               <button
+                data-tour="views-btn"
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   setShowPresets((v) => !v);
@@ -1093,6 +1096,11 @@ export function PaneMobile({
               id={`mobile-block-${block.id}`}
               data-block-id={block.id}
               data-pane-id={block.primaryLeaf.id}
+              data-tour={
+                block.primaryLeaf.paneType === "globe"
+                  ? "globe-pane"
+                  : undefined
+              }
               ref={(el) => setBlockRef(block.id, el)}
               className={`border-b border-sig-border/40 ${
                 useFlexFill ? "flex-1 flex flex-col" : ""
@@ -1190,6 +1198,7 @@ export function PaneMobile({
                       }}
                       className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                       title="Split side-by-side"
+                      data-tour={`split-right-${block.primaryLeaf.paneType}`}
                     >
                       <Columns2 size={11} strokeWidth={2.5} />
                     </button>
@@ -1225,6 +1234,11 @@ export function PaneMobile({
                       }}
                       className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                       title="Add pane below"
+                      data-tour={
+                        block.primaryLeaf.paneType === "globe"
+                          ? "split-down-btn"
+                          : `split-down-${block.primaryLeaf.paneType}`
+                      }
                     >
                       <Rows2 size={11} strokeWidth={2.5} />
                     </button>
@@ -1324,8 +1338,11 @@ export function PaneMobile({
           );
         })}
 
-        {/* Bottom padding — taller when detail panel is showing so you can scroll past it */}
-        <div className={selectedCurrent ? "h-[45vh]" : "h-32"} />
+        {/* Bottom padding — taller when detail panel is showing so you can scroll past it.
+             Skip when single pane is flex-filling (no scroll, no dead space needed). */}
+        {orderedBlocks.length > 1 && (
+          <div className={selectedCurrent ? "h-[45vh]" : "h-32"} />
+        )}
       </div>
     </div>
   );

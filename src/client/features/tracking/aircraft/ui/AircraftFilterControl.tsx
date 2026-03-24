@@ -93,7 +93,7 @@ export function AircraftFilterControl({
       <button
         ref={buttonRef}
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) min-h-7"
+        className="flex items-center gap-1.5 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) shrink-0 touch-target justify-center sm:justify-start"
         style={{
           background: aircraftFilter.enabled
             ? aircraftColor + "15"
