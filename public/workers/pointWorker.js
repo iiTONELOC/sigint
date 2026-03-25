@@ -662,7 +662,7 @@ function renderFrame() {
   };
 
   // Military aircraft color — orange-red, distinct from civilian yellow
-  var milColor = light ? "#cc3300" : "#ff6644";
+  var milColor = light ? "#3a3a3a" : "#e0e0e0";
 
   var projFn;
   var fm;
