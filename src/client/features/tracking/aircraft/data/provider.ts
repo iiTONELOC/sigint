@@ -256,12 +256,14 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     // kick off background refresh so next read gets fresh data
     if (this.cache) {
       if (!this.fetchInProgress) {
-        this.fetchInProgress = this.refresh().then((data) => {
-          this.notifyChange();
-          return data;
-        }).finally(() => {
-          this.fetchInProgress = null;
-        });
+        this.fetchInProgress = this.refresh()
+          .then((data) => {
+            this.notifyChange();
+            return data;
+          })
+          .finally(() => {
+            this.fetchInProgress = null;
+          });
       }
       return this.cache.data;
     }
@@ -331,5 +333,41 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     };
 
     return this.cache?.data ?? this.snapshot.entities;
+  }
+
+  /**
+   * Background enrichment — processes all unenriched aircraft in batches.
+   * Called after each successful refresh. Non-blocking, best-effort.
+   * Chunks of 150 icao24s with 2s delay between chunks to avoid hammering the server.
+   */
+  async backgroundEnrich(): Promise<void> {
+    if (!this.cache) return;
+
+    const unenriched = this.cache.data
+      .filter(
+        (d) => d.type === "aircraft" && (d.data as any)?.acType === "Unknown",
+      )
+      .map((d) => normalizeIcao24((d.data as any)?.icao24))
+      .filter(
+        (v): v is string => v !== null && !this.attemptedMetadataIcao.has(v),
+      );
+
+    if (unenriched.length === 0) return;
+
+    const CHUNK_SIZE = 150;
+    const CHUNK_DELAY = 2000;
+
+    for (let i = 0; i < unenriched.length; i += CHUNK_SIZE) {
+      const chunk = unenriched.slice(i, i + CHUNK_SIZE);
+      try {
+        await this.enrichAircraftByIcao24(chunk);
+        this.notifyChange();
+      } catch {
+        // Non-fatal — skip this chunk
+      }
+      if (i + CHUNK_SIZE < unenriched.length) {
+        await new Promise((r) => setTimeout(r, CHUNK_DELAY));
+      }
+    }
   }
 }

@@ -74,6 +74,8 @@ export function useAircraftData(
         } else {
           setError(null);
           setDataSource("live");
+          // Background enrich on initial load too
+          aircraftProvider.backgroundEnrich();
         }
       })
       .catch((err) => {
@@ -98,6 +100,8 @@ export function useAircraftData(
         } else {
           setError(null);
           setDataSource("live");
+          // Background enrich unenriched aircraft — non-blocking, best effort
+          aircraftProvider.backgroundEnrich();
         }
       } catch (err) {
         if (!isMounted) return;

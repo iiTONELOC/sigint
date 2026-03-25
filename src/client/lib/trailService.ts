@@ -3,8 +3,8 @@ import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const CACHE_KEY = CACHE_KEYS.trails;
 const MIN_MOVE_DEG = 0.001; // ~100m — skip if hasn't moved
-const PERSIST_INTERVAL_MS = 30_000;
-const MAX_MISSED_REFRESHES = 3;
+const PERSIST_INTERVAL_MS = 10_000;
+const MAX_MISSED_REFRESHES = 8; // ~32 min at 4-min intervals — survive short coverage gaps
 const MAX_TRAIL_POINTS = 50; // ~3.3 hours at 4-min intervals
 
 export type TrailPoint = {
@@ -155,11 +155,18 @@ export function recordPositions(
     }
   }
 
+  // Only count misses for trails that haven't been seen in a while.
+  // This prevents rapid React re-renders from incrementing missedRefreshes
+  // multiple times per actual data refresh cycle (~4 min for OpenSky).
+  const MISS_THRESHOLD_MS = 180_000; // 3 minutes — roughly one poll interval
+
   for (const [id, entry] of trails) {
     if (!seenIds.has(id)) {
-      entry.missedRefreshes++;
-      if (entry.missedRefreshes > MAX_MISSED_REFRESHES) {
-        trails.delete(id);
+      if (now - entry.lastSeen > MISS_THRESHOLD_MS) {
+        entry.missedRefreshes++;
+        if (entry.missedRefreshes > MAX_MISSED_REFRESHES) {
+          trails.delete(id);
+        }
       }
     }
   }

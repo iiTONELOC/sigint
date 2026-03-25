@@ -147,6 +147,14 @@ function computeTooltipPos(
   const pad = VIEWPORT_PAD;
   const cx = (vw - tooltipW) / 2;
 
+  // Search step: pin to the bottom of the FULL window (not visual viewport).
+  // On mobile, tapping search opens the keyboard which shrinks visualViewport,
+  // pushing the "bottom" up into the search area. Use window.innerHeight instead.
+  if (stepId === "search") {
+    const fullH = window.innerHeight;
+    return { x: cx, y: fullH - tooltipH - pad };
+  }
+
   // ── Collect all obstacles from the step's highlighted selectors ──
   const obstacles: DOMRect[] = [];
 

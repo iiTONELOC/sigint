@@ -5,6 +5,7 @@ import {
   X,
   Plus,
   GripVertical,
+  Columns2,
   Rows2,
   ChevronDown,
   Minus,
@@ -27,14 +28,14 @@ import type { Globe } from "lucide-react";
 // ── Default heights per pane type ────────────────────────────────────
 
 const DEFAULT_HEIGHTS: Record<PaneType, number> = {
-  globe: 380,
-  "data-table": 300,
-  dossier: 340,
-  "intel-feed": 320,
-  "alert-log": 280,
-  "raw-console": 260,
-  "video-feed": 340,
-  "news-feed": 300,
+  globe: 420,
+  "data-table": 320,
+  dossier: 360,
+  "intel-feed": 340,
+  "alert-log": 300,
+  "raw-console": 280,
+  "video-feed": 400,
+  "news-feed": 320,
 };
 
 const MIN_PANE_HEIGHT = 160;
@@ -165,7 +166,7 @@ export function PaneMobile({
   onUpdatePreset,
   onDeletePreset,
 }: PaneMobileProps) {
-  const { colorMap, chromeHidden } = useData();
+  const { colorMap, chromeHidden, selectedCurrent } = useData();
   const [showPresets, setShowPresets] = useState(false);
 
   // ── Build blocks from layout tree ──────────────────────────────
@@ -502,9 +503,7 @@ export function PaneMobile({
   useEffect(() => {
     tabObsRef.current?.disconnect();
 
-    // Track which blocks are in the top half of the viewport.
-    // Pick the topmost one as "active" — most intuitive for scrolling.
-    const intersecting = new Map<string, number>(); // blockId → top position
+    const intersecting = new Map<string, number>();
 
     tabObsRef.current = new IntersectionObserver(
       (entries) => {
@@ -517,7 +516,6 @@ export function PaneMobile({
             intersecting.delete(id);
           }
         }
-        // Pick the block closest to the top of the viewport
         let bestId: string | null = null;
         let bestTop = Infinity;
         for (const [id, top] of intersecting) {
@@ -1196,6 +1194,42 @@ export function PaneMobile({
                         if (availableTypes.length === 1) {
                           splitPane(
                             block.primaryLeaf.id,
+                            "h",
+                            availableTypes[0]!,
+                          );
+                        } else {
+                          const rect = (
+                            e.currentTarget as HTMLElement
+                          ).getBoundingClientRect();
+                          setSplitMenu((prev) =>
+                            prev?.leafId === block.primaryLeaf.id &&
+                            prev.dir === "h"
+                              ? null
+                              : {
+                                  leafId: block.primaryLeaf.id,
+                                  dir: "h",
+                                  top: rect.bottom + 4,
+                                  left: rect.left,
+                                },
+                          );
+                        }
+                      }}
+                      className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                      title="Split side-by-side"
+                      data-tour={`split-right-${block.primaryLeaf.paneType}`}
+                    >
+                      <Columns2 size={11} strokeWidth={2.5} />
+                    </button>
+                  )}
+
+                {block.node.type === "leaf" &&
+                  availableTypes.length > 0 &&
+                  !moveSourceLeafId && (
+                    <button
+                      onClick={(e) => {
+                        if (availableTypes.length === 1) {
+                          splitPane(
+                            block.primaryLeaf.id,
                             "v",
                             availableTypes[0]!,
                           );
@@ -1322,8 +1356,9 @@ export function PaneMobile({
           );
         })}
 
-        {/* Bottom padding — small spacer so last block's resize handle is reachable */}
-        <div className="shrink-0 h-16" />
+        {/* Bottom padding — taller when detail panel is showing so you can scroll past it.
+             Skip when single pane is flex-filling (no scroll, no dead space needed). */}
+        {orderedBlocks.length > 1 && <div className="h-16" />}
       </div>
     </div>
   );
