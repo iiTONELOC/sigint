@@ -211,16 +211,25 @@ export function GlobeVisualization({
       const mW = fw * 0.92 * targetZoom;
       const mH = fh * 0.84 * targetZoom;
       camTarget.panX = -(tLon / 180) * (mW / 2);
-      camTarget.panY = (tLat / 90) * (mH / 2);
+      const basePanY = (tLat / 90) * (mH / 2);
+      camTarget.panY = fw < 768 ? basePanY - fh * 0.23 : basePanY;
       camTarget.zoom = targetZoom;
     } else {
       // Always rotate to show the point — no visibility guessing
       const phi = ((90 - tLat) * Math.PI) / 180;
       const theta = ((tLon + 180) * Math.PI) / 180;
       camTarget.rotY = Math.PI / 2 - theta;
-      camTarget.rotX = -(phi - Math.PI / 2);
+      const baseRotX = -(phi - Math.PI / 2);
+      const { w: rw, h: rh } = sizeRef.current;
+      const targetZoom = Math.max(cam.zoomGlobe, 2.5);
+      if (rw < 768) {
+        const r = Math.min(rw, rh) * 0.4 * targetZoom;
+        camTarget.rotX = baseRotX - Math.asin(Math.min(0.95, (rh * 0.19) / r));
+      } else {
+        camTarget.rotX = baseRotX;
+      }
       // ISS-level zoom — keep current if already zoomed in, otherwise mild
-      camTarget.zoom = Math.max(cam.zoomGlobe, 2.5);
+      camTarget.zoom = targetZoom;
     }
     camTarget.active = true;
     camTarget.lockedId = null;

@@ -188,9 +188,9 @@ export function DossierPane() {
           <span
             className="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded"
             style={{
-              background: "#ff664420",
-              color: "#ff6644",
-              border: "1px solid #ff664460",
+              background: "#e0e0e020",
+              color: "#e0e0e0",
+              border: "1px solid #e0e0e060",
             }}
           >
             MIL

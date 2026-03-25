@@ -49,6 +49,10 @@ export function ConnectionStatus() {
   // ── Pull-to-refresh touch handlers ─────────────────────────────────
   useEffect(() => {
     const onTouchStart = (e: TouchEvent) => {
+      // Ignore touches inside the detail bottom sheet — its own drag handles those
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("[data-detail-sheet]")) return;
+
       const scrollTop =
         document.documentElement.scrollTop || document.body.scrollTop || 0;
       if (scrollTop > 2) return;

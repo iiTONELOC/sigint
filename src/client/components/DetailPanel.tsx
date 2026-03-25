@@ -94,7 +94,7 @@ function useDrag() {
 
 // ── Mobile bottom-sheet with snap heights ────────────────────────────
 
-const SNAP_HEIGHTS = [20, 45, 75]; // vh: peek, half, full
+const SNAP_HEIGHTS = [18, 38, 55]; // vh: peek, half, full — capped at 55 so globe point stays visible
 
 function useSheetDismiss(onClose: () => void) {
   const offsetRef = useRef(0);
@@ -177,7 +177,10 @@ function useSheetDismiss(onClose: () => void) {
       dragRef.current.lastY = touch.clientY;
       dragRef.current.lastT = now;
       const dvh = (dy / window.innerHeight) * 100;
-      const newH = Math.max(10, Math.min(85, heightAtDragStart.current - dvh));
+      const newH = Math.max(
+        10,
+        Math.min(SNAP_HEIGHTS[2]! + 2, heightAtDragStart.current - dvh),
+      );
       setHeightVh(newH);
       if (newH <= 10) {
         update(
@@ -200,12 +203,12 @@ function useSheetDismiss(onClose: () => void) {
     const vel = dragRef.current.velocity;
     const h = heightRef.current;
 
-    if (vel > 0.8) {
+    if (vel > 1.2) {
       update(400, true);
       setTimeout(onClose, 200);
       return;
     }
-    if (vel < -0.5) {
+    if (vel < -0.8) {
       const next =
         SNAP_HEIGHTS.find((s) => s > h + 5) ??
         SNAP_HEIGHTS[SNAP_HEIGHTS.length - 1]!;
@@ -262,6 +265,13 @@ export function DetailPanel({
   const drag = useDrag();
   const sheet = useSheetDismiss(onClose);
 
+  // LOCATE button stays highlighted until the selected item changes
+  const [locateActive, setLocateActive] = useState(false);
+  const handleLocate = useCallback(() => {
+    onZoomTo?.();
+    setLocateActive(true);
+  }, [onZoomTo]);
+
   const lastItemId = useRef<string | null>(null);
   const lastSide = useRef(side);
   if (item?.id !== lastItemId.current || side !== lastSide.current) {
@@ -269,6 +279,7 @@ export function DetailPanel({
     lastSide.current = side;
     if (drag.dragged) drag.reset();
     sheet.reset();
+    if (locateActive) setLocateActive(false);
   }
 
   if (!item) return null;
@@ -289,7 +300,8 @@ export function DetailPanel({
       rows={rows}
       isolateMode={isolateMode}
       onSetIsolateMode={onSetIsolateMode}
-      onZoomTo={onZoomTo}
+      onZoomTo={handleLocate}
+      locateActive={locateActive}
       onClose={onClose}
       onOpenDossier={!hasDossier ? onOpenDossier : undefined}
     />
@@ -301,7 +313,8 @@ export function DetailPanel({
       <div className="fixed inset-x-0 bottom-0 z-40 md:hidden pointer-events-none">
         <div
           ref={sheet.sheetRef}
-          className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border border-b-0 px-2.5 pb-3 pt-0"
+          data-detail-sheet
+          className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm bg-sig-panel/96 border border-sig-border border-b-0 pt-0 flex flex-col"
           style={{
             height: `${sheet.heightVh}vh`,
             transform: `translateY(${sheet.offsetY}px)`,
@@ -312,18 +325,91 @@ export function DetailPanel({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Drag handle — swipe-to-dismiss touch target */}
-          <div
-            className="flex flex-col items-center py-2.5 -mx-2.5 cursor-grab touch-none sticky top-0 z-10 bg-sig-panel/96 rounded-t-lg"
-            onTouchStart={sheet.onTouchStart}
-            onTouchMove={sheet.onTouchMove}
-            onTouchEnd={sheet.onTouchEnd}
-          >
-            <div className="w-10 h-1 rounded-full bg-sig-dim/50" />
+          {/* ── Fixed top: drag handle + header + buttons ── */}
+          <div className="shrink-0 px-2.5">
+            {/* Drag handle */}
+            <div
+              className="flex flex-col items-center py-3.5 -mx-2.5 cursor-grab touch-none bg-sig-panel/96 rounded-t-lg"
+              onTouchStart={(e) => {
+                e.stopPropagation();
+                sheet.onTouchStart(e);
+              }}
+              onTouchMove={(e) => {
+                e.stopPropagation();
+                sheet.onTouchMove(e);
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation();
+                //@ts-ignore
+                sheet.onTouchEnd(e);
+              }}
+            >
+              <div className="w-12 h-1.5 rounded-full bg-sig-dim/40" />
+            </div>
+            {/* Type label + close + action buttons */}
+            <div className="mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Icon
+                    size="clamp(14px, 2vw, 18px)"
+                    style={{ color }}
+                    {...feature.iconProps}
+                  />
+                  <span
+                    className="font-bold tracking-widest text-(length:--sig-text-btn)"
+                    style={{ color }}
+                  >
+                    {feature.label}
+                  </span>
+                </div>
+                <span
+                  data-tour="detail-close"
+                  onClick={onClose}
+                  className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
+                >
+                  ✕
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {onZoomTo && (
+                  <ModeButton
+                    active={locateActive}
+                    label="LOCATE"
+                    icon={LocateFixed}
+                    accentColor="var(--sigint-accent)"
+                    onClick={handleLocate}
+                  />
+                )}
+                <ModeButton
+                  active={isolateMode === "focus"}
+                  label="FOCUS"
+                  icon={Eye}
+                  accentColor="var(--sigint-accent)"
+                  onClick={() =>
+                    onSetIsolateMode(isolateMode === "focus" ? null : "focus")
+                  }
+                />
+                <ModeButton
+                  active={isolateMode === "solo"}
+                  label="SOLO"
+                  icon={Crosshair}
+                  accentColor="var(--sigint-danger)"
+                  onClick={() =>
+                    onSetIsolateMode(isolateMode === "solo" ? null : "solo")
+                  }
+                />
+              </div>
+            </div>
           </div>
-          {content}
-          {/* Scroll indicator */}
-          <MobileScrollHint sheetRef={sheet.sheetRef} />
+
+          {/* ── Scrollable body: data rows + coords + links ── */}
+          <div className="flex-1 min-h-0 overflow-y-auto sigint-scroll px-2.5 pb-3">
+            <PanelBody
+              item={item}
+              rows={rows}
+              onOpenDossier={!hasDossier ? onOpenDossier : undefined}
+            />
+          </div>
         </div>
       </div>
 
@@ -416,6 +502,74 @@ function ModeButton({
   );
 }
 
+function PanelBody({
+  item,
+  rows,
+  onOpenDossier,
+}: {
+  item: DataPoint;
+  rows: [string, string][];
+  onOpenDossier?: () => void;
+}) {
+  const dataRows = rows.filter(([, v]) => !isUrl(v));
+  const linkRows = rows.filter(([, v]) => isUrl(v));
+
+  return (
+    <>
+      {/* Data rows */}
+      <div className="pt-2.5 border-t border-sig-border">
+        {dataRows.map(([k, v]) => (
+          <div key={k} className="flex justify-between mb-1.5">
+            <span className="uppercase tracking-wide text-sig-dim text-(length:--sig-text-sm)">
+              {k}
+            </span>
+            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-lg)">
+              {v}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Coordinates */}
+      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-dim text-(length:--sig-text-md)">
+        {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
+        {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+      </div>
+
+      {/* Open in Dossier button */}
+      {onOpenDossier && (
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+          <button
+            onClick={onOpenDossier}
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+          >
+            <FileSearch size={12} strokeWidth={2.5} />
+            OPEN IN DOSSIER
+          </button>
+        </div>
+      )}
+
+      {/* Intel links */}
+      {linkRows.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
+          {linkRows.map(([label, url]) => (
+            <a
+              key={label}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+            >
+              {label}
+              <ExternalLink size={9} />
+            </a>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function PanelContent({
   Icon,
   color,
@@ -425,6 +579,7 @@ function PanelContent({
   isolateMode,
   onSetIsolateMode,
   onZoomTo,
+  locateActive,
   onClose,
   onOpenDossier,
 }: {
@@ -436,6 +591,7 @@ function PanelContent({
   isolateMode: null | "solo" | "focus";
   onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   onZoomTo?: () => void;
+  locateActive?: boolean;
   onClose: () => void;
   onOpenDossier?: () => void;
 }) {
@@ -471,7 +627,7 @@ function PanelContent({
         <div className="flex items-center gap-1.5">
           {onZoomTo && (
             <ModeButton
-              active={false}
+              active={locateActive ?? false}
               label="LOCATE"
               icon={LocateFixed}
               accentColor="var(--sigint-accent)"

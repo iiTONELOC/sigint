@@ -46,18 +46,34 @@ export function updateCamera(
     const tLat = interp ? interp.lat : selected.lat;
     const tLon = interp ? interp.lon : selected.lon;
 
+    // On mobile, the bottom sheet covers ~38% of viewport height.
+    // Shift the target point UP so it lands in the center of the visible
+    // area above the sheet (~19% of viewport height above center).
+    const isMobile = viewportW < 768;
+
     if (isFlat) {
       const targetZoom = camTarget.zoom > 0 ? camTarget.zoom : cam.zoomFlat;
       const mW = viewportW * 0.92 * targetZoom;
       const mH = viewportH * 0.84 * targetZoom;
       camTarget.panX = -(tLon / 180) * (mW / 2);
-      camTarget.panY = (tLat / 90) * (mH / 2);
+      const basePanY = (tLat / 90) * (mH / 2);
+      // panY is screen-space offset — shift up by 19% of viewport height
+      camTarget.panY = isMobile ? basePanY - viewportH * 0.23 : basePanY;
       camTarget.active = true;
     } else {
       const phi = ((90 - tLat) * Math.PI) / 180;
       const theta = ((tLon + 180) * Math.PI) / 180;
       camTarget.rotY = Math.PI / 2 - theta;
-      camTarget.rotX = -(phi - Math.PI / 2);
+      const baseRotX = -(phi - Math.PI / 2);
+      if (isMobile) {
+        // Negative rotX shifts points UP on screen (projection: y = cy - y2*r)
+        const currentZoom = camTarget.zoom > 0 ? camTarget.zoom : cam.zoomGlobe;
+        const r = Math.min(viewportW, viewportH) * 0.4 * currentZoom;
+        const pxShift = viewportH * 0.19;
+        camTarget.rotX = baseRotX - Math.asin(Math.min(0.95, pxShift / r));
+      } else {
+        camTarget.rotX = baseRotX;
+      }
       camTarget.active = true;
     }
   }

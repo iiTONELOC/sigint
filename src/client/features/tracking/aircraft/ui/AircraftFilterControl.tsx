@@ -185,7 +185,7 @@ export function AircraftFilterControl({
                 ).map(([label, value]) => {
                   const on = aircraftFilter.milFilter === value;
                   const milClr =
-                    value === "military" ? "#ff6644" : aircraftColor;
+                    value === "military" ? "#e0e0e0" : aircraftColor;
                   return (
                     <button
                       key={value}
