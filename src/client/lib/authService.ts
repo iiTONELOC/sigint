@@ -12,12 +12,20 @@ async function refreshCookie(): Promise<void> {
   inflightRefresh = (async () => {
     const res = await fetch(TOKEN_URL, { credentials: "same-origin" });
     if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
+    // Wait a tick for the browser to process Set-Cookie before
+    // subsequent fetch() calls include it
+    await new Promise((r) => setTimeout(r, 0));
   })();
   try {
     await inflightRefresh;
   } finally {
     inflightRefresh = null;
   }
+}
+
+/** Pre-fetch auth token cookie. Call before any authenticated requests. */
+export async function ensureAuthCookie(): Promise<void> {
+  return refreshCookie();
 }
 
 export async function authenticatedFetch(
