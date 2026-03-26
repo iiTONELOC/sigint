@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Save, Trash2 } from "lucide-react";
 import type { LayoutPreset } from "./paneTree";
 import { leafCount } from "./paneTree";
-import { useWalkthroughStepId } from "./paneLayoutContext";
+import { useWalkthroughStepId } from "@/lib/layoutSignals";
 
 export function LayoutPresetMenu({
   presets,

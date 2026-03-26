@@ -18,7 +18,7 @@ import {
   onWalkthroughReset,
   onWalkthroughUndo,
   setWalkthroughLayoutSnapshot,
-} from "@/panes/paneLayoutContext";
+} from "@/lib/layoutSignals";
 import {
   Globe,
   Table2,

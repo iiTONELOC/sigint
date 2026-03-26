@@ -20,7 +20,7 @@ mock.module("@/lib/storageService", () => ({
   cacheInit: async () => {},
 }));
 
-mock.module("@/panes/paneLayoutContext", () => ({
+mock.module("@/lib/layoutSignals", () => ({
   requestWalkthroughReset: () => {
     resetCalls++;
   },

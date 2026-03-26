@@ -1,82 +1,32 @@
 import { serve } from "bun";
-import { join, resolve, relative, normalize } from "path";
+import { join, resolve } from "path";
 import { apiRoutes } from "./api";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
 import { withSecurityHeaders } from "./api/securityHeaders";
+import { createStaticRoutes, safePath } from "./staticRoutes";
 
 const port = Number(process.env.PORT ?? 3000);
 const distDir = resolve(import.meta.dir, "../../dist");
 const publicDir = resolve(import.meta.dir, "../../public");
 
-/**
- * Resolve a URL pathname to a safe filesystem path within `base`.
- * Returns null if the path attempts traversal or contains dangerous chars.
- */
-function safePath(base: string, urlPath: string): string | null {
-  const decoded = decodeURIComponent(urlPath);
-  // Reject any path containing traversal sequences after decode
-  if (decoded.includes("..") || decoded.includes("\0")) return null;
-  const normalized = normalize(decoded);
-  const resolved = resolve(base, "." + normalized);
-  // Belt-and-suspenders: verify resolved path is still inside base
-  const rel = relative(base, resolved);
-  if (!rel || rel.startsWith("..") || rel.startsWith("/")) return null;
-  return resolved;
-}
-
-const serveFile = async (filePath: string): Promise<Response> => {
+const serveDistFile = async (filePath: string): Promise<Response> => {
   const file = Bun.file(filePath);
   if (await file.exists()) return withSecurityHeaders(new Response(file));
   console.warn(`File not found: ${filePath}`);
   return new Response("Not found", { status: 404 });
 };
 
-async function servePublicFile(pathname: string): Promise<Response> {
-  const safe = safePath(publicDir, pathname);
-  if (!safe) return new Response("Forbidden", { status: 403 });
-  return serveFile(safe);
-}
-
 const server = serve({
   hostname: "0.0.0.0",
   port,
   development: false,
   idleTimeout: 30,
+  maxRequestBodySize: 1024 * 1024, // 1 MB — all API routes are GET, this is a safety cap
   routes: {
-    "/fonts.css": async () => {
-      return servePublicFile("/fonts.css");
-    },
-
-    "/fonts/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
-    },
-
-    "/data/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
-    },
-
-    "/workers/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
-    },
-
-    "/sw.js": async () => {
-      return servePublicFile("/sw.js");
-    },
-
-    "/manifest.json": async () => {
-      return servePublicFile("/manifest.json");
-    },
-
-    "/icons/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
-    },
+    ...createStaticRoutes(publicDir),
 
     ...apiRoutes,
 
@@ -89,7 +39,7 @@ const server = serve({
         if (await file.exists()) return new Response(file);
       }
 
-      return serveFile(join(distDir, "index.html"));
+      return serveDistFile(join(distDir, "index.html"));
     },
   },
 });
