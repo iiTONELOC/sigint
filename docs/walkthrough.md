@@ -24,7 +24,7 @@ Step definitions live in `walkthroughSteps.ts`; rendering, positioning, and comp
 
 **Tooltip positioning**: `computeTooltipPos()` uses obstacle avoidance — collects rects from highlight selectors, open menus (`[data-wt-menu]`), click indicators (`[data-wt-indicator]`), and the target cutout. Generates candidate positions (above/below obstacles, viewport corners, directional placement), picks the first non-overlapping position. Search step is special-cased to pin to the absolute bottom of the screen (uses `window.innerHeight` instead of visual viewport to avoid keyboard-shift on mobile). Tooltip is draggable via pointer events.
 
-**Completion detection**: Action steps use `completionCheck()` which receives `(leafTypes, leafCount, presetCount, selectedId, chromeHidden, videoPresetCount)` from `paneLayoutContext.ts` signals. When the check returns true, the step auto-advances after 600ms. Wrong pane types trigger `requestWalkthroughUndo()` to remove the incorrect pane.
+**Completion detection**: Action steps use `completionCheck()` which receives `(leafTypes, leafCount, presetCount, selectedId, chromeHidden, videoPresetCount)` from `lib/layoutSignals.ts` signals. When the check returns true, the step auto-advances after 600ms. Wrong pane types trigger `requestWalkthroughUndo()` to remove the incorrect pane.
 
 **Persistence**: `walkthroughComplete` flag stored in IndexedDB under `sigint.walkthrough.complete.v1`. SKIP dismisses for the session only (shows again next visit). DON'T SHOW AGAIN persists the flag permanently. Re-launchable from Settings in essential, advanced, or both modes.
 
@@ -114,7 +114,7 @@ Desktop `PaneHeader.tsx` only sets `data-tour` on globe pane split buttons (`spl
 - **Click indicators**: Globe action steps (select, deselect, focus) show a pulsing dot with expanding rings at a computed position on the globe canvas, with a label ("CLICK A POINT" or "CLICK EMPTY SPACE"). Position computed from canvas rect + globe radius, with collision avoidance against detail panel and tooltip.
 - **Landing zone**: The drag-detail step shows a dashed "DROP HERE" zone on the globe. Detects drop via pointer events + position check against the zone rect.
 - **Mobile compact bar**: Action steps on mobile render as a minimal single-line bar instead of the full tooltip — saves screen space for the actual interaction.
-- **Undo protection**: If the user adds the wrong pane type during an action step, `requestWalkthroughUndo()` removes it automatically via `paneLayoutContext.ts`.
+- **Undo protection**: If the user adds the wrong pane type during an action step, `requestWalkthroughUndo()` removes it automatically via `lib/layoutSignals.ts`.
 - **Baseline tracking**: Preset count steps track the baseline count at step entry, so pre-existing presets don't trigger false completion.
 - **Phase transition**: After essential steps complete, a modal prompt offers the advanced tier with YES/NO buttons. Declining persists the `walkthroughComplete` flag.
 - **Escape to skip**: Pressing Escape skips for the session (does not persist).

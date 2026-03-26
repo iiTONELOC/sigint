@@ -73,7 +73,7 @@ Layout state (pane configs, split tree, ratios) is persisted with separate keys 
 
 ### Dossier Open Bridge
 
-`panes/paneLayoutContext.ts` provides a cross-component event system using `useSyncExternalStore`:
+`lib/layoutSignals.ts` provides a cross-component event system using `useSyncExternalStore`:
 
 - `setDossierOpen(bool)` — PaneManager signals whether a dossier pane exists in the tree
 - `useHasDossier()` — LiveTrafficPane reads to decide whether to show DetailPanel
@@ -197,7 +197,7 @@ Dossier toolbar is two-row responsive: row 1 has icon + title + close X, row 2 h
 
 ### Cross-Pane Signal
 
-Uses `useSyncExternalStore` signal in `paneLayoutContext.ts` — NOT React context. PaneManager calls `setDossierOpen(bool)` in a `useEffect`. LiveTrafficPane reads via `useHasDossier()`. This hides DetailPanel when dossier pane is open.
+Uses `useSyncExternalStore` signal in `lib/layoutSignals.ts` — NOT React context. PaneManager calls `setDossierOpen(bool)` in a `useEffect`. LiveTrafficPane reads via `useHasDossier()`. This hides DetailPanel when dossier pane is open.
 
 ---
 
@@ -321,7 +321,7 @@ Displays aggregated world news from 6 RSS sources fetched server-side. This is a
 ### Architecture
 
 - **Server**: `newsCache.ts` polls 6 RSS feeds every 10 minutes, parses XML, deduplicates, caches up to 200 articles in memory. Served via `/api/news/latest` with token auth and gzip.
-- **Client provider**: `newsProvider.ts` mirrors the BaseProvider contract (hydrate/refresh/getData/getSnapshot) for `NewsArticle[]` instead of `DataPoint[]`. IndexedDB persistence under `sigint.news.articles.v1`. 30-minute staleness threshold.
+- **Client provider**: `features/news/data/newsProvider.ts` mirrors the BaseProvider contract (hydrate/refresh/getData/getSnapshot) for `NewsArticle[]` instead of `DataPoint[]`. IndexedDB persistence under `sigint.news.articles.v1`. 30-minute staleness threshold.
 - **Client hook**: `useNewsData.ts` follows the `useProviderData` pattern — subscribes to `onChange`, reads from `getSnapshot()`, manages poll interval. Does NOT call `getData()` on mount — initial data comes from the boot sequence in `frontend.tsx`. Called once in `DataContext`, exposed as `newsArticles` on context value. `NewsFeedPane` reads from `useData()` — does NOT call the hook directly.
 
 ### Features

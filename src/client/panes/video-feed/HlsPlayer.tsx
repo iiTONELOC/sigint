@@ -127,6 +127,16 @@ export function HlsPlayer({
         maxBufferLength: 10,
         maxMaxBufferLength: 30,
         backBufferLength: DVR_BACK_BUFFER,
+        // Block tracking cookies from CDN origins — never send or accept cookies
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false;
+        },
+        fetchSetup: (context, initParams) => {
+          return new Request(context.url, {
+            ...initParams,
+            credentials: "omit",
+          });
+        },
       });
       hls.loadSource(channel.url);
       hls.attachMedia(video);

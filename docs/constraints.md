@@ -20,7 +20,9 @@
 
 **NOAA Weather**: No API key required — only a `User-Agent` header. No explicit rate limit documented but standard courtesy applies. Client polls every 300 seconds. Returns GeoJSON FeatureCollection of active severe weather alerts (US only).
 
-**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships, FIRMS fires) additionally require a valid auth token in the `sigint_token` HttpOnly cookie. Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes.
+**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships, FIRMS fires) additionally require a valid auth token in the `sigint_token` HttpOnly cookie (`Path=/api`, `SameSite=Strict`). Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes. `maxRequestBodySize` is set to 1MB on both dev and prod `Bun.serve()` — all API routes are GET, this is a safety cap.
+
+**CSP**: Full Content-Security-Policy applied to every response via `server/api/securityHeaders.ts`. `connect-src` includes `https:` because HLS.js fetches `.m3u8` manifests and `.ts` segments via `fetch()` from arbitrary IPTV CDNs — domains change as iptv-org updates their stream list. Tighten to specific CDN domains if channel list is ever pinned. `media-src` is `'self' blob:` only (no `https:` — HLS.js uses `fetch`, not native `<video>` src). HLS.js is configured with `credentials: "omit"` to prevent sending cookies to CDN origins, breaking the tracking loop. Inbound `Set-Cookie` from CDN responses cannot be blocked at the application layer — this is a web platform limitation.
 
 ---
 
@@ -200,7 +202,7 @@ Layout presets use separate cache keys for mobile and desktop: `layoutPresetsDes
 ---
 
 - **Types ONLY, never interfaces** — intellisense populates types better
-- **Tailwind classes ONLY** — no inline `style=` except dynamic per-item colors
+- **Tailwind classes preferred** — inline `style=` only for values computed at runtime (dynamic colors, positions, transforms, grid templates, env() safe-area insets). Static properties like `touchAction`, `overscrollBehavior`, `fontSize` with CSS vars must use Tailwind classes or arbitrary value syntax (`[writing-mode:vertical-lr]`).
 - **Async storage** — IndexedDB for all persistence, no localStorage
 - **External links** — `target="_blank" rel="noopener noreferrer"` on every external link
 - **@ts-ignore comments are intentional** — preserve them

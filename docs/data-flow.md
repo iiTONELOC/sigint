@@ -8,29 +8,52 @@
 
 ## Shared Data Context
 
-All application state lives in `context/DataContext.tsx`, exposed via the `useData()` hook. The context provider calls the data hooks (`useAircraftData`, `useEarthquakeData`, `useEventData`, `useShipData`, `useFireData`, `useWeatherData`), merges their output into `allData`, centralizes trail recording, and computes all derived values. Every component — Header, PaneManager, LiveTrafficPane, DataTablePane, Ticker — reads from this single context.
+Application state is split across three focused React contexts, all nested inside `DataProvider`:
 
-### What lives in DataContext
+| Context | File | Owns |
+|---|---|---|
+| **DataContext** | `context/DataContext.tsx` | Raw data hooks, `allData`, layers, filters, counts, correlation, enrichment, dataSources, ticker |
+| **UIContext** | `context/UIContext.tsx` | `selected`, `selectedCurrent`, `isolateMode`, view controls (`flat`, `autoRotate`, `rotationSpeed`), `chromeHidden`, search, zoom, reveal, `selectAndZoom`, `colorMap` |
+| **WatchContext** | `context/WatchContext.tsx` | Watch mode state machine — `watchActive`, `watchPaused`, `watchProgress`, `startWatch`, `stopWatch`, `pauseWatch`, `resumeWatch` |
+
+The `useData()` hook merges all three contexts into a single return value — **fully backwards-compatible** with existing consumers. New code can use `useUI()` or `useWatch()` directly for narrower subscriptions and reduced re-render surface.
+
+Provider nesting order (inside `DataProvider`): `UIProvider` → `DataContext.Provider` → `WatchProvider`. UIProvider receives `idMap` from DataProvider to resolve `selectedCurrent`. WatchProvider receives `correlation` from DataContext and reads `setSelected`/`setAutoRotate`/`setRevealId` from UIContext.
+
+### What lives in each context
+
+**DataContext** (raw data + derived):
 
 | Category | State | Purpose |
 |---|---|---|
 | **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event + FIRMS fire + NOAA weather DataPoints |
 | **News** | `newsArticles` | RSS news articles from `useNewsData()` — non-geographic, not in allData. Lifted to context for correlation engine + cross-pane access |
 | **Correlation** | `correlation` | `CorrelationResult` from correlation engine — intel products + scored alerts + regional baseline. Computed once via `useMemo`, shared by all panes |
-| **Selection** | `selected`, `selectedCurrent`, `setSelected` | Currently selected item (selectedCurrent stays fresh across data refreshes) |
-| **Isolation** | `isolateMode`, `setIsolateMode` | FOCUS (layer only) or SOLO (single point) |
 | **Layers** | `layers`, `toggleLayer` | Per-feature on/off toggles |
 | **Aircraft filter** | `aircraftFilter`, `setAircraftFilter` | Complex filter (squawks, countries, airborne/ground, military) |
 | **Filters** | `filters` | Unified filter map consumed by uiSelectors |
 | **Derived** | `counts`, `activeCount`, `tickerItems`, `availableCountries`, `dataSources` | Computed via useMemo |
-| **Spatial** | `idMap`, `spatialGrid`, `filteredIds` | O(1) selection lookup, spatial hash for click/hover, pre-computed filter set |
+| **Spatial** | `spatialGrid`, `filteredIds` | Spatial hash for click/hover, pre-computed filter set |
+| **Enrichment** | `requestAircraftEnrichment` | Re-applies local metadata DB on demand (no network) |
+
+**UIContext** (selection + view controls):
+
+| Category | State | Purpose |
+|---|---|---|
+| **Selection** | `selected`, `selectedCurrent`, `setSelected` | Currently selected item (selectedCurrent stays fresh across data refreshes via idMap) |
+| **Isolation** | `isolateMode`, `setIsolateMode` | FOCUS (layer only) or SOLO (single point) |
 | **View controls** | `flat`, `autoRotate`, `rotationSpeed` + setters | Globe-specific but toggled from Header. Default rotation is paused. |
 | **Chrome** | `chromeHidden`, `setChromeHidden` | Toggle all UI overlays |
 | **Search** | `searchMatchIds`, `handleSearchMatchIds`, `handleSearchSelect`, `handleSearchZoomTo` | Search filter + zoom |
 | **Zoom** | `zoomToId`, `setZoomToId` | Triggers camera zoom-to (deep zoom, lock-on) |
 | **Reveal** | `revealId`, `setRevealId` | Triggers gentle ISS-level reveal (rotate to show point at 2.5x zoom, no lock-on). Used by pane clicks. |
+| **Convenience** | `selectAndZoom`, `colorMap` | Select + zoom in one call; theme-derived color map |
+
+**WatchContext** (watch mode):
+
+| Category | State | Purpose |
+|---|---|---|
 | **Watch** | `watchMode`, `watchActive`, `watchPaused`, `watchProgress`, `startWatch`, `stopWatch`, `pauseWatch`, `resumeWatch` | Shared watch mode — auto-tour through alerts/intel/all on globe. See Watch Mode section. |
-| **Enrichment** | `requestAircraftEnrichment` | Re-applies local metadata DB on demand (no network) |
 
 ### Derived values
 
@@ -217,7 +240,7 @@ Client-side fetch from `api.weather.gov/alerts/active`. No API key, just `User-A
 
 **Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads asynchronously from IndexedDB via `cacheGet()` with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` (HttpOnly cookie auth) and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook subscribes to `onChange` and reads from `getSnapshot()` — it does NOT call `getData()` on mount. Initial data comes from the boot sequence in `frontend.tsx`.
 
-**Context integration**: `DataContext` calls `useNewsData()` and exposes `newsArticles` on the context value. `NewsFeedPane` reads from `useData()` instead of calling the hook directly. News also appears in the `dataSources` array as `{ id: "news", label: "NEWS" }` for status reporting.
+**Context integration**: `DataContext` calls `useNewsData()` (from `features/news/`) and exposes `newsArticles` on the context value. `NewsFeedPane` reads from `useData()` instead of calling the hook directly. News also appears in the `dataSources` array as `{ id: "news", label: "NEWS" }` for status reporting.
 
 ---
 
@@ -298,7 +321,7 @@ The baseline survives page reloads via IndexedDB (`sigint.intel.baseline.v1`). I
 
 ## Watch Mode
 
-Watch mode is a shared auto-tour system that cycles through alerts and/or intel products on the globe. State lives in `DataContext`, controlled from the globe overlay, consumed by all panes.
+Watch mode is a shared auto-tour system that cycles through alerts and/or intel products on the globe. State lives in `WatchContext` (nested inside `DataProvider`), controlled from the globe overlay, consumed by all panes. Accessible via `useWatch()` directly or through the merged `useData()` hook.
 
 ### WatchMode State
 
