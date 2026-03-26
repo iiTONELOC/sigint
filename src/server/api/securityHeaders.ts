@@ -23,9 +23,7 @@ const CSP_DIRECTIVES = [
     // Tighten to specific CDN domains if channel list is ever pinned.
     "https:",
   ].join(" "),
-  // media-src: blob: for Web Worker-generated content
-  // HLS.js uses fetch() (connect-src), not native <video> src loading.
-  "media-src 'self' blob:",
+  "media-src 'self' https: blob:",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",
