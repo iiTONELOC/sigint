@@ -134,6 +134,7 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │   ├── index.css                       Global CSS (Tailwind + SIGINT theme vars + SW update banner)
 │   ├── logo.svg
 │   ├── server/
+│   │   ├── staticRoutes.ts             Shared safePath + static route builder (dev + prod)
 │   │   ├── index.ts                   Dev server (Bun, HMR)
 │   │   ├── index.prod.ts              Prod server
 │   │   ├── api/
@@ -153,6 +154,8 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │       ├── context/
 │       │   ├── DataContext.tsx          All shared state, correlation engine, watch mode
 │       │   └── ThemeContext.tsx         Dark/light + color overrides
+│       │   ├── UIContext.tsx            Selection, isolation, view controls, search, zoom, colorMap
+│       │   └── WatchContext.tsx         Watch mode state machine (dwell timer, pause/resume)
 │       ├── hooks/useVirtualScroll.ts    Virtual scroll (startIdx, endIdx, offsetY)
 │       ├── lib/
 │       │   ├── authService.ts          authenticatedFetch() + cookie refresh
@@ -192,13 +195,13 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │       │   ├── ResizeHandle.tsx        Split resize interaction
 │       │   ├── LayoutPresetMenu.tsx    Save/load/update/delete presets (save icon)
 │       │   ├── paneTree.ts             Binary split tree + persistence (mobile/desktop)
-│       │   ├── paneLayoutContext.ts    useSyncExternalStore signals (dossier, watch)
+│       │   ├── SplitMenu.tsx             Shared pane-type dropdown (used by PaneManager + PaneMobile)
 │       │   ├── alert-log/             AlertLogPane + skeleton
 │       │   ├── data-table/            DataTablePane + skeleton
 │       │   ├── dossier/               DossierPane + atoms + skeleton
 │       │   ├── intel-feed/            IntelFeedPane + skeleton
 │       │   ├── live-traffic/          LiveTrafficPane
-│       │   ├── news-feed/             NewsFeedPane + provider + hook + skeleton
+│       │   ├── news-feed/             NewsFeedPane + skeleton
 │       │   ├── raw-console/           RawConsolePane + skeleton
 │       │   └── video-feed/            VideoFeedPane + slots + HLS + channels + presets
 │       ├── features/
@@ -209,6 +212,7 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │       │   ├── environmental/fires/   FIRMS — provider, hook, ticker
 │       │   ├── environmental/weather/ NOAA — provider, hook, ticker
 │       │   ├── intel/events/          GDELT — provider, hook, ticker
+│       │   ├── news/                  newsProvider + useNewsData (moved from panes/news-feed)
 │       │   └── registry.tsx           Feature registry (imports all definitions)
 │       └── data/mockData.ts           Mock aircraft (fallback only)
 ├── tests/                              bun:test + happy-dom
@@ -218,7 +222,7 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │   │   └── globe/                     cameraSystem, projection
 │   ├── config/                        theme
 │   ├── context/                       DataContext, ThemeContext
-│   ├── features/                      BaseProvider, AircraftProvider, newsProvider, utils
+│   ├── features/                      BaseProvider, AircraftProvider, newsProvider, providers, utils
 │   ├── hooks/                         hooks, virtualScroll
 │   ├── lib/                           cacheKeys, correlationEngine, services, spatialIndex, storage, trails
 │   ├── panes/                         PaneManager, paneTree, paneWrappers, skeletons

@@ -13,12 +13,19 @@ const CSP_DIRECTIVES = [
   "img-src 'self' https://www.planespotters.net https://*.planespotters.net data: blob:",
   [
     "connect-src 'self'",
-    "https://opensky-network.org",
-    "https://earthquake.usgs.gov",
-    "https://api.weather.gov",
-    "https://iptv-org.github.io",
+    "https://opensky-network.org", // Aircraft positions (client-side fetch)
+    "https://earthquake.usgs.gov", // Seismic data (client-side fetch)
+    "https://api.weather.gov", // NOAA alerts (client-side fetch)
+    "https://iptv-org.github.io", // IPTV channel/stream index JSON
+    // HLS.js fetches .m3u8 manifests and .ts segments via fetch() from
+    // arbitrary IPTV CDNs (cloudfront, akamai, herring, etc). These domains
+    // change as iptv-org updates their stream list — can't be enumerated.
+    // Tighten to specific CDN domains if channel list is ever pinned.
+    "https:",
   ].join(" "),
-  "media-src 'self' https: blob:",
+  // media-src: blob: for Web Worker-generated content
+  // HLS.js uses fetch() (connect-src), not native <video> src loading.
+  "media-src 'self' blob:",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",
