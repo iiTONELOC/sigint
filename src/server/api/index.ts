@@ -13,24 +13,35 @@ import {
   isValidIcao24,
   isValidCallsign,
 } from "./dossierCache";
+import { withSecurityHeaders } from "./securityHeaders";
 
-// ── Gzip response helper ─────────────────────────────────────────────
+// ── Response helpers ─────────────────────────────────────────────────
 
+/** JSON response with optional gzip + security headers */
 function jsonResponse(req: Request, body: unknown): Response {
   const json = JSON.stringify(body);
   const acceptEncoding = req.headers.get("accept-encoding") ?? "";
   if (acceptEncoding.includes("gzip")) {
     const compressed = Bun.gzipSync(Buffer.from(json));
-    return new Response(compressed, {
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Encoding": "gzip",
-      },
-    });
+    return withSecurityHeaders(
+      new Response(compressed, {
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Encoding": "gzip",
+        },
+      }),
+    );
   }
-  return new Response(json, {
-    headers: { "Content-Type": "application/json" },
-  });
+  return withSecurityHeaders(
+    new Response(json, {
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
+/** JSON error response with security headers */
+function jsonError(body: Record<string, unknown>, status: number): Response {
+  return withSecurityHeaders(Response.json(body, { status }));
 }
 
 export const apiRoutes = {
@@ -41,13 +52,15 @@ export const apiRoutes = {
       if (blocked) return blocked;
 
       const token = await generateToken();
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Set-Cookie": tokenCookieHeader(token),
-        },
-      });
+      return withSecurityHeaders(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Set-Cookie": tokenCookieHeader(token),
+          },
+        }),
+      );
     },
   },
 
@@ -61,7 +74,9 @@ export const apiRoutes = {
 
       const dbFile = Bun.file(new URL("../data/ac-db.ndjson", import.meta.url));
       if (!(await dbFile.exists())) {
-        return new Response("DB not found", { status: 404 });
+        return withSecurityHeaders(
+          new Response("DB not found", { status: 404 }),
+        );
       }
 
       const bytes = await dbFile.arrayBuffer();
@@ -69,21 +84,25 @@ export const apiRoutes = {
       const acceptEncoding = req.headers.get("accept-encoding") ?? "";
       if (acceptEncoding.includes("gzip")) {
         const compressed = Bun.gzipSync(new Uint8Array(bytes));
-        return new Response(compressed, {
-          headers: {
-            "Content-Type": "application/x-ndjson",
-            "Content-Encoding": "gzip",
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        });
+        return withSecurityHeaders(
+          new Response(compressed, {
+            headers: {
+              "Content-Type": "application/x-ndjson",
+              "Content-Encoding": "gzip",
+              "Cache-Control": "public, max-age=31536000, immutable",
+            },
+          }),
+        );
       }
 
-      return new Response(bytes, {
-        headers: {
-          "Content-Type": "application/x-ndjson",
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-      });
+      return withSecurityHeaders(
+        new Response(bytes, {
+          headers: {
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        }),
+      );
     },
   },
 
@@ -95,9 +114,9 @@ export const apiRoutes = {
 
       const cache = getGdeltCache();
       if (!cache.data) {
-        return Response.json(
+        return jsonError(
           { error: cache.error ?? "No data available yet" },
-          { status: 503 },
+          503,
         );
       }
 
@@ -116,9 +135,9 @@ export const apiRoutes = {
 
       const cache = getAisCache();
       if (!cache.data) {
-        return Response.json(
+        return jsonError(
           { error: cache.error ?? "No AIS data available yet" },
-          { status: 503 },
+          503,
         );
       }
 
@@ -138,9 +157,9 @@ export const apiRoutes = {
 
       const cache = getFirmsCache();
       if (!cache.data) {
-        return Response.json(
+        return jsonError(
           { error: cache.error ?? "No fire data available yet" },
-          { status: 503 },
+          503,
         );
       }
 
@@ -160,9 +179,9 @@ export const apiRoutes = {
 
       const cache = getNewsCache();
       if (!cache.items || cache.items.length === 0) {
-        return Response.json(
+        return jsonError(
           { error: cache.error ?? "No news data available yet" },
-          { status: 503 },
+          503,
         );
       }
 
@@ -174,22 +193,21 @@ export const apiRoutes = {
     },
   },
 
-  // ── Dossier: Aircraft enrichment ───────────────────────────────
+  // ── Dossier: Aircraft detail (hexdb.io info + planespotters photos) ──
   "/api/dossier/aircraft/:icao24": async (req: any) => {
     const blocked = await guardAuth(req);
     if (blocked) return blocked;
 
     const { method, params } = req;
     if (method !== "GET") {
-      return new Response("Method Not Allowed", { status: 405 });
+      return withSecurityHeaders(
+        new Response("Method Not Allowed", { status: 405 }),
+      );
     }
 
     const { icao24 = "" } = params ?? {};
     if (!isValidIcao24(String(icao24))) {
-      return Response.json(
-        { error: "Invalid ICAO24 hex code" },
-        { status: 400 },
-      );
+      return jsonError({ error: "Invalid ICAO24 hex code" }, 400);
     }
 
     const url = new URL(req.url);
@@ -199,7 +217,7 @@ export const apiRoutes = {
 
     const dossier = await getAircraftDossier(String(icao24), callsign);
     if (!dossier) {
-      return Response.json({ error: "Aircraft not found" }, { status: 404 });
+      return jsonError({ error: "Aircraft not found" }, 404);
     }
 
     return jsonResponse(req, { dossier });
