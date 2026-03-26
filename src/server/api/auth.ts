@@ -5,6 +5,7 @@
 // Per-IP sliding window rate limiter applied to ALL routes.
 
 import { timingSafeEqual } from "crypto";
+import { withSecurityHeaders } from "./securityHeaders";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -160,9 +161,11 @@ function getClientIp(req: Request): string {
 export function guardRateLimit(req: Request): Response | null {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) {
-    return Response.json(
-      { error: "Rate limit exceeded" },
-      { status: 429, headers: { "Retry-After": "60" } },
+    return withSecurityHeaders(
+      Response.json(
+        { error: "Rate limit exceeded" },
+        { status: 429, headers: { "Retry-After": "60" } },
+      ),
     );
   }
   return null;
@@ -175,7 +178,9 @@ export async function guardAuth(req: Request): Promise<Response | null> {
 
   const token = getTokenFromCookie(req);
   if (!(await verifyToken(token))) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return withSecurityHeaders(
+      Response.json({ error: "Unauthorized" }, { status: 401 }),
+    );
   }
   return null;
 }

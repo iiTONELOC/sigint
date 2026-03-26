@@ -6,6 +6,7 @@ import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
+import { withSecurityHeaders } from "./api/securityHeaders";
 
 const publicDir = resolve(import.meta.dir, "../../public");
 
@@ -34,7 +35,7 @@ async function servePublicFile(pathname: string): Promise<Response> {
     return new Response("Not found", { status: 404 });
   }
 
-  return new Response(file);
+  return withSecurityHeaders(new Response(file));
 }
 
 const server = serve({

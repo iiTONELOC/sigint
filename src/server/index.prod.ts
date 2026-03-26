@@ -5,6 +5,7 @@ import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
+import { withSecurityHeaders } from "./api/securityHeaders";
 
 const port = Number(process.env.PORT ?? 3000);
 const distDir = resolve(import.meta.dir, "../../dist");
@@ -28,7 +29,7 @@ function safePath(base: string, urlPath: string): string | null {
 
 const serveFile = async (filePath: string): Promise<Response> => {
   const file = Bun.file(filePath);
-  if (await file.exists()) return new Response(file);
+  if (await file.exists()) return withSecurityHeaders(new Response(file));
   console.warn(`File not found: ${filePath}`);
   return new Response("Not found", { status: 404 });
 };
