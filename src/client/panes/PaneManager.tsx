@@ -806,8 +806,7 @@ export function PaneManager() {
             <div style={ghostStyle}>
               {ghostLabel && (
                 <div
-                  className="absolute inset-0 flex items-center justify-center text-sig-accent font-bold tracking-widest text-(length:--sig-text-btn)"
-                  style={{ textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}
+                  className="absolute inset-0 flex items-center justify-center text-sig-accent font-bold tracking-widest text-(length:--sig-text-btn) [text-shadow:0_1px_4px_rgba(0,0,0,0.6)]"
                 >
                   {ghostLabel}
                 </div>

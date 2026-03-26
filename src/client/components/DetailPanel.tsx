@@ -378,8 +378,7 @@ export function DetailPanel({
       >
         <div
           data-tour="detail-drag-handle"
-          className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing"
-          style={{ touchAction: "none" }}
+          className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing touch-none"
           onPointerDown={drag.onPointerDown}
         >
           <GripHorizontal size={14} />

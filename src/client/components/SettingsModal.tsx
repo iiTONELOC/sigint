@@ -228,8 +228,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      style={{ overscrollBehavior: "none", touchAction: "none" }}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm overscroll-none touch-none"
     >
       <div
         className="bg-sig-panel sm:border sm:border-sig-border sm:rounded-lg shadow-2xl w-full h-full sm:w-auto sm:min-w-[28rem] sm:max-w-lg sm:mx-4 sm:h-auto sm:max-h-[85vh] flex flex-col overflow-hidden"
@@ -244,8 +243,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
           </span>
           <button
             onClick={onClose}
-            className="absolute right-3 sm:right-4 p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors"
-            style={{ minWidth: 44, minHeight: 44 }}
+            className="absolute right-3 sm:right-4 p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors min-w-11 min-h-11"
           >
             <X size={18} />
           </button>
@@ -275,12 +273,7 @@ export function SettingsModal({ onClose }: { readonly onClose: () => void }) {
 
         {/* Content */}
         <div
-          className="flex-1 overflow-y-auto overscroll-contain sigint-scroll p-3 sm:p-4"
-          style={{
-            overscrollBehavior: "contain",
-            WebkitOverflowScrolling: "touch",
-            touchAction: "pan-y",
-          }}
+          className="flex-1 overflow-y-auto overscroll-contain sigint-scroll p-3 sm:p-4 touch-pan-y [-webkit-overflow-scrolling:touch]"
         >
           {activeTab === "appearance" && (
             <AppearanceTab
@@ -718,9 +711,8 @@ function KeyGroup({
             </span>
             <button
               onClick={() => onDelete(key)}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-danger transition-all shrink-0"
+              className="p-1.5 rounded text-sig-dim hover:text-sig-danger transition-all shrink-0 min-w-8 min-h-8"
               title={`Clear ${getKeyLabel(key)}`}
-              style={{ minWidth: 32, minHeight: 32 }}
             >
               <Trash2 size={13} />
             </button>

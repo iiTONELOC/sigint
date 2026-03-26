@@ -586,8 +586,7 @@ export function PaneMobile({
               className="text-sig-accent shrink-0"
             />
             <span
-              className="text-sig-accent tracking-widest text-(length:--sig-text-sm) font-semibold"
-              style={{ writingMode: "vertical-lr", textOrientation: "mixed" }}
+              className="text-sig-accent tracking-widest text-(length:--sig-text-sm) font-semibold [writing-mode:vertical-lr] [text-orientation:mixed]"
             >
               {lfMeta.label}
             </span>

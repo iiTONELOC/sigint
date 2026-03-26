@@ -329,8 +329,7 @@ export function LiveTrafficPane() {
               step={0.01}
               value={rotationSpeed}
               onChange={(e) => setRotationSpeed(Number(e.target.value))}
-              className="w-12 md:w-15 cursor-pointer accent-sig-accent"
-              style={{ touchAction: "none" }}
+              className="w-12 md:w-15 cursor-pointer accent-sig-accent touch-none"
             />
           </div>
         </div>
