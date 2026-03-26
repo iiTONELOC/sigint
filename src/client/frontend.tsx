@@ -13,6 +13,7 @@ import { initBaseline } from "./lib/correlationEngine";
 import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
 import { registerSW, applyUpdate } from "./lib/swRegistration";
+import { ensureAuthCookie } from "./lib/authService";
 
 // Singleton providers
 import { shipProvider } from "./features/tracking/ships/data/provider";
@@ -119,6 +120,9 @@ function restoreAndNotify(saved: Array<(() => void) | null>): void {
   });
 
   if (staleProviders.length > 0) {
+    // Get auth token BEFORE any network requests — avoids 401 → retry round-trips
+    await ensureAuthCookie();
+
     // Ensure aircraft metadata DB is ready before refresh —
     // otherwise applyMetadata can't enrich and military/type data is lost
     const { ensureMetadataDb } =

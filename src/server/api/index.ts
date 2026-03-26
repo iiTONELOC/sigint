@@ -1,6 +1,7 @@
 import {
   generateToken,
   tokenCookieHeader,
+  expireOldCookieHeader,
   guardAuth,
   guardRateLimit,
 } from "./auth";
@@ -52,15 +53,17 @@ export const apiRoutes = {
       if (blocked) return blocked;
 
       const token = await generateToken();
-      return withSecurityHeaders(
-        new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Set-Cookie": tokenCookieHeader(token),
-          },
-        }),
-      );
+      const res = new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      // Set the new token cookie scoped to /api
+      res.headers.append("Set-Cookie", tokenCookieHeader(token));
+      // Expire any stale cookie from the old Path=/ scope
+      res.headers.append("Set-Cookie", expireOldCookieHeader());
+      return withSecurityHeaders(res);
     },
   },
 

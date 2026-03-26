@@ -80,6 +80,21 @@ export function tokenCookieHeader(token: string): string {
   return parts.join("; ");
 }
 
+/**
+ * Expire any stale cookie left over from the old Path=/ scope.
+ * Browsers treat Path=/ and Path=/api as separate cookies —
+ * without this, the old expired cookie shadows the new one on /api/* requests.
+ */
+export function expireOldCookieHeader(): string {
+  return [
+    `${COOKIE_NAME}=`,
+    "HttpOnly",
+    "Path=/",
+    "SameSite=Strict",
+    "Max-Age=0",
+  ].join("; ");
+}
+
 // ── Token verification (async, constant-time) ────────────────────────
 
 export async function verifyToken(token: string | null): Promise<boolean> {
