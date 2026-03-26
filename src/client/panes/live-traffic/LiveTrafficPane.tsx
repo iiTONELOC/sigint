@@ -6,7 +6,7 @@ import {
   requestDossierOpen,
   useWalkthroughActive,
   useWalkthroughStepId,
-} from "@/panes/paneLayoutContext";
+} from "@/lib/layoutSignals";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";

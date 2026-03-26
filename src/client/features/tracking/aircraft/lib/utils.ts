@@ -1,6 +1,20 @@
 import type { AircraftData, AircraftFilter, SquawkStatus } from "../types";
 import type { BasePoint } from "@/features/base/types";
 
+/**
+ * Normalize an ICAO24 hex address: trim, lowercase, strip quotes,
+ * validate hex characters, zero-pad to 6 chars.
+ */
+export function normalizeIcao24(value: string | undefined): string | null {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^['"]|['"]$/g, "");
+  if (!normalized) return null;
+  if (!/^[0-9a-f]+$/i.test(normalized)) return null;
+  return normalized.length < 6 ? normalized.padStart(6, "0") : normalized;
+}
+
 export function getSquawkStatus(squawk?: string): SquawkStatus {
   switch (squawk) {
     case "7700":

@@ -36,7 +36,7 @@ import { buildSpatialGrid, type SpatialGrid } from "@/lib/spatialIndex";
 import {
   requestDossierOpen,
   requestWatchLayout,
-} from "@/panes/paneLayoutContext";
+} from "@/lib/layoutSignals";
 import type { SourceStatus } from "@/lib/sourceHealth";
 import {
   computeCorrelations,

@@ -11,7 +11,7 @@ import {
   setWalkthroughActive,
   onWalkthroughLaunch,
   type WalkthroughLaunchMode,
-} from "@/panes/paneLayoutContext";
+} from "@/lib/layoutSignals";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import { GripHorizontal } from "lucide-react";

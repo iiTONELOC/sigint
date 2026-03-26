@@ -25,7 +25,7 @@ import {
   useWalkthroughLeafCount,
   useWalkthroughPresetCount,
   useVideoPresetCount,
-} from "@/panes/paneLayoutContext";
+} from "@/lib/layoutSignals";
 import { useData } from "@/context/DataContext";
 import { useIsMobileLayout } from "@/context/LayoutModeContext";
 

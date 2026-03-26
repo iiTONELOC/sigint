@@ -14,6 +14,7 @@ export type AircraftMetadata = {
 import { authenticatedFetch } from "@/lib/authService";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { normalizeIcao24 } from "../lib/utils";
 
 // ── DB version — must match the versioned server route ───────────────
 // Bump both here and in server/api/index.ts when ac-db.ndjson is rebuilt.
@@ -123,16 +124,6 @@ function classifyMilitary(
 
 let metadataMap: Map<string, AircraftMetadata> | null = null;
 let loadPromise: Promise<void> | null = null;
-
-function normalizeIcao24(value: string | undefined): string | null {
-  const normalized = (value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/^['"]|['"]$/g, "");
-  if (!normalized) return null;
-  if (!/^[0-9a-f]+$/i.test(normalized)) return null;
-  return normalized.length < 6 ? normalized.padStart(6, "0") : normalized;
-}
 
 function parseNdjsonToMap(text: string): Map<string, AircraftMetadata> {
   const map = new Map<string, AircraftMetadata>();
@@ -259,7 +250,3 @@ export async function getAircraftMetadataBatch(
   return result;
 }
 
-export async function getAircraftType(icao24?: string): Promise<string | null> {
-  const metadata = await getAircraftMetadata(icao24);
-  return metadata?.resolvedType ?? null;
-}

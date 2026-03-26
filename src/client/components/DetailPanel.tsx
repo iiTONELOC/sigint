@@ -7,7 +7,7 @@ import {
   FileSearch,
   LocateFixed,
 } from "lucide-react";
-import { useHasDossier } from "@/panes/paneLayoutContext";
+import { useHasDossier } from "@/lib/layoutSignals";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -347,59 +347,16 @@ export function DetailPanel({
               <div className="w-12 h-1.5 rounded-full bg-sig-dim/40" />
             </div>
             {/* Type label + close + action buttons */}
-            <div className="mb-2">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  <Icon
-                    size="clamp(14px, 2vw, 18px)"
-                    style={{ color }}
-                    {...feature.iconProps}
-                  />
-                  <span
-                    className="font-bold tracking-widest text-(length:--sig-text-btn)"
-                    style={{ color }}
-                  >
-                    {feature.label}
-                  </span>
-                </div>
-                <span
-                  data-tour="detail-close"
-                  onClick={onClose}
-                  className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
-                >
-                  ✕
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {onZoomTo && (
-                  <ModeButton
-                    active={locateActive}
-                    label="LOCATE"
-                    icon={LocateFixed}
-                    accentColor="var(--sigint-accent)"
-                    onClick={handleLocate}
-                  />
-                )}
-                <ModeButton
-                  active={isolateMode === "focus"}
-                  label="FOCUS"
-                  icon={Eye}
-                  accentColor="var(--sigint-accent)"
-                  onClick={() =>
-                    onSetIsolateMode(isolateMode === "focus" ? null : "focus")
-                  }
-                />
-                <ModeButton
-                  active={isolateMode === "solo"}
-                  label="SOLO"
-                  icon={Crosshair}
-                  accentColor="var(--sigint-danger)"
-                  onClick={() =>
-                    onSetIsolateMode(isolateMode === "solo" ? null : "solo")
-                  }
-                />
-              </div>
-            </div>
+            <PanelHeader
+              Icon={Icon}
+              color={color}
+              feature={feature}
+              isolateMode={isolateMode}
+              onSetIsolateMode={onSetIsolateMode}
+              onZoomTo={handleLocate}
+              locateActive={locateActive}
+              onClose={onClose}
+            />
           </div>
 
           {/* ── Scrollable body: data rows + coords + links ── */}
@@ -570,6 +527,82 @@ function PanelBody({
   );
 }
 
+function PanelHeader({
+  Icon,
+  color,
+  feature,
+  isolateMode,
+  onSetIsolateMode,
+  onZoomTo,
+  locateActive,
+  onClose,
+}: {
+  Icon: any;
+  color: string | undefined;
+  feature: any;
+  isolateMode: null | "solo" | "focus";
+  onSetIsolateMode: (mode: null | "solo" | "focus") => void;
+  onZoomTo?: () => void;
+  locateActive?: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mb-2.5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Icon
+            size="clamp(14px, 2vw, 18px)"
+            style={{ color }}
+            {...feature.iconProps}
+          />
+          <span
+            className="font-bold tracking-widest text-(length:--sig-text-btn)"
+            style={{ color }}
+          >
+            {feature.label}
+          </span>
+        </div>
+        <span
+          data-tour="detail-close"
+          onClick={onClose}
+          className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
+        >
+          ✕
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {onZoomTo && (
+          <ModeButton
+            active={locateActive ?? false}
+            label="LOCATE"
+            icon={LocateFixed}
+            accentColor="var(--sigint-accent)"
+            onClick={onZoomTo}
+          />
+        )}
+        <ModeButton
+          active={isolateMode === "focus"}
+          label="FOCUS"
+          icon={Eye}
+          accentColor="var(--sigint-accent)"
+          onClick={() =>
+            onSetIsolateMode(isolateMode === "focus" ? null : "focus")
+          }
+        />
+        <ModeButton
+          active={isolateMode === "solo"}
+          label="SOLO"
+          icon={Crosshair}
+          accentColor="var(--sigint-danger)"
+          onClick={() =>
+            onSetIsolateMode(isolateMode === "solo" ? null : "solo")
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 function PanelContent({
   Icon,
   color,
@@ -595,116 +628,19 @@ function PanelContent({
   onClose: () => void;
   onOpenDossier?: () => void;
 }) {
-  const dataRows = rows.filter(([, v]) => !isUrl(v));
-  const linkRows = rows.filter(([, v]) => isUrl(v));
-
   return (
     <>
-      {/* Header */}
-      <div className="mb-2.5">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            <Icon
-              size="clamp(14px, 2vw, 18px)"
-              style={{ color }}
-              {...feature.iconProps}
-            />
-            <span
-              className="font-bold tracking-widest text-(length:--sig-text-btn)"
-              style={{ color }}
-            >
-              {feature.label}
-            </span>
-          </div>
-          <span
-            data-tour="detail-close"
-            onClick={onClose}
-            className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
-          >
-            ✕
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {onZoomTo && (
-            <ModeButton
-              active={locateActive ?? false}
-              label="LOCATE"
-              icon={LocateFixed}
-              accentColor="var(--sigint-accent)"
-              onClick={onZoomTo}
-            />
-          )}
-          <ModeButton
-            active={isolateMode === "focus"}
-            label="FOCUS"
-            icon={Eye}
-            accentColor="var(--sigint-accent)"
-            onClick={() =>
-              onSetIsolateMode(isolateMode === "focus" ? null : "focus")
-            }
-          />
-          <ModeButton
-            active={isolateMode === "solo"}
-            label="SOLO"
-            icon={Crosshair}
-            accentColor="var(--sigint-danger)"
-            onClick={() =>
-              onSetIsolateMode(isolateMode === "solo" ? null : "solo")
-            }
-          />
-        </div>
-      </div>
-
-      {/* Data rows */}
-      <div className="pt-2.5 border-t border-sig-border">
-        {dataRows.map(([k, v]) => (
-          <div key={k} className="flex justify-between mb-1.5">
-            <span className="uppercase tracking-wide text-sig-dim text-(length:--sig-text-sm)">
-              {k}
-            </span>
-            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-lg)">
-              {v}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Coordinates */}
-      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-dim text-(length:--sig-text-md)">
-        {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-        {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
-      </div>
-
-      {/* Open in Dossier button — shown when no dossier pane is open */}
-      {onOpenDossier && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border">
-          <button
-            onClick={onOpenDossier}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
-          >
-            <FileSearch size={12} strokeWidth={2.5} />
-            OPEN IN DOSSIER
-          </button>
-        </div>
-      )}
-
-      {/* Intel links — always visible */}
-      {linkRows.length > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
-          {linkRows.map(([label, url]) => (
-            <a
-              key={label}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
-            >
-              {label}
-              <ExternalLink size={9} />
-            </a>
-          ))}
-        </div>
-      )}
+      <PanelHeader
+        Icon={Icon}
+        color={color}
+        feature={feature}
+        isolateMode={isolateMode}
+        onSetIsolateMode={onSetIsolateMode}
+        onZoomTo={onZoomTo}
+        locateActive={locateActive}
+        onClose={onClose}
+      />
+      <PanelBody item={item} rows={rows} onOpenDossier={onOpenDossier} />
     </>
   );
 }

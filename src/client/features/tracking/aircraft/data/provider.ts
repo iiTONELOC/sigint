@@ -4,7 +4,7 @@ import {
   type ProviderSnapshot,
 } from "@/features/base/types";
 import { generateMockAircraft } from "@/data/mockData";
-import { getSquawkStatus } from "../lib/utils";
+import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
 import { ensureMetadataDb, getMetadataSync } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
@@ -16,13 +16,6 @@ export type AircraftProviderConfig = {
   cacheDurationMs?: number;
   cacheKey?: string;
 };
-
-function normalizeIcao24(value: string | undefined): string | null {
-  const raw = (value ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  if (!/^[0-9a-f]+$/i.test(raw)) return null;
-  return raw.length < 6 ? raw.padStart(6, "0") : raw;
-}
 
 export class AircraftProvider implements DataProvider<DataPoint> {
   readonly id = "aircraft";

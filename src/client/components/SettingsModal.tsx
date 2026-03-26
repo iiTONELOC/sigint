@@ -36,7 +36,7 @@ import {
   LAYER_COLOR_LABELS,
   type LayerColorKey,
 } from "@/config/theme";
-import { requestWalkthroughLaunch } from "@/panes/paneLayoutContext";
+import { requestWalkthroughLaunch } from "@/lib/layoutSignals";
 import {
   useLayoutMode,
   type LayoutMode as LayoutModeType,
