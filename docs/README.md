@@ -11,6 +11,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 | [Architecture Overview](./architecture.md) | System overview, directory structure, component hierarchy, state architecture |
 | [Data Flow](./data-flow.md) | DataContext, shared state, boot lifecycle, allData, filters, enrichment, trail recording |
 | [Feature System](./features.md) | FeatureDefinition contract, registry, feature structure, DataPoint union, data sources |
+| [Walkthrough](./walkthrough.md) | Guided onboarding tour — desktop + mobile steps, action/info modes, highlight rings, obstacle avoidance |
 | [Pane System](./panes.md) | PaneManager, binary split tree, all 8 pane types (globe, data table, dossier, intel feed, alert log, raw console, video feed, news feed), drag-to-swap, dossier bridge, layout persistence |
 | [Rendering Pipeline](./rendering.md) | Web Worker rendering, worker architecture, split messaging, camera, input handlers, interpolation, projections, isolation modes |
 | [Global Search](./search.md) | Two-phase search, scoring, globe filtering, zoom-to, stash/restore |

@@ -322,7 +322,7 @@ Displays aggregated world news from 6 RSS sources fetched server-side. This is a
 
 - **Server**: `newsCache.ts` polls 6 RSS feeds every 10 minutes, parses XML, deduplicates, caches up to 200 articles in memory. Served via `/api/news/latest` with token auth and gzip.
 - **Client provider**: `newsProvider.ts` mirrors the BaseProvider contract (hydrate/refresh/getData/getSnapshot) for `NewsArticle[]` instead of `DataPoint[]`. IndexedDB persistence under `sigint.news.articles.v1`. 30-minute staleness threshold.
-- **Client hook**: `useNewsData.ts` follows the `useProviderData` pattern exactly — `isMounted` local variable inside `useEffect`, `getData()` for initial call (StrictMode safe), `refresh()` for interval polls, hydration skip when cache is fresh. Called once in `DataContext`, exposed as `newsArticles` on context value. `NewsFeedPane` reads from `useData()` — does NOT call the hook directly.
+- **Client hook**: `useNewsData.ts` follows the `useProviderData` pattern — subscribes to `onChange`, reads from `getSnapshot()`, manages poll interval. Does NOT call `getData()` on mount — initial data comes from the boot sequence in `frontend.tsx`. Called once in `DataContext`, exposed as `newsArticles` on context value. `NewsFeedPane` reads from `useData()` — does NOT call the hook directly.
 
 ### Features
 

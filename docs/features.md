@@ -56,7 +56,7 @@ Every feature uses an explicit subdirectory layout. All live features have the f
 |-----------|---------|----------|------------|-------|--------|-------|---------|
 | `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent | TickerContent | TickerContent |
 | `hooks/` | React hooks | useAircraftData | useEarthquakeData | useShipData | useEventData | useFireData | useWeatherData |
-| `data/` | Provider + fetching | AircraftProvider (class), typeLookup | earthquakeProvider (BaseProvider) | shipProvider (BaseProvider) | gdeltProvider (BaseProvider, mergeFn) | fireProvider (BaseProvider) | weatherProvider (BaseProvider) |
+| `data/` | Provider + fetching | AircraftProvider (class), typeLookup (local metadata DB) | earthquakeProvider (BaseProvider) | shipProvider (BaseProvider) | gdeltProvider (BaseProvider, mergeFn) | fireProvider (BaseProvider) | weatherProvider (BaseProvider) |
 | `lib/` | Pure utilities | filterUrl, utils | _(none)_ | _(none)_ | _(none)_ | _(none)_ | _(none)_ |
 | _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
@@ -66,9 +66,9 @@ All external imports go through the barrel `index.ts` — never from subdirector
 
 The 5 non-aircraft providers share a common `BaseProvider` class (`features/base/BaseProvider.ts`) that handles all caching boilerplate: `persistCache`, `readPersistedCache`, `hydrate`, `refresh` (with error fallback), and `getData` (poll-aware background refresh). Each provider only supplies a config object: `id`, `cacheKey`, `maxCacheAgeMs`, `fetchFn()`, and optional `mergeFn()` (used by GDELT for URL-based dedup and 7-day rolling window pruning).
 
-Similarly, the 5 non-aircraft hooks are thin wrappers around `useProviderData` (`features/base/useProviderData.ts`), which handles state, hydration, polling, and data source status resolution. Fire and ship hooks pass a custom `resolveDataSource` callback for 503→`"unavailable"` logic.
+Similarly, the 5 non-aircraft hooks are thin wrappers around `useProviderData` (`features/base/useProviderData.ts`), which subscribes to `onChange`, reads from `getSnapshot()`, and manages poll intervals. Hooks do NOT call `getData()` on mount — the boot sequence in `frontend.tsx` owns initial hydration and refresh. Fire and ship hooks pass a custom `resolveDataSource` callback for 503→`"unavailable"` logic.
 
-The aircraft provider remains a standalone class due to its unique requirements: client-side OpenSky fetch, metadata enrichment, `fetchInProgress` dedup, and mock data fallback.
+The aircraft provider remains a standalone class due to its unique requirements: client-side OpenSky fetch, local metadata DB enrichment via `getMetadataSync()`, `fetchInProgress` dedup, and mock data fallback.
 
 ---
 
@@ -92,7 +92,7 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 ## Military Aircraft Classification
 
-Aircraft are classified as military via a heuristic system in `server/api/aircraftMetadata.ts`. Three signals are checked against the `ac-db.ndjson` database:
+Aircraft are classified as military via a heuristic system. The classification runs **client-side** in `client/features/tracking/aircraft/data/typeLookup.ts` when parsing the local metadata DB. Three signals are checked:
 
 1. **ICAO type codes** — 50+ known military type designators (F-16, C-17, KC-135, MQ-9, etc.)
 2. **Operator keywords** — 15 military operator strings (Air Force, Navy, Marines, Army, RAF, etc.)
@@ -111,7 +111,7 @@ Any match sets `military: true` on the `AircraftMetadata` response. ~15,700 airc
 | Source | Type | Fetch | Poll |
 |--------|------|-------|------|
 | OpenSky Network | Live aircraft positions | Client-side, anonymous | 240s |
-| Aircraft metadata | Type/reg/operator lookup | Server-side, local NDJSON | On selection |
+| Aircraft metadata | Type/reg/operator/military lookup | Client-side, local NDJSON DB (cached in IndexedDB) | Once (versioned route) |
 | USGS Earthquakes | Seismic events (7 days) | Client-side, no auth | 420s |
 | GDELT 2.0 | Geolocated news events | Server-side, token auth | 15 min |
 | AIS Ships | Live vessel positions | Server WebSocket, token auth | 300s |

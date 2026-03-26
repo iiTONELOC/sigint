@@ -30,7 +30,7 @@ All application state lives in `context/DataContext.tsx`, exposed via the `useDa
 | **Zoom** | `zoomToId`, `setZoomToId` | Triggers camera zoom-to (deep zoom, lock-on) |
 | **Reveal** | `revealId`, `setRevealId` | Triggers gentle ISS-level reveal (rotate to show point at 2.5x zoom, no lock-on). Used by pane clicks. |
 | **Watch** | `watchMode`, `watchActive`, `watchPaused`, `watchProgress`, `startWatch`, `stopWatch`, `pauseWatch`, `resumeWatch` | Shared watch mode — auto-tour through alerts/intel/all on globe. See Watch Mode section. |
-| **Enrichment** | `requestAircraftEnrichment` | On-demand metadata lookup |
+| **Enrichment** | `requestAircraftEnrichment` | Re-applies local metadata DB on demand (no network) |
 
 ### Derived values
 
@@ -120,7 +120,9 @@ flowchart TD
     PersistWX --> SetState
 ```
 
-Boot is non-blocking. `cacheInit()` fires without awaiting, the app renders immediately. Providers use async `hydrate()` via `cacheGet()` (memory first, IndexedDB fallback). Hooks start empty, data arrives as providers resolve. All providers use a uniform 30-minute staleness threshold.
+Boot is render-first. `cacheInit()` fires at import time (module scope) so IDB opens during JS parse. React renders immediately — empty shell with chrome visible. The boot IIFE then awaits `cacheInit`, hydrates all 7 providers from IDB in one batch (notifications muted), fires a single `notifyChange` per provider (React 18 batches into one render), then checks which providers returned stale/missing data. Only stale providers are refreshed over the network — if all caches are fresh, zero network requests on boot. The metadata DB is loaded before the refresh batch so `applyMetadata` has enrichment data ready. Network refresh results are also batched into a single notification. The globe receives at most two `allData` reference changes: one for cached data, one for fresh data. Progressive rendering streams each batch onto the globe at 1500 points/frame.
+
+Hooks do NOT call `getData()` on mount — they subscribe to `onChange` and read from `getSnapshot()`. The boot sequence in `frontend.tsx` is the single owner of initial hydration and refresh. Poll intervals handle subsequent refreshes.
 
 ---
 
@@ -134,20 +136,17 @@ Previously trail recording was embedded in `useAircraftData`. It was moved to Da
 
 ## The `allData` Array
 
-`allData` is the **single source of truth** for all renderable points:
+`allData` is the **single source of truth** for all renderable points. It is computed via `useState` + `useEffect` with `requestAnimationFrame` debouncing — when multiple providers notify in rapid succession (e.g., boot batch), updates coalesce into one new array reference per frame instead of one per provider:
 
 ```typescript
-const { data: aircraftData } = useAircraftData();
-const { data: shipData } = useShipData();
-const { data: earthquakeData } = useEarthquakeData();
-const { data: eventData } = useEventData();
-const { data: fireData } = useFireData();
-const { data: weatherData } = useWeatherData();
+const [allData, setAllData] = useState<DataPoint[]>(() => [...]);
 
-const allData = useMemo(
-  () => [...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData],
-  [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData],
-);
+useEffect(() => {
+  cancelAnimationFrame(rafRef.current);
+  rafRef.current = requestAnimationFrame(() => {
+    setAllData([...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData]);
+  });
+}, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData]);
 ```
 
 - **`aircraftData`**: Live aircraft from OpenSky (refreshed every 240s). Falls back to mock aircraft on fetch failure.
@@ -216,7 +215,7 @@ Client-side fetch from `api.weather.gov/alerts/active`. No API key, just `User-A
 
 **Server** (`newsCache.ts`): Fetches 6 RSS feeds every 10 min, deduplicates, caps at 200 articles. See [Architecture](./architecture.md) for feed list and details.
 
-**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads asynchronously from IndexedDB via `cacheGet()` with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` (HttpOnly cookie auth) and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook starts empty and calls `getData()` in a `useEffect`.
+**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads asynchronously from IndexedDB via `cacheGet()` with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` (HttpOnly cookie auth) and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook subscribes to `onChange` and reads from `getSnapshot()` — it does NOT call `getData()` on mount. Initial data comes from the boot sequence in `frontend.tsx`.
 
 **Context integration**: `DataContext` calls `useNewsData()` and exposes `newsArticles` on the context value. `NewsFeedPane` reads from `useData()` instead of calling the hook directly. News also appears in the `dataSources` array as `{ id: "news", label: "NEWS" }` for status reporting.
 
@@ -365,19 +364,35 @@ Pane clicks (alert log, intel feed, data table) also use ISS reveal. The LOCATE 
 
 ## Enrichment Pipeline
 
-Aircraft metadata enrichment runs as a side effect in `DataContext`, scoped to the currently selected aircraft only (prevents cache bloat).
+Aircraft metadata enrichment uses a local database — no per-aircraft server round-trips.
+
+### Local Metadata DB
+
+On first load, the client fetches the full aircraft metadata NDJSON from `/api/aircraft/metadata/db/v1` (~8.5MB gzip, ~53MB raw, ~616K records). The raw NDJSON is cached in IndexedDB under `sigint.aircraft.metadata-db.v1` with a version tag matching the route. On subsequent loads, if the cached version matches, no download occurs — the NDJSON is parsed from IndexedDB into an in-memory `Map<string, AircraftMetadata>` (~30-40MB).
+
+The route is versioned (`/v1`, `/v2`, etc.) — when the DB is rebuilt, bump both the server route and the client `DB_VERSION` constant. `Cache-Control: immutable` ensures the browser cache never revalidates.
+
+Military classification runs client-side using the same heuristic as the server: ICAO type codes (50+ military designators), operator keywords (15 military strings), and US DoD ICAO24 hex range (AE0000–AFFFFF).
+
+### Enrichment Flow
 
 ```mermaid
 flowchart TD
-    Trigger["useEffect: selectedCurrent changes"] --> Check{"type === aircraft?"}
-    Check -->|"no"| Skip
-    Check -->|"yes"| Dedup{"icao24 === lastEnrichmentKeyRef?"}
-    Dedup -->|"yes"| Skip
-    Dedup -->|"no"| Call["requestAircraftEnrichment([icao24])"]
-    Call --> Provider["AircraftProvider.enrichAircraftByIcao24()"]
-    Provider --> Server["GET /api/aircraft/metadata/batch"]
-    Server --> Apply["applyMetadata() → re-persist → setData()"]
+    Boot["frontend.tsx boot"] --> EnsureDB["ensureMetadataDb()"]
+    EnsureDB --> CheckIDB{"IDB has matching version?"}
+    CheckIDB -->|"yes"| ParseLocal["Parse NDJSON → Map (local)"]
+    CheckIDB -->|"no"| FetchDB["GET /api/aircraft/metadata/db/v1"]
+    FetchDB --> ParseFetch["Parse NDJSON → Map"]
+    ParseFetch --> PersistIDB["Cache NDJSON + version to IDB"]
+    ParseLocal --> Ready["Map<icao24, AircraftMetadata> in memory"]
+    PersistIDB --> Ready
+    Ready --> Apply["applyMetadata() on every refresh"]
+    Apply --> Sync["getMetadataSync(icao24) → O(1) Map.get()"]
 ```
+
+`applyMetadata` runs synchronously inside `AircraftProvider.fetchOpenSkyStates()` on every data refresh. Each aircraft's ICAO24 is looked up in the local Map — no network calls, no batching, no delays. The metadata DB is loaded before the first network refresh in the boot sequence to ensure enrichment data is available.
+
+`requestAircraftEnrichment` (called from DataContext on aircraft selection) is now a lightweight re-apply — it ensures the DB is loaded and re-applies metadata to the cache. No server round-trips.
 
 ---
 

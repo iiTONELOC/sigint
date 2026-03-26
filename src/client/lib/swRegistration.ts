@@ -16,7 +16,6 @@ type SWConfig = {
 };
 
 let updateCallback: (() => void) | null = null;
-let updateNotified = false; // prevent duplicate banners
 
 export function registerSW(config?: SWConfig): void {
   if (!("serviceWorker" in navigator)) return;
@@ -64,8 +63,8 @@ export function registerSW(config?: SWConfig): void {
 }
 
 function notifyUpdate(): void {
-  if (updateNotified) return;
-  updateNotified = true;
+  // Allow re-notification if banner was dismissed
+  if (document.getElementById("sw-update-bar")) return;
   updateCallback?.();
 }
 
