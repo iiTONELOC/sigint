@@ -48,7 +48,10 @@ function getInterp(id) {
   var e = trailMap.get(id);
   if (!e || e.speedMps <= 0) return null;
   var elapsed = (Date.now() - e.ts) / 1000;
-  if (elapsed > 600 || elapsed < 1) return null;
+  // Ships (S-prefix): extrapolate up to 30 min — slow movers, AIS gaps common
+  // Aircraft: extrapolate up to 10 min
+  var maxElapsed = id.charAt(0) === "S" ? 1800 : 600;
+  if (elapsed > maxElapsed || elapsed < 1) return null;
   var hdg = e.heading * DEG;
   var dist = e.speedMps * elapsed;
   var dLat = (dist * Math.cos(hdg)) / EARTH_R / DEG;

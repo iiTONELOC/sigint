@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { generateMockAircraft } from "@/data/mockData";
 import { AircraftProvider } from "../data/provider";
+import { ensureMetadataDb } from "../data/typeLookup";
 
-const aircraftProvider = new AircraftProvider();
+export const aircraftProvider = new AircraftProvider();
 
 export type AircraftDataSource = "loading" | "live" | "cached" | "mock";
 
@@ -44,51 +45,22 @@ export function useAircraftData(
       }
     };
 
-    // Subscribe to background refresh completions
+    // Subscribe to background refresh completions (boot sequence + intervals)
     aircraftProvider.onChange(() => {
       if (isMounted) applySnapshot();
     });
 
-    // Sync read: if provider was hydrated before mount, show data NOW
+    // Sync read: if provider already has data, show it
     const snap = aircraftProvider.getSnapshot();
     if (snap.entities.length > 0) {
       applySnapshot();
     }
 
-    // Async: getData triggers background refresh if stale
-    aircraftProvider
-      .getData(pollInterval)
-      .then((aircraftData) => {
-        if (!isMounted) return;
-        setData([...aircraftData]);
-        setLoading(false);
-        const snapshot = aircraftProvider.getSnapshot();
-        if (snapshot.error) {
-          setError(snapshot.error);
-          const hasRealCache =
-            aircraftData.length > 0 &&
-            aircraftData.some(
-              (d) => d.type === "aircraft" && (d.data as any)?.icao24,
-            );
-          setDataSource(hasRealCache ? "cached" : "mock");
-        } else {
-          setError(null);
-          setDataSource("live");
-          // Background enrich on initial load too
-          aircraftProvider.backgroundEnrich();
-        }
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        setError(
-          err instanceof Error ? err : new Error("Unknown error occurred"),
-        );
-        setLoading(false);
-        setDataSource("mock");
-      });
-
+    // Poll interval — subsequent refreshes after boot.
+    // First refresh is handled by frontend.tsx boot sequence.
     intervalId = setInterval(async () => {
       try {
+        await ensureMetadataDb().catch(() => {});
         const aircraftData = await aircraftProvider.refresh();
         if (!isMounted) return;
         setData([...aircraftData]);
@@ -100,8 +72,7 @@ export function useAircraftData(
         } else {
           setError(null);
           setDataSource("live");
-          // Background enrich unenriched aircraft — non-blocking, best effort
-          aircraftProvider.backgroundEnrich();
+          aircraftProvider.backgroundEnrich().catch(() => {});
         }
       } catch (err) {
         if (!isMounted) return;

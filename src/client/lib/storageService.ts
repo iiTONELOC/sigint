@@ -202,10 +202,12 @@ export async function cacheInit(): Promise<void> {
   // Migrate any existing localStorage data first
   await migrateFromLocalStorage();
 
-  // Load all entries into memory
+  // Load all entries into memory — EXCEPT the aircraft metadata DB
+  // which is 53MB and loaded lazily by typeLookup.ensureMetadataDb()
   try {
     const entries = await idbGetAll();
     for (const { key, value } of entries) {
+      if (key === CACHE_KEYS.aircraftMetadataDb) continue;
       memoryCache.set(key, value);
     }
   } catch {}

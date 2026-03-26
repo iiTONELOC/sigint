@@ -206,17 +206,58 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
 
   // ── Merged data ────────────────────────────────────────────────
-  const allData = useMemo(
-    () => [
-      ...aircraftData,
-      ...shipData,
-      ...earthquakeData,
-      ...eventData,
-      ...fireData,
-      ...weatherData,
-    ],
-    [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData],
-  );
+  // Debounced via rAF so rapid-fire provider updates (6-7 on boot)
+  // coalesce into one new array reference per frame instead of
+  // hammering the globe with 6-7 heavy worker messages.
+  const allDataSourcesRef = useRef({
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+  });
+  allDataSourcesRef.current = {
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+  };
+
+  const [allData, setAllData] = useState<DataPoint[]>(() => [
+    ...aircraftData,
+    ...shipData,
+    ...earthquakeData,
+    ...eventData,
+    ...fireData,
+    ...weatherData,
+  ]);
+
+  const allDataRafRef = useRef(0);
+  useEffect(() => {
+    cancelAnimationFrame(allDataRafRef.current);
+    allDataRafRef.current = requestAnimationFrame(() => {
+      const s = allDataSourcesRef.current;
+      setAllData([
+        ...s.aircraftData,
+        ...s.shipData,
+        ...s.earthquakeData,
+        ...s.eventData,
+        ...s.fireData,
+        ...s.weatherData,
+      ]);
+    });
+    return () => cancelAnimationFrame(allDataRafRef.current);
+  }, [
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+  ]);
 
   // ── ID Map — O(1) lookup by id ─────────────────────────────────
   const idMap = useMemo(() => {
@@ -245,6 +286,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .filter((d) => d.type === "aircraft" || d.type === "ships")
       .map((d) => ({
         id: d.id,
+        type: d.type as "aircraft" | "ships",
         lat: d.lat,
         lon: d.lon,
         heading: (d.data as any)?.heading,
@@ -309,10 +351,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [allData, filters]);
 
   // ── Derived values ─────────────────────────────────────────────
-  const tickerItems = useMemo(
-    () => buildTickerItems(allData),
-    [allData],
-  );
+  const tickerItems = useMemo(() => buildTickerItems(allData), [allData]);
 
   const selectedCurrent = useMemo(() => {
     if (!selected) return null;

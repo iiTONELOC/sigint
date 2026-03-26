@@ -74,9 +74,7 @@ export function AppShell() {
 
   // ── Ticker height mode ──────────────────────────────────────────
   type TickerMode = "full" | "compact" | "collapsed";
-  const [tickerMode, setTickerMode] = useState<TickerMode>(
-    isMobileLayout ? "collapsed" : "full",
-  );
+  const [tickerMode, setTickerMode] = useState<TickerMode>("collapsed");
 
   useEffect(() => {
     cacheGet<TickerMode>(CACHE_KEYS.tickerHeight).then((saved) => {

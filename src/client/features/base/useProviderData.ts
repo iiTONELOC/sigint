@@ -65,12 +65,12 @@ export function useProviderData(
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    // Subscribe to background refresh completions
+    // Subscribe to background refresh completions (boot sequence + intervals)
     provider.onChange?.(() => {
       if (isMounted) syncFromSnapshot();
     });
 
-    // Sync read: if provider was hydrated before mount, show data NOW
+    // Sync read: if provider already has data (hydrated before mount), show it
     const snap = provider.getSnapshot();
     if (snap.entities.length > 0) {
       setData([...snap.entities]);
@@ -79,26 +79,9 @@ export function useProviderData(
       setDataSource(resolveDataSource(snap.entities, snap));
     }
 
-    // Async: getData triggers background refresh if stale
-    provider
-      .getData(pollInterval)
-      .then((result) => {
-        if (!isMounted) return;
-        const snapshot = provider.getSnapshot();
-        setData([...result]);
-        setLoading(false);
-        setError(snapshot.error ?? null);
-        setDataSource(resolveDataSource(result, snapshot));
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        setError(
-          err instanceof Error ? err : new Error("Unknown error occurred"),
-        );
-        setLoading(false);
-        setDataSource("error");
-      });
-
+    // Poll interval — subsequent refreshes after boot.
+    // First refresh is handled by frontend.tsx boot sequence.
+    // Delay first interval tick so it doesn't collide with boot.
     intervalId = setInterval(async () => {
       try {
         const result = await provider.refresh();

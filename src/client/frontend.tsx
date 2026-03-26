@@ -14,13 +14,18 @@ import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
 import { registerSW, applyUpdate } from "./lib/swRegistration";
 
-// Singleton providers — hydrate before first render
+// Singleton providers
 import { shipProvider } from "./features/tracking/ships/data/provider";
 import { gdeltProvider } from "./features/intel/events/data/provider";
 import { fireProvider } from "./features/environmental/fires/data/provider";
 import { weatherProvider } from "./features/environmental/weather/data/provider";
 import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
 import { newsProvider } from "./panes/news-feed/newsProvider";
+import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
+
+// Fire cacheInit NOW — runs while the rest of the module parses.
+// By the time we await it below, IDB is likely already open.
+const cacheReady = cacheInit();
 
 const fontsLink = document.createElement("link");
 fontsLink.rel = "stylesheet";
@@ -47,57 +52,103 @@ const app = (
 );
 
 // ── Boot sequence ────────────────────────────────────────────────────
-// 1. Open IDB, load all entries into memoryCache
-// 2. Hydrate all singleton providers from memoryCache (parallel)
-// 3. THEN render React — hooks read snapshot immediately, data on first paint
-// 4. Background: initBaseline/trails/land, provider refreshes stream in via onChange
+// 1. Render shell immediately — empty globe, chrome visible
+// 2. Await cacheInit (already in-flight) → hydrate ALL from IDB →
+//    notify all at once → globe draws cached data in one pass
+// 3. Refresh ALL from network → wait until ALL complete →
+//    notify all at once → globe redraws in one pass
 
-async function boot() {
-  await cacheInit();
+// 1. Render immediately
+if (import.meta.hot) {
+  const root = (import.meta.hot.data.root ??= createRoot(elem));
+  root.render(app);
+} else {
+  createRoot(elem).render(app);
+}
 
-  // Hydrate all providers in parallel from memoryCache.
-  // Each populates this.cache + this.snapshot so hooks get data on mount.
-  await Promise.all([
-    shipProvider.hydrate().catch(() => {}),
-    gdeltProvider.hydrate().catch(() => {}),
-    fireProvider.hydrate().catch(() => {}),
-    weatherProvider.hydrate().catch(() => {}),
-    earthquakeProvider.hydrate().catch(() => {}),
-    newsProvider.hydrate().catch(() => {}),
-    // AircraftProvider hydrates inside its hook (client-side OpenSky fetch)
-  ]);
+// Provider list
+const providers = [
+  shipProvider,
+  gdeltProvider,
+  fireProvider,
+  weatherProvider,
+  earthquakeProvider,
+  newsProvider,
+  aircraftProvider,
+] as any[];
 
-  // Non-blocking background work — don't gate render on these
-  Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
+function muteProviders(): Array<(() => void) | null> {
+  const saved = providers.map((p) => p._onChange ?? null);
+  providers.forEach((p) => {
+    p._onChange = null;
+  });
+  return saved;
+}
 
-  // NOW render — providers have cached data, hooks init from snapshot
-  if (import.meta.hot) {
-    const root = (import.meta.hot.data.root ??= createRoot(elem));
-    root.render(app);
-  } else {
-    createRoot(elem).render(app);
-  }
-
-  // Register SW in both dev and prod — requires secure context (HTTPS or localhost)
-  registerSW({
-    onUpdate: () => {
-      const banner = document.createElement("div");
-      banner.className = "sw-update-banner";
-      banner.innerHTML = `
-        <span>Update available</span>
-        <button id="sw-reload-btn">RELOAD</button>
-        <button id="sw-dismiss-btn">✕</button>
-      `;
-      document.body.appendChild(banner);
-
-      banner.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
-        applyUpdate();
-      });
-      banner.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
-        banner.remove();
-      });
-    },
+function restoreAndNotify(saved: Array<(() => void) | null>): void {
+  providers.forEach((p, i) => {
+    p._onChange = saved[i];
+  });
+  providers.forEach((p) => {
+    if (p._onChange) p._onChange();
   });
 }
 
-boot();
+(async () => {
+  // 2. IDB hydration — one batch
+  await cacheReady;
+
+  let saved = muteProviders();
+  const hydrationResults = await Promise.all(
+    providers.map((p) => p.hydrate().catch(() => null)),
+  );
+  restoreAndNotify(saved);
+
+  // Non-blocking background work
+  Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
+
+  // 3. Determine which providers need a network refresh.
+  //    If hydration returned stale data or no data, refresh that provider.
+  //    If cache is fresh, skip it entirely.
+  const staleProviders = providers.filter((_, i) => {
+    const result = hydrationResults[i];
+    // null = no cached data, needs fetch
+    // { stale: true } = cached but expired, needs fetch
+    // { stale: false } = fresh cache, skip
+    return !result || result.stale;
+  });
+
+  if (staleProviders.length > 0) {
+    // Ensure aircraft metadata DB is ready before refresh —
+    // otherwise applyMetadata can't enrich and military/type data is lost
+    const { ensureMetadataDb } =
+      await import("./features/tracking/aircraft/data/typeLookup");
+    await ensureMetadataDb().catch(() => {});
+
+    // 4. Network refresh — only stale/missing providers, one batch
+    saved = muteProviders();
+    await Promise.all(staleProviders.map((p) => p.refresh().catch(() => {})));
+    restoreAndNotify(saved);
+  }
+})().catch(() => {});
+
+// Register SW
+registerSW({
+  onUpdate: () => {
+    const banner = document.createElement("div");
+    banner.className = "sw-update-banner";
+    banner.innerHTML = `
+      <span>Update available</span>
+      <button id="sw-reload-btn">RELOAD</button>
+      <button id="sw-dismiss-btn">✕</button>
+    `;
+    document.body.appendChild(banner);
+
+    banner.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
+      applyUpdate();
+    });
+    banner.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
+      banner.remove();
+    });
+  },
+});

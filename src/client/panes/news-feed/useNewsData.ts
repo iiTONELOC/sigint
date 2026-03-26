@@ -26,7 +26,7 @@ export function useNewsData(): UseNewsDataResult {
     let isMounted = true;
     let intervalId: NodeJS.Timeout | null = null;
 
-    // Subscribe to background refresh completions
+    // Subscribe to background refresh completions (boot sequence + intervals)
     newsProvider.onChange(() => {
       if (!isMounted) return;
       const snapshot = newsProvider.getSnapshot();
@@ -40,7 +40,7 @@ export function useNewsData(): UseNewsDataResult {
       }
     });
 
-    // Sync read: if provider was hydrated before mount, show data NOW
+    // Sync read: if provider already has data, show it
     const snap = newsProvider.getSnapshot();
     if (snap.items.length > 0) {
       setData([...snap.items]);
@@ -49,30 +49,7 @@ export function useNewsData(): UseNewsDataResult {
       setDataSource(snap.error ? "cached" : "live");
     }
 
-    // Async: getData triggers background refresh if stale
-    newsProvider
-      .getData(POLL_INTERVAL)
-      .then((result) => {
-        if (!isMounted) return;
-        const snapshot = newsProvider.getSnapshot();
-        setData([...result]);
-        setLoading(false);
-        setError(snapshot.error ?? null);
-        if (snapshot.error) {
-          setDataSource(result.length > 0 ? "cached" : "error");
-        } else {
-          setDataSource(result.length > 0 ? "live" : "empty");
-        }
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        setError(
-          err instanceof Error ? err : new Error("Unknown error occurred"),
-        );
-        setLoading(false);
-        setDataSource("error");
-      });
-
+    // Poll interval — subsequent refreshes after boot.
     intervalId = setInterval(async () => {
       try {
         const result = await newsProvider.refresh();

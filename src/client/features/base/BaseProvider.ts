@@ -101,7 +101,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     this.snapshot = {
       entities: data,
       lastUpdatedAt: persisted.timestamp,
-      loading: stale, // signal that a refresh is needed
+      loading: stale,
       error: null,
     };
     return { data, stale };
@@ -186,31 +186,21 @@ export class BaseProvider implements DataProvider<DataPoint> {
       return this.cache.data;
     }
 
-    // 2. Try IDB hydration — returns stale data immediately
-    const hydrated = await this.hydrate();
-    if (hydrated && hydrated.data.length > 0) {
-      // Kick off background refresh if stale, don't block
-      if (hydrated.stale && !this.fetchInProgress) {
-        this.fetchInProgress = this.refresh()
-          .then((data) => {
-            this.notifyChange();
-            return data;
-          })
-          .finally(() => {
-            this.fetchInProgress = null;
-          });
-      }
-      return hydrated.data;
-    }
-
-    // 3. No cache at all — must wait for fetch
+    // 2. No memory cache — go straight to network fetch.
+    //    Background hydration (frontend.tsx) will push IDB data via
+    //    notifyChange() if it arrives first. No blocking on dbReady.
     if (this.fetchInProgress) {
       return this.fetchInProgress;
     }
 
-    this.fetchInProgress = this.refresh().finally(() => {
-      this.fetchInProgress = null;
-    });
+    this.fetchInProgress = this.refresh()
+      .then((data) => {
+        this.notifyChange();
+        return data;
+      })
+      .finally(() => {
+        this.fetchInProgress = null;
+      });
     return this.fetchInProgress;
   }
 
