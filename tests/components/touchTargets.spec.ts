@@ -117,7 +117,7 @@ describe("DetailPanel touch drag", () => {
 
   test("drag handle has touch-action none", async () => {
     const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain("touchAction");
+    expect(src).toContain("touch-none");
   });
 
   test("panel div does NOT have onPointerMove", async () => {
@@ -159,7 +159,7 @@ describe("Speed slider touch", () => {
     const src = await Bun.file(
       "src/client/panes/live-traffic/LiveTrafficPane.tsx",
     ).text();
-    expect(src).toContain("touchAction");
+    expect(src).toContain("touch-none");
   });
 });
 

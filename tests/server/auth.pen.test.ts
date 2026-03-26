@@ -139,8 +139,8 @@ describe("auth pentest — cookie security", () => {
     expect(tokenCookieHeader("test")).toContain("SameSite=Strict");
   });
 
-  test("Path=/ scoped to origin", () => {
-    expect(tokenCookieHeader("test")).toContain("Path=/");
+  test("Path=/api scoped to API routes", () => {
+    expect(tokenCookieHeader("test")).toContain("Path=/api");
   });
 
   test("Max-Age auto-expires within 30 min", () => {

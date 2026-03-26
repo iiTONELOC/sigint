@@ -32,21 +32,18 @@ function DefaultFallback({
     <div className="w-full h-full flex items-center justify-center bg-sig-bg/80 p-4">
       <div className="text-center max-w-xs">
         <div
-          className="text-sig-danger text-sm font-semibold tracking-wider mb-2"
-          style={{ fontSize: "var(--sig-text-md)" }}
+          className="text-sig-danger font-semibold tracking-wider mb-2 text-(length:--sig-text-md)"
         >
           {name.toUpperCase()} ERROR
         </div>
         <div
-          className="text-sig-dim mb-3 break-words"
-          style={{ fontSize: "var(--sig-text-sm)" }}
+          className="text-sig-dim mb-3 break-words text-(length:--sig-text-sm)"
         >
           {error.message}
         </div>
         <button
           onClick={reset}
-          className="px-3 py-1.5 rounded text-sig-accent border border-sig-accent/40 bg-sig-accent/10 hover:bg-sig-accent/20 transition-colors tracking-wider font-semibold"
-          style={{ fontSize: "var(--sig-text-sm)" }}
+          className="px-3 py-1.5 rounded text-sig-accent border border-sig-accent/40 bg-sig-accent/10 hover:bg-sig-accent/20 transition-colors tracking-wider font-semibold text-(length:--sig-text-sm)"
         >
           RETRY
         </button>

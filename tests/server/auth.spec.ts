@@ -107,9 +107,9 @@ describe("tokenCookieHeader()", () => {
     expect(header).toContain("SameSite=Strict");
   });
 
-  test("includes Path=/", () => {
+  test("includes Path=/api", () => {
     const header = tokenCookieHeader("test-token");
-    expect(header).toContain("Path=/");
+    expect(header).toContain("Path=/api");
   });
 
   test("includes Max-Age", () => {

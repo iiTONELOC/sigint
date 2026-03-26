@@ -65,14 +65,14 @@ export async function generateToken(): Promise<string> {
  * HttpOnly — not accessible from JS.
  * Secure — only sent over HTTPS.
  * SameSite=Strict — not sent on cross-origin requests.
- * Path=/ — available to all routes.
+ * Path=/api — scoped to API routes only.
  */
 export function tokenCookieHeader(token: string): string {
   const isDev = process.env.NODE_ENV !== "production";
   const parts = [
     `${COOKIE_NAME}=${token}`,
     "HttpOnly",
-    "Path=/",
+    "Path=/api",
     "SameSite=Strict",
     `Max-Age=${TOKEN_TTL_S}`,
   ];
