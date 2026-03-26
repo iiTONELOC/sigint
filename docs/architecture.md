@@ -55,7 +55,7 @@ graph TB
     FIRMS["NASA FIRMS API<br/>(VIIRS NOAA-20 CSV)"]
 
     AircraftProv -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
-    AircraftProv -->|"GET /metadata/:icao24<br/>(enrichment)"| BunServer
+    AircraftProv -->|"GET /metadata/db/v1<br/>(one-time, cached in IDB)"| BunServer
     QuakeProv -->|"GET all_week.geojson<br/>(client-side fetch)"| USGS
     WeatherProv -->|"GET /alerts/active<br/>(client-side fetch)"| NOAA
     GdeltProv -->|"GET /api/events/latest<br/>(token auth)"| BunServer
@@ -89,8 +89,7 @@ NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alert
 | `/api/auth/token` | GET | None | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL) |
 | `/api/events/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed) |
 | `/api/ships/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
-| `/api/aircraft/metadata/:icao24` | GET | HttpOnly cookie | 60 req/min per IP | Single aircraft metadata lookup |
-| `/api/aircraft/metadata/batch` | GET | HttpOnly cookie | 60 req/min per IP | Batch aircraft metadata lookup |
+| `/api/aircraft/metadata/db/v1` | GET | HttpOnly cookie | 60 req/min per IP | Full aircraft metadata NDJSON (~8.5MB gzip). Versioned route — client caches in IndexedDB, never re-fetches same version. `Cache-Control: immutable`. |
 | `/api/fires/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
 | `/api/news/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed) |
 | `/api/dossier/aircraft/:icao24` | GET | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
@@ -101,7 +100,7 @@ All API routes are rate limited at 60 requests per minute per IP (sliding window
 
 Tokens are generated via Web Crypto API (async HMAC-SHA256) and verified with `crypto.timingSafeEqual`. The token endpoint sets the token as an `HttpOnly; Secure; SameSite=Strict` cookie.
 
-Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-origin"`. On 401, the cookie is refreshed and the request retried.
+Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-origin"`. On 401, the cookie is refreshed and the request retried. Concurrent 401s share a single token refresh (deduped via an in-flight promise) to prevent boot stampede when multiple providers hit 401 simultaneously.
 
 ### Environment Variables
 
@@ -140,7 +139,6 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │   │   ├── api/
 │   │   │   ├── index.ts               Route registration + gzip helper
 │   │   │   ├── auth.ts                HMAC-SHA256 tokens + rate limiting
-│   │   │   ├── aircraftMetadata.ts    ICAO DB lookup + military classification
 │   │   │   ├── dossierCache.ts        Aircraft dossier (hexdb.io + planespotters)
 │   │   │   ├── gdeltCache.ts          GDELT fetch/parse/cache
 │   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache

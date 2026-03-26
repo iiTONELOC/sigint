@@ -135,20 +135,29 @@ function restoreAndNotify(saved: Array<(() => void) | null>): void {
 // Register SW
 registerSW({
   onUpdate: () => {
-    const banner = document.createElement("div");
-    banner.className = "sw-update-banner";
-    banner.innerHTML = `
-      <span>Update available</span>
-      <button id="sw-reload-btn">RELOAD</button>
-      <button id="sw-dismiss-btn">✕</button>
-    `;
-    document.body.appendChild(banner);
+    // Don't double-create
+    if (document.getElementById("sw-update-bar")) return;
 
-    banner.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
+    const bar = document.createElement("div");
+    bar.id = "sw-update-bar";
+    bar.className = "sw-update-bar";
+    bar.innerHTML = `
+      <div class="sw-update-inner">
+        <span class="sw-update-dot"></span>
+        <span class="sw-update-text">UPDATE AVAILABLE</span>
+        <span class="sw-update-sub">A new version of SIGINT is ready</span>
+        <button id="sw-reload-btn">RELOAD NOW</button>
+        <button id="sw-dismiss-btn">LATER</button>
+      </div>
+    `;
+    document.body.prepend(bar);
+
+    bar.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
       applyUpdate();
     });
-    banner.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
-      banner.remove();
+    bar.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
+      bar.classList.add("sw-update-bar-dismissed");
+      setTimeout(() => bar.remove(), 300);
     });
   },
 });

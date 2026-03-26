@@ -70,7 +70,7 @@ New static file directories require adding a matching route pattern to both serv
 
 ## Metadata Enrichment
 
-Best-effort only. If the server is down or the ICAO24 isn't in the database, the aircraft shows "Unknown" type. The UI never blocks on enrichment. Only fires for the currently selected aircraft to prevent cache bloat.
+The full aircraft metadata DB (~616K records) is downloaded once and cached in IndexedDB. All lookups are local `Map.get()` — no server round-trips per aircraft. If the DB hasn't loaded yet (first boot before download completes), aircraft show "Unknown" type until the next refresh after the DB is ready. The UI never blocks on enrichment. The DB route is versioned (`/api/aircraft/metadata/db/v1`) — bump both client and server when the DB is rebuilt.
 
 ---
 
@@ -88,7 +88,7 @@ Trail recording is centralized in `DataContext` as a `useEffect` on `allData` ch
 
 ## Trail Purging
 
-If an aircraft or ship disappears from data for 3 consecutive refreshes (~12 minutes for aircraft, ~15 minutes for ships), its trail is deleted. Entries older than 24 hours removed at boot. Points capped at 50 per entity.
+Trail retention is type-aware. Aircraft trails are deleted after 8 missed refreshes (~32 minutes absent from data), capped at 50 points. Ship trails survive 60 missed refreshes (~1 hour), capped at 500 points — ships move slowly and need long history. Entries older than 24 hours removed at boot. Type determined by ID prefix (`A` = aircraft, `S` = ship).
 
 ---
 

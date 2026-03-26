@@ -18,7 +18,7 @@ The globe visualization is split into a modular `components/globe/` directory. T
 
 **React never directly drives rendering.** Props are synced into `propsRef` on every React render, but the animation loop reads from the ref independently at ~60fps.
 
-The globe uses a ResizeObserver on its parent container, so it correctly handles being resized by the PaneManager grid. Canvas buffer resize is deferred via `pendingResizeRef` — applied atomically right before the next worker frame composite. The canvas shows the old frame (CSS-stretched) until a new frame arrives, preventing flash-to-black on split resize.
+The globe uses a ResizeObserver on its parent container, so it correctly handles being resized by the PaneManager grid. Canvas buffer resize is deferred via `pendingResizeRef` — applied only when the incoming worker bitmap dimensions match the target size. This prevents a flash-to-black: old-size bitmaps are drawn stretched to fill the new canvas dimensions until the worker produces a correctly-sized frame. The canvas always has content visible during resize transitions.
 
 | File | Purpose |
 |---|---|
@@ -144,7 +144,9 @@ Trail hit targets (for click detection on waypoint dots) are sent back from the 
 
 ## Progressive Data Loading
 
-When a data source refreshes and delivers a new array, the `renderLimitRef` is **preserved** (not reset). It only clamps downward if the data array actually shrank. Each frame it grows by 3000 until it covers all data. This prevents the visual "pop" — points don't disappear and re-appear when new data trickles in. Once fully loaded, no slicing occurs.
+When a data source refreshes and delivers a new array, the `renderLimitRef` is **preserved** (not reset). It only clamps downward if the data array actually shrank. Each frame it grows by 1500 until it covers all data. The growth is **unconditional** — it runs whether or not the data reference changed, preventing the ramp from stalling when multiple providers update in quick succession (e.g., boot batch). Once fully loaded, no slicing occurs.
+
+The `allData` array in `DataContext` is debounced via `requestAnimationFrame` — when multiple providers notify within the same frame, their updates coalesce into one new array reference. Combined with the boot sequence's mute/notify batching, the globe typically receives at most 2 `allData` reference changes on boot (cached data + fresh data), each progressively streamed at 1500 points/frame (~1 second for 90K points at 60fps).
 
 ---
 
@@ -201,9 +203,9 @@ detachInputHandlers(canvas, handlers);
 
 ## Interpolation
 
-All moving entities (aircraft, ships) have their positions interpolated between data refreshes for smooth animation. The trail service records actual positions at each refresh and uses speed + heading to extrapolate between them. If data is older than 10 minutes, interpolation returns null (stale). If less than 1 second old, it also returns null (too soon — use raw position).
+All moving entities (aircraft, ships) have their positions interpolated between data refreshes for smooth animation. The trail service records actual positions at each refresh and uses speed + heading to extrapolate between them. Extrapolation limits are **type-aware**: aircraft cap at 10 minutes, ships cap at 30 minutes (ships move slowly and AIS gaps are common). If less than 1 second old, interpolation returns null (too soon — use raw position).
 
-The Web Worker maintains its own copy of trail data for interpolation, synced from the main thread every ~30 frames.
+The Web Worker maintains its own copy of trail data for interpolation, synced from the main thread every ~30 frames. The worker's `getInterp()` checks the ID prefix (`S` = ship) to apply the correct extrapolation limit.
 
 ---
 
