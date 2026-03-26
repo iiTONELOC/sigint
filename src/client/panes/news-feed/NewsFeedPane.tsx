@@ -5,7 +5,7 @@ import { relativeAge } from "@/lib/timeFormat";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import { useData } from "@/context/DataContext";
-import type { NewsArticle } from "./newsProvider";
+import type { NewsArticle } from "@/features/news";
 
 // ── Constants ───────────────────────────────────────────────────────
 
