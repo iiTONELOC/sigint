@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import { resolve } from "path";
-import index from "../../index.html";
+import index from "../index.html";
 import { apiRoutes } from "./api";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";

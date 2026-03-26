@@ -14,7 +14,7 @@
 // Recomputes when allData changes.
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { NewsArticle } from "@/panes/news-feed/newsProvider";
+import type { NewsArticle } from "@/features/news";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 

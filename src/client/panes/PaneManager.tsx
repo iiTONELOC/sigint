@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
 import { useData } from "@/context/DataContext";
 import { useIsMobileLayout } from "@/context/LayoutModeContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
@@ -61,6 +60,7 @@ import {
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { ResizeHandle } from "./ResizeHandle";
 import { PaneMobile } from "./PaneMobile";
+import { SplitMenu } from "./SplitMenu";
 
 // ── Pane metadata ────────────────────────────────────────────────────
 
@@ -700,35 +700,18 @@ export function PaneManager() {
   const renderSplitMenu = (leafId: string, dir: "h" | "v") => {
     if (!splitMenu || splitMenu.leafId !== leafId || splitMenu.dir !== dir)
       return null;
-    return createPortal(
-      <div
+    return (
+      <SplitMenu
         ref={splitMenuRef}
-        className="fixed z-[80] rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
-        style={{
-          top: splitMenu.top,
-          left: Math.max(8, Math.min(splitMenu.left, window.innerWidth - 200)),
+        types={availableTypes}
+        meta={PANE_META}
+        top={splitMenu.top}
+        left={splitMenu.left}
+        onSelect={(type) => {
+          splitPane(leafId, dir, type);
+          setSplitMenu(null);
         }}
-      >
-        {availableTypes.map((type) => {
-          const meta = PANE_META[type];
-          const Icon = meta.icon;
-          return (
-            <button
-              key={type}
-              data-tour={`split-menu-${type}`}
-              onClick={() => {
-                splitPane(leafId, dir, type);
-                setSplitMenu(null);
-              }}
-              className="w-full text-left px-3 py-2.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
-            >
-              <Icon size={14} strokeWidth={2.5} className="text-sig-accent" />
-              {meta.label}
-            </button>
-          );
-        })}
-      </div>,
-      document.body,
+      />
     );
   };
 

@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { NewsArticle } from "@/panes/news-feed/newsProvider";
+import type { NewsArticle } from "@/features/news";
 
 // ── Mock storageService before importing correlationEngine ──────────
 // The engine calls cacheGet/cacheSet for baseline persistence.

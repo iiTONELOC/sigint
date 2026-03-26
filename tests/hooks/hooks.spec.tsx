@@ -288,8 +288,8 @@ describe("useNewsData", () => {
       throw new Error(`Unmocked: ${url}`);
     };
 
-    const { useNewsData } = await import("@/panes/news-feed/useNewsData");
-    const { newsProvider } = await import("@/panes/news-feed/newsProvider");
+    const { useNewsData } = await import("@/features/news");
+    const { newsProvider } = await import("@/features/news");
     const { result, waitFor } = renderHook(() => useNewsData());
 
     // Simulate boot: refresh + notify

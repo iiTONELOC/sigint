@@ -20,7 +20,7 @@ import { gdeltProvider } from "./features/intel/events/data/provider";
 import { fireProvider } from "./features/environmental/fires/data/provider";
 import { weatherProvider } from "./features/environmental/weather/data/provider";
 import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
-import { newsProvider } from "./panes/news-feed/newsProvider";
+import { newsProvider } from "./features/news";
 import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
 
 // Fire cacheInit NOW — runs while the rest of the module parses.

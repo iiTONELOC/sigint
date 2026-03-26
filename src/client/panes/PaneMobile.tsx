@@ -23,6 +23,7 @@ import type {
 import { useData } from "@/context/DataContext";
 import { ResizeHandle } from "./ResizeHandle";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
+import { SplitMenu } from "./SplitMenu";
 import type { Globe } from "lucide-react";
 
 // ── Default heights per pane type ────────────────────────────────────
@@ -830,42 +831,21 @@ export function PaneMobile({
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* ── Portaled menus ───────────────────────────────────────── */}
 
-      {splitMenu &&
-        createPortal(
-          <div
-            ref={splitMenuRef}
-            data-wt-menu=""
-            className="fixed z-[80] rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
-            style={{
-              top: splitMenu.top,
-              left: Math.min(splitMenu.left, window.innerWidth - 200),
-            }}
-          >
-            {availableTypes.map((type) => {
-              const meta = paneMeta[type];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={type}
-                  data-tour={`split-menu-${type}`}
-                  onClick={() => {
-                    splitPane(splitMenu.leafId, splitMenu.dir, type);
-                    setSplitMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-2 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
-                >
-                  <Icon
-                    size={14}
-                    strokeWidth={2.5}
-                    className="text-sig-accent"
-                  />
-                  {meta.label}
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )}
+      {splitMenu && (
+        <SplitMenu
+          ref={splitMenuRef}
+          types={availableTypes}
+          meta={paneMeta}
+          top={splitMenu.top}
+          left={splitMenu.left}
+          wtMenu
+          className="fixed z-[80] rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
+          onSelect={(type) => {
+            splitPane(splitMenu.leafId, splitMenu.dir, type);
+            setSplitMenu(null);
+          }}
+        />
+      )}
 
       {typeMenu &&
         createPortal(

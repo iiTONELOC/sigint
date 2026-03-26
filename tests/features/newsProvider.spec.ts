@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { newsProvider, type NewsArticle } from "@/panes/news-feed/newsProvider";
+import { newsProvider, type NewsArticle } from "@/features/news";
 
 // ── Mock data ───────────────────────────────────────────────────────
 
