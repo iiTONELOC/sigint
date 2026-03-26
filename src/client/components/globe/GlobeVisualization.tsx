@@ -141,7 +141,7 @@ export function GlobeVisualization({
   // ── Progressive render limit ────────────────────────────────────
   const prevDataRef = useRef<DataPoint[] | null>(null);
   const renderLimitRef = useRef(0);
-  const RENDER_CHUNK = 3000;
+  const RENDER_CHUNK = 1500;
 
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
@@ -270,9 +270,13 @@ export function GlobeVisualization({
           // Composite — single bitmap from worker has everything
           const mainCanvas = canvasRef.current;
           if (mainCanvas && latestBitmapRef.current) {
-            // Apply deferred resize right before drawing — avoids blank canvas gap
+            const bmp = latestBitmapRef.current;
             const pr = pendingResizeRef.current;
-            if (pr) {
+
+            // Only apply deferred resize when the bitmap matches the
+            // target dimensions — prevents a flash frame where the canvas
+            // is cleared at the new size but drawn with an old-size bitmap.
+            if (pr && bmp.width === pr.cw && bmp.height === pr.ch) {
               pendingResizeRef.current = null;
               mainCanvas.width = pr.cw;
               mainCanvas.height = pr.ch;
@@ -280,11 +284,12 @@ export function GlobeVisualization({
                 .getContext("2d")
                 ?.setTransform(pr.dpr, 0, 0, pr.dpr, 0, 0);
             }
+
             const mainCtx = mainCanvas.getContext("2d");
             if (mainCtx) {
               mainCtx.setTransform(1, 0, 0, 1, 0, 0);
               mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-              mainCtx.drawImage(latestBitmapRef.current, 0, 0);
+              mainCtx.drawImage(bmp, 0, 0, mainCanvas.width, mainCanvas.height);
             }
           }
         }
@@ -362,20 +367,18 @@ export function GlobeVisualization({
       }
 
       // ── Progressive render limit ────────────────────────────────
-      // Never reset to a small chunk on data change — that causes a flash.
-      // Only grow the limit or clamp it if data shrank.
+      // Grows by RENDER_CHUNK per frame. On data change, clamp if shrank
+      // but keep growing — don't stall the ramp for a frame.
       if (d !== prevDataRef.current) {
         prevDataRef.current = d;
-        // If we've already ramped up past the new data length, clamp down
-        // Otherwise keep what we had — no visual pop
         if (renderLimitRef.current > d.length) {
           renderLimitRef.current = d.length;
         }
-        // If limit is 0 (first load), seed with one chunk so we don't render a blank frame
         if (renderLimitRef.current === 0 && d.length > 0) {
           renderLimitRef.current = Math.min(RENDER_CHUNK, d.length);
         }
-      } else if (renderLimitRef.current < d.length) {
+      }
+      if (renderLimitRef.current < d.length) {
         renderLimitRef.current = Math.min(
           renderLimitRef.current + RENDER_CHUNK,
           d.length,

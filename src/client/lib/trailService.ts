@@ -2,10 +2,42 @@ import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
 const CACHE_KEY = CACHE_KEYS.trails;
-const MIN_MOVE_DEG = 0.001; // ~100m — skip if hasn't moved
 const PERSIST_INTERVAL_MS = 10_000;
-const MAX_MISSED_REFRESHES = 8; // ~32 min at 4-min intervals — survive short coverage gaps
-const MAX_TRAIL_POINTS = 50; // ~3.3 hours at 4-min intervals
+
+// ── Type-aware settings ──────────────────────────────────────────────
+
+type TrackType = "aircraft" | "ships";
+
+const SETTINGS: Record<
+  TrackType,
+  {
+    minMoveDeg: number;
+    maxTrailPoints: number;
+    maxMissedRefreshes: number;
+    missThresholdMs: number;
+  }
+> = {
+  aircraft: {
+    minMoveDeg: 0.001, // ~100m
+    maxTrailPoints: 50, // ~3.3 hours at 4-min intervals
+    maxMissedRefreshes: 8, // ~32 min
+    missThresholdMs: 180_000, // 3 min — one poll interval
+  },
+  ships: {
+    minMoveDeg: 0.0002, // ~22m — ships move slowly
+    maxTrailPoints: 500, // days of history at slow poll rates
+    maxMissedRefreshes: 60, // ~1 hour at ~1-min AIS intervals
+    missThresholdMs: 300_000, // 5 min — AIS can be bursty
+  },
+};
+
+function getSettings(id: string) {
+  // IDs: aircraft = A{icao24}, ships = S{mmsi}
+  if (id.startsWith("S")) return SETTINGS.ships;
+  return SETTINGS.aircraft;
+}
+
+// ── Types ────────────────────────────────────────────────────────────
 
 export type TrailPoint = {
   lat: number;
@@ -96,6 +128,7 @@ function movePoint(
 export function recordPositions(
   items: Array<{
     id: string;
+    type?: "aircraft" | "ships";
     lat: number;
     lon: number;
     heading?: number;
@@ -110,14 +143,15 @@ export function recordPositions(
 
   for (const item of items) {
     seenIds.add(item.id);
+    const cfg = getSettings(item.id);
     const entry = trails.get(item.id);
 
     if (entry) {
       const last = entry.points[entry.points.length - 1];
       if (
         !last ||
-        Math.abs(last.lat - item.lat) >= MIN_MOVE_DEG ||
-        Math.abs(last.lon - item.lon) >= MIN_MOVE_DEG
+        Math.abs(last.lat - item.lat) >= cfg.minMoveDeg ||
+        Math.abs(last.lon - item.lon) >= cfg.minMoveDeg
       ) {
         entry.points.push({
           lat: item.lat,
@@ -127,8 +161,8 @@ export function recordPositions(
           speed: item.speed,
           heading: item.heading,
         });
-        if (entry.points.length > MAX_TRAIL_POINTS) {
-          entry.points = entry.points.slice(-MAX_TRAIL_POINTS);
+        if (entry.points.length > cfg.maxTrailPoints) {
+          entry.points = entry.points.slice(-cfg.maxTrailPoints);
         }
       }
       entry.lastSeen = now;
@@ -155,16 +189,13 @@ export function recordPositions(
     }
   }
 
-  // Only count misses for trails that haven't been seen in a while.
-  // This prevents rapid React re-renders from incrementing missedRefreshes
-  // multiple times per actual data refresh cycle (~4 min for OpenSky).
-  const MISS_THRESHOLD_MS = 180_000; // 3 minutes — roughly one poll interval
-
+  // Prune tracks that haven't been seen — type-aware thresholds
   for (const [id, entry] of trails) {
     if (!seenIds.has(id)) {
-      if (now - entry.lastSeen > MISS_THRESHOLD_MS) {
+      const cfg = getSettings(id);
+      if (now - entry.lastSeen > cfg.missThresholdMs) {
         entry.missedRefreshes++;
-        if (entry.missedRefreshes > MAX_MISSED_REFRESHES) {
+        if (entry.missedRefreshes > cfg.maxMissedRefreshes) {
           trails.delete(id);
         }
       }
@@ -197,9 +228,10 @@ export function getInterpolatedPosition(
   const last = entry.points[entry.points.length - 1]!;
   const elapsed = (Date.now() - last.ts) / 1000;
 
-  // Don't extrapolate beyond 10 min — data is stale
-  if (elapsed > 600) return null;
-  // Don't bother for tiny elapsed times
+  // Ships: extrapolate up to 30 min (they move slowly, AIS gaps are common)
+  // Aircraft: extrapolate up to 10 min
+  const maxExtrapolate = id.startsWith("S") ? 1800 : 600;
+  if (elapsed > maxExtrapolate) return null;
   if (elapsed < 1) return null;
 
   return movePoint(last.lat, last.lon, entry.heading, entry.speedMps * elapsed);

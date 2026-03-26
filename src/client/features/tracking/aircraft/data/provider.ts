@@ -5,27 +5,16 @@ import {
 } from "@/features/base/types";
 import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus } from "../lib/utils";
-import { getAircraftMetadataBatch } from "./typeLookup";
+import { ensureMetadataDb, getMetadataSync } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 
-const DEFAULT_CACHE_DURATION = 30 * 60_000; // 30 min — generous hydration window; poll replaces in background
+const DEFAULT_CACHE_DURATION = 30 * 60_000;
 const DEFAULT_CACHE_KEY = CACHE_KEYS.aircraft;
 
 export type AircraftProviderConfig = {
   cacheDurationMs?: number;
   cacheKey?: string;
-};
-
-type StoredMetadata = {
-  resolvedType: string;
-  registration?: string;
-  manufacturerName?: string;
-  model?: string;
-  operator?: string;
-  operatorIcao?: string;
-  categoryDescription?: string;
-  military?: boolean;
 };
 
 function normalizeIcao24(value: string | undefined): string | null {
@@ -41,9 +30,6 @@ export class AircraftProvider implements DataProvider<DataPoint> {
   private readonly cacheDurationMs: number;
   private fetchInProgress: Promise<DataPoint[]> | null = null;
   private cache: { data: DataPoint[]; timestamp: number } | null = null;
-
-  private metadataByIcao = new Map<string, StoredMetadata>();
-  private attemptedMetadataIcao = new Set<string>();
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
@@ -91,43 +77,24 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       loading: false,
       error: null,
     };
-
-    for (const entity of persisted.data) {
-      if (entity.type !== "aircraft") continue;
-      const key = normalizeIcao24(entity.data?.icao24);
-      if (!key) continue;
-      const d = entity.data;
-      if (d?.acType && d.acType !== "Unknown") {
-        this.metadataByIcao.set(key, {
-          resolvedType: d.acType,
-          registration: d.registration,
-          manufacturerName: d.manufacturerName,
-          model: d.model,
-          operator: d.operator,
-          operatorIcao: d.operatorIcao,
-          categoryDescription: d.categoryDescription,
-          military: d.military,
-        });
-        this.attemptedMetadataIcao.add(key);
-      }
-    }
+    this.notifyChange();
   }
 
   private applyMetadata(entities: DataPoint[]): DataPoint[] {
-    if (this.metadataByIcao.size === 0) return entities;
-
     return entities.map((entity) => {
       if (entity.type !== "aircraft") return entity;
-      const key = normalizeIcao24(entity.data?.icao24);
+      const d = entity.data as any;
+      const key = normalizeIcao24(d?.icao24);
       if (!key) return entity;
-      const meta = this.metadataByIcao.get(key);
+
+      const meta = getMetadataSync(key);
       if (!meta) return entity;
 
       return {
         ...entity,
         data: {
-          ...entity.data,
-          acType: meta.resolvedType || entity.data?.acType || "Unknown",
+          ...d,
+          acType: meta.resolvedType || d?.acType || "Unknown",
           registration: meta.registration,
           manufacturerName: meta.manufacturerName,
           model: meta.model,
@@ -214,8 +181,6 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       const persisted = await this.readPersistedCache();
       const fallback =
         this.cache?.data ?? persisted?.data ?? generateMockAircraft();
-      // Keep cached data available but update timestamp so it doesn't
-      // appear stale to getData() — the poll interval handles retry
       if (this.cache) {
         this.cache = { ...this.cache, timestamp: Date.now() };
       } else if (persisted?.data) {
@@ -242,19 +207,12 @@ export class AircraftProvider implements DataProvider<DataPoint> {
   }
 
   async getData(pollInterval: number = 240_000): Promise<DataPoint[]> {
-    await this.hydrateMemoryCacheFromPersisted();
-
-    const now = Date.now();
-    const cacheAge = this.cache ? now - this.cache.timestamp : Infinity;
-
-    // Cache is fresh enough — no fetch needed
-    if (cacheAge < pollInterval) {
-      return this.cache!.data;
-    }
-
-    // Cache exists (fresh or stale) — return it immediately,
-    // kick off background refresh so next read gets fresh data
+    // If we have memory cache (from background hydration), use it
     if (this.cache) {
+      const cacheAge = Date.now() - this.cache.timestamp;
+      if (cacheAge < pollInterval) {
+        return this.cache.data;
+      }
       if (!this.fetchInProgress) {
         this.fetchInProgress = this.refresh()
           .then((data) => {
@@ -268,14 +226,19 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       return this.cache.data;
     }
 
-    // No usable cache — must wait for fetch
+    // No cache yet — fetch immediately, don't block on IDB
     if (this.fetchInProgress) {
       return this.fetchInProgress;
     }
 
-    this.fetchInProgress = this.refresh().finally(() => {
-      this.fetchInProgress = null;
-    });
+    this.fetchInProgress = this.refresh()
+      .then((data) => {
+        this.notifyChange();
+        return data;
+      })
+      .finally(() => {
+        this.fetchInProgress = null;
+      });
     return this.fetchInProgress;
   }
 
@@ -283,91 +246,60 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     return this.snapshot;
   }
 
+  /**
+   * Kept for contract — DataContext calls this on aircraft selection.
+   * With local DB, applyMetadata already handles everything inline,
+   * so this just re-applies in case the DB finished loading after
+   * the last refresh.
+   */
   async enrichAircraftByIcao24(
-    icao24List: string[],
+    _icao24List: string[],
   ): Promise<DataPoint[] | null> {
-    const normalized = Array.from(
-      new Set(
-        icao24List
-          .map((value) => normalizeIcao24(value))
-          .filter((value): value is string => value !== null),
-      ),
-    );
+    await ensureMetadataDb();
 
-    const pending = normalized.filter(
-      (icao24) => !this.attemptedMetadataIcao.has(icao24),
-    );
+    if (!this.cache) return null;
 
-    if (pending.length === 0) {
-      return null;
-    }
+    const enriched = this.applyMetadata(this.cache.data);
+    const changed = enriched.some((e, i) => {
+      const old = this.cache!.data[i];
+      return old && (e.data as any)?.acType !== (old.data as any)?.acType;
+    });
 
-    pending.forEach((icao24) => this.attemptedMetadataIcao.add(icao24));
-    const metadataByIcao = await getAircraftMetadataBatch(pending);
-    if (metadataByIcao.size === 0) {
-      return null;
-    }
+    if (!changed) return null;
 
-    for (const [icao, meta] of metadataByIcao) {
-      this.metadataByIcao.set(icao, {
-        resolvedType: meta.resolvedType,
-        registration: meta.registration,
-        manufacturerName: meta.manufacturerName,
-        model: meta.model,
-        operator: meta.operator,
-        operatorIcao: meta.operatorIcao,
-        categoryDescription: meta.categoryDescription,
-        military: meta.military,
-      });
-    }
-
-    if (this.cache) {
-      this.cache = { ...this.cache, data: this.applyMetadata(this.cache.data) };
-      this.persistCache(this.cache.data);
-    }
-
+    this.cache = { ...this.cache, data: enriched };
+    this.persistCache(enriched);
     this.snapshot = {
       ...this.snapshot,
-      entities: this.applyMetadata(this.snapshot.entities),
+      entities: enriched,
       lastUpdatedAt: Date.now(),
     };
-
-    return this.cache?.data ?? this.snapshot.entities;
+    return enriched;
   }
 
   /**
-   * Background enrichment — processes all unenriched aircraft in batches.
-   * Called after each successful refresh. Non-blocking, best-effort.
-   * Chunks of 150 icao24s with 2s delay between chunks to avoid hammering the server.
+   * Ensures local metadata DB is loaded, then re-applies metadata
+   * in a single pass. No network round-trips, no chunking, no delays.
    */
   async backgroundEnrich(): Promise<void> {
     if (!this.cache) return;
 
-    const unenriched = this.cache.data
-      .filter(
-        (d) => d.type === "aircraft" && (d.data as any)?.acType === "Unknown",
-      )
-      .map((d) => normalizeIcao24((d.data as any)?.icao24))
-      .filter(
-        (v): v is string => v !== null && !this.attemptedMetadataIcao.has(v),
-      );
+    await ensureMetadataDb();
 
-    if (unenriched.length === 0) return;
+    const enriched = this.applyMetadata(this.cache.data);
+    const changed = enriched.some((e, i) => {
+      const old = this.cache!.data[i];
+      return old && (e.data as any)?.acType !== (old.data as any)?.acType;
+    });
 
-    const CHUNK_SIZE = 150;
-    const CHUNK_DELAY = 2000;
+    if (!changed) return;
 
-    for (let i = 0; i < unenriched.length; i += CHUNK_SIZE) {
-      const chunk = unenriched.slice(i, i + CHUNK_SIZE);
-      try {
-        await this.enrichAircraftByIcao24(chunk);
-        this.notifyChange();
-      } catch {
-        // Non-fatal — skip this chunk
-      }
-      if (i + CHUNK_SIZE < unenriched.length) {
-        await new Promise((r) => setTimeout(r, CHUNK_DELAY));
-      }
-    }
+    this.cache = { ...this.cache, data: enriched };
+    this.persistCache(enriched);
+    this.snapshot = {
+      ...this.snapshot,
+      entities: enriched,
+      lastUpdatedAt: Date.now(),
+    };
   }
 }

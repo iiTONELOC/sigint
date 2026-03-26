@@ -24,23 +24,30 @@ function makeMockProvider(opts?: {
   getDataResult?: DataPoint[];
   refreshResult?: DataPoint[];
   error?: Error | null;
-}): DataProvider<DataPoint> {
+}): DataProvider<DataPoint> & { simulateBoot(): Promise<void> } {
   const data = opts?.getDataResult ?? [makePoint("p1")];
   const refreshData = opts?.refreshResult ?? data;
   const error = opts?.error ?? null;
 
-  // Track whether getData has been called — mirrors real provider
-  // where getSnapshot() is empty until hydrate/getData populates cache.
   let hydrated = false;
+  let _onChange: (() => void) | null = null;
+  let lastError: Error | null = null;
 
-  return {
+  const provider = {
     id: "test-provider",
+    onChange(cb: (() => void) | null) {
+      _onChange = cb;
+    },
     async hydrate() {
       return data;
     },
     async refresh() {
-      if (error) throw error;
+      if (error) {
+        lastError = error;
+        throw error;
+      }
       hydrated = true;
+      lastError = null;
       return refreshData;
     },
     async getData() {
@@ -52,17 +59,25 @@ function makeMockProvider(opts?: {
       return {
         entities: hydrated ? data : [],
         lastUpdatedAt: hydrated ? Date.now() : null,
-        loading: !hydrated,
-        error,
+        loading: !hydrated && !lastError,
+        error: lastError,
       };
     },
+    /** Simulate what frontend.tsx boot sequence does */
+    async simulateBoot() {
+      try {
+        await provider.refresh();
+      } catch {}
+      if (_onChange) _onChange();
+    },
   };
+
+  return provider;
 }
 
 // ── useProviderData ─────────────────────────────────────────────────
 
 describe("useProviderData", () => {
-  // Dynamic import to avoid module-level side effects
   let useProviderData: typeof import("@/features/base/useProviderData").useProviderData;
 
   beforeEach(async () => {
@@ -80,7 +95,8 @@ describe("useProviderData", () => {
     expect(result.current.loading).toBe(true);
     expect(result.current.dataSource).toBe("loading");
 
-    // Wait for poll to resolve
+    // Simulate boot sequence pushing data
+    await provider.simulateBoot();
     await waitFor(() => result.current.loading === false);
     expect(result.current.data.length).toBe(1);
     expect(result.current.dataSource).toBe("live");
@@ -93,6 +109,7 @@ describe("useProviderData", () => {
       useProviderData(provider, 60_000),
     );
 
+    await provider.simulateBoot();
     await waitFor(() => result.current.data.length === 2);
     expect(result.current.data[0]!.id).toBe("a");
     expect(result.current.data[1]!.id).toBe("b");
@@ -108,6 +125,7 @@ describe("useProviderData", () => {
       useProviderData(provider, 60_000),
     );
 
+    await provider.simulateBoot();
     await waitFor(() => result.current.loading === false);
     expect(result.current.dataSource).toBe("error");
   });
@@ -117,8 +135,7 @@ describe("useProviderData", () => {
       getDataResult: [makePoint("cached")],
       error: new Error("stale"),
     });
-    // Override getData to return data despite error
-    provider.getData = async () => [makePoint("cached")];
+    // Override getSnapshot to return data with error
     provider.getSnapshot = () => ({
       entities: [makePoint("cached")],
       lastUpdatedAt: Date.now(),
@@ -190,10 +207,14 @@ describe("useAircraftData", () => {
       throw new Error(`Unmocked: ${url}`);
     };
 
-    const { useAircraftData } =
+    const { useAircraftData, aircraftProvider } =
       //@ts-ignore
       await import("@/features/tracking/aircraft/hooks/useAircraftData?t=live");
     const { result, waitFor } = renderHook(() => useAircraftData(60_000));
+
+    // Simulate boot: refresh + notify
+    await aircraftProvider.refresh().catch(() => {});
+    (aircraftProvider as any)._onChange?.();
 
     await waitFor(() => result.current.dataSource === "live", 3000);
     expect(
@@ -208,10 +229,14 @@ describe("useAircraftData", () => {
       throw new Error("down");
     };
 
-    const { useAircraftData } =
+    const { useAircraftData, aircraftProvider } =
       //@ts-ignore
       await import("@/features/tracking/aircraft/hooks/useAircraftData?t=enrich");
     const { result, waitFor } = renderHook(() => useAircraftData(60_000));
+
+    // Simulate boot with failure — provider falls back to mock data
+    await aircraftProvider.refresh().catch(() => {});
+    (aircraftProvider as any)._onChange?.();
 
     await waitFor(() => result.current.loading === false);
     expect(typeof result.current.requestAircraftEnrichment).toBe("function");
@@ -264,11 +289,13 @@ describe("useNewsData", () => {
     };
 
     const { useNewsData } = await import("@/panes/news-feed/useNewsData");
+    const { newsProvider } = await import("@/panes/news-feed/newsProvider");
     const { result, waitFor } = renderHook(() => useNewsData());
 
-    // Provider may already have cached data from singleton state,
-    // in which case loading starts false immediately. Either way,
-    // data should be available after the poll resolves.
+    // Simulate boot: refresh + notify
+    await newsProvider.refresh().catch(() => {});
+    (newsProvider as any)._onChange?.();
+
     await waitFor(() => result.current.loading === false);
     expect(result.current.data.length).toBeGreaterThan(0);
     expect(result.current.dataSource).toBe("live");

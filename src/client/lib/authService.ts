@@ -5,9 +5,19 @@
 
 const TOKEN_URL = "/api/auth/token";
 
+let inflightRefresh: Promise<void> | null = null;
+
 async function refreshCookie(): Promise<void> {
-  const res = await fetch(TOKEN_URL, { credentials: "same-origin" });
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
+  if (inflightRefresh) return inflightRefresh;
+  inflightRefresh = (async () => {
+    const res = await fetch(TOKEN_URL, { credentials: "same-origin" });
+    if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
+  })();
+  try {
+    await inflightRefresh;
+  } finally {
+    inflightRefresh = null;
+  }
 }
 
 export async function authenticatedFetch(

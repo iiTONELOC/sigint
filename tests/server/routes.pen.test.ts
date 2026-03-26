@@ -106,18 +106,9 @@ describe("auth enforcement — all protected routes reject without cookie", () =
     });
   }
 
-  test("/api/aircraft/metadata/:icao24 returns 401 without auth", async () => {
-    const handler = (apiRoutes as any)["/api/aircraft/metadata/:icao24"];
-    const req = unauthReq("/api/aircraft/metadata/abc123");
-    Object.defineProperty(req, "method", { value: "GET", writable: true });
-    (req as any).params = { icao24: "abc123" };
-    const res = await handler(req);
-    expect(res.status).toBe(401);
-  });
-
-  test("/api/aircraft/metadata/batch returns 401 without auth", async () => {
-    const handler = (apiRoutes as any)["/api/aircraft/metadata/batch"];
-    const req = unauthReq("/api/aircraft/metadata/batch?ids=abc123");
+  test("/api/aircraft/metadata/db/v1 returns 401 without auth", async () => {
+    const handler = (apiRoutes as any)["/api/aircraft/metadata/db/v1"];
+    const req = unauthReq("/api/aircraft/metadata/db/v1");
     const res = await handler.GET(req);
     expect(res.status).toBe(401);
   });
@@ -376,18 +367,6 @@ describe("method restrictions", () => {
     const handler = (apiRoutes as any)["/api/dossier/aircraft/:icao24"];
     for (const method of ["POST", "PUT", "DELETE", "PATCH"]) {
       const req = authedReq("/api/dossier/aircraft/abc123", cookie, method);
-      Object.defineProperty(req, "method", { value: method, writable: true });
-      Object.defineProperty(req, "params", { value: { icao24: "abc123" } });
-      const res = await handler(req);
-      expect(res.status).toBe(405);
-    }
-  });
-
-  test("/api/aircraft/metadata rejects non-GET methods", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/aircraft/metadata/:icao24"];
-    for (const method of ["POST", "PUT", "DELETE"]) {
-      const req = authedReq("/api/aircraft/metadata/abc123", cookie, method);
       Object.defineProperty(req, "method", { value: method, writable: true });
       Object.defineProperty(req, "params", { value: { icao24: "abc123" } });
       const res = await handler(req);

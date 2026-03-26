@@ -1,8 +1,9 @@
 import {
-  lookupAircraftMetadata,
-  lookupAircraftMetadataBatch,
-} from "./aircraftMetadata";
-import { generateToken, tokenCookieHeader, guardAuth, guardRateLimit } from "./auth";
+  generateToken,
+  tokenCookieHeader,
+  guardAuth,
+  guardRateLimit,
+} from "./auth";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
@@ -50,36 +51,39 @@ export const apiRoutes = {
     },
   },
 
-  // ── Aircraft metadata ──────────────────────────────────────────
-  "/api/aircraft/metadata/:icao24": async (req: any) => {
-    const blocked = await guardAuth(req);
-    if (blocked) return blocked;
-
-    const { method, params } = req;
-    const { icao24 = "" } = params ?? {};
-
-    if (method !== "GET") {
-      return new Response("Method Not Allowed", { status: 405 });
-    }
-
-    const item = await lookupAircraftMetadata(String(icao24));
-    return Response.json({ item });
-  },
-
-  "/api/aircraft/metadata/batch": {
+  // ── Full aircraft metadata DB — versioned route, cached locally by client ──
+  // Bump to /db/v2, /db/v3 etc. when ac-db.ndjson is rebuilt.
+  // Client stores which version it has — exact match = no download.
+  "/api/aircraft/metadata/db/v1": {
     async GET(req: Request) {
       const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
-      const url = new URL(req.url);
-      const idsParam = url.searchParams.get("ids") ?? "";
-      const icao24 = idsParam
-        .split(",")
-        .map((v) => v.trim())
-        .filter(Boolean);
+      const dbFile = Bun.file(new URL("../data/ac-db.ndjson", import.meta.url));
+      if (!(await dbFile.exists())) {
+        return new Response("DB not found", { status: 404 });
+      }
 
-      const items = await lookupAircraftMetadataBatch(icao24);
-      return Response.json({ items });
+      const bytes = await dbFile.arrayBuffer();
+
+      const acceptEncoding = req.headers.get("accept-encoding") ?? "";
+      if (acceptEncoding.includes("gzip")) {
+        const compressed = Bun.gzipSync(new Uint8Array(bytes));
+        return new Response(compressed, {
+          headers: {
+            "Content-Type": "application/x-ndjson",
+            "Content-Encoding": "gzip",
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        });
+      }
+
+      return new Response(bytes, {
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
     },
   },
 
