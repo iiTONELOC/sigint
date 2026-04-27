@@ -16,6 +16,8 @@
 // client side). FIRMS retains stale data on empty because empty there
 // means quota exhaustion; here it means hurricane season is over.
 
+import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
+
 export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
 export const USER_AGENT =
   "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
@@ -44,6 +46,29 @@ let cache: CyclonesCache = {
   error: null,
 };
 
+// HTTP conditional-fetch state — captured from each successful 200 and
+// echoed back via If-Modified-Since / If-None-Match on the next poll.
+// Kept separate from `cache` so the public getCyclonesCache() shape
+// stays identical (consumers don't need to know about the cacheing
+// mechanism). `If-None-Match` (ETag) takes precedence at the origin
+// when both are sent, but we send both because NHC returns both and
+// keeping them in sync is cheaper than tracking which one moved.
+type ConditionalState = {
+  lastModified: string | null;
+  etag: string | null;
+};
+
+let conditionalState: ConditionalState = {
+  lastModified: null,
+  etag: null,
+};
+
+// Last successful 200's advisory-hash. Used to dedup successive
+// polls during a single NHC advisory cycle (NHC re-publishes the
+// same body every minute even when no storm details have changed).
+// Cleared on `__resetCyclonesCacheForTests`.
+let lastAdvisoryHash: string | null = null;
+
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── Pure helpers (testable) ─────────────────────────────────────────
@@ -57,6 +82,87 @@ export function normalizeCyclonesPayload(
   const candidate = json as { activeStorms?: unknown };
   if (!Array.isArray(candidate.activeStorms)) return null;
   return { activeStorms: candidate.activeStorms };
+}
+
+/** Decide whether to issue a live NHC fetch on this poll tick.
+ *  - Empty cache + all in-scope basins out of season → skip. NHC is a
+ *    no-op call out of season anyway; skipping saves a request.
+ *  - Empty cache + at least one basin in season → fetch.
+ *  - Non-empty cache → always fetch (continuity — we want to see a
+ *    storm dissipate, not freeze the snapshot at last in-season tick).
+ *
+ *  `now` is a parameter only so the spec can test the gate at synthetic
+ *  dates without monkey-patching Date. Production callers omit it. */
+export function shouldFetchCyclones(
+  currentStormCount: number,
+  now: Date = new Date(),
+): boolean {
+  if (currentStormCount > 0) return true;
+  return anyActiveBasinInSeason(now);
+}
+
+/** Compose the per-request headers, layering optional conditional cache
+ *  headers on top of the base UA/Accept set. NHC honours both
+ *  If-Modified-Since (date) and If-None-Match (etag). Sending both
+ *  costs nothing and lets the server pick the cheaper validator. */
+export function buildFetchHeaders(
+  state: ConditionalState,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    Accept: "application/json",
+  };
+  if (state.lastModified) headers["If-Modified-Since"] = state.lastModified;
+  if (state.etag) headers["If-None-Match"] = state.etag;
+  return headers;
+}
+
+/** Pull the validator headers off a Response. Returns nulls when the
+ *  origin omits them (NHC's CDN sometimes strips ETag on cold cache). */
+export function extractConditionalHeaders(res: Response): ConditionalState {
+  return {
+    lastModified: res.headers.get("last-modified"),
+    etag: res.headers.get("etag"),
+  };
+}
+
+/** Hash the (id, advisoryNumber) pairs for every active storm so a
+ *  poll that returns identical advisories can skip the cache body
+ *  replacement (and the implicit downstream notification that comes
+ *  with it). The hash is deterministic-by-content: storms are sorted
+ *  by id so a re-ordered upstream payload doesn't trip a false miss.
+ *
+ *  Why advisoryNumber instead of position/strength: an advisory is
+ *  the unit of change for NHC. Two consecutive polls during a single
+ *  advisory cycle return the same numbers; only when NHC issues a
+ *  new advisory does the count tick. Position drifts every poll for
+ *  active storms (interpolated track), so position-based hashing
+ *  would defeat the dedup. */
+export function computeAdvisoryHash(activeStorms: readonly unknown[]): string {
+  type Sig = { id: string; advisoryNumber: string | number | null };
+  const sigs: Sig[] = [];
+  for (const s of activeStorms) {
+    if (!s || typeof s !== "object") continue;
+    const obj = s as Record<string, unknown>;
+    const id = typeof obj.id === "string" ? obj.id : null;
+    if (!id) continue;
+    const ft = obj.forecastTrack;
+    const advisoryNumber =
+      ft && typeof ft === "object"
+        ? (ft as Record<string, unknown>).advisoryNumber
+        : undefined;
+    sigs.push({
+      id,
+      advisoryNumber:
+        typeof advisoryNumber === "string" ||
+        typeof advisoryNumber === "number"
+          ? advisoryNumber
+          : null,
+    });
+  }
+  // Stable sort so payload order doesn't change the hash.
+  sigs.sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify(sigs);
 }
 
 // ── Dev-only fixture override ────────────────────────────────────────
@@ -95,7 +201,16 @@ export async function resolveCyclonesFixtureOverride(
 
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
-async function fetchCyclones(): Promise<void> {
+/** Run a single poll cycle: fixture override → season gate → live
+ *  conditional fetch → cache update. Internal entry point for the
+ *  setInterval driver in startCyclonesPolling(). Exported so the
+ *  spec can drive a sequence of mocked-fetch ticks (200 → 304 → 200,
+ *  validator-header round-trip, etc.) without spinning the timer.
+ *
+ *  `now` is exposed only so the spec can inject an in-season date
+ *  when exercising the conditional-fetch loop year-round. Production
+ *  callers omit it; the default reads the live wall clock. */
+export async function fetchCyclones(now: Date = new Date()): Promise<void> {
   // Dev-only fixture short-circuit — see resolveCyclonesFixtureOverride.
   // Errors from the override (invalid label, missing file) are surfaced
   // through the same cache.error channel as a live-fetch failure.
@@ -128,59 +243,100 @@ async function fetchCyclones(): Promise<void> {
     return;
   }
 
+  // Season gate — out of all in-scope basin seasons AND the cache is
+  // already empty → skip the live call. Non-empty cache always falls
+  // through (continuity rule documented in shouldFetchCyclones).
+  // Seed an empty body so /api/cyclones/latest returns 200 with
+  // activeStorms: [] instead of 503 — out of season + empty IS the
+  // truth, the route shouldn't surface that as a service error.
+  if (!shouldFetchCyclones(cache.stormCount, now)) {
+    if (cache.body === null) {
+      cache = {
+        body: { activeStorms: [] },
+        fetchedAt: Date.now(),
+        stormCount: 0,
+        error: null,
+      };
+    }
+    console.log(
+      "🌀 NHC: skipping fetch — no active-basin season open and cache is empty",
+    );
+    return;
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
   try {
-    let res: Response;
-    try {
-      res = await fetch(NHC_URL, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "application/json",
-        },
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!res.ok) {
-      cache = { ...cache, error: `NHC returned ${res.status}` };
-      console.warn(`🌀 NHC: HTTP ${res.status}`);
-      return;
-    }
-
-    const json: unknown = await res.json();
-    const normalized = normalizeCyclonesPayload(json);
-
-    if (!normalized) {
-      cache = { ...cache, error: "NHC response missing activeStorms array" };
-      console.warn("🌀 NHC: malformed response (no activeStorms array)");
-      return;
-    }
-
-    // Out-of-season returns activeStorms: []. That IS the truth — accept it.
-    cache = {
-      body: normalized,
-      fetchedAt: Date.now(),
-      stormCount: normalized.activeStorms.length,
-      error: null,
-    };
-
-    if (normalized.activeStorms.length > 0) {
-      console.log(
-        `🌀 NHC: ${normalized.activeStorms.length} active cyclone(s) loaded`,
-      );
-    } else {
-      console.log("🌀 NHC: no active cyclones (out of season or quiet day)");
-    }
+    const res = await fetch(NHC_URL, {
+      signal: controller.signal,
+      headers: buildFetchHeaders(conditionalState),
+    });
+    await processCyclonesResponse(res);
   } catch (err) {
     cache = {
       ...cache,
       error: err instanceof Error ? err.message : "Unknown fetch error",
     };
     console.warn("🌀 NHC: fetch error");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Branch on a fetched Response: 304 / non-OK / parse + normalize +
+ *  dedup + cache update. Extracted from fetchCyclones to keep the
+ *  outer function under the cognitive-complexity gate. */
+async function processCyclonesResponse(res: Response): Promise<void> {
+  // 304 Not Modified — payload is unchanged. Update fetchedAt so the
+  // freshness clock resets, but leave body/stormCount/headers alone.
+  // No parse, no downstream notification.
+  if (res.status === 304) {
+    cache = { ...cache, fetchedAt: Date.now(), error: null };
+    console.log("🌀 NHC: 304 not modified — cache fresh");
+    return;
+  }
+  if (!res.ok) {
+    cache = { ...cache, error: `NHC returned ${res.status}` };
+    console.warn(`🌀 NHC: HTTP ${res.status}`);
+    return;
+  }
+  const json: unknown = await res.json();
+  const normalized = normalizeCyclonesPayload(json);
+  if (!normalized) {
+    cache = { ...cache, error: "NHC response missing activeStorms array" };
+    console.warn("🌀 NHC: malformed response (no activeStorms array)");
+    return;
+  }
+  // 200 with valid body — capture validator headers for the next
+  // poll's conditional request. Headers update happens BEFORE the
+  // cache replacement so an exception during cache assignment won't
+  // de-sync the two pieces of state (cache empty + headers stale
+  // would re-fetch the same body endlessly).
+  conditionalState = extractConditionalHeaders(res);
+  // Advisory dedup — if (id, advisoryNumber) pairs match the last
+  // successful fetch and we already have a cached body, leave the
+  // body reference alone so consumers comparing references see no
+  // "change" event. Just refresh the freshness clock.
+  const advisoryHash = computeAdvisoryHash(normalized.activeStorms);
+  if (advisoryHash === lastAdvisoryHash && cache.body !== null) {
+    cache = { ...cache, fetchedAt: Date.now(), error: null };
+    console.log("🌀 NHC: advisories unchanged — dedup, cache marked fresh");
+    return;
+  }
+  lastAdvisoryHash = advisoryHash;
+  // Out-of-season returns activeStorms: []. That IS the truth — accept it.
+  cache = {
+    body: normalized,
+    fetchedAt: Date.now(),
+    stormCount: normalized.activeStorms.length,
+    error: null,
+  };
+  if (normalized.activeStorms.length > 0) {
+    console.log(
+      `🌀 NHC: ${normalized.activeStorms.length} active cyclone(s) loaded`,
+    );
+  } else {
+    console.log("🌀 NHC: no active cyclones (out of season or quiet day)");
   }
 }
 
@@ -207,4 +363,14 @@ export function getCyclonesCache(): CyclonesCache {
     stormCount: cache.stormCount,
     error: cache.error,
   };
+}
+
+/** TEST-ONLY: clear cache + conditional-fetch state so each test
+ *  starts from a known empty baseline. Not exported through any
+ *  HTTP route; tagged with the project's existing __forTests
+ *  convention so the API surface stays obviously internal. */
+export function __resetCyclonesCacheForTests(): void {
+  cache = { body: null, fetchedAt: 0, stormCount: 0, error: null };
+  conditionalState = { lastModified: null, etag: null };
+  lastAdvisoryHash = null;
 }

@@ -8,6 +8,7 @@ import type { AircraftFilter } from "@/features/tracking/aircraft/types";
 import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip } from "@/components/Tooltip";
 import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
+import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
 import {
   isSourceDown,
   buildSourceStatusMap,
@@ -148,8 +149,30 @@ function Toggles({
           // Aircraft has its own filter control. Cyclone-forecast is a
           // synthetic per-track-point variant of the cyclones layer —
           // it's gated by layers.cyclones in the worker, so a separate
-          // toggle would be a duplicate of the storm toggle.
-          .filter((f) => f.id !== "aircraft" && f.id !== "cyclones-forecast")
+          // toggle would be a duplicate of the storm toggle. The
+          // cyclones toggle itself is conditionally hidden when all
+          // in-scope basins are out of season AND the cyclones source
+          // has reported empty (Hard Rule: render-only filter,
+          // layers.cyclones survives). Note that `counts.cyclones` is
+          // filter-applied — when the user clicks the toggle to OFF,
+          // that count drops to 0 and would spuriously hide the toggle
+          // mid-session. The source status is what we actually want:
+          // "empty" means the upstream confirmed zero storms; any
+          // other status (loading / live / cached / mock / error /
+          // unavailable) keeps the toggle visible.
+          .filter((f) => {
+            if (f.id === "aircraft" || f.id === "cyclones-forecast") {
+              return false;
+            }
+            if (f.id === "cyclones") {
+              const cyclonesEmpty =
+                sourceStatusMap.get("cyclones") === "empty";
+              if (!shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1)) {
+                return false;
+              }
+            }
+            return true;
+          })
           .map((f) => {
             const on = layers[f.id] ?? false;
             const color = colorMap[f.id] ?? C.dim;

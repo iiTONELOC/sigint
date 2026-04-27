@@ -34,6 +34,10 @@ test.describe("layer toggles", () => {
     const button = page
       .getByRole("button", { name: /toggle cyclones layer/i })
       .first();
+    // Wait for cyclones to populate — the season-gated visibility
+    // filter holds the toggle out of the DOM until counts.cyclones
+    // flips above 0. 10 s matches the rendering tests' ceiling.
+    await expect(button).toBeVisible({ timeout: 10_000 });
     await button.click();
     await expect(button).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator("canvas").first()).toBeVisible();

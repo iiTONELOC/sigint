@@ -34,6 +34,40 @@ test.describe("cyclones — clickable forecast points", () => {
     page,
   }) => {
     await mockCyclones(page, "single-cat5");
+
+    // Empty every other feed so the canvas click can only collide
+    // with the cyclone-forecast point. Without these, live aircraft
+    // (or any other globally-visible entity) flying through the same
+    // 33.5/-84.5 grid square can win the spatial-grid hit-test, the
+    // DetailPanel renders for that entity, OPEN IN DOSSIER appears,
+    // and the FORECAST / +120h assertions then fail because the
+    // panel is showing the wrong feature.
+    const emptyJson = (extra: Record<string, unknown> = {}) =>
+      JSON.stringify({ fetchedAt: Date.now(), ...extra });
+    await page.route("**/api/aircraft/states", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: emptyJson({ ac: [], aircraftCount: 0 }),
+      }),
+    );
+    for (const ep of [
+      "events",
+      "fires",
+      "ships",
+      "quakes",
+      "weather",
+      "news",
+    ]) {
+      await page.route(`**/api/${ep}/latest`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: emptyJson({}),
+        }),
+      );
+    }
+
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
     await dismissWalkthrough(page);
@@ -73,21 +107,23 @@ test.describe("cyclones — clickable forecast points", () => {
     }
     await expect(openDossierBtn).toBeVisible({ timeout: 5_000 });
 
-    // The same +120h string lives in the collapsed Ticker at the
-    // bottom of the page — its DOM is present but display:hidden, so
-    // a plain getByText/.first() resolves to a Ticker copy first and
-    // reports `hidden`. The `span:visible` engine skips those.
+    // `getByText(value, { exact: true })` resolves only to the leaf
+    // span whose entire text equals the given value — ancestor divs
+    // (whose innerText is `FORECAST+120hWINDS…`) are excluded by the
+    // exact match. Two leaf matches still come back: DetailPanel
+    // renders BOTH a mobile bottom-sheet variant and a desktop side
+    // panel (one hidden via `display:none` per viewport breakpoint).
+    // `.filter({ visible: true })` narrows to the breakpoint-active
+    // copy and dodges the strict-mode "resolved to 2 elements" error.
     await expect(
       page
-        .locator("span:visible")
-        .filter({ hasText: /^\+120h$/ })
-        .first(),
+        .getByText("+120h", { exact: true })
+        .filter({ visible: true }),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
       page
-        .locator("span:visible")
-        .filter({ hasText: /^STORM_TEST_C5$/ })
-        .first(),
+        .getByText("STORM_TEST_C5", { exact: true })
+        .filter({ visible: true }),
     ).toBeVisible();
   });
 });
