@@ -116,9 +116,13 @@ describe("theme config", () => {
 
   // ── Cyclone layer color (step 2) ────────────────────────────────
 
-  test("cyclone color matches the magenta values from the spec", () => {
-    expect(themes.dark.colors.cyclones).toBe("#ff66cc");
-    expect(themes.light.colors.cyclones).toBe("#a31a6a");
+  test("cyclone color uses hurricane red, distinct from events magenta", () => {
+    // Original spec used magenta (#ff66cc / #a31a6a) but it collided with
+    // events (#dd44aa / #e62e8a) — only 2-9° hue separation. Hurricane red
+    // gives ~150° separation and matches the meteorological convention for
+    // tropical cyclones on radar/satellite displays.
+    expect(themes.dark.colors.cyclones).toBe("#ff2b3d");
+    expect(themes.light.colors.cyclones).toBe("#a3001a");
   });
 
   test("cyclone color label is human-readable", () => {

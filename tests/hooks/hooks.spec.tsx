@@ -167,34 +167,33 @@ describe("useAircraftData", () => {
   });
 
   test("returns live data on successful fetch", async () => {
-    const mockStates = [
-      [
-        "abc123",
-        "UAL123 ",
-        "US",
-        null,
-        null,
-        -73.9,
-        40.7,
-        null,
-        false,
-        250,
-        90,
-        0,
-        null,
-        10000,
-        "1200",
-      ],
+    const mockAircraft = [
+      {
+        hex: "abc123",
+        flight: "UAL123 ",
+        alt_baro: 10000,
+        gs: 250,
+        track: 90,
+        baro_rate: 0,
+        squawk: "1200",
+        lat: 40.7,
+        lon: -73.9,
+      },
     ];
 
     // @ts-ignore
     globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("opensky")) {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.includes("/api/aircraft/states")) {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ states: mockStates }),
+          json: async () => ({ ac: mockAircraft }),
         } as unknown as Response;
       }
       if (url.includes("/api/")) {

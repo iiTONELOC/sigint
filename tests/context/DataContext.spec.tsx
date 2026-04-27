@@ -5,25 +5,19 @@ import { act } from "react";
 
 // ── Mock all fetch endpoints ────────────────────────────────────────
 
-const MOCK_OPENSKY = {
-  states: [
-    [
-      "abc123",
-      "UAL123 ",
-      "US",
-      null,
-      null,
-      -73.9,
-      40.7,
-      null,
-      false,
-      250,
-      90,
-      0,
-      null,
-      10000,
-      "1200",
-    ],
+const MOCK_AIRCRAFT = {
+  ac: [
+    {
+      hex: "abc123",
+      flight: "UAL123 ",
+      alt_baro: 10000,
+      gs: 250,
+      track: 90,
+      baro_rate: 0,
+      squawk: "1200",
+      lat: 40.7,
+      lon: -73.9,
+    },
   ],
 };
 const MOCK_USGS = {
@@ -79,11 +73,11 @@ function mockAllFetch() {
         status: 200,
         json: async () => ({ ok: true }),
       } as unknown as Response;
-    if (url.includes("opensky"))
+    if (url.includes("/api/aircraft/states"))
       return {
         ok: true,
         status: 200,
-        json: async () => MOCK_OPENSKY,
+        json: async () => MOCK_AIRCRAFT,
       } as unknown as Response;
     if (url.includes("earthquake.usgs.gov"))
       return {

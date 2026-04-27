@@ -1,53 +1,60 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { AircraftProvider } from "@/features/tracking/aircraft/data/provider";
-import type { DataPoint } from "@/features/base/dataPoints";
 
-// ── Mock OpenSky response ───────────────────────────────────────────
+// ── Mock /api/aircraft/states response (adsb.fi v3 shape) ─────────
+// Provider now reads from the same-origin server proxy populated by
+// src/server/api/aircraftCache.ts. authenticatedFetch makes an internal
+// /api/auth/token call before the data call — the mock covers both.
 
-const MOCK_STATES = [
-  // [icao24, callsign, origin, ?, ?, lon, lat, ?, onGround, velocity, heading, vertRate, ?, geoAlt, squawk]
-  [
-    "abc123",
-    "UAL123 ",
-    "United States",
-    null,
-    null,
-    -73.9,
-    40.7,
-    null,
-    false,
-    250,
-    90,
-    0,
-    null,
-    10000,
-    "1200",
-  ],
-  [
-    "def456",
-    "BAW456 ",
-    "United Kingdom",
-    null,
-    null,
-    -0.1,
-    51.5,
-    null,
-    false,
-    200,
-    180,
-    -5,
-    null,
-    35000,
-    null,
-  ],
+const MOCK_AIRCRAFT = [
+  {
+    hex: "abc123",
+    flight: "UAL123 ", // intentional trailing whitespace
+    alt_baro: 30000,
+    gs: 250,
+    track: 90,
+    baro_rate: 0,
+    squawk: "1200",
+    lat: 40.7,
+    lon: -73.9,
+  },
+  {
+    hex: "def456",
+    flight: "BAW456 ",
+    alt_baro: 35000,
+    gs: 200,
+    track: 180,
+    baro_rate: -984.25, // ≈ -5 m/s when /196.85
+    lat: 51.5,
+    lon: -0.1,
+  },
 ];
 
-function mockOpenSkyResponse(states: any[] = MOCK_STATES, ok = true) {
+function mockAircraftResponse(ac: unknown[] = MOCK_AIRCRAFT, ok = true) {
   return {
     ok,
     status: ok ? 200 : 503,
-    json: async () => ({ states }),
+    json: async () => ({ ac }),
   } as unknown as Response;
+}
+
+function installFetchMock(handler: (url: string) => Response | Promise<Response>) {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (url.includes("/api/auth/token")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as Response;
+    }
+    return handler(url);
+  }) as typeof globalThis.fetch;
 }
 
 // ── Setup / teardown ────────────────────────────────────────────────
@@ -77,9 +84,8 @@ describe("AircraftProvider.hydrate()", () => {
 // ── getData ─────────────────────────────────────────────────────────
 
 describe("AircraftProvider.getData()", () => {
-  test("fetches from OpenSky and returns DataPoints", async () => {
-    //@ts-ignore
-    globalThis.fetch = async () => mockOpenSkyResponse();
+  test("fetches from /api/aircraft/states and returns DataPoints", async () => {
+    installFetchMock(() => mockAircraftResponse());
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
@@ -89,48 +95,47 @@ describe("AircraftProvider.getData()", () => {
     expect(result.length).toBe(2);
     expect(result[0]!.type).toBe("aircraft");
     expect(result[0]!.id).toBe("Aabc123");
-    expect((result[0]!.data as any).callsign).toBe("UAL123");
-    expect((result[0]!.data as any).icao24).toBe("abc123");
+    expect((result[0]!.data as Record<string, unknown>).callsign).toBe(
+      "UAL123",
+    );
+    expect((result[0]!.data as Record<string, unknown>).icao24).toBe("abc123");
   });
 
   test("returns cached data on second call without re-fetching", async () => {
-    let fetchCount = 0;
-    //@ts-ignore
-    globalThis.fetch = async () => {
-      fetchCount++;
-      return mockOpenSkyResponse();
-    };
+    let dataFetchCount = 0;
+    installFetchMock(() => {
+      dataFetchCount++;
+      return mockAircraftResponse();
+    });
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
     });
     await provider.getData();
-    expect(fetchCount).toBe(1);
+    expect(dataFetchCount).toBe(1);
 
     await provider.getData();
-    expect(fetchCount).toBe(1);
+    expect(dataFetchCount).toBe(1);
   });
 
   test("deduplicates concurrent getData calls via fetchInProgress", async () => {
-    let fetchCount = 0;
-    //@ts-ignore
-    globalThis.fetch = async () => {
-      fetchCount++;
+    let dataFetchCount = 0;
+    installFetchMock(async () => {
+      dataFetchCount++;
       await new Promise((r) => setTimeout(r, 50));
-      return mockOpenSkyResponse();
-    };
+      return mockAircraftResponse();
+    });
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
     });
 
-    // Fire two concurrent calls
     const [r1, r2] = await Promise.all([
       provider.getData(),
       provider.getData(),
     ]);
 
-    expect(fetchCount).toBe(1);
+    expect(dataFetchCount).toBe(1);
     expect(r1).toBe(r2);
   });
 });
@@ -139,17 +144,15 @@ describe("AircraftProvider.getData()", () => {
 
 describe("AircraftProvider.refresh()", () => {
   test("falls back to mock aircraft on fetch error", async () => {
-    //@ts-ignore
-    globalThis.fetch = async () => {
+    installFetchMock(() => {
       throw new Error("Network down");
-    };
+    });
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
     });
     const result = await provider.refresh();
 
-    // Should return generateMockAircraft() — 40 items
     expect(result.length).toBe(40);
     expect(result[0]!.type).toBe("aircraft");
 
@@ -160,12 +163,11 @@ describe("AircraftProvider.refresh()", () => {
 
   test("falls back to cached data on subsequent fetch error", async () => {
     let callNum = 0;
-    //@ts-ignore
-    globalThis.fetch = async () => {
+    installFetchMock(() => {
       callNum++;
-      if (callNum === 1) return mockOpenSkyResponse();
+      if (callNum === 1) return mockAircraftResponse();
       throw new Error("Network down");
-    };
+    });
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
@@ -174,21 +176,18 @@ describe("AircraftProvider.refresh()", () => {
     expect(first.length).toBe(2);
 
     const second = await provider.refresh();
-    // Falls back to cached real data, not mock
     expect(second.length).toBe(2);
     expect(second[0]!.id).toBe("Aabc123");
   });
 
   test("handles non-ok response as error", async () => {
-    //@ts-ignore
-    globalThis.fetch = async () => mockOpenSkyResponse([], false);
+    installFetchMock(() => mockAircraftResponse([], false));
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
     });
     const result = await provider.refresh();
 
-    // No cache, falls back to mock
     expect(result.length).toBe(40);
     const snap = provider.getSnapshot();
     expect(snap.error).not.toBeNull();
@@ -209,8 +208,7 @@ describe("AircraftProvider.getSnapshot()", () => {
   });
 
   test("snapshot updates after successful fetch", async () => {
-    //@ts-ignore
-    globalThis.fetch = async () => mockOpenSkyResponse();
+    installFetchMock(() => mockAircraftResponse());
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
@@ -228,9 +226,8 @@ describe("AircraftProvider.getSnapshot()", () => {
 // ── DataPoint shape ─────────────────────────────────────────────────
 
 describe("AircraftProvider DataPoint shape", () => {
-  test("produces correct DataPoint fields from OpenSky state vector", async () => {
-    //@ts-ignore
-    globalThis.fetch = async () => mockOpenSkyResponse();
+  test("produces correct DataPoint fields from adsb.fi v3 record", async () => {
+    installFetchMock(() => mockAircraftResponse());
 
     const provider = new AircraftProvider({
       cacheKey: `ac-test-${Math.random()}`,
@@ -243,14 +240,16 @@ describe("AircraftProvider DataPoint shape", () => {
     expect(ac.lon).toBe(-73.9);
     expect(typeof ac.timestamp).toBe("string");
 
-    const d = ac.data as any;
+    const d = ac.data as Record<string, unknown>;
     expect(d.icao24).toBe("abc123");
     expect(d.callsign).toBe("UAL123");
-    expect(d.originCountry).toBe("United States");
+    // originCountry is empty until the icao24 hex-prefix derivation lands
+    // (future ticket); legacy OpenSky countries no longer flow.
+    expect(d.originCountry).toBe("");
     expect(d.onGround).toBe(false);
     expect(typeof d.altitude).toBe("number");
     expect(typeof d.speed).toBe("number");
-    expect(d.heading).toBe(90);
+    expect(d.heading).toBeCloseTo(90, 5);
     expect(d.squawk).toBe("1200");
   });
 });
@@ -293,9 +292,7 @@ describe("AircraftProvider.mute() / unmute()", () => {
     });
 
     const restore = provider.mute();
-    // Even if a private notify happened between mute and unmute, it would
-    // be silently dropped because _onChange is null.
     provider.unmute(restore);
-    expect(calls).toBe(1); // single fire from unmute itself
+    expect(calls).toBe(1);
   });
 });

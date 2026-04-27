@@ -2,10 +2,11 @@ import { describe, test, expect } from "bun:test";
 import {
   normalizeCyclonesPayload,
   getCyclonesCache,
+  resolveCyclonesFixtureOverride,
   NHC_URL,
   USER_AGENT,
   POLL_INTERVAL_MS,
-} from "../../src/server/api/cyclonesCache";
+} from "../../../src/server/api/cyclonesCache";
 
 // ── Pure validator: shape of an NHC CurrentStorms.json response ────
 
@@ -99,4 +100,67 @@ describe("normalizeCyclonesPayload — accepts the v1.0 fixture set", () => {
       expect(Array.isArray(out?.activeStorms)).toBe(true);
     });
   }
+});
+
+// ── CYCLONES_FIXTURE dev-only override ────────────────────────────
+// Pure helper — no I/O on the live network, no mutation of module
+// state. The helper is consumed at the top of fetchCyclones() to
+// short-circuit the live NHC fetch in development. Behavior is keyed
+// off env vars passed in directly so the tests don't fight process.env.
+
+describe("resolveCyclonesFixtureOverride", () => {
+  test("returns null in dev when CYCLONES_FIXTURE is unset", async () => {
+    expect(
+      await resolveCyclonesFixtureOverride({ NODE_ENV: "development" }),
+    ).toBeNull();
+  });
+
+  test("returns null in production even when CYCLONES_FIXTURE is set", async () => {
+    expect(
+      await resolveCyclonesFixtureOverride({
+        NODE_ENV: "production",
+        CYCLONES_FIXTURE: "single-cat5",
+      }),
+    ).toBeNull();
+  });
+
+  test("loads the fixture in dev when CYCLONES_FIXTURE matches a real label", async () => {
+    const result = await resolveCyclonesFixtureOverride({
+      NODE_ENV: "development",
+      CYCLONES_FIXTURE: "single-cat5",
+    });
+    expect(result).not.toBeNull();
+    const body = result?.body as { activeStorms?: unknown[] } | undefined;
+    expect(Array.isArray(body?.activeStorms)).toBe(true);
+    expect(body?.activeStorms?.length).toBe(1);
+  });
+
+  test("rejects path-traversal labels (OWASP A01)", async () => {
+    await expect(
+      resolveCyclonesFixtureOverride({
+        NODE_ENV: "development",
+        CYCLONES_FIXTURE: "../../../etc/passwd",
+      }),
+    ).rejects.toThrow(/Invalid CYCLONES_FIXTURE/);
+  });
+
+  test("rejects shell-special and uppercase characters via regex allowlist", async () => {
+    for (const bad of ["foo;bar", "foo$bar", "foo bar", "FOO", "../foo"]) {
+      await expect(
+        resolveCyclonesFixtureOverride({
+          NODE_ENV: "development",
+          CYCLONES_FIXTURE: bad,
+        }),
+      ).rejects.toThrow(/Invalid CYCLONES_FIXTURE/);
+    }
+  });
+
+  test("throws fixture-not-found when the label is well-formed but the file is missing", async () => {
+    await expect(
+      resolveCyclonesFixtureOverride({
+        NODE_ENV: "development",
+        CYCLONES_FIXTURE: "totally-nonexistent-fixture",
+      }),
+    ).rejects.toThrow(/Fixture not found/);
+  });
 });

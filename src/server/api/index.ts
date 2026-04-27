@@ -10,6 +10,7 @@ import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
 import { getNewsCache } from "./newsCache";
 import { getCyclonesCache } from "./cyclonesCache";
+import { getAircraftCache } from "./aircraftCache";
 import {
   getAircraftDossier,
   isValidIcao24,
@@ -197,6 +198,32 @@ export const apiRoutes = {
         activeStorms: cache.body.activeStorms,
         fetchedAt: cache.fetchedAt,
         stormCount: cache.stormCount,
+      });
+    },
+  },
+
+  // ── adsb.fi aircraft (server tile sweep) ───────────────────────
+  // Same-origin proxy of the merged 37-tile sweep. The browser never
+  // hits opendata.adsb.fi directly — adsb.fi enforces 1 req/sec/IP and
+  // a per-user budget would burn instantly. Body shape is { ac: [...] }
+  // matching adsb.fi v3 verbatim; client parser owns field validation.
+  "/api/aircraft/states": {
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getAircraftCache();
+      if (!cache.body) {
+        return jsonError(
+          { error: cache.error ?? "No aircraft data available yet" },
+          503,
+        );
+      }
+
+      return jsonResponse(req, {
+        ac: cache.body.ac,
+        fetchedAt: cache.fetchedAt,
+        aircraftCount: cache.aircraftCount,
       });
     },
   },

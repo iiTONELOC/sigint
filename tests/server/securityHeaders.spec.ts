@@ -75,10 +75,15 @@ describe("withSecurityHeaders", () => {
     const res = withSecurityHeaders(new Response("ok"));
     const csp = res.headers.get("Content-Security-Policy")!;
     expect(csp).toContain("connect-src");
-    expect(csp).toContain("opensky-network.org");
     expect(csp).toContain("earthquake.usgs.gov");
     expect(csp).toContain("api.weather.gov");
     expect(csp).toContain("iptv-org.github.io");
+  });
+
+  test("CSP no longer needs opensky-network.org (aircraft now proxied)", () => {
+    const res = withSecurityHeaders(new Response("ok"));
+    const csp = res.headers.get("Content-Security-Policy")!;
+    expect(csp).not.toContain("opensky-network.org");
   });
 
   test("CSP allows web workers", () => {

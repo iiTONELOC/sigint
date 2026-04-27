@@ -1,25 +1,21 @@
 {
-  "_comment": "Synthetic test fixture. Single military aircraft positioned ~150 km east of single-cat5 fixture's storm position (21.2N, -82.4W). Used to trigger the Hurricane Hunter correlation rule.",
-  "data": [
+  "_comment": "Synthetic test fixture in adsb.fi v3 shape. Single military aircraft positioned ~150 km east of single-cat5 fixture's storm position (21.2N, -82.4W). Hex prefix AE = USAF range, recognized by the local NDJSON metadata DB which sets military:true via icao24 hex range. Used to trigger the Hurricane Hunter correlation rule.",
+  "ac": [
     {
-      "id": "ac-mil-001",
-      "type": "aircraft",
+      "hex": "ae0001",
+      "type": "adsb_icao",
+      "flight": "MIL01   ",
+      "r": "AE0001",
+      "t": "WC30",
+      "alt_baro": 32000,
+      "alt_geom": 32025,
+      "gs": 280,
+      "track": 270,
+      "baro_rate": 0,
+      "squawk": "1234",
+      "category": "A4",
       "lat": 21.2,
-      "lon": -80.85,
-      "timestamp": "2026-10-08T21:30:00Z",
-      "data": {
-        "icao24": "AE0001",
-        "callsign": "MIL01",
-        "originCountry": "United States",
-        "acType": "WC130J",
-        "altitude": 32000,
-        "speed": 280,
-        "heading": 270,
-        "verticalRate": 0,
-        "onGround": false,
-        "squawk": "1234",
-        "military": true
-      }
+      "lon": -80.85
     }
   ]
 }

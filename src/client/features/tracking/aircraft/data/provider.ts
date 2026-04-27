@@ -8,6 +8,7 @@ import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
 import { ensureMetadataDb, getMetadataSync } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { fetchAircraftStates } from "./parseAdsbV2";
 
 const DEFAULT_CACHE_DURATION = 30 * 60_000;
 const DEFAULT_CACHE_KEY = CACHE_KEYS.aircraft;
@@ -100,52 +101,27 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     });
   }
 
-  private async fetchOpenSkyStates(): Promise<DataPoint[]> {
-    const response = await fetch("https://opensky-network.org/api/states/all");
-
-    if (!response.ok) {
-      throw new Error(`OpenSky API error: ${response.status}`);
-    }
-
-    const raw = await response.json();
-
-    if (!raw.states || !Array.isArray(raw.states)) {
-      throw new Error("Invalid OpenSky response format");
-    }
-
-    const filteredStates = raw.states.filter(
-      (s: any) => s[0] && s[5] !== null && s[6] !== null,
-    );
-
-    const aircraft = filteredStates.map((s: any) => {
-      const squawk = s[14] != null ? String(s[14]) : undefined;
-      const icao24 = normalizeIcao24(String(s[0] ?? "")) ?? String(s[0] ?? "");
-      const speedMps = typeof s[9] === "number" ? s[9] : undefined;
-
+  private async fetchAircraftStates(): Promise<DataPoint[]> {
+    const aircraft = await fetchAircraftStates();
+    const withSquawkStatus = aircraft.map((entity) => {
+      if (entity.type !== "aircraft") return entity;
+      const d = entity.data as { squawk?: string };
       return {
-        id: `A${s[0]}`,
-        type: "aircraft" as const,
-        lat: s[6],
-        lon: s[5],
-        timestamp: new Date().toISOString(),
+        ...entity,
         data: {
-          icao24,
-          callsign: s[1]?.trim() || "Unknown",
-          originCountry: s[2] || "",
-          acType: "Unknown",
-          altitude: typeof s[13] === "number" ? Math.round(s[13] * 3.28084) : 0,
-          speed: speedMps ? Math.round(speedMps * 1.944) : 0,
-          speedMps,
-          heading: Math.round(s[10] ?? 0),
-          verticalRate: s[11],
-          onGround: s[8] === true,
-          squawk,
-          squawkStatus: getSquawkStatus(squawk),
+          ...d,
+          squawkStatus: getSquawkStatus(d.squawk),
         },
       } as DataPoint;
     });
-
-    const enriched = this.applyMetadata(aircraft);
+    const normalized = withSquawkStatus.map((entity) => {
+      if (entity.type !== "aircraft") return entity;
+      const d = entity.data as { icao24?: string };
+      const norm = normalizeIcao24(d.icao24);
+      if (!norm || norm === d.icao24) return entity;
+      return { ...entity, data: { ...d, icao24: norm } } as DataPoint;
+    });
+    const enriched = this.applyMetadata(normalized);
     this.persistCache(enriched);
     return enriched;
   }
@@ -161,7 +137,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
 
     try {
-      const data = await this.fetchOpenSkyStates();
+      const data = await this.fetchAircraftStates();
       this.cache = { data, timestamp: Date.now() };
       this.snapshot = {
         entities: data,

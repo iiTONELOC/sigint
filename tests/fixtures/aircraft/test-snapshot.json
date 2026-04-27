@@ -1,0 +1,21 @@
+{
+  "_comment": "Synthetic aircraft test fixture in adsb.fi v3 shape. Single record. Used by tests/server/api/aircraftCache.spec.ts to verify the AIRCRAFT_FIXTURE dev-only override resolves cleanly. Modeled on the live response captured during the verification probe.",
+  "ac": [
+    {
+      "hex": "ae0001",
+      "type": "adsb_icao",
+      "flight": "TEST01  ",
+      "r": "N99TEST",
+      "t": "B738",
+      "alt_baro": 30000,
+      "alt_geom": 30025,
+      "gs": 350.0,
+      "track": 90.0,
+      "baro_rate": 0,
+      "squawk": "1200",
+      "category": "A3",
+      "lat": 40.0,
+      "lon": -100.0
+    }
+  ]
+}

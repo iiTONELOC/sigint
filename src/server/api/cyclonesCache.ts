@@ -59,9 +59,75 @@ export function normalizeCyclonesPayload(
   return { activeStorms: candidate.activeStorms };
 }
 
+// ── Dev-only fixture override ────────────────────────────────────────
+// `CYCLONES_FIXTURE=<label>` short-circuits the live NHC fetch and
+// returns the body of `tests/fixtures/cyclones/<label>.json`. The
+// override is gated on NODE_ENV !== "production" — production startup
+// (bun run start, Dockerfile.prod) sets NODE_ENV=production, so the
+// gate cannot be bypassed by a stray env var on a real deploy.
+//
+// OWASP A01: the label is matched against /^[a-z0-9-]+$/ before any
+// file lookup. Path traversal (`../`), absolute paths, shell-special
+// characters, and uppercase are all rejected before Bun.file() is
+// called. The fixed `tests/fixtures/cyclones/` prefix means a
+// well-formed label can only resolve inside the test fixture tree.
+
+const FIXTURE_LABEL_RE = /^[a-z0-9-]+$/;
+
+export type CyclonesFixtureOverride = { body: unknown };
+
+export async function resolveCyclonesFixtureOverride(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<CyclonesFixtureOverride | null> {
+  if (env.NODE_ENV === "production") return null;
+  const label = env.CYCLONES_FIXTURE;
+  if (!label) return null;
+  if (!FIXTURE_LABEL_RE.test(label)) {
+    throw new Error(`Invalid CYCLONES_FIXTURE value: ${label}`);
+  }
+  const path = `tests/fixtures/cyclones/${label}.json`;
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    throw new Error(`Fixture not found: ${path}`);
+  }
+  return { body: await file.json() };
+}
+
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
 async function fetchCyclones(): Promise<void> {
+  // Dev-only fixture short-circuit — see resolveCyclonesFixtureOverride.
+  // Errors from the override (invalid label, missing file) are surfaced
+  // through the same cache.error channel as a live-fetch failure.
+  try {
+    const override = await resolveCyclonesFixtureOverride();
+    if (override) {
+      const normalized = normalizeCyclonesPayload(override.body);
+      if (!normalized) {
+        cache = { ...cache, error: "Fixture has invalid shape" };
+        console.warn("🌀 NHC: fixture override rejected (bad shape)");
+        return;
+      }
+      cache = {
+        body: normalized,
+        fetchedAt: Date.now(),
+        stormCount: normalized.activeStorms.length,
+        error: null,
+      };
+      console.log(
+        `🌀 NHC: CYCLONES_FIXTURE override active (${normalized.activeStorms.length} storm(s))`,
+      );
+      return;
+    }
+  } catch (err) {
+    cache = {
+      ...cache,
+      error: err instanceof Error ? err.message : "Fixture override error",
+    };
+    console.warn("🌀 NHC: fixture override error");
+    return;
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 

@@ -6,6 +6,7 @@ import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
 import { startCyclonesPolling } from "./api/cyclonesCache";
+import { startAircraftPolling } from "./api/aircraftCache";
 import { withSecurityHeaders } from "./api/securityHeaders";
 import { createStaticRoutes, safePath } from "./staticRoutes";
 
@@ -57,3 +58,4 @@ startAisPolling();
 startFirmsPolling();
 startNewsPolling();
 startCyclonesPolling();
+startAircraftPolling();

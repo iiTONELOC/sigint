@@ -728,8 +728,8 @@ function KeyGroup({
 function AboutTab() {
   const sources = [
     {
-      name: "OpenSky Network",
-      url: "https://opensky-network.org",
+      name: "adsb.fi",
+      url: "https://opendata.adsb.fi",
       desc: "Aircraft positions",
     },
     {

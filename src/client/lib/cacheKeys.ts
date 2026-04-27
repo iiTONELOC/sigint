@@ -5,7 +5,7 @@
 const V = "v1";
 
 export const CACHE_KEYS = {
-  aircraft: `sigint.opensky.aircraft-cache.${V}`,
+  aircraft: `sigint.adsbfi.aircraft-cache.${V}`,
   earthquake: `sigint.usgs.earthquake-cache.${V}`,
   events: `sigint.gdelt.events-cache.${V}`,
   ships: `sigint.ais.ship-cache.${V}`,

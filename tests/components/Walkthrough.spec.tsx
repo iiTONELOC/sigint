@@ -54,11 +54,11 @@ function mockAllFetch() {
         status: 200,
         json: async () => ({ ok: true }),
       } as unknown as Response;
-    if (url.includes("opensky"))
+    if (url.includes("/api/aircraft/states"))
       return {
         ok: true,
         status: 200,
-        json: async () => ({ states: [] }),
+        json: async () => ({ ac: [] }),
       } as unknown as Response;
     if (url.includes("earthquake.usgs.gov"))
       return {

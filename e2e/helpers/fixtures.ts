@@ -54,9 +54,28 @@ export async function mockCyclones(
   );
 }
 
+/** Mock /api/aircraft/states with an aircraft fixture (adsb.fi v3 shape). */
+async function mockAircraft(page: Page, label: string): Promise<void> {
+  const body = await loadFixture<{ ac?: unknown[] }>("aircraft", label);
+  const ac = Array.isArray(body.ac) ? body.ac : [];
+  await page.route("**/api/aircraft/states", (route: Route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ac,
+        fetchedAt: Date.now(),
+        aircraftCount: ac.length,
+      }),
+    }),
+  );
+}
+
 /**
  * Mock multiple sources at once. Each entry maps to /api/{source}/latest
  * with the named fixture from tests/fixtures/{source}/{label}.json.
+ * Aircraft is special-cased to /api/aircraft/states (post-OpenSky) and
+ * cyclones to /api/cyclones/latest with the activeStorms envelope.
  */
 export async function mockSources(
   page: Page,
@@ -65,6 +84,10 @@ export async function mockSources(
   for (const [source, label] of Object.entries(sources)) {
     if (source === "cyclones") {
       await mockCyclones(page, label as Parameters<typeof mockCyclones>[1]);
+      continue;
+    }
+    if (source === "aircraft") {
+      await mockAircraft(page, label);
       continue;
     }
     const body = await loadFixture(source, label);

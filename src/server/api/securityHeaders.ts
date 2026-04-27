@@ -13,7 +13,9 @@ const CSP_DIRECTIVES = [
   "img-src 'self' https://www.planespotters.net https://*.planespotters.net data: blob:",
   [
     "connect-src 'self'",
-    "https://opensky-network.org", // Aircraft positions (client-side fetch)
+    // Aircraft positions now go through /api/aircraft/states (server-side
+    // sweep of opendata.adsb.fi). The browser never connects to adsb.fi
+    // directly, so it does not need to appear in connect-src.
     "https://earthquake.usgs.gov", // Seismic data (client-side fetch)
     "https://api.weather.gov", // NOAA alerts (client-side fetch)
     "https://iptv-org.github.io", // IPTV channel/stream index JSON

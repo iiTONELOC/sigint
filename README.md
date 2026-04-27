@@ -36,7 +36,7 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 
 ### Live Data
 
-- Aircraft tracking (OpenSky Network)
+- Aircraft tracking ([adsb.fi](https://opendata.adsb.fi))
 - AIS vessel tracking (aisstream.io)
 - Seismic monitoring (USGS)
 - Fire hotspot detection (NASA FIRMS)
@@ -108,7 +108,7 @@ See [Deployment](#deployment) for dev, production, and Heroku options.
 
 | Layer | Source | Poll |
 |-------|--------|------|
-| Aircraft | [OpenSky Network](https://opensky-network.org/apidoc/) (client-side) | 240s |
+| Aircraft | [adsb.fi](https://opendata.adsb.fi) (server-side tile sweep, 37 tiles × 250 nm) | 240s |
 | Ships | [aisstream.io](https://aisstream.io) (server WebSocket) | 300s |
 | Seismic | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side) | 420s |
 | Fires | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side) | 600s |
@@ -131,6 +131,33 @@ bun run docker:test # run in Docker
 ```bash
 bun run docker:dev:up          # https://localhost (self-signed cert)
 bun run docker:dev:down        # stop
+```
+
+#### Dev-only fixture overrides
+
+Two env vars short-circuit live data fetches in development so you can
+work against a known frozen state. Both are gated on
+`NODE_ENV !== "production"` and ignored in production builds.
+
+| Env var | Source it overrides | Valid labels |
+|---|---|---|
+| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC) | `single-cat3`, `single-cat5`, `multi-storm`, `subtropical-example`, `tropical-depression`, `empty-out-of-season` |
+| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | (none shipped — capture via `bun run scripts/capture-fixture.ts aircraft <label>`) |
+
+Labels match `/^[a-z0-9-]+$/` (OWASP A01 — strict allowlist before any
+file lookup) and resolve to `tests/fixtures/<source>/<label>.json`.
+Invalid labels throw at startup; missing files throw with the resolved
+path. To use:
+
+```bash
+CYCLONES_FIXTURE=multi-storm bun run dev
+AIRCRAFT_FIXTURE=conus-snapshot bun run dev
+```
+
+Or via Docker Compose (`docker-compose.dev.yml` passes both through):
+
+```bash
+CYCLONES_FIXTURE=single-cat5 bun run docker:dev:up
 ```
 
 ### Production
