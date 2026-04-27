@@ -5,7 +5,6 @@ import {
 } from "@/features/base/types";
 import { generateMockAircraft } from "@/data/mockData";
 import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
-import { ensureMetadataDb, getMetadataSync } from "./typeLookup";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import { fetchAircraftStates } from "./parseAdsbV2";
@@ -74,56 +73,28 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     this.notifyChange();
   }
 
-  private applyMetadata(entities: DataPoint[]): DataPoint[] {
-    return entities.map((entity) => {
-      if (entity.type !== "aircraft") return entity;
-      const d = entity.data as any;
-      const key = normalizeIcao24(d?.icao24);
-      if (!key) return entity;
-
-      const meta = getMetadataSync(key);
-      if (!meta) return entity;
-
-      return {
-        ...entity,
-        data: {
-          ...d,
-          acType: meta.resolvedType || d?.acType || "Unknown",
-          registration: meta.registration,
-          manufacturerName: meta.manufacturerName,
-          model: meta.model,
-          operator: meta.operator,
-          operatorIcao: meta.operatorIcao,
-          categoryDescription: meta.categoryDescription,
-          military: meta.military,
-        },
-      } as DataPoint;
-    });
-  }
-
   private async fetchAircraftStates(): Promise<DataPoint[]> {
+    // The server cache (src/server/api/aircraftCache.ts) already enriched
+    // each record with acType / registration / military / etc. via the
+    // local NDJSON metadata DB before the response left the wire — the
+    // client side is now a pure shape mapper. We still derive squawkStatus
+    // (it's a local UI-only enum, not metadata) and normalise icao24.
     const aircraft = await fetchAircraftStates();
-    const withSquawkStatus = aircraft.map((entity) => {
+    const mapped = aircraft.map((entity) => {
       if (entity.type !== "aircraft") return entity;
-      const d = entity.data as { squawk?: string };
+      const d = entity.data as { squawk?: string; icao24?: string };
+      const norm = normalizeIcao24(d.icao24);
       return {
         ...entity,
         data: {
           ...d,
+          icao24: norm && norm !== d.icao24 ? norm : d.icao24,
           squawkStatus: getSquawkStatus(d.squawk),
         },
       } as DataPoint;
     });
-    const normalized = withSquawkStatus.map((entity) => {
-      if (entity.type !== "aircraft") return entity;
-      const d = entity.data as { icao24?: string };
-      const norm = normalizeIcao24(d.icao24);
-      if (!norm || norm === d.icao24) return entity;
-      return { ...entity, data: { ...d, icao24: norm } } as DataPoint;
-    });
-    const enriched = this.applyMetadata(normalized);
-    this.persistCache(enriched);
-    return enriched;
+    this.persistCache(mapped);
+    return mapped;
   }
 
   async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
@@ -230,60 +201,14 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     return this.snapshot;
   }
 
-  /**
-   * Kept for contract — DataContext calls this on aircraft selection.
-   * With local DB, applyMetadata already handles everything inline,
-   * so this just re-applies in case the DB finished loading after
-   * the last refresh.
-   */
+  /** No-op shim. Server-side enrichment runs once per sweep before the
+   *  cache is even written, so by the time the client receives an
+   *  aircraft record it already has acType / registration / military /
+   *  etc. attached. DataContext still calls this on selection — keeping
+   *  the contract returning null avoids touching the call sites. */
   async enrichAircraftByIcao24(
     _icao24List: string[],
   ): Promise<DataPoint[] | null> {
-    await ensureMetadataDb();
-
-    if (!this.cache) return null;
-
-    const enriched = this.applyMetadata(this.cache.data);
-    const changed = enriched.some((e, i) => {
-      const old = this.cache!.data[i];
-      return old && (e.data as any)?.acType !== (old.data as any)?.acType;
-    });
-
-    if (!changed) return null;
-
-    this.cache = { ...this.cache, data: enriched };
-    this.persistCache(enriched);
-    this.snapshot = {
-      ...this.snapshot,
-      entities: enriched,
-      lastUpdatedAt: Date.now(),
-    };
-    return enriched;
-  }
-
-  /**
-   * Ensures local metadata DB is loaded, then re-applies metadata
-   * in a single pass. No network round-trips, no chunking, no delays.
-   */
-  async backgroundEnrich(): Promise<void> {
-    if (!this.cache) return;
-
-    await ensureMetadataDb();
-
-    const enriched = this.applyMetadata(this.cache.data);
-    const changed = enriched.some((e, i) => {
-      const old = this.cache!.data[i];
-      return old && (e.data as any)?.acType !== (old.data as any)?.acType;
-    });
-
-    if (!changed) return;
-
-    this.cache = { ...this.cache, data: enriched };
-    this.persistCache(enriched);
-    this.snapshot = {
-      ...this.snapshot,
-      entities: enriched,
-      lastUpdatedAt: Date.now(),
-    };
+    return null;
   }
 }

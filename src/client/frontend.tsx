@@ -122,12 +122,11 @@ function unmuteAll(restorers: Array<() => void>): void {
     // Get auth token BEFORE any network requests — avoids 401 → retry round-trips
     await ensureAuthCookie();
 
-    // Ensure aircraft metadata DB is ready before refresh —
-    // otherwise applyMetadata can't enrich and military/type data is lost
-    const { ensureMetadataDb } = await import(
-      "./features/tracking/aircraft/data/typeLookup"
-    );
-    await ensureMetadataDb().catch(() => {});
+    // Aircraft metadata enrichment moved to the server (see
+    // src/server/api/aircraftEnrichment.ts). Records arriving from
+    // /api/aircraft/states already have acType / registration / military
+    // attached, so the client no longer needs to load the 51 MB DB
+    // before refresh.
 
     // 4. Network refresh — only stale/missing providers, one batch
     saved = muteAll();

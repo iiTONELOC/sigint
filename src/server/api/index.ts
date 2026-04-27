@@ -69,48 +69,6 @@ export const apiRoutes = {
     },
   },
 
-  // ── Full aircraft metadata DB — versioned route, cached locally by client ──
-  // Bump to /db/v2, /db/v3 etc. when ac-db.ndjson is rebuilt.
-  // Client stores which version it has — exact match = no download.
-  "/api/aircraft/metadata/db/v1": {
-    async GET(req: Request) {
-      const blocked = await guardAuth(req);
-      if (blocked) return blocked;
-
-      const dbFile = Bun.file(new URL("../data/ac-db.ndjson", import.meta.url));
-      if (!(await dbFile.exists())) {
-        return withSecurityHeaders(
-          new Response("DB not found", { status: 404 }),
-        );
-      }
-
-      const bytes = await dbFile.arrayBuffer();
-
-      const acceptEncoding = req.headers.get("accept-encoding") ?? "";
-      if (acceptEncoding.includes("gzip")) {
-        const compressed = Bun.gzipSync(new Uint8Array(bytes));
-        return withSecurityHeaders(
-          new Response(compressed, {
-            headers: {
-              "Content-Type": "application/x-ndjson",
-              "Content-Encoding": "gzip",
-              "Cache-Control": "public, max-age=31536000, immutable",
-            },
-          }),
-        );
-      }
-
-      return withSecurityHeaders(
-        new Response(bytes, {
-          headers: {
-            "Content-Type": "application/x-ndjson",
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        }),
-      );
-    },
-  },
-
   // ── GDELT events ───────────────────────────────────────────────
   "/api/events/latest": {
     async GET(req: Request) {
@@ -203,27 +161,29 @@ export const apiRoutes = {
   },
 
   // ── adsb.fi aircraft (server tile sweep) ───────────────────────
-  // Same-origin proxy of the merged 37-tile sweep. The browser never
-  // hits opendata.adsb.fi directly — adsb.fi enforces 1 req/sec/IP and
-  // a per-user budget would burn instantly. Body shape is { ac: [...] }
-  // matching adsb.fi v3 verbatim; client parser owns field validation.
+  // Same-origin proxy of the merged tile sweep. The browser never hits
+  // opendata.adsb.fi directly — adsb.fi enforces 1 req/sec/IP and a
+  // per-user budget would burn instantly. Body shape is { ac: [...] }
+  // matching adsb.fi v3 verbatim, plus server-side enrichment fields
+  // attached by aircraftEnrichment.ts before the cache write.
+  //
+  // Streaming semantics: the cache fills tile-by-tile during a cold
+  // start (~340 s for a full 113-tile sweep), so an empty `ac` array
+  // is a normal transient state, not an error. Returning 200 with
+  // `ac: []` lets the client retry-poll without flagging a console
+  // error. A genuine upstream failure shows up via `error` in the body
+  // alongside whatever stale data we still have.
   "/api/aircraft/states": {
     async GET(req: Request) {
       const blocked = await guardAuth(req);
       if (blocked) return blocked;
 
       const cache = getAircraftCache();
-      if (!cache.body) {
-        return jsonError(
-          { error: cache.error ?? "No aircraft data available yet" },
-          503,
-        );
-      }
-
       return jsonResponse(req, {
-        ac: cache.body.ac,
+        ac: cache.body?.ac ?? [],
         fetchedAt: cache.fetchedAt,
         aircraftCount: cache.aircraftCount,
+        error: cache.error,
       });
     },
   },

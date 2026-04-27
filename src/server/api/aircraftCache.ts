@@ -23,11 +23,27 @@
 // live v3 endpoint during the verification probe (ratio 7.73 over a
 // 100 nm baseline; 500 nm returned 400, server-capped).
 
+import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
+
 export const ADSB_BASE_URL = "https://opendata.adsb.fi/api/v3";
 export const USER_AGENT =
   "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
-export const POLL_INTERVAL_MS = 240_000; // 240 s — matches existing client cadence
-export const RATE_LIMIT_DELAY_MS = 1_100; // 1 req/sec/IP + small margin
+// 300 s wake cadence. With 113 tiles × 3 s spacing the full sweep takes
+// ~340 s, which exceeds the wake cadence — that's intentional: streaming
+// writes mean clients see fresh data progressively *during* the sweep,
+// and the sweepInProgress guard skips overlapping kicks rather than
+// launching a parallel sweep that would burn the 1 req/sec/IP budget.
+export const POLL_INTERVAL_MS = 300_000;
+// 3 s spacing — adsb.fi's documented limit is 1 req/sec/IP, but sustained
+// sweeps at 1.1 s and 2 s both produced 429s in production. 200% margin
+// is the level that's held across long-running deploys without hitting
+// the soft ceiling.
+export const RATE_LIMIT_DELAY_MS = 3_000;
+// Default backoff when 429 is returned without a Retry-After header.
+// 30 s is well above the typical aisstream/adsb.fi quiet-down window so
+// we don't immediately re-trip the limiter on retry. One retry per tile,
+// then the tile is skipped for this sweep.
+export const RETRY_DEFAULT_DELAY_MS = 30_000;
 export const TILE_RADIUS_NM = 250; // v3 server cap (verified)
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -177,8 +193,10 @@ type AdsbAircraft = {
 };
 
 type AircraftBody = {
-  /** Pass-through of adsb.fi's `ac` array. The client's parseAdsbV2.ts
-   *  is the source of truth for field-level validation. */
+  /** Pass-through of adsb.fi's `ac` array, after server-side enrichment
+   *  (military classification + metadata-DB merge). The client's
+   *  parseAdsbV2.ts is still the source of truth for field-level
+   *  validation, but no longer does its own DB lookups. */
   ac: unknown[];
 };
 
@@ -189,14 +207,61 @@ type AircraftCache = {
   error: string | null;
 };
 
-let cache: AircraftCache = {
-  body: null,
-  fetchedAt: 0,
-  aircraftCount: 0,
-  error: null,
+/** Streaming cache state. `current` tracks which hex keys were seen
+ *  during the *in-flight* sweep — used at end-of-sweep to prune stale
+ *  aircraft from `completed`. `completed` is what reads see; it grows
+ *  tile-by-tile during a cold start and refreshes per-tile when warm.
+ *  Two separate maps so the prune step is correct even if reads happen
+ *  during a sweep — a half-finished sweep can't accidentally erase the
+ *  prior warm snapshot. */
+export type SweepState = {
+  current: Map<string, unknown>;
+  completed: Map<string, unknown>;
 };
 
+export function createSweepState(): SweepState {
+  return { current: new Map(), completed: new Map() };
+}
+
+/** Merge a tile's records into `current` and `completed`. Both maps are
+ *  keyed by lowercased ICAO 24-bit hex. Records without a usable hex are
+ *  dropped. After this returns, reads of `completed` see a fully merged
+ *  view — Bun's single-threaded JS means there's no observable mid-merge
+ *  state. */
+export function ingestTile(state: SweepState, records: unknown[]): void {
+  for (const rec of records) {
+    if (!rec || typeof rec !== "object") continue;
+    const hex = (rec as { hex?: unknown }).hex;
+    if (typeof hex !== "string" || hex.length === 0) continue;
+    const key = hex.toLowerCase();
+    state.current.set(key, rec);
+    state.completed.set(key, rec);
+  }
+}
+
+/** End-of-sweep cleanup: drop entries from `completed` that weren't seen
+ *  this sweep, then reset `current` for the next pass. When `current` is
+ *  empty (a sweep that produced nothing — e.g. sustained 429s, network
+ *  out) we *retain* the prior `completed` rather than wiping the layer.
+ *  Mirrors firmsCache stale-protect behaviour. */
+export function finalizeSweep(state: SweepState): void {
+  if (state.current.size === 0) return;
+  for (const key of state.completed.keys()) {
+    if (!state.current.has(key)) state.completed.delete(key);
+  }
+  state.current = new Map();
+}
+
+const sweepState: SweepState = createSweepState();
+let lastFetchedAt = 0;
+let lastError: string | null = null;
+
 let intervalId: ReturnType<typeof setInterval> | null = null;
+// Re-entry guard. POLL_INTERVAL_MS (300 s) is shorter than the worst-case
+// sweep duration (~340 s + retries), so without this flag overlapping
+// setInterval kicks would launch parallel sweeps and burn the 1 req/sec
+// budget twice over.
+let sweepInProgress = false;
 
 // ── Pure helpers (testable) ─────────────────────────────────────────
 
@@ -255,7 +320,42 @@ export async function resolveAircraftFixtureOverride(
 
 // ── Tile fetch ───────────────────────────────────────────────────────
 
-async function fetchTile(lat: number, lon: number): Promise<unknown[]> {
+export type SleepFn = (ms: number) => Promise<void>;
+
+const defaultSleep: SleepFn = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Parse an HTTP `Retry-After` header value (integer seconds form only —
+ *  RFC 7231 also allows a date form, but adsb.fi always sends seconds).
+ *  Returns the positive integer or null if missing/invalid. */
+export function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const n = Number.parseInt(header, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Fisher-Yates shuffle, returns a fresh array. Used to randomise tile
+ *  order each sweep so the same tiles aren't consistently last when the
+ *  upstream throttles partway through. */
+export function shuffleTiles<T>(tiles: ReadonlyArray<T>): T[] {
+  const arr = [...tiles];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+type TileAttemptResult =
+  | { ok: true; ac: unknown[] }
+  | { ok: false; rateLimited: true; waitMs: number };
+
+/** One round-trip to a tile. Splits out of fetchTileWithRetry so the
+ *  retry loop reads as a pure controller (cognitive-complexity gate). */
+async function attemptTileFetch(
+  lat: number,
+  lon: number,
+): Promise<TileAttemptResult> {
   const url = `${ADSB_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -267,85 +367,157 @@ async function fetchTile(lat: number, lon: number): Promise<unknown[]> {
         Accept: "application/json",
       },
     });
-    if (!res.ok) {
-      console.warn(`✈️  adsb.fi tile [${lat},${lon}]: HTTP ${res.status}`);
-      return [];
+    if (res.status === 429) {
+      const retryAfterSec = parseRetryAfter(res.headers.get("retry-after"));
+      const waitMs =
+        retryAfterSec === null ? RETRY_DEFAULT_DELAY_MS : retryAfterSec * 1000;
+      return { ok: false, rateLimited: true, waitMs };
     }
-    const json: unknown = await res.json();
-    const normalized = normalizeAdsbPayload(json);
-    return normalized ? normalized.ac : [];
+    if (res.ok) {
+      const json: unknown = await res.json();
+      const normalized = normalizeAdsbPayload(json);
+      return { ok: true, ac: normalized ? normalized.ac : [] };
+    }
+    console.warn(`✈️  adsb.fi tile [${lat},${lon}]: HTTP ${res.status}`);
+    return { ok: true, ac: [] };
   } catch (err) {
     console.warn(
       `✈️  adsb.fi tile [${lat},${lon}]: ${err instanceof Error ? err.message : "fetch error"}`,
     );
-    return [];
+    return { ok: true, ac: [] };
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** Fetch one tile with a single retry on HTTP 429.
+ *  - First 429: read `Retry-After` (seconds), or fall back to
+ *    RETRY_DEFAULT_DELAY_MS, then retry once.
+ *  - Second 429: log info-level and skip this tile (return []) rather
+ *    than failing the whole sweep.
+ *  Other failures (network error, non-429 non-2xx, malformed JSON) also
+ *  return [] — the existing dedup+merge step tolerates per-tile gaps. */
+export async function fetchTileWithRetry(
+  lat: number,
+  lon: number,
+  sleep: SleepFn = defaultSleep,
+): Promise<unknown[]> {
+  const first = await attemptTileFetch(lat, lon);
+  if (first.ok) return first.ac;
+
+  console.info(
+    `✈️  adsb.fi rate-limited tile [${lat},${lon}], waiting ${Math.round(
+      first.waitMs / 1000,
+    )}s and retrying`,
+  );
+  await sleep(first.waitMs);
+
+  const second = await attemptTileFetch(lat, lon);
+  if (second.ok) return second.ac;
+
+  console.info(
+    `✈️  adsb.fi rate-limited tile [${lat},${lon}] twice, skipping for this sweep`,
+  );
+  return [];
+}
+
+/** Walk a tile list with RATE_LIMIT_DELAY_MS spacing between tiles
+ *  (no trailing sleep). Returns the merged raw aircraft list — caller
+ *  is responsible for dedup. Pure-ish: side effects are confined to
+ *  the injected fetchFn / sleep, which is what makes the timing and
+ *  ordering tests possible without real waits. */
+export async function sweepTiles(
+  tiles: ReadonlyArray<readonly [number, number]>,
+  fetchFn: (lat: number, lon: number) => Promise<unknown[]>,
+  sleep: SleepFn = defaultSleep,
+): Promise<unknown[]> {
+  const merged: unknown[] = [];
+  for (let i = 0; i < tiles.length; i++) {
+    const [lat, lon] = tiles[i] ?? [0, 0];
+    const ac = await fetchFn(lat, lon);
+    merged.push(...ac);
+    if (i < tiles.length - 1) {
+      await sleep(RATE_LIMIT_DELAY_MS);
+    }
+  }
+  return merged;
+}
+
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
 async function fetchAircraft(): Promise<void> {
+  if (sweepInProgress) return;
+  sweepInProgress = true;
+  try {
+    await runSweep();
+  } finally {
+    sweepInProgress = false;
+  }
+}
+
+async function runSweep(): Promise<void> {
   // Dev-only fixture short-circuit — see resolveAircraftFixtureOverride.
   try {
     const override = await resolveAircraftFixtureOverride();
     if (override) {
       const normalized = normalizeAdsbPayload(override.body);
       if (!normalized) {
-        cache = { ...cache, error: "Fixture has invalid shape" };
+        lastError = "Fixture has invalid shape";
         console.warn("✈️  adsb.fi: fixture override rejected (bad shape)");
         return;
       }
-      cache = {
-        body: normalized,
-        fetchedAt: Date.now(),
-        aircraftCount: normalized.ac.length,
-        error: null,
-      };
+      // Replace the streaming cache wholesale — the fixture *is* the
+      // source of truth in dev mode, no streaming needed.
+      sweepState.completed = new Map();
+      sweepState.current = new Map();
+      ingestTile(sweepState, normalized.ac);
+      lastFetchedAt = Date.now();
+      lastError = null;
       console.log(
         `✈️  adsb.fi: AIRCRAFT_FIXTURE override active (${normalized.ac.length} aircraft)`,
       );
       return;
     }
   } catch (err) {
-    cache = {
-      ...cache,
-      error: err instanceof Error ? err.message : "Fixture override error",
-    };
+    lastError = err instanceof Error ? err.message : "Fixture override error";
     console.warn("✈️  adsb.fi: fixture override error");
     return;
   }
 
-  const merged: unknown[] = [];
-  let idx = 0;
-  for (const [lat, lon] of AIRCRAFT_TILES) {
-    const tile = await fetchTile(lat, lon);
-    merged.push(...tile);
-    idx++;
-    if (idx < AIRCRAFT_TILES.length) {
+  // Lazy-load the metadata DB on the first sweep — keeps Heroku boot
+  // under the 60 s timeout. Subsequent sweeps share the cached promise.
+  const metadataDb = await loadMetadataDb();
+
+  // Live sweep. Shuffle so a sustained throttle doesn't punish the same
+  // tail tiles every pass. Each tile is fetched, retried once on 429
+  // with backoff, enriched server-side (military classification + DB
+  // metadata), then ingested into the streaming caches *immediately* —
+  // clients reading /api/aircraft/states see the snapshot grow tile by
+  // tile during a cold start, and refresh per-tile when warm.
+  const shuffled = shuffleTiles(AIRCRAFT_TILES);
+  for (let i = 0; i < shuffled.length; i++) {
+    const [lat, lon] = shuffled[i] ?? [0, 0];
+    const records = await fetchTileWithRetry(lat, lon);
+    if (records.length > 0) {
+      const enriched = records.map((r) => enrichRecord(r, metadataDb));
+      ingestTile(sweepState, enriched);
+      lastFetchedAt = Date.now();
+    }
+    if (i < shuffled.length - 1) {
       await new Promise((r) => setTimeout(r, RATE_LIMIT_DELAY_MS));
     }
   }
 
-  const deduped = dedupByHex(merged);
-
-  // If the entire sweep returned nothing but we already have data, keep
-  // the prior snapshot rather than briefly emptying the layer (mirrors
-  // firmsCache behaviour for transient upstream issues).
-  if (deduped.length === 0 && cache.body && cache.body.ac.length > 0) {
-    cache = { ...cache, error: "Sweep returned 0 aircraft" };
+  // End-of-sweep prune: drop aircraft from `completed` that weren't seen
+  // this pass. Empty sweep retains the warm snapshot (firmsCache pattern).
+  finalizeSweep(sweepState);
+  if (sweepState.completed.size === 0) {
+    lastError = "Sweep returned 0 aircraft";
     console.warn("✈️  adsb.fi: sweep empty — retaining stale cache");
     return;
   }
-
-  cache = {
-    body: { ac: deduped },
-    fetchedAt: Date.now(),
-    aircraftCount: deduped.length,
-    error: null,
-  };
-  console.log(`✈️  adsb.fi: ${deduped.length} aircraft loaded`);
+  lastError = null;
+  console.log(`✈️  adsb.fi: ${sweepState.completed.size} aircraft loaded`);
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -365,10 +537,14 @@ export function stopAircraftPolling(): void {
 }
 
 export function getAircraftCache(): AircraftCache {
+  const body =
+    sweepState.completed.size === 0
+      ? null
+      : { ac: Array.from(sweepState.completed.values()) };
   return {
-    body: cache.body,
-    fetchedAt: cache.fetchedAt,
-    aircraftCount: cache.aircraftCount,
-    error: cache.error,
+    body,
+    fetchedAt: lastFetchedAt,
+    aircraftCount: sweepState.completed.size,
+    error: lastError,
   };
 }

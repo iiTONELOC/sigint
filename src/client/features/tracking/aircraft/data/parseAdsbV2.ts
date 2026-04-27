@@ -56,6 +56,18 @@ type AdsbAircraft = {
   true_heading?: number;
   baro_rate?: number;
   squawk?: string;
+  // ── Server-attached enrichment (post-aircraftEnrichment.ts) ─────
+  // Previously computed in the browser via the local NDJSON DB.
+  // The server now does this lookup once per sweep and attaches
+  // these fields to each record before the cache write.
+  acType?: string;
+  registration?: string;
+  manufacturerName?: string;
+  model?: string;
+  operator?: string;
+  operatorIcao?: string;
+  categoryDescription?: string;
+  military?: boolean;
 };
 
 type AdsbResponse = { ac?: AdsbAircraft[] };
@@ -92,7 +104,7 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
     icao24: a.hex,
     callsign,
     originCountry: "",
-    acType: "Unknown",
+    acType: a.acType ?? "Unknown",
     altitude,
     speed,
     speedMps,
@@ -100,6 +112,13 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
     verticalRate,
     onGround,
     squawk: a.squawk,
+    registration: a.registration,
+    manufacturerName: a.manufacturerName,
+    model: a.model,
+    operator: a.operator,
+    operatorIcao: a.operatorIcao,
+    categoryDescription: a.categoryDescription,
+    military: a.military,
   };
 }
 

@@ -65,15 +65,11 @@ describe("Boot sequence (frontend.tsx)", () => {
     expect(restoreAfter).toBeGreaterThan(-1);
   });
 
-  // ── Metadata DB loads before refresh ────────────────────────────
-  test("ensureMetadataDb is awaited before network refresh", () => {
-    const metaDbIdx = frontendSource.indexOf("ensureMetadataDb");
-    const refreshIdx = frontendSource.indexOf(
-      "await Promise.all(staleProviders.map((p) => p.refresh()",
-    );
-    expect(metaDbIdx).toBeGreaterThan(-1);
-    expect(refreshIdx).toBeGreaterThan(-1);
-    expect(metaDbIdx).toBeLessThan(refreshIdx);
+  // ── Metadata DB no longer loads in the browser ──────────────────
+  // Aircraft enrichment moved to src/server/api/aircraftEnrichment.ts;
+  // the client no longer downloads or parses the 51 MB NDJSON DB.
+  test("ensureMetadataDb is not referenced from frontend.tsx", () => {
+    expect(frontendSource).not.toContain("ensureMetadataDb");
   });
 
   // ── All providers included ──────────────────────────────────────

@@ -239,7 +239,7 @@ describe("dead route regression", () => {
     expect((apiRoutes as any)["/api/aircraft/metadata/batch"]).toBeUndefined();
   });
 
-  test("/api/aircraft/metadata/db/v1 route exists (local DB)", () => {
-    expect((apiRoutes as any)["/api/aircraft/metadata/db/v1"]).toBeDefined();
+  test("/api/aircraft/metadata/db/v1 has been removed (server-side enrichment migration)", () => {
+    expect((apiRoutes as any)["/api/aircraft/metadata/db/v1"]).toBeUndefined();
   });
 });

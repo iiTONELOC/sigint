@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { generateMockAircraft } from "@/data/mockData";
 import { AircraftProvider } from "../data/provider";
-import { ensureMetadataDb } from "../data/typeLookup";
 
 export const aircraftProvider = new AircraftProvider();
 
@@ -60,7 +59,6 @@ export function useAircraftData(
     // First refresh is handled by frontend.tsx boot sequence.
     intervalId = setInterval(async () => {
       try {
-        await ensureMetadataDb().catch(() => {});
         const aircraftData = await aircraftProvider.refresh();
         if (!isMounted) return;
         setData([...aircraftData]);
@@ -72,7 +70,6 @@ export function useAircraftData(
         } else {
           setError(null);
           setDataSource("live");
-          aircraftProvider.backgroundEnrich().catch(() => {});
         }
       } catch (err) {
         if (!isMounted) return;

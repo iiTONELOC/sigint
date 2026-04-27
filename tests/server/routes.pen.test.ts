@@ -106,11 +106,14 @@ describe("auth enforcement — all protected routes reject without cookie", () =
     });
   }
 
-  test("/api/aircraft/metadata/db/v1 returns 401 without auth", async () => {
-    const handler = (apiRoutes as any)["/api/aircraft/metadata/db/v1"];
-    const req = unauthReq("/api/aircraft/metadata/db/v1");
-    const res = await handler.GET(req);
-    expect(res.status).toBe(401);
+  test("/api/aircraft/metadata/db/v1 has been removed (server-side enrichment, not shipped to client)", () => {
+    // The 51 MB NDJSON DB used to be downloaded to every browser. As of
+    // the server-side enrichment migration (aircraftEnrichment.ts), the
+    // route is gone and aircraft records arrive enriched in
+    // /api/aircraft/states. Verifying the route is absent locks down
+    // the contract — re-introducing the client-side path would break
+    // this assertion.
+    expect((apiRoutes as Record<string, unknown>)["/api/aircraft/metadata/db/v1"]).toBeUndefined();
   });
 
   test("/api/dossier/aircraft/:icao24 returns 401 without auth", async () => {

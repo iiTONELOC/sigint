@@ -22,14 +22,20 @@ test.describe("boot sequence", () => {
     await expect(canvas).toBeVisible();
 
     // Filter known-benign messages: SW updates, autoplay nags, 404s for
-    // optional assets like favicon.
+    // optional assets like favicon, and 503s from keyless upstream
+    // services (ships/fires/news/events). The Playwright webServer
+    // doesn't load AISSTREAM_API_KEY / FIRMS_MAP_KEY etc., so those
+    // routes correctly return 503. The UI renders an "offline" indicator
+    // for each — that's the right user-facing behaviour, just not
+    // something we want flagged as a boot regression.
     const real = consoleErrors.filter(
       (m) =>
         !m.includes("SW_") &&
         !m.includes("Service Worker") &&
         !m.toLowerCase().includes("autoplay") &&
         !m.includes("404") &&
-        !m.includes("favicon"),
+        !m.includes("favicon") &&
+        !m.includes("503"),
     );
     expect(real).toEqual([]);
   });
