@@ -46,23 +46,31 @@ export function hexToRgb(hex: string): [number, number, number] {
 }
 
 /** Project (lat, lon) to canvas pixel coords using the same math as
- *  src/client/components/globe/projection.ts. Assumes the default globe
- *  view. The function is exposed on window.__projectLatLon by the dev
- *  build (see frontend.tsx — gated on NODE_ENV !== "production"). */
+ *  src/client/components/globe/projection.ts. The function is exposed
+ *  on window.__projectLatLon by GlobeVisualization once mounted. We
+ *  wait for it because the React effect that registers it can land
+ *  shortly after the canvas itself has dimensions. */
 export async function projectLatLon(
   page: Page,
   lat: number,
   lon: number,
 ): Promise<{ x: number; y: number; z: number }> {
+  await page.waitForFunction(
+    () =>
+      typeof (globalThis as Record<string, unknown>).__projectLatLon ===
+      "function",
+    null,
+    { timeout: 5_000 },
+  );
   return await page.evaluate(
     ([la, lo]) => {
-      const fn = (window as unknown as Record<string, unknown>)
+      const fn = (globalThis as unknown as Record<string, unknown>)
         .__projectLatLon as
         | ((la: number, lo: number) => { x: number; y: number; z: number })
         | undefined;
       if (typeof fn !== "function") {
         throw new Error(
-          "window.__projectLatLon is not exposed; ensure dev build / E2E env",
+          "globalThis.__projectLatLon is not exposed; ensure GlobeVisualization mounted",
         );
       }
       return fn(la, lo);

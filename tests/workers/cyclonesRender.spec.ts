@@ -59,9 +59,17 @@ describe("public/workers/pointWorker.js — cyclones integration", () => {
     expect(src).toContain('importScripts("/workers/render/cyclones.js")');
   });
 
-  test("layerOrder assigns cyclones the top render order (6)", async () => {
+  test("layerOrder draws cyclones above cyclones-forecast (eye on top of its own track)", async () => {
     const src = await readSource("public/workers/pointWorker.js");
-    expect(src).toMatch(/cyclones:\s*6/);
+    // Forecast points must render below the eye so the eye glyph
+    // visually sits above its own track.
+    const forecastMatch = /"cyclones-forecast":\s*(\d+)/.exec(src);
+    const cyclonesMatch = /cyclones:\s*(\d+)\b/.exec(src);
+    expect(forecastMatch).not.toBeNull();
+    expect(cyclonesMatch).not.toBeNull();
+    const forecastOrder = Number.parseInt(forecastMatch![1] ?? "0", 10);
+    const cyclonesOrder = Number.parseInt(cyclonesMatch![1] ?? "0", 10);
+    expect(cyclonesOrder).toBeGreaterThan(forecastOrder);
   });
 
   test("colorMap exposes the cyclones color from the theme", async () => {

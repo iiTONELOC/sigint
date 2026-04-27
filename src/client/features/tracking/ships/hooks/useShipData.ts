@@ -17,6 +17,12 @@ const resolveShipSource: ResolveDataSource = (data, snapshot) => {
   return data.length > 0 ? "live" : "unavailable";
 };
 
-export function useShipData(pollInterval: number = 300_000) {
+// 15 s default matches aircraft. AIS streams continuously via the
+// server's WebSocket → 15 s/min × ~50 vessels/sec ≈ ~750 vessel-
+// updates per poll. The previous 300 s left clients on a fragment of
+// the server's vessel map for several minutes after page load.
+export const DEFAULT_SHIP_POLL_MS = 15_000;
+
+export function useShipData(pollInterval: number = DEFAULT_SHIP_POLL_MS) {
   return useProviderData(shipProvider, pollInterval, resolveShipSource);
 }

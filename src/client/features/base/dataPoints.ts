@@ -5,7 +5,10 @@ import type { ShipData } from "@/features/tracking/ships/types";
 import type { EventData } from "@/features/intel/events/types";
 import type { FireData } from "@/features/environmental/fires/types";
 import type { WeatherData } from "@/features/environmental/weather/types";
-import type { CycloneData } from "@/features/environmental/cyclones/types";
+import type {
+  CycloneData,
+  CycloneForecastPointData,
+} from "@/features/environmental/cyclones/types";
 
 // ── DataPoint union ──────────────────────────────────────────────────
 
@@ -16,7 +19,8 @@ export type DataPoint =
   | (BasePoint & { type: "quakes"; data: EarthquakeData })
   | (BasePoint & { type: "fires"; data: FireData })
   | (BasePoint & { type: "weather"; data: WeatherData })
-  | (BasePoint & { type: "cyclones"; data: CycloneData });
+  | (BasePoint & { type: "cyclones"; data: CycloneData })
+  | (BasePoint & { type: "cyclones-forecast"; data: CycloneForecastPointData });
 
 export type DataType = DataPoint["type"];
 

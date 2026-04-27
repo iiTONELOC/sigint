@@ -139,7 +139,11 @@ function drawCycloneForecast(
     }
   }
 
-  // Forecast track polyline — eye → forecast points (dashed)
+  // Forecast track polyline — eye → forecast points (dashed). The
+  // per-point dots that used to live here moved out to
+  // drawCycloneForecastPoint(), called from the main points loop, so
+  // forecast points participate in the standard hit-test/selection
+  // pipeline (synthetic "cyclones-forecast" DataPoints).
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 3]);
@@ -149,15 +153,33 @@ function drawCycloneForecast(
   for (var l = 0; l < fp.length; l++) ctx.lineTo(fp[l].x, fp[l].y);
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+}
 
-  // Forecast point dots
+// One forecast-point dot. Called from pointWorker's points loop for
+// each "cyclones-forecast" DataPoint. Fade ramps with fcstHour so the
+// 5-day point is visibly fainter than the 12-hour point. Selection
+// ring matches the cyclones convention. `motion` packs animation/
+// selection state so the function stays under the 7-arg cap.
+//   motion: { isSelected, t, reducedMotion }
+function drawCycloneForecastPoint(ctx, x, y, fcstHour, color, depthAlpha, motion) {
+  var fade = 1 - Math.min(1, Math.max(0, fcstHour / 144));
+  var s = 2;
+  if (motion.isSelected) s = 4;
   ctx.fillStyle = color;
-  for (var m = 0; m < fp.length; m++) {
-    var fadeM = 1 - fp[m].fcstHour / 144;
-    ctx.globalAlpha = baseAlpha * fadeM;
+  ctx.globalAlpha = depthAlpha * fade;
+  ctx.beginPath();
+  ctx.arc(x, y, s, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (motion.isSelected) {
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    var ringDelta = motion.reducedMotion ? 0 : Math.sin(motion.t * 2) * 2;
     ctx.beginPath();
-    ctx.arc(fp[m].x, fp[m].y, 2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(x, y, s * 2.5 + ringDelta, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }

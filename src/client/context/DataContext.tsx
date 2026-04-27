@@ -201,6 +201,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   );
 
   // ── Pre-computed filter set ────────────────────────────────────
+  // Synthetic cyclone-forecast points piggyback on their parent storm's
+  // filter status: if the parent passes (cyclones filter + minCategory),
+  // every forecast point of that storm is selectable too. Done in a
+  // second pass so the parent storm's id is guaranteed to be settled.
   const filteredIds = useMemo(() => {
     const ids = new Set<string>();
     for (let i = 0; i < allData.length; i++) {
@@ -210,6 +214,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const filter = filters[item.type];
       if (filter == null) continue;
       if (feature.matchesFilter(item as any, filter)) ids.add(item.id);
+    }
+    for (const item of allData) {
+      if (item.type !== "cyclones-forecast") continue;
+      const parentId = `CY${(item.data as { parentStormId: string }).parentStormId}`;
+      if (ids.has(parentId)) ids.add(item.id);
     }
     return ids;
   }, [allData, filters]);

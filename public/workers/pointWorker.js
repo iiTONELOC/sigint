@@ -769,6 +769,12 @@ function renderFrame() {
 
     if (item.type === "aircraft") {
       if (!matchesAF(item.data, af)) continue;
+    } else if (item.type === "cyclones-forecast") {
+      // Forecast points are gated by both the cyclones layer toggle
+      // and the cyclone showForecast filter — never render them when
+      // the parent layer is off or the user has hidden forecast tracks.
+      if (layers.cyclones === false) continue;
+      if (cyclonesShowForecast === false) continue;
     } else {
       if (layers[item.type] === false) continue;
     }
@@ -795,7 +801,8 @@ function renderFrame() {
     events: 3,
     quakes: 4,
     weather: 5,
-    cyclones: 6,
+    "cyclones-forecast": 6,
+    cyclones: 7,
   };
 
   if (pts.length > 1) {
@@ -1033,6 +1040,22 @@ function renderFrame() {
         cyclonesShowForecast,
         cyclonesShowCone,
         reducedMotion,
+      );
+      continue;
+    }
+
+    if (item.type === "cyclones-forecast") {
+      // Per-forecast-point dot. Color uses the cyclones theme color so
+      // forecast dots visually belong to the parent storm. Fade ramps
+      // with fcstHour inside drawCycloneForecastPoint.
+      drawCycloneForecastPoint(
+        ctx,
+        x,
+        y,
+        (item.data && item.data.fcstHour) || 0,
+        colorMap.cyclones || baseColor,
+        depthAlpha,
+        { isSelected: isSel, t: t, reducedMotion: reducedMotion },
       );
       continue;
     }

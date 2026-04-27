@@ -639,28 +639,60 @@ export function GlobeVisualization({
     };
   }, []);
 
+  // ── E2E projection bridge ───────────────────────────────────────
+  // Exposes window.__projectLatLon for Playwright tests (cyclones-
+  // forecast-click etc.) to compute click coordinates against the
+  // currently rendered camera/projection state. The function reads
+  // live refs, so it tracks camera changes after initial mount.
+  // Always exposed — purely a math helper, no app state mutation.
+  useEffect(() => {
+    const fn = (lat: number, lon: number) => {
+      const { w: W, h: H } = sizeRef.current;
+      const cam = camRef.current;
+      if (propsRef.current.flat) {
+        const fm = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
+        return projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
+      }
+      const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+      return projGlobe(lat, lon, W / 2, H / 2, r, cam.rotY, cam.rotX);
+    };
+    (globalThis as unknown as Record<string, unknown>).__projectLatLon = fn;
+    return () => {
+      delete (globalThis as unknown as Record<string, unknown>).__projectLatLon;
+    };
+  }, []);
+
   // ── Resize observer ─────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const par = canvas.parentElement;
     if (!par) return;
+    // ResizeObserver fires synchronously during layout. Writing
+    // canvas.style.width/height inside the callback re-invalidates
+    // layout and triggers the "ResizeObserver loop completed with
+    // undelivered notifications" warning. Defer the writes to the next
+    // animation frame so layout settles before we touch it.
+    let rafPending = 0;
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = par.clientWidth,
-        h = par.clientHeight;
-      if (w === 0 || h === 0) return;
-      const cw = Math.round(w * dpr);
-      const ch = Math.round(h * dpr);
-      // Update CSS dimensions immediately so element fills the space
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      // Defer buffer resize — applied right before next composite
-      // This prevents the canvas from going blank between resize and next frame
-      if (canvas.width !== cw || canvas.height !== ch) {
-        pendingResizeRef.current = { cw, ch, dpr };
-      }
-      sizeRef.current = { w, h };
+      if (rafPending) return;
+      rafPending = requestAnimationFrame(() => {
+        rafPending = 0;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = par.clientWidth,
+          h = par.clientHeight;
+        if (w === 0 || h === 0) return;
+        const cw = Math.round(w * dpr);
+        const ch = Math.round(h * dpr);
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+        // Defer buffer resize — applied right before next composite
+        // This prevents the canvas from going blank between resize and next frame
+        if (canvas.width !== cw || canvas.height !== ch) {
+          pendingResizeRef.current = { cw, ch, dpr };
+        }
+        sizeRef.current = { w, h };
+      });
     };
     // Initial sizing — apply immediately since canvas is empty anyway
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -680,6 +712,7 @@ export function GlobeVisualization({
     const ro = new ResizeObserver(resize);
     ro.observe(par);
     return () => {
+      if (rafPending) cancelAnimationFrame(rafPending);
       window.removeEventListener("resize", resize);
       ro.disconnect();
     };

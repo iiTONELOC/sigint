@@ -105,7 +105,11 @@ export function AircraftFilterControl({
         <span className="text-(length:--sig-text-icon)">
           <Plane size="1em" fill="currentColor" strokeWidth={0} />
         </span>
-        <span>{aircraftCount}</span>
+        {/* Match the other LayerToggle counts — hide inline count
+            below the `sm` breakpoint so the compact layout shows all
+            counts in the dedicated row below instead of cramming them
+            next to each icon. */}
+        <span className="hidden sm:inline">{aircraftCount}</span>
         <span className="text-[8px] opacity-60">▾</span>
       </button>
 

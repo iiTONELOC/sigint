@@ -1,4 +1,5 @@
 export { cycloneFeature } from "./definition";
+export { cycloneForecastFeature } from "./forecastDefinition";
 export { useCycloneData } from "./hooks/useCycloneData";
 export type { CycloneDataSource } from "./hooks/useCycloneData";
 export { cycloneProvider } from "./data/provider";

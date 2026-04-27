@@ -58,6 +58,26 @@ export type CycloneData = {
   forecast: ForecastPoint[];
 };
 
+// Synthetic per-forecast-point shape — produced by
+// data/synthesizeForecastPoints.ts and rendered as its own DataPoint
+// variant ("cyclones-forecast"). NOT persisted to IndexedDB; recomputed
+// each time the cyclone provider data changes. The parent* fields let
+// the mini-dossier identify the storm without re-walking allData.
+export type CycloneForecastPointData = {
+  parentStormId: string;
+  parentName: string;
+  parentBasin: "AL" | "EP" | "CP";
+  fcstHour: number;
+  validTime: string;
+  maxWindKt: number;
+  minPressureMb?: number;
+  category: Category;
+  /** Saffir-Simpson copied from parent storm — out-of-scope to derive
+   *  per-fcstHour from maxWindKt at this stage. Future ticket. */
+  saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5;
+  errorRadiusNm: number;
+};
+
 export type CycloneFilter = {
   enabled: boolean;
   /** Minimum Saffir-Simpson to display. 0 = all (incl TD/TS), 1 = HU1+, 3 = HU3+ (major), 5 = HU5 only */

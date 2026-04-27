@@ -39,7 +39,10 @@ export const themes: Record<ThemeMode, Theme> = {
       coastFill: "#0f1e2e",
       ocean: "#0e1825",
       oceanDeep: "#060c16",
-      grid: "#172033",
+      // Map gridline tone — sits between border (#172033) and dim
+      // (#556070) on the luminance ramp. The previous #172033 was
+      // identical to border/bg and disappeared on the ocean tile.
+      grid: "#3a4d66",
       ships: "#00d4f0",
       aircraft: "#ffcc00",
       events: "#dd44aa",

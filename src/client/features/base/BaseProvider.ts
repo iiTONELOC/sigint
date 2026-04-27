@@ -100,7 +100,15 @@ export class BaseProvider implements DataProvider<DataPoint> {
   // ── Hydrate ───────────────────────────────────────────────────────
 
   async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
-    if (this.cache) return { data: this.cache.data, stale: false };
+    // Always mark stale when there's persisted data so the boot
+    // sequence triggers a background refresh in addition to displaying
+    // the IDB-cached snapshot. The previous maxCacheAgeMs gate left
+    // reloads sitting on a partial-sweep cache (AIS @ 5k vs server's
+    // 15k, aircraft @ 290 vs server's 4943) for the entire setInterval
+    // cycle — and on background tabs throttling stretched that to
+    // minutes. maxCacheAgeMs is kept for getData()'s inline age
+    // check, which still gates on-demand re-fetch decisions.
+    if (this.cache) return { data: this.cache.data, stale: true };
 
     const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
@@ -109,16 +117,14 @@ export class BaseProvider implements DataProvider<DataPoint> {
       ? this.mergeFn(persisted.data, [])
       : persisted.data;
 
-    const stale = Date.now() - persisted.timestamp > this.maxCacheAgeMs;
-
     this.cache = { data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: data,
       lastUpdatedAt: persisted.timestamp,
-      loading: stale,
+      loading: true,
       error: null,
     };
-    return { data, stale };
+    return { data, stale: true };
   }
 
   // ── Fetch ─────────────────────────────────────────────────────────

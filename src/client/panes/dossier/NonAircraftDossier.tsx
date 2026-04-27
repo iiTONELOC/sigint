@@ -5,6 +5,7 @@ import { EarthquakeDossier } from "@/features/environmental/earthquake/ui/Earthq
 import { FireDossier } from "@/features/environmental/fires/ui/FireDossier";
 import { WeatherDossier } from "@/features/environmental/weather/ui/WeatherDossier";
 import { CycloneDossier } from "@/features/environmental/cyclones/ui/CycloneDossier";
+import { CycloneForecastDossier } from "@/features/environmental/cyclones/ui/CycloneForecastDossier";
 
 // Dispatcher — picks the per-feature dossier for the selected DataPoint.
 // Each feature's dossier body lives at features/{feature}/ui/{Feature}Dossier.tsx.
@@ -16,6 +17,10 @@ type Props = {
   readonly onFocus: () => void;
   readonly onSolo: () => void;
   readonly onClose: () => void;
+  /** Fired by CycloneForecastDossier's JUMP TO STORM button. Caller
+   *  resolves the parent cyclone DataPoint by stormId and forwards
+   *  it to the same setSelected action the click pipeline uses. */
+  readonly onJumpToStorm?: (parentStormId: string) => void;
 };
 
 export function NonAircraftDossier(props: Props) {
@@ -32,6 +37,15 @@ export function NonAircraftDossier(props: Props) {
       return <WeatherDossier {...props} />;
     case "cyclones":
       return <CycloneDossier {...(props as Props & { item: Parameters<typeof CycloneDossier>[0]["item"] })} />;
+    case "cyclones-forecast":
+      return (
+        <CycloneForecastDossier
+          {...(props as Props & {
+            item: Parameters<typeof CycloneForecastDossier>[0]["item"];
+          })}
+          onJumpToStorm={props.onJumpToStorm ?? (() => {})}
+        />
+      );
     default:
       return null;
   }

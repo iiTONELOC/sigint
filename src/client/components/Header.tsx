@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { useLayoutMode, type LayoutMode } from "@/context/LayoutModeContext";
 import { getColorMap } from "@/config/theme";
@@ -40,19 +40,42 @@ function LayerToggle({
   iconProps,
   onToggle,
 }: {
-  label: string;
-  icon: React.ForwardRefExoticComponent<any>;
-  on: boolean;
-  color: string;
-  count: number;
-  down: boolean;
-  iconProps: Record<string, unknown>;
-  onToggle: () => void;
+  readonly label: string;
+  readonly icon: React.ForwardRefExoticComponent<any>;
+  readonly on: boolean;
+  readonly color: string;
+  readonly count: number;
+  readonly down: boolean;
+  readonly iconProps: Record<string, unknown>;
+  readonly onToggle: () => void;
 }) {
+  // Streaming-in indicator: pulse while the count is actively rising
+  // (initial sweep ramp / large reconnect), then auto-clear ~5 s after
+  // the count stops growing. Avoids the "always pulsing" failure mode
+  // for dynamic feeds (AIS, aircraft) where the count drifts a few
+  // vessels per poll once the cache is warm.
+  const prevCountRef = useRef(count);
+  const [streaming, setStreaming] = useState(false);
+  useEffect(() => {
+    const prev = prevCountRef.current;
+    prevCountRef.current = count;
+    // Only pulse when count grew meaningfully — small drift on a warm
+    // feed shouldn't trigger it. Threshold is relative to the prior
+    // count so the first poll after boot (0 → ~thousands) always
+    // pulses but a +3 vessel update on 5 k vessels does not.
+    const grewMeaningfully = count > prev && count - prev > Math.max(20, prev * 0.05);
+    if (!grewMeaningfully) return;
+    setStreaming(true);
+    const t = setTimeout(() => setStreaming(false), 5_000);
+    return () => clearTimeout(t);
+  }, [count]);
+
   const tooltipText =
-    down && count === 0
-      ? `${label} — source offline`
-      : `${on ? "Hide" : "Show"} ${label}`;
+    streaming && on
+      ? `${label} — receiving data`
+      : down && count === 0
+        ? `${label} — source offline`
+        : `${on ? "Hide" : "Show"} ${label}`;
 
   return (
     <Tooltip content={tooltipText} placement="bottom">
@@ -61,14 +84,24 @@ function LayerToggle({
         onClick={onToggle}
         aria-label={`Toggle ${label} layer`}
         aria-pressed={on}
-        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start"
+        // Off state needs explicit text + border colors so the icon
+        // stays visible after clicking to toggle off; without them
+        // the icon inherits the browser default text color and the
+        // browser-default focus ring obscures both. focus-visible
+        // override replaces the white outline with the theme accent.
+        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sig-accent"
         style={{
-          color: on ? color : undefined,
+          color: on ? color : "var(--sigint-dim)",
           background: on ? `${color}15` : undefined,
-          borderColor: on ? `${color}50` : undefined,
+          borderColor: on ? `${color}50` : "var(--sigint-border)",
         }}
       >
-        <Icon size="var(--sig-text-icon)" aria-hidden="true" {...iconProps} />
+        <Icon
+          size="var(--sig-text-icon)"
+          aria-hidden="true"
+          {...iconProps}
+          className={streaming && on ? "animate-pulse" : undefined}
+        />
         <span className="hidden sm:inline">
           {down && count === 0 ? (
             <AlertTriangle
@@ -112,7 +145,11 @@ function Toggles({
       <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
       <div data-tour="layer-toggles" className="flex items-center gap-0.5 sm:gap-1">
         {featureList
-          .filter((f) => f.id !== "aircraft")
+          // Aircraft has its own filter control. Cyclone-forecast is a
+          // synthetic per-track-point variant of the cyclones layer —
+          // it's gated by layers.cyclones in the worker, so a separate
+          // toggle would be a duplicate of the storm toggle.
+          .filter((f) => f.id !== "aircraft" && f.id !== "cyclones-forecast")
           .map((f) => {
             const on = layers[f.id] ?? false;
             const color = colorMap[f.id] ?? C.dim;
@@ -210,7 +247,11 @@ export function Header(props: Readonly<HeaderProps>) {
   return (
     <div className="shrink-0 border-b border-sig-border bg-sig-panel/95">
       {/* ── LARGE SCREENS: Single row ─────────────────────────────── */}
-      <div className="hidden lg:flex items-center gap-1.5 px-3 md:px-4 py-1.5">
+      {/* Single-row layout requires xl: (1280px+) — at lg (1024px) the
+          7 layer toggles + search + clock + settings overflow into the
+          aircraft toggle / date-time region. Two-row layout below
+          handles everything narrower. */}
+      <div className="hidden xl:flex items-center gap-1.5 px-3 md:px-4 py-1.5">
         {/* Logo */}
         <div data-tour="header-brand" className="flex items-center gap-2 shrink-0">
           <div className="w-1.75 h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
@@ -259,7 +300,7 @@ export function Header(props: Readonly<HeaderProps>) {
       </div>
 
       {/* ── SMALL SCREENS: Two rows ───────────────────────────────── */}
-      <div className="lg:hidden">
+      <div className="xl:hidden">
         <div className="flex items-center justify-between px-2 sm:px-3 py-1 sm:py-1.5">
           <div data-tour="header-brand" className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />

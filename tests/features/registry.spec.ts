@@ -18,7 +18,11 @@ describe("feature registry", () => {
     expect(featureRegistry.size).toBe(featureList.length);
   });
 
-  test("registry covers every DataPoint type in scope for v1.0", () => {
+  test("registry covers every DataPoint type in scope", () => {
+    // "cyclones-forecast" is the synthetic per-track-point variant
+    // produced by synthesizeForecastPoints — registered so DetailPanel
+    // (and other featureRegistry consumers) can resolve it without
+    // null-coalescing every call site.
     const expected = [
       "aircraft",
       "ships",
@@ -27,8 +31,16 @@ describe("feature registry", () => {
       "fires",
       "weather",
       "cyclones",
+      "cyclones-forecast",
     ].sort();
     const ids = featureList.map((f) => f.id).sort();
     expect(ids).toEqual(expected);
+  });
+
+  test("featureRegistry resolves 'cyclones-forecast' to a FeatureDefinition", () => {
+    const def = featureRegistry.get("cyclones-forecast");
+    expect(def).toBeDefined();
+    expect(def?.id).toBe("cyclones-forecast");
+    expect(def?.label.length).toBeGreaterThan(0);
   });
 });

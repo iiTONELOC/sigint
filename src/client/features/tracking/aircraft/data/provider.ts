@@ -79,8 +79,13 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     // local NDJSON metadata DB before the response left the wire — the
     // client side is now a pure shape mapper. We still derive squawkStatus
     // (it's a local UI-only enum, not metadata) and normalise icao24.
+    //
+    // Persistence intentionally lives in refresh(), AFTER the empty-
+    // protection check, so a cold-start ac:[] response from the server
+    // never poisons IDB with `{ data: [] }`. Documented invariant in
+    // docs/caching.md "Client-Side Stale Cache Retention".
     const aircraft = await fetchAircraftStates();
-    const mapped = aircraft.map((entity) => {
+    return aircraft.map((entity) => {
       if (entity.type !== "aircraft") return entity;
       const d = entity.data as { squawk?: string; icao24?: string };
       const norm = normalizeIcao24(d.icao24);
@@ -93,15 +98,19 @@ export class AircraftProvider implements DataProvider<DataPoint> {
         },
       } as DataPoint;
     });
-    this.persistCache(mapped);
-    return mapped;
   }
 
   async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
     await this.hydrateMemoryCacheFromPersisted();
     if (!this.cache) return null;
-    const stale = Date.now() - this.cache.timestamp > this.cacheDurationMs;
-    return { data: this.cache.data, stale };
+    // Always mark stale so the boot sequence triggers a background
+    // refresh in addition to showing the IDB-cached snapshot. Aircraft
+    // data is the most volatile layer in the app and the previous
+    // 30-min freshness window let user reloads sit on stale snapshots
+    // (e.g. an early-sweep partial of ~290 records) for the entire
+    // setInterval cycle. cacheDurationMs is kept for the existing
+    // getData() age check, which still gates inline re-fetch decisions.
+    return { data: this.cache.data, stale: true };
   }
 
   async refresh(): Promise<DataPoint[]> {
@@ -109,7 +118,25 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
     try {
       const data = await this.fetchAircraftStates();
+      // Server returns ac:[] during cold-start (sweep in flight) — see
+      // src/server/api/index.ts /api/aircraft/states. Don't blank a
+      // populated cache with that transient empty: keep showing the
+      // last known snapshot until the next poll lands real data.
+      // Mirrors the firmsCache.ts stale-protect on the server.
+      if (data.length === 0 && this.cache && this.cache.data.length > 0) {
+        this.snapshot = {
+          ...this.snapshot,
+          loading: false,
+          error: null,
+        };
+        return this.cache.data;
+      }
       this.cache = { data, timestamp: Date.now() };
+      // Only persist non-empty results — never poison IDB with
+      // `{ data: [] }` (would trip the cacheInit poisoned-cache purge
+      // on next reload, defeating the empty-protect pattern documented
+      // in docs/caching.md "Client-Side Stale Cache Retention").
+      if (data.length > 0) this.persistCache(data);
       this.snapshot = {
         entities: data,
         lastUpdatedAt: Date.now(),

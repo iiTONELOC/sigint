@@ -79,10 +79,12 @@ export function useProviderData(
       setDataSource(resolveDataSource(snap.entities, snap));
     }
 
-    // Poll interval — subsequent refreshes after boot.
-    // First refresh is handled by frontend.tsx boot sequence.
-    // Delay first interval tick so it doesn't collide with boot.
-    intervalId = setInterval(async () => {
+    // One refresh attempt — shared by setInterval AND the
+    // visibilitychange handler below. Browser background-tab timer
+    // throttling stretches setInterval cadences to >1 min on idle
+    // tabs, so a tab returning to focus fires an immediate refresh
+    // instead of waiting for the next throttled tick.
+    const refreshOnce = async () => {
       try {
         const result = await provider.refresh();
         if (!isMounted) return;
@@ -99,11 +101,21 @@ export function useProviderData(
         setLoading(false);
         setDataSource("error");
       }
-    }, pollInterval);
+    };
+
+    intervalId = setInterval(refreshOnce, pollInterval);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshOnce();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       isMounted = false;
       provider.onChange?.(null);
+      document.removeEventListener("visibilitychange", onVisible);
       if (intervalId) clearInterval(intervalId);
     };
   }, [provider, pollInterval, resolveDataSource, syncFromSnapshot]);
