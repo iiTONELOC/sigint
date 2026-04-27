@@ -1,0 +1,35 @@
+{
+  "_comment": "Synthetic test fixture. Two GDELT-style events positioned within 250 km of multi-storm.json Storm A's fcstHour=24 forecast point (26.0N, -78.0W). Triggers the Cyclone-Path Events correlation rule.",
+  "data": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": { "type": "Point", "coordinates": [-77.5, 26.0] },
+        "properties": {
+          "name": "Freeport, Bahamas",
+          "html": "<a href=\"https://example.com/test1\">Storm preparations under way</a>",
+          "url": "https://example.com/test1",
+          "urltone": "-12.5",
+          "urlpubtimedate": "2026-09-21T12:00:00Z",
+          "urlsourcecountry": "Bahamas",
+          "domain": "example.com"
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": { "type": "Point", "coordinates": [-78.5, 26.5] },
+        "properties": {
+          "name": "Grand Bahama, Bahamas",
+          "html": "<a href=\"https://example.com/test2\">Evacuation orders issued</a>",
+          "url": "https://example.com/test2",
+          "urltone": "-15.0",
+          "urlpubtimedate": "2026-09-21T13:00:00Z",
+          "urlsourcecountry": "Bahamas",
+          "domain": "example.com"
+        }
+      }
+    ]
+  },
+  "fetchedAt": 1727000000000
+}

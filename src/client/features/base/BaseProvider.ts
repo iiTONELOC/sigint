@@ -26,6 +26,18 @@ export type BaseProviderConfig = {
    * Used by GDELT for dedup + rolling-window pruning.
    */
   mergeFn?: (existing: DataPoint[], incoming: DataPoint[]) => DataPoint[];
+
+  /**
+   * If true, an empty incoming array is the authoritative truth and persists
+   * normally. If false (default), an empty result with a non-empty cache is
+   * treated as a soft error and the prior cache is retained with a bumped
+   * timestamp.
+   *
+   * Set true for cyclones — out of season the NHC endpoint legitimately
+   * reports zero active storms. Leave false for FIRMS / GDELT / AIS where
+   * empty likely means quota exhaustion or a temporary upstream outage.
+   */
+  allowEmptyResult?: boolean;
 };
 
 // ── Base class ───────────────────────────────────────────────────────
@@ -33,13 +45,14 @@ export type BaseProviderConfig = {
 export class BaseProvider implements DataProvider<DataPoint> {
   readonly id: string;
 
-  private cacheKey: string;
-  private maxCacheAgeMs: number;
-  private fetchFn: () => Promise<DataPoint[]>;
-  private mergeFn?: (
+  private readonly cacheKey: string;
+  private readonly maxCacheAgeMs: number;
+  private readonly fetchFn: () => Promise<DataPoint[]>;
+  private readonly mergeFn?: (
     existing: DataPoint[],
     incoming: DataPoint[],
   ) => DataPoint[];
+  private readonly allowEmptyResult: boolean;
 
   protected cache: { data: DataPoint[]; timestamp: number } | null = null;
   private fetchInProgress: Promise<DataPoint[]> | null = null;
@@ -57,6 +70,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     this.maxCacheAgeMs = config.maxCacheAgeMs;
     this.fetchFn = config.fetchFn;
     this.mergeFn = config.mergeFn;
+    this.allowEmptyResult = config.allowEmptyResult ?? false;
   }
 
   // ── Persistence ───────────────────────────────────────────────────
@@ -119,10 +133,12 @@ export class BaseProvider implements DataProvider<DataPoint> {
         ? this.mergeFn(this.cache?.data ?? [], incoming)
         : incoming;
 
-      // Upstream returned 0 records (satellite down, quota exhausted,
-      // temporary outage). NEVER persist empty data — retain whatever
-      // we have and treat it as a soft error.
-      if (data.length === 0) {
+      // Soft-error path: upstream returned 0 records (satellite down,
+      // quota exhausted, temporary outage). Retain whatever we have and
+      // treat it as a soft error. Skipped when allowEmptyResult is true
+      // — for sources where empty is the legitimate truth (e.g. cyclones
+      // out of season).
+      if (data.length === 0 && !this.allowEmptyResult) {
         const fallback = this.cache?.data ?? [];
         if (fallback.length > 0) {
           this.cache = { ...this.cache!, timestamp: Date.now() };
@@ -165,6 +181,25 @@ export class BaseProvider implements DataProvider<DataPoint> {
   }
 
   private notifyChange(): void {
+    this._onChange?.();
+  }
+
+  /**
+   * Suspend onChange notifications. Returns a restore token that re-installs
+   * the prior callback when passed to unmute(). Replaces the previous
+   * `frontend.tsx` `_onChange` cast hack — see Hard Rule 12 in the spec.
+   */
+  mute(): () => void {
+    const saved = this._onChange;
+    this._onChange = null;
+    return () => {
+      this._onChange = saved;
+    };
+  }
+
+  /** Restore notifications via the token from mute() and fire once. */
+  unmute(restore: () => void): void {
+    restore();
     this._onChange?.();
   }
 

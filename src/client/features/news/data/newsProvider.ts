@@ -131,6 +131,21 @@ class NewsProvider {
     this._onChange?.();
   }
 
+  /** Mirror BaseProvider.mute() — see types.ts DataProvider contract. */
+  mute(): () => void {
+    const saved = this._onChange;
+    this._onChange = null;
+    return () => {
+      this._onChange = saved;
+    };
+  }
+
+  /** Mirror BaseProvider.unmute() — restore + fire once. */
+  unmute(restore: () => void): void {
+    restore();
+    this._onChange?.();
+  }
+
   async getData(pollInterval?: number): Promise<NewsArticle[]> {
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {

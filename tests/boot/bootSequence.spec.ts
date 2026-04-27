@@ -34,14 +34,14 @@ describe("Boot sequence (frontend.tsx)", () => {
 
     // muteProviders must appear before hydrate
     const muteBefore = frontendSource.lastIndexOf(
-      "muteProviders()",
+      "muteAll()",
       hydrateBlock,
     );
     expect(muteBefore).toBeGreaterThan(-1);
 
     // restoreAndNotify must appear after hydrate
     const restoreAfter = frontendSource.indexOf(
-      "restoreAndNotify(saved)",
+      "unmuteAll(saved)",
       hydrateBlock,
     );
     expect(restoreAfter).toBeGreaterThan(-1);
@@ -55,16 +55,13 @@ describe("Boot sequence (frontend.tsx)", () => {
 
     // muteProviders must appear before refresh
     const muteBefore = frontendSource.lastIndexOf(
-      "muteProviders()",
+      "muteAll()",
       refreshBlock,
     );
     expect(muteBefore).toBeGreaterThan(-1);
 
-    // restoreAndNotify must appear after refresh
-    const restoreAfter = frontendSource.indexOf(
-      "restoreAndNotify(",
-      refreshBlock,
-    );
+    // unmuteAll must appear after refresh
+    const restoreAfter = frontendSource.indexOf("unmuteAll(", refreshBlock);
     expect(restoreAfter).toBeGreaterThan(-1);
   });
 
@@ -80,7 +77,7 @@ describe("Boot sequence (frontend.tsx)", () => {
   });
 
   // ── All providers included ──────────────────────────────────────
-  test("all 7 providers are in the providers array", () => {
+  test("all 8 providers are in the providers array (adds cyclones in step 7)", () => {
     expect(frontendSource).toContain("shipProvider");
     expect(frontendSource).toContain("gdeltProvider");
     expect(frontendSource).toContain("fireProvider");
@@ -88,6 +85,11 @@ describe("Boot sequence (frontend.tsx)", () => {
     expect(frontendSource).toContain("earthquakeProvider");
     expect(frontendSource).toContain("newsProvider");
     expect(frontendSource).toContain("aircraftProvider");
+    expect(frontendSource).toContain("cycloneProvider");
+  });
+
+  test("frontend.tsx no longer needs the `as any[]` cast on providers", () => {
+    expect(frontendSource).not.toContain("as any[]");
   });
 
   // ── No getData calls ────────────────────────────────────────────
@@ -109,8 +111,8 @@ describe("Boot sequence (frontend.tsx)", () => {
   });
 
   // ── Two batch updates max, no individual notifications ──────────
-  test("exactly two restoreAndNotify(saved) calls (hydrate batch + conditional refresh batch)", () => {
-    const matches = frontendSource.match(/restoreAndNotify\(saved\)/g);
+  test("exactly two unmuteAll(saved) calls (hydrate batch + conditional refresh batch)", () => {
+    const matches = frontendSource.match(/unmuteAll\(saved\)/g);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBe(2);
   });

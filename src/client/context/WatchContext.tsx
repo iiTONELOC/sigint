@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { CorrelationResult } from "@/lib/correlationEngine";
+import type { CorrelationResult } from "@/lib/correlation";
 import { requestWatchLayout } from "@/lib/layoutSignals";
 import { useUI } from "@/context/UIContext";
 

@@ -14,6 +14,15 @@ export type DataProvider<TEntity> = {
   getData(pollInterval?: number): Promise<TEntity[]>;
   getSnapshot(): ProviderSnapshot<TEntity>;
   onChange?(cb: (() => void) | null): void;
+
+  /**
+   * Suspend onChange notifications. Returns a restore token that re-installs
+   * the prior callback when passed to unmute(). Used by frontend.tsx during
+   * the boot batch to coalesce hydration into a single React render.
+   */
+  mute(): () => void;
+  /** Restore notifications via the token from mute() and fire once. */
+  unmute(restore: () => void): void;
 };
 
 // ── Base point shape ─────────────────────────────────────────────────

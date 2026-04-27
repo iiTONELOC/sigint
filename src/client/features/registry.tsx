@@ -5,6 +5,7 @@ import { shipsFeature } from "./tracking/ships";
 import { eventsFeature } from "./intel/events";
 import { firesFeature } from "./environmental/fires";
 import { weatherFeature } from "./environmental/weather";
+import { cycloneFeature } from "./environmental/cyclones";
 
 // ── Registry ─────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ const features: FeatureDefinition<any, any>[] = [
   earthquakeFeature,
   firesFeature,
   weatherFeature,
+  cycloneFeature,
 ];
 
 export const featureRegistry = new Map<string, FeatureDefinition<any, any>>(

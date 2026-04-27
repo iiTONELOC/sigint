@@ -127,6 +127,12 @@ function mockAllFetch() {
         status: 200,
         json: async () => ({ item: null }),
       } as unknown as Response;
+    if (url.includes("/api/cyclones"))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ activeStorms: [] }),
+      } as unknown as Response;
     return {
       ok: true,
       status: 200,
@@ -299,13 +305,14 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("layers default all enabled", async () => {
+  test("layers default all enabled (incl cyclones added in step 8)", async () => {
     const { ref, unmount } = await renderDataContext();
     expect(ref.current.layers.ships).toBe(true);
     expect(ref.current.layers.events).toBe(true);
     expect(ref.current.layers.quakes).toBe(true);
     expect(ref.current.layers.fires).toBe(true);
     expect(ref.current.layers.weather).toBe(true);
+    expect(ref.current.layers.cyclones).toBe(true);
     unmount();
   });
 
@@ -328,7 +335,7 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("filters object includes all feature types", async () => {
+  test("filters object includes all feature types (incl cyclones)", async () => {
     const { ref, unmount } = await renderDataContext();
     expect(ref.current.filters.aircraft).toBeDefined();
     expect(ref.current.filters.ships).toBeDefined();
@@ -336,10 +343,21 @@ describe("DataContext", () => {
     expect(ref.current.filters.quakes).toBeDefined();
     expect(ref.current.filters.fires).toBeDefined();
     expect(ref.current.filters.weather).toBeDefined();
+    expect(ref.current.filters.cyclones).toBeDefined();
     unmount();
   });
 
-  test("dataSources includes all 7 sources", async () => {
+  test("cyclones filter has the documented shape", async () => {
+    const { ref, unmount } = await renderDataContext();
+    const f = ref.current.filters.cyclones;
+    expect(f.enabled).toBe(true);
+    expect(f.minCategory).toBe(0);
+    expect(f.showForecast).toBe(true);
+    expect(f.showCone).toBe(true);
+    unmount();
+  });
+
+  test("dataSources includes all 8 sources (cyclones added in step 8)", async () => {
     const { ref, unmount } = await renderDataContext();
     const ids = ref.current.dataSources.map((s: any) => s.id);
     expect(ids).toContain("aircraft");
@@ -349,6 +367,7 @@ describe("DataContext", () => {
     expect(ids).toContain("fires");
     expect(ids).toContain("weather");
     expect(ids).toContain("news");
+    expect(ids).toContain("cyclones");
     unmount();
   });
 

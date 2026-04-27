@@ -10,6 +10,7 @@ RUN bun install
 COPY src ./src
 COPY public ./public
 COPY tests ./tests
+COPY scripts ./scripts
 COPY tsconfig.json .
 COPY components.json .
 COPY bun-env.d.ts .

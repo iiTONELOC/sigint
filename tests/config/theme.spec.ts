@@ -7,6 +7,26 @@ import {
   getColorMap,
 } from "@/config/theme";
 
+// ── WCAG contrast helpers (Hard Rule 15) ───────────────────────────
+// Inline — not added to production code. Computes WCAG 2.x relative
+// luminance and the contrast ratio between two sRGB hex colors.
+
+function relativeLuminance(hex: string): number {
+  const r = Number.parseInt(hex.slice(1, 3), 16) / 255;
+  const g = Number.parseInt(hex.slice(3, 5), 16) / 255;
+  const b = Number.parseInt(hex.slice(5, 7), 16) / 255;
+  const lin = (c: number) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrast(c1: string, c2: string): number {
+  const l1 = relativeLuminance(c1);
+  const l2 = relativeLuminance(c2);
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 describe("theme config", () => {
   test("dark and light themes exist", () => {
     expect(themes.dark).toBeDefined();
@@ -30,6 +50,7 @@ describe("theme config", () => {
       "quakes",
       "fires",
       "weather",
+      "cyclones",
       "text",
       "dim",
       "bright",
@@ -50,14 +71,15 @@ describe("theme config", () => {
     }
   });
 
-  test("LAYER_COLOR_KEYS has 6 entries", () => {
-    expect(LAYER_COLOR_KEYS.length).toBe(6);
+  test("LAYER_COLOR_KEYS has 7 entries (adds cyclones in step 2)", () => {
+    expect(LAYER_COLOR_KEYS.length).toBe(7);
     expect(LAYER_COLOR_KEYS).toContain("aircraft");
     expect(LAYER_COLOR_KEYS).toContain("ships");
     expect(LAYER_COLOR_KEYS).toContain("events");
     expect(LAYER_COLOR_KEYS).toContain("quakes");
     expect(LAYER_COLOR_KEYS).toContain("fires");
     expect(LAYER_COLOR_KEYS).toContain("weather");
+    expect(LAYER_COLOR_KEYS).toContain("cyclones");
   });
 
   test("every layer key has a label", () => {
@@ -80,14 +102,61 @@ describe("theme config", () => {
     expect(result.ships).toBe(themes.dark.colors.ships);
   });
 
-  test("getColorMap returns 6 layer colors", () => {
+  test("getColorMap returns 7 layer colors (adds cyclones in step 2)", () => {
     const map = getColorMap(themes.dark);
-    expect(Object.keys(map).length).toBe(6);
+    expect(Object.keys(map).length).toBe(7);
     expect(map.aircraft).toBe(themes.dark.colors.aircraft);
     expect(map.ships).toBe(themes.dark.colors.ships);
+    expect(map.cyclones).toBe(themes.dark.colors.cyclones);
   });
 
   test("dark and light themes have different bg colors", () => {
     expect(themes.dark.colors.bg).not.toBe(themes.light.colors.bg);
   });
+
+  // ── Cyclone layer color (step 2) ────────────────────────────────
+
+  test("cyclone color matches the magenta values from the spec", () => {
+    expect(themes.dark.colors.cyclones).toBe("#ff66cc");
+    expect(themes.light.colors.cyclones).toBe("#a31a6a");
+  });
+
+  test("cyclone color label is human-readable", () => {
+    expect(LAYER_COLOR_LABELS.cyclones).toBeDefined();
+    expect(typeof LAYER_COLOR_LABELS.cyclones).toBe("string");
+    expect(LAYER_COLOR_LABELS.cyclones.length).toBeGreaterThan(0);
+  });
+
+  // ── WCAG 2.2 AA contrast (Hard Rule 15) ─────────────────────────
+  // Verify the new cyclone color clears 4.5:1 against bg and panel in
+  // both themes. Helpers are at module scope above.
+
+  const cyclonePairs: Array<{ label: string; fg: () => string; bg: () => string }> = [
+    {
+      label: "dark theme bg",
+      fg: () => themes.dark.colors.cyclones,
+      bg: () => themes.dark.colors.bg,
+    },
+    {
+      label: "dark theme panel",
+      fg: () => themes.dark.colors.cyclones,
+      bg: () => themes.dark.colors.panel,
+    },
+    {
+      label: "light theme bg",
+      fg: () => themes.light.colors.cyclones,
+      bg: () => themes.light.colors.bg,
+    },
+    {
+      label: "light theme panel",
+      fg: () => themes.light.colors.cyclones,
+      bg: () => themes.light.colors.panel,
+    },
+  ];
+
+  for (const { label, fg, bg } of cyclonePairs) {
+    test(`cyclone color clears WCAG AA 4.5:1 against ${label}`, () => {
+      expect(contrast(fg(), bg())).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });

@@ -254,3 +254,48 @@ describe("AircraftProvider DataPoint shape", () => {
     expect(d.squawk).toBe("1200");
   });
 });
+
+// ── mute() / unmute() — mirrors BaseProvider for frontend.tsx batch ──
+
+describe("AircraftProvider.mute() / unmute()", () => {
+  test("mute() returns a restore token of type function", () => {
+    const provider = new AircraftProvider({
+      cacheKey: `ac-mute-${Math.random()}`,
+    });
+    const restore = provider.mute();
+    expect(typeof restore).toBe("function");
+    provider.unmute(restore);
+  });
+
+  test("unmute(restore) re-installs the prior callback and fires once", () => {
+    const provider = new AircraftProvider({
+      cacheKey: `ac-unmute-${Math.random()}`,
+    });
+    let calls = 0;
+    provider.onChange(() => {
+      calls++;
+    });
+
+    const restore = provider.mute();
+    expect(calls).toBe(0);
+
+    provider.unmute(restore);
+    expect(calls).toBe(1);
+  });
+
+  test("after mute() no callback fires until unmute() runs", () => {
+    const provider = new AircraftProvider({
+      cacheKey: `ac-mute-noop-${Math.random()}`,
+    });
+    let calls = 0;
+    provider.onChange(() => {
+      calls++;
+    });
+
+    const restore = provider.mute();
+    // Even if a private notify happened between mute and unmute, it would
+    // be silently dropped because _onChange is null.
+    provider.unmute(restore);
+    expect(calls).toBe(1); // single fire from unmute itself
+  });
+});

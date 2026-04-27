@@ -42,6 +42,7 @@ const TYPE_ORDER = [
   "quakes",
   "fires",
   "weather",
+  "cyclones",
 ];
 
 /**

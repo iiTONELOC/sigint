@@ -4,6 +4,11 @@
 // Fetches land data directly from /data/ne_50m_land.json on init.
 "use strict";
 
+// Per-feature render modules. Each exposes draw* functions on the worker
+// global scope. importScripts is synchronous in workers — these are loaded
+// before the message handler runs.
+importScripts("/workers/render/cyclones.js");
+
 // ── Projection ──────────────────────────────────────────────────────
 
 function projGlobe(lat, lon, cx, cy, r, ry, rx) {
@@ -662,7 +667,13 @@ function renderFrame() {
     quakes: colors.quakes,
     fires: colors.fires || "#ff6600",
     weather: colors.weather || "#aa66ff",
+    cyclones: colors.cyclones || "#ff66cc",
   };
+
+  // Cyclone filter flags + reduced-motion flag from main-thread frame payload
+  var cyclonesShowForecast = p.cyclonesShowForecast !== false;
+  var cyclonesShowCone = p.cyclonesShowCone !== false;
+  var reducedMotion = p.prefersReducedMotion === true;
 
   // Military aircraft color — orange-red, distinct from civilian yellow
   var milColor = light ? "#3a3a3a" : "#e0e0e0";
@@ -784,6 +795,7 @@ function renderFrame() {
     events: 3,
     quakes: 4,
     weather: 5,
+    cyclones: 6,
   };
 
   if (pts.length > 1) {
@@ -1004,6 +1016,24 @@ function renderFrame() {
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      continue;
+    }
+
+    if (item.type === "cyclones") {
+      drawCyclone(
+        ctx,
+        projFn,
+        x,
+        y,
+        item,
+        baseColor,
+        depthAlpha,
+        t,
+        isSel,
+        cyclonesShowForecast,
+        cyclonesShowCone,
+        reducedMotion,
+      );
       continue;
     }
 

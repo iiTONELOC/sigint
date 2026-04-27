@@ -1,5 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
+import type { CycloneFilter } from "@/features/environmental/cyclones";
 import type { TrailPoint } from "@/lib/trailService";
 import type { SpatialGrid } from "@/lib/spatialIndex";
 
@@ -76,6 +77,7 @@ export type GlobeVisualizationProps = {
   readonly data: DataPoint[];
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
+  readonly cycloneFilter?: CycloneFilter;
   readonly selected: DataPoint | null;
   readonly isolatedId: string | null;
   readonly isolateMode: null | "solo" | "focus";

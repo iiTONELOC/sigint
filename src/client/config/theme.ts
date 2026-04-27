@@ -16,6 +16,7 @@ export type ThemeColors = {
   quakes: string;
   fires: string;
   weather: string;
+  cyclones: string;
   text: string;
   dim: string;
   bright: string;
@@ -45,6 +46,7 @@ export const themes: Record<ThemeMode, Theme> = {
       quakes: "#66ff44",
       fires: "#ff6600",
       weather: "#aa66ff",
+      cyclones: "#ff66cc",
       text: "#b0bec5",
       dim: "#556070",
       bright: "#e8eef4",
@@ -69,6 +71,7 @@ export const themes: Record<ThemeMode, Theme> = {
       quakes: "#2b5fb3",
       fires: "#cc2200",
       weather: "#e07000",
+      cyclones: "#a31a6a",
       text: "#1a2530",
       dim: "#4a5a6a",
       bright: "#0a1018",
@@ -78,7 +81,7 @@ export const themes: Record<ThemeMode, Theme> = {
   },
 };
 
-/** The 6 layer color keys that users can customize */
+/** The 7 layer color keys that users can customize */
 export const LAYER_COLOR_KEYS = [
   "aircraft",
   "ships",
@@ -86,6 +89,7 @@ export const LAYER_COLOR_KEYS = [
   "quakes",
   "fires",
   "weather",
+  "cyclones",
 ] as const;
 
 export type LayerColorKey = (typeof LAYER_COLOR_KEYS)[number];
@@ -97,6 +101,7 @@ export const LAYER_COLOR_LABELS: Record<LayerColorKey, string> = {
   quakes: "Seismic",
   fires: "Fires",
   weather: "Weather",
+  cyclones: "Tropical Cyclones",
 };
 
 /** Per-theme color overrides — only layer colors, not UI chrome */
@@ -123,6 +128,7 @@ export function getColorMap(theme: Theme): Record<string, string> {
     quakes: theme.colors.quakes,
     fires: theme.colors.fires,
     weather: theme.colors.weather,
+    cyclones: theme.colors.cyclones,
   };
 }
 

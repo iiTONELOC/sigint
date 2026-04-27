@@ -1,0 +1,32 @@
+{
+  "_comment": "Synthetic test fixture, modeled on NHC CurrentStorms.json schema. Not a real storm.",
+  "activeStorms": [
+    {
+      "id": "al022026",
+      "binNumber": "AT2",
+      "name": "STORM_TEST_STS",
+      "classification": "STS",
+      "intensity": "45",
+      "pressure": "998",
+      "latitude": "32.0N",
+      "latitudeNumeric": 32.0,
+      "longitude": "65.0W",
+      "longitudeNumeric": -65.0,
+      "movementDir": 60,
+      "movementSpeed": 14,
+      "lastUpdate": "2026-09-04T18:00:00Z",
+      "forecastTrack": {
+        "advisoryNumber": "5",
+        "kmzFile": "",
+        "zipFile": ""
+      },
+      "forecast": [
+        { "fcstHour": 12, "validTime": "2026-09-05T06:00:00Z", "latitude": 32.7, "longitude": -63.5, "maxWind": 50, "minPressure": 996, "development": "STS" },
+        { "fcstHour": 24, "validTime": "2026-09-05T18:00:00Z", "latitude": 33.6, "longitude": -61.8, "maxWind": 50, "minPressure": 996, "development": "STS" },
+        { "fcstHour": 36, "validTime": "2026-09-06T06:00:00Z", "latitude": 34.7, "longitude": -59.8, "maxWind": 45, "minPressure": 999, "development": "STS" },
+        { "fcstHour": 48, "validTime": "2026-09-06T18:00:00Z", "latitude": 36.0, "longitude": -57.5, "maxWind": 40, "minPressure": 1001, "development": "PT" },
+        { "fcstHour": 72, "validTime": "2026-09-07T18:00:00Z", "latitude": 39.0, "longitude": -52.5, "maxWind": 35, "minPressure": 1003, "development": "PT" }
+      ]
+    }
+  ]
+}

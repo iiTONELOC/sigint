@@ -28,6 +28,7 @@ export function GlobeVisualization({
   data,
   layers,
   aircraftFilter,
+  cycloneFilter,
   selected,
   isolatedId,
   isolateMode,
@@ -87,6 +88,7 @@ export function GlobeVisualization({
     data,
     layers,
     aircraftFilter,
+    cycloneFilter,
     flat,
     autoRotate,
     rotationSpeed,
@@ -106,6 +108,7 @@ export function GlobeVisualization({
     data,
     layers,
     aircraftFilter,
+    cycloneFilter,
     flat,
     autoRotate,
     rotationSpeed,
@@ -309,6 +312,7 @@ export function GlobeVisualization({
         data: d,
         layers: ly,
         aircraftFilter: af,
+        cycloneFilter: cyc,
         flat: isFlat,
         autoRotate: shouldRotate,
         rotationSpeed: rotSpeed,
@@ -488,6 +492,15 @@ export function GlobeVisualization({
 
         const searchIds = sMatch ? Array.from(sMatch) : null;
 
+        // WCAG 2.2 AA — Hard Rule 15. Read prefers-reduced-motion at frame
+        // time so a system-level toggle takes effect without a reload. The
+        // worker has no access to matchMedia.
+        const prefersReducedMotion =
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function"
+            ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            : false;
+
         worker.postMessage({
           type: "frame",
           payload: {
@@ -516,6 +529,9 @@ export function GlobeVisualization({
               countries: Array.from(af.countries),
               milFilter: af.milFilter ?? "all",
             },
+            cyclonesShowForecast: cyc?.showForecast ?? true,
+            cyclonesShowCone: cyc?.showCone ?? true,
+            prefersReducedMotion,
             searchMatchIds: searchIds,
             selectedItem,
           },

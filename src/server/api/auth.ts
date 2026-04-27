@@ -19,7 +19,17 @@ if (!SERVER_SECRET) {
 const TOKEN_TTL_MS = 30 * 60_000;
 const TOKEN_TTL_S = Math.floor(TOKEN_TTL_MS / 1000);
 const RATE_WINDOW_MS = 60_000;
-const RATE_LIMIT = 60; // requests per minute per IP
+// Default 60 req/min/IP. SIGINT_RATE_LIMIT env override exists so the
+// Playwright suite can set a higher cap — Playwright requests all share
+// the same client identity via the "unknown" bucket, which exhausts the
+// production limit during long suite runs.
+const RATE_LIMIT_DEFAULT = 60;
+const RATE_LIMIT = (() => {
+  const raw = process.env.SIGINT_RATE_LIMIT;
+  if (!raw) return RATE_LIMIT_DEFAULT;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : RATE_LIMIT_DEFAULT;
+})();
 
 const COOKIE_NAME = "sigint_token";
 

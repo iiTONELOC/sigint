@@ -20,6 +20,7 @@ import { useEventData } from "@/features/intel/events";
 import { useShipData } from "@/features/tracking/ships";
 import { useFireData } from "@/features/environmental/fires";
 import { useWeatherData } from "@/features/environmental/weather";
+import { useCycloneData } from "@/features/environmental/cyclones";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import {
@@ -35,7 +36,7 @@ import type { SourceStatus } from "@/lib/sourceHealth";
 import {
   computeCorrelations,
   type CorrelationResult,
-} from "@/lib/correlationEngine";
+} from "@/lib/correlation";
 
 import { UIProvider, useUI } from "@/context/UIContext";
 import { WatchProvider, useWatch } from "@/context/WatchContext";
@@ -80,6 +81,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     quakes: true,
     fires: true,
     weather: true,
+    cyclones: true,
   });
   const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
     getInitialAircraftFilter(),
@@ -98,19 +100,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { data: shipData, dataSource: shipSource } = useShipData();
   const { data: fireData, dataSource: fireSource } = useFireData();
   const { data: weatherData, dataSource: weatherSource } = useWeatherData();
+  const { data: cycloneData, dataSource: cycloneSource } = useCycloneData();
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
 
   // ── Merged data (rAF debounced) ────────────────────────────────
   const allDataSourcesRef = useRef({
-    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData,
+    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData,
   });
   allDataSourcesRef.current = {
-    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData,
+    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData,
   };
 
   const [allData, setAllData] = useState<DataPoint[]>(() => [
     ...aircraftData, ...shipData, ...earthquakeData,
-    ...eventData, ...fireData, ...weatherData,
+    ...eventData, ...fireData, ...weatherData, ...cycloneData,
   ]);
 
   const allDataRafRef = useRef(0);
@@ -120,11 +123,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const s = allDataSourcesRef.current;
       setAllData([
         ...s.aircraftData, ...s.shipData, ...s.earthquakeData,
-        ...s.eventData, ...s.fireData, ...s.weatherData,
+        ...s.eventData, ...s.fireData, ...s.weatherData, ...s.cycloneData,
       ]);
     });
     return () => cancelAnimationFrame(allDataRafRef.current);
-  }, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData]);
+  }, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData]);
 
   // ── ID Map — for UIProvider's selectedCurrent resolution ───────
   const idMap = useMemo(() => {
@@ -172,9 +175,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "ships", label: "SHIPS", status: shipSource },
       { id: "fires", label: "FIRMS", status: fireSource },
       { id: "weather", label: "NOAA", status: weatherSource },
+      { id: "cyclones", label: "NHC", status: cycloneSource },
       { id: "news", label: "NEWS", status: newsSource },
     ],
-    [dataSource, earthquakeSource, eventSource, shipSource, fireSource, weatherSource, newsSource],
+    [dataSource, earthquakeSource, eventSource, shipSource, fireSource, weatherSource, cycloneSource, newsSource],
   );
 
   // ── Filters ────────────────────────────────────────────────────
@@ -186,6 +190,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       quakes: { enabled: layers.quakes ?? true, minMagnitude: 0 },
       fires: { enabled: layers.fires ?? true, minConfidence: 0 },
       weather: { enabled: layers.weather ?? true, minSeverity: 0 },
+      cyclones: {
+        enabled: layers.cyclones ?? true,
+        minCategory: 0,
+        showForecast: true,
+        showCone: true,
+      },
     }),
     [aircraftFilter, layers],
   );

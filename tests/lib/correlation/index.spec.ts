@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
 
-// ── Mock storageService before importing correlationEngine ──────────
-// The engine calls cacheGet/cacheSet for baseline persistence.
+// ── Mock storageService before importing the correlation engine ────
+// baseline.ts calls cacheGet/cacheSet for persistence.
 
 mock.module("@/lib/storageService", () => ({
   cacheGet: async () => null,
@@ -11,8 +11,9 @@ mock.module("@/lib/storageService", () => ({
   cacheInit: async () => {},
 }));
 
-const { computeCorrelations, initBaseline } =
-  await import("@/lib/correlationEngine");
+const { computeCorrelations, initBaseline } = await import(
+  "@/lib/correlation"
+);
 
 // ── Test data factories ─────────────────────────────────────────────
 

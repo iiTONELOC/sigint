@@ -36,3 +36,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .vscode
 *.csv.gz
 *.zip
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+docs/cyclones.md

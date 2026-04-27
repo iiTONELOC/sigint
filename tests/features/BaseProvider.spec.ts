@@ -20,6 +20,7 @@ function makeProvider(
     fetchFn?: () => Promise<DataPoint[]>;
     mergeFn?: (existing: DataPoint[], incoming: DataPoint[]) => DataPoint[];
     maxCacheAgeMs?: number;
+    allowEmptyResult?: boolean;
   } = {},
 ) {
   const points = [makePoint("p1"), makePoint("p2")];
@@ -29,6 +30,7 @@ function makeProvider(
     maxCacheAgeMs: overrides.maxCacheAgeMs ?? 300_000,
     fetchFn: overrides.fetchFn ?? (async () => points),
     mergeFn: overrides.mergeFn,
+    allowEmptyResult: overrides.allowEmptyResult,
   });
 }
 
@@ -196,5 +198,128 @@ describe("BaseProvider with mergeFn", () => {
     expect(second).toHaveLength(2);
     expect(second[0]!.id).toBe("incoming-1");
     expect(second[1]!.id).toBe("incoming-2");
+  });
+});
+
+// ── allowEmptyResult (cyclones / out-of-season truth) ──────────────
+
+describe("BaseProvider with allowEmptyResult", () => {
+  test("allowEmptyResult: true persists empty incoming as the truth", async () => {
+    let callNum = 0;
+    const provider = makeProvider({
+      allowEmptyResult: true,
+      fetchFn: async () => {
+        callNum++;
+        if (callNum === 1) return [makePoint("p1"), makePoint("p2")];
+        return [];
+      },
+    });
+
+    const first = await provider.refresh();
+    expect(first).toHaveLength(2);
+
+    const second = await provider.refresh();
+    expect(second).toHaveLength(0);
+
+    const snapshot = provider.getSnapshot();
+    expect(snapshot.entities).toHaveLength(0);
+    expect(snapshot.error).toBeNull();
+  });
+
+  test("allowEmptyResult: false (default) retains stale cache on empty", async () => {
+    let callNum = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        callNum++;
+        if (callNum === 1) return [makePoint("p1"), makePoint("p2")];
+        return [];
+      },
+    });
+
+    await provider.refresh();
+    const second = await provider.refresh();
+    expect(second).toHaveLength(2);
+    expect(second[0]!.id).toBe("p1");
+  });
+
+  test("allowEmptyResult: true still respects fetch errors (falls back to cache)", async () => {
+    let callNum = 0;
+    const provider = makeProvider({
+      allowEmptyResult: true,
+      fetchFn: async () => {
+        callNum++;
+        if (callNum === 1) return [makePoint("p1")];
+        throw new Error("Network error");
+      },
+    });
+
+    await provider.refresh();
+    const second = await provider.refresh();
+    expect(second).toHaveLength(1);
+    expect(provider.getSnapshot().error).not.toBeNull();
+  });
+});
+
+// ── mute() / unmute() — drops the as-any cast in frontend.tsx ──────
+
+describe("BaseProvider mute() / unmute()", () => {
+  test("mute() suspends onChange notifications", async () => {
+    const provider = makeProvider({ maxCacheAgeMs: 1 });
+    let onChangeCalls = 0;
+    provider.onChange(() => {
+      onChangeCalls++;
+    });
+
+    await provider.getData();
+    onChangeCalls = 0;
+
+    const restore = provider.mute();
+    await new Promise((r) => setTimeout(r, 10));
+    await provider.getData(1); // would notify if not muted
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onChangeCalls).toBe(0);
+
+    restore();
+  });
+
+  test("unmute(restore) restores the prior callback and fires it once", async () => {
+    const provider = makeProvider();
+    let onChangeCalls = 0;
+    provider.onChange(() => {
+      onChangeCalls++;
+    });
+
+    const restore = provider.mute();
+    expect(onChangeCalls).toBe(0);
+
+    provider.unmute(restore);
+    expect(onChangeCalls).toBe(1);
+  });
+
+  test("mute/unmute round-trip preserves the callback for later notifications", async () => {
+    const provider = makeProvider({ maxCacheAgeMs: 1 });
+    let onChangeCalls = 0;
+    provider.onChange(() => {
+      onChangeCalls++;
+    });
+
+    const restore = provider.mute();
+    provider.unmute(restore); // fires once
+    expect(onChangeCalls).toBe(1);
+
+    await provider.getData();
+    onChangeCalls = 0;
+    await new Promise((r) => setTimeout(r, 10));
+    await provider.getData(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onChangeCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  test("mute() returns a no-op when no callback is registered", () => {
+    const provider = makeProvider();
+    const restore = provider.mute();
+    expect(typeof restore).toBe("function");
+    provider.unmute(restore);
+    // No throw, no leak.
   });
 });

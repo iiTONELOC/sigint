@@ -20,8 +20,16 @@ describe("cacheKeys", () => {
     expect(CACHE_KEYS.ships).toBeDefined();
     expect(CACHE_KEYS.fires).toBeDefined();
     expect(CACHE_KEYS.weather).toBeDefined();
+    expect(CACHE_KEYS.cyclones).toBeDefined();
+    expect(CACHE_KEYS.cycloneDossier).toBeDefined();
     expect(CACHE_KEYS.trails).toBeDefined();
     expect(CACHE_KEYS.news).toBeDefined();
+  });
+
+  test("cyclone keys are distinct and follow the sigint.<source>.<scope>.<v> shape", () => {
+    expect(CACHE_KEYS.cyclones).not.toBe(CACHE_KEYS.cycloneDossier);
+    expect(CACHE_KEYS.cyclones).toMatch(/^sigint\..*\.v\d+$/);
+    expect(CACHE_KEYS.cycloneDossier).toMatch(/^sigint\..*\.v\d+$/);
   });
 
   test("expected UI keys exist", () => {

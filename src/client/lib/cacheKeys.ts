@@ -11,6 +11,8 @@ export const CACHE_KEYS = {
   ships: `sigint.ais.ship-cache.${V}`,
   fires: `sigint.firms.fire-cache.${V}`,
   weather: `sigint.noaa.weather-cache.${V}`,
+  cyclones: `sigint.nhc.cyclones-cache.${V}`,
+  cycloneDossier: `sigint.nhc.cyclone-dossier-cache.${V}`,
   trails: `sigint.trails.${V}`,
   land: `sigint.land.hd.${V}`,
   /** @deprecated Use layoutDesktop / layoutMobile instead */
@@ -50,6 +52,8 @@ export const CACHE_KEY_LABELS: Record<
   [CACHE_KEYS.ships]: { label: "AIS vessel data", group: "Data" },
   [CACHE_KEYS.fires]: { label: "Fire hotspots", group: "Data" },
   [CACHE_KEYS.weather]: { label: "Weather alerts", group: "Data" },
+  [CACHE_KEYS.cyclones]: { label: "Tropical cyclones", group: "Data" },
+  [CACHE_KEYS.cycloneDossier]: { label: "Cyclone dossier cache", group: "Data" },
   [CACHE_KEYS.trails]: { label: "Position trails", group: "Data" },
   [CACHE_KEYS.land]: { label: "Coastline geometry", group: "Data" },
   [CACHE_KEYS.dossier]: { label: "Dossier cache", group: "Data" },

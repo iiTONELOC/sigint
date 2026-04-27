@@ -9,6 +9,7 @@ import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
 import { getNewsCache } from "./newsCache";
+import { getCyclonesCache } from "./cyclonesCache";
 import {
   getAircraftDossier,
   isValidIcao24,
@@ -170,6 +171,32 @@ export const apiRoutes = {
         data: cache.data,
         fetchedAt: cache.fetchedAt,
         fireCount: cache.fireCount,
+      });
+    },
+  },
+
+  // ── NHC tropical cyclones ──────────────────────────────────────
+  // Server proxy of CurrentStorms.json (NHC sends no CORS headers).
+  // Empty activeStorms array is the legitimate out-of-season state and
+  // is served as 200, not 503 — distinct from FIRMS/AIS where empty
+  // typically signals a temporary outage.
+  "/api/cyclones/latest": {
+    async GET(req: Request) {
+      const blocked = await guardAuth(req);
+      if (blocked) return blocked;
+
+      const cache = getCyclonesCache();
+      if (!cache.body) {
+        return jsonError(
+          { error: cache.error ?? "No cyclone data available yet" },
+          503,
+        );
+      }
+
+      return jsonResponse(req, {
+        activeStorms: cache.body.activeStorms,
+        fetchedAt: cache.fetchedAt,
+        stormCount: cache.stormCount,
       });
     },
   },

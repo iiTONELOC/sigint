@@ -57,7 +57,10 @@ function LayerToggle({
   return (
     <Tooltip content={tooltipText} placement="bottom">
       <button
+        type="button"
         onClick={onToggle}
+        aria-label={`Toggle ${label} layer`}
+        aria-pressed={on}
         className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start"
         style={{
           color: on ? color : undefined,
@@ -65,13 +68,14 @@ function LayerToggle({
           borderColor: on ? `${color}50` : undefined,
         }}
       >
-        <Icon size="var(--sig-text-icon)" {...iconProps} />
+        <Icon size="var(--sig-text-icon)" aria-hidden="true" {...iconProps} />
         <span className="hidden sm:inline">
           {down && count === 0 ? (
             <AlertTriangle
               size={10}
               strokeWidth={2.5}
               className="text-sig-dim opacity-60"
+              aria-label={`${label} source offline`}
             />
           ) : (
             count
@@ -242,11 +246,13 @@ export function Header(props: Readonly<HeaderProps>) {
           <LayoutModeToggle />
           <Tooltip content="Settings" placement="bottom">
             <button
+              type="button"
               data-tour="settings-button"
+              aria-label="Open settings"
               onClick={() => setShowSettings(true)}
               className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
             >
-              <Settings size={15} strokeWidth={2} />
+              <Settings size={15} strokeWidth={2} aria-hidden="true" />
             </button>
           </Tooltip>
         </div>
@@ -279,12 +285,14 @@ export function Header(props: Readonly<HeaderProps>) {
             </div>
             <LayoutModeToggle />
             <button
+              type="button"
               data-tour="settings-button"
+              aria-label="Open settings"
               onClick={() => setShowSettings(true)}
               className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
               title="Settings"
             >
-              <Settings size={14} strokeWidth={2} />
+              <Settings size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
         </div>

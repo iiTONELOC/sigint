@@ -6,6 +6,7 @@ import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
+import { startCyclonesPolling } from "./api/cyclonesCache";
 import { createStaticRoutes } from "./staticRoutes";
 
 const publicDir = resolve(import.meta.dir, "../../public");
@@ -34,3 +35,4 @@ startGdeltPolling();
 startAisPolling();
 startFirmsPolling();
 startNewsPolling();
+startCyclonesPolling();

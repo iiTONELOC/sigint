@@ -9,7 +9,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
 import { cacheInit } from "./lib/storageService";
-import { initBaseline } from "./lib/correlationEngine";
+import { initBaseline } from "./lib/correlation";
 import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
 import { registerSW, applyUpdate } from "./lib/swRegistration";
@@ -23,6 +23,7 @@ import { weatherProvider } from "./features/environmental/weather/data/provider"
 import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
 import { newsProvider } from "./features/news";
 import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
+import { cycloneProvider } from "./features/environmental/cyclones";
 
 // Fire cacheInit NOW — runs while the rest of the module parses.
 // By the time we await it below, IDB is likely already open.
@@ -67,7 +68,7 @@ if (import.meta.hot) {
   createRoot(elem).render(app);
 }
 
-// Provider list
+// Provider list — typed via the shared DataProvider contract, no cast needed.
 const providers = [
   shipProvider,
   gdeltProvider,
@@ -76,22 +77,17 @@ const providers = [
   earthquakeProvider,
   newsProvider,
   aircraftProvider,
-] as any[];
+  cycloneProvider,
+] as const;
 
-function muteProviders(): Array<(() => void) | null> {
-  const saved = providers.map((p) => p._onChange ?? null);
-  providers.forEach((p) => {
-    p._onChange = null;
-  });
-  return saved;
+function muteAll(): Array<() => void> {
+  return providers.map((p) => p.mute());
 }
 
-function restoreAndNotify(saved: Array<(() => void) | null>): void {
-  providers.forEach((p, i) => {
-    p._onChange = saved[i];
-  });
-  providers.forEach((p) => {
-    if (p._onChange) p._onChange();
+function unmuteAll(restorers: Array<() => void>): void {
+  restorers.forEach((r, i) => {
+    const provider = providers[i];
+    if (provider) provider.unmute(r);
   });
 }
 
@@ -99,11 +95,11 @@ function restoreAndNotify(saved: Array<(() => void) | null>): void {
   // 2. IDB hydration — one batch
   await cacheReady;
 
-  let saved = muteProviders();
+  let saved = muteAll();
   const hydrationResults = await Promise.all(
     providers.map((p) => p.hydrate().catch(() => null)),
   );
-  restoreAndNotify(saved);
+  unmuteAll(saved);
 
   // Non-blocking background work
   Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
@@ -116,7 +112,10 @@ function restoreAndNotify(saved: Array<(() => void) | null>): void {
     // null = no cached data, needs fetch
     // { stale: true } = cached but expired, needs fetch
     // { stale: false } = fresh cache, skip
-    return !result || result.stale;
+    return (
+      !result ||
+      (typeof result === "object" && "stale" in result && result.stale)
+    );
   });
 
   if (staleProviders.length > 0) {
@@ -125,14 +124,15 @@ function restoreAndNotify(saved: Array<(() => void) | null>): void {
 
     // Ensure aircraft metadata DB is ready before refresh —
     // otherwise applyMetadata can't enrich and military/type data is lost
-    const { ensureMetadataDb } =
-      await import("./features/tracking/aircraft/data/typeLookup");
+    const { ensureMetadataDb } = await import(
+      "./features/tracking/aircraft/data/typeLookup"
+    );
     await ensureMetadataDb().catch(() => {});
 
     // 4. Network refresh — only stale/missing providers, one batch
-    saved = muteProviders();
+    saved = muteAll();
     await Promise.all(staleProviders.map((p) => p.refresh().catch(() => {})));
-    restoreAndNotify(saved);
+    unmuteAll(saved);
   }
 })().catch(() => {});
 

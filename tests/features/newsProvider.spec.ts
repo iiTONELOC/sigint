@@ -139,3 +139,28 @@ describe("NewsArticle shape", () => {
     expect(typeof article.description).toBe("string");
   });
 });
+
+// ── mute() / unmute() — mirrors BaseProvider for frontend.tsx batch ──
+
+describe("newsProvider.mute() / unmute()", () => {
+  test("mute() returns a restore token of type function", () => {
+    const restore = newsProvider.mute();
+    expect(typeof restore).toBe("function");
+    newsProvider.unmute(restore);
+  });
+
+  test("unmute(restore) re-installs the prior callback and fires once", () => {
+    let calls = 0;
+    newsProvider.onChange(() => {
+      calls++;
+    });
+
+    const restore = newsProvider.mute();
+    expect(calls).toBe(0);
+
+    newsProvider.unmute(restore);
+    expect(calls).toBe(1);
+
+    newsProvider.onChange(null);
+  });
+});
