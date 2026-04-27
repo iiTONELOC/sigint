@@ -24,14 +24,13 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "list",
   webServer: {
     command: "bun run start",
-    url: "http://localhost:3000",
+    url: "http://localhost:5500",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
     env: {
-      PORT: "3000",
+      PORT: "5500",
       // Test-only secret. Never reuse production secrets in tests (A07).
-      SIGINT_SERVER_SECRET:
-        "test-secret-do-not-use-in-prod-0123456789abcdef",
+      SIGINT_SERVER_SECRET: "test-secret-do-not-use-in-prod-0123456789abcdef",
       // Lift rate limit for E2E — Playwright's browser presents the same
       // "unknown" IP for every request and exhausts the prod 60/min cap
       // mid-suite. Production cap is unchanged (RATE_LIMIT_DEFAULT).
@@ -39,7 +38,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:5500",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

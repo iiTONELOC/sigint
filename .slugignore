@@ -1,0 +1,7 @@
+# ── Heroku slug exclusions ─────────────────────────────────────────
+# Heroku's build hook runs `bun run build` (which generates
+# src/server/data/ac-db.sqlite from src/server/data/ac-db.ndjson).
+# After the build, the slug compress step honours this file. The 52 MB
+# source NDJSON is build-time only — keep it out of the dyno slug.
+
+src/server/data/ac-db.ndjson

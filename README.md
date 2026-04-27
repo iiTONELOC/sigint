@@ -96,25 +96,25 @@ See [Deployment](#deployment) for dev, production, and Heroku options.
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SIGINT_SERVER_SECRET` | **Yes** | Auth token signing key. `openssl rand -hex 32` |
-| `AISSTREAM_API_KEY` | No | [aisstream.io](https://aisstream.io) key for live ship data |
-| `FIRMS_MAP_KEY` | No | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/) key for fire data |
-| `DOMAIN` | No | Domain for Let's Encrypt TLS |
-| `PORT` | No | Server port (default: 3000) |
+| Variable               | Required | Description                                                                       |
+| ---------------------- | -------- | --------------------------------------------------------------------------------- |
+| `SIGINT_SERVER_SECRET` | **Yes**  | Auth token signing key. `openssl rand -hex 32`                                    |
+| `AISSTREAM_API_KEY`    | No       | [aisstream.io](https://aisstream.io) key for live ship data                       |
+| `FIRMS_MAP_KEY`        | No       | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/) key for fire data |
+| `DOMAIN`               | No       | Domain for Let's Encrypt TLS                                                      |
+| `PORT`                 | No       | Server port (default: 5500)                                                       |
 
 ## Data Sources
 
-| Layer | Source | Poll |
-|-------|--------|------|
+| Layer    | Source                                                                          | Poll |
+| -------- | ------------------------------------------------------------------------------- | ---- |
 | Aircraft | [adsb.fi](https://opendata.adsb.fi) (server-side tile sweep, 37 tiles × 250 nm) | 240s |
-| Ships | [aisstream.io](https://aisstream.io) (server WebSocket) | 300s |
-| Seismic | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side) | 420s |
-| Fires | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side) | 600s |
-| Weather | [NOAA](https://api.weather.gov/) (client-side) | 300s |
-| Events | [GDELT 2.0](https://www.gdeltproject.org/) (server-side) | 15m |
-| News | 6 RSS feeds (server-side) | 10m |
+| Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                         | 300s |
+| Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side)        | 420s |
+| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side)               | 600s |
+| Weather  | [NOAA](https://api.weather.gov/) (client-side)                                  | 300s |
+| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                        | 15m  |
+| News     | 6 RSS feeds (server-side)                                                       | 10m  |
 
 ## Testing
 
@@ -139,10 +139,10 @@ Two env vars short-circuit live data fetches in development so you can
 work against a known frozen state. Both are gated on
 `NODE_ENV !== "production"` and ignored in production builds.
 
-| Env var | Source it overrides | Valid labels |
-|---|---|---|
-| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC) | `single-cat3`, `single-cat5`, `multi-storm`, `subtropical-example`, `tropical-depression`, `empty-out-of-season` |
-| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | (none shipped — capture via `bun run scripts/capture-fixture.ts aircraft <label>`) |
+| Env var            | Source it overrides                                        | Valid labels                                                                                                     |
+| ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `single-cat3`, `single-cat5`, `multi-storm`, `subtropical-example`, `tropical-depression`, `empty-out-of-season` |
+| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | (none shipped — capture via `bun run scripts/capture-fixture.ts aircraft <label>`)                               |
 
 Labels match `/^[a-z0-9-]+$/` (OWASP A01 — strict allowlist before any
 file lookup) and resolve to `tests/fixtures/<source>/<label>.json`.
@@ -163,7 +163,7 @@ CYCLONES_FIXTURE=single-cat5 bun run docker:dev:up
 ### Production
 
 ```bash
-bun run docker:prod:up         # http://localhost:3000
+bun run docker:prod:up         # http://localhost:5500
 bun run docker:prod:down       # stop
 ```
 

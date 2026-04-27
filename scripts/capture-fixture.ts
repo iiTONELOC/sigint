@@ -18,7 +18,7 @@
  *   bun run scripts/capture-fixture.ts weather snapshot-2026-04-26
  *
  * Sources that require auth (ships / events / fires) need a local server
- * running on http://localhost:3000 (override via SIGINT_FIXTURE_SERVER env).
+ * running on http://localhost:5500 (override via SIGINT_FIXTURE_SERVER env).
  *
  * SSRF (OWASP A10): the URL list is a hardcoded allowlist — `source` is
  * validated against it, never interpolated. `label` is constrained to
@@ -28,7 +28,7 @@
 
 const USER_AGENT = "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
 const SERVER_BASE =
-  process.env.SIGINT_FIXTURE_SERVER ?? "http://localhost:3000";
+  process.env.SIGINT_FIXTURE_SERVER ?? "http://localhost:5500";
 
 export type SourceSpec = {
   url: string;
@@ -41,10 +41,7 @@ export const SOURCES: Record<string, SourceSpec> = {
     url: "https://www.nhc.noaa.gov/CurrentStorms.json",
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
   },
-  aircraft: {
-    url: "https://opensky-network.org/api/states/all",
-    headers: { Accept: "application/json" },
-  },
+  aircraft: { url: `${SERVER_BASE}/api/aircraft/states`, needsAuth: true },
   weather: {
     url: "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
     headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },

@@ -13,12 +13,12 @@ services:
       - CYCLONES_FIXTURE=${CYCLONES_FIXTURE:-}
       - AIRCRAFT_FIXTURE=${AIRCRAFT_FIXTURE:-}
     # Direct host port for the bun server. Caddy still terminates TLS on
-    # 443; this 3000 mapping is here so a sibling/remote box can hit the
+    # 443; this 5500 mapping is here so a sibling/remote box can hit the
     # dev server over plain HTTP via SSH port-forward (`ssh -L
-    # 3000:localhost:3000 dev-host`) without dealing with Caddy's
+    # 5500:localhost:5500 dev-host`) without dealing with Caddy's
     # self-signed cert chain.
     ports:
-      - "3000:3000"
+      - "5500:5500"
     volumes:
       - ./src:/app/src
       - ./public:/app/public
@@ -35,7 +35,7 @@ services:
           "CMD",
           "bun",
           "--eval",
-          "const res = await fetch('http://localhost:3000'); process.exit(res.ok ? 0 : 1);",
+          "const res = await fetch('http://localhost:5500'); process.exit(res.ok ? 0 : 1);",
         ]
       interval: 30s
       timeout: 10s

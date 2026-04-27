@@ -8,5 +8,5 @@
 # Only used when ENABLE_TLS=true in docker-compose.prod.yml.
 
 {$DOMAIN:localhost} {
-	reverse_proxy web:{$PORT:3000}
+	reverse_proxy web:{$PORT:5500}
 }

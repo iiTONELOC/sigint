@@ -16,12 +16,12 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-5500}:${PORT:-5500}"
     env_file:
       - .env
     environment:
       - NODE_ENV=production
-      - PORT=${PORT:-3000}
+      - PORT=${PORT:-5500}
     restart: always
     command: bun src/server/index.prod.ts
     healthcheck:
@@ -46,7 +46,7 @@ services:
       - "80:80"
     environment:
       - DOMAIN=${DOMAIN:-localhost}
-      - PORT=${PORT:-3000}
+      - PORT=${PORT:-5500}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile
       - caddy_data:/data

@@ -10,7 +10,7 @@ import { startAircraftPolling } from "./api/aircraftCache";
 import { withSecurityHeaders } from "./api/securityHeaders";
 import { createStaticRoutes, safePath } from "./staticRoutes";
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 5500);
 const distDir = resolve(import.meta.dir, "../../dist");
 const publicDir = resolve(import.meta.dir, "../../public");
 

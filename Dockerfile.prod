@@ -1,4 +1,9 @@
-FROM oven/bun:1
+# ── Stage 1: builder ─────────────────────────────────────────────
+# Compiles the frontend bundle and generates the read-only aircraft
+# metadata SQLite from the source NDJSON. The 52 MB NDJSON exists
+# only inside this stage; it is removed before stage 2 copies the
+# tree, so the runtime image carries just the SQLite.
+FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
@@ -9,6 +14,7 @@ RUN bun install
 
 COPY src ./src
 COPY public ./public
+COPY scripts ./scripts
 COPY tsconfig.json .
 COPY components.json .
 COPY bun-env.d.ts .
@@ -16,10 +22,30 @@ COPY bunfig.toml .
 COPY build.ts .
 COPY postbuild.ts .
 
-# Build frontend assets + PWA service worker injection
-RUN bun run build.ts && bun run postbuild.ts
+# `bun run build` runs build:aircraft-db (NDJSON → SQLite) followed by
+# build.ts + postbuild.ts (frontend bundle + service-worker manifest).
+# Drop the source NDJSON in the same RUN so the layer that stage 2
+# copies has only the SQLite.
+RUN bun run build && rm src/server/data/ac-db.ndjson
+
+# ── Stage 2: runtime ─────────────────────────────────────────────
+# Slim image that ships dist/ + src/server/ (incl. ac-db.sqlite) +
+# production deps. No NDJSON, no build scripts, no test fixtures.
+FROM oven/bun:1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY package.json .
+RUN bun install
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/src/server ./src/server
+COPY --from=builder /app/tsconfig.json .
+COPY --from=builder /app/bun-env.d.ts .
 
 ENV NODE_ENV=production
 
-# Serve the built dist/ directory
 CMD ["bun", "src/server/index.prod.ts"]

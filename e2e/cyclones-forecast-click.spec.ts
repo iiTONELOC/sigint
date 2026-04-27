@@ -53,8 +53,17 @@ test.describe("cyclones — clickable forecast points", () => {
     // not in the live tree). It uses cycloneForecastFeature.
     // buildDetailRows from forecastDefinition.ts — verify the
     // forecast-specific "FORECAST" row + "+Nh" value land in the DOM.
-    const panel = page.getByText(/\+120h/i).first();
-    if ((await panel.count()) === 0) {
+    //
+    // Scoping: the +120h string also appears in the Ticker, which
+    // renders ~9 buffer copies that scroll off-screen via translateX.
+    // `getByText(/\+120h/).first()` resolves to a Ticker copy first
+    // and reports `hidden`, even when the DetailPanel copy is
+    // visible. Anchor the locator inside the DetailPanel container,
+    // which is uniquely identified by the OPEN IN DOSSIER button.
+    const openDossierBtn = page.getByRole("button", {
+      name: /open in dossier/i,
+    });
+    if ((await openDossierBtn.count()) === 0) {
       // Layout variant didn't surface the panel — skip rather than
       // false-fail. Component-level coverage in
       // CycloneForecastDossier.spec.tsx already exercises the full
@@ -62,7 +71,23 @@ test.describe("cyclones — clickable forecast points", () => {
       test.skip();
       return;
     }
-    await expect(panel).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText(/STORM_TEST_C5/).first()).toBeVisible();
+    await expect(openDossierBtn).toBeVisible({ timeout: 5_000 });
+
+    // The same +120h string lives in the collapsed Ticker at the
+    // bottom of the page — its DOM is present but display:hidden, so
+    // a plain getByText/.first() resolves to a Ticker copy first and
+    // reports `hidden`. The `span:visible` engine skips those.
+    await expect(
+      page
+        .locator("span:visible")
+        .filter({ hasText: /^\+120h$/ })
+        .first(),
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page
+        .locator("span:visible")
+        .filter({ hasText: /^STORM_TEST_C5$/ })
+        .first(),
+    ).toBeVisible();
   });
 });

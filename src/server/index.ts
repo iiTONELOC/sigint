@@ -14,7 +14,7 @@ const publicDir = resolve(import.meta.dir, "../../public");
 
 const server = serve({
   hostname: "0.0.0.0",
-  port: 3000,
+  port: 5500,
   maxRequestBodySize: 1024 * 1024, // 1 MB — all API routes are GET, this is a safety cap
   routes: {
     ...createStaticRoutes(publicDir),

@@ -1,0 +1,10 @@
+{"i":"abc100","r":"F-35A Lightning II","tc":"F35","md":"F-35A","mf":"LOCKHEED MARTIN","ca":"L1J"}
+{"i":"abc101","r":"Boeing 737-800","tc":"B738","md":"737-800","mf":"BOEING","rg":"N123AA","op":"American Airlines","oi":"AAL","ca":"L2J"}
+{"i":"abc102","r":"Westland Sea King","op":"Royal Navy","ca":"H2T"}
+{"i":"ae5000","r":"Lockheed C-130J","md":"C-130J","mf":"LOCKHEED MARTIN"}
+{"i":"abc103","r":"Airbus A320","tc":"A320","md":"A320-200","mf":"AIRBUS","rg":"D-AIQA","op":"Lufthansa","oi":"DLH","ca":"L2J"}
+{"i":"abc104","r":"Cessna Citation","tc":"C25A","md":"525A","mf":"CESSNA"}
+{"i":"adffff","r":"BizJet (just below mil hex range)","tc":"GLF6","mf":"GULFSTREAM"}
+{"i":"abc105","r":"Reaper","tc":"REAP","mf":"GENERAL ATOMICS","op":"Defence Forces"}
+{"i":"abc106","r":"Civil airframe with mil operator","tc":"B738","op":"Royal Air Force VIP Flight"}
+{"i":"b00000","r":"Just above mil hex range","tc":"E190","mf":"EMBRAER"}

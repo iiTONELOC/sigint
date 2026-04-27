@@ -1,0 +1,30 @@
+{
+  "_comment": "Visual-baseline fixture for the AircraftDossier Playwright spec. One fully-enriched aircraft (military F-35, US-mil hex, full metadata) used to pin the rendered dossier across the SQLite migration. Mirrors the post-enrichment shape that aircraftCache.ts writes — adsb.fi v3 raw fields PLUS the server-side enrichment fields (acType, registration, military, etc.) attached by enrichRecord before the cache write. Lat/lon chosen for visibility at the default camera (no autoRotate, no zoom).",
+  "ac": [
+    {
+      "hex": "ae5500",
+      "type": "adsb_icao",
+      "flight": "MAGIC01 ",
+      "r": "TEST-N99",
+      "t": "F35",
+      "alt_baro": 30000,
+      "alt_geom": 30025,
+      "gs": 350,
+      "track": 90,
+      "baro_rate": 1200,
+      "squawk": "7700",
+      "category": "A3",
+      "lat": 20,
+      "lon": -50,
+      "acType": "F-35A Lightning II",
+      "typecode": "F35",
+      "model": "F-35A",
+      "manufacturerName": "LOCKHEED MARTIN",
+      "registration": "TEST-N99",
+      "operator": "United States Air Force",
+      "operatorIcao": "USAF",
+      "categoryDescription": "High Vortex Aircraft",
+      "military": true
+    }
+  ]
+}

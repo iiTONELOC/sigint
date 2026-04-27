@@ -18,4 +18,4 @@ COPY bunfig.toml .
 COPY build.ts .
 COPY postbuild.ts .
 
-EXPOSE 3000
+EXPOSE 5500

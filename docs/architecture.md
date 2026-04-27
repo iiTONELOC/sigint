@@ -84,15 +84,15 @@ NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alert
 
 ### Server API Routes
 
-| Route | Method | Auth | Rate Limit | Purpose |
-|-------|--------|------|------------|---------|
-| `/api/auth/token` | GET | None | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL) |
-| `/api/events/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed) |
-| `/api/ships/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed) |
-| `/api/aircraft/metadata/db/v1` | GET | HttpOnly cookie | 60 req/min per IP | Full aircraft metadata NDJSON (~8.5MB gzip). Versioned route — client caches in IndexedDB, never re-fetches same version. `Cache-Control: immutable`. |
-| `/api/fires/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed) |
-| `/api/news/latest` | GET | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed) |
-| `/api/dossier/aircraft/:icao24` | GET | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos) |
+| Route                           | Method | Auth            | Rate Limit        | Purpose                                                                                                                                               |
+| ------------------------------- | ------ | --------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/auth/token`               | GET    | None            | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                                                                                   |
+| `/api/events/latest`            | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed)                                                                                                         |
+| `/api/ships/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed)                                                                                                 |
+| `/api/aircraft/metadata/db/v1`  | GET    | HttpOnly cookie | 60 req/min per IP | Full aircraft metadata NDJSON (~8.5MB gzip). Versioned route — client caches in IndexedDB, never re-fetches same version. `Cache-Control: immutable`. |
+| `/api/fires/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                                                                             |
+| `/api/news/latest`              | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed)                                                                                                    |
+| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos)                                                                                               |
 
 ### Auth + Rate Limiting
 
@@ -104,12 +104,12 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SIGINT_SERVER_SECRET` | **Yes** | Server-only secret for signing auth tokens. Generate with `openssl rand -hex 32`. Server refuses to start without it. |
-| `AISSTREAM_API_KEY` | No | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty. |
-| `FIRMS_MAP_KEY` | No | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
-| `PORT` | No | Server port (default: 3000) |
+| Variable               | Required | Description                                                                                                                                                                       |
+| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SIGINT_SERVER_SECRET` | **Yes**  | Server-only secret for signing auth tokens. Generate with `openssl rand -hex 32`. Server refuses to start without it.                                                             |
+| `AISSTREAM_API_KEY`    | No       | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty.                               |
+| `FIRMS_MAP_KEY`        | No       | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
+| `PORT`                 | No       | Server port (default: 5500)                                                                                                                                                       |
 
 ---
 
@@ -287,14 +287,14 @@ When `chromeHidden` is true (toggled by clicking empty globe area): Header, Tick
 
 ### Z-Index Stack
 
-| z-index | Component |
-|---|---|
-| (none) | Header — no stacking context (preserves dropdown rendering) |
-| z-30 | Trail waypoint tooltip, PaneMobile sticky tab bar |
-| z-40 | DetailPanel |
-| z-50 | PaneManager add-pane menu |
-| z-[60] | AircraftFilterControl dropdown, Search dropdown |
-| z-[70] | SettingsModal |
-| z-[80] | LayoutPresetMenu portal, PaneMobile add-pane dropdown |
-| z-[9998] | Pull-to-refresh spinner |
-| z-[9999] | ConnectionStatus offline/reconnected bar, SW update banner |
+| z-index  | Component                                                   |
+| -------- | ----------------------------------------------------------- |
+| (none)   | Header — no stacking context (preserves dropdown rendering) |
+| z-30     | Trail waypoint tooltip, PaneMobile sticky tab bar           |
+| z-40     | DetailPanel                                                 |
+| z-50     | PaneManager add-pane menu                                   |
+| z-[60]   | AircraftFilterControl dropdown, Search dropdown             |
+| z-[70]   | SettingsModal                                               |
+| z-[80]   | LayoutPresetMenu portal, PaneMobile add-pane dropdown       |
+| z-[9998] | Pull-to-refresh spinner                                     |
+| z-[9999] | ConnectionStatus offline/reconnected bar, SW update banner  |
