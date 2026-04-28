@@ -28,11 +28,14 @@
 //                        v2). Military classification is owned by the
 //                        existing local NDJSON DB enrichment pipeline.
 //
-// Left for the local DB enrichment to fill (existing behavior):
+// Server-side enrichment fills these fields before the cache write
+// (see src/server/api/aircraftEnrichment.ts):
 //   - acType, model, registration, manufacturerName, operator,
-//     operatorIcao, categoryDescription, military.
-//
-// Future ticket: derive originCountry from icao24 hex prefix range.
+//     operatorIcao, categoryDescription, military, originCountry.
+// originCountry is derived from the icao24 hex-prefix block per
+// ICAO Annex 10 — `country` consumers used to read empty-string and
+// fall back to "Unknown"; that fallback still fires for hexes the
+// Annex 10 table doesn't yet cover.
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftData } from "../types";
@@ -68,6 +71,7 @@ type AdsbAircraft = {
   operatorIcao?: string;
   categoryDescription?: string;
   military?: boolean;
+  originCountry?: string;
 };
 
 type AdsbResponse = { ac?: AdsbAircraft[] };
@@ -103,7 +107,7 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
   return {
     icao24: a.hex,
     callsign,
-    originCountry: "",
+    originCountry: a.originCountry ?? "",
     acType: a.acType ?? "Unknown",
     altitude,
     speed,

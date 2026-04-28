@@ -28,7 +28,7 @@ import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
 export const ADSB_BASE_URL = "https://opendata.adsb.fi/api/v3";
 export const USER_AGENT =
   "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
-// 300 s wake cadence. With 113 tiles × 3 s spacing the full sweep takes
+// 300 s wake cadence. With 108 tiles × 3 s spacing the full sweep takes
 // ~340 s, which exceeds the wake cadence — that's intentional: streaming
 // writes mean clients see fresh data progressively *during* the sweep,
 // and the sweepInProgress guard skips overlapping kicks rather than
@@ -47,7 +47,7 @@ export const RETRY_DEFAULT_DELAY_MS = 30_000;
 export const TILE_RADIUS_NM = 250; // v3 server cap (verified)
 const FETCH_TIMEOUT_MS = 30_000;
 
-// ── 113-tile global coverage (lat, lon) ─────────────────────────────
+// ── 108-tile global coverage (lat, lon) ─────────────────────────────
 // Dense grid: centres ≤ 6° apart in lat and ≤ 8° apart in lon over
 // high-traffic regions, sparser at high latitudes / low-receiver
 // areas. Each tile is a 250 nm (≈463 km) radius disc — overlapping
@@ -55,7 +55,7 @@ const FETCH_TIMEOUT_MS = 30_000;
 // merging duplicates. Earlier 37-tile sparse layout left visible
 // pockets between discs in the rendered globe.
 //
-// Sweep budget at 1.1 s/req: 113 × 1.1 = 124.3 s, fits the 240 s poll
+// Sweep budget at 1.1 s/req: 108 × 1.1 = 118.8 s, fits the 240 s poll
 // window with ~48% utilisation of the 1 req/sec/IP rate cap.
 
 export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
@@ -103,6 +103,9 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   // Alaska (2)
   [61, -150], // Alaska S
   [65, -150], // Alaska N
+  // Pacific (1) — added 2026-04-28 tile audit; HNL hub previously
+  // uncovered, nearest tile was Bay Area ~2200 nm away.
+  [20, -157], // Hawaii
   // Mexico / Caribbean (4)
   [20, -100], // Mexico Central
   [20, -88], // Yucatan
@@ -117,7 +120,8 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   [-30, -60], // Argentina N
   [-34, -64], // Argentina C
   [-40, -65], // Patagonia
-  // Europe (20)
+  // Europe (19) — Ukraine [50,30] dropped 2026-04-28 tile audit;
+  // active conflict, no ADS-B reception, mean=0 over 2-pass probe.
   [40, -4], // Iberia
   [40, 4], // Med W
   [40, 12], // Italy
@@ -131,7 +135,6 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   [50, 5], // Benelux
   [50, 14], // Czech
   [50, 22], // Poland
-  [50, 30], // Ukraine
   [55, 0], // North Sea
   [55, 12], // Denmark
   [55, 22], // Baltic
@@ -141,12 +144,12 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   // UK / Ireland (2)
   [53, -8], // Ireland
   [53, -2], // UK
-  // Middle East / North Africa (10)
+  // Middle East / North Africa (8) — Iraq [32,45] and Iran C
+  // [32,53] dropped 2026-04-28 tile audit; restricted airspace,
+  // both tiles returned mean=0 over 2-pass probe.
   [32, 10], // Tunisia
   [32, 25], // Egypt N
   [32, 35], // Levant
-  [32, 45], // Iraq
-  [32, 53], // Iran C
   [28, 50], // Gulf
   [25, 45], // Saudi C
   [25, 55], // UAE
@@ -159,7 +162,11 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   [-15, 30], // Zambia
   [-28, 25], // South Africa N
   [-33, 18], // Cape Town
-  // Asia (15)
+  // Asia (12) — China S [28,112], Beijing [38,117], Beijing N
+  // [40,116] dropped 2026-04-28 tile audit; PRC ADS-B publishing
+  // restrictions, all three tiles returned mean=0 over 2-pass
+  // probe. China E [32,117] retained — covers Shanghai-area
+  // coastal traffic that does broadcast.
   [22, 78], // India C
   [28, 77], // Delhi
   [15, 78], // India S
@@ -168,9 +175,6 @@ export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   [3, 102], // Malaysia
   [15, 105], // Thailand
   [32, 117], // China E
-  [28, 112], // China S
-  [38, 117], // Beijing
-  [40, 116], // Beijing N
   [37, 127], // Korea
   [35, 138], // Tokyo
   [40, 140], // Japan N

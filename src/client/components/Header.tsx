@@ -9,6 +9,7 @@ import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip } from "@/components/Tooltip";
 import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
+import { useAlwaysShowCyclones } from "@/lib/userPreferences";
 import {
   isSourceDown,
   buildSourceStatusMap,
@@ -139,6 +140,7 @@ function Toggles({
     () => buildSourceStatusMap(dataSources),
     [dataSources],
   );
+  const alwaysShowCyclones = useAlwaysShowCyclones();
 
   return (
     <>
@@ -165,6 +167,12 @@ function Toggles({
               return false;
             }
             if (f.id === "cyclones") {
+              // User preference wins — when set, the toggle is always
+              // visible regardless of season + cache state. Useful for
+              // ops scenarios where the cyclones layer is part of a
+              // saved workflow and the operator wants quick access
+              // even mid-winter.
+              if (alwaysShowCyclones) return true;
               const cyclonesEmpty =
                 sourceStatusMap.get("cyclones") === "empty";
               if (!shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1)) {

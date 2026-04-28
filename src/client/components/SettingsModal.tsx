@@ -38,6 +38,10 @@ import {
 } from "@/config/theme";
 import { requestWalkthroughLaunch } from "@/lib/layoutSignals";
 import {
+  useAlwaysShowCyclones,
+  setAlwaysShowCyclones,
+} from "@/lib/userPreferences";
+import {
   useLayoutMode,
   type LayoutMode as LayoutModeType,
 } from "@/context/LayoutModeContext";
@@ -349,6 +353,14 @@ function AppearanceTab({
     cacheSet(CACHE_KEYS.tickerSpeed, val);
   }, []);
 
+  // Cyclones — always-show toggle. Reads through the userPreferences
+  // signal so the Header re-renders the moment the operator flips
+  // this checkbox, no settings-modal-close required.
+  const alwaysShowCyclones = useAlwaysShowCyclones();
+  const handleAlwaysShowCyclones = useCallback((v: boolean) => {
+    void setAlwaysShowCyclones(v);
+  }, []);
+
   const speedLabel =
     tickerSpeed === 0
       ? "STOPPED"
@@ -435,6 +447,31 @@ function AppearanceTab({
           Controls scroll speed of the live feed ticker. Set to 0 to stop
           scrolling (items swap periodically).
         </div>
+      </div>
+
+      {/* Cyclones — always-show toggle */}
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-3">
+          CYCLONES
+        </div>
+        <label className="flex items-center justify-between gap-3 px-2.5 py-2 rounded bg-sig-bg/30 border border-sig-border/20 cursor-pointer">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm text-sig-text font-semibold tracking-wider">
+              Always show toggle
+            </div>
+            <div className="text-xs text-sig-dim/70 mt-0.5 leading-snug">
+              Overrides the auto-hide that fires off-season + empty cache.
+              Useful for ops workflows that need the layer year-round.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={alwaysShowCyclones}
+            onChange={(e) => handleAlwaysShowCyclones(e.target.checked)}
+            aria-label="Always show cyclones layer toggle"
+            className="w-4 h-4 accent-sig-accent cursor-pointer shrink-0"
+          />
+        </label>
       </div>
 
       {/* Layer colors */}

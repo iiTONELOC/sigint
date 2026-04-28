@@ -90,7 +90,18 @@ describe("toAircraftData — field mapping", () => {
     expect(toAircraftData(SAMPLE_AIRCRAFT).squawk).toBe("3162");
   });
 
-  test("originCountry empty-string fallback (future ticket: derive from hex)", () => {
+  test("originCountry passes server-attached value through (post-Annex 10 enrichment)", () => {
+    // The server fills originCountry via countryFromIcao24 in
+    // src/server/api/aircraftEnrichment.ts before the cache write.
+    // The parser's job is to faithfully thread the value through.
+    const enriched = { ...SAMPLE_AIRCRAFT, originCountry: "United States" };
+    expect(toAircraftData(enriched).originCountry).toBe("United States");
+  });
+
+  test("originCountry empty-string fallback when source has no value", () => {
+    // SAMPLE_AIRCRAFT carries no originCountry — server didn't enrich
+    // (hex unmapped, or sweep ran before enrichment landed). Parser
+    // returns "" so consumers fall back to "Unknown" as today.
     expect(toAircraftData(SAMPLE_AIRCRAFT).originCountry).toBe("");
   });
 

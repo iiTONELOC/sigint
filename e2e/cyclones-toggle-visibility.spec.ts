@@ -112,4 +112,45 @@ test.describe("cyclones — toggle visibility (season-gated)", () => {
     });
     await expect(toggle).toBeVisible({ timeout: 10_000 });
   });
+
+  test("alwaysShowCyclones preference forces toggle visible regardless of season", async ({
+    page,
+  }) => {
+    // Feb 1 + empty fixture would normally hide the toggle (verified
+    // by the first test in this describe). With the user preference
+    // set, the helper short-circuits and the toggle renders
+    // unconditionally. Pre-seed the preference into IDB alongside
+    // the walkthrough flag so both load at hydrate.
+    await mockWallClock(page, new Date(Date.UTC(2026, 1, 1, 12, 0, 0)));
+    await page.addInitScript(() => {
+      const del = indexedDB.deleteDatabase("sigint-cache");
+      const reseed = () => {
+        const open = indexedDB.open("sigint-cache", 1);
+        open.onupgradeneeded = () => {
+          const database = open.result;
+          if (!database.objectStoreNames.contains("cache")) {
+            database.createObjectStore("cache");
+          }
+        };
+        open.onsuccess = () => {
+          const tx = open.result.transaction("cache", "readwrite");
+          const store = tx.objectStore("cache");
+          store.put(true, "sigint.walkthrough.complete.v1");
+          store.put(true, "sigint.preferences.always-show-cyclones.v1");
+        };
+      };
+      del.onsuccess = reseed;
+      del.onerror = reseed;
+      del.onblocked = reseed;
+    });
+    await installDefaultMocks(page);
+    await mockCyclones(page, "empty-out-of-season");
+    await page.goto("/");
+    await waitForCanvasFirstFrame(page);
+
+    const toggle = page.getByRole("button", {
+      name: /toggle cyclones layer/i,
+    });
+    await expect(toggle).toBeVisible({ timeout: 10_000 });
+  });
 });

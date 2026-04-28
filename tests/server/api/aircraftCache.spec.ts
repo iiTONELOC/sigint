@@ -29,8 +29,13 @@ import {
 // ── Tile coverage ──────────────────────────────────────────────────
 
 describe("AIRCRAFT_TILES", () => {
-  test("ships exactly 113 tiles (dense grid per spec)", () => {
-    expect(AIRCRAFT_TILES.length).toBe(113);
+  test("ships exactly 108 tiles (post tile-coverage audit — see commit body)", () => {
+    // Audit dropped 6 structurally-dead tiles (Ukraine war zone,
+    // Iraq/Iran restricted airspace, Chinese ADS-B publishing
+    // restrictions in 3 Beijing-region tiles) and added 1 (Hawaii,
+    // previously uncovered Pacific hub). Net: 113 → 108. See
+    // scripts/probe-aircraft-tiles.ts for the audit method.
+    expect(AIRCRAFT_TILES.length).toBe(108);
   });
 
   test("every tile has a valid (lat, lon) pair", () => {
@@ -77,9 +82,10 @@ describe("constants", () => {
 
   test("sweep duration may exceed POLL_INTERVAL_MS by design (sweepInProgress guard prevents overlap)", () => {
     const sweepMs = AIRCRAFT_TILES.length * RATE_LIMIT_DELAY_MS;
-    // 113 × 3000 = 339s, exceeds the 300s wake cadence. The fetchAircraft
-    // function must guard against re-entry so setInterval kicks during an
-    // in-flight sweep are skipped rather than launching a parallel sweep.
+    // 108 × 3000 = 324s, still exceeds the 300s wake cadence even
+    // post-audit. The fetchAircraft function must guard against
+    // re-entry so setInterval kicks during an in-flight sweep are
+    // skipped rather than launching a parallel sweep.
     expect(sweepMs).toBeGreaterThan(POLL_INTERVAL_MS);
   });
 });

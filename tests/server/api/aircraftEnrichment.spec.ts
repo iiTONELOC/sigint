@@ -4,15 +4,19 @@ import {
   expect,
   beforeAll,
   afterAll,
+  beforeEach,
+  afterEach,
+  spyOn,
 } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync } from "node:fs";
 import {
   classifyMilitary,
   enrichRecord,
   loadMetadataDb,
   __resetMetadataDbCacheForTests,
+  AC_DB_STALE_THRESHOLD_MS,
   type AircraftMetadataRecord,
 } from "../../../src/server/api/aircraftEnrichment";
 import { buildAircraftDb } from "../../../scripts/build-aircraft-db";
@@ -150,6 +154,35 @@ describe("enrichRecord", () => {
     expect(enriched.flight).toBe("AAL123");
   });
 
+  test("populates originCountry from icao24 hex range (Annex 10)", () => {
+    // hex 0xABC123 falls in the US block 0xA00000–0xAFFFFF.
+    const raw = { hex: "abc123" };
+    const enriched = enrichRecord(raw, civDb);
+    expect(enriched.originCountry).toBe("United States");
+  });
+
+  test("originCountry derives even on DB miss — same hex-prefix lookup", () => {
+    // ae9999 is in the US-mil hex range (also US block) and absent
+    // from the fixture — DB miss, but originCountry still lands.
+    const raw = { hex: "ae9999" };
+    const enriched = enrichRecord(raw, civDb);
+    expect(enriched.acType).toBe("Unknown");
+    expect(enriched.originCountry).toBe("United States");
+  });
+
+  test("originCountry derives correctly for non-US hex (3c0000 → Germany)", () => {
+    const raw = { hex: "3c0000" };
+    const enriched = enrichRecord(raw, civDb);
+    expect(enriched.originCountry).toBe("Germany");
+  });
+
+  test("originCountry is '' when hex falls outside every Annex 10 block", () => {
+    // 0x200000 is in an unallocated EUR gap.
+    const raw = { hex: "200000" };
+    const enriched = enrichRecord(raw, civDb);
+    expect(enriched.originCountry).toBe("");
+  });
+
   test("matches DB key case-insensitively (raw hex may be uppercase)", () => {
     const raw = { hex: "ABC123" };
     const enriched = enrichRecord(raw, civDb);
@@ -220,5 +253,113 @@ describe("loadMetadataDb", () => {
       "tests/fixtures/aircraft/does-not-exist.sqlite",
     );
     expect(map.size).toBe(0);
+  });
+});
+
+// ── DB freshness check at boot ────────────────────────────────────
+// At first SQLite open, ensureDb() reads the file's mtime and warns
+// if the artifact is older than AC_DB_STALE_THRESHOLD_MS (90 days).
+// The warning surfaces operator action — regenerate via
+// `bun run build:aircraft-db` — but never blocks boot.
+
+describe("aircraft DB freshness check", () => {
+  const FRESH_DB_FIXTURE = "tests/fixtures/aircraft/metadata-db-tiny.ndjson";
+  let freshTmpDir: string;
+  let freshDbPath: string;
+  let warnSpy: ReturnType<typeof spyOn> | null = null;
+
+  beforeAll(async () => {
+    freshTmpDir = mkdtempSync(join(tmpdir(), "sigint-freshness-test-"));
+    freshDbPath = join(freshTmpDir, "ac-db.sqlite");
+    await buildAircraftDb(FRESH_DB_FIXTURE, freshDbPath);
+  });
+
+  beforeEach(() => {
+    __resetMetadataDbCacheForTests();
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    warnSpy = null;
+  });
+
+  afterAll(() => {
+    __resetMetadataDbCacheForTests();
+    try {
+      rmSync(freshTmpDir, { recursive: true, force: true });
+    } catch {
+      /* tmp cleanup is best-effort */
+    }
+  });
+
+  /** Set the SQLite file's mtime to N days before now so the next
+   *  ensureDb() open evaluates the freshness branch with a known age. */
+  function setMtimeDaysAgo(path: string, daysAgo: number): void {
+    const target = (Date.now() - daysAgo * 24 * 60 * 60 * 1000) / 1000;
+    utimesSync(path, target, target);
+  }
+
+  test("THRESHOLD constant is the documented 90-day window", () => {
+    expect(AC_DB_STALE_THRESHOLD_MS).toBe(90 * 24 * 3600 * 1000);
+  });
+
+  test("DB older than 90 days → warn fires with day count + ISO timestamp", async () => {
+    setMtimeDaysAgo(freshDbPath, 91);
+    await loadMetadataDb(freshDbPath);
+    const warnCalls = warnSpy?.mock.calls ?? [];
+    const stale = warnCalls.find((c) =>
+      typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
+    );
+    expect(stale).toBeDefined();
+    const msg = stale?.[0] as string;
+    expect(msg).toMatch(/ac-db\.sqlite is 91 days old/);
+    expect(msg).toContain("bun run build:aircraft-db");
+    expect(msg).toMatch(/last built \d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("DB at exact 90-day boundary → warn fires (>=, not >)", async () => {
+    // Threshold uses `>=` so day 90 is on the warn side.
+    setMtimeDaysAgo(freshDbPath, 90);
+    await loadMetadataDb(freshDbPath);
+    const stale = (warnSpy?.mock.calls ?? []).find(
+      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
+    );
+    expect(stale).toBeDefined();
+  });
+
+  test("DB at 89 days → no freshness warn", async () => {
+    setMtimeDaysAgo(freshDbPath, 89);
+    await loadMetadataDb(freshDbPath);
+    const stale = (warnSpy?.mock.calls ?? []).find(
+      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
+    );
+    expect(stale).toBeUndefined();
+  });
+
+  test("DB freshly built (mtime = now) → no freshness warn", async () => {
+    // Fixture was built in beforeAll a moment ago — no mtime fiddle.
+    setMtimeDaysAgo(freshDbPath, 0);
+    await loadMetadataDb(freshDbPath);
+    const stale = (warnSpy?.mock.calls ?? []).find(
+      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
+    );
+    expect(stale).toBeUndefined();
+  });
+
+  test("missing DB file → falls through to existing skip path, no freshness warn", async () => {
+    // Existing "DB not found" warn should still fire; the freshness
+    // branch must not run because we never get past the existsSync.
+    await loadMetadataDb("tests/fixtures/aircraft/does-not-exist.sqlite");
+    const allWarns = warnSpy?.mock.calls ?? [];
+    const notFound = allWarns.find(
+      (c) =>
+        typeof c[0] === "string" && c[0].includes("enrichment DB not found"),
+    );
+    const stale = allWarns.find(
+      (c) => typeof c[0] === "string" && c[0].includes("days old"),
+    );
+    expect(notFound).toBeDefined();
+    expect(stale).toBeUndefined();
   });
 });

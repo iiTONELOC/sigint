@@ -6,6 +6,10 @@ import { AircraftProvider } from "@/features/tracking/aircraft/data/provider";
 // src/server/api/aircraftCache.ts. authenticatedFetch makes an internal
 // /api/auth/token call before the data call — the mock covers both.
 
+// Mock records mirror what the SERVER returns post-enrichment —
+// originCountry is populated server-side via countryFromIcao24 in
+// src/server/api/aircraftEnrichment.ts. abc123 (hex 0xABC123) falls
+// in the US block 0xA00000–0xAFFFFF → "United States".
 const MOCK_AIRCRAFT = [
   {
     hex: "abc123",
@@ -17,6 +21,7 @@ const MOCK_AIRCRAFT = [
     squawk: "1200",
     lat: 40.7,
     lon: -73.9,
+    originCountry: "United States",
   },
   {
     hex: "def456",
@@ -27,6 +32,7 @@ const MOCK_AIRCRAFT = [
     baro_rate: -984.25, // ≈ -5 m/s when /196.85
     lat: 51.5,
     lon: -0.1,
+    originCountry: "United Kingdom",
   },
 ];
 
@@ -243,14 +249,43 @@ describe("AircraftProvider DataPoint shape", () => {
     const d = ac.data as Record<string, unknown>;
     expect(d.icao24).toBe("abc123");
     expect(d.callsign).toBe("UAL123");
-    // originCountry is empty until the icao24 hex-prefix derivation lands
-    // (future ticket); legacy OpenSky countries no longer flow.
-    expect(d.originCountry).toBe("");
+    // Server-side enrichment derives originCountry from the icao24
+    // hex-prefix block per ICAO Annex 10. The mock above includes
+    // the attached value the real server would attach; the parser
+    // passes it through unchanged.
+    expect(d.originCountry).toBe("United States");
     expect(d.onGround).toBe(false);
     expect(typeof d.altitude).toBe("number");
     expect(typeof d.speed).toBe("number");
     expect(d.heading).toBeCloseTo(90, 5);
     expect(d.squawk).toBe("1200");
+  });
+
+  test("originCountry is '' when the server didn't attach one (hex outside the Annex 10 table)", async () => {
+    // Hex 0x200000 lives in an unallocated gap of the EUR block —
+    // server-side enrichment leaves originCountry empty for these,
+    // so the parser must preserve the empty-string fallback that
+    // every consumer currently treats as "Unknown".
+    const unmapped = [
+      {
+        hex: "200000",
+        flight: "TEST01 ",
+        alt_baro: 1000,
+        gs: 100,
+        track: 0,
+        lat: 0,
+        lon: 0,
+        // No originCountry — server didn't attach it.
+      },
+    ];
+    installFetchMock(() => mockAircraftResponse(unmapped));
+    const provider = new AircraftProvider({
+      cacheKey: `ac-test-unmapped-${Math.random()}`,
+    });
+    const result = await provider.getData();
+    const d = result[0]!.data as Record<string, unknown>;
+    expect(d.icao24).toBe("200000");
+    expect(d.originCountry).toBe("");
   });
 });
 

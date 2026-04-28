@@ -36,6 +36,7 @@ export const CACHE_KEYS = {
   tickerHeight: `sigint.ticker.height.${V}`,
   walkthroughComplete: `sigint.walkthrough.complete.${V}`,
   layoutMode: `sigint.layout.mode.${V}`,
+  alwaysShowCyclones: `sigint.preferences.always-show-cyclones.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -80,4 +81,8 @@ export const CACHE_KEY_LABELS: Record<
     group: "UI",
   },
   [CACHE_KEYS.layoutMode]: { label: "Layout mode override", group: "UI" },
+  [CACHE_KEYS.alwaysShowCyclones]: {
+    label: "Always show cyclones toggle",
+    group: "UI",
+  },
 };

@@ -21,10 +21,18 @@
 // is re-exported here so existing test imports still resolve.
 
 import { Database, type Statement } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { classifyMilitary } from "../data/militaryRules";
+import { countryFromIcao24 } from "../data/icao24CountryRanges";
 
 export { classifyMilitary } from "../data/militaryRules";
+
+/** Operator-visible warning fires when the SQLite metadata DB is
+ *  older than this. 90 days matches the typical OpenSky aircraft
+ *  database refresh cadence — past this point new tail registrations
+ *  and operator changes start to dominate the DB-miss rate. Exported
+ *  so the spec can construct boundary fixtures. */
+export const AC_DB_STALE_THRESHOLD_MS = 90 * 24 * 3600 * 1000;
 
 export type AircraftMetadataRecord = {
   icao24: string;
@@ -85,6 +93,25 @@ function ensureDb(): Statement<DbRow, [string]> | null {
     );
     dbMissing = true;
     return null;
+  }
+  // Freshness check — fires before the read-only handle opens so the
+  // log line lands alongside the existing "DB opened" line. Best-
+  // effort: a stat error doesn't block boot, the warn just doesn't
+  // fire. mtime is the build artifact's last-write timestamp; the
+  // freshness contract is "regenerate every 90 days from the latest
+  // ac-db.ndjson snapshot via 'bun run build:aircraft-db'".
+  try {
+    const stat = statSync(metadataDbPath);
+    const ageMs = Date.now() - stat.mtimeMs;
+    if (ageMs >= AC_DB_STALE_THRESHOLD_MS) {
+      const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+      const builtAt = new Date(stat.mtimeMs).toISOString();
+      console.warn(
+        `⚠️  ac-db.sqlite is ${ageDays} days old — regenerate via 'bun run build:aircraft-db' (last built ${builtAt})`,
+      );
+    }
+  } catch {
+    /* stat failure is non-fatal; the open below will surface real I/O errors */
   }
   cachedDb = new Database(metadataDbPath, { readonly: true });
   cachedDb.run("PRAGMA query_only = 1;");
@@ -151,6 +178,13 @@ export function enrichRecord(
   const select = ensureDb();
   const row = hex && select ? (select.get(hex) ?? null) : null;
 
+  // originCountry derives from the ICAO 24-bit registration block —
+  // deterministic given the hex, so the same value applies on DB
+  // hit and DB miss. Falls through to "" when the hex is unmapped
+  // (preserving the prior empty-string baseline for any consumer
+  // checking falsy).
+  const originCountry = countryFromIcao24(hex);
+
   if (!row) {
     // No DB row (or hex unavailable / DB missing) — fall back to the
     // live typecode + hex range so AE-prefix mil aircraft and live
@@ -167,7 +201,8 @@ export function enrichRecord(
       operator: undefined,
       operatorIcao: undefined,
       categoryDescription: undefined,
-      military: classifyMilitary(hex, liveTypecode, undefined),
+      originCountry,
+      military: classifyMilitary(hex, liveTypecode),
     };
   }
 
@@ -184,6 +219,7 @@ export function enrichRecord(
     operator: row.operator ?? undefined,
     operatorIcao: row.operator_icao ?? undefined,
     categoryDescription: row.category_description ?? undefined,
+    originCountry,
     military: row.military === 1,
   };
 }
