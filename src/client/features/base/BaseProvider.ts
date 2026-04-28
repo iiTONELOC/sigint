@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
 import { cacheGet, cacheSet } from "@/lib/storageService";
+import { diffAndApply } from "@/features/base/diffEntities";
 
 // ── Config each concrete provider supplies ───────────────────────────
 
@@ -59,6 +60,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
+    version: 0,
     error: null,
     loading: false,
     lastUpdatedAt: null,
@@ -120,6 +122,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     this.cache = { data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: data,
+      version: this.snapshot.version + 1,
       lastUpdatedAt: persisted.timestamp,
       loading: true,
       error: null,
@@ -135,7 +138,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     try {
       const incoming = await this.fetchFn();
 
-      const data = this.mergeFn
+      const merged = this.mergeFn
         ? this.mergeFn(this.cache?.data ?? [], incoming)
         : incoming;
 
@@ -144,13 +147,14 @@ export class BaseProvider implements DataProvider<DataPoint> {
       // treat it as a soft error. Skipped when allowEmptyResult is true
       // — for sources where empty is the legitimate truth (e.g. cyclones
       // out of season).
-      if (data.length === 0 && !this.allowEmptyResult) {
+      if (merged.length === 0 && !this.allowEmptyResult) {
         const fallback = this.cache?.data ?? [];
         if (fallback.length > 0) {
           this.cache = { ...this.cache!, timestamp: Date.now() };
         }
         this.snapshot = {
           entities: fallback,
+          version: this.snapshot.version + 1,
           lastUpdatedAt: Date.now(),
           loading: false,
           error: null,
@@ -158,20 +162,29 @@ export class BaseProvider implements DataProvider<DataPoint> {
         return fallback;
       }
 
-      this.cache = { data, timestamp: Date.now() };
-      this.persistCache(data);
+      // Diff incoming against the live cache: when id-set is unchanged,
+      // mutate prior records in place and reuse the array reference.
+      // Membership change → new array reference.
+      const { entities } = diffAndApply<DataPoint>(
+        this.cache?.data ?? null,
+        merged,
+      );
+      this.cache = { data: entities, timestamp: Date.now() };
+      this.persistCache(entities);
       this.snapshot = {
-        entities: data,
+        entities,
+        version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,
         error: null,
       };
-      return data;
+      return entities;
     } catch (error) {
       const persisted = await this.readPersistedCache();
       const fallback = this.cache?.data ?? persisted?.data ?? [];
       this.snapshot = {
         entities: fallback,
+        version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,
         error: error instanceof Error ? error : new Error("Unknown error"),

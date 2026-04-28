@@ -331,3 +331,105 @@ describe("AircraftProvider.mute() / unmute()", () => {
     expect(calls).toBe(1);
   });
 });
+
+// ── version + reference stability (Pattern C — render batching) ───
+
+describe("AircraftProvider snapshot version + reference stability", () => {
+  test("initial snapshot version is 0", () => {
+    const provider = new AircraftProvider({
+      cacheKey: `ac-version-init-${Math.random()}`,
+    });
+    expect(provider.getSnapshot().version).toBe(0);
+  });
+
+  test("version bumps on every refresh", async () => {
+    installFetchMock(() => mockAircraftResponse());
+    const provider = new AircraftProvider({
+      cacheKey: `ac-version-bump-${Math.random()}`,
+    });
+
+    await provider.refresh();
+    const v1 = provider.getSnapshot().version;
+    expect(v1).toBeGreaterThan(0);
+
+    await provider.refresh();
+    expect(provider.getSnapshot().version).toBe(v1 + 1);
+
+    await provider.refresh();
+    expect(provider.getSnapshot().version).toBe(v1 + 2);
+  });
+
+  test("entities array reference is preserved across same-id-set refreshes", async () => {
+    let pollNum = 0;
+    installFetchMock(() => {
+      pollNum++;
+      // Same hexes, drifting positions — mirrors steady-state aircraft poll
+      return mockAircraftResponse([
+        {
+          ...MOCK_AIRCRAFT[0],
+          lat: 40 + pollNum * 0.01,
+          lon: -73 - pollNum * 0.01,
+        },
+        {
+          ...MOCK_AIRCRAFT[1],
+          lat: 51 + pollNum * 0.01,
+          lon: -0.1 - pollNum * 0.01,
+        },
+      ]);
+    });
+
+    const provider = new AircraftProvider({
+      cacheKey: `ac-ref-stable-${Math.random()}`,
+    });
+
+    await provider.refresh();
+    const ref1 = provider.getSnapshot().entities;
+    const item1 = ref1[0]!;
+
+    await provider.refresh();
+    const ref2 = provider.getSnapshot().entities;
+    expect(ref2).toBe(ref1); // array reference preserved
+    expect(ref2[0]).toBe(item1); // item reference preserved
+    // Position mutated in place — values reflect the latest poll
+    expect(ref2[0]!.lat).toBeCloseTo(40 + 2 * 0.01, 5);
+
+    await provider.refresh();
+    expect(provider.getSnapshot().entities).toBe(ref1);
+    expect(ref1[0]!.lat).toBeCloseTo(40 + 3 * 0.01, 5);
+  });
+
+  test("entities array reference is replaced when an aircraft enters or leaves coverage", async () => {
+    let pollNum = 0;
+    installFetchMock(() => {
+      pollNum++;
+      if (pollNum === 1) {
+        return mockAircraftResponse([MOCK_AIRCRAFT[0], MOCK_AIRCRAFT[1]]);
+      }
+      // Second poll: def456 left coverage, ghi789 entered.
+      return mockAircraftResponse([
+        MOCK_AIRCRAFT[0],
+        {
+          hex: "ghi789",
+          flight: "DLH789 ",
+          alt_baro: 32000,
+          gs: 230,
+          track: 270,
+          lat: 50,
+          lon: 8,
+          originCountry: "Germany",
+        },
+      ]);
+    });
+
+    const provider = new AircraftProvider({
+      cacheKey: `ac-ref-change-${Math.random()}`,
+    });
+
+    await provider.refresh();
+    const ref1 = provider.getSnapshot().entities;
+
+    await provider.refresh();
+    const ref2 = provider.getSnapshot().entities;
+    expect(ref2).not.toBe(ref1);
+  });
+});

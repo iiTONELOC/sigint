@@ -90,46 +90,137 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // ── Data hooks ─────────────────────────────────────────────────
   const {
     data: aircraftData,
+    version: aircraftVersion,
     dataSource,
     requestAircraftEnrichment,
   } = useAircraftData();
 
-  const { data: earthquakeData, dataSource: earthquakeSource } =
-    useEarthquakeData();
-  const { data: eventData, dataSource: eventSource } = useEventData();
-  const { data: shipData, dataSource: shipSource } = useShipData();
-  const { data: fireData, dataSource: fireSource } = useFireData();
-  const { data: weatherData, dataSource: weatherSource } = useWeatherData();
-  const { data: cycloneData, dataSource: cycloneSource } = useCycloneData();
+  const {
+    data: earthquakeData,
+    version: earthquakeVersion,
+    dataSource: earthquakeSource,
+  } = useEarthquakeData();
+  const {
+    data: eventData,
+    version: eventVersion,
+    dataSource: eventSource,
+  } = useEventData();
+  const {
+    data: shipData,
+    version: shipVersion,
+    dataSource: shipSource,
+  } = useShipData();
+  const {
+    data: fireData,
+    version: fireVersion,
+    dataSource: fireSource,
+  } = useFireData();
+  const {
+    data: weatherData,
+    version: weatherVersion,
+    dataSource: weatherSource,
+  } = useWeatherData();
+  const {
+    data: cycloneData,
+    version: cycloneVersion,
+    dataSource: cycloneSource,
+  } = useCycloneData();
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
 
-  // ── Merged data (rAF debounced) ────────────────────────────────
+  // ── Merged data (rAF debounced, identity-preserving) ──────────
+  // Providers preserve their entities array reference across same-id-set
+  // polls (in-place mutation; see diffEntities.ts). When ALL source refs
+  // are stable, we keep the prior `allData` reference and only bump
+  // `allDataVersion` — downstream memos that gate on identity (idMap,
+  // availableCountries) skip recomputation, while version-sensitive
+  // memos (spatialGrid, correlation, filteredIds, tickerItems, counts,
+  // activeCount, plus the trail-recording effect) re-run.
   const allDataSourcesRef = useRef({
-    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData,
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+    cycloneData,
   });
   allDataSourcesRef.current = {
-    aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData,
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+    cycloneData,
   };
 
+  const lastMergedSourcesRef = useRef<typeof allDataSourcesRef.current | null>(
+    null,
+  );
+
   const [allData, setAllData] = useState<DataPoint[]>(() => [
-    ...aircraftData, ...shipData, ...earthquakeData,
-    ...eventData, ...fireData, ...weatherData, ...cycloneData,
+    ...aircraftData,
+    ...shipData,
+    ...earthquakeData,
+    ...eventData,
+    ...fireData,
+    ...weatherData,
+    ...cycloneData,
   ]);
+  const [allDataVersion, setAllDataVersion] = useState(0);
 
   const allDataRafRef = useRef(0);
   useEffect(() => {
     cancelAnimationFrame(allDataRafRef.current);
     allDataRafRef.current = requestAnimationFrame(() => {
       const s = allDataSourcesRef.current;
-      setAllData([
-        ...s.aircraftData, ...s.shipData, ...s.earthquakeData,
-        ...s.eventData, ...s.fireData, ...s.weatherData, ...s.cycloneData,
-      ]);
+      const prev = lastMergedSourcesRef.current;
+      const refsChanged =
+        !prev ||
+        s.aircraftData !== prev.aircraftData ||
+        s.shipData !== prev.shipData ||
+        s.earthquakeData !== prev.earthquakeData ||
+        s.eventData !== prev.eventData ||
+        s.fireData !== prev.fireData ||
+        s.weatherData !== prev.weatherData ||
+        s.cycloneData !== prev.cycloneData;
+
+      if (refsChanged) {
+        lastMergedSourcesRef.current = { ...s };
+        setAllData([
+          ...s.aircraftData,
+          ...s.shipData,
+          ...s.earthquakeData,
+          ...s.eventData,
+          ...s.fireData,
+          ...s.weatherData,
+          ...s.cycloneData,
+        ]);
+      }
+      setAllDataVersion((v) => v + 1);
     });
     return () => cancelAnimationFrame(allDataRafRef.current);
-  }, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData, cycloneData]);
+  }, [
+    aircraftData,
+    shipData,
+    earthquakeData,
+    eventData,
+    fireData,
+    weatherData,
+    cycloneData,
+    aircraftVersion,
+    shipVersion,
+    earthquakeVersion,
+    eventVersion,
+    fireVersion,
+    weatherVersion,
+    cycloneVersion,
+  ]);
 
   // ── ID Map — for UIProvider's selectedCurrent resolution ───────
+  // Membership-only: id → DataPoint reference. Items mutate in place
+  // via the providers' diffAndApply, so reads through this map see
+  // current field values without a rebuild.
   const idMap = useMemo(() => {
     const map = new Map<string, DataPoint>();
     for (let i = 0; i < allData.length; i++) {
@@ -139,15 +230,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [allData]);
 
   // ── Spatial grid ───────────────────────────────────────────────
+  // Position-dependent: rebuckets by lat/lon. Gate on version so each
+  // poll's positional updates re-grid even when membership is stable.
   const spatialGrid = useMemo<SpatialGrid>(
     () =>
       allData.length > 0
         ? buildSpatialGrid(allData)
         : { cells: new Map(), size: 0 },
-    [allData],
+    [allData, allDataVersion],
   );
 
   // ── Trail recording ────────────────────────────────────────────
+  // Captures a fresh snapshot of positions per poll into trail history.
+  // Effect's `.map` extracts plain values immediately, so in-place
+  // mutation under the array does not corrupt prior trail points.
   useEffect(() => {
     const movingItems = allData
       .filter((d) => d.type === "aircraft" || d.type === "ships")
@@ -164,7 +260,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         speed: (d.data as any)?.speed,
       }));
     if (movingItems.length > 0) recordPositions(movingItems);
-  }, [allData]);
+  }, [allData, allDataVersion]);
 
   // ── Data source status ─────────────────────────────────────────
   const dataSources = useMemo<SourceStatus[]>(
@@ -205,6 +301,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // filter status: if the parent passes (cyclones filter + minCategory),
   // every forecast point of that storm is selectable too. Done in a
   // second pass so the parent storm's id is guaranteed to be settled.
+  // Gate on version too: matchesFilter reads mutable item.data fields
+  // (aircraft onGround / squawk; ship sog) that change between polls
+  // without changing the id-set.
   const filteredIds = useMemo(() => {
     const ids = new Set<string>();
     for (let i = 0; i < allData.length; i++) {
@@ -221,13 +320,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (ids.has(parentId)) ids.add(item.id);
     }
     return ids;
-  }, [allData, filters]);
+  }, [allData, filters, allDataVersion]);
 
   // ── Derived values ─────────────────────────────────────────────
-  const tickerItems = useMemo(() => buildTickerItems(allData), [allData]);
-  const counts = useMemo(() => selectLayerCounts(allData, filters), [allData, filters]);
-  const activeCount = useMemo(() => selectActiveCount(allData, filters), [allData, filters]);
-  const availableCountries = useMemo(() => selectAvailableAircraftCountries(allData), [allData]);
+  // tickerItems/counts/activeCount: gate on version (filter results read
+  // mutable data fields). availableCountries: stays on ref — originCountry
+  // is server-derived per icao24 and is stable per id.
+  const tickerItems = useMemo(
+    () => buildTickerItems(allData),
+    [allData, allDataVersion],
+  );
+  const counts = useMemo(
+    () => selectLayerCounts(allData, filters),
+    [allData, filters, allDataVersion],
+  );
+  const activeCount = useMemo(
+    () => selectActiveCount(allData, filters),
+    [allData, filters, allDataVersion],
+  );
+  const availableCountries = useMemo(
+    () => selectAvailableAircraftCountries(allData),
+    [allData],
+  );
 
   // ── URL sync for aircraft filter ───────────────────────────────
   useEffect(() => { syncAircraftFilterToUrl(aircraftFilter); }, [aircraftFilter]);
@@ -238,9 +352,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Correlation engine ─────────────────────────────────────────
+  // Position-dependent: clusterByRegion buckets by lat/lon and recency.
+  // Gate on version so positional updates re-cluster.
   const correlation = useMemo(
     () => computeCorrelations(allData, newsArticles),
-    [allData, newsArticles],
+    [allData, newsArticles, allDataVersion],
   );
 
   // ── DataContext value ──────────────────────────────────────────

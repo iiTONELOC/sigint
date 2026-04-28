@@ -2,6 +2,14 @@
 
 export type ProviderSnapshot<TEntity> = {
   entities: TEntity[];
+  /**
+   * Monotonic counter bumped on every refresh that produces a usable
+   * snapshot (success path or stale-cache fallback). Subscribers gate
+   * version-sensitive recomputation on this number while reference
+   * equality on `entities` skips work that only depends on membership.
+   * See diffEntities.ts.
+   */
+  version: number;
   lastUpdatedAt: number | null;
   loading: boolean;
   error: Error | null;

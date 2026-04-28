@@ -8,6 +8,7 @@ import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
 import { cacheGet, cacheSet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import { fetchAircraftStates } from "./parseAdsbV2";
+import { diffAndApply } from "@/features/base/diffEntities";
 
 const DEFAULT_CACHE_DURATION = 30 * 60_000;
 const DEFAULT_CACHE_KEY = CACHE_KEYS.aircraft;
@@ -26,6 +27,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
+    version: 0,
     error: null,
     loading: false,
     lastUpdatedAt: null,
@@ -66,6 +68,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     this.cache = { data: persisted.data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: persisted.data,
+      version: this.snapshot.version + 1,
       lastUpdatedAt: Date.now(),
       loading: false,
       error: null,
@@ -117,33 +120,42 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
 
     try {
-      const data = await this.fetchAircraftStates();
+      const incoming = await this.fetchAircraftStates();
       // Server returns ac:[] during cold-start (sweep in flight) — see
       // src/server/api/index.ts /api/aircraft/states. Don't blank a
       // populated cache with that transient empty: keep showing the
       // last known snapshot until the next poll lands real data.
       // Mirrors the firmsCache.ts stale-protect on the server.
-      if (data.length === 0 && this.cache && this.cache.data.length > 0) {
+      if (incoming.length === 0 && this.cache && this.cache.data.length > 0) {
         this.snapshot = {
           ...this.snapshot,
+          version: this.snapshot.version + 1,
           loading: false,
           error: null,
         };
         return this.cache.data;
       }
-      this.cache = { data, timestamp: Date.now() };
+      // Diff incoming against the live cache: same id-set → mutate prior
+      // records in place and reuse the array reference. Different id-set
+      // → new array reference. See diffEntities.ts.
+      const { entities } = diffAndApply<DataPoint>(
+        this.cache?.data ?? null,
+        incoming,
+      );
+      this.cache = { data: entities, timestamp: Date.now() };
       // Only persist non-empty results — never poison IDB with
       // `{ data: [] }` (would trip the cacheInit poisoned-cache purge
       // on next reload, defeating the empty-protect pattern documented
       // in docs/caching.md "Client-Side Stale Cache Retention").
-      if (data.length > 0) this.persistCache(data);
+      if (entities.length > 0) this.persistCache(entities);
       this.snapshot = {
-        entities: data,
+        entities,
+        version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,
         error: null,
       };
-      return data;
+      return entities;
     } catch (error) {
       const persisted = await this.readPersistedCache();
       const fallback =
@@ -155,6 +167,7 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       }
       this.snapshot = {
         entities: fallback,
+        version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,
         error: error instanceof Error ? error : new Error("Unknown error"),

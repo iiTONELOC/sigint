@@ -9,6 +9,14 @@ export type AircraftDataSource = "loading" | "live" | "cached" | "mock";
 
 type UseAircraftDataResult = {
   data: DataPoint[];
+  /**
+   * Provider snapshot version. Bumps on every refresh; the entities
+   * array reference is preserved across same-id-set polls via in-place
+   * mutation (see provider.ts diffAndApply). Subscribers gating on
+   * positions/data-field changes use this number; those gating on
+   * membership use reference equality on `data`.
+   */
+  version: number;
   loading: boolean;
   error: Error | null;
   dataSource: AircraftDataSource;
@@ -26,6 +34,7 @@ export function useAircraftData(
   pollInterval: number = DEFAULT_AIRCRAFT_POLL_MS,
 ): UseAircraftDataResult {
   const [data, setData] = useState<DataPoint[]>(() => generateMockAircraft());
+  const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [dataSource, setDataSource] = useState<AircraftDataSource>("loading");
@@ -37,7 +46,12 @@ export function useAircraftData(
     const applySnapshot = () => {
       const snapshot = aircraftProvider.getSnapshot();
       const result = snapshot.entities;
-      setData(result.length > 0 ? [...result] : generateMockAircraft());
+      // Pass the provider's array reference straight through — the
+      // provider preserves identity across same-id-set polls (see
+      // provider.ts diffAndApply). Mock data swaps in only when the
+      // provider has nothing real, so its identity boundary is fine.
+      setData(result.length > 0 ? result : generateMockAircraft());
+      setVersion(snapshot.version);
       setLoading(false);
       if (snapshot.error) {
         setError(snapshot.error);
@@ -67,18 +81,9 @@ export function useAircraftData(
     // up immediately instead of waiting for the next interval tick).
     const refreshOnce = async () => {
       try {
-        const aircraftData = await aircraftProvider.refresh();
+        await aircraftProvider.refresh();
         if (!isMounted) return;
-        setData([...aircraftData]);
-        setLoading(false);
-        const snapshot = aircraftProvider.getSnapshot();
-        if (snapshot.error) {
-          setError(snapshot.error);
-          setDataSource(aircraftData.length > 0 ? "cached" : "mock");
-        } else {
-          setError(null);
-          setDataSource("live");
-        }
+        applySnapshot();
       } catch (err) {
         if (!isMounted) return;
         setError(
@@ -116,7 +121,8 @@ export function useAircraftData(
         const enrichedAircraft =
           await aircraftProvider.enrichAircraftByIcao24(icao24List);
         if (!enrichedAircraft) return;
-        setData([...enrichedAircraft]);
+        setData(enrichedAircraft);
+        setVersion((v) => v + 1);
       } catch {
         // Non-fatal: enrichment is best effort.
       }
@@ -124,5 +130,12 @@ export function useAircraftData(
     [],
   );
 
-  return { data, loading, error, dataSource, requestAircraftEnrichment };
+  return {
+    data,
+    version,
+    loading,
+    error,
+    dataSource,
+    requestAircraftEnrichment,
+  };
 }

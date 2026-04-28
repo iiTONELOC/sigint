@@ -371,8 +371,12 @@ export function GlobeVisualization({
       }
 
       // ── Progressive render limit ────────────────────────────────
-      // Grows by RENDER_CHUNK per frame. On data change, clamp if shrank
-      // but keep growing — don't stall the ramp for a frame.
+      // Grows by RENDER_CHUNK per frame, sent to the worker as a
+      // scalar in the lightweight frame message — the worker slices
+      // its own data array. Avoids re-allocating a sliced view on the
+      // main thread every frame, which had been triggering a heavy
+      // structuredClone postMessage on each ramp frame for ~14 frames
+      // after every poll.
       if (d !== prevDataRef.current) {
         prevDataRef.current = d;
         if (renderLimitRef.current > d.length) {
@@ -388,10 +392,6 @@ export function GlobeVisualization({
           d.length,
         );
       }
-      const renderData =
-        renderLimitRef.current < d.length
-          ? d.slice(0, renderLimitRef.current)
-          : d;
 
       // ── Send render job to worker ─────────────────────────────
       const worker = workerRef.current;
@@ -401,7 +401,7 @@ export function GlobeVisualization({
         if (trailSyncRef.current >= 30) {
           trailSyncRef.current = 0;
           const trailEntries: Array<[string, any]> = [];
-          for (const item of renderData) {
+          for (const item of d) {
             if (item.type === "aircraft" || item.type === "ships") {
               const trail = getTrail(item.id);
               if (trail.length > 0) {
@@ -424,12 +424,12 @@ export function GlobeVisualization({
 
         // ── Detect data changes — only re-send heavy payload when needed ──
         const selId = sel?.id ?? null;
-        const dataChanged = renderData !== lastSentDataRef.current;
+        const dataChanged = d !== lastSentDataRef.current;
         const colorsChanged = themeRef.current !== lastSentThemeRef.current;
 
         if (dataChanged || colorsChanged) {
           // Heavy message — full data array only
-          const plainData = renderData.map((item) => ({
+          const plainData = d.map((item) => ({
             id: item.id,
             type: item.type,
             lat: item.lat,
@@ -440,7 +440,7 @@ export function GlobeVisualization({
 
           // Send full trail history for all moving items on data change
           const fullTrails: Array<[string, any]> = [];
-          for (const item of renderData) {
+          for (const item of d) {
             if (item.type === "aircraft" || item.type === "ships") {
               const trail = getTrail(item.id);
               if (trail.length > 0) {
@@ -470,7 +470,7 @@ export function GlobeVisualization({
             },
           });
 
-          lastSentDataRef.current = renderData;
+          lastSentDataRef.current = d;
           lastSentThemeRef.current = themeRef.current;
         }
 
@@ -534,6 +534,7 @@ export function GlobeVisualization({
             prefersReducedMotion,
             searchMatchIds: searchIds,
             selectedItem,
+            renderLimit: renderLimitRef.current,
           },
         });
       }

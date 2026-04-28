@@ -323,3 +323,89 @@ describe("BaseProvider mute() / unmute()", () => {
     // No throw, no leak.
   });
 });
+
+// ── version + reference stability (Pattern C — render batching) ───
+
+describe("BaseProvider snapshot version + reference stability", () => {
+  test("initial snapshot version is 0", () => {
+    const provider = makeProvider();
+    expect(provider.getSnapshot().version).toBe(0);
+  });
+
+  test("version bumps on every refresh that produces a snapshot", async () => {
+    const provider = makeProvider();
+    await provider.refresh();
+    const v1 = provider.getSnapshot().version;
+    expect(v1).toBeGreaterThan(0);
+    await provider.refresh();
+    expect(provider.getSnapshot().version).toBe(v1 + 1);
+    await provider.refresh();
+    expect(provider.getSnapshot().version).toBe(v1 + 2);
+  });
+
+  test("entities array reference is preserved across same-id-set refreshes", async () => {
+    let counter = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        counter++;
+        // Same ids, different positions — server returns fresh objects
+        // each time, but the diff layer keeps the prior array reference.
+        return [
+          makePoint("p1"),
+          makePoint("p2"),
+        ].map((p, i) => ({ ...p, lat: counter + i, lon: -(counter + i) }));
+      },
+    });
+
+    await provider.refresh();
+    const ref1 = provider.getSnapshot().entities;
+    expect(ref1[0]!.lat).toBe(1);
+
+    await provider.refresh();
+    const ref2 = provider.getSnapshot().entities;
+    expect(ref2).toBe(ref1); // same array reference
+    expect(ref2[0]!.lat).toBe(2); // mutated in place
+    expect(ref2[1]!.lat).toBe(3);
+
+    await provider.refresh();
+    expect(provider.getSnapshot().entities).toBe(ref1);
+    expect(ref1[0]!.lat).toBe(3);
+  });
+
+  test("entities array reference is replaced when id-set changes", async () => {
+    let counter = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        counter++;
+        return counter === 1
+          ? [makePoint("a"), makePoint("b")]
+          : [makePoint("a"), makePoint("c")]; // b removed, c added
+      },
+    });
+
+    await provider.refresh();
+    const ref1 = provider.getSnapshot().entities;
+    await provider.refresh();
+    const ref2 = provider.getSnapshot().entities;
+    expect(ref2).not.toBe(ref1);
+    expect(
+      ref2.map((p) => p.id).sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["a", "c"]);
+  });
+
+  test("version still bumps on stale-cache fallback when upstream returns empty", async () => {
+    let callNum = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        callNum++;
+        if (callNum === 1) return [makePoint("p1")];
+        return [];
+      },
+    });
+
+    await provider.refresh();
+    const v1 = provider.getSnapshot().version;
+    await provider.refresh(); // empty result, retains stale cache
+    expect(provider.getSnapshot().version).toBe(v1 + 1);
+  });
+});

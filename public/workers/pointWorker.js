@@ -634,7 +634,18 @@ function renderFrame() {
   var layers = p.layers,
     af = p.aircraftFilter;
   var colors = _colors;
-  var data = _data;
+  // Progressive render limit comes from the main thread per frame as a
+  // scalar. Slicing happens here so the heavy data payload only crosses
+  // the worker boundary on actual data changes, not every ramp frame.
+  var fullData = _data;
+  var renderLimit =
+    typeof p.renderLimit === "number" && p.renderLimit < fullData.length
+      ? p.renderLimit
+      : fullData.length;
+  var data =
+    renderLimit < fullData.length
+      ? fullData.slice(0, renderLimit)
+      : fullData;
   var searchIds = p.searchMatchIds;
   var selectedItem = p.selectedItem;
 

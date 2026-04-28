@@ -180,7 +180,11 @@ describe("Ticker filter independence", () => {
     const idx = src.indexOf("buildTickerItems(allData)");
     expect(idx).toBeGreaterThan(-1);
     const after = src.slice(idx, idx + 100);
-    expect(after).toContain("[allData]");
+    // Render-batching gate: allowed deps are `allData` (membership) and
+    // `allDataVersion` (positions/data fields). Filters and layers are
+    // forbidden — re-adding either re-introduces the old "ticker churns
+    // on every filter toggle" bug.
+    expect(after).toContain("allData");
     expect(after).not.toContain("filters");
     expect(after).not.toContain("layers");
   });

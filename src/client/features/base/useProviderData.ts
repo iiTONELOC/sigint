@@ -33,6 +33,14 @@ const defaultResolveDataSource: ResolveDataSource = (data, snapshot) => {
 
 type UseProviderDataResult = {
   data: DataPoint[];
+  /**
+   * Provider snapshot version. Bumps on every refresh that produces a
+   * usable snapshot, even when the entities array reference is preserved
+   * (in-place mutation on same-id-set polls). Subscribers that gate on
+   * positions/data fields use version; those gating only on membership
+   * use reference equality on `data`. See diffEntities.ts.
+   */
+  version: number;
   loading: boolean;
   error: Error | null;
   dataSource: ProviderDataSource;
@@ -46,15 +54,21 @@ export function useProviderData(
   resolveDataSource: ResolveDataSource = defaultResolveDataSource,
 ): UseProviderDataResult {
   const [data, setData] = useState<DataPoint[]>([]);
+  const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [dataSource, setDataSource] = useState<ProviderDataSource>("loading");
 
-  // Sync state from provider snapshot
+  // Sync state from provider snapshot. Passes the snapshot's entities
+  // array reference straight through — when in-place mutation preserved
+  // it, React's Object.is bails on setData and downstream memos that
+  // gate on identity skip recomputation. setVersion always fires so
+  // version-sensitive subscribers re-run.
   const syncFromSnapshot = useCallback(() => {
     const snapshot = provider.getSnapshot();
     if (snapshot.entities.length > 0 || !snapshot.loading) {
-      setData([...snapshot.entities]);
+      setData(snapshot.entities);
+      setVersion(snapshot.version);
       setLoading(snapshot.loading);
       setError(snapshot.error ?? null);
       setDataSource(resolveDataSource(snapshot.entities, snapshot));
@@ -73,7 +87,8 @@ export function useProviderData(
     // Sync read: if provider already has data (hydrated before mount), show it
     const snap = provider.getSnapshot();
     if (snap.entities.length > 0) {
-      setData([...snap.entities]);
+      setData(snap.entities);
+      setVersion(snap.version);
       setLoading(false);
       setError(snap.error ?? null);
       setDataSource(resolveDataSource(snap.entities, snap));
@@ -86,13 +101,9 @@ export function useProviderData(
     // instead of waiting for the next throttled tick.
     const refreshOnce = async () => {
       try {
-        const result = await provider.refresh();
+        await provider.refresh();
         if (!isMounted) return;
-        const snapshot = provider.getSnapshot();
-        setData([...result]);
-        setLoading(false);
-        setError(snapshot.error ?? null);
-        setDataSource(resolveDataSource(result, snapshot));
+        syncFromSnapshot();
       } catch (err) {
         if (!isMounted) return;
         setError(
@@ -120,5 +131,5 @@ export function useProviderData(
     };
   }, [provider, pollInterval, resolveDataSource, syncFromSnapshot]);
 
-  return { data, loading, error, dataSource };
+  return { data, version, loading, error, dataSource };
 }
