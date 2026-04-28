@@ -56,6 +56,15 @@ export type CycloneData = {
   lastUpdate: string;
   /** Forecast track points. Empty array if NHC didn't include inline forecast. */
   forecast: ForecastPoint[];
+  /** Official NHC 5-day cone polygon as GeoJSON. Populated lazily from
+   *  /api/cyclones/:stormId/cone after CurrentStorms.json parse. Absent
+   *  → worker falls back to the synthesized error-radius cone. */
+  officialCone?: GeoJSONPolygon;
+};
+
+export type GeoJSONPolygon = {
+  type: "Polygon";
+  coordinates: number[][][];
 };
 
 // Synthetic per-forecast-point shape — produced by

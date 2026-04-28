@@ -1,6 +1,7 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CycloneData } from "../types";
+import { useCycloneDossier } from "../hooks/useCycloneDossier";
 import {
   DossierToolbar,
   Section,
@@ -47,6 +48,7 @@ export function CycloneDossier({
       : null;
   const closeBtnRef = useDossierFocus(item.id);
   const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
+  const { dossier, loading } = useCycloneDossier(d.stormId);
 
   return (
     <div className="h-full flex flex-col">
@@ -102,6 +104,38 @@ export function CycloneDossier({
               ))}
             </Section>
           )}
+
+          <Section title="ADVISORY">
+            {loading && !dossier?.advisory ? (
+              <div
+                className="text-xs text-sig-dim"
+                aria-live="polite"
+              >
+                Loading…
+              </div>
+            ) : null}
+            {dossier?.advisory ? (
+              <pre className="text-xs whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+                {dossier.advisory.body}
+              </pre>
+            ) : null}
+          </Section>
+
+          <Section title="DISCUSSION">
+            {loading && !dossier?.discussion ? (
+              <div
+                className="text-xs text-sig-dim"
+                aria-live="polite"
+              >
+                Loading…
+              </div>
+            ) : null}
+            {dossier?.discussion ? (
+              <pre className="text-xs whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+                {dossier.discussion.body}
+              </pre>
+            ) : null}
+          </Section>
 
           <Section title="POSITION">
             <div className="text-sm font-mono text-sig-dim">

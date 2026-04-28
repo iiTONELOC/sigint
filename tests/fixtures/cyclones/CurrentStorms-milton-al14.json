@@ -1,0 +1,54 @@
+{
+  "_comment": "Hand-authored snapshot of NHC CurrentStorms.json from when Milton AL142024 was active around advisory 13. Schema follows the 2019 NHC reference: per-storm direct URLs in publicAdvisory / forecastDiscussion / windSpeedProbabilities / trackCone. Used by cyclonesCache.spec.ts and cyclonesDossierCache.spec.ts.",
+  "activeStorms": [
+    {
+      "id": "al142024",
+      "binNumber": "AT4",
+      "name": "MILTON",
+      "classification": "HU",
+      "intensity": "140",
+      "pressure": "905",
+      "latitude": "22.4N",
+      "latitudeNumeric": 22.4,
+      "longitude": "90.0W",
+      "longitudeNumeric": -90.0,
+      "movementDir": 90,
+      "movementSpeed": 9,
+      "lastUpdate": "2024-10-08T08:56:00Z",
+      "publicAdvisory": {
+        "advNum": "013",
+        "issuance": "2024-10-08T09:00:00Z",
+        "url": "https://www.nhc.noaa.gov/archive/2024/al14/al142024.public.013.shtml"
+      },
+      "forecastDiscussion": {
+        "advNum": "013",
+        "issuance": "2024-10-08T08:30:00Z",
+        "url": "https://www.nhc.noaa.gov/archive/2024/al14/al142024.discus.013.shtml"
+      },
+      "windSpeedProbabilities": {
+        "advNum": "008",
+        "issuance": "2024-10-07T15:00:00Z",
+        "url": "https://www.nhc.noaa.gov/archive/2024/al14/al142024.wndprb.008.shtml"
+      },
+      "trackCone": {
+        "advNum": "013",
+        "issuance": "2024-10-08T08:30:00Z",
+        "kmzFile": "https://www.nhc.noaa.gov/storm_graphics/api/AL142024_013adv_CONE.kmz"
+      },
+      "forecastTrack": {
+        "advisoryNumber": "13",
+        "kmzFile": "https://www.nhc.noaa.gov/storm_graphics/api/AL142024_013adv_TRACK.kmz",
+        "zipFile": "https://www.nhc.noaa.gov/gis/forecast/archive/al142024.013_5day.zip"
+      },
+      "forecast": [
+        { "fcstHour": 12, "validTime": "2024-10-08T18:00:00Z", "latitude": 23.2, "longitude": -88.0, "maxWind": 140, "minPressure": 910, "development": "HU" },
+        { "fcstHour": 24, "validTime": "2024-10-09T06:00:00Z", "latitude": 24.8, "longitude": -86.0, "maxWind": 130, "minPressure": 920, "development": "HU" },
+        { "fcstHour": 36, "validTime": "2024-10-09T18:00:00Z", "latitude": 26.5, "longitude": -84.0, "maxWind": 120, "minPressure": 935, "development": "HU" },
+        { "fcstHour": 48, "validTime": "2024-10-10T06:00:00Z", "latitude": 28.2, "longitude": -82.0, "maxWind": 95, "minPressure": 955, "development": "HU" },
+        { "fcstHour": 72, "validTime": "2024-10-11T06:00:00Z", "latitude": 30.5, "longitude": -76.5, "maxWind": 55, "minPressure": 985, "development": "TS" },
+        { "fcstHour": 96, "validTime": "2024-10-12T06:00:00Z", "latitude": 33.0, "longitude": -70.0, "maxWind": 40, "minPressure": 996, "development": "TS" },
+        { "fcstHour": 120, "validTime": "2024-10-13T06:00:00Z", "latitude": 36.0, "longitude": -62.0, "maxWind": 35, "minPressure": 1000, "development": "TS" }
+      ]
+    }
+  ]
+}

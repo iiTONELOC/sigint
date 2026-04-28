@@ -70,6 +70,15 @@ describe("normalizeCyclonesPayload", () => {
 // ── Module-level cache + constants ─────────────────────────────────
 
 describe("cyclonesCache module surface", () => {
+  beforeEach(() => {
+    // Bun loads cyclonesCache.ts once per test process; sibling spec
+    // files in the same process (cyclonesDossierCache, cyclonesConeCache)
+    // populate per-storm products via fetchCyclones() before this
+    // describe block runs. Reset to a known empty baseline so the
+    // "initial shape" assertion below is order-independent.
+    __resetCyclonesCacheForTests();
+  });
+
   test("getCyclonesCache returns initial empty shape before any fetch", () => {
     const c = getCyclonesCache();
     expect(c.body).toBeNull();

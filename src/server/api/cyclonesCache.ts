@@ -69,6 +69,27 @@ let conditionalState: ConditionalState = {
 // Cleared on `__resetCyclonesCacheForTests`.
 let lastAdvisoryHash: string | null = null;
 
+// Per-storm URL stash. Populated from each successful CurrentStorms.json
+// response — direct URLs for the three text products and the cone KMZ
+// come straight from NHC's payload (2019 schema). Consumers (dossier
+// cache, cone cache) read these by stormId to issue downstream fetches
+// against the URLs NHC published, never construct their own.
+export type StormProducts = {
+  advisoryUrl?: string;
+  discussionUrl?: string;
+  windProbsUrl?: string;
+  conekmzUrl?: string;
+};
+
+const stormProducts = new Map<string, StormProducts>();
+
+// Optional listener fired when the advisory hash changes — used by the
+// dossier + cone caches to eager-prefetch per-storm products instead of
+// waiting for a client request to lazy-load them. Registered once at
+// server startup.
+type AdvisoryChangeListener = (stormIds: string[]) => void;
+let advisoryChangeListener: AdvisoryChangeListener | null = null;
+
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── Pure helpers (testable) ─────────────────────────────────────────
@@ -331,6 +352,9 @@ async function processCyclonesResponse(res: Response): Promise<void> {
     stormCount: normalized.activeStorms.length,
     error: null,
   };
+  // Refresh the per-storm URL stash off the new payload. Stale entries
+  // for storms that have dissipated drop out of the map.
+  refreshStormProducts(normalized.activeStorms);
   if (normalized.activeStorms.length > 0) {
     console.log(
       `🌀 NHC: ${normalized.activeStorms.length} active cyclone(s) loaded`,
@@ -338,6 +362,89 @@ async function processCyclonesResponse(res: Response): Promise<void> {
   } else {
     console.log("🌀 NHC: no active cyclones (out of season or quiet day)");
   }
+  notifyAdvisoryChange(normalized.activeStorms);
+}
+
+/** Fire the eager-prefetch listener with the new advisory cycle's storm
+ *  ids. Fire-and-forget — listener errors don't block this poll, the
+ *  dossier + cone caches will still lazy-load on demand. */
+function notifyAdvisoryChange(activeStorms: readonly unknown[]): void {
+  if (!advisoryChangeListener || activeStorms.length === 0) return;
+  const ids = collectStormIds(activeStorms);
+  try {
+    advisoryChangeListener(ids);
+  } catch {
+    // Listener failure is non-fatal.
+  }
+}
+
+function collectStormIds(activeStorms: readonly unknown[]): string[] {
+  const ids: string[] = [];
+  for (const s of activeStorms) {
+    if (!s || typeof s !== "object") continue;
+    const id = (s as { id?: unknown }).id;
+    if (typeof id === "string") ids.push(id.toUpperCase());
+  }
+  return ids;
+}
+
+/** Read a string field from a nested record on the storm object.
+ *  `path` is the parent property (`publicAdvisory`, `trackCone`, etc.),
+ *  `key` is the leaf (`url`, `kmzFile`). Returns undefined when the
+ *  shape doesn't match — callers fall back gracefully. */
+function readNestedString(
+  obj: Record<string, unknown>,
+  path: string,
+  key: string,
+): string | undefined {
+  const parent = obj[path];
+  if (!parent || typeof parent !== "object") return undefined;
+  const value = (parent as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function extractStormProducts(s: unknown): { id: string; products: StormProducts } | null {
+  if (!s || typeof s !== "object") return null;
+  const obj = s as Record<string, unknown>;
+  const rawId = obj.id;
+  if (typeof rawId !== "string") return null;
+  return {
+    id: rawId.toUpperCase(),
+    products: {
+      advisoryUrl: readNestedString(obj, "publicAdvisory", "url"),
+      discussionUrl: readNestedString(obj, "forecastDiscussion", "url"),
+      windProbsUrl: readNestedString(obj, "windSpeedProbabilities", "url"),
+      conekmzUrl: readNestedString(obj, "trackCone", "kmzFile"),
+    },
+  };
+}
+
+/** Pull per-storm direct URLs out of an activeStorms array and replace
+ *  the live stash. URLs come straight from NHC's 2019 CurrentStorms.json
+ *  schema (publicAdvisory / forecastDiscussion / windSpeedProbabilities
+ *  / trackCone). Storms missing from the new payload are dropped. */
+function refreshStormProducts(activeStorms: readonly unknown[]): void {
+  stormProducts.clear();
+  for (const s of activeStorms) {
+    const extracted = extractStormProducts(s);
+    if (extracted) stormProducts.set(extracted.id, extracted.products);
+  }
+}
+
+/** Look up the per-storm direct URLs for downstream product fetches.
+ *  Returns null when the storm is not in the latest CurrentStorms.json
+ *  payload (storm dissipated, or never registered). */
+export function getStormProducts(stormId: string): StormProducts | null {
+  return stormProducts.get(stormId.toUpperCase()) ?? null;
+}
+
+/** Register the eager-prefetch hook fired on advisory-hash change. The
+ *  server bootstrap (src/server/api/index.ts) wires this to warm the
+ *  dossier + cone caches on each new advisory cycle. */
+export function setAdvisoryChangeListener(
+  listener: AdvisoryChangeListener | null,
+): void {
+  advisoryChangeListener = listener;
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -373,4 +480,6 @@ export function __resetCyclonesCacheForTests(): void {
   cache = { body: null, fetchedAt: 0, stormCount: 0, error: null };
   conditionalState = { lastModified: null, etag: null };
   lastAdvisoryHash = null;
+  stormProducts.clear();
+  advisoryChangeListener = null;
 }

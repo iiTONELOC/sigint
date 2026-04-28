@@ -16,7 +16,19 @@ import {
   isValidIcao24,
   isValidCallsign,
 } from "./dossierCache";
+import { getCycloneDossier } from "./cyclonesDossierCache";
+import { getCycloneCone } from "./cyclonesConeCache";
 import { withSecurityHeaders } from "./securityHeaders";
+
+// ── Storm-id validator (route-param SSRF guard) ──────────────────────
+// NHC stormIds match the literal pattern basin (AL|EP|CP) + 2-digit
+// cyclone number + 4-digit year. The pattern is enforced before the
+// :stormId path param flows into any cache lookup so a hostile path
+// can't poison the per-storm URL stash.
+const STORM_ID_RE = /^(?:AL|EP|CP)\d{2}\d{4}$/i;
+function isValidStormId(value: string): boolean {
+  return STORM_ID_RE.test(value);
+}
 
 // ── Response helpers ─────────────────────────────────────────────────
 
@@ -238,5 +250,53 @@ export const apiRoutes = {
     }
 
     return jsonResponse(req, { dossier });
+  },
+
+  // ── Dossier: Cyclone NHC text products (Public Advisory + Discussion) ──
+  // Wind probabilities are cached but not surfaced in v1.1 UI; the bundle
+  // includes the field so future UI iterations can light it up without a
+  // server change.
+  "/api/dossier/cyclone/:stormId": async (req: any) => {
+    const blocked = await guardAuth(req);
+    if (blocked) return blocked;
+
+    const { method, params } = req;
+    if (method !== "GET") {
+      return withSecurityHeaders(
+        new Response("Method Not Allowed", { status: 405 }),
+      );
+    }
+
+    const stormId = String(params?.stormId ?? "");
+    if (!isValidStormId(stormId)) {
+      return jsonError({ error: "Invalid stormId" }, 400);
+    }
+
+    const result = await getCycloneDossier(stormId.toUpperCase());
+    return jsonResponse(req, result);
+  },
+
+  // ── Cyclone official 5-day cone (KMZ → GeoJSON Polygon) ──────────────
+  // KMZ unzip + KML→GeoJSON conversion happens server-side so the worker
+  // doesn't ship a ZIP unzipper. Failure is silent (cone: null) — the
+  // worker falls back to the synthesized error-radius cone.
+  "/api/cyclones/:stormId/cone": async (req: any) => {
+    const blocked = await guardAuth(req);
+    if (blocked) return blocked;
+
+    const { method, params } = req;
+    if (method !== "GET") {
+      return withSecurityHeaders(
+        new Response("Method Not Allowed", { status: 405 }),
+      );
+    }
+
+    const stormId = String(params?.stormId ?? "");
+    if (!isValidStormId(stormId)) {
+      return jsonError({ error: "Invalid stormId" }, 400);
+    }
+
+    const result = await getCycloneCone(stormId.toUpperCase());
+    return jsonResponse(req, result);
   },
 };

@@ -70,6 +70,13 @@ const ALLOWED_LINE_SUBSTRINGS = [
   // Fixture-data fields: USGS event-page links surfaced in DetailPanel
   // intel rows; they are href values, never fetch targets in tests.
   '"https://earthquake.usgs.gov/earthquakes/eventpage/',
+  // Per-storm NHC product URLs used as Map keys in cyclonesDossierCache
+  // and cyclonesConeCache specs — the URLs are pulled out of the
+  // hand-authored CurrentStorms-milton-al14.json fixture and routed
+  // through a globalThis.fetch override; the guard's URL-shape match
+  // catches them, but they are never fetched live.
+  '"https://www.nhc.noaa.gov/archive/2024/al14/',
+  '"https://www.nhc.noaa.gov/storm_graphics/api/AL142024_013adv_CONE.kmz"',
 ];
 
 const SPEC_EXT_RE = /\.spec\.tsx?$/;

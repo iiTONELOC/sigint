@@ -36,6 +36,16 @@ type NhcStorm = {
   movementDir?: number;
   movementSpeed?: number;
   lastUpdate: string;
+  // Per the 2019 NHC CurrentStorms.json schema reference, each storm
+  // carries direct URLs for its current text products and the 5-day
+  // cone KMZ. Schema correction: the cone KMZ lives on `trackCone`,
+  // not `forecastTrack` (forecastTrack is the track-line graphic, a
+  // separate product). publicAdvisory / forecastDiscussion /
+  // windSpeedProbabilities are read by the server-side dossier cache.
+  publicAdvisory?: { advNum?: string; issuance?: string; url?: string };
+  forecastDiscussion?: { advNum?: string; issuance?: string; url?: string };
+  windSpeedProbabilities?: { advNum?: string; issuance?: string; url?: string };
+  trackCone?: { advNum?: string; issuance?: string; kmzFile?: string };
   forecastTrack?: {
     advisoryNumber?: string;
     kmzFile?: string;
@@ -118,7 +128,12 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     minPressureMb,
     movementDir: s.movementDir,
     movementSpeedKt: s.movementSpeed,
-    advisoryNumber: s.forecastTrack?.advisoryNumber ?? "",
+    // Per 2019 schema, publicAdvisory.advNum is the canonical advisory
+    // identifier; fall back to forecastTrack.advisoryNumber for older
+    // payload shapes (and existing test fixtures that pre-date the
+    // schema correction).
+    advisoryNumber:
+      s.publicAdvisory?.advNum ?? s.forecastTrack?.advisoryNumber ?? "",
     lastUpdate: s.lastUpdate,
     forecast: (s.forecast ?? []).map(toForecastPoint),
   };

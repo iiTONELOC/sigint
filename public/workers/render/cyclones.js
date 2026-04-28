@@ -58,14 +58,15 @@ function drawCyclone(
   ctx.arc(x, y, s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Forecast track + synthesized cone
+  // Forecast track + cone (official KMZ-derived if present, synthesized
+  // error-radius circles otherwise).
   if (showForecast && d.forecast && d.forecast.length > 0) {
     drawCycloneForecast(
       ctx,
       projFn,
       x,
       y,
-      d.forecast,
+      item,
       color,
       depthAlpha,
       showCone,
@@ -86,12 +87,60 @@ function drawCyclone(
   ctx.globalAlpha = 1;
 }
 
+function hasOfficialCone(d) {
+  var c = d.officialCone;
+  return !!(c?.coordinates?.[0] && c.coordinates[0].length >= 4);
+}
+
+function drawOfficialCone(ctx, projFn, cone, color, baseAlpha) {
+  var ring = cone.coordinates[0];
+  ctx.beginPath();
+  var moved = false;
+  for (var ri = 0; ri < ring.length; ri++) {
+    var pt = ring[ri];
+    var rp = projFn(pt[1], pt[0]);
+    if (rp.z <= 0) continue;
+    if (moved) {
+      ctx.lineTo(rp.x, rp.y);
+    } else {
+      ctx.moveTo(rp.x, rp.y);
+      moved = true;
+    }
+  }
+  if (!moved) return;
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = baseAlpha * 0.15;
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = baseAlpha * 0.6;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawSynthesizedCone(ctx, projFn, fp, color, baseAlpha) {
+  for (var k = 0; k < fp.length; k++) {
+    var fc = fp[k];
+    var nearby = projFn(fc.lat + 1, fc.lon);
+    if (nearby.z <= 0) continue;
+    var pxPerDeg = Math.hypot(nearby.x - fc.x, nearby.y - fc.y);
+    var radiusPx = (fc.errorRadiusNm / 60) * pxPerDeg;
+    var fadeC = 1 - fc.fcstHour / 144;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = baseAlpha * 0.12 * fadeC;
+    ctx.beginPath();
+    ctx.arc(fc.x, fc.y, radiusPx, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function drawCycloneForecast(
   ctx,
   projFn,
   eyeX,
   eyeY,
-  forecast,
+  item,
   color,
   baseAlpha,
   showCone,
@@ -101,6 +150,8 @@ function drawCycloneForecast(
   // eslint-disable-next-line no-unused-vars
   reducedMotion,
 ) {
+  var d = item.data || {};
+  var forecast = d.forecast || [];
   // Project all forecast points
   var fp = [];
   for (var j = 0; j < forecast.length; j++) {
@@ -120,22 +171,14 @@ function drawCycloneForecast(
   }
   if (fp.length === 0) return;
 
-  // Synthesized cone — translucent circles at each forecast point, scaled
-  // by error radius. Radius: nm → screen px via local pixel-per-degree
-  // sample.
+  // Cone render: official KMZ-derived GeoJSON Polygon when present
+  // (server proxies /api/cyclones/:stormId/cone), synthesized error-
+  // radius circles otherwise. Both branches respect the showCone flag.
   if (showCone) {
-    for (var k = 0; k < fp.length; k++) {
-      var fc = fp[k];
-      var nearby = projFn(fc.lat + 1, fc.lon);
-      if (nearby.z <= 0) continue;
-      var pxPerDeg = Math.hypot(nearby.x - fc.x, nearby.y - fc.y);
-      var radiusPx = (fc.errorRadiusNm / 60) * pxPerDeg;
-      var fadeC = 1 - fc.fcstHour / 144;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = baseAlpha * 0.12 * fadeC;
-      ctx.beginPath();
-      ctx.arc(fc.x, fc.y, radiusPx, 0, Math.PI * 2);
-      ctx.fill();
+    if (hasOfficialCone(d)) {
+      drawOfficialCone(ctx, projFn, d.officialCone, color, baseAlpha);
+    } else {
+      drawSynthesizedCone(ctx, projFn, fp, color, baseAlpha);
     }
   }
 
