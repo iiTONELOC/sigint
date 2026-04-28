@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 // ── Cyclones toggle visibility — season-gated ─────────────────────
@@ -83,6 +83,7 @@ test.describe("cyclones — toggle visibility (season-gated)", () => {
     // entries are applied in registration order on each navigation.
     await mockWallClock(page, new Date(Date.UTC(2026, 1, 1, 12, 0, 0)));
     await resetClientCacheAndSuppressWalkthrough(page);
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -101,6 +102,7 @@ test.describe("cyclones — toggle visibility (season-gated)", () => {
     // returns true even with zero storms.
     await mockWallClock(page, new Date(Date.UTC(2026, 7, 15, 12, 0, 0)));
     await resetClientCacheAndSuppressWalkthrough(page);
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

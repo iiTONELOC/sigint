@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 // ConnectionStatus listens to the browser's `online` / `offline` events
@@ -11,6 +11,7 @@ import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 test.describe("offline / reconnect", () => {
   test("offline bar appears when network drops", async ({ page, context }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -29,6 +30,7 @@ test.describe("offline / reconnect", () => {
     page,
     context,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

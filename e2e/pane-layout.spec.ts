@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 import { axeScan } from "./helpers/axe";
 
@@ -13,6 +13,7 @@ test.describe("pane layout", () => {
   test("PaneManager toolbar surface is reachable + accessible", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -21,6 +22,7 @@ test.describe("pane layout", () => {
   });
 
   test("pane layout passes axe (WCAG 2.2 AA)", async ({ page }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

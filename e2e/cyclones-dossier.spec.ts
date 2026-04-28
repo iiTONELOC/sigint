@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 import { axeScanStrict } from "./helpers/axe";
 
@@ -15,6 +15,7 @@ test.describe("cyclones — dossier", () => {
   test("CycloneDossier renders all documented sections for a Cat 5 storm", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -50,6 +51,7 @@ test.describe("cyclones — dossier", () => {
   test("CycloneDossier passes axe (strict — new code, no allowlist)", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -76,6 +78,7 @@ test.describe("cyclones — dossier", () => {
   test("subtropical-example fixture surfaces 'Subtropical Storm' classification", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "subtropical-example");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

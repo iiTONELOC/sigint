@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 import { axeScan } from "./helpers/axe";
 
@@ -12,6 +12,7 @@ test.describe("layer toggles", () => {
   test("cyclone layer toggle is reachable + has accessible name", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -27,6 +28,7 @@ test.describe("layer toggles", () => {
   test("clicking the cyclone layer toggle flips aria-pressed", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -44,6 +46,7 @@ test.describe("layer toggles", () => {
   });
 
   test("layers panel passes axe (WCAG 2.2 AA)", async ({ page }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

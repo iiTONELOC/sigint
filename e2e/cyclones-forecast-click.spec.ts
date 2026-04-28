@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame, projectLatLon } from "./helpers/canvas";
 
 // Forecast track points are synthesized into "cyclones-forecast"
@@ -33,40 +33,12 @@ test.describe("cyclones — clickable forecast points", () => {
   test("forecast point click surfaces the floating DetailPanel for a synthesized cyclones-forecast", async ({
     page,
   }) => {
+    // Empty every other feed first so the canvas click at (33.5,-84.5)
+    // can only collide with the cyclone-forecast point. Without these,
+    // a live entity in the same grid square wins the spatial-grid
+    // hit-test and the DetailPanel renders the wrong feature.
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
-
-    // Empty every other feed so the canvas click can only collide
-    // with the cyclone-forecast point. Without these, live aircraft
-    // (or any other globally-visible entity) flying through the same
-    // 33.5/-84.5 grid square can win the spatial-grid hit-test, the
-    // DetailPanel renders for that entity, OPEN IN DOSSIER appears,
-    // and the FORECAST / +120h assertions then fail because the
-    // panel is showing the wrong feature.
-    const emptyJson = (extra: Record<string, unknown> = {}) =>
-      JSON.stringify({ fetchedAt: Date.now(), ...extra });
-    await page.route("**/api/aircraft/states", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: emptyJson({ ac: [], aircraftCount: 0 }),
-      }),
-    );
-    for (const ep of [
-      "events",
-      "fires",
-      "ships",
-      "quakes",
-      "weather",
-      "news",
-    ]) {
-      await page.route(`**/api/${ep}/latest`, (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: emptyJson({}),
-        }),
-      );
-    }
 
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

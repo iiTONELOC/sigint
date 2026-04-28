@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mockSources } from "./helpers/fixtures";
+import { mockSources, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame, projectLatLon } from "./helpers/canvas";
 
 // ── AircraftDossier visual + field baseline ─────────────────────────
@@ -63,6 +63,7 @@ test.describe("aircraft — dossier baseline", () => {
   test("dossier renders every enrichment + hexdb field with stable layout", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockSources(page, { aircraft: "dossier-baseline" });
 
     // hexdb path mock — fully populated `aircraft` block, no route, no

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 import { axeScan } from "./helpers/axe";
 
@@ -14,6 +14,7 @@ test.describe("cyclones — render", () => {
   test("single-cat5 fixture boots and reveals the cyclone toggle", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -30,6 +31,7 @@ test.describe("cyclones — render", () => {
   test("empty-out-of-season fixture boots cleanly (allowEmptyResult path)", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -51,6 +53,7 @@ test.describe("cyclones — render", () => {
   test("multi-storm fixture boots and reveals the cyclone toggle", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "multi-storm");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -62,6 +65,7 @@ test.describe("cyclones — render", () => {
   });
 
   test("cyclones layer toggle hides the layer", async ({ page }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -83,6 +87,7 @@ test.describe("cyclones — render", () => {
   test("cyclones layer toggle has accessible name (axe-friendly)", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "single-cat5");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

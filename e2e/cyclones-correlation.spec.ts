@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockSources } from "./helpers/fixtures";
+import { mockSources, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 // Cyclone correlation rules — fired by detectCycloneRules in
@@ -21,6 +21,7 @@ test.describe("cyclones — correlation pipeline", () => {
   test("Hurricane Hunter inputs (Cat 5 + military aircraft) reach the UI", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockSources(page, {
       cyclones: "single-cat5",
       aircraft: "hunter-near-cyclone",
@@ -37,6 +38,7 @@ test.describe("cyclones — correlation pipeline", () => {
   test("Ships Sheltering inputs (multi-storm + 6 lee-quadrant vessels) reach the UI", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockSources(page, {
       cyclones: "multi-storm",
       ships: "sheltering-pattern",
@@ -53,6 +55,7 @@ test.describe("cyclones — correlation pipeline", () => {
   test("Cyclone-Path Events inputs (multi-storm + GDELT in cone) reach the UI", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockSources(page, {
       cyclones: "multi-storm",
       events: "path-near-cyclone",

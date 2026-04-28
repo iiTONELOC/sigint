@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 
 // Auth: token cookie issued on first navigation. The cookie is HttpOnly
 // + SameSite=Strict + Path=/api + Secure (Secure is OK on localhost; the
@@ -23,6 +23,7 @@ test.describe("auth", () => {
     page,
     context,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     const authPromise = waitForAuthToken(page);
     await page.goto("/");
@@ -40,6 +41,7 @@ test.describe("auth", () => {
     page,
     context,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     let authPromise = waitForAuthToken(page);
     await page.goto("/");

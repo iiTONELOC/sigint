@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones } from "./helpers/fixtures";
+import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 // Service Worker registration: the SW is a same-origin script at /sw.js.
@@ -11,6 +11,7 @@ import { waitForCanvasFirstFrame } from "./helpers/canvas";
 
 test.describe("service worker", () => {
   test("registers /sw.js on first load", async ({ page }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
@@ -28,6 +29,7 @@ test.describe("service worker", () => {
   test("SW_SKIP_WAITING message is wired (banner activates new worker)", async ({
     page,
   }) => {
+    await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
     await page.goto("/");
     await waitForCanvasFirstFrame(page);

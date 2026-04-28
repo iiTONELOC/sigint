@@ -101,6 +101,66 @@ export async function mockSources(
   }
 }
 
+/** Install default-empty route mocks for every server-proxy `/api/*`
+ *  endpoint AND every direct-upstream URL the client fetches. Tests
+ *  call this BEFORE any specific mock and BEFORE `page.goto`. Specific
+ *  mocks added afterwards override the defaults — Playwright's
+ *  most-recently-registered route handler wins.
+ *
+ *  Why this exists: every e2e spec previously mocked only the feed
+ *  it cared about (cyclones, aircraft) and let every other feed fall
+ *  through to the prod webServer's live polling cache (adsb.fi
+ *  aircraft sweeps, USGS earthquakes via direct client fetch, NWS
+ *  weather via direct client fetch, NHC cyclones via server proxy,
+ *  …). That coupled spec timing to the dev box's network state and
+ *  caused the cyclones-forecast-click flake (live aircraft colliding
+ *  with the projected forecast point on the canvas hit-test). With
+ *  default-empty mocks installed first, every feed answers with a
+ *  shape-correct empty payload until the test explicitly overrides
+ *  the one it cares about. */
+export async function installDefaultMocks(page: Page): Promise<void> {
+  const json = (body: unknown): Parameters<Route["fulfill"]>[0] => ({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+  const now = Date.now();
+
+  // Server-proxy endpoints — shapes mirror src/server/api/index.ts.
+  await page.route("**/api/cyclones/latest", (route) =>
+    route.fulfill(
+      json({ activeStorms: [], fetchedAt: now, stormCount: 0 }),
+    ),
+  );
+  await page.route("**/api/aircraft/states", (route) =>
+    route.fulfill(
+      json({ ac: [], fetchedAt: now, aircraftCount: 0, error: null }),
+    ),
+  );
+  await page.route("**/api/events/latest", (route) =>
+    route.fulfill(json({ data: [], fetchedAt: now })),
+  );
+  await page.route("**/api/ships/latest", (route) =>
+    route.fulfill(json({ data: [], vesselCount: 0, connected: false })),
+  );
+  await page.route("**/api/fires/latest", (route) =>
+    route.fulfill(json({ data: [], fetchedAt: now, fireCount: 0 })),
+  );
+  await page.route("**/api/news/latest", (route) =>
+    route.fulfill(json({ items: [], fetchedAt: now, itemCount: 0 })),
+  );
+
+  // Direct-upstream fetches the client makes without going through
+  // /api/* — earthquakes from USGS, weather alerts from NWS. Match
+  // the GeoJSON FeatureCollection shape both providers expect.
+  await page.route("**/earthquake.usgs.gov/**", (route) =>
+    route.fulfill(json({ type: "FeatureCollection", features: [] })),
+  );
+  await page.route("**/api.weather.gov/**", (route) =>
+    route.fulfill(json({ type: "FeatureCollection", features: [] })),
+  );
+}
+
 /** Mock NHC text products for cyclone dossier tests (v1.1). */
 export async function mockCycloneDossier(
   page: Page,
