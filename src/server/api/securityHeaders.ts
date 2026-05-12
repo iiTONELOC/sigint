@@ -10,7 +10,7 @@ const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' https://www.planespotters.net https://*.planespotters.net data: blob:",
+  "img-src 'self' https://www.planespotters.net https://*.planespotters.net https://*.plnspttrs.net data: blob:",
   [
     "connect-src 'self'",
     // Aircraft positions now go through /api/aircraft/states (server-side
