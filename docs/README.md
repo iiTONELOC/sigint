@@ -24,7 +24,7 @@ Internal technical documentation for the SIGINT OSINT Live Feed dashboard.
 
 **Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker
 
-**Live data**: OpenSky Network (aircraft, 240s poll) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll) + NOAA Weather (severe alerts, 300s client poll) + RSS News (6 world news feeds, 10 min server-side poll, 600s client poll)
+**Live data**: adsb.fi (aircraft, server-side 108-tile sweep every 300s, client polls every 240s) + USGS (earthquakes, 420s poll) + GDELT 2.0 (events, 15 min server-side poll) + aisstream.io (ships, WebSocket stream, 300s client poll) + NASA FIRMS (fires, 30 min server-side poll, 600s client poll) + NHC (active cyclones, 30 min server-side poll) + NOAA Weather (severe alerts, 300s client poll) + RSS News (6 world news feeds, 10 min server-side poll, 600s client poll)
 
 **State**: All shared state in `DataContext` via `useData()` hook — no external state library. News data lifted to DataContext (non-geographic, not in allData — exposed as `newsArticles`). Correlation engine runs in DataContext, shared via `correlation` on context value.
 

@@ -74,11 +74,32 @@ export function LayoutModeProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Track window resize
+  // Track window resize.
+  //
+  // Skip updates while the document has a fullscreen element. Rotating
+  // a phone in landscape crosses the 768 px breakpoint, which would
+  // otherwise flip `isMobile` false, swap PaneMobile for the desktop
+  // tree, unmount the playing <video>, and force the browser to exit
+  // fullscreen — even though the user just rotated to make the video
+  // bigger. Holding the width steady keeps the same React tree mounted
+  // so fullscreen survives the rotation. On `fullscreenchange` (exit)
+  // we resync to the now-current width.
   useEffect(() => {
-    const onResize = () => setWindowWidth(window.innerWidth);
+    const onResize = () => {
+      if (document.fullscreenElement) return;
+      setWindowWidth(window.innerWidth);
+    };
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setWindowWidth(window.innerWidth);
+      }
+    };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
   }, []);
 
   const setMode = useCallback((next: LayoutMode) => {

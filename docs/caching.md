@@ -20,7 +20,7 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 
 | Key | Owner | Contains | Written | Staleness |
 |---|---|---|---|---|
-| `sigint.opensky.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] with enriched metadata | Every 240s + after enrichment | Rejected on hydrate if >30min |
+| `sigint.adsbfi.aircraft-cache.v1` | AircraftProvider | Full DataPoint[] (records already enriched server-side via `ac-db.sqlite`) | Every 240s | Rejected on hydrate if >30min |
 | `sigint.usgs.earthquake-cache.v1` | earthquakeProvider | USGS earthquake DataPoint[] (7 days) | Every 420s | Rejected on hydrate if >30min |
 | `sigint.gdelt.events-cache.v1` | gdeltProvider | GDELT event DataPoint[] (7-day rolling window, URL-deduped) | Every 15 min | Rejected on hydrate if >30min, events >7 days pruned on merge |
 | `sigint.ais.ship-cache.v1` | shipProvider | AIS vessel DataPoint[] | Every 300s | Rejected on hydrate if >30min |
@@ -28,7 +28,8 @@ At boot, `cacheInit()` runs a cleanup pass: trail entries older than 24 hours ar
 | `sigint.noaa.weather-cache.v1` | weatherProvider | NOAA severe weather alert DataPoint[] | Every 300s | Rejected on hydrate if >30min |
 | `sigint.trails.v1` | trailService | Map of entity ID → position history | Every 30s | Entries >24h removed at boot. Aircraft: 50 points cap, 32min miss tolerance. Ships: 500 points cap, 1hr miss tolerance. |
 | `sigint.land.hd.v1` | landService | HD coastline polygon data | After first fetch | Never expires |
-| `sigint.aircraft.metadata-db.v1` | typeLookup | Full NDJSON aircraft metadata DB (~53MB raw, ~616K records) + version tag | Once on first load, or when DB version changes | Never expires — versioned route ensures correctness. Excluded from bulk `idbGetAll` at boot (loaded lazily). |
+| `sigint.nhc.cyclones-cache.v1` | cycloneProvider | NHC active storms snapshot (DataPoint[] + forecast points) | Every 30 min | Rejected on hydrate if >30min |
+| `sigint.nhc.cyclone-dossier-cache.v1` | DossierPane | Per-storm NHC text products (advisory, discussion, wind probs) | On each dossier fetch | 30 min TTL per entry |
 | `sigint.layout.v1` | PaneManager | Binary split tree layout + minimized panes (LEGACY — migration fallback) | On every layout change | Never expires |
 | `sigint.layout.desktop.v1` | PaneManager | Desktop binary split tree layout + minimized panes | On every layout change (desktop) | Never expires |
 | `sigint.layout.mobile.v1` | PaneManager | Mobile binary split tree layout + minimized panes | On every layout change (mobile) | Never expires |
@@ -76,17 +77,15 @@ On boot, `cacheInit()` scans all 7 data cache keys. Any entry holding `{ data: [
 
 The provider has a two-tier cache: an in-memory object (`this.cache`) and IndexedDB via `storageService`. On boot, `hydrate()` is called by the boot sequence in `frontend.tsx` — reads from memoryCache (populated by `cacheInit`), populates `this.cache` + `this.snapshot`, and notifies the hook.
 
-Metadata enrichment is applied inline during every `fetchOpenSkyStates()` call via `applyMetadata()`, which does synchronous `Map.get()` lookups against the local metadata DB (see [Data Flow — Enrichment Pipeline](./data-flow.md#enrichment-pipeline)). Enriched data is persisted to IndexedDB, so cached aircraft retain their type, registration, operator, and military classification across page reloads.
+Aircraft records are already enriched (acType / registration / operator / manufacturer / model / military / originCountry) by the time the client receives them — see [Data Flow — Enrichment Pipeline](./data-flow.md#enrichment-pipeline). The client provider is a pure shape mapper. Enriched records are persisted to IndexedDB, so the IDB cache retains all enrichment across page reloads with no client-side DB to maintain.
 
 ---
 
-## Local Aircraft Metadata DB
+## Server-side Aircraft Metadata DB
 
-The full aircraft metadata database (~616K records, ~53MB NDJSON) is downloaded once from `/api/aircraft/metadata/db/v1` and cached in IndexedDB under `sigint.aircraft.metadata-db.v1` with a version tag. On subsequent boots, if the version matches, no download occurs — the NDJSON is parsed from IDB into an in-memory `Map<string, AircraftMetadata>`.
+`src/server/data/ac-db.sqlite` (~46 MB, ~617k records) is a read-only SQLite file baked into the production image at build time. `scripts/build-aircraft-db.ts` generates it from the source NDJSON (`ac-db.ndjson`, removed at stage 2 of the Docker build — only the SQLite ships). `src/server/api/aircraftEnrichment.ts` opens the DB read-only on the first sweep, caches one prepared statement, and answers each lookup in <0.05 ms.
 
-The metadata DB key is **excluded from the bulk `idbGetAll()` load** in `cacheInit()` to prevent a 53MB deserialization from blocking the boot sequence. It is loaded lazily by `ensureMetadataDb()` when needed (called from `frontend.tsx` before the network refresh batch).
-
-Military classification runs client-side in `typeLookup.ts` using the same heuristic as the original server module: ICAO type codes, operator keywords, and US DoD hex range.
+The DB ages by source-NDJSON cadence — `AC_DB_STALE_THRESHOLD_MS` (90 days) is the operator-visible warning threshold for regenerating via `bun run build:aircraft-db`. No client involvement; the client never sees the metadata DB itself.
 
 ---
 

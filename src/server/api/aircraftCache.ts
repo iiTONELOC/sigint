@@ -58,6 +58,40 @@ const FETCH_TIMEOUT_MS = 30_000;
 // Sweep budget at 1.1 s/req: 108 × 1.1 = 118.8 s, fits the 240 s poll
 // window with ~48% utilisation of the 1 req/sec/IP rate cap.
 
+// ── First-sweep priority list ────────────────────────────────────────
+// On the very first sweep after process start, walk these 20 tiles
+// before the remaining 88 (shuffled). Returning visitors hydrate from
+// IndexedDB; the painful case is brand-new visitors hitting the site
+// immediately after a Heroku dyno cycle. Ordering targets the busiest
+// CONUS / EU / APAC hubs so the globe lights up where most traffic is
+// before the rest of the world fills in.
+//
+// Every entry below MUST already exist in AIRCRAFT_TILES below — a unit
+// test in tests/server/api/aircraftCache.spec.ts enforces this so the
+// two lists can't drift.
+export const PRIORITY_TILES: ReadonlyArray<readonly [number, number]> = [
+  [37, -76], // Mid-Atlantic (DCA/PHL)
+  [42, -78], // NY-PA (JFK/EWR/LGA)
+  [42, -71], // New England (BOS)
+  [42, -85], // OH-MI (DTW)
+  [37, -122], // Bay Area (SFO)
+  [32, -117], // S CA (LAX)
+  [32, -97], // TX Central (DFW)
+  [28, -82], // FL (MIA/MCO)
+  [32, -82], // SE GA (ATL)
+  [37, -83], // KY-TN (BNA)
+  [50, -2], // Channel (LHR)
+  [50, 5], // Benelux (AMS)
+  [45, -2], // France W (CDG)
+  [45, 7], // Alps (FRA/ZRH/MUC)
+  [53, -2], // UK (MAN)
+  [35, 138], // Tokyo (HND/NRT)
+  [37, 127], // Korea (ICN)
+  [28, 77], // Delhi (DEL)
+  [-30, 150], // Sydney (SYD)
+  [25, 55], // UAE (DXB)
+] as const;
+
 export const AIRCRAFT_TILES: ReadonlyArray<readonly [number, number]> = [
   // CONUS (31)
   [28, -82], // US South FL
@@ -350,6 +384,69 @@ export function shuffleTiles<T>(tiles: ReadonlyArray<T>): T[] {
   return arr;
 }
 
+/** Injectable shuffle. Matches `SleepFn` shape — default is the real
+ *  Fisher-Yates `shuffleTiles`; tests inject a pure identity shuffle so
+ *  ordering assertions become deterministic. */
+export type ShuffleFn = <T>(arr: ReadonlyArray<T>) => T[];
+
+const defaultShuffle: ShuffleFn = shuffleTiles;
+
+/** Build the first-sweep tile order: declared priority entries first
+ *  (in their listed order), followed by the remaining tiles shuffled
+ *  via the injected `shuffle`. Equality between tuples is structural
+ *  on both coordinates — no reference comparison — so a `PRIORITY_TILES`
+ *  entry that's a fresh tuple is still recognized in `AIRCRAFT_TILES`.
+ *
+ *  Pure: no module-state access. Deterministic given an injected
+ *  shuffle. The dedup pass tolerates priority entries that don't appear
+ *  in `all` (they're emitted regardless) and skips priority duplicates
+ *  inside `priority` itself. */
+export function buildFirstSweepOrder(
+  priority: ReadonlyArray<readonly [number, number]>,
+  all: ReadonlyArray<readonly [number, number]>,
+  shuffle: ShuffleFn,
+): Array<readonly [number, number]> {
+  const isSame = (
+    a: readonly [number, number],
+    b: readonly [number, number],
+  ): boolean => a[0] === b[0] && a[1] === b[1];
+
+  const head: Array<readonly [number, number]> = [];
+  for (const p of priority) {
+    if (!head.some((q) => isSame(q, p))) head.push(p);
+  }
+
+  const tail: Array<readonly [number, number]> = [];
+  for (const a of all) {
+    if (!head.some((q) => isSame(q, a))) tail.push(a);
+  }
+
+  return [...head, ...shuffle(tail)];
+}
+
+/** Module-level flag flipped after the very first completed sweep
+ *  (success OR empty). Subsequent sweeps use the full Fisher-Yates
+ *  shuffle. Resettable in tests via `__resetFirstSweepForTests`. */
+let firstSweepDone = false;
+
+/** TEST-ONLY: clear the `firstSweepDone` flag so the next runSweep
+ *  call re-uses the priority order. Name makes intent explicit. */
+export function __resetFirstSweepForTests(): void {
+  firstSweepDone = false;
+}
+
+/** TEST-ONLY: full module-state reset for test isolation — clears
+ *  the sweep state maps, `lastFetchedAt`, `lastError`, AND
+ *  `firstSweepDone`. Specs that drive `runSweep` directly should call
+ *  this in afterEach so subsequent test files see a clean cache. */
+export function __resetAircraftCacheForTests(): void {
+  sweepState.completed.clear();
+  sweepState.current.clear();
+  lastFetchedAt = 0;
+  lastError = null;
+  firstSweepDone = false;
+}
+
 type TileAttemptResult =
   | { ok: true; ac: unknown[] }
   | { ok: false; rateLimited: true; waitMs: number };
@@ -459,7 +556,20 @@ async function fetchAircraft(): Promise<void> {
   }
 }
 
-async function runSweep(): Promise<void> {
+/** Inner sweep — exported for tests so ordering + per-tile behavior
+ *  can be exercised without driving the real `setInterval` cadence or
+ *  real HTTP. `fetchFn` / `sleep` / `shuffle` default to the real
+ *  implementations; tests inject pure stand-ins.
+ *
+ *  The very first call after process start (or after
+ *  `__resetFirstSweepForTests`) walks `PRIORITY_TILES` then the tail in
+ *  shuffled order; subsequent calls go straight to a full shuffle. */
+export async function runSweep(
+  fetchFn: (lat: number, lon: number) => Promise<unknown[]> = (lat, lon) =>
+    fetchTileWithRetry(lat, lon),
+  sleep: SleepFn = defaultSleep,
+  shuffle: ShuffleFn = defaultShuffle,
+): Promise<void> {
   // Dev-only fixture short-circuit — see resolveAircraftFixtureOverride.
   try {
     const override = await resolveAircraftFixtureOverride();
@@ -492,25 +602,31 @@ async function runSweep(): Promise<void> {
   // under the 60 s timeout. Subsequent sweeps share the cached promise.
   const metadataDb = await loadMetadataDb();
 
-  // Live sweep. Shuffle so a sustained throttle doesn't punish the same
-  // tail tiles every pass. Each tile is fetched, retried once on 429
-  // with backoff, enriched server-side (military classification + DB
-  // metadata), then ingested into the streaming caches *immediately* —
-  // clients reading /api/aircraft/states see the snapshot grow tile by
-  // tile during a cold start, and refresh per-tile when warm.
-  const shuffled = shuffleTiles(AIRCRAFT_TILES);
-  for (let i = 0; i < shuffled.length; i++) {
-    const [lat, lon] = shuffled[i] ?? [0, 0];
-    const records = await fetchTileWithRetry(lat, lon);
+  // First-sweep priority order targets the busiest hubs first so
+  // cold-start visitors see the globe light up where most traffic
+  // actually is. Every sweep after that goes back to a full shuffle so
+  // sustained upstream throttling doesn't always punish the same tail
+  // tiles.
+  const ordered = firstSweepDone
+    ? shuffle(AIRCRAFT_TILES)
+    : buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES, shuffle);
+  for (let i = 0; i < ordered.length; i++) {
+    const [lat, lon] = ordered[i] ?? [0, 0];
+    const records = await fetchFn(lat, lon);
     if (records.length > 0) {
       const enriched = records.map((r) => enrichRecord(r, metadataDb));
       ingestTile(sweepState, enriched);
       lastFetchedAt = Date.now();
     }
-    if (i < shuffled.length - 1) {
-      await new Promise((r) => setTimeout(r, RATE_LIMIT_DELAY_MS));
+    if (i < ordered.length - 1) {
+      await sleep(RATE_LIMIT_DELAY_MS);
     }
   }
+
+  // Flip the flag after the for-loop and before finalizeSweep so any
+  // exception above leaves it false (next attempt re-runs priority
+  // ordering instead of silently degrading to shuffle).
+  firstSweepDone = true;
 
   // End-of-sweep prune: drop aircraft from `completed` that weren't seen
   // this pass. Empty sweep retains the warm snapshot (firmsCache pattern).

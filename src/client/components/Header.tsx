@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { useLayoutMode, type LayoutMode } from "@/context/LayoutModeContext";
 import { getColorMap } from "@/config/theme";
@@ -51,33 +51,10 @@ function LayerToggle({
   readonly iconProps: Record<string, unknown>;
   readonly onToggle: () => void;
 }) {
-  // Streaming-in indicator: pulse while the count is actively rising
-  // (initial sweep ramp / large reconnect), then auto-clear ~5 s after
-  // the count stops growing. Avoids the "always pulsing" failure mode
-  // for dynamic feeds (AIS, aircraft) where the count drifts a few
-  // vessels per poll once the cache is warm.
-  const prevCountRef = useRef(count);
-  const [streaming, setStreaming] = useState(false);
-  useEffect(() => {
-    const prev = prevCountRef.current;
-    prevCountRef.current = count;
-    // Only pulse when count grew meaningfully — small drift on a warm
-    // feed shouldn't trigger it. Threshold is relative to the prior
-    // count so the first poll after boot (0 → ~thousands) always
-    // pulses but a +3 vessel update on 5 k vessels does not.
-    const grewMeaningfully = count > prev && count - prev > Math.max(20, prev * 0.05);
-    if (!grewMeaningfully) return;
-    setStreaming(true);
-    const t = setTimeout(() => setStreaming(false), 5_000);
-    return () => clearTimeout(t);
-  }, [count]);
-
   const tooltipText =
-    streaming && on
-      ? `${label} — receiving data`
-      : down && count === 0
-        ? `${label} — source offline`
-        : `${on ? "Hide" : "Show"} ${label}`;
+    down && count === 0
+      ? `${label} — source offline`
+      : `${on ? "Hide" : "Show"} ${label}`;
 
   return (
     <Tooltip content={tooltipText} placement="bottom">
@@ -102,7 +79,6 @@ function LayerToggle({
           size="var(--sig-text-icon)"
           aria-hidden="true"
           {...iconProps}
-          className={streaming && on ? "animate-pulse" : undefined}
         />
         <span className="hidden sm:inline">
           {down && count === 0 ? (

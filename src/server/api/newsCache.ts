@@ -221,3 +221,8 @@ export function getNewsCache(): {
     error: cache.error,
   };
 }
+
+/** TEST-ONLY: reset module state to the initial empty shape. */
+export function __resetNewsCacheForTests(): void {
+  cache = { items: [], fetchedAt: 0, itemCount: 0, error: null };
+}

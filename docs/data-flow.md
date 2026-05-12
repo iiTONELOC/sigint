@@ -143,7 +143,7 @@ flowchart TD
     PersistWX --> SetState
 ```
 
-Boot is render-first. `cacheInit()` fires at import time (module scope) so IDB opens during JS parse. React renders immediately — empty shell with chrome visible. The boot IIFE then awaits `cacheInit`, hydrates all 7 providers from IDB in one batch (notifications muted), fires a single `notifyChange` per provider (React 18 batches into one render), then checks which providers returned stale/missing data. Only stale providers are refreshed over the network — if all caches are fresh, zero network requests on boot. The metadata DB is loaded before the refresh batch so `applyMetadata` has enrichment data ready. Network refresh results are also batched into a single notification. The globe receives at most two `allData` reference changes: one for cached data, one for fresh data. Progressive rendering streams each batch onto the globe at 1500 points/frame.
+Boot is render-first. `cacheInit()` fires at import time (module scope) so IDB opens during JS parse. React renders immediately — empty shell with chrome visible. The boot IIFE then awaits `cacheInit`, hydrates all providers from IDB in one batch (notifications muted), fires a single `notifyChange` per provider (React 18 batches into one render), then checks which providers returned stale/missing data. Only stale providers are refreshed over the network — if all caches are fresh, zero network requests on boot. Aircraft enrichment is now server-side (records are pre-enriched before the cache write), so the client has no metadata-DB load step to gate on. Network refresh results are also batched into a single notification. The globe receives at most two `allData` reference changes: one for cached data, one for fresh data. Progressive rendering streams each batch onto the globe at 1500 points/frame.
 
 Hooks do NOT call `getData()` on mount — they subscribe to `onChange` and read from `getSnapshot()`. The boot sequence in `frontend.tsx` is the single owner of initial hydration and refresh. Poll intervals handle subsequent refreshes.
 
@@ -172,7 +172,7 @@ useEffect(() => {
 }, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData]);
 ```
 
-- **`aircraftData`**: Live aircraft from OpenSky (refreshed every 240s). Falls back to mock aircraft on fetch failure.
+- **`aircraftData`**: Live aircraft from our server via `/api/aircraft/states` (refreshed every 240s). Server runs a 108-tile sweep against adsb.fi every 300s, dedups by ICAO hex, and enriches each record against `ac-db.sqlite` before the cache write. Falls back to mock aircraft on fetch failure.
 - **`shipData`**: Live AIS vessels from our server (refreshed every 300s). Server streams from aisstream.io WebSocket. Empty array if `AISSTREAM_API_KEY` not set.
 - **`earthquakeData`**: Live earthquakes from USGS (refreshed every 420s). Covers the past 7 days of global seismic activity.
 - **`eventData`**: Live GDELT events from our server (refreshed every 15 min). Client-side 7-day rolling window with URL-based dedup. Server fetches GDELT raw export files, parses geocoded conflict/crisis events, caches in memory.
@@ -387,35 +387,31 @@ Pane clicks (alert log, intel feed, data table) also use ISS reveal. The LOCATE 
 
 ## Enrichment Pipeline
 
-Aircraft metadata enrichment uses a local database — no per-aircraft server round-trips.
+Aircraft metadata enrichment runs **server-side** against an embedded SQLite database — no client-side NDJSON download, no per-aircraft round-trips.
 
-### Local Metadata DB
+### Server-Side Metadata DB
 
-On first load, the client fetches the full aircraft metadata NDJSON from `/api/aircraft/metadata/db/v1` (~8.5MB gzip, ~53MB raw, ~616K records). The raw NDJSON is cached in IndexedDB under `sigint.aircraft.metadata-db.v1` with a version tag matching the route. On subsequent loads, if the cached version matches, no download occurs — the NDJSON is parsed from IndexedDB into an in-memory `Map<string, AircraftMetadata>` (~30-40MB).
+`src/server/data/ac-db.sqlite` (~46 MB, ~617K records) is a read-only SQLite file baked into the production Docker image at build time. The source NDJSON (`ac-db.ndjson`, ~51 MB) is converted to SQLite by `scripts/build-aircraft-db.ts` and then removed before stage 2 of the build, so the runtime image only ships the SQLite. `src/server/api/aircraftEnrichment.ts` opens the DB read-only on the first sweep, caches a single prepared statement, and answers each lookup in <0.05 ms.
 
-The route is versioned (`/v1`, `/v2`, etc.) — when the DB is rebuilt, bump both the server route and the client `DB_VERSION` constant. `Cache-Control: immutable` ensures the browser cache never revalidates.
+Military classification is applied at **build time** by the build script (so the `military` flag is baked into the SQLite as a column) and the same three-rule logic in `src/server/data/militaryRules.ts` is re-applied at runtime for records whose typecode or hex range changes between builds. The three rules — ICAO type codes (50+ designators), operator keywords (15 strings), and US DoD ICAO24 hex range (AE0000–AFFFFF) — are OR'd.
 
-Military classification runs client-side using the same heuristic as the server: ICAO type codes (50+ military designators), operator keywords (15 military strings), and US DoD ICAO24 hex range (AE0000–AFFFFF).
+`originCountry` is derived from the ICAO 24-bit hex-prefix block per `src/server/data/icao24CountryRanges.ts` (ICAO Annex 10 mapping), independent of whether the DB has a row for that hex.
 
 ### Enrichment Flow
 
 ```mermaid
 flowchart TD
-    Boot["frontend.tsx boot"] --> EnsureDB["ensureMetadataDb()"]
-    EnsureDB --> CheckIDB{"IDB has matching version?"}
-    CheckIDB -->|"yes"| ParseLocal["Parse NDJSON → Map (local)"]
-    CheckIDB -->|"no"| FetchDB["GET /api/aircraft/metadata/db/v1"]
-    FetchDB --> ParseFetch["Parse NDJSON → Map"]
-    ParseFetch --> PersistIDB["Cache NDJSON + version to IDB"]
-    ParseLocal --> Ready["Map<icao24, AircraftMetadata> in memory"]
-    PersistIDB --> Ready
-    Ready --> Apply["applyMetadata() on every refresh"]
-    Apply --> Sync["getMetadataSync(icao24) → O(1) Map.get()"]
+    Sweep["Server sweep cycle"] --> Fetch["fetchTileWithRetry(lat,lon)"]
+    Fetch --> Enrich["enrichRecord(r, db)"]
+    Enrich --> Hex{"hex in SQLite?"}
+    Hex -->|"yes"| Merge["merge DB fields:<br/>acType, registration, operator,<br/>manufacturer, model, military, etc."]
+    Hex -->|"no"| Fallback["fall back: classifyMilitary(hex, live typecode)<br/>+ countryFromIcao24(hex)"]
+    Merge --> Ingest["ingestTile(sweepState, enriched)"]
+    Fallback --> Ingest
+    Ingest --> Serve["/api/aircraft/states serves the<br/>already-enriched body"]
 ```
 
-`applyMetadata` runs synchronously inside `AircraftProvider.fetchOpenSkyStates()` on every data refresh. Each aircraft's ICAO24 is looked up in the local Map — no network calls, no batching, no delays. The metadata DB is loaded before the first network refresh in the boot sequence to ensure enrichment data is available.
-
-`requestAircraftEnrichment` (called from DataContext on aircraft selection) is now a lightweight re-apply — it ensures the DB is loaded and re-applies metadata to the cache. No server round-trips.
+The client's `parseAdsbV2.ts` is a pure shape mapper — it does no DB lookups. By the time a record reaches the browser it already has `acType`, `registration`, `operator`, `military`, `originCountry`, etc. attached. `requestAircraftEnrichment` on the client is a no-op shim kept for call-site compatibility.
 
 ---
 

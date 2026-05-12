@@ -64,7 +64,15 @@ export function createStaticRoutes(
     },
 
     "/sw.js": async () => {
-      return servePublicFile("/sw.js");
+      // Service workers MUST be served with no-cache so the browser
+      // always byte-compares against the network copy on each update
+      // check. Without this, an HTTP-cached sw.js can keep returning
+      // visitors stuck on the old worker for hours (or until the
+      // browser's HTTP cache heuristic decides to revalidate).
+      const res = await servePublicFile("/sw.js");
+      res.headers.set("Cache-Control", "no-cache, must-revalidate");
+      res.headers.set("Service-Worker-Allowed", "/");
+      return res;
     },
 
     "/manifest.json": async () => {

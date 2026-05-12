@@ -8,7 +8,7 @@
 
 ## Rate Limits
 
-**OpenSky Network**: Anonymous access = 400 credits/day. Each `/states/all` call costs credits. The 240-second poll interval stays well under the limit for a full day of use.
+**adsb.fi (aircraft)**: 1 req/sec/IP enforced; sustained 1–2 s spacing produced 429s in production, 3 s is the empirically-stable rate. The server runs a 108-tile sweep at 3 s spacing (~5 min wall clock per full pass) with a 300 s wake cadence; `sweepInProgress` guards against overlapping sweeps. Per-IP budget is consumed by the server only — clients never hit adsb.fi directly. On HTTP 429 the tile is retried once after `Retry-After` (or 30 s default), then skipped for the sweep rather than failing it. First sweep after process start uses a hand-ordered priority list of 20 high-traffic hubs (CONUS / EU / APAC gateways) before the remainder, so cold-start visitors see the busiest regions populate first.
 
 **USGS**: Responses cached server-side for 60 seconds. Feed updates every 5 minutes. Our 420-second poll interval ensures every request gets fresh data. Exceeding limits returns 429.
 
@@ -28,9 +28,9 @@
 
 ## Client-Side vs Server-Side Fetching
 
-Client-side: OpenSky (Heroku IPs blocked), USGS, NOAA Weather (no CORS restrictions).
+Client-side: USGS, NOAA Weather (no CORS restrictions, no auth, no payload-size concerns).
 
-Server-side: GDELT (CORS restrictions), AIS (API key, no browser CORS), FIRMS (API key, large payloads). See [Architecture](./architecture.md) for pipeline details.
+Server-side: adsb.fi (per-IP rate budget consolidated across users + server-side enrichment), GDELT (CORS + large CSV zips), AIS (API key, no browser CORS), FIRMS (API key + large CSV payloads), NHC (no CORS headers), RSS news (varied CORS). See [Architecture](./architecture.md) for pipeline details.
 
 ---
 
@@ -72,7 +72,7 @@ New static file directories require adding a matching route pattern to both serv
 
 ## Metadata Enrichment
 
-The full aircraft metadata DB (~616K records) is downloaded once and cached in IndexedDB. All lookups are local `Map.get()` — no server round-trips per aircraft. If the DB hasn't loaded yet (first boot before download completes), aircraft show "Unknown" type until the next refresh after the DB is ready. The UI never blocks on enrichment. The DB route is versioned (`/api/aircraft/metadata/db/v1`) — bump both client and server when the DB is rebuilt.
+The full aircraft metadata DB (~617k records) is shipped server-side as a read-only SQLite file (`src/server/data/ac-db.sqlite`, ~46 MB) baked into the production image at build time. `src/server/api/aircraftEnrichment.ts` performs per-record lookups during each tile sweep, attaching `acType` / `registration` / `operator` / `manufacturer` / `model` / `military` / `originCountry` to every record before the cache write. The client receives fully enriched records via `/api/aircraft/states` — no client-side metadata DB, no IDB cache to maintain, no UI blocking on enrichment. Stale DB warning fires when `ac-db.sqlite` is older than `AC_DB_STALE_THRESHOLD_MS` (90 days); regenerate via `bun run build:aircraft-db`.
 
 ---
 
@@ -172,7 +172,7 @@ Two pane types operate entirely outside the geographic data pipeline:
 
 ### Service Worker (`public/sw.js`)
 
-Cache strategy: precache app shell on install (HTML, fonts, land data, worker, manifest), cache-first for same-origin assets, network-first for HTML navigation (fallback to cached `/` when offline), network-only for `/api/*` routes (data lives in IndexedDB, not SW cache). Cross-origin requests (OpenSky, USGS, NOAA, iptv-org) are not intercepted.
+Cache strategy: precache app shell on install (HTML, fonts, land data, worker, manifest), cache-first for same-origin assets, network-first for HTML navigation (fallback to cached `/` when offline), network-only for `/api/*` routes (data lives in IndexedDB, not SW cache). Cross-origin requests (USGS, NOAA, iptv-org) are not intercepted.
 
 **Update flow**: New SW installs in background but does NOT call `self.skipWaiting()` during install. Instead it posts `SW_UPDATE_AVAILABLE` to all clients. The client shows an update banner. User clicks RELOAD → client posts `SW_SKIP_WAITING` → new SW activates → `controllerchange` fires → page reloads. This prevents silent mid-session code swaps.
 
@@ -210,5 +210,5 @@ Layout presets use separate cache keys for mobile and desktop: `layoutPresetsDes
 - **Worker code is plain JS** — served from `public/workers/`, no build step
 - **Red reserved for danger/alerts only** — never decorative
 - **Cache is sacred** — don't fetch when cache is fresh, only fetch when stale
-- **OpenSky fetches client-side** — Heroku IPs blocked, this is by design
+- **Aircraft data goes through the server** — adsb.fi has a 1 req/sec/IP budget; sharing it across users via a single server-side sweep prevents per-user burnout
 - **`require("ws")` stays in aisCache.ts** — bypasses Bun native WebSocket TLS issues

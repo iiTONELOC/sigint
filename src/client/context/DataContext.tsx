@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useCallback,
+  startTransition,
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -169,25 +170,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
   ]);
   const [allDataVersion, setAllDataVersion] = useState(0);
 
-  const allDataRafRef = useRef(0);
-  useEffect(() => {
-    cancelAnimationFrame(allDataRafRef.current);
-    allDataRafRef.current = requestAnimationFrame(() => {
-      const s = allDataSourcesRef.current;
-      const prev = lastMergedSourcesRef.current;
-      const refsChanged =
-        !prev ||
-        s.aircraftData !== prev.aircraftData ||
-        s.shipData !== prev.shipData ||
-        s.earthquakeData !== prev.earthquakeData ||
-        s.eventData !== prev.eventData ||
-        s.fireData !== prev.fireData ||
-        s.weatherData !== prev.weatherData ||
-        s.cycloneData !== prev.cycloneData;
+  // Flush merged allData + bump version inside a low-priority React
+  // transition. Touch/wheel events on the globe can interrupt the
+  // downstream memo cascade (idMap, spatialGrid, correlation, ticker,
+  // counts) and get serviced first. Unlike useDeferredValue this does
+  // NOT keep a second copy of allData alive, so memory stays flat.
+  const flushAllData = useCallback(() => {
+    const s = allDataSourcesRef.current;
+    const prev = lastMergedSourcesRef.current;
+    const refsChanged =
+      s.aircraftData !== prev?.aircraftData ||
+      s.shipData !== prev?.shipData ||
+      s.earthquakeData !== prev?.earthquakeData ||
+      s.eventData !== prev?.eventData ||
+      s.fireData !== prev?.fireData ||
+      s.weatherData !== prev?.weatherData ||
+      s.cycloneData !== prev?.cycloneData;
 
-      if (refsChanged) {
-        lastMergedSourcesRef.current = { ...s };
-        setAllData([
+    const merged = refsChanged
+      ? [
           ...s.aircraftData,
           ...s.shipData,
           ...s.earthquakeData,
@@ -195,12 +196,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ...s.fireData,
           ...s.weatherData,
           ...s.cycloneData,
-        ]);
-      }
+        ]
+      : null;
+    if (refsChanged) lastMergedSourcesRef.current = { ...s };
+
+    startTransition(() => {
+      if (merged) setAllData(merged);
       setAllDataVersion((v) => v + 1);
     });
+  }, []);
+
+  const allDataRafRef = useRef(0);
+  useEffect(() => {
+    cancelAnimationFrame(allDataRafRef.current);
+    allDataRafRef.current = requestAnimationFrame(flushAllData);
     return () => cancelAnimationFrame(allDataRafRef.current);
   }, [
+    flushAllData,
     aircraftData,
     shipData,
     earthquakeData,

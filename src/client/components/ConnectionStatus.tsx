@@ -53,10 +53,17 @@ export function ConnectionStatus() {
       const target = e.target as HTMLElement | null;
       if (target?.closest?.("[data-detail-sheet]")) return;
 
+      // Must start in the top edge of the viewport (mirrors native iOS /
+      // Android pull-to-refresh). The body's scrollTop is essentially
+      // always 0 in this app, so without an edge gate every downward
+      // drag anywhere on the globe triggered PTR.
+      const startY = e.touches[0]!.clientY;
+      if (startY > 30) return;
+
       const scrollTop =
         document.documentElement.scrollTop || document.body.scrollTop || 0;
       if (scrollTop > 2) return;
-      touchStartRef.current = { y: e.touches[0]!.clientY };
+      touchStartRef.current = { y: startY };
     };
 
     const onTouchMove = (e: TouchEvent) => {

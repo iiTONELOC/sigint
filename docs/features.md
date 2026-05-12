@@ -56,7 +56,7 @@ Every feature uses an explicit subdirectory layout. All live features have the f
 |-----------|---------|----------|------------|-------|--------|-------|---------|
 | `ui/` | React components | FilterControl, TickerContent | TickerContent | TickerContent | TickerContent | TickerContent | TickerContent |
 | `hooks/` | React hooks | useAircraftData | useEarthquakeData | useShipData | useEventData | useFireData | useWeatherData |
-| `data/` | Provider + fetching | AircraftProvider (class), typeLookup (local metadata DB) | earthquakeProvider (BaseProvider) | shipProvider (BaseProvider) | gdeltProvider (BaseProvider, mergeFn) | fireProvider (BaseProvider) | weatherProvider (BaseProvider) |
+| `data/` | Provider + fetching | AircraftProvider (class), parseAdsbV2 (pure mapper for `/api/aircraft/states`) | earthquakeProvider (BaseProvider) | shipProvider (BaseProvider) | gdeltProvider (BaseProvider, mergeFn) | fireProvider (BaseProvider) | weatherProvider (BaseProvider) |
 | `lib/` | Pure utilities | filterUrl, utils | _(none)_ | _(none)_ | _(none)_ | _(none)_ | _(none)_ |
 | _(root)_ | Config & types | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows | index, types, definition, detailRows |
 
@@ -68,7 +68,7 @@ The 5 non-aircraft providers share a common `BaseProvider` class (`features/base
 
 Similarly, the 5 non-aircraft hooks are thin wrappers around `useProviderData` (`features/base/useProviderData.ts`), which subscribes to `onChange`, reads from `getSnapshot()`, and manages poll intervals. Hooks do NOT call `getData()` on mount — the boot sequence in `frontend.tsx` owns initial hydration and refresh. Fire and ship hooks pass a custom `resolveDataSource` callback for 503→`"unavailable"` logic.
 
-The aircraft provider remains a standalone class due to its unique requirements: client-side OpenSky fetch, local metadata DB enrichment via `getMetadataSync()`, `fetchInProgress` dedup, and mock data fallback.
+The aircraft provider remains a standalone class because it has unique requirements that don't fit `BaseProvider`: in-place `diffAndApply` to preserve DataPoint identity across refreshes (so trail recording sees mutated records, not new ones), `fetchInProgress` dedup to prevent stampede on poll-while-loading, and mock data fallback on a hard fetch failure. Aircraft data itself is fetched same-origin from `/api/aircraft/states` like every other server-backed source — the server runs the adsb.fi tile sweep and applies metadata enrichment from `ac-db.sqlite` before the response leaves the wire, so the client provider is a pure shape mapper.
 
 ---
 
@@ -92,15 +92,17 @@ Every `BasePoint` carries `id`, `type`, `lat`, `lon`, and optional `timestamp`. 
 
 ## Military Aircraft Classification
 
-Aircraft are classified as military via a heuristic system. The classification runs **client-side** in `client/features/tracking/aircraft/data/typeLookup.ts` when parsing the local metadata DB. Three signals are checked:
+Aircraft are classified as military via a three-rule heuristic. The classification runs **server-side** — `src/server/data/militaryRules.ts` is the single source of truth, imported by both `scripts/build-aircraft-db.ts` (baked into the SQLite `military` column at build time) and `src/server/api/aircraftEnrichment.ts` (re-applied at runtime for records whose live typecode differs from the baked one, and as fallback for hexes not present in the DB).
+
+Three OR'd rules:
 
 1. **ICAO type codes** — 50+ known military type designators (F-16, C-17, KC-135, MQ-9, etc.)
 2. **Operator keywords** — 15 military operator strings (Air Force, Navy, Marines, Army, RAF, etc.)
 3. **US DoD ICAO24 hex range** — AE0000–AFFFFF (US military block)
 
-Any match sets `military: true` on the `AircraftMetadata` response. ~15,700 aircraft flagged across ~616K records.
+Any match sets `military: true`. ~15,700 aircraft flagged across ~617K records.
 
-**Client-side flow**: `AircraftData` type includes `military: boolean`. The aircraft filter has a `milFilter` field (`"all" | "mil" | "civ"`). Filter URL syncs milFilter to query params.
+By the time a record reaches the browser via `/api/aircraft/states`, `military` is already set. The client filter (`milFilter: "all" | "mil" | "civ"`) reads it directly; the URL syncs milFilter to query params.
 
 **Rendering**: Military aircraft render in orange-red (`#ff6644`) with higher alpha and larger triangles in `pointWorker.js`. MIL badge shows in the ticker and dossier. Emergency squawk alerts include "MIL" prefix for military aircraft. The correlation engine uses military classification for the "military aircraft near conflict zone" cross-source rule.
 
@@ -110,12 +112,13 @@ Any match sets `military: true` on the `AircraftMetadata` response. ~15,700 airc
 
 | Source | Type | Fetch | Poll |
 |--------|------|-------|------|
-| OpenSky Network | Live aircraft positions | Client-side, anonymous | 240s |
-| Aircraft metadata | Type/reg/operator/military lookup | Client-side, local NDJSON DB (cached in IndexedDB) | Once (versioned route) |
+| adsb.fi (aircraft) | Live aircraft positions, server-side enriched | Server-side tile sweep, token auth | Client 240s, server 300s |
+| Aircraft metadata | Type/reg/operator/military/country lookup | Server-side, read-only SQLite (`ac-db.sqlite`), baked at build | n/a (baked) |
 | USGS Earthquakes | Seismic events (7 days) | Client-side, no auth | 420s |
 | GDELT 2.0 | Geolocated news events | Server-side, token auth | 15 min |
 | AIS Ships | Live vessel positions | Server WebSocket, token auth | 300s |
 | NASA FIRMS | Fire hotspots (24h) | Server-side, token auth | 600s |
+| NHC Cyclones | Active tropical cyclones (CurrentStorms.json) | Server-side, token auth | 30 min |
 | NOAA Weather | Severe weather alerts (US) | Client-side, no auth | 300s |
 | RSS News | World news articles | Server-side, token auth | 600s |
 

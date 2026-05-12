@@ -353,3 +353,13 @@ export function getAisCache(): {
     connected: wsConnection?.readyState === 1,
   };
 }
+
+/** TEST-ONLY: reset module state so independent test files don't bleed
+ *  into each other. Does NOT touch `wsConnection` or timers — those are
+ *  owned by `startAisPolling` / `stopAisPolling` and any test
+ *  exercising them is responsible for tearing them down separately. */
+export function __resetAisCacheForTests(): void {
+  vessels.clear();
+  lastError = null;
+  messageCount = 0;
+}

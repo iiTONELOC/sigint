@@ -361,3 +361,14 @@ export function getGdeltCache(): {
     error: cache.error,
   };
 }
+
+/** TEST-ONLY: reset module state to the initial empty shape. */
+export function __resetGdeltCacheForTests(): void {
+  cache = {
+    data: null,
+    fetchedAt: 0,
+    eventCount: 0,
+    error: null,
+    lastExportUrl: null,
+  };
+}

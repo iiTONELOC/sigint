@@ -9,7 +9,11 @@
 //   4. Client shows update banner → user clicks RELOAD
 //   5. Client posts 'SW_SKIP_WAITING' → new SW activates → page reloads
 
-const CACHE_VERSION = "v1";
+// Bumping CACHE_VERSION wipes the prior app-shell cache on activate
+// (see the filter in the activate handler below). Bump this whenever
+// a deploy ships meaningful behavior changes that returning PWA users
+// must pick up without having to clear site data.
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `sigint-shell-${CACHE_VERSION}`;
 
 // App shell resources cached on install.

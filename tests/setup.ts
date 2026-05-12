@@ -4,6 +4,18 @@
 
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
+// ── Dev-only fixture-override vars MUST be cleared in tests ─────────
+// `resolveCyclonesFixtureOverride` and `resolveAircraftFixtureOverride`
+// short-circuit the live HTTP path when these env vars are set. If a
+// developer has them exported from their shell (e.g. inherited from a
+// sourced .env), the cyclones/aircraft tests that mock `globalThis.fetch`
+// fail silently — the fixture override fires before the mock is ever
+// consulted, and assertions see fixture data instead of the queued
+// canned responses. Clearing them here makes the test suite hermetic
+// regardless of the developer's shell environment.
+delete process.env.CYCLONES_FIXTURE;
+delete process.env.AIRCRAFT_FIXTURE;
+
 GlobalRegistrator.register();
 
 // Suppress act() warnings in tests that don't wrap updates in act().

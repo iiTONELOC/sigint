@@ -202,3 +202,8 @@ export function getFirmsCache(): {
     error: cache.error,
   };
 }
+
+/** TEST-ONLY: reset module state to the initial empty shape. */
+export function __resetFirmsCacheForTests(): void {
+  cache = { data: null, fetchedAt: 0, fireCount: 0, error: null };
+}

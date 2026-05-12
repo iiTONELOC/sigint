@@ -10,7 +10,7 @@
 
 ## System Overview
 
-SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via OpenSky Network), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), and severe weather alerts (via NOAA) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A correlation engine derives intelligence products and context-scored alerts from cross-source spatial-temporal matching, anomaly detection, and news linking. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, fetches and caches GDELT event data, FIRMS fire data, and RSS news feeds server-side, and provides API routes for aircraft metadata enrichment and token-authenticated data delivery.
+SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via adsb.fi, server-proxied), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), severe weather alerts (via NOAA), and tropical cyclone tracking (via NHC) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A correlation engine derives intelligence products and context-scored alerts from cross-source spatial-temporal matching, anomaly detection, and news linking. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, runs a tile-based polling sweep against adsb.fi for aircraft, fetches and caches GDELT event data, FIRMS fire data, NHC cyclone data, and RSS news feeds server-side, and provides token-authenticated API routes for data delivery. Aircraft records are enriched server-side from a read-only embedded SQLite database (`src/server/data/ac-db.sqlite`) before they hit the cache.
 
 The rendering pipeline uses a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, data points, trails, and selection rings — on a separate CPU core. The main thread handles camera updates, input handling, and composites the finished `ImageBitmap` via a single `drawImage` call.
 
@@ -45,54 +45,65 @@ graph TB
         WeatherProv -->|"hydrate / persist"| IDB
     end
 
-    OpenSky["OpenSky Network API<br/>(anonymous, 400 cred/day)"]
+    AdsbFi["adsb.fi v3 API<br/>(1 req/sec/IP, tile-based)"]
     USGS["USGS Earthquake API<br/>(free, no auth)"]
     NOAA["NOAA Weather API<br/>(free, User-Agent only)"]
-    BunServer["Bun Server<br/>(api routes + GDELT cache + AIS cache + FIRMS cache)"]
-    NDJSON["ac-db.ndjson<br/>(~180k records)"]
+    NHC["NHC CurrentStorms.json<br/>(no CORS, server-proxied)"]
+    BunServer["Bun Server<br/>(api routes + aircraft sweep + GDELT + AIS + FIRMS + cyclones caches)"]
+    SQLite["ac-db.sqlite<br/>(~617k records, read-only)"]
     GdeltRaw["GDELT Raw Export Files<br/>(data.gdeltproject.org)"]
     AISStream["aisstream.io<br/>(WebSocket, global AIS)"]
     FIRMS["NASA FIRMS API<br/>(VIIRS NOAA-20 CSV)"]
 
-    AircraftProv -->|"GET /states/all<br/>(client-side fetch)"| OpenSky
-    AircraftProv -->|"GET /metadata/db/v1<br/>(one-time, cached in IDB)"| BunServer
+    AircraftProv -->|"GET /api/aircraft/states<br/>(token auth)"| BunServer
     QuakeProv -->|"GET all_week.geojson<br/>(client-side fetch)"| USGS
     WeatherProv -->|"GET /alerts/active<br/>(client-side fetch)"| NOAA
     GdeltProv -->|"GET /api/events/latest<br/>(token auth)"| BunServer
     ShipProv -->|"GET /api/ships/latest<br/>(token auth)"| BunServer
     FireProv -->|"GET /api/fires/latest<br/>(token auth)"| BunServer
-    BunServer -->|"lookup"| NDJSON
+    BunServer -->|"per-record lookup"| SQLite
     BunServer -->|"serve cached"| GdeltCache["gdeltCache.ts<br/>(in-memory)"]
     BunServer -->|"serve cached"| AISCache["aisCache.ts<br/>(in-memory)"]
     BunServer -->|"serve cached"| FIRMSCache["firmsCache.ts<br/>(in-memory)"]
+    BunServer -->|"serve cached"| AircraftCache["aircraftCache.ts<br/>(in-memory sweepState)"]
+    BunServer -->|"serve cached"| CyclonesCache["cyclonesCache.ts<br/>(in-memory)"]
+    AircraftCache -->|"108-tile sweep<br/>(3s spacing, ~5 min cycle)"| AdsbFi
     GdeltCache -->|"fetch + unzip + parse<br/>(every 15 min)"| GdeltRaw
     AISCache -->|"persistent WebSocket<br/>(real-time stream)"| AISStream
     FIRMSCache -->|"fetch CSV<br/>(every 30 min)"| FIRMS
+    CyclonesCache -->|"fetch CurrentStorms.json<br/>(every 30 min)"| NHC
 ```
 
 ### Why client-side fetching for some sources?
 
-The OpenSky Network API blocks requests from Heroku's IP ranges. All OpenSky calls are made directly from the browser — anonymous access only, 400 credits/day. The USGS earthquake API is also fetched client-side — free, no auth, no CORS restrictions.
+The USGS earthquake API is fetched client-side — free, no auth, no CORS restrictions. NOAA Weather alerts are fetched client-side from `api.weather.gov/alerts/active` (no API key, just a User-Agent header).
 
-GDELT raw export files have CORS restrictions and are large CSV zips — these are fetched server-side. The server downloads, unzips, and parses the export CSV every 15 minutes, caches the result in memory, and serves it to clients via `/api/events/latest` with token authentication.
+All other sources go through the Bun server for one or more of: API-key secrecy, CORS bypass, payload size, or per-user budget consolidation.
 
-AIS data from aisstream.io requires an API key and does not support browser CORS. The server maintains a persistent WebSocket connection to aisstream.io, accumulates vessel positions in an in-memory Map, and serves snapshots to clients via `/api/ships/latest` with token authentication.
+**adsb.fi (aircraft)** enforces 1 req/sec/IP. The server runs a tile-based sweep — 108 tiles × 250 nm radius — every 300 s with 3 s spacing, merges and dedups by ICAO 24-bit hex, and serves the result via `/api/aircraft/states`. Records are enriched per-sweep against the read-only `ac-db.sqlite` (military classification + manufacturer/model/operator/registration) before they hit the cache. Doing this server-side gives one shared budget across the whole user base instead of burning the per-IP cap on a single user.
 
-NASA FIRMS fire data requires an API key and returns large CSV payloads (30-100k records). Fetched server-side every 30 minutes, parsed, and cached in memory. Served from `/api/fires/latest` with token auth and gzip compression. Clients poll every 600 seconds.
+**GDELT raw export files** have CORS restrictions and are large CSV zips. The server downloads, unzips, and parses the export CSV every 15 min, caches in memory, serves via `/api/events/latest`.
 
-NOAA Weather alerts are fetched client-side directly from `api.weather.gov/alerts/active`. No API key required — only a `User-Agent` header. Free, no CORS restrictions. The NWS API returns a GeoJSON FeatureCollection. Clients poll every 300 seconds.
+**AIS (aisstream.io)** requires an API key and does not support browser CORS. The server maintains a persistent WebSocket connection, accumulates vessel positions in an in-memory Map, and serves snapshots via `/api/ships/latest`.
+
+**NASA FIRMS** requires an API key and returns 30–100k-row CSV payloads. Server fetches every 30 min, parses, caches, serves from `/api/fires/latest` with gzip. Clients poll every 600 s.
+
+**NHC (cyclones)** publishes `CurrentStorms.json` without CORS headers. The server polls it every 30 min, validates shape, and serves via `/api/cyclones/latest`.
 
 ### Server API Routes
 
-| Route                           | Method | Auth            | Rate Limit        | Purpose                                                                                                                                               |
-| ------------------------------- | ------ | --------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/auth/token`               | GET    | None            | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                                                                                   |
-| `/api/events/latest`            | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed)                                                                                                         |
-| `/api/ships/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed)                                                                                                 |
-| `/api/aircraft/metadata/db/v1`  | GET    | HttpOnly cookie | 60 req/min per IP | Full aircraft metadata NDJSON (~8.5MB gzip). Versioned route — client caches in IndexedDB, never re-fetches same version. `Cache-Control: immutable`. |
-| `/api/fires/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                                                                             |
-| `/api/news/latest`              | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed)                                                                                                    |
-| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos)                                                                                               |
+| Route                           | Method | Auth            | Rate Limit        | Purpose                                                                                       |
+| ------------------------------- | ------ | --------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `/api/auth/token`               | GET    | None            | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                            |
+| `/api/aircraft/states`          | GET    | HttpOnly cookie | 60 req/min per IP | Server-side merged adsb.fi tile sweep, enriched against `ac-db.sqlite` (gzip compressed)       |
+| `/api/events/latest`            | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed)                                                  |
+| `/api/ships/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed)                                          |
+| `/api/fires/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                      |
+| `/api/cyclones/latest`          | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NHC CurrentStorms.json (gzip compressed)                                        |
+| `/api/cyclones/:stormId/cone`   | GET    | HttpOnly cookie | 60 req/min per IP | Per-storm KMZ forecast cone polygon                                                            |
+| `/api/dossier/cyclone/:stormId` | GET    | HttpOnly cookie | 60 req/min per IP | NHC text products for a storm (advisory, discussion, wind probs)                               |
+| `/api/news/latest`              | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed)                                             |
+| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos)                                        |
 
 ### Auth + Rate Limiting
 
@@ -140,12 +151,21 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │   │   ├── api/
 │   │   │   ├── index.ts               Route registration + gzip helper
 │   │   │   ├── auth.ts                HMAC-SHA256 tokens + rate limiting
+│   │   │   ├── aircraftCache.ts       adsb.fi tile sweep + dedup
+│   │   │   ├── aircraftEnrichment.ts  Read-only SQLite metadata lookups
+│   │   │   ├── cyclonesCache.ts       NHC CurrentStorms.json polling
+│   │   │   ├── cyclonesConeCache.ts   Per-storm KMZ forecast cone
+│   │   │   ├── cyclonesDossierCache.ts NHC text products (advisory etc.)
 │   │   │   ├── dossierCache.ts        Aircraft dossier (hexdb.io + planespotters)
 │   │   │   ├── gdeltCache.ts          GDELT fetch/parse/cache
 │   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache
 │   │   │   ├── firmsCache.ts          NASA FIRMS CSV fetch/parse/cache
 │   │   │   └── newsCache.ts           RSS feed fetch/parse/cache
-│   │   └── data/ac-db.ndjson          Local aircraft database (~180k records)
+│   │   ├── lib/snapshotStore.ts       File-backed gzipped JSON store (Bun-native, security primitives)
+│   │   └── data/
+│   │       ├── ac-db.sqlite           Read-only aircraft metadata (~617k records, baked at build)
+│   │       ├── icao24CountryRanges.ts ICAO Annex 10 hex-prefix → country mapping
+│   │       └── militaryRules.ts       Three-rule military classification (shared build + runtime)
 │   └── client/
 │       ├── App.tsx                     ErrorBoundary → DataProvider → AppShell
 │       ├── AppShell.tsx                ConnectionStatus + Header + PaneManager + Ticker
@@ -206,11 +226,12 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │       │   └── video-feed/            VideoFeedPane + slots + HLS + channels + presets
 │       ├── features/
 │       │   ├── base/                  BaseProvider, useProviderData, DataPoint types
-│       │   ├── tracking/aircraft/     OpenSky — provider, filter, enrichment, utils
+│       │   ├── tracking/aircraft/     adsb.fi (via /api/aircraft/states) — provider, filter, parser, utils
 │       │   ├── tracking/ships/        AIS — provider, hook, ticker
 │       │   ├── environmental/earthquake/ USGS — provider, hook, ticker
 │       │   ├── environmental/fires/   FIRMS — provider, hook, ticker
 │       │   ├── environmental/weather/ NOAA — provider, hook, ticker
+│       │   ├── environmental/cyclones/ NHC — provider, hook, dossier, forecast cone
 │       │   ├── intel/events/          GDELT — provider, hook, ticker
 │       │   ├── news/                  newsProvider + useNewsData (moved from panes/news-feed)
 │       │   └── registry.tsx           Feature registry (imports all definitions)
