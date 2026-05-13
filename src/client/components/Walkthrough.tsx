@@ -118,7 +118,7 @@ function getTargetRect(selector: string): TargetRect | null {
   if (!selector) return null;
   const all = document.querySelectorAll(selector);
   let el: Element | null = null;
-  //@ts-ignore
+  // @ts-expect-error NodeList iteration; older lib.dom typings reject for-of
   for (const candidate of all) {
     const r = candidate.getBoundingClientRect();
     if (r.width > 0 && r.height > 0) {
@@ -178,7 +178,7 @@ function computeTooltipPos(
 
   // Any open split/type menus
   const menus = document.querySelectorAll("[data-wt-menu]");
-  //@ts-ignore
+  // @ts-expect-error NodeList iteration; older lib.dom typings reject for-of
   for (const menu of menus) {
     const r = (menu as HTMLElement).getBoundingClientRect();
     if (r.width > 0 && r.height > 0) obstacles.push(r);

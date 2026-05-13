@@ -12,7 +12,10 @@
 // untrusted ZIP64 / encrypted archives that could be malformed in ways
 // that crash the runtime.
 
-import { inflateRawSync } from "node:zlib";
+import { inflateRaw } from "zlib";
+import { promisify } from "util";
+
+const inflateRawAsync = promisify(inflateRaw);
 
 /** Decode a single-entry ZIP archive (e.g. NHC cone KMZ) to a string.
  *  Supports stored (compression method 0) and deflate (method 8) only.
@@ -34,7 +37,7 @@ import { inflateRawSync } from "node:zlib";
  *    offset 30+n m  extra field
  *    offset 30+n+m  compressed data
  */
-export function unzipSingleEntryKmz(bytes: Uint8Array): string {
+export async function unzipSingleEntryKmz(bytes: Uint8Array): Promise<string> {
   if (bytes.length < 30) {
     throw new Error("Not a ZIP file (truncated header)");
   }
@@ -63,7 +66,8 @@ export function unzipSingleEntryKmz(bytes: Uint8Array): string {
     return new TextDecoder().decode(compressed);
   }
   if (compressionMethod === 8) {
-    return new TextDecoder().decode(inflateRawSync(compressed));
+    const inflated = (await inflateRawAsync(compressed)) as Buffer;
+    return new TextDecoder().decode(inflated);
   }
   throw new Error(`Unsupported ZIP compression method ${compressionMethod}`);
 }

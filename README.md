@@ -41,9 +41,23 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 - Seismic monitoring (USGS)
 - Fire hotspot detection (NASA FIRMS)
 - Severe weather alerts (NOAA)
+- Tropical cyclone tracking (NHC — active storms, 5-day forecast cone, advisories)
 - GDELT event intelligence
 - RSS news aggregation (6 world sources)
 - HLS video feeds (iptv-org)
+
+### Tropical Cyclone Tracking
+
+Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) feed (server-proxied every 30 min). For each active storm:
+
+- Current position, max wind, classification, basin
+- Official NHC 5-day forecast cone (KMZ parsed server-side into a GeoJSON polygon)
+- Forecast track points (12h–120h)
+- Text products: Public Advisory, Forecast Discussion, Wind Probabilities
+- Storm dossier pane with the full advisory text and forecast table
+- Correlation rules: Hurricane Hunter aircraft proximity, ships sheltering in the lee, GDELT events on the forecast track
+
+Out-of-season returns an empty `activeStorms: []` as a 200, not a 503. Hemisphere-aware: the Atlantic basin gates are skipped between December and May unless the cache already has a non-empty snapshot.
 
 ### Intelligence
 
@@ -96,25 +110,38 @@ See [Deployment](#deployment) for dev, production, and Heroku options.
 
 ## Environment Variables
 
-| Variable               | Required | Description                                                                       |
-| ---------------------- | -------- | --------------------------------------------------------------------------------- |
-| `SIGINT_SERVER_SECRET` | **Yes**  | Auth token signing key. `openssl rand -hex 32`                                    |
-| `AISSTREAM_API_KEY`    | No       | [aisstream.io](https://aisstream.io) key for live ship data                       |
-| `FIRMS_MAP_KEY`        | No       | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/) key for fire data |
-| `DOMAIN`               | No       | Domain for Let's Encrypt TLS                                                      |
-| `PORT`                 | No       | Server port (default: 5500)                                                       |
+| Variable                       | Required | Description                                                                                                            |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`. Server exits 78 without it.                         |
+| `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data                                                            |
+| `FIRMS_MAP_KEY`                | No       | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/) key for fire data                                      |
+| `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                            |
+| `PORT`                         | No       | Server port (default: 5500)                                                                                            |
+| `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                  |
+| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app (default 0). Drives `X-Forwarded-For` rightmost-N client IP extraction.   |
 
 ## Data Sources
 
-| Layer    | Source                                                                          | Poll |
-| -------- | ------------------------------------------------------------------------------- | ---- |
-| Aircraft | [adsb.fi](https://opendata.adsb.fi) (server-side tile sweep, 37 tiles × 250 nm) | 240s |
-| Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                         | 300s |
-| Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side)        | 420s |
-| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side)               | 600s |
-| Weather  | [NOAA](https://api.weather.gov/) (client-side)                                  | 300s |
-| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                        | 15m  |
-| News     | 6 RSS feeds (server-side)                                                       | 10m  |
+| Layer    | Source                                                                                              | Poll |
+| -------- | --------------------------------------------------------------------------------------------------- | ---- |
+| Aircraft | [adsb.fi](https://opendata.adsb.fi) (server-side tile sweep, 108 tiles × 250 nm, cold-start hubs)   | 240s |
+| Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                                             | 300s |
+| Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side)                            | 420s |
+| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side)                                   | 600s |
+| Weather  | [NOAA](https://api.weather.gov/) (client-side)                                                      | 300s |
+| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone + advisory text products) | 30m  |
+| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                            | 15m  |
+| News     | 6 RSS feeds (server-side)                                                                           | 10m  |
+
+### Aircraft data source — adsb.fi (replaces OpenSky)
+
+Aircraft data is served by [adsb.fi](https://opendata.adsb.fi), a community-supported ADS-B aggregator. Earlier versions of this project used OpenSky Network as the upstream; OpenSky deprecated their free anonymous read tier, so the aircraft path migrated to adsb.fi end-to-end:
+
+- The server runs a 108-tile sweep (250 nm radius each), 3 s spacing, every 300 s, against `https://opendata.adsb.fi/api/v3/lat/{lat}/lon/{lon}/dist/{nm}`. The browser never hits adsb.fi directly — adsb.fi enforces a 1 req/sec/IP cap that a per-user budget would burn instantly.
+- Records are enriched against the read-only `ac-db.sqlite` (~617k records) before they hit the cache. The SQLite is built from a one-time export of the OpenSky aircraft metadata database via `scripts/convert-aircraft-csv.ts` and is checked in as the bundled NDJSON source (`src/server/data/ac-db.ndjson` → `ac-db.sqlite` at build time). No live calls to OpenSky remain anywhere in the runtime.
+- The hex-prefix → country mapping in `src/server/data/icao24CountryRanges.ts` is derived from ICAO Annex 10 and replaces the previous OpenSky country field.
+
+Forks: if you're migrating from an older fork that still calls `opensky-network.org` directly, the change is server-only — the `/api/aircraft/states` route shape is unchanged and the client provider (`features/tracking/aircraft/data/provider.ts`) doesn't need updating.
 
 ## Testing
 

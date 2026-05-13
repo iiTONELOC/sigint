@@ -1,60 +1,58 @@
-// ── Security response headers ────────────────────────────────────────
-// Applied to every response. Covers OWASP: HTTP Headers, Clickjacking
-// Defense, CSP, XSS Prevention, Transport Layer Security.
+import type { ServerConfig } from "../config";
 
-const isProd = process.env.NODE_ENV === "production";
-
-// ── Content Security Policy ─────────────────────────────────────────
-
-const CSP_DIRECTIVES = [
+const STATIC_CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https://www.planespotters.net https://*.planespotters.net https://*.plnspttrs.net data: blob:",
   [
     "connect-src 'self'",
-    // Aircraft positions now go through /api/aircraft/states (server-side
-    // sweep of opendata.adsb.fi). The browser never connects to adsb.fi
-    // directly, so it does not need to appear in connect-src.
-    "https://earthquake.usgs.gov", // Seismic data (client-side fetch)
-    "https://api.weather.gov", // NOAA alerts (client-side fetch)
-    "https://iptv-org.github.io", // IPTV channel/stream index JSON
-    // HLS.js fetches .m3u8 manifests and .ts segments via fetch() from
-    // arbitrary IPTV CDNs (cloudfront, akamai, herring, etc). These domains
-    // change as iptv-org updates their stream list — can't be enumerated.
-    // Tighten to specific CDN domains if channel list is ever pinned.
+    "https://earthquake.usgs.gov",
+    "https://api.weather.gov",
+    "https://iptv-org.github.io",
     "https:",
   ].join(" "),
   "media-src 'self' https: blob:",
+  "font-src 'self'",
   "worker-src 'self' blob:",
+  "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
 ].join("; ");
 
-const SECURITY_HEADERS: [string, string][] = [
-  ["Content-Security-Policy", CSP_DIRECTIVES],
-  ["X-Content-Type-Options", "nosniff"],
-  ["X-Frame-Options", "DENY"],
-  ["Referrer-Policy", "strict-origin-when-cross-origin"],
-  ["Permissions-Policy", "camera=(), microphone=(), geolocation=()"],
-  ["X-XSS-Protection", "0"],
-];
+export type SecurityHeaders = Readonly<{
+  withSecurityHeaders(response: Response): Response;
+  cspDirectives: string;
+}>;
 
-if (isProd) {
-  SECURITY_HEADERS.push([
-    "Strict-Transport-Security",
-    "max-age=31536000; includeSubDomains",
+export function createSecurityHeaders(config: ServerConfig): SecurityHeaders {
+  const headers: ReadonlyArray<readonly [string, string]> = Object.freeze([
+    ["Content-Security-Policy", STATIC_CSP_DIRECTIVES],
+    ["X-Content-Type-Options", "nosniff"],
+    ["X-Frame-Options", "DENY"],
+    ["Referrer-Policy", "strict-origin-when-cross-origin"],
+    ["Permissions-Policy", "camera=(), microphone=(), geolocation=()"],
+    ["X-XSS-Protection", "0"],
+    ...(config.isProduction
+      ? ([
+          [
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+          ] as const,
+        ] as const)
+      : ([] as const)),
   ]);
-}
 
-/**
- * Apply security headers to a Response.
- * Bun's routes don't support middleware — call this on every response.
- */
-export function withSecurityHeaders(response: Response): Response {
-  for (const [key, value] of SECURITY_HEADERS) {
-    response.headers.set(key, value);
+  function withSecurityHeaders(response: Response): Response {
+    for (const [key, value] of headers) {
+      response.headers.set(key, value);
+    }
+    return response;
   }
-  return response;
+
+  return Object.freeze({
+    withSecurityHeaders,
+    cspDirectives: STATIC_CSP_DIRECTIVES,
+  });
 }

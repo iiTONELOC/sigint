@@ -48,7 +48,7 @@ export type TrailPoint = {
   heading?: number;
 };
 
-type TrailEntry = {
+export type TrailEntry = {
   points: TrailPoint[];
   lastSeen: number;
   missedRefreshes: number;
@@ -75,6 +75,12 @@ async function readCache(): Promise<Map<string, TrailEntry>> {
 }
 
 function writeCache(): void {
+  // Critical: do NOT persist before `initTrails` has merged any cached
+  // history into the live Map. If we wrote the shallow boot-time
+  // trails here first, the merge in initTrails would either lose
+  // history (if it ran after this write) or re-read what we just
+  // wrote. Persistence is paused until `loaded === true`.
+  if (!loaded) return;
   const obj: Record<string, TrailEntry> = {};
   for (const [id, entry] of trails) {
     obj[id] = entry;
@@ -83,6 +89,7 @@ function writeCache(): void {
 }
 
 function maybePersist(): void {
+  if (!loaded) return;
   const now = Date.now();
   if (now - lastPersist > PERSIST_INTERVAL_MS) {
     writeCache();
@@ -90,16 +97,54 @@ function maybePersist(): void {
   }
 }
 
-/** Call once at boot to load trails from IndexedDB */
+/** Merge cached trail history into the live trails Map.
+ *
+ *  This fixes a boot race: `recordPositions` runs from the DataContext
+ *  useEffect as soon as providers hydrate, but `initTrails()` is fired
+ *  non-blocking from frontend.tsx. If recordPositions had already
+ *  populated entries in the live Map by the time initTrails finished
+ *  reading IDB, the old behavior (`trails = cached`) silently dropped
+ *  those just-recorded points.
+ *
+ *  New contract: for each cached entry, prepend the cached points that
+ *  are older than the earliest live point, then re-apply the per-type
+ *  maxTrailPoints cap. Entries unique to cached are installed wholesale
+ *  (their aircraft may reappear in a later poll). Pure — no module
+ *  state access, no I/O. Testable as a Map → Map transformation. */
+export function mergeCachedTrails(
+  live: Map<string, TrailEntry>,
+  cached: Map<string, TrailEntry>,
+): void {
+  for (const [id, cachedEntry] of cached) {
+    const liveEntry = live.get(id);
+    if (!liveEntry || liveEntry.points.length === 0) {
+      live.set(id, cachedEntry);
+      continue;
+    }
+    const earliestLiveTs = liveEntry.points[0]!.ts;
+    const history: TrailPoint[] = [];
+    for (const p of cachedEntry.points) {
+      if (p.ts < earliestLiveTs) history.push(p);
+    }
+    if (history.length === 0) continue;
+    const cfg = getSettings(id);
+    const combined = [...history, ...liveEntry.points];
+    liveEntry.points =
+      combined.length > cfg.maxTrailPoints
+        ? combined.slice(-cfg.maxTrailPoints)
+        : combined;
+  }
+}
+
+/** Call once at boot to load trails from IndexedDB.
+ *
+ *  Merges into the live `trails` Map rather than replacing it — see
+ *  `mergeCachedTrails` for the rationale. */
 export async function initTrails(): Promise<void> {
   if (loaded) return;
   const cached = await readCache();
-  if (cached.size > 0) trails = cached;
+  mergeCachedTrails(trails, cached);
   loaded = true;
-}
-
-function ensureLoaded(): void {
-  // No-op if initTrails hasn't run yet - trails start empty, populate async
 }
 
 // ── Earth math ───────────────────────────────────────────────────────
@@ -137,7 +182,6 @@ export function recordPositions(
     speed?: number;
   }>,
 ): void {
-  ensureLoaded();
   const now = Date.now();
   const seenIds = new Set<string>();
 
@@ -209,7 +253,6 @@ export function recordPositions(
  * Get the recorded trail for an item.
  */
 export function getTrail(id: string): TrailPoint[] {
-  ensureLoaded();
   return trails.get(id)?.points ?? [];
 }
 
@@ -220,7 +263,6 @@ export function getTrail(id: string): TrailPoint[] {
 export function getInterpolatedPosition(
   id: string,
 ): { lat: number; lon: number } | null {
-  ensureLoaded();
   const entry = trails.get(id);
   if (!entry || entry.points.length === 0) return null;
   if (entry.speedMps <= 0) return null;
@@ -241,7 +283,6 @@ export function getInterpolatedPosition(
  * Check if we have motion data for an item (speed > 0).
  */
 export function hasMotionData(id: string): boolean {
-  ensureLoaded();
   const entry = trails.get(id);
   return !!entry && entry.speedMps > 0;
 }

@@ -23,12 +23,7 @@ import {
   getCountry,
   getTs,
 } from "./shared";
-import {
-  accumulate,
-  avgRate,
-  loadBaseline,
-  recentCount,
-} from "./baseline";
+import { accumulate, avgRate, recentCount } from "./baseline";
 import { clusterByRegion, type Cluster } from "./clusters";
 import {
   findCrossSourceCorrelations,
@@ -44,7 +39,12 @@ export type {
   RegionBaseline,
   CorrelationResult,
 } from "./types";
-export { initBaseline } from "./baseline";
+export {
+  initBaseline,
+  loadBaseline,
+  persistBaseline,
+  emptyBaseline,
+} from "./baseline";
 
 // ── Intel product builder ───────────────────────────────────────────
 
@@ -375,9 +375,10 @@ const intelTypes = new Set(["events", "quakes", "fires", "weather"]);
 export function computeCorrelations(
   allData: DataPoint[],
   news: NewsArticle[],
+  baselineIn?: RegionBaseline,
 ): CorrelationResult {
   const now = Date.now();
-  const baseline = accumulate(allData);
+  const baseline = accumulate(allData, baselineIn);
 
   const recentCutoff = now - 24 * HOUR;
   const recentItems = allData.filter((item) => {
@@ -395,7 +396,7 @@ export function computeCorrelations(
   );
   const crossCorrelations = findCrossSourceCorrelations(recentItems);
 
-  const anomalyHits = detectAnomalies(loadBaseline());
+  const anomalyHits = detectAnomalies(baseline);
   const newsLinks = linkNewsToEvents(clusters, anomalyHits, news);
 
   const cycloneProducts = detectCycloneRules(allData);

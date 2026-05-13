@@ -1,9 +1,7 @@
-import { describe, test, expect, beforeEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { unlinkSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { buildAircraftDb } from "../../scripts/build-aircraft-db";
+import { mkTmpDir } from "../_support";
 
 // ── scripts/build-aircraft-db.ts ──────────────────────────────────
 // Verifies the NDJSON → SQLite generator produces a DB with the
@@ -20,14 +18,9 @@ const FIXTURE_PATH = "tests/fixtures/aircraft/metadata-db-build.ndjson";
 let tmpDir: string;
 let dbPath: string;
 
-beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "sigint-acdb-test-"));
-  dbPath = join(tmpDir, "ac-db.sqlite");
-});
-
-afterAll(() => {
-  // beforeEach uses a fresh tmpdir per test so cleanup is best-effort;
-  // the OS clears /tmp on reboot anyway.
+beforeEach(async () => {
+  tmpDir = await mkTmpDir("sigint-acdb-test");
+  dbPath = `${tmpDir}/ac-db.sqlite`;
 });
 
 describe("scripts/build-aircraft-db: schema + row count", () => {
@@ -231,7 +224,7 @@ describe("scripts/build-aircraft-db: failure modes", () => {
   });
 
   test("malformed JSON line aborts the build with a non-zero signal", async () => {
-    const badPath = join(tmpDir, "bad.ndjson");
+    const badPath = `${tmpDir}/bad.ndjson`;
     await Bun.write(
       badPath,
       [
@@ -246,7 +239,7 @@ describe("scripts/build-aircraft-db: failure modes", () => {
   });
 
   test("missing icao24 (`i`) field aborts the build", async () => {
-    const badPath = join(tmpDir, "no-icao.ndjson");
+    const badPath = `${tmpDir}/no-icao.ndjson`;
     await Bun.write(
       badPath,
       [
@@ -262,7 +255,7 @@ describe("scripts/build-aircraft-db: failure modes", () => {
 
   test("re-running on an existing path overwrites the prior DB", async () => {
     await buildAircraftDb(FIXTURE_PATH, dbPath);
-    expect(existsSync(dbPath)).toBe(true);
+    expect(await Bun.file(dbPath).exists()).toBe(true);
     // A second call must not throw "table already exists" — the build
     // unlinks the prior file before opening a fresh connection.
     const second = await buildAircraftDb(FIXTURE_PATH, dbPath);

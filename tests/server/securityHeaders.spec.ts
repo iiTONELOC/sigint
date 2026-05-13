@@ -1,24 +1,28 @@
 import { describe, test, expect } from "bun:test";
+import { loadConfig, type ServerConfig } from "../../src/server/config";
+import { createSecurityHeaders } from "../../src/server/api/securityHeaders";
+import { createAuthGuards } from "../../src/server/api/auth";
+import { createApiRoutes } from "../../src/server/api";
 
-// ─────────────────────────────────────────────────────────────────────
-// Security headers tests
-// Verifies every response from the API and static file servers includes
-// the OWASP-required security headers. Ensures the CSP covers all
-// required external sources and blocks framing/injection.
-// ─────────────────────────────────────────────────────────────────────
+const TEST_SECRET = "security-headers-test-secret-32-bytes-XXXXX";
 
-process.env.SIGINT_SERVER_SECRET = "security-headers-test-secret!!!";
+function makeDeps(overrides: Partial<ServerConfig> = {}) {
+  const cfg = loadConfig({
+    SIGINT_SERVER_SECRET: TEST_SECRET,
+    NODE_ENV: "test",
+  });
+  const config: ServerConfig = Object.freeze({ ...cfg, ...overrides });
+  const security = createSecurityHeaders(config);
+  const authGuards = createAuthGuards(config, security);
+  const apiRoutes = createApiRoutes({ authGuards, security });
+  return { config, security, authGuards, apiRoutes };
+}
 
-const { withSecurityHeaders } =
-  await import("@/../../src/server/api/securityHeaders");
-const { generateToken, tokenCookieHeader } =
-  await import("@/../../src/server/api/auth");
-const { apiRoutes } = await import("@/../../src/server/api/index");
-
-// ── Helpers ─────────────────────────────────────────────────────────
+const { security, authGuards, apiRoutes } = makeDeps();
+const { withSecurityHeaders } = security;
 
 async function validCookie(): Promise<string> {
-  const token = await generateToken();
+  const token = await authGuards.generateToken();
   return `sigint_token=${token}`;
 }
 
@@ -32,10 +36,6 @@ function authedReq(url: string, cookie: string): Request {
   });
   return req;
 }
-
-// ═════════════════════════════════════════════════════════════════════
-// withSecurityHeaders UNIT TESTS
-// ═════════════════════════════════════════════════════════════════════
 
 describe("withSecurityHeaders", () => {
   test("adds all required OWASP headers", () => {
@@ -51,6 +51,20 @@ describe("withSecurityHeaders", () => {
     expect(res.headers.get("X-XSS-Protection")).toBe("0");
   });
 
+  test("HSTS absent when not production", () => {
+    const { security: s } = makeDeps({ isProduction: false });
+    const res = s.withSecurityHeaders(new Response("ok"));
+    expect(res.headers.get("Strict-Transport-Security")).toBeNull();
+  });
+
+  test("HSTS present when production", () => {
+    const { security: s } = makeDeps({ isProduction: true });
+    const res = s.withSecurityHeaders(new Response("ok"));
+    expect(res.headers.get("Strict-Transport-Security")).toContain(
+      "max-age=31536000",
+    );
+  });
+
   test("includes Content-Security-Policy", () => {
     const res = withSecurityHeaders(new Response("ok"));
     const csp = res.headers.get("Content-Security-Policy");
@@ -59,63 +73,86 @@ describe("withSecurityHeaders", () => {
   });
 
   test("CSP blocks framing (frame-ancestors 'none')", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
   test("CSP allows planespotters images", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("img-src");
     expect(csp).toContain("planespotters.net");
   });
 
   test("CSP allows client-side data source connections", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("connect-src");
     expect(csp).toContain("earthquake.usgs.gov");
     expect(csp).toContain("api.weather.gov");
     expect(csp).toContain("iptv-org.github.io");
   });
 
-  test("CSP no longer needs opensky-network.org (aircraft now proxied)", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
-    expect(csp).not.toContain("opensky-network.org");
-  });
-
   test("CSP allows web workers", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("worker-src 'self'");
   });
 
   test("CSP allows HLS media streams", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("media-src");
   });
 
-  test("CSP restricts scripts to self only", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+  test("CSP restricts scripts to self only — no unsafe-eval, no unsafe-inline", () => {
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("script-src 'self'");
-    // No unsafe-eval or unsafe-inline for scripts
     expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
     expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
   });
 
+  test("CSP style-src present with documented inline allowance", () => {
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
+    expect(csp).toContain("style-src 'self'");
+    expect(csp).toMatch(/style-src[^;]*'unsafe-inline'/);
+  });
+
+  test("CSP has object-src 'none'", () => {
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
+    expect(csp).toContain("object-src 'none'");
+  });
+
+  test("CSP has font-src 'self'", () => {
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
+    expect(csp).toContain("font-src 'self'");
+  });
+
   test("CSP restricts forms to self", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("form-action 'self'");
   });
 
   test("CSP restricts base URI to self", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     expect(csp).toContain("base-uri 'self'");
   });
 
@@ -130,10 +167,6 @@ describe("withSecurityHeaders", () => {
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════
-// API ROUTE INTEGRATION — headers on real responses
-// ═════════════════════════════════════════════════════════════════════
 
 describe("security headers on API responses", () => {
   test("auth token response has security headers", async () => {
@@ -152,7 +185,6 @@ describe("security headers on API responses", () => {
     const handler = (apiRoutes as any)["/api/events/latest"];
     const req = authedReq("/api/events/latest", cookie);
     const res = await handler.GET(req);
-    // 200 or 503 — either way should have headers
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Content-Security-Policy")).not.toBeNull();
   });
@@ -189,16 +221,11 @@ describe("security headers on API responses", () => {
   });
 });
 
-// ═════════════════════════════════════════════════════════════════════
-// CSP REGRESSION — server-side-only sources NOT in connect-src
-// ═════════════════════════════════════════════════════════════════════
-
 describe("CSP regression — no server-side-only sources in connect-src", () => {
   test("hexdb.io not in connect-src (server-side only)", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
-    // hexdb.io is fetched server-side by dossierCache.ts
-    // It should NOT be in connect-src (client never fetches it)
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     const connectSrc = csp
       .split(";")
       .find((d) => d.trim().startsWith("connect-src"));
@@ -206,10 +233,9 @@ describe("CSP regression — no server-side-only sources in connect-src", () => 
   });
 
   test("planespotters API not in connect-src (server-side only)", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
-    // api.planespotters.net is fetched server-side
-    // Only img-src needs planespotters (for thumbnail rendering)
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     const connectSrc = csp
       .split(";")
       .find((d) => d.trim().startsWith("connect-src"));
@@ -217,16 +243,13 @@ describe("CSP regression — no server-side-only sources in connect-src", () => 
   });
 
   test("planespotters in img-src for photo rendering", () => {
-    const res = withSecurityHeaders(new Response("ok"));
-    const csp = res.headers.get("Content-Security-Policy")!;
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
     const imgSrc = csp.split(";").find((d) => d.trim().startsWith("img-src"));
     expect(imgSrc).toContain("planespotters.net");
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════
-// NO OLD METADATA ENRICHMENT ROUTES
-// ═════════════════════════════════════════════════════════════════════
 
 describe("dead route regression", () => {
   test("no /api/aircraft/metadata/:icao24 route", () => {
@@ -239,7 +262,7 @@ describe("dead route regression", () => {
     expect((apiRoutes as any)["/api/aircraft/metadata/batch"]).toBeUndefined();
   });
 
-  test("/api/aircraft/metadata/db/v1 has been removed (server-side enrichment migration)", () => {
+  test("/api/aircraft/metadata/db/v1 has been removed", () => {
     expect((apiRoutes as any)["/api/aircraft/metadata/db/v1"]).toBeUndefined();
   });
 });

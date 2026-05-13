@@ -6,20 +6,27 @@ import {
   afterAll,
   beforeEach,
   afterEach,
-  spyOn,
 } from "bun:test";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { utimes } from "fs/promises";
 import {
   classifyMilitary,
   enrichRecord,
   loadMetadataDb,
   __resetMetadataDbCacheForTests,
+  __setLoggerForTests,
   AC_DB_STALE_THRESHOLD_MS,
   type AircraftMetadataRecord,
 } from "../../../src/server/api/aircraftEnrichment";
+import { createLogger } from "../../../src/server/lib/logger";
 import { buildAircraftDb } from "../../../scripts/build-aircraft-db";
+import { mkTmpDir, rmrf } from "../../_support";
+async function setMtimeDaysAgoAsync(
+  path: string,
+  daysAgo: number,
+): Promise<void> {
+  const target = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  await utimes(path, target, target);
+}
 
 // ── Test setup — build a tmp SQLite from the tiny fixture NDJSON ──
 // The runtime now reads enrichment from a SQLite file, so the test
@@ -35,15 +42,15 @@ let tmpDir: string;
 let dbPath: string;
 
 beforeAll(async () => {
-  tmpDir = mkdtempSync(join(tmpdir(), "sigint-aenrich-test-"));
-  dbPath = join(tmpDir, "ac-db.sqlite");
+  tmpDir = await mkTmpDir("sigint-aenrich-test");
+  dbPath = `${tmpDir}/ac-db.sqlite`;
   await buildAircraftDb(FIXTURE_NDJSON, dbPath);
 });
 
-afterAll(() => {
+afterAll(async () => {
   __resetMetadataDbCacheForTests();
   try {
-    rmSync(tmpDir, { recursive: true, force: true });
+    await rmrf(tmpDir);
   } catch {
     /* tmpdir cleanup is best-effort */
   }
@@ -266,38 +273,63 @@ describe("aircraft DB freshness check", () => {
   const FRESH_DB_FIXTURE = "tests/fixtures/aircraft/metadata-db-tiny.ndjson";
   let freshTmpDir: string;
   let freshDbPath: string;
-  let warnSpy: ReturnType<typeof spyOn> | null = null;
+
+  type Captured = { level: string; message: string };
+  let captured: Captured[] = [];
+
+  function installCapture(): void {
+    captured = [];
+    const sink = {
+      async write(chunk: Uint8Array): Promise<void> {
+        const text = new TextDecoder().decode(chunk);
+        for (const line of text.split("\n")) {
+          if (!line) continue;
+          try {
+            const entry = JSON.parse(line) as Captured;
+            captured.push(entry);
+          } catch {
+            /* non-JSON line; ignore */
+          }
+        }
+      },
+    };
+    __setLoggerForTests(
+      createLogger({ service: "aircraft-enrichment", level: "debug", sink }),
+    );
+  }
+
+  function restoreLogger(): void {
+    __setLoggerForTests(createLogger({ service: "aircraft-enrichment" }));
+  }
 
   beforeAll(async () => {
-    freshTmpDir = mkdtempSync(join(tmpdir(), "sigint-freshness-test-"));
-    freshDbPath = join(freshTmpDir, "ac-db.sqlite");
+    freshTmpDir = await mkTmpDir("sigint-freshness-test");
+    freshDbPath = `${freshTmpDir}/ac-db.sqlite`;
     await buildAircraftDb(FRESH_DB_FIXTURE, freshDbPath);
   });
 
   beforeEach(() => {
     __resetMetadataDbCacheForTests();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    installCapture();
   });
 
   afterEach(() => {
-    warnSpy?.mockRestore();
-    warnSpy = null;
+    restoreLogger();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     __resetMetadataDbCacheForTests();
     try {
-      rmSync(freshTmpDir, { recursive: true, force: true });
+      await rmrf(freshTmpDir);
     } catch {
       /* tmp cleanup is best-effort */
     }
   });
 
-  /** Set the SQLite file's mtime to N days before now so the next
-   *  ensureDb() open evaluates the freshness branch with a known age. */
-  function setMtimeDaysAgo(path: string, daysAgo: number): void {
-    const target = (Date.now() - daysAgo * 24 * 60 * 60 * 1000) / 1000;
-    utimesSync(path, target, target);
+  function findWarnMatching(substr: string): Captured | undefined {
+    return captured.find(
+      (c) => c.level === "warn" && c.message.includes(substr),
+    );
   }
 
   test("THRESHOLD constant is the documented 90-day window", () => {
@@ -305,61 +337,37 @@ describe("aircraft DB freshness check", () => {
   });
 
   test("DB older than 90 days → warn fires with day count + ISO timestamp", async () => {
-    setMtimeDaysAgo(freshDbPath, 91);
+    await setMtimeDaysAgoAsync(freshDbPath, 91);
     await loadMetadataDb(freshDbPath);
-    const warnCalls = warnSpy?.mock.calls ?? [];
-    const stale = warnCalls.find((c) =>
-      typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
-    );
+    const stale = findWarnMatching("ac-db.sqlite is ");
     expect(stale).toBeDefined();
-    const msg = stale?.[0] as string;
+    const msg = stale!.message;
     expect(msg).toMatch(/ac-db\.sqlite is 91 days old/);
     expect(msg).toContain("bun run build:aircraft-db");
     expect(msg).toMatch(/last built \d{4}-\d{2}-\d{2}T/);
   });
 
   test("DB at exact 90-day boundary → warn fires (>=, not >)", async () => {
-    // Threshold uses `>=` so day 90 is on the warn side.
-    setMtimeDaysAgo(freshDbPath, 90);
+    await setMtimeDaysAgoAsync(freshDbPath, 90);
     await loadMetadataDb(freshDbPath);
-    const stale = (warnSpy?.mock.calls ?? []).find(
-      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
-    );
-    expect(stale).toBeDefined();
+    expect(findWarnMatching("ac-db.sqlite is ")).toBeDefined();
   });
 
   test("DB at 89 days → no freshness warn", async () => {
-    setMtimeDaysAgo(freshDbPath, 89);
+    await setMtimeDaysAgoAsync(freshDbPath, 89);
     await loadMetadataDb(freshDbPath);
-    const stale = (warnSpy?.mock.calls ?? []).find(
-      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
-    );
-    expect(stale).toBeUndefined();
+    expect(findWarnMatching("ac-db.sqlite is ")).toBeUndefined();
   });
 
   test("DB freshly built (mtime = now) → no freshness warn", async () => {
-    // Fixture was built in beforeAll a moment ago — no mtime fiddle.
-    setMtimeDaysAgo(freshDbPath, 0);
+    await setMtimeDaysAgoAsync(freshDbPath, 0);
     await loadMetadataDb(freshDbPath);
-    const stale = (warnSpy?.mock.calls ?? []).find(
-      (c) => typeof c[0] === "string" && c[0].includes("ac-db.sqlite is "),
-    );
-    expect(stale).toBeUndefined();
+    expect(findWarnMatching("ac-db.sqlite is ")).toBeUndefined();
   });
 
   test("missing DB file → falls through to existing skip path, no freshness warn", async () => {
-    // Existing "DB not found" warn should still fire; the freshness
-    // branch must not run because we never get past the existsSync.
     await loadMetadataDb("tests/fixtures/aircraft/does-not-exist.sqlite");
-    const allWarns = warnSpy?.mock.calls ?? [];
-    const notFound = allWarns.find(
-      (c) =>
-        typeof c[0] === "string" && c[0].includes("enrichment DB not found"),
-    );
-    const stale = allWarns.find(
-      (c) => typeof c[0] === "string" && c[0].includes("days old"),
-    );
-    expect(notFound).toBeDefined();
-    expect(stale).toBeUndefined();
+    expect(findWarnMatching("enrichment DB not found")).toBeDefined();
+    expect(findWarnMatching("days old")).toBeUndefined();
   });
 });

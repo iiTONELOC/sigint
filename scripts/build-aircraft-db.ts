@@ -20,7 +20,7 @@
 // silently skipping it would ship an incomplete DB.
 
 import { Database } from "bun:sqlite";
-import { unlinkSync, existsSync } from "node:fs";
+import { unlink } from "fs/promises";
 import { classifyMilitary } from "../src/server/data/militaryRules";
 
 const DEFAULT_INPUT = "src/server/data/ac-db.ndjson";
@@ -78,8 +78,8 @@ export async function buildAircraftDb(
 
   // Replace any prior build artifact — bun:sqlite refuses to recreate
   // a table on an existing DB unless we drop the file first.
-  if (existsSync(outputPath)) {
-    unlinkSync(outputPath);
+  if (await Bun.file(outputPath).exists()) {
+    await unlink(outputPath);
   }
 
   const db = new Database(outputPath, { create: true });

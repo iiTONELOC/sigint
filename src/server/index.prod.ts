@@ -1,37 +1,54 @@
 import { serve } from "bun";
 import { join, resolve } from "path";
-import { apiRoutes } from "./api";
+import { loadConfig, ConfigError } from "./config";
+import { createApiRoutes } from "./api";
+import { createAuthGuards } from "./api/auth";
+import { createSecurityHeaders } from "./api/securityHeaders";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
 import { startCyclonesPolling } from "./api/cyclonesCache";
 import { startAircraftPolling } from "./api/aircraftCache";
-import { withSecurityHeaders } from "./api/securityHeaders";
 import { createStaticRoutes, safePath } from "./staticRoutes";
+import { createLogger } from "./lib/logger";
 
-const port = Number(process.env.PORT ?? 5500);
+const logger = createLogger({ service: "server-prod" });
+
+let config;
+try {
+  config = loadConfig(process.env);
+} catch (err) {
+  if (err instanceof ConfigError) {
+    logger.error("Server configuration error", { errorMessage: err.message });
+    process.exit(78);
+  }
+  throw err;
+}
+
+const security = createSecurityHeaders(config);
+const authGuards = createAuthGuards(config, security);
+const apiRoutes = createApiRoutes({ authGuards, security });
+
 const distDir = resolve(import.meta.dir, "../../dist");
 const publicDir = resolve(import.meta.dir, "../../public");
 
 const serveDistFile = async (filePath: string): Promise<Response> => {
   const file = Bun.file(filePath);
-  if (await file.exists()) return withSecurityHeaders(new Response(file));
-  console.warn(`File not found: ${filePath}`);
+  if (await file.exists()) return security.withSecurityHeaders(new Response(file));
+  logger.warn(`File not found: ${filePath}`);
   return new Response("Not found", { status: 404 });
 };
 
 const server = serve({
   hostname: "0.0.0.0",
-  port,
+  port: config.port,
   development: false,
   idleTimeout: 30,
-  maxRequestBodySize: 1024 * 1024, // 1 MB — all API routes are GET, this is a safety cap
+  maxRequestBodySize: 1024 * 1024,
   routes: {
-    ...createStaticRoutes(publicDir),
-
+    ...createStaticRoutes(publicDir, security),
     ...apiRoutes,
-
     "/*": async (req) => {
       const { pathname } = new URL(req.url);
       const safe = safePath(distDir, pathname);
@@ -46,16 +63,21 @@ const server = serve({
   },
 });
 
-const domain = process.env.DOMAIN;
-if (domain) {
-  console.log(`🚀 Production server running at ${server.url}`);
-  console.log(`🔒 Access via https://${domain} (Caddy TLS)`);
+if (config.domain) {
+  logger.info(`🚀 Production server running at ${server.url}`);
+  logger.info(`🔒 Access via https://${config.domain} (Caddy TLS)`);
 } else {
-  console.log(`🚀 Production server running at ${server.url}`);
+  logger.info(`🚀 Production server running at ${server.url}`);
 }
 startGdeltPolling();
-startAisPolling();
-startFirmsPolling();
+startAisPolling(config.aisstreamApiKey);
+startFirmsPolling(config.firmsMapKey);
 startNewsPolling();
-startCyclonesPolling();
-startAircraftPolling();
+startCyclonesPolling({
+  enabled: config.fixtureOverridesEnabled,
+  label: process.env.CYCLONES_FIXTURE,
+});
+startAircraftPolling({
+  enabled: config.fixtureOverridesEnabled,
+  label: process.env.AIRCRAFT_FIXTURE,
+});

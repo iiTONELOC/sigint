@@ -135,7 +135,7 @@ function mergeAndPrune(
       const age = now - new Date(item.timestamp).getTime();
       if (age > MAX_EVENT_AGE_MS) continue;
     }
-    // @ts-ignore
+    // @ts-expect-error url present only on event-typed payloads; falsy otherwise
     const url = item.data?.url;
     if (url) {
       byUrl.set(url, item);
@@ -145,7 +145,7 @@ function mergeAndPrune(
   }
 
   for (const item of incoming) {
-    // @ts-ignore
+    // @ts-expect-error url present only on event-typed payloads; falsy otherwise
     const url = item.data?.url;
     if (url) {
       if (!byUrl.has(url)) {

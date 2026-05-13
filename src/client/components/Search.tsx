@@ -27,7 +27,7 @@ function getPrimaryLabel(item: DataPoint): string {
     case "quakes":
       return (d.location as string) || item.id;
     default:
-      //@ts-ignore
+      // @ts-expect-error fallback path; switch is exhaustive for known types
       return item?.id || "Unknown";
   }
 }

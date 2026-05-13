@@ -104,7 +104,7 @@ async function fetchConeForStorm(stormId: string): Promise<GeoJSONPolygon | null
     const res = await fetchWithTimeout(products.conekmzUrl);
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
-    const kml = unzipSingleEntryKmz(new Uint8Array(buf));
+    const kml = await unzipSingleEntryKmz(new Uint8Array(buf));
     return parseKmlConeToGeoJSON(kml);
   } catch {
     return null;

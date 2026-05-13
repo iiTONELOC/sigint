@@ -24,6 +24,22 @@ services:
       - PORT=${PORT:-5500}
     restart: always
     command: bun src/server/index.prod.ts
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+          pids: 256
+    ulimits:
+      nofile: 4096
     healthcheck:
       test:
         [

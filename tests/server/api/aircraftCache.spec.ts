@@ -161,25 +161,28 @@ describe("dedupByHex", () => {
 // ── AIRCRAFT_FIXTURE dev-only override ────────────────────────────
 
 describe("resolveAircraftFixtureOverride", () => {
-  test("returns null in dev when AIRCRAFT_FIXTURE is unset", async () => {
-    expect(
-      await resolveAircraftFixtureOverride({ NODE_ENV: "development" }),
-    ).toBeNull();
-  });
-
-  test("returns null in production even when AIRCRAFT_FIXTURE is set", async () => {
+  test("returns null when fixture overrides disabled", async () => {
     expect(
       await resolveAircraftFixtureOverride({
-        NODE_ENV: "production",
-        AIRCRAFT_FIXTURE: "test-snapshot",
+        enabled: false,
+        label: "test-snapshot",
       }),
     ).toBeNull();
   });
 
-  test("loads the fixture in dev when AIRCRAFT_FIXTURE matches a real label", async () => {
+  test("returns null when no label is set", async () => {
+    expect(
+      await resolveAircraftFixtureOverride({
+        enabled: true,
+        label: undefined,
+      }),
+    ).toBeNull();
+  });
+
+  test("loads the fixture when enabled and label matches a real one", async () => {
     const result = await resolveAircraftFixtureOverride({
-      NODE_ENV: "development",
-      AIRCRAFT_FIXTURE: "test-snapshot",
+      enabled: true,
+      label: "test-snapshot",
     });
     expect(result).not.toBeNull();
     const body = result?.body as { ac?: unknown[] } | undefined;
@@ -187,11 +190,11 @@ describe("resolveAircraftFixtureOverride", () => {
     expect(body?.ac?.length).toBeGreaterThan(0);
   });
 
-  test("rejects path-traversal labels (OWASP A01)", async () => {
+  test("rejects path-traversal labels", async () => {
     await expect(
       resolveAircraftFixtureOverride({
-        NODE_ENV: "development",
-        AIRCRAFT_FIXTURE: "../../../etc/passwd",
+        enabled: true,
+        label: "../../../etc/passwd",
       }),
     ).rejects.toThrow(/Invalid AIRCRAFT_FIXTURE/);
   });
@@ -199,10 +202,7 @@ describe("resolveAircraftFixtureOverride", () => {
   test("rejects shell-special and uppercase characters via regex allowlist", async () => {
     for (const bad of ["foo;bar", "foo$bar", "foo bar", "FOO", "../foo"]) {
       await expect(
-        resolveAircraftFixtureOverride({
-          NODE_ENV: "development",
-          AIRCRAFT_FIXTURE: bad,
-        }),
+        resolveAircraftFixtureOverride({ enabled: true, label: bad }),
       ).rejects.toThrow(/Invalid AIRCRAFT_FIXTURE/);
     }
   });
@@ -210,8 +210,8 @@ describe("resolveAircraftFixtureOverride", () => {
   test("throws fixture-not-found when the label is well-formed but the file is missing", async () => {
     await expect(
       resolveAircraftFixtureOverride({
-        NODE_ENV: "development",
-        AIRCRAFT_FIXTURE: "totally-nonexistent-aircraft-fixture",
+        enabled: true,
+        label: "totally-nonexistent-aircraft-fixture",
       }),
     ).rejects.toThrow(/Fixture not found/);
   });

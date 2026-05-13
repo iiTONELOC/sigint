@@ -147,9 +147,9 @@ export function VideoSlot({
   const handleFullscreen = useCallback(() => {
     // iOS Safari only supports fullscreen on <video> elements
     const video = playerRef.current?.getVideoElement?.();
-    // @ts-ignore — webkitEnterFullscreen is iOS-specific
+    // @ts-expect-error webkitEnterFullscreen is iOS Safari-only, not in lib.dom
     if (video?.webkitEnterFullscreen) {
-      // @ts-ignore
+      // @ts-expect-error webkitEnterFullscreen is iOS Safari-only, not in lib.dom
       video.webkitEnterFullscreen();
       return;
     }

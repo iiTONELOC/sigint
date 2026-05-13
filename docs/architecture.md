@@ -2,7 +2,7 @@
 
 [← Back to Docs Index](./README.md)
 
-**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker | **Last updated**: March 2026
+**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker | **Last updated**: May 2026
 
 **Related docs**: [Data Flow](./data-flow.md) · [Feature System](./features.md) · [Pane System](./panes.md) · [Rendering](./rendering.md)
 
@@ -92,35 +92,55 @@ All other sources go through the Bun server for one or more of: API-key secrecy,
 
 ### Server API Routes
 
-| Route                           | Method | Auth            | Rate Limit        | Purpose                                                                                       |
-| ------------------------------- | ------ | --------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `/api/auth/token`               | GET    | None            | 60 req/min per IP | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                            |
-| `/api/aircraft/states`          | GET    | HttpOnly cookie | 60 req/min per IP | Server-side merged adsb.fi tile sweep, enriched against `ac-db.sqlite` (gzip compressed)       |
-| `/api/events/latest`            | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached GDELT events (gzip compressed)                                                  |
-| `/api/ships/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached AIS vessel positions (gzip compressed)                                          |
-| `/api/fires/latest`             | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                      |
-| `/api/cyclones/latest`          | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached NHC CurrentStorms.json (gzip compressed)                                        |
-| `/api/cyclones/:stormId/cone`   | GET    | HttpOnly cookie | 60 req/min per IP | Per-storm KMZ forecast cone polygon                                                            |
-| `/api/dossier/cyclone/:stormId` | GET    | HttpOnly cookie | 60 req/min per IP | NHC text products for a storm (advisory, discussion, wind probs)                               |
-| `/api/news/latest`              | GET    | HttpOnly cookie | 60 req/min per IP | Returns cached RSS news articles (gzip compressed)                                             |
-| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | 60 req/min per IP | Aircraft dossier (hexdb.io info + planespotters photos)                                        |
+All routes share the same sliding-window rate limiter (default 60 req/min per client IP, configurable via `SIGINT_RATE_LIMIT_PER_MINUTE`).
+
+| Route                           | Method | Auth            | Purpose                                                                                       |
+| ------------------------------- | ------ | --------------- | --------------------------------------------------------------------------------------------- |
+| `/api/auth/token`               | GET    | None            | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                            |
+| `/api/aircraft/states`          | GET    | HttpOnly cookie | Server-side merged adsb.fi tile sweep, enriched against `ac-db.sqlite` (gzip compressed)       |
+| `/api/events/latest`            | GET    | HttpOnly cookie | Returns cached GDELT events (gzip compressed)                                                  |
+| `/api/ships/latest`             | GET    | HttpOnly cookie | Returns cached AIS vessel positions (gzip compressed)                                          |
+| `/api/fires/latest`             | GET    | HttpOnly cookie | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                      |
+| `/api/cyclones/latest`          | GET    | HttpOnly cookie | Returns cached NHC CurrentStorms.json (gzip compressed)                                        |
+| `/api/cyclones/:stormId/cone`   | GET    | HttpOnly cookie | Per-storm KMZ forecast cone polygon                                                            |
+| `/api/dossier/cyclone/:stormId` | GET    | HttpOnly cookie | NHC text products for a storm (advisory, discussion, wind probs)                               |
+| `/api/news/latest`              | GET    | HttpOnly cookie | Returns cached RSS news articles (gzip compressed)                                             |
+| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | Aircraft dossier (hexdb.io info + planespotters photos)                                        |
 
 ### Auth + Rate Limiting
 
-All API routes are rate limited at 60 requests per minute per IP (sliding window). Protected routes require a valid auth token in an HttpOnly cookie (`sigint_token`). Auth and rate limiting live in `api/auth.ts` — every route calls either `guardAuth` (cookie token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
+All API routes are rate limited per client IP via a sliding window (default 60 req/min, set by `config.rateLimitPerMinute`). Protected routes require a valid auth token in an HttpOnly cookie (`sigint_token`).
 
-Tokens are generated via Web Crypto API (async HMAC-SHA256) and verified with `crypto.timingSafeEqual`. The token endpoint sets the token as an `HttpOnly; Secure; SameSite=Strict` cookie.
+Auth and rate limiting are exposed as a factory: `createAuthGuards(config, security)` returns `{ generateToken, verifyToken, tokenCookieHeader, expireOldCookieHeader, guardAuth, guardRateLimit }`. The composition roots (`src/server/index.ts`, `src/server/index.prod.ts`) build the config once at boot, instantiate the guards, and mount them on the router. Every route calls either `guardAuth` (cookie token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
+
+Client IP comes from `X-Forwarded-For` using **rightmost-N** extraction with `config.trustedProxyHops` (default 0). With `trustedProxyHops=0` XFF is ignored and the bucket key is the direct source. With `trustedProxyHops>0` the rightmost N entries are trusted infrastructure; the entry immediately to their left is the client. If XFF has fewer entries than `trustedProxyHops+1`, the request falls into a single `"unknown"` bucket (fail-closed).
+
+Tokens are generated via Web Crypto API (async HMAC-SHA256) and verified with `crypto.timingSafeEqual`. The token endpoint sets the token as an `HttpOnly; SameSite=Strict; Path=/api` cookie; `Secure` is added when `config.isProduction` is true.
 
 Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-origin"`. On 401, the cookie is refreshed and the request retried. Concurrent 401s share a single token refresh (deduped via an in-flight promise) to prevent boot stampede when multiple providers hit 401 simultaneously.
 
+### Composition Root + Config
+
+`src/server/config.ts` is the only module that reads `process.env`. It exports `loadConfig(env)` which returns a frozen `ServerConfig`, and `ConfigError` thrown on missing/invalid values. The composition roots (`src/server/index.ts`, `src/server/index.prod.ts`) call `loadConfig(process.env)` at boot; a `ConfigError` causes `process.exit(78)`. All downstream modules — auth, security headers, cache pollers — take the typed config as a parameter; none read env directly.
+
+### Logging
+
+Structured JSON via `src/server/lib/logger.ts` — project-owned, zero dependencies. Each emission is one line of JSON with `timestamp`, `level`, `service`, `message`, and any caller-supplied fields. Fields are passed through a redaction allowlist that strips known sensitive keys (`token`, `password`, `apiKey`, `cookie`, `secret`, `authorization`, `refreshToken`) at the top level and one level of nesting. Error instances are unwrapped to `errorClass` + `errorMessage`. Default sink writes to `Bun.stderr`. Every server module gets a logger via `createLogger({ service: "<name>" })`; `console.*` is not used in `src/server/`.
+
 ### Environment Variables
 
-| Variable               | Required | Description                                                                                                                                                                       |
-| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SIGINT_SERVER_SECRET` | **Yes**  | Server-only secret for signing auth tokens. Generate with `openssl rand -hex 32`. Server refuses to start without it.                                                             |
-| `AISSTREAM_API_KEY`    | No       | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty.                               |
-| `FIRMS_MAP_KEY`        | No       | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
-| `PORT`                 | No       | Server port (default: 5500)                                                                                                                                                       |
+| Variable                       | Required | Description                                                                                                                                                                       |
+| ------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SIGINT_SERVER_SECRET`         | **Yes**  | Server-only secret for signing auth tokens. Must be at least 32 characters. Generate with `openssl rand -hex 32`. Server exits 78 without it.                                     |
+| `AISSTREAM_API_KEY`            | No       | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty.                               |
+| `FIRMS_MAP_KEY`                | No       | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
+| `PORT`                         | No       | Server port (default: 5500)                                                                                                                                                       |
+| `DOMAIN`                       | No       | Public hostname; logged at boot when set. No behavior change.                                                                                                                     |
+| `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap. Default 60.                                                                                                                                            |
+| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app. Default 0. Drives XFF rightmost-N extraction.                                                                                      |
+| `NODE_ENV`                     | No       | Read once by `loadConfig` to derive `config.isProduction` (only `"production"` flips it). Not read anywhere else.                                                                 |
+| `CYCLONES_FIXTURE`             | No       | Dev-only label that points the cyclones cache at `tests/fixtures/cyclones/<label>.json` instead of NHC. Ignored when `isProduction` is true.                                      |
+| `AIRCRAFT_FIXTURE`             | No       | Dev-only label that points the aircraft cache at `tests/fixtures/aircraft/<label>.json` instead of adsb.fi. Ignored when `isProduction` is true.                                  |
 
 ---
 
@@ -145,23 +165,26 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │   ├── index.css                       Global CSS (Tailwind + SIGINT theme vars + SW update banner)
 │   ├── logo.svg
 │   ├── server/
+│   │   ├── config.ts                  Typed ServerConfig + loadConfig — sole reader of process.env
 │   │   ├── staticRoutes.ts             Shared safePath + static route builder (dev + prod)
-│   │   ├── index.ts                   Dev server (Bun, HMR)
-│   │   ├── index.prod.ts              Prod server
+│   │   ├── index.ts                   Dev composition root (Bun, HMR)
+│   │   ├── index.prod.ts              Prod composition root
 │   │   ├── api/
-│   │   │   ├── index.ts               Route registration + gzip helper
-│   │   │   ├── auth.ts                HMAC-SHA256 tokens + rate limiting
+│   │   │   ├── index.ts               createApiRoutes({ authGuards, security }) factory
+│   │   │   ├── auth.ts                createAuthGuards(config, security) — HMAC-SHA256 tokens, XFF rightmost-N, sliding-window limiter
+│   │   │   ├── securityHeaders.ts     createSecurityHeaders(config) — CSP, HSTS (prod), etc.
 │   │   │   ├── aircraftCache.ts       adsb.fi tile sweep + dedup
+│   │   │   ├── aircraftTiles.ts       AIRCRAFT_TILES + PRIORITY_TILES coverage table
 │   │   │   ├── aircraftEnrichment.ts  Read-only SQLite metadata lookups
 │   │   │   ├── cyclonesCache.ts       NHC CurrentStorms.json polling
 │   │   │   ├── cyclonesConeCache.ts   Per-storm KMZ forecast cone
 │   │   │   ├── cyclonesDossierCache.ts NHC text products (advisory etc.)
 │   │   │   ├── dossierCache.ts        Aircraft dossier (hexdb.io + planespotters)
 │   │   │   ├── gdeltCache.ts          GDELT fetch/parse/cache
-│   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache
+│   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache (LRU-capped at 100k)
 │   │   │   ├── firmsCache.ts          NASA FIRMS CSV fetch/parse/cache
 │   │   │   └── newsCache.ts           RSS feed fetch/parse/cache
-│   │   ├── lib/snapshotStore.ts       File-backed gzipped JSON store (Bun-native, security primitives)
+│   │   ├── lib/logger.ts              Project-owned structured JSON logger + redaction
 │   │   └── data/
 │   │       ├── ac-db.sqlite           Read-only aircraft metadata (~617k records, baked at build)
 │   │       ├── icao24CountryRanges.ts ICAO Annex 10 hex-prefix → country mapping
@@ -182,15 +205,18 @@ Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-
 │       │   ├── storageService.ts       IndexedDB wrapper with dbReady gate
 │       │   ├── cacheKeys.ts            23 cache keys (incl mobile/desktop layout)
 │       │   ├── swRegistration.ts       SW registration + update detection + applyUpdate
-│       │   ├── correlationEngine.ts    Cross-source correlation, alerts, baselines
+│       │   ├── correlation/            Correlation engine — split across baseline, clusters, anomalies, crossSource, cyclones, news, shared
+│       │   ├── correlationClient.ts    Main-thread wrapper around the correlation Web Worker + sync inline fallback
 │       │   ├── spatialIndex.ts         Grid-based spatial hash + inverse projection
-│       │   ├── trailService.ts         Position recording + interpolation
+│       │   ├── trailService.ts         Position recording + interpolation (LRU-capped at 10k tracks)
 │       │   ├── landService.ts          HD coastline fetch + cache
 │       │   ├── sourceHealth.ts         Source up/down status
 │       │   ├── tickerFeed.ts           Ticker item interleaving
 │       │   ├── uiSelectors.ts          Derived counts, country lists
 │       │   ├── timeFormat.ts           Relative age formatting
 │       │   └── utils.ts                Shared utilities
+│       ├── workers/
+│       │   └── correlationWorker.ts    Worker entry — runs computeCorrelations off the main thread (bundled to public/workers/correlationWorker.js)
 │       ├── components/
 │       │   ├── globe/                  Canvas 2D visualization (modular)
 │       │   │   ├── GlobeVisualization  Shell: refs, render loop, worker lifecycle
@@ -297,7 +323,7 @@ All shared state lives in `DataContext`, exposed via `useData()`. There is no ex
 
 - **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
 - **`AppShell.tsx`** — reads from context, renders ConnectionStatus + Header + PaneManager + Ticker. ConnectionStatus always visible. Gates Header and Ticker on `chromeHidden`. Ticker container has `paddingBottom: max(0.25rem, env(safe-area-inset-bottom))` for iPhone home bar.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather, news), selection, isolation, layers, filters, view controls, search, derived values. Runs the correlation engine (`computeCorrelations`) as a `useMemo` on `allData` + `newsArticles` — shared via `correlation` on context. Manages watch mode state (active/paused, source, cycling, progress). Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set). Default rotation is paused.
+- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather, news), selection, isolation, layers, filters, view controls, search, derived values. Drives the correlation engine via `correlationClient` — `allData`/`newsArticles`/`allDataVersion` changes post to a Web Worker (`public/workers/correlationWorker.js`); the worker returns `{ products, alerts, baseline }` and `DataContext` persists the baseline to IndexedDB. A stale-response guard ignores out-of-order worker replies. In test/SSR or when the worker bundle isn't available the client falls back to synchronous inline compute, preserving the same `correlation` shape on the context. Manages watch mode state (active/paused, source, cycling, progress). Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set). Default rotation is paused.
 - **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB with separate mobile/desktop keys). Layout presets (save/load/update/delete named views — device-specific). `isMobile` state hoisted before layout load. Passes preset props to PaneMobile. Gates toolbar and pane headers on `chromeHidden`. Mobile responsive — vertical scrollable column under 768px. Touch-friendly button targets (40px minimum).
 - **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
 - **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Column header tooltips. Auto-scrolls to selected item when selection changes from external source (ticker, globe).

@@ -6,6 +6,9 @@
 
 import { inflateRaw } from "zlib";
 import { promisify } from "util";
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger({ service: "gdelt" });
 
 const inflateRawAsync = promisify(inflateRaw);
 
@@ -308,7 +311,7 @@ async function fetchGdelt(): Promise<void> {
 
     // If upstream returned valid response but 0 events, retain stale cache
     if (events.length === 0 && cache.data) {
-      console.log(
+      logger.info(
         "⚡ GDELT: upstream returned 0 events — retaining stale cache",
       );
       cache = { ...cache, error: "Upstream returned 0 events" };

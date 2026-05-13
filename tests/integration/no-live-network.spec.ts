@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readdir, readFile, stat } from "fs/promises";
+import { join, relative } from "path";
 
 // ── Regression guard: no live upstream URLs in test specs ──────────
 // Walks tests/ and e2e/ trees, fails if any spec line references a
@@ -82,10 +82,10 @@ const ALLOWED_LINE_SUBSTRINGS = [
 const SPEC_EXT_RE = /\.spec\.tsx?$/;
 const TEST_DIRS = ["tests", "e2e"];
 
-function* walk(dir: string): Generator<string> {
-  for (const entry of readdirSync(dir)) {
+async function* walk(dir: string): AsyncGenerator<string> {
+  for (const entry of await readdir(dir)) {
     const full = join(dir, entry);
-    const st = statSync(full);
+    const st = await stat(full);
     if (st.isDirectory()) {
       yield* walk(full);
     } else if (SPEC_EXT_RE.test(entry)) {
@@ -108,8 +108,8 @@ function isAllowed(line: string): boolean {
 
 type Offender = { file: string; lineNo: number; line: string };
 
-function scanSpecFile(file: string): Offender[] {
-  const text = readFileSync(file, "utf-8");
+async function scanSpecFile(file: string): Promise<Offender[]> {
+  const text = await readFile(file, "utf-8");
   const lines = text.split("\n");
   const out: Offender[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -121,21 +121,21 @@ function scanSpecFile(file: string): Offender[] {
   return out;
 }
 
-function collectOffenders(): Offender[] {
+async function collectOffenders(): Promise<Offender[]> {
   const offenders: Offender[] = [];
   for (const dir of TEST_DIRS) {
-    for (const file of walk(join(REPO_ROOT, dir))) {
+    for await (const file of walk(join(REPO_ROOT, dir))) {
       // Skip THIS file — it lists every forbidden host by definition.
       if (file.endsWith("no-live-network.spec.ts")) continue;
-      offenders.push(...scanSpecFile(file));
+      offenders.push(...(await scanSpecFile(file)));
     }
   }
   return offenders;
 }
 
 describe("no-live-network: spec tree audit", () => {
-  test("no test/spec file references a forbidden upstream host", () => {
-    const offenders = collectOffenders();
+  test("no test/spec file references a forbidden upstream host", async () => {
+    const offenders = await collectOffenders();
     if (offenders.length > 0) {
       const report = offenders
         .map((o) => `  ${o.file}:${o.lineNo}\n    ${o.line}`)

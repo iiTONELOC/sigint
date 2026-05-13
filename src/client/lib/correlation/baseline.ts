@@ -106,10 +106,18 @@ export function recentCount(win: CountryWindow, hours: number): number {
 
 const intelTypes = new Set(["events", "quakes", "fires", "weather"]);
 
-/** Update the baseline with new data points and persist. */
-export function accumulate(allData: DataPoint[]): RegionBaseline {
+export function emptyBaseline(): RegionBaseline {
+  return { countries: {}, lastUpdated: 0 };
+}
+
+/** Update an in-memory baseline with new data points. Pure: caller owns
+ *  the baseline value and is responsible for persistence. */
+export function accumulate(
+  allData: DataPoint[],
+  baselineIn?: RegionBaseline,
+): RegionBaseline {
   const now = Date.now();
-  const baseline = loadBaseline();
+  const baseline = baselineIn ?? loadBaseline();
   for (const item of allData) {
     if (!intelTypes.has(item.type)) continue;
     const country = getCountry(item);
@@ -117,6 +125,5 @@ export function accumulate(allData: DataPoint[]): RegionBaseline {
     recordEvent(baseline, country, ts, now);
   }
   baseline.lastUpdated = now;
-  persistBaseline(baseline);
   return baseline;
 }

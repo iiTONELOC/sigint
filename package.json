@@ -17,6 +17,7 @@
     "build:aircraft-db": "bun run scripts/build-aircraft-db.ts",
     "probe:tiles": "bun run scripts/probe-aircraft-tiles.ts",
     "build": "bun run build:aircraft-db && bun run build.ts && bun run postbuild.ts",
+    "audit": "bun audit",
     "docker:dev:up": "docker compose -f docker-compose.dev.yml up",
     "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
     "docker:dev:clean": "docker compose -f docker-compose.dev.yml down -v",

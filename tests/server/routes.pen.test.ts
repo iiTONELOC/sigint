@@ -1,17 +1,27 @@
 import { describe, test, expect } from "bun:test";
+import { loadConfig, type ServerConfig } from "../../src/server/config";
+import { createSecurityHeaders } from "../../src/server/api/securityHeaders";
+import { createAuthGuards } from "../../src/server/api/auth";
+import { createApiRoutes } from "../../src/server/api";
 
-// ─────────────────────────────────────────────────────────────────────
-// Route security pentest
-// Tests every API endpoint for auth enforcement, input validation,
-// path traversal, method restrictions, and response security.
-// Uses the actual apiRoutes handlers directly (no HTTP server needed).
-// ─────────────────────────────────────────────────────────────────────
+const TEST_SECRET = "route-pentest-secret-32bytes-XXXXXXXXXXXXXX";
 
-process.env.SIGINT_SERVER_SECRET = "route-pentest-secret-32bytes!!!";
+function mkRoutes(overrides: Partial<ServerConfig> = {}) {
+  const cfg = loadConfig({
+    SIGINT_SERVER_SECRET: TEST_SECRET,
+    NODE_ENV: "test",
+  });
+  const config: ServerConfig = Object.freeze({ ...cfg, ...overrides });
+  const security = createSecurityHeaders(config);
+  const authGuards = createAuthGuards(config, security);
+  return {
+    apiRoutes: createApiRoutes({ authGuards, security }),
+    generateToken: authGuards.generateToken,
+    tokenCookieHeader: authGuards.tokenCookieHeader,
+  };
+}
 
-const { generateToken, tokenCookieHeader } =
-  await import("@/../../src/server/api/auth");
-const { apiRoutes } = await import("@/../../src/server/api/index");
+const { apiRoutes, generateToken, tokenCookieHeader } = mkRoutes();
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -333,29 +343,21 @@ describe("response security", () => {
 
 describe("cookie security — production flags", () => {
   test("production cookie includes Secure flag", () => {
-    const origEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    const header = tokenCookieHeader("test");
-    expect(header).toContain("Secure");
-    process.env.NODE_ENV = origEnv;
+    const { tokenCookieHeader: t } = mkRoutes({ isProduction: true });
+    expect(t("test")).toContain("Secure");
   });
 
   test("dev cookie omits Secure flag (localhost works)", () => {
-    const origEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "development";
-    const header = tokenCookieHeader("test");
-    expect(header).not.toContain("Secure");
-    process.env.NODE_ENV = origEnv;
+    const { tokenCookieHeader: t } = mkRoutes({ isProduction: false });
+    expect(t("test")).not.toContain("Secure");
   });
 
-  test("both envs have HttpOnly + SameSite", () => {
-    for (const env of ["production", "development"]) {
-      const origEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = env;
-      const header = tokenCookieHeader("test");
+  test("both prod and dev cookies have HttpOnly + SameSite", () => {
+    for (const isProduction of [true, false]) {
+      const { tokenCookieHeader: t } = mkRoutes({ isProduction });
+      const header = t("test");
       expect(header).toContain("HttpOnly");
       expect(header).toContain("SameSite=Strict");
-      process.env.NODE_ENV = origEnv;
     }
   });
 });

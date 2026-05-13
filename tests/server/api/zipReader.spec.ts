@@ -1,6 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { deflateRawSync } from "node:zlib";
+import { deflateRaw } from "zlib";
+import { promisify } from "util";
 import { unzipSingleEntryKmz } from "../../../src/server/api/zipReader";
+
+const deflateRawAsync = promisify(deflateRaw);
 
 // ── ZIP local file header builder (test-side) ──────────────────────
 // Mirrors the structure used in scripts/build-cone-kmz-fixture.ts. Kept
@@ -45,21 +48,25 @@ function buildZip(
 }
 
 describe("unzipSingleEntryKmz", () => {
-  test("decodes a stored (method 0) entry", () => {
+  test("decodes a stored (method 0) entry", async () => {
     const payload = new TextEncoder().encode(
       "<?xml?><kml><Document/></kml>",
     );
     const zip = buildZip(payload, payload, 0);
-    expect(unzipSingleEntryKmz(zip)).toBe("<?xml?><kml><Document/></kml>");
+    expect(await unzipSingleEntryKmz(zip)).toBe(
+      "<?xml?><kml><Document/></kml>",
+    );
   });
 
-  test("decodes a deflate (method 8) entry", () => {
+  test("decodes a deflate (method 8) entry", async () => {
     const payload = new TextEncoder().encode(
       "<?xml?><kml><Document><Placemark/></Document></kml>",
     );
-    const compressed = new Uint8Array(deflateRawSync(payload));
+    const compressed = new Uint8Array(
+      (await deflateRawAsync(payload)) as Buffer,
+    );
     const zip = buildZip(payload, compressed, 8);
-    expect(unzipSingleEntryKmz(zip)).toBe(
+    expect(await unzipSingleEntryKmz(zip)).toBe(
       "<?xml?><kml><Document><Placemark/></Document></kml>",
     );
   });
@@ -69,41 +76,43 @@ describe("unzipSingleEntryKmz", () => {
       await Bun.file("tests/fixtures/cyclones-cone/milton-al14-cone.kmz")
         .arrayBuffer(),
     );
-    const kml = unzipSingleEntryKmz(bytes);
+    const kml = await unzipSingleEntryKmz(bytes);
     expect(kml).toContain("<Polygon>");
     expect(kml).toContain("<coordinates>");
     expect(kml).toContain("-90.0,22.4,0");
   });
 
-  test("rejects buffer with bad signature", () => {
+  test("rejects buffer with bad signature", async () => {
     const bad = new Uint8Array([0x00, 0x00, 0x00, 0x00, ...new Array(40).fill(0)]);
-    expect(() => unzipSingleEntryKmz(bad)).toThrow(
+    await expect(unzipSingleEntryKmz(bad)).rejects.toThrow(
       "Not a ZIP file (bad local file header signature)",
     );
   });
 
-  test("rejects truncated header", () => {
+  test("rejects truncated header", async () => {
     const tiny = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
-    expect(() => unzipSingleEntryKmz(tiny)).toThrow(
+    await expect(unzipSingleEntryKmz(tiny)).rejects.toThrow(
       "Not a ZIP file (truncated header)",
     );
   });
 
-  test("rejects unsupported compression method (e.g. 99 = encrypted)", () => {
+  test("rejects unsupported compression method (e.g. 99 = encrypted)", async () => {
     const payload = new TextEncoder().encode("doesn't matter");
     const zip = buildZip(payload, payload, 99);
-    expect(() => unzipSingleEntryKmz(zip)).toThrow(
+    await expect(unzipSingleEntryKmz(zip)).rejects.toThrow(
       "Unsupported ZIP compression method 99",
     );
   });
 
-  test("rejects entry whose compressed-size field exceeds buffer length", () => {
+  test("rejects entry whose compressed-size field exceeds buffer length", async () => {
     const payload = new TextEncoder().encode("hello");
-    const compressed = new Uint8Array(deflateRawSync(payload));
+    const compressed = new Uint8Array(
+      (await deflateRawAsync(payload)) as Buffer,
+    );
     const zip = buildZip(payload, compressed, 8);
     // Tamper: bump the compressedSize field to point past the end of the buffer.
     u32(zip, 18, zip.length + 100);
-    expect(() => unzipSingleEntryKmz(zip)).toThrow(
+    await expect(unzipSingleEntryKmz(zip)).rejects.toThrow(
       "Not a ZIP file (entry data exceeds buffer)",
     );
   });

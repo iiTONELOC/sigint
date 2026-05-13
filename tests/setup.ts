@@ -1,20 +1,4 @@
-// ── Test setup — preloaded by bun before every test file ────────────
-// Registers happy-dom globals (window, document, etc.) so react-dom
-// client rendering works in tests. Also provides shared utilities.
-
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-
-// ── Dev-only fixture-override vars MUST be cleared in tests ─────────
-// `resolveCyclonesFixtureOverride` and `resolveAircraftFixtureOverride`
-// short-circuit the live HTTP path when these env vars are set. If a
-// developer has them exported from their shell (e.g. inherited from a
-// sourced .env), the cyclones/aircraft tests that mock `globalThis.fetch`
-// fail silently — the fixture override fires before the mock is ever
-// consulted, and assertions see fixture data instead of the queued
-// canned responses. Clearing them here makes the test suite hermetic
-// regardless of the developer's shell environment.
-delete process.env.CYCLONES_FIXTURE;
-delete process.env.AIRCRAFT_FIXTURE;
 
 GlobalRegistrator.register();
 
@@ -26,9 +10,8 @@ console.error = (...args: any[]) => {
   originalError(...args);
 };
 
-// Tell React we're in a test environment — suppresses act() warnings
-// @ts-ignore
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+  true;
 
 // ── Shared utilities ────────────────────────────────────────────────
 

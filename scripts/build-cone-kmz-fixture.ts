@@ -13,7 +13,10 @@
 // reaches out. The KML payload below has 5 vertices forming a closed
 // LinearRing, which is the only contract the cone parser cares about.
 
-import { deflateRawSync } from "node:zlib";
+import { deflateRaw } from "zlib";
+import { promisify } from "util";
+
+const deflateRawAsync = promisify(deflateRaw);
 
 const KML = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -54,7 +57,9 @@ function writeUint32LE(buf: Uint8Array, offset: number, value: number): void {
 }
 
 const uncompressed = new TextEncoder().encode(KML);
-const compressed = new Uint8Array(deflateRawSync(uncompressed));
+const compressed = new Uint8Array(
+  (await deflateRawAsync(uncompressed)) as Buffer,
+);
 const crc = Bun.hash.crc32(uncompressed);
 const fileName = new TextEncoder().encode(FILENAME);
 
@@ -78,4 +83,7 @@ out.set(compressed, header.length + fileName.length);
 
 const path = "tests/fixtures/cyclones-cone/milton-al14-cone.kmz";
 await Bun.write(path, out);
-console.log(`✓ wrote ${path} (${out.length} bytes, KML ${uncompressed.length} → ${compressed.length})`);
+await Bun.write(
+  Bun.stdout,
+  `✓ wrote ${path} (${out.length} bytes, KML ${uncompressed.length} → ${compressed.length})\n`,
+);

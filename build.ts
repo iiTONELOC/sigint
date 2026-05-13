@@ -148,6 +148,23 @@ const result = await Bun.build({
   ...cliConfig,
 });
 
+const workerResult = await Bun.build({
+  entrypoints: [path.resolve("src/client/workers/correlationWorker.ts")],
+  outdir: path.resolve("public/workers"),
+  naming: "correlationWorker.js",
+  target: "browser",
+  format: "esm",
+  minify: true,
+  sourcemap: "linked",
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  },
+});
+if (!workerResult.success) {
+  for (const log of workerResult.logs) console.error(log);
+  process.exit(1);
+}
+
 const end = performance.now();
 
 const outputTable = result.outputs.map((output) => ({

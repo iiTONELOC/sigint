@@ -7,10 +7,14 @@
 // Serves snapshot via /api/ships/latest with token auth.
 // Optional env var: AISSTREAM_API_KEY — if absent, ships endpoint returns 503.
 
-// @ts-ignore — require() bypasses Bun's ESM WebSocket polyfill
+// @ts-expect-error require() avoids Bun's ESM WebSocket polyfill for aisstream
 const WebSocketClient = require("ws");
-// @ts-ignore
+// @ts-expect-error require() avoids Bun's ESM polyfill so we keep Node's TLS stack
 const https = require("https");
+
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger({ service: "ais" });
 
 const AISSTREAM_WS_URL = "wss://stream.aisstream.io/v0/stream";
 const RECONNECT_DELAY_MS = 10_000;
@@ -105,15 +109,17 @@ function shipTypeLabel(code?: number): string {
 
 // ── WebSocket connection ─────────────────────────────────────────────
 
+let configuredApiKey: string | undefined;
+
 function connect(): void {
-  const apiKey = process.env.AISSTREAM_API_KEY;
+  const apiKey = configuredApiKey;
   if (!apiKey) {
-    lastError = "AISSTREAM_API_KEY env var not set — ships data unavailable";
-    console.warn("🚢 AIS: no API key set, skipping");
+    lastError = "AISSTREAM_API_KEY not configured — ships data unavailable";
+    logger.warn("🚢 AIS: no API key set, skipping");
     return;
   }
 
-  console.log("🚢 AIS: connecting to aisstream.io...");
+  logger.info("🚢 AIS: connecting to aisstream.io...");
 
   try {
     // Force Node's TLS stack via explicit https agent
@@ -134,16 +140,16 @@ function connect(): void {
         FilterMessageTypes: ["PositionReport", "ShipStaticData"],
       };
       ws.send(JSON.stringify(subscription));
-      console.log("🚢 AIS: WebSocket connected, subscription sent");
+      logger.info("🚢 AIS: WebSocket connected, subscription sent");
     });
 
     ws.on("message", (raw: any) => {
       try {
         const msg = JSON.parse(String(raw));
         messageCount++;
-        if (messageCount === 1) console.log("🚢 AIS: first message received");
+        if (messageCount === 1) logger.info("🚢 AIS: first message received");
         if (messageCount % 10000 === 0)
-          console.log(
+          logger.info(
             `🚢 AIS: ${messageCount} messages, ${vessels.size} vessels`,
           );
         handleAisMessage(msg);
@@ -153,18 +159,18 @@ function connect(): void {
     });
 
     ws.on("close", (code: number) => {
-      console.warn(`🚢 AIS: WebSocket closed (code: ${code})`);
+      logger.warn(`🚢 AIS: WebSocket closed (code: ${code})`);
       wsConnection = null;
       scheduleReconnect();
     });
 
     ws.on("error", (err: Error) => {
       lastError = `ws error: ${err.message ?? "unknown"}`;
-      console.error(`🚢 AIS: ${lastError}`);
+      logger.error(`🚢 AIS: ${lastError}`);
     });
   } catch (err) {
     lastError = err instanceof Error ? err.message : "Connection failed";
-    console.error(`🚢 AIS: connection failed — ${lastError}`);
+    logger.error(`🚢 AIS: connection failed — ${lastError}`);
     scheduleReconnect();
   }
 }
@@ -314,9 +320,10 @@ function toClientPayload(): object[] {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-export function startAisPolling(): void {
+export function startAisPolling(apiKey: string | undefined): void {
   if (started) return;
   started = true;
+  configuredApiKey = apiKey;
   connect();
   pruneTimer = setInterval(pruneStale, PRUNE_INTERVAL_MS);
 }

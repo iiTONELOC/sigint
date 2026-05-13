@@ -4,6 +4,10 @@
 //   startNewsPolling() / stopNewsPolling() / getNewsCache()
 // No server-side persistence — memory only, repopulates on restart.
 
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger({ service: "news" });
+
 const POLL_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
 // ── Feed sources ────────────────────────────────────────────────────
@@ -130,12 +134,12 @@ async function fetchFeed(feed: FeedSource): Promise<NewsItem[]> {
     });
     clearTimeout(timeout);
     if (!res.ok) {
-      console.warn(`📰 ${feed.name}: HTTP ${res.status}`);
+      logger.warn(`📰 ${feed.name}: HTTP ${res.status}`);
       return [];
     }
     return parseRssItems(await res.text(), feed.name);
   } catch (err) {
-    console.warn(`📰 ${feed.name}: ${err instanceof Error ? err.message : "Unknown error"}`);
+    logger.warn(`📰 ${feed.name}: ${err instanceof Error ? err.message : "Unknown error"}`);
     return [];
   }
 }
@@ -190,7 +194,7 @@ async function fetchAllNews(): Promise<void> {
     cache = { ...cache, error: errors.join("; ") };
   }
 
-  console.log(`📰 News: ${capped.length} items from ${FEEDS.length} feeds (${errors.length} errors)`);
+  logger.info(`📰 News: ${capped.length} items from ${FEEDS.length} feeds (${errors.length} errors)`);
 }
 
 // ── Public API (matches gdeltCache/firmsCache contract) ─────────────

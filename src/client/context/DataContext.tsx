@@ -35,9 +35,13 @@ import { featureRegistry } from "@/features/registry";
 import { buildSpatialGrid, type SpatialGrid } from "@/lib/spatialIndex";
 import type { SourceStatus } from "@/lib/sourceHealth";
 import {
-  computeCorrelations,
+  emptyBaseline,
+  loadBaseline,
+  persistBaseline,
   type CorrelationResult,
+  type RegionBaseline,
 } from "@/lib/correlation";
+import { createCorrelationClient } from "@/lib/correlationClient";
 
 import { UIProvider, useUI } from "@/context/UIContext";
 import { WatchProvider, useWatch } from "@/context/WatchContext";
@@ -363,13 +367,41 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setLayers((l) => ({ ...l, [key]: !l[key] }));
   }, []);
 
-  // ── Correlation engine ─────────────────────────────────────────
-  // Position-dependent: clusterByRegion buckets by lat/lon and recency.
-  // Gate on version so positional updates re-cluster.
-  const correlation = useMemo(
-    () => computeCorrelations(allData, newsArticles),
-    [allData, newsArticles, allDataVersion],
+  // ── Correlation engine (Web Worker) ────────────────────────────
+  const baselineRef = useRef<RegionBaseline>(loadBaseline());
+  const clientRef = useRef<ReturnType<typeof createCorrelationClient> | null>(
+    null,
   );
+  clientRef.current ??= createCorrelationClient();
+  useEffect(() => {
+    return () => {
+      clientRef.current?.terminate();
+      clientRef.current = null;
+    };
+  }, []);
+
+  const [correlation, setCorrelation] = useState<CorrelationResult>(() => ({
+    products: [],
+    alerts: [],
+    baseline: baselineRef.current,
+  }));
+
+  useEffect(() => {
+    let cancelled = false;
+    const client = clientRef.current;
+    if (!client) return;
+    void client
+      .request(allData, newsArticles, baselineRef.current)
+      .then((result) => {
+        if (cancelled) return;
+        baselineRef.current = result.baseline;
+        persistBaseline(result.baseline);
+        setCorrelation(result);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allData, newsArticles, allDataVersion]);
 
   // ── DataContext value ──────────────────────────────────────────
   const dataValue = useMemo<DataContextValue>(
@@ -427,7 +459,7 @@ function EnrichmentBridge({
 
   useEffect(() => {
     if (selectedCurrent?.type !== "aircraft") return;
-    // @ts-ignore — data shape is AircraftData when type is "aircraft"
+    // @ts-expect-error data shape is AircraftData when type is "aircraft"
     const icao24 = selectedCurrent.data?.icao24;
     if (!icao24) return;
     if (icao24 === lastEnrichmentKeyRef.current) return;

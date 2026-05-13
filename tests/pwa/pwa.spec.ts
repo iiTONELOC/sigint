@@ -1,27 +1,25 @@
 import { describe, test, expect } from "bun:test";
+import { resolve } from "path";
 
-const path = require("path");
-const fs = require("fs");
-const projectRoot = path.resolve(__dirname, "../..");
+const projectRoot = resolve(import.meta.dir, "../..");
 
 let swSource = "";
 try {
-  swSource = fs.readFileSync(path.join(projectRoot, "public/sw.js"), "utf-8");
+  swSource = await Bun.file(`${projectRoot}/public/sw.js`).text();
 } catch {}
 
-let manifest: any = {};
+let manifest: Record<string, unknown> = {};
 try {
-  manifest = JSON.parse(
-    fs.readFileSync(path.join(projectRoot, "public/manifest.json"), "utf-8"),
-  );
+  manifest = (await Bun.file(
+    `${projectRoot}/public/manifest.json`,
+  ).json()) as Record<string, unknown>;
 } catch {}
 
 let frontendSource = "";
 try {
-  frontendSource = fs.readFileSync(
-    path.join(projectRoot, "src/client/frontend.tsx"),
-    "utf-8",
-  );
+  frontendSource = await Bun.file(
+    `${projectRoot}/src/client/frontend.tsx`,
+  ).text();
 } catch {}
 
 // Helper: check source contains string ignoring whitespace differences in chains

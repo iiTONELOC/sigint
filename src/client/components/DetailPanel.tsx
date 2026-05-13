@@ -340,7 +340,7 @@ export function DetailPanel({
               }}
               onTouchEnd={(e) => {
                 e.stopPropagation();
-                //@ts-ignore
+                // @ts-expect-error React TouchEvent passed to DOM-style handler
                 sheet.onTouchEnd(e);
               }}
             >

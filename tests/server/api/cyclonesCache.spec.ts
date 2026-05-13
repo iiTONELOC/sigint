@@ -130,25 +130,28 @@ describe("normalizeCyclonesPayload — accepts the v1.0 fixture set", () => {
 // off env vars passed in directly so the tests don't fight process.env.
 
 describe("resolveCyclonesFixtureOverride", () => {
-  test("returns null in dev when CYCLONES_FIXTURE is unset", async () => {
-    expect(
-      await resolveCyclonesFixtureOverride({ NODE_ENV: "development" }),
-    ).toBeNull();
-  });
-
-  test("returns null in production even when CYCLONES_FIXTURE is set", async () => {
+  test("returns null when fixture overrides disabled", async () => {
     expect(
       await resolveCyclonesFixtureOverride({
-        NODE_ENV: "production",
-        CYCLONES_FIXTURE: "single-cat5",
+        enabled: false,
+        label: "single-cat5",
       }),
     ).toBeNull();
   });
 
-  test("loads the fixture in dev when CYCLONES_FIXTURE matches a real label", async () => {
+  test("returns null when no label is set", async () => {
+    expect(
+      await resolveCyclonesFixtureOverride({
+        enabled: true,
+        label: undefined,
+      }),
+    ).toBeNull();
+  });
+
+  test("loads the fixture when enabled and label matches a real one", async () => {
     const result = await resolveCyclonesFixtureOverride({
-      NODE_ENV: "development",
-      CYCLONES_FIXTURE: "single-cat5",
+      enabled: true,
+      label: "single-cat5",
     });
     expect(result).not.toBeNull();
     const body = result?.body as { activeStorms?: unknown[] } | undefined;
@@ -156,11 +159,11 @@ describe("resolveCyclonesFixtureOverride", () => {
     expect(body?.activeStorms?.length).toBe(1);
   });
 
-  test("rejects path-traversal labels (OWASP A01)", async () => {
+  test("rejects path-traversal labels", async () => {
     await expect(
       resolveCyclonesFixtureOverride({
-        NODE_ENV: "development",
-        CYCLONES_FIXTURE: "../../../etc/passwd",
+        enabled: true,
+        label: "../../../etc/passwd",
       }),
     ).rejects.toThrow(/Invalid CYCLONES_FIXTURE/);
   });
@@ -168,10 +171,7 @@ describe("resolveCyclonesFixtureOverride", () => {
   test("rejects shell-special and uppercase characters via regex allowlist", async () => {
     for (const bad of ["foo;bar", "foo$bar", "foo bar", "FOO", "../foo"]) {
       await expect(
-        resolveCyclonesFixtureOverride({
-          NODE_ENV: "development",
-          CYCLONES_FIXTURE: bad,
-        }),
+        resolveCyclonesFixtureOverride({ enabled: true, label: bad }),
       ).rejects.toThrow(/Invalid CYCLONES_FIXTURE/);
     }
   });
@@ -179,8 +179,8 @@ describe("resolveCyclonesFixtureOverride", () => {
   test("throws fixture-not-found when the label is well-formed but the file is missing", async () => {
     await expect(
       resolveCyclonesFixtureOverride({
-        NODE_ENV: "development",
-        CYCLONES_FIXTURE: "totally-nonexistent-fixture",
+        enabled: true,
+        label: "totally-nonexistent-fixture",
       }),
     ).rejects.toThrow(/Fixture not found/);
   });

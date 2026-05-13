@@ -6,6 +6,10 @@
 // Requires env var: FIRMS_MAP_KEY (free from firms.modaps.eosdis.nasa.gov)
 // If not set, endpoint returns 503 and fires layer is empty.
 
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger({ service: "firms" });
+
 const FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 const POLL_INTERVAL_MS = 30 * 60_000; // 30 min
 const FETCH_TIMEOUT_MS = 30_000; // FIRMS can be slow for global queries
@@ -107,11 +111,10 @@ function parseFirmsCsv(csv: string): FireRecord[] {
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
 async function fetchFirms(): Promise<void> {
-  const mapKey = process.env.FIRMS_MAP_KEY;
   if (!mapKey) {
     cache = {
       ...cache,
-      error: "FIRMS_MAP_KEY env var not set — fire data unavailable",
+      error: "FIRMS_MAP_KEY not configured — fire data unavailable",
     };
     return;
   }
@@ -140,7 +143,7 @@ async function fetchFirms(): Promise<void> {
     // If upstream returned valid response but 0 records (quota exhausted,
     // temporary outage), retain stale cache instead of overwriting with empty
     if (records.length === 0 && cache.data && cache.data.length > 0) {
-      console.log(
+      logger.info(
         "🔥 FIRMS: upstream returned 0 records — retaining stale cache",
       );
       cache = { ...cache, error: "Upstream returned 0 records" };
@@ -155,7 +158,7 @@ async function fetchFirms(): Promise<void> {
     };
 
     if (records.length > 0) {
-      console.log(`🔥 FIRMS: ${records.length} fire hotspots loaded`);
+      logger.info(`🔥 FIRMS: ${records.length} fire hotspots loaded`);
     }
   } catch (err) {
     cache = {
@@ -167,17 +170,19 @@ async function fetchFirms(): Promise<void> {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-export function startFirmsPolling(): void {
-  if (intervalId) return;
+let mapKey: string | undefined;
 
-  const mapKey = process.env.FIRMS_MAP_KEY;
+export function startFirmsPolling(apiKey: string | undefined): void {
+  if (intervalId) return;
+  mapKey = apiKey;
+
   if (!mapKey) {
-    console.warn("🔥 FIRMS: no API key set, skipping");
-    cache.error = "FIRMS_MAP_KEY env var not set — fire data unavailable";
+    logger.warn("🔥 FIRMS: no API key set, skipping");
+    cache.error = "FIRMS_MAP_KEY not configured — fire data unavailable";
     return;
   }
 
-  console.log("🔥 FIRMS: starting poll...");
+  logger.info("🔥 FIRMS: starting poll...");
   fetchFirms();
   intervalId = setInterval(fetchFirms, POLL_INTERVAL_MS);
 }

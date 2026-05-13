@@ -17,6 +17,9 @@
 // means quota exhaustion; here it means hurricane season is over.
 
 import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
+import { createLogger } from "../lib/logger";
+
+const logger = createLogger({ service: "nhc" });
 
 export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
 export const USER_AGENT =
@@ -186,33 +189,35 @@ export function computeAdvisoryHash(activeStorms: readonly unknown[]): string {
   return JSON.stringify(sigs);
 }
 
-// ── Dev-only fixture override ────────────────────────────────────────
-// `CYCLONES_FIXTURE=<label>` short-circuits the live NHC fetch and
-// returns the body of `tests/fixtures/cyclones/<label>.json`. The
-// override is gated on NODE_ENV !== "production" — production startup
-// (bun run start, Dockerfile.prod) sets NODE_ENV=production, so the
-// gate cannot be bypassed by a stray env var on a real deploy.
-//
-// OWASP A01: the label is matched against /^[a-z0-9-]+$/ before any
-// file lookup. Path traversal (`../`), absolute paths, shell-special
-// characters, and uppercase are all rejected before Bun.file() is
-// called. The fixed `tests/fixtures/cyclones/` prefix means a
-// well-formed label can only resolve inside the test fixture tree.
-
 const FIXTURE_LABEL_RE = /^[a-z0-9-]+$/;
 
 export type CyclonesFixtureOverride = { body: unknown };
 
+export type CyclonesFixtureOptions = Readonly<{
+  enabled: boolean;
+  label: string | undefined;
+}>;
+
+let cyclonesFixtureOptions: CyclonesFixtureOptions = {
+  enabled: false,
+  label: undefined,
+};
+
+export function __setCyclonesFixtureOptionsForTests(
+  opts: CyclonesFixtureOptions,
+): void {
+  cyclonesFixtureOptions = opts;
+}
+
 export async function resolveCyclonesFixtureOverride(
-  env: NodeJS.ProcessEnv = process.env,
+  opts: CyclonesFixtureOptions = cyclonesFixtureOptions,
 ): Promise<CyclonesFixtureOverride | null> {
-  if (env.NODE_ENV === "production") return null;
-  const label = env.CYCLONES_FIXTURE;
-  if (!label) return null;
-  if (!FIXTURE_LABEL_RE.test(label)) {
-    throw new Error(`Invalid CYCLONES_FIXTURE value: ${label}`);
+  if (!opts.enabled) return null;
+  if (!opts.label) return null;
+  if (!FIXTURE_LABEL_RE.test(opts.label)) {
+    throw new Error(`Invalid CYCLONES_FIXTURE value: ${opts.label}`);
   }
-  const path = `tests/fixtures/cyclones/${label}.json`;
+  const path = `tests/fixtures/cyclones/${opts.label}.json`;
   const file = Bun.file(path);
   if (!(await file.exists())) {
     throw new Error(`Fixture not found: ${path}`);
@@ -241,7 +246,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
       const normalized = normalizeCyclonesPayload(override.body);
       if (!normalized) {
         cache = { ...cache, error: "Fixture has invalid shape" };
-        console.warn("🌀 NHC: fixture override rejected (bad shape)");
+        logger.warn("🌀 NHC: fixture override rejected (bad shape)");
         return;
       }
       cache = {
@@ -250,7 +255,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
         stormCount: normalized.activeStorms.length,
         error: null,
       };
-      console.log(
+      logger.info(
         `🌀 NHC: CYCLONES_FIXTURE override active (${normalized.activeStorms.length} storm(s))`,
       );
       return;
@@ -260,7 +265,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
       ...cache,
       error: err instanceof Error ? err.message : "Fixture override error",
     };
-    console.warn("🌀 NHC: fixture override error");
+    logger.warn("🌀 NHC: fixture override error");
     return;
   }
 
@@ -279,7 +284,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
         error: null,
       };
     }
-    console.log(
+    logger.info(
       "🌀 NHC: skipping fetch — no active-basin season open and cache is empty",
     );
     return;
@@ -298,7 +303,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
       ...cache,
       error: err instanceof Error ? err.message : "Unknown fetch error",
     };
-    console.warn("🌀 NHC: fetch error");
+    logger.warn("🌀 NHC: fetch error");
   } finally {
     clearTimeout(timer);
   }
@@ -313,19 +318,19 @@ async function processCyclonesResponse(res: Response): Promise<void> {
   // No parse, no downstream notification.
   if (res.status === 304) {
     cache = { ...cache, fetchedAt: Date.now(), error: null };
-    console.log("🌀 NHC: 304 not modified — cache fresh");
+    logger.info("🌀 NHC: 304 not modified — cache fresh");
     return;
   }
   if (!res.ok) {
     cache = { ...cache, error: `NHC returned ${res.status}` };
-    console.warn(`🌀 NHC: HTTP ${res.status}`);
+    logger.warn(`🌀 NHC: HTTP ${res.status}`);
     return;
   }
   const json: unknown = await res.json();
   const normalized = normalizeCyclonesPayload(json);
   if (!normalized) {
     cache = { ...cache, error: "NHC response missing activeStorms array" };
-    console.warn("🌀 NHC: malformed response (no activeStorms array)");
+    logger.warn("🌀 NHC: malformed response (no activeStorms array)");
     return;
   }
   // 200 with valid body — capture validator headers for the next
@@ -341,7 +346,7 @@ async function processCyclonesResponse(res: Response): Promise<void> {
   const advisoryHash = computeAdvisoryHash(normalized.activeStorms);
   if (advisoryHash === lastAdvisoryHash && cache.body !== null) {
     cache = { ...cache, fetchedAt: Date.now(), error: null };
-    console.log("🌀 NHC: advisories unchanged — dedup, cache marked fresh");
+    logger.info("🌀 NHC: advisories unchanged — dedup, cache marked fresh");
     return;
   }
   lastAdvisoryHash = advisoryHash;
@@ -356,11 +361,11 @@ async function processCyclonesResponse(res: Response): Promise<void> {
   // for storms that have dissipated drop out of the map.
   refreshStormProducts(normalized.activeStorms);
   if (normalized.activeStorms.length > 0) {
-    console.log(
+    logger.info(
       `🌀 NHC: ${normalized.activeStorms.length} active cyclone(s) loaded`,
     );
   } else {
-    console.log("🌀 NHC: no active cyclones (out of season or quiet day)");
+    logger.info("🌀 NHC: no active cyclones (out of season or quiet day)");
   }
   notifyAdvisoryChange(normalized.activeStorms);
 }
@@ -449,9 +454,10 @@ export function setAdvisoryChangeListener(
 
 // ── Public API ───────────────────────────────────────────────────────
 
-export function startCyclonesPolling(): void {
+export function startCyclonesPolling(opts?: CyclonesFixtureOptions): void {
   if (intervalId) return;
-  console.log("🌀 NHC: starting cyclone poll...");
+  if (opts) cyclonesFixtureOptions = opts;
+  logger.info("🌀 NHC: starting cyclone poll...");
   void fetchCyclones();
   intervalId = setInterval(() => void fetchCyclones(), POLL_INTERVAL_MS);
 }

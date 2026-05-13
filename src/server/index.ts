@@ -1,7 +1,10 @@
 import { serve } from "bun";
 import { resolve } from "path";
 import index from "../index.html";
-import { apiRoutes } from "./api";
+import { loadConfig, ConfigError } from "./config";
+import { createApiRoutes } from "./api";
+import { createAuthGuards } from "./api/auth";
+import { createSecurityHeaders } from "./api/securityHeaders";
 import { startGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
@@ -9,32 +12,53 @@ import { startNewsPolling } from "./api/newsCache";
 import { startCyclonesPolling } from "./api/cyclonesCache";
 import { startAircraftPolling } from "./api/aircraftCache";
 import { createStaticRoutes } from "./staticRoutes";
+import { createLogger } from "./lib/logger";
+
+const logger = createLogger({ service: "server-dev" });
+
+let config;
+try {
+  config = loadConfig(process.env);
+} catch (err) {
+  if (err instanceof ConfigError) {
+    logger.error("Server configuration error", { errorMessage: err.message });
+    process.exit(78);
+  }
+  throw err;
+}
+
+const security = createSecurityHeaders(config);
+const authGuards = createAuthGuards(config, security);
+const apiRoutes = createApiRoutes({ authGuards, security });
 
 const publicDir = resolve(import.meta.dir, "../../public");
 
 const server = serve({
   hostname: "0.0.0.0",
-  port: 5500,
-  maxRequestBodySize: 1024 * 1024, // 1 MB — all API routes are GET, this is a safety cap
+  port: config.port,
+  maxRequestBodySize: 1024 * 1024,
   routes: {
-    ...createStaticRoutes(publicDir),
-
+    ...createStaticRoutes(publicDir, security),
     ...apiRoutes,
-
     "/*": index,
   },
-
-  development: process.env.NODE_ENV !== "production" && {
+  development: !config.isProduction && {
     hmr: true,
     console: true,
   },
 });
 
-console.log(`🚀 Dev server running at ${server.url}`);
-console.log(`🔒 Access via https://localhost (Caddy reverse proxy)`);
+logger.info(`🚀 Dev server running at ${server.url}`);
+logger.info(`🔒 Access via https://localhost (Caddy reverse proxy)`);
 startGdeltPolling();
-startAisPolling();
-startFirmsPolling();
+startAisPolling(config.aisstreamApiKey);
+startFirmsPolling(config.firmsMapKey);
 startNewsPolling();
-startCyclonesPolling();
-startAircraftPolling();
+startCyclonesPolling({
+  enabled: config.fixtureOverridesEnabled,
+  label: process.env.CYCLONES_FIXTURE,
+});
+startAircraftPolling({
+  enabled: config.fixtureOverridesEnabled,
+  label: process.env.AIRCRAFT_FIXTURE,
+});

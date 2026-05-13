@@ -1,12 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import * as fs from "fs";
-import * as path from "path";
+import { resolve } from "path";
 
-const projectRoot = path.resolve(import.meta.dir, "../..");
-const frontendSource = fs.readFileSync(
-  path.join(projectRoot, "src/client/frontend.tsx"),
-  "utf-8",
-);
+const projectRoot = resolve(import.meta.dir, "../..");
+const frontendSource = await Bun.file(
+  `${projectRoot}/src/client/frontend.tsx`,
+).text();
 
 describe("Boot sequence (frontend.tsx)", () => {
   // ── Render-first guarantee ──────────────────────────────────────

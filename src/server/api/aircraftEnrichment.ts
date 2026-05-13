@@ -21,9 +21,17 @@
 // is re-exported here so existing test imports still resolve.
 
 import { Database, type Statement } from "bun:sqlite";
-import { existsSync, statSync } from "node:fs";
 import { classifyMilitary } from "../data/militaryRules";
 import { countryFromIcao24 } from "../data/icao24CountryRanges";
+import { createLogger, type Logger } from "../lib/logger";
+
+let logger: Logger = createLogger({ service: "aircraft-enrichment" });
+
+/** TEST-ONLY: swap the module's logger so tests can capture output via
+ *  a custom sink instead of spying on console. Not exported through any route. */
+export function __setLoggerForTests(l: Logger): void {
+  logger = l;
+}
 
 export { classifyMilitary } from "../data/militaryRules";
 
@@ -84,47 +92,39 @@ let cachedSelect: Statement<DbRow, [string]> | null = null;
 // "warn once, fall through" behaviour.
 let dbMissing = false;
 
-function ensureDb(): Statement<DbRow, [string]> | null {
-  if (cachedSelect) return cachedSelect;
-  if (dbMissing) return null;
-  if (!existsSync(metadataDbPath)) {
-    console.warn(
+async function initializeDb(): Promise<void> {
+  if (cachedSelect || dbMissing) return;
+  const file = Bun.file(metadataDbPath);
+  if (!(await file.exists())) {
+    logger.warn(
       `✈️  enrichment DB not found at ${metadataDbPath} — skipping`,
     );
     dbMissing = true;
-    return null;
+    return;
   }
-  // Freshness check — fires before the read-only handle opens so the
-  // log line lands alongside the existing "DB opened" line. Best-
-  // effort: a stat error doesn't block boot, the warn just doesn't
-  // fire. mtime is the build artifact's last-write timestamp; the
-  // freshness contract is "regenerate every 90 days from the latest
-  // ac-db.ndjson snapshot via 'bun run build:aircraft-db'".
-  try {
-    const stat = statSync(metadataDbPath);
-    const ageMs = Date.now() - stat.mtimeMs;
+  // Freshness check via Bun.file.lastModified (epoch ms). Best-effort:
+  // if lastModified is 0 or unreadable, skip the warn — the open below
+  // will surface any real I/O error.
+  const mtimeMs = file.lastModified;
+  if (mtimeMs > 0) {
+    const ageMs = Date.now() - mtimeMs;
     if (ageMs >= AC_DB_STALE_THRESHOLD_MS) {
       const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
-      const builtAt = new Date(stat.mtimeMs).toISOString();
-      console.warn(
+      const builtAt = new Date(mtimeMs).toISOString();
+      logger.warn(
         `⚠️  ac-db.sqlite is ${ageDays} days old — regenerate via 'bun run build:aircraft-db' (last built ${builtAt})`,
       );
     }
-  } catch {
-    /* stat failure is non-fatal; the open below will surface real I/O errors */
   }
   cachedDb = new Database(metadataDbPath, { readonly: true });
   cachedDb.run("PRAGMA query_only = 1;");
   cachedSelect = cachedDb.prepare<DbRow, [string]>(SELECT_SQL);
-  // One-shot count for the boot log, mirroring the prior "DB loaded
-  // (N records)" line so existing log-grep alerts still match.
   const countRow = cachedDb
     .query<{ c: number }, []>("SELECT COUNT(*) AS c FROM aircraft")
     .get();
-  console.log(
+  logger.info(
     `✈️  enrichment DB opened (${metadataDbPath}, ${countRow?.c ?? 0} records)`,
   );
-  return cachedSelect;
 }
 
 /** Warm-up the SQLite handle. Returns an (empty) Map only because the
@@ -135,7 +135,7 @@ function ensureDb(): Statement<DbRow, [string]> | null {
  *
  *  When `path` differs from the cached path, the prior connection is
  *  closed and the cache is reset (test-fixture support). */
-export function loadMetadataDb(
+export async function loadMetadataDb(
   path: string = DEFAULT_DB_PATH,
 ): Promise<Map<string, AircraftMetadataRecord>> {
   if (path !== metadataDbPath) {
@@ -145,8 +145,8 @@ export function loadMetadataDb(
     dbMissing = false;
     metadataDbPath = path;
   }
-  ensureDb();
-  return Promise.resolve(new Map<string, AircraftMetadataRecord>());
+  await initializeDb();
+  return new Map<string, AircraftMetadataRecord>();
 }
 
 /** TEST-ONLY: close the cached SQLite handle and reset the path so
@@ -175,8 +175,11 @@ export function enrichRecord(
   const hex = typeof r.hex === "string" ? r.hex.toLowerCase() : "";
   const liveTypecode = typeof r.t === "string" ? r.t : undefined;
 
-  const select = ensureDb();
-  const row = hex && select ? (select.get(hex) ?? null) : null;
+  // cachedSelect is populated by initializeDb() during loadMetadataDb().
+  // Callers (aircraftCache sweep) always await loadMetadataDb before
+  // invoking enrichRecord, so cachedSelect is either set or the DB is
+  // confirmed missing.
+  const row = hex && cachedSelect ? (cachedSelect.get(hex) ?? null) : null;
 
   // originCountry derives from the ICAO 24-bit registration block —
   // deterministic given the hex, so the same value applies on DB
