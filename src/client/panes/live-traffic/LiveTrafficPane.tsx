@@ -154,6 +154,12 @@ export function LiveTrafficPane() {
     setIsolateMode(null);
   }, [setSelected, setIsolateMode]);
 
+  // Stable ref so the memoized globe doesn't re-render on every pane render.
+  const handleMiddleClick = useCallback(
+    () => setAutoRotate((v) => !v),
+    [setAutoRotate],
+  );
+
   return (
     <>
       <GlobeVisualization
@@ -166,7 +172,7 @@ export function LiveTrafficPane() {
         rotationSpeed={rotationSpeed}
         onSelect={handleSelect}
         onRawCanvasClick={handleRawCanvasClick}
-        onMiddleClick={() => setAutoRotate((v) => !v)}
+        onMiddleClick={handleMiddleClick}
         selected={selectedCurrent}
         isolatedId={isolateMode ? (selectedCurrent?.id ?? null) : null}
         isolateMode={isolateMode}

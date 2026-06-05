@@ -127,6 +127,10 @@ export class BaseProvider implements DataProvider<DataPoint> {
       loading: true,
       error: null,
     };
+    // Boot no longer batches via mute/unmute, so hydrate must announce the
+    // cached snapshot itself — otherwise warm data wouldn't paint until the
+    // network refresh lands.
+    this.notifyChange();
     return { data, stale: true };
   }
 
@@ -135,6 +139,16 @@ export class BaseProvider implements DataProvider<DataPoint> {
   async refresh(): Promise<DataPoint[]> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
 
+    // Announce on every exit (success, soft-empty, or error) so a direct
+    // boot refresh streams to the UI without going through getData().
+    try {
+      return await this.doRefresh();
+    } finally {
+      this.notifyChange();
+    }
+  }
+
+  private async doRefresh(): Promise<DataPoint[]> {
     try {
       const incoming = await this.fetchFn();
 
@@ -227,14 +241,9 @@ export class BaseProvider implements DataProvider<DataPoint> {
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
         if (!this.fetchInProgress) {
-          this.fetchInProgress = this.refresh()
-            .then((data) => {
-              this.notifyChange();
-              return data;
-            })
-            .finally(() => {
-              this.fetchInProgress = null;
-            });
+          this.fetchInProgress = this.refresh().finally(() => {
+            this.fetchInProgress = null;
+          });
         }
       }
       return this.cache.data;
@@ -247,14 +256,9 @@ export class BaseProvider implements DataProvider<DataPoint> {
       return this.fetchInProgress;
     }
 
-    this.fetchInProgress = this.refresh()
-      .then((data) => {
-        this.notifyChange();
-        return data;
-      })
-      .finally(() => {
-        this.fetchInProgress = null;
-      });
+    this.fetchInProgress = this.refresh().finally(() => {
+      this.fetchInProgress = null;
+    });
     return this.fetchInProgress;
   }
 

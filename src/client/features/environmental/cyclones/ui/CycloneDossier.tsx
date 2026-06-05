@@ -115,7 +115,7 @@ export function CycloneDossier({
               </div>
             ) : null}
             {dossier?.advisory ? (
-              <pre className="text-xs whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+              <pre className="text-xs text-sig-text whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
                 {dossier.advisory.body}
               </pre>
             ) : null}
@@ -131,7 +131,7 @@ export function CycloneDossier({
               </div>
             ) : null}
             {dossier?.discussion ? (
-              <pre className="text-xs whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+              <pre className="text-xs text-sig-text whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
                 {dossier.discussion.body}
               </pre>
             ) : null}

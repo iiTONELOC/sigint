@@ -118,7 +118,14 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
   async refresh(): Promise<DataPoint[]> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
+    try {
+      return await this.doRefresh();
+    } finally {
+      this.notifyChange();
+    }
+  }
 
+  private async doRefresh(): Promise<DataPoint[]> {
     try {
       const incoming = await this.fetchAircraftStates();
       // Server returns ac:[] during cold-start (sweep in flight) — see
@@ -209,14 +216,9 @@ export class AircraftProvider implements DataProvider<DataPoint> {
         return this.cache.data;
       }
       if (!this.fetchInProgress) {
-        this.fetchInProgress = this.refresh()
-          .then((data) => {
-            this.notifyChange();
-            return data;
-          })
-          .finally(() => {
-            this.fetchInProgress = null;
-          });
+        this.fetchInProgress = this.refresh().finally(() => {
+          this.fetchInProgress = null;
+        });
       }
       return this.cache.data;
     }
@@ -226,14 +228,9 @@ export class AircraftProvider implements DataProvider<DataPoint> {
       return this.fetchInProgress;
     }
 
-    this.fetchInProgress = this.refresh()
-      .then((data) => {
-        this.notifyChange();
-        return data;
-      })
-      .finally(() => {
-        this.fetchInProgress = null;
-      });
+    this.fetchInProgress = this.refresh().finally(() => {
+      this.fetchInProgress = null;
+    });
     return this.fetchInProgress;
   }
 

@@ -137,14 +137,15 @@ export function GlobeVisualization({
   const latestBitmapRef = useRef<ImageBitmap | null>(null);
   const trailSyncRef = useRef(30);
 
-  // Track what was last sent to worker — skip re-sending heavy data
+  // Track what was last sent to worker — skip re-sending heavy data.
+  // Updated by the off-path data pump once it has serialized + sent.
   const lastSentDataRef = useRef<DataPoint[] | null>(null);
   const lastSentThemeRef = useRef<typeof theme | null>(null);
-
-  // ── Progressive render limit ────────────────────────────────────
-  const prevDataRef = useRef<DataPoint[] | null>(null);
-  const renderLimitRef = useRef(0);
-  const RENDER_CHUNK = 1500;
+  // The render loop sets this when data/theme changed; the data pump (a
+  // separate scheduled task, OFF the paint frame) does the heavy serialize +
+  // postMessage. The progressive reveal ramp now lives in the worker.
+  const dataDirtyRef = useRef(false);
+  const dataPumpScheduledRef = useRef(false);
 
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
@@ -299,6 +300,94 @@ export function GlobeVisualization({
       };
     }
 
+    // ── Data pump — OFF the paint frame ───────────────────────────
+    // Serializing the full point array (~60k objects) + structuredClone
+    // across the worker boundary is the work that used to hitch dragging
+    // when aircraft data fed in (it ran inline in the paint frame). It now
+    // runs here, on its own rAF, scheduled only when data/theme changed —
+    // so the paint frame and DOM input events are never blocked by it.
+    const pumpData = () => {
+      dataPumpScheduledRef.current = false;
+      const worker = workerRef.current;
+      if (!worker || !running) return;
+      if (!dataDirtyRef.current) return;
+      dataDirtyRef.current = false;
+
+      const d = propsRef.current.data;
+      const C = colorsRef.current;
+
+      // Send ONLY the fields the worker renders/filters with for the high-
+      // count types — not the full enriched `data` blob. The server attaches
+      // acType, registration, route, owner, etc. to each aircraft;
+      // structuredClone deep-copies all of it per point, which cost ~2µs/point
+      // (45ms at 22k) and hitched the globe on every poll. Cyclones/weather
+      // are a handful of points and need richer fields to draw, so they keep
+      // their full data — the cost there is negligible.
+      const plainData = d.map((item) => {
+        const dd = (item as any).data;
+        const slim =
+          item.type === "aircraft" ||
+          item.type === "ships" ||
+          item.type === "quakes" ||
+          item.type === "fires" ||
+          item.type === "events";
+        return {
+          id: item.id,
+          type: item.type,
+          lat: item.lat,
+          lon: item.lon,
+          timestamp: item.timestamp,
+          data:
+            slim && dd
+              ? {
+                  military: dd.military,
+                  squawkStatus: dd.squawkStatus,
+                  squawk: dd.squawk,
+                  onGround: dd.onGround,
+                  originCountry: dd.originCountry,
+                  heading: dd.heading,
+                  magnitude: dd.magnitude,
+                  severity: dd.severity,
+                  frp: dd.frp,
+                }
+              : dd,
+        };
+      });
+
+      // Full trail history for all moving items, sent with the data change.
+      const fullTrails: Array<[string, any]> = [];
+      for (const item of d) {
+        if (item.type === "aircraft" || item.type === "ships") {
+          const trail = getTrail(item.id);
+          if (trail.length > 0) {
+            const last = trail[trail.length - 1]!;
+            fullTrails.push([
+              item.id,
+              {
+                lat: last.lat,
+                lon: last.lon,
+                ts: last.ts,
+                heading: (item as any).data?.heading ?? 0,
+                speedMps: (item as any).data?.speedMps ?? 0,
+              },
+            ]);
+          }
+        }
+      }
+      if (fullTrails.length > 0) {
+        worker.postMessage({ type: "trails", entries: fullTrails });
+      }
+      worker.postMessage({ type: "data", payload: { data: plainData, colors: C } });
+
+      lastSentDataRef.current = d;
+      lastSentThemeRef.current = themeRef.current;
+    };
+    const scheduleDataPump = () => {
+      if (dataPumpScheduledRef.current) return;
+      dataPumpScheduledRef.current = true;
+      requestAnimationFrame(pumpData);
+    };
+
     const render = () => {
       if (!running) return;
       const ctx = canvas.getContext("2d");
@@ -321,7 +410,6 @@ export function GlobeVisualization({
         isolateMode: isoMode,
         searchMatchIds: sMatch,
       } = propsRef.current;
-      const C = colorsRef.current;
       const t = Date.now() * 0.003;
 
       // Camera update
@@ -370,33 +458,21 @@ export function GlobeVisualization({
         }
       }
 
-      // ── Progressive render limit ────────────────────────────────
-      // Grows by RENDER_CHUNK per frame, sent to the worker as a
-      // scalar in the lightweight frame message — the worker slices
-      // its own data array. Avoids re-allocating a sliced view on the
-      // main thread every frame, which had been triggering a heavy
-      // structuredClone postMessage on each ramp frame for ~14 frames
-      // after every poll.
-      if (d !== prevDataRef.current) {
-        prevDataRef.current = d;
-        if (renderLimitRef.current > d.length) {
-          renderLimitRef.current = d.length;
-        }
-        if (renderLimitRef.current === 0 && d.length > 0) {
-          renderLimitRef.current = Math.min(RENDER_CHUNK, d.length);
-        }
-      }
-      if (renderLimitRef.current < d.length) {
-        renderLimitRef.current = Math.min(
-          renderLimitRef.current + RENDER_CHUNK,
-          d.length,
-        );
+      // ── Flag data/theme changes for the OFF-PATH data pump ────────
+      // The render loop must stay cheap so dragging/zooming never hitch.
+      // Serializing the full point array (d.map + structuredClone of ~60k)
+      // is heavy, so it does NOT happen here — it's flagged and done on a
+      // separate scheduled task (pumpData). The worker owns the progressive
+      // reveal ramp itself, so no renderLimit bump on the paint path either.
+      if (d !== lastSentDataRef.current || themeRef.current !== lastSentThemeRef.current) {
+        dataDirtyRef.current = true;
+        scheduleDataPump();
       }
 
       // ── Send render job to worker ─────────────────────────────
       const worker = workerRef.current;
       if (worker) {
-        // Sync trail data periodically (~every 30 frames)
+        // Sync trail data periodically (~every 30 frames) — small payload.
         trailSyncRef.current++;
         if (trailSyncRef.current >= 30) {
           trailSyncRef.current = 0;
@@ -422,57 +498,7 @@ export function GlobeVisualization({
           worker.postMessage({ type: "trails", entries: trailEntries });
         }
 
-        // ── Detect data changes — only re-send heavy payload when needed ──
         const selId = sel?.id ?? null;
-        const dataChanged = d !== lastSentDataRef.current;
-        const colorsChanged = themeRef.current !== lastSentThemeRef.current;
-
-        if (dataChanged || colorsChanged) {
-          // Heavy message — full data array only
-          const plainData = d.map((item) => ({
-            id: item.id,
-            type: item.type,
-            lat: item.lat,
-            lon: item.lon,
-            timestamp: item.timestamp,
-            data: (item as any).data,
-          }));
-
-          // Send full trail history for all moving items on data change
-          const fullTrails: Array<[string, any]> = [];
-          for (const item of d) {
-            if (item.type === "aircraft" || item.type === "ships") {
-              const trail = getTrail(item.id);
-              if (trail.length > 0) {
-                const last = trail[trail.length - 1]!;
-                fullTrails.push([
-                  item.id,
-                  {
-                    lat: last.lat,
-                    lon: last.lon,
-                    ts: last.ts,
-                    heading: (item as any).data?.heading ?? 0,
-                    speedMps: (item as any).data?.speedMps ?? 0,
-                  },
-                ]);
-              }
-            }
-          }
-          if (fullTrails.length > 0) {
-            worker.postMessage({ type: "trails", entries: fullTrails });
-          }
-
-          worker.postMessage({
-            type: "data",
-            payload: {
-              data: plainData,
-              colors: C,
-            },
-          });
-
-          lastSentDataRef.current = d;
-          lastSentThemeRef.current = themeRef.current;
-        }
 
         // ── Light message — camera + interaction state every frame ──
         const dpr = canvas.width / W || 1;
@@ -534,7 +560,6 @@ export function GlobeVisualization({
             prefersReducedMotion,
             searchMatchIds: searchIds,
             selectedItem,
-            renderLimit: renderLimitRef.current,
           },
         });
       }

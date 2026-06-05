@@ -81,6 +81,7 @@ class NewsProvider {
       loading: stale,
       error: null,
     };
+    this.notifyChange();
     return { data: persisted.data, stale };
   }
 
@@ -88,7 +89,14 @@ class NewsProvider {
 
   async refresh(): Promise<NewsArticle[]> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
+    try {
+      return await this.doRefresh();
+    } finally {
+      this.notifyChange();
+    }
+  }
 
+  private async doRefresh(): Promise<NewsArticle[]> {
     try {
       const res = await authenticatedFetch(NEWS_URL);
       if (!res.ok) throw new Error(`News API error: ${res.status}`);
@@ -149,7 +157,7 @@ class NewsProvider {
   async getData(pollInterval?: number): Promise<NewsArticle[]> {
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        this.refresh().then(() => this.notifyChange()).catch(() => {});
+        this.refresh().catch(() => {});
       }
       return this.cache.data;
     }
@@ -157,7 +165,7 @@ class NewsProvider {
     const hydrated = await this.hydrate();
     if (hydrated && hydrated.data.length > 0) {
       if (hydrated.stale) {
-        this.refresh().then(() => this.notifyChange()).catch(() => {});
+        this.refresh().catch(() => {});
       }
       return hydrated.data;
     }

@@ -27,7 +27,16 @@ export async function loadFixture<T = unknown>(
   return JSON.parse(text) as T;
 }
 
-/** Mock /api/cyclones/latest with a cyclone fixture. */
+/** Mock /api/cyclones/latest.
+ *
+ *  The server now enriches each storm with forecast (from TRACK.kmz) +
+ *  officialCone (from CONE.kmz) BEFORE responding, so a mock must serve
+ *  that ENRICHED shape — not the old fabricated inline fixtures (which
+ *  encoded a forecast shape real NHC never sends). All non-empty labels
+ *  resolve to one REAL captured + enriched storm (EP01 2026 Amanda); the
+ *  cyclone e2e specs assert render/dossier/toggle behaviour, not a
+ *  specific storm identity. "empty-out-of-season" still serves [].
+ */
 export async function mockCyclones(
   page: Page,
   label:
@@ -38,17 +47,20 @@ export async function mockCyclones(
     | "single-cat5"
     | "multi-storm",
 ): Promise<void> {
-  const body = await loadFixture("cyclones", label);
+  const activeStorms =
+    label === "empty-out-of-season"
+      ? []
+      : ((await loadFixture("cyclones-real", "amanda-enriched")) as {
+          activeStorms?: unknown[];
+        }).activeStorms ?? [];
   await page.route("**/api/cyclones/latest", (route: Route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        activeStorms: (body as { activeStorms?: unknown[] }).activeStorms ?? [],
+        activeStorms,
         fetchedAt: Date.now(),
-        stormCount: (
-          (body as { activeStorms?: unknown[] }).activeStorms ?? []
-        ).length,
+        stormCount: activeStorms.length,
       }),
     }),
   );

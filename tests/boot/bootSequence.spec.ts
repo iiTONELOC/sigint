@@ -7,107 +7,70 @@ const frontendSource = await Bun.file(
 ).text();
 
 describe("Boot sequence (frontend.tsx)", () => {
-  // ── Render-first guarantee ──────────────────────────────────────
-  test("createRoot().render() is called before cacheReady is awaited", () => {
+  // Render the shell before any data work — globe interactive from frame zero.
+  test("createRoot().render() runs before cacheReady is consumed", () => {
     const renderIdx = frontendSource.indexOf("createRoot(elem).render(app)");
-    const awaitCacheIdx = frontendSource.indexOf("await cacheReady");
+    const cacheReadyUse = frontendSource.indexOf("cacheReady.then");
     expect(renderIdx).toBeGreaterThan(-1);
-    expect(awaitCacheIdx).toBeGreaterThan(-1);
-    expect(renderIdx).toBeLessThan(awaitCacheIdx);
+    expect(cacheReadyUse).toBeGreaterThan(-1);
+    expect(renderIdx).toBeLessThan(cacheReadyUse);
   });
 
-  // ── cacheInit fires at import time ──────────────────────────────
-  test("cacheInit() is called at module scope (not inside async function)", () => {
-    // Should appear as a top-level assignment, not inside the async IIFE
-    const match = frontendSource.match(
-      /^const cacheReady\s*=\s*cacheInit\(\)/m,
-    );
-    expect(match).not.toBeNull();
+  test("cacheInit() is called at module scope (fires at import time)", () => {
+    expect(frontendSource).toMatch(/^const cacheReady\s*=\s*cacheInit\(\)/m);
   });
 
-  // ── Mute/restore pattern ────────────────────────────────────────
-  test("providers are muted before hydration and restored after", () => {
-    const hydrateBlock = frontendSource.indexOf("p.hydrate()");
-    expect(hydrateBlock).toBeGreaterThan(-1);
-
-    // muteProviders must appear before hydrate
-    const muteBefore = frontendSource.lastIndexOf(
-      "muteAll()",
-      hydrateBlock,
-    );
-    expect(muteBefore).toBeGreaterThan(-1);
-
-    // restoreAndNotify must appear after hydrate
-    const restoreAfter = frontendSource.indexOf(
-      "unmuteAll(saved)",
-      hydrateBlock,
-    );
-    expect(restoreAfter).toBeGreaterThan(-1);
+  // The HOL fix: boot must NOT batch providers behind a mute/Promise.all
+  // barrier — each streams in independently.
+  test("boot does not mute/unmute providers as a batch", () => {
+    expect(frontendSource).not.toContain("muteAll");
+    expect(frontendSource).not.toContain("unmuteAll");
   });
 
-  test("providers are muted before refresh and restored after", () => {
-    const refreshBlock = frontendSource.indexOf(
-      "await Promise.all(staleProviders.map((p) => p.refresh()",
-    );
-    expect(refreshBlock).toBeGreaterThan(-1);
-
-    // muteProviders must appear before refresh
-    const muteBefore = frontendSource.lastIndexOf(
-      "muteAll()",
-      refreshBlock,
-    );
-    expect(muteBefore).toBeGreaterThan(-1);
-
-    // unmuteAll must appear after refresh
-    const restoreAfter = frontendSource.indexOf("unmuteAll(", refreshBlock);
-    expect(restoreAfter).toBeGreaterThan(-1);
+  test("boot does not await all providers behind a Promise.all barrier", () => {
+    expect(frontendSource).not.toContain("Promise.all(providers");
+    expect(frontendSource).not.toContain("staleProviders.map((p) => p.refresh()");
   });
 
-  // ── Metadata DB no longer loads in the browser ──────────────────
-  // Aircraft enrichment moved to src/server/api/aircraftEnrichment.ts;
-  // the client no longer downloads or parses the 51 MB NDJSON DB.
+  // Per-provider streaming: each provider hydrates then refreshes on its own.
+  test("boot iterates providers and hydrates + refreshes each independently", () => {
+    expect(frontendSource).toContain("for (const p of providers)");
+    expect(frontendSource).toContain("p.hydrate()");
+    expect(frontendSource).toContain("p.refresh()");
+  });
+
+  // Auth is fetched once up front but does not gate first paint.
+  test("auth token is fetched once, not per provider", () => {
+    const matches = frontendSource.match(/ensureAuthCookie\(\)/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(1);
+  });
+
   test("ensureMetadataDb is not referenced from frontend.tsx", () => {
     expect(frontendSource).not.toContain("ensureMetadataDb");
   });
 
-  // ── All providers included ──────────────────────────────────────
-  test("all 8 providers are in the providers array (adds cyclones in step 7)", () => {
-    expect(frontendSource).toContain("shipProvider");
-    expect(frontendSource).toContain("gdeltProvider");
-    expect(frontendSource).toContain("fireProvider");
-    expect(frontendSource).toContain("weatherProvider");
-    expect(frontendSource).toContain("earthquakeProvider");
-    expect(frontendSource).toContain("newsProvider");
-    expect(frontendSource).toContain("aircraftProvider");
-    expect(frontendSource).toContain("cycloneProvider");
+  test("all 8 providers are in the providers array", () => {
+    for (const name of [
+      "shipProvider",
+      "gdeltProvider",
+      "fireProvider",
+      "weatherProvider",
+      "earthquakeProvider",
+      "newsProvider",
+      "aircraftProvider",
+      "cycloneProvider",
+    ]) {
+      expect(frontendSource).toContain(name);
+    }
   });
 
-  test("frontend.tsx no longer needs the `as any[]` cast on providers", () => {
+  test("no `as any[]` cast on providers", () => {
     expect(frontendSource).not.toContain("as any[]");
   });
 
-  // ── No getData calls ────────────────────────────────────────────
-  test("boot sequence does not call getData (uses hydrate + refresh)", () => {
-    // Inside the async IIFE, there should be no getData calls
-    const asyncBlock = frontendSource.slice(
-      frontendSource.indexOf("(async () => {"),
-    );
-    expect(asyncBlock).not.toContain(".getData(");
-  });
-
-  // ── Only stale providers refreshed ───────────────────────────────
-  test("network refresh only runs for stale/missing providers", () => {
-    expect(frontendSource).toContain("staleProviders");
-    expect(frontendSource).toContain("result.stale");
-    // refresh is called on staleProviders, not all providers
-    expect(frontendSource).toContain("staleProviders.map((p) => p.refresh()");
-    expect(frontendSource).not.toContain("providers.map((p) => p.refresh()");
-  });
-
-  // ── Two batch updates max, no individual notifications ──────────
-  test("exactly two unmuteAll(saved) calls (hydrate batch + conditional refresh batch)", () => {
-    const matches = frontendSource.match(/unmuteAll\(saved\)/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBe(2);
+  // Only stale/missing providers refresh; fresh cache skips the network.
+  test("refresh is gated on staleness, not run unconditionally", () => {
+    expect(frontendSource).toContain("needsRefresh");
   });
 });

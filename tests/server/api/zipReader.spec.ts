@@ -71,15 +71,15 @@ describe("unzipSingleEntryKmz", () => {
     );
   });
 
-  test("decodes the vendored Milton cone KMZ fixture", async () => {
+  test("decodes a real NHC cone KMZ capture into KML with a Polygon ring", async () => {
+    // Real CONE.kmz captured once from live NHC (EP01 2026, Amanda).
     const bytes = new Uint8Array(
-      await Bun.file("tests/fixtures/cyclones-cone/milton-al14-cone.kmz")
+      await Bun.file("tests/fixtures/cyclones-real/ep012026-cone.kmz")
         .arrayBuffer(),
     );
     const kml = await unzipSingleEntryKmz(bytes);
     expect(kml).toContain("<Polygon>");
     expect(kml).toContain("<coordinates>");
-    expect(kml).toContain("-90.0,22.4,0");
   });
 
   test("rejects buffer with bad signature", async () => {

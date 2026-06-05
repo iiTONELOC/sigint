@@ -14,7 +14,7 @@ export type SpatialGrid = {
   size: number;
 };
 
-function cellKey(lat: number, lon: number): number {
+export function cellKey(lat: number, lon: number): number {
   const row = Math.max(0, Math.min(ROWS - 1, ((lat + 90) / CELL_DEG) | 0));
   const col = Math.max(0, Math.min(COLS - 1, ((lon + 180) / CELL_DEG) | 0));
   return row * COLS + col;

@@ -102,12 +102,16 @@ describe("theme config", () => {
     expect(result.ships).toBe(themes.dark.colors.ships);
   });
 
-  test("getColorMap returns 7 layer colors (adds cyclones in step 2)", () => {
+  test("getColorMap returns the 7 layer colors plus the cyclones-forecast alias", () => {
     const map = getColorMap(themes.dark);
-    expect(Object.keys(map).length).toBe(7);
+    // 7 user-customizable layers + 1 render alias ("cyclones-forecast")
+    // that mirrors the cyclones color so forecast-track points (which read
+    // colorMap by raw type) never resolve to undefined (= black).
+    expect(Object.keys(map).length).toBe(8);
     expect(map.aircraft).toBe(themes.dark.colors.aircraft);
     expect(map.ships).toBe(themes.dark.colors.ships);
     expect(map.cyclones).toBe(themes.dark.colors.cyclones);
+    expect(map["cyclones-forecast"]).toBe(themes.dark.colors.cyclones);
   });
 
   test("dark and light themes have different bg colors", () => {

@@ -24,15 +24,10 @@ import { useWeatherData } from "@/features/environmental/weather";
 import { useCycloneData } from "@/features/environmental/cyclones";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
-import {
-  selectActiveCount,
-  selectLayerCounts,
-  selectAvailableAircraftCountries,
-} from "@/lib/uiSelectors";
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { recordPositions } from "@/lib/trailService";
 import { featureRegistry } from "@/features/registry";
-import { buildSpatialGrid, type SpatialGrid } from "@/lib/spatialIndex";
+import { cellKey, type SpatialGrid } from "@/lib/spatialIndex";
 import type { SourceStatus } from "@/lib/sourceHealth";
 import {
   emptyBaseline,
@@ -233,29 +228,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     cycloneVersion,
   ]);
 
-  // ── ID Map — for UIProvider's selectedCurrent resolution ───────
-  // Membership-only: id → DataPoint reference. Items mutate in place
-  // via the providers' diffAndApply, so reads through this map see
-  // current field values without a rebuild.
-  const idMap = useMemo(() => {
-    const map = new Map<string, DataPoint>();
-    for (let i = 0; i < allData.length; i++) {
-      map.set(allData[i]!.id, allData[i]!);
-    }
-    return map;
-  }, [allData]);
-
-  // ── Spatial grid ───────────────────────────────────────────────
-  // Position-dependent: rebuckets by lat/lon. Gate on version so each
-  // poll's positional updates re-grid even when membership is stable.
-  const spatialGrid = useMemo<SpatialGrid>(
-    () =>
-      allData.length > 0
-        ? buildSpatialGrid(allData)
-        : { cells: new Map(), size: 0 },
-    [allData, allDataVersion],
-  );
-
   // ── Trail recording ────────────────────────────────────────────
   // Captures a fresh snapshot of positions per poll into trail history.
   // Effect's `.map` extracts plain values immediately, so in-place
@@ -312,51 +284,81 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [aircraftFilter, layers],
   );
 
-  // ── Pre-computed filter set ────────────────────────────────────
-  // Synthetic cyclone-forecast points piggyback on their parent storm's
-  // filter status: if the parent passes (cyclones filter + minCategory),
-  // every forecast point of that storm is selectable too. Done in a
-  // second pass so the parent storm's id is guaranteed to be settled.
-  // Gate on version too: matchesFilter reads mutable item.data fields
-  // (aircraft onGround / squawk; ship sog) that change between polls
-  // without changing the id-set.
-  const filteredIds = useMemo(() => {
-    const ids = new Set<string>();
+  // ── Derived state — ONE pass over allData ──────────────────────
+  // idMap, spatialGrid, filteredIds, tickerItems, counts and
+  // availableCountries were six separate O(n) scans of the same array,
+  // run back-to-back on every membership poll — the main-thread stall that
+  // hitched dragging when aircraft data fed in. They are membership-gated
+  // (a point merely moving changes none of them: same bucket, same filter
+  // outcome, same ticker membership), so they collapse into a single walk.
+  // Cheap finalizers (ticker round-robin, country sort, forecast-parent
+  // pass) run on the collected buckets, not on allData.
+  const derived = useMemo(() => {
+    const idMap = new Map<string, DataPoint>();
+    const cells = new Map<number, DataPoint[]>();
+    const filteredIds = new Set<string>();
+    const countsAcc: Record<string, number> = {};
+    for (const [id] of featureRegistry) countsAcc[id] = 0;
+    const countryTally = new Map<string, number>();
+
     for (let i = 0; i < allData.length; i++) {
       const item = allData[i]!;
+
+      // idMap
+      idMap.set(item.id, item);
+
+      // spatial grid cell
+      const key = cellKey(item.lat, item.lon);
+      const cell = cells.get(key);
+      if (cell) cell.push(item);
+      else cells.set(key, [item]);
+
       const feature = featureRegistry.get(item.type);
-      if (!feature) continue;
-      const filter = filters[item.type];
-      if (filter == null) continue;
-      if (feature.matchesFilter(item as any, filter)) ids.add(item.id);
+      if (feature) {
+        const filter = filters[item.type];
+        if (filter != null && feature.matchesFilter(item as never, filter)) {
+          filteredIds.add(item.id);
+          countsAcc[item.type] = (countsAcc[item.type] ?? 0) + 1;
+        }
+      }
+
+      // available aircraft countries
+      if (item.type === "aircraft") {
+        const country = (item.data as { originCountry?: string })?.originCountry;
+        if (country) countryTally.set(country, (countryTally.get(country) ?? 0) + 1);
+      }
     }
-    for (const item of allData) {
+
+    // Forecast points inherit their parent storm's filter status (needs the
+    // first pass complete so the parent id is already settled in the set).
+    for (let i = 0; i < allData.length; i++) {
+      const item = allData[i]!;
       if (item.type !== "cyclones-forecast") continue;
       const parentId = `CY${(item.data as { parentStormId: string }).parentStormId}`;
-      if (ids.has(parentId)) ids.add(item.id);
+      if (filteredIds.has(parentId)) filteredIds.add(item.id);
     }
-    return ids;
-  }, [allData, filters, allDataVersion]);
 
-  // ── Derived values ─────────────────────────────────────────────
-  // tickerItems/counts/activeCount: gate on version (filter results read
-  // mutable data fields). availableCountries: stays on ref — originCountry
-  // is server-derived per icao24 and is stable per id.
-  const tickerItems = useMemo(
-    () => buildTickerItems(allData),
-    [allData, allDataVersion],
-  );
-  const counts = useMemo(
-    () => selectLayerCounts(allData, filters),
-    [allData, filters, allDataVersion],
-  );
+    const availableCountries = Array.from(countryTally.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([country]) => country);
+
+    return {
+      idMap,
+      spatialGrid: { cells, size: allData.length } as SpatialGrid,
+      filteredIds,
+      counts: countsAcc,
+      availableCountries,
+    };
+  }, [allData, filters]);
+
+  const { idMap, spatialGrid, filteredIds, counts, availableCountries } = derived;
+
+  // Ticker is intentionally NOT in the fused pass: it gates on MEMBERSHIP
+  // only ([allData]), so toggling a filter/layer never reshuffles the feed.
+  const tickerItems = useMemo(() => buildTickerItems(allData), [allData]);
   const activeCount = useMemo(
-    () => selectActiveCount(allData, filters),
-    [allData, filters, allDataVersion],
-  );
-  const availableCountries = useMemo(
-    () => selectAvailableAircraftCountries(allData),
-    [allData],
+    () => Object.values(counts).reduce((sum, n) => sum + n, 0),
+    [counts],
   );
 
   // ── URL sync for aircraft filter ───────────────────────────────
@@ -386,22 +388,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
     baseline: baselineRef.current,
   }));
 
+  // Correlation is intel analysis, not a per-frame concern. Gate on
+  // MEMBERSHIP (+ news), not version, and debounce — so streaming polls don't
+  // each structuredClone all of allData onto the main thread. A 1s trailing
+  // window collapses a burst into one request.
   useEffect(() => {
     let cancelled = false;
     const client = clientRef.current;
     if (!client) return;
-    void client
-      .request(allData, newsArticles, baselineRef.current)
-      .then((result) => {
-        if (cancelled) return;
-        baselineRef.current = result.baseline;
-        persistBaseline(result.baseline);
-        setCorrelation(result);
-      });
+    const id = setTimeout(() => {
+      if (cancelled) return;
+      void client
+        .request(allData, newsArticles, baselineRef.current)
+        .then((result) => {
+          if (cancelled) return;
+          baselineRef.current = result.baseline;
+          persistBaseline(result.baseline);
+          setCorrelation(result);
+        });
+    }, 1000);
     return () => {
       cancelled = true;
+      clearTimeout(id);
     };
-  }, [allData, newsArticles, allDataVersion]);
+  }, [allData, newsArticles]);
 
   // ── DataContext value ──────────────────────────────────────────
   const dataValue = useMemo<DataContextValue>(
@@ -459,8 +469,7 @@ function EnrichmentBridge({
 
   useEffect(() => {
     if (selectedCurrent?.type !== "aircraft") return;
-    // @ts-expect-error data shape is AircraftData when type is "aircraft"
-    const icao24 = selectedCurrent.data?.icao24;
+    const icao24 = (selectedCurrent.data as { icao24?: string })?.icao24;
     if (!icao24) return;
     if (icao24 === lastEnrichmentKeyRef.current) return;
     lastEnrichmentKeyRef.current = icao24;

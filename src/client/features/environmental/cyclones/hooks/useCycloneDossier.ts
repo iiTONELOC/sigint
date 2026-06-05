@@ -71,11 +71,12 @@ export function useCycloneDossier(
     setLoading(true);
     setError(null);
     void (async () => {
-      // Fast path: a fresh IDB entry serves immediately.
+      // Fast path — but only a non-null cached bundle. A persisted null must
+      // not stick for the TTL; fall through so a recovered server fills it in.
       const cached = await cacheGet<IdbEntry>(idbKey(normalized));
       if (cancelled) return;
       const fresh =
-        cached && Date.now() - cached.fetchedAt < CLIENT_TTL_MS
+        cached?.bundle && Date.now() - cached.fetchedAt < CLIENT_TTL_MS
           ? cached
           : null;
       if (fresh) {
@@ -99,10 +100,13 @@ export function useCycloneDossier(
         if (cancelled) return;
         setDossier(json.dossier);
         setLoading(false);
-        await cacheSet(idbKey(normalized), {
-          bundle: json.dossier,
-          fetchedAt: Date.now(),
-        });
+        // Persist only a real bundle — caching null re-creates the sticking.
+        if (json.dossier) {
+          await cacheSet(idbKey(normalized), {
+            bundle: json.dossier,
+            fetchedAt: Date.now(),
+          });
+        }
       } catch (err) {
         if (cancelled) return;
         // On error, fall back to whatever IDB had (even if stale) — a

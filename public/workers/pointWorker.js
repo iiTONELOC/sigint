@@ -584,6 +584,14 @@ var _colors = null;
 var _pendingFrame = null;
 var _frameScheduled = false;
 
+// Progressive reveal ("framebuffer drain"). The main thread hands the full
+// data array once per change; the worker reveals it in chunks across its own
+// render ticks instead of drawing all ~60k at once on the first frame. The
+// reveal is preserved across same-length updates (a position-only re-send) so
+// the ramp does not restart, and only grows from where it was.
+var REVEAL_CHUNK = 1500;
+var _revealCount = 0;
+
 // ── Message handler ─────────────────────────────────────────────────
 
 self.onmessage = function (e) {
@@ -601,6 +609,19 @@ self.onmessage = function (e) {
   if (msg.type === "data") {
     _data = msg.payload.data;
     _colors = msg.payload.colors;
+    // Preserve the ramp position but never exceed the new length. A grown
+    // dataset keeps revealing from where it was; a shrunk one clamps down.
+    var len = _data ? _data.length : 0;
+    if (_revealCount > len) _revealCount = len;
+    if (_revealCount === 0 && len > 0) {
+      _revealCount = Math.min(REVEAL_CHUNK, len);
+    }
+    // Kick a render so the reveal advances even with a still camera (the
+    // main thread only sends "frame" on a scene change).
+    if (!_frameScheduled && _pendingFrame) {
+      _frameScheduled = true;
+      requestAnimationFrame(renderFrame);
+    }
     return;
   }
   if (msg.type === "frame") {
@@ -617,10 +638,12 @@ self.onmessage = function (e) {
 
 function renderFrame() {
   _frameScheduled = false;
+  // Keep the last frame payload (don't null it): the reveal ramp re-renders
+  // with the last camera between "frame" messages so points keep filling in
+  // even when the camera is still.
   if (!canvas || !ctx || !_data || !_colors || !_pendingFrame) return;
 
   var p = _pendingFrame;
-  _pendingFrame = null;
 
   var W = p.W,
     H = p.H,
@@ -634,14 +657,16 @@ function renderFrame() {
   var layers = p.layers,
     af = p.aircraftFilter;
   var colors = _colors;
-  // Progressive render limit comes from the main thread per frame as a
-  // scalar. Slicing happens here so the heavy data payload only crosses
-  // the worker boundary on actual data changes, not every ramp frame.
+  // Progressive reveal ("framebuffer drain") is owned by the worker: advance
+  // the reveal counter each frame and slice to it, so the full set fills in
+  // over several frames instead of one heavy first frame.
   var fullData = _data;
-  var renderLimit =
-    typeof p.renderLimit === "number" && p.renderLimit < fullData.length
-      ? p.renderLimit
-      : fullData.length;
+  if (_revealCount < fullData.length) {
+    _revealCount = Math.min(_revealCount + REVEAL_CHUNK, fullData.length);
+  } else if (_revealCount > fullData.length) {
+    _revealCount = fullData.length;
+  }
+  var renderLimit = _revealCount;
   var data =
     renderLimit < fullData.length
       ? fullData.slice(0, renderLimit)
@@ -1194,4 +1219,11 @@ function renderFrame() {
   self.postMessage({ type: "frame", bitmap: bitmap, hitTargets: hitTargets }, [
     bitmap,
   ]);
+
+  // Reveal ramp not finished — schedule another frame so it keeps filling in
+  // even if no new "frame" message arrives (still camera).
+  if (_data && _revealCount < _data.length && !_frameScheduled) {
+    _frameScheduled = true;
+    requestAnimationFrame(renderFrame);
+  }
 }

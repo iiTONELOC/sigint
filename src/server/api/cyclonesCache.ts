@@ -17,6 +17,7 @@
 // means quota exhaustion; here it means hurricane season is over.
 
 import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
+import { enrichStorms } from "./cyclonesForecastTrack";
 import { createLogger } from "../lib/logger";
 
 const logger = createLogger({ service: "nhc" });
@@ -82,6 +83,7 @@ export type StormProducts = {
   discussionUrl?: string;
   windProbsUrl?: string;
   conekmzUrl?: string;
+  trackKmzUrl?: string;
 };
 
 const stormProducts = new Map<string, StormProducts>();
@@ -170,11 +172,20 @@ export function computeAdvisoryHash(activeStorms: readonly unknown[]): string {
     const obj = s as Record<string, unknown>;
     const id = typeof obj.id === "string" ? obj.id : null;
     if (!id) continue;
+    // Live payloads carry the advisory number on publicAdvisory.advNum;
+    // forecastTrack.advisoryNumber is absent, so reading only it froze the
+    // hash and deduped every poll. Prefer advNum, fall back for legacy shapes.
+    const pa = obj.publicAdvisory;
+    const advNum =
+      pa && typeof pa === "object"
+        ? (pa as Record<string, unknown>).advNum
+        : undefined;
     const ft = obj.forecastTrack;
-    const advisoryNumber =
+    const legacyAdvNum =
       ft && typeof ft === "object"
         ? (ft as Record<string, unknown>).advisoryNumber
         : undefined;
+    const advisoryNumber = advNum ?? legacyAdvNum;
     sigs.push({
       id,
       advisoryNumber:
@@ -350,6 +361,9 @@ async function processCyclonesResponse(res: Response): Promise<void> {
     return;
   }
   lastAdvisoryHash = advisoryHash;
+  // Stash URLs first — enrichStorms reads them back via getStormProducts.
+  refreshStormProducts(normalized.activeStorms);
+  await enrichStorms(normalized.activeStorms);
   // Out-of-season returns activeStorms: []. That IS the truth — accept it.
   cache = {
     body: normalized,
@@ -357,9 +371,6 @@ async function processCyclonesResponse(res: Response): Promise<void> {
     stormCount: normalized.activeStorms.length,
     error: null,
   };
-  // Refresh the per-storm URL stash off the new payload. Stale entries
-  // for storms that have dissipated drop out of the map.
-  refreshStormProducts(normalized.activeStorms);
   if (normalized.activeStorms.length > 0) {
     logger.info(
       `🌀 NHC: ${normalized.activeStorms.length} active cyclone(s) loaded`,
@@ -420,6 +431,7 @@ function extractStormProducts(s: unknown): { id: string; products: StormProducts
       discussionUrl: readNestedString(obj, "forecastDiscussion", "url"),
       windProbsUrl: readNestedString(obj, "windSpeedProbabilities", "url"),
       conekmzUrl: readNestedString(obj, "trackCone", "kmzFile"),
+      trackKmzUrl: readNestedString(obj, "forecastTrack", "kmzFile"),
     },
   };
 }

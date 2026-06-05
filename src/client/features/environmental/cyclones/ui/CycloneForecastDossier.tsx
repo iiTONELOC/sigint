@@ -1,4 +1,4 @@
-import { Wind, ArrowUpRight } from "lucide-react";
+import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CycloneForecastPointData } from "../types";
 import {
@@ -7,6 +7,8 @@ import {
   Row,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
+
+// Dossier for one forecast-track point — shows that point's own projected data.
 
 const CATEGORY_LABEL: Record<string, string> = {
   TD: "Tropical Depression",
@@ -21,8 +23,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   PT: "Post-Tropical",
 };
 
-const NM_TO_KM = 1.852;
 const KT_TO_MPH = 1.15078;
+const NM_TO_KM = 1.852;
 
 type Props = {
   readonly item: DataPoint & {
@@ -34,11 +36,6 @@ type Props = {
   readonly onFocus: () => void;
   readonly onSolo: () => void;
   readonly onClose: () => void;
-  /** Open the parent storm's full dossier. Fired by the JUMP TO STORM
-   *  button — caller resolves the parent DataPoint by stormId and
-   *  forwards it to the same setSelected action the click pipeline
-   *  uses. */
-  readonly onJumpToStorm: (parentStormId: string) => void;
 };
 
 export function CycloneForecastDossier({
@@ -48,21 +45,21 @@ export function CycloneForecastDossier({
   onFocus,
   onSolo,
   onClose,
-  onJumpToStorm,
 }: Props) {
   const d = item.data;
-  const closeBtnRef = useDossierFocus(item.id);
   const category = CATEGORY_LABEL[d.category] ?? d.category;
-  const errorRadiusKm = Math.round(d.errorRadiusNm * NM_TO_KM);
-  const windsMph = Math.round(d.maxWindKt * KT_TO_MPH);
+  const closeBtnRef = useDossierFocus(item.id);
+  const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
+  const mph = Math.round(d.maxWindKt * KT_TO_MPH);
+  const errKm = Math.round(d.errorRadiusNm * NM_TO_KM);
 
   return (
     <div className="h-full flex flex-col">
       <DossierToolbar
         icon={Wind}
-        title={d.parentName}
-        subtitle={`+${d.fcstHour}h forecast`}
-        badge={`+${d.fcstHour}h`}
+        title={`${d.parentName} · +${d.fcstHour}h`}
+        subtitle={`${category} (forecast)`}
+        badge={badge}
         isolateMode={isolateMode}
         onLocate={onLocate}
         onFocus={onFocus}
@@ -72,22 +69,15 @@ export function CycloneForecastDossier({
       />
       <div className="flex-1 overflow-y-auto sigint-scroll">
         <div className="p-3 space-y-3">
-          <Section title="IDENTITY">
+          <Section title="FORECAST">
             <Row label="STORM" value={d.parentName} />
-            <Row label="STORM ID" value={d.parentStormId} />
             <Row label="BASIN" value={d.parentBasin} />
-            <Row label="FORECAST HOUR" value={`+${d.fcstHour}h`} />
-            <Row
-              label="VALID AT"
-              value={new Date(d.validTime).toLocaleString()}
-            />
+            <Row label="LEAD TIME" value={`+${d.fcstHour}h`} />
+            <Row label="VALID" value={d.validTime || "—"} />
           </Section>
 
           <Section title="INTENSITY">
-            <Row
-              label="WINDS"
-              value={`${d.maxWindKt} kn (${windsMph} mph)`}
-            />
+            <Row label="WINDS" value={`${d.maxWindKt} kn (${mph} mph)`} />
             {d.minPressureMb != null && (
               <Row label="PRESSURE" value={`${d.minPressureMb} mb`} />
             )}
@@ -95,7 +85,7 @@ export function CycloneForecastDossier({
           </Section>
 
           <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-dim">
+            <div className="text-sm font-mono text-sig-text">
               {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
               {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
             </div>
@@ -104,20 +94,8 @@ export function CycloneForecastDossier({
           <Section title="UNCERTAINTY">
             <Row
               label="TRACK ERROR"
-              value={`${d.errorRadiusNm} nm (${errorRadiusKm} km)`}
+              value={`${d.errorRadiusNm} nm (${errKm} km)`}
             />
-          </Section>
-
-          <Section title="PARENT STORM">
-            <button
-              type="button"
-              onClick={() => onJumpToStorm(d.parentStormId)}
-              aria-label={`Open dossier for parent storm ${d.parentName}`}
-              className="w-full flex items-center justify-between text-sm text-sig-accent hover:text-sig-bright transition-colors py-1 px-2 rounded border border-sig-grid/50 hover:border-sig-accent/40"
-            >
-              <span>JUMP TO STORM</span>
-              <ArrowUpRight className="w-3 h-3 shrink-0" aria-hidden="true" />
-            </button>
           </Section>
         </div>
       </div>

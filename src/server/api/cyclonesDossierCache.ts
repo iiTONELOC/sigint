@@ -191,6 +191,10 @@ async function fetchBundle(
       : Promise.resolve(undefined),
   ]);
 
+  // All products failed (transient outage) → null, not a hollow bundle that
+  // would get cached for the full TTL and blank the dossier for 60 minutes.
+  if (!advisory && !discussion && !windProbs) return null;
+
   return { stormId, advisory, discussion, windProbs };
 }
 
@@ -217,8 +221,11 @@ export async function getCycloneDossier(
   try {
     const bundle = await fetchBundle(stormId);
     if (!bundle) {
-      // Storm not registered — drop any stale entry and return null.
-      cache.delete(stormId);
+      // Outage or unregistered storm — keep the last good bundle rather than
+      // wiping it; only surface null when nothing was ever cached.
+      if (existing) {
+        return { dossier: existing.bundle, fetchedAt: existing.fetchedAt };
+      }
       return { dossier: null, fetchedAt: now };
     }
     const entry: CacheEntry = {

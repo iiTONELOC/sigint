@@ -16,17 +16,24 @@ import {
   CONE_CACHE_TTL_MS,
 } from "../../../src/server/api/cyclonesConeCache";
 
-const KMZ_URL =
-  "https://www.nhc.noaa.gov/storm_graphics/api/AL142024_013adv_CONE.kmz";
-const STORM_ID = "AL142024";
+// Real capture: EP01 2026 (Amanda). The cone KMZ URL is read out of the
+// real CurrentStorms.json (trackCone.kmzFile), so derive it from that fixture
+// rather than hardcoding — keeps the mock honest against the real payload.
+const REAL_CS = "tests/fixtures/cyclones-real/CurrentStorms.json";
+const REAL_CONE_KMZ = "tests/fixtures/cyclones-real/ep012026-cone.kmz";
+const STORM_ID = "EP012026";
 
-let kmzBytes: Uint8Array;
+let kmzBytes: ArrayBuffer;
+let currentStormsBody: string;
+let coneKmzUrl: string;
 
 beforeEach(async () => {
-  kmzBytes = new Uint8Array(
-    await Bun.file("tests/fixtures/cyclones-cone/milton-al14-cone.kmz")
-      .arrayBuffer(),
-  );
+  kmzBytes = await Bun.file(REAL_CONE_KMZ).arrayBuffer();
+  currentStormsBody = await Bun.file(REAL_CS).text();
+  const cs = JSON.parse(currentStormsBody) as {
+    activeStorms: { trackCone?: { kmzFile?: string } }[];
+  };
+  coneKmzUrl = cs.activeStorms[0]!.trackCone!.kmzFile!;
 });
 
 // ── KML → GeoJSON parser ────────────────────────────────────────────
@@ -92,12 +99,12 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
             : input.url;
       fetchCount[url] = (fetchCount[url] ?? 0) + 1;
       if (url.endsWith("/CurrentStorms.json")) {
-        const body = await Bun.file(
-          "tests/fixtures/cyclones/CurrentStorms-milton-al14.json",
-        ).text();
-        return new Response(body, { status: 200 });
+        return new Response(currentStormsBody, { status: 200 });
       }
-      if (url === KMZ_URL) return kmzHandler();
+      if (url === coneKmzUrl) return kmzHandler();
+      // Enrichment also fetches the forecast TRACK.kmz; serve it empty-ok so
+      // this cone-focused spec doesn't fail on an unmocked track fetch.
+      if (url.includes("TRACK.kmz")) return new Response("", { status: 503 });
       throw new Error(`Unmocked fetch: ${url}`);
     }) as typeof globalThis.fetch;
   });
@@ -106,20 +113,24 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("fetches Milton KMZ, returns valid GeoJSON Polygon", async () => {
-    await fetchCyclones(new Date(Date.UTC(2024, 9, 8)));
+  test("fetches the real cone KMZ, returns valid GeoJSON Polygon", async () => {
+    await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).not.toBeNull();
     expect(result.cone!.type).toBe("Polygon");
-    expect(result.cone!.coordinates[0]!.length).toBeGreaterThanOrEqual(4);
+    // Real NHC cone is a many-hundred-vertex polygon, not a 4-point stub.
+    expect(result.cone!.coordinates[0]!.length).toBeGreaterThan(300);
   });
 
   test("cache returns within TTL without re-fetching", async () => {
-    await fetchCyclones(new Date(Date.UTC(2024, 9, 8)));
+    await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
+    // fetchCyclones already warmed the cone via enrichment; reset the counter
+    // so we measure only the explicit getCycloneCone calls below.
+    fetchCount[coneKmzUrl] = 0;
     await getCycloneCone(STORM_ID);
     await getCycloneCone(STORM_ID);
     await getCycloneCone(STORM_ID);
-    expect(fetchCount[KMZ_URL]).toBe(1);
+    expect(fetchCount[coneKmzUrl]).toBe(0); // served from cache, no re-fetch
     expect(CONE_CACHE_TTL_MS).toBe(60 * 60_000);
   });
 
@@ -130,17 +141,19 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
   });
 
   test("KMZ fetch HTTP error → cone: null, no throw", async () => {
-    await fetchCyclones(new Date(Date.UTC(2024, 9, 8)));
     kmzHandler = () => new Response("oops", { status: 503 });
+    await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
+    __resetCycloneConeCacheForTests(); // drop the entry enrichment cached
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).toBeNull();
   });
 
   test("KMZ network error → cone: null, no throw", async () => {
-    await fetchCyclones(new Date(Date.UTC(2024, 9, 8)));
     kmzHandler = () => {
       throw new Error("simulated network error");
     };
+    await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
+    __resetCycloneConeCacheForTests();
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).toBeNull();
   });

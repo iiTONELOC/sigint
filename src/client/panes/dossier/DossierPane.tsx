@@ -10,7 +10,6 @@ import { NonAircraftDossier } from "./NonAircraftDossier";
 
 export function DossierPane() {
   const {
-    allData,
     selectedCurrent,
     setSelected,
     isolateMode,
@@ -39,20 +38,6 @@ export function DossierPane() {
       setTimeout(() => setZoomToId(null), 100);
     }
   }, [setZoomToId, selectedCurrent]);
-
-  // CycloneForecastDossier's JUMP TO STORM action — resolves the parent
-  // cyclone DataPoint by stormId and forwards it to setSelected. The id
-  // shape ("CY{stormId}") is owned by parseNhc and mirrored in
-  // synthesizeForecastPoints; both must agree for this lookup to hit.
-  const handleJumpToStorm = useCallback(
-    (parentStormId: string) => {
-      const parent = allData.find(
-        (d) => d.type === "cyclones" && d.id === `CY${parentStormId}`,
-      );
-      if (parent) setSelected(parent);
-    },
-    [allData, setSelected],
-  );
 
   if (!selectedCurrent) {
     return (
@@ -86,7 +71,6 @@ export function DossierPane() {
       onFocus={handleFocus}
       onSolo={handleSolo}
       onClose={handleClose}
-      onJumpToStorm={handleJumpToStorm}
     />
   );
 }

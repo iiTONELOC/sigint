@@ -5,12 +5,14 @@
 //   1. Provider preserves entities array reference across N polls when
 //      the id-set is stable (Pattern C — diffAndApply).
 //   2. The reference equality check `d !== lastSentDataRef.current` —
-//      the gate that controls heavy postMessage in GlobeVisualization —
+//      the gate that controls the heavy data send in GlobeVisualization —
 //      stays false across those N polls, so the structuredClone-heavy
-//      worker payload fires exactly once for the initial population.
-//   3. Worker-side slicing on `renderLimit` yields the same visible
-//      points the main-thread slice used to produce, so the user-
-//      perceived progressive ramp is preserved.
+//      worker payload fires exactly once for the initial population. (That
+//      send now runs on an off-paint-frame data pump, but the gate is the
+//      same reference check.)
+//   3. Worker-side reveal slicing yields the same visible points the ramp
+//      used to produce. The slice math is unchanged; only its driver moved
+//      from a main-thread scalar to a worker-owned reveal counter.
 //
 // The render path (GlobeVisualization → Worker postMessage) lives in DOM
 // + Worker territory and isn't easily run inside bun test, so the gate
@@ -54,10 +56,12 @@ function simulateRenderGate(d: DataPoint[]): {
   };
 }
 
-// ── Replicate the worker-side slice on renderLimit ───────────────────
-// See public/workers/pointWorker.js renderFrame — slice happens on the
-// worker's _data using payload.renderLimit. Main thread only sends a
-// scalar in the lightweight frame message, no per-frame array allocation.
+// ── Replicate the worker-side reveal slice ───────────────────────────
+// See public/workers/pointWorker.js renderFrame — the worker owns a
+// `_revealCount` it advances each frame and slices its own `_data` to.
+// The main thread sends the full array once (no per-frame scalar, no
+// per-frame allocation); the worker drains it progressively. The slice
+// math below is exactly the worker's.
 
 function workerSlice(data: DataPoint[], renderLimit: number): DataPoint[] {
   return renderLimit < data.length ? data.slice(0, renderLimit) : data;

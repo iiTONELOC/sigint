@@ -54,11 +54,11 @@ const app = (
 );
 
 // ── Boot sequence ────────────────────────────────────────────────────
-// 1. Render shell immediately — empty globe, chrome visible
-// 2. Await cacheInit (already in-flight) → hydrate ALL from IDB →
-//    notify all at once → globe draws cached data in one pass
-// 3. Refresh ALL from network → wait until ALL complete →
-//    notify all at once → globe redraws in one pass
+// Each provider streams in independently: hydrate from IDB (notifies the
+// UI the instant it has cached data), then refresh from the network and
+// notify again when it lands. No batch barrier — the slow feed (aircraft's
+// ~60s server sweep) never holds the fast ones hostage, and the globe is
+// interactive from frame zero with whatever has resolved so far.
 
 // 1. Render immediately
 if (import.meta.hot) {
@@ -80,60 +80,33 @@ const providers = [
   cycloneProvider,
 ] as const;
 
-function muteAll(): Array<() => void> {
-  return providers.map((p) => p.mute());
-}
+type HydrateResult = Awaited<ReturnType<(typeof providers)[number]["hydrate"]>>;
 
-function unmuteAll(restorers: Array<() => void>): void {
-  restorers.forEach((r, i) => {
-    const provider = providers[i];
-    if (provider) provider.unmute(r);
-  });
-}
-
-(async () => {
-  // 2. IDB hydration — one batch
-  await cacheReady;
-
-  let saved = muteAll();
-  const hydrationResults = await Promise.all(
-    providers.map((p) => p.hydrate().catch(() => null)),
+function needsRefresh(result: HydrateResult): boolean {
+  // null = no cached data; { stale:true } = cached but expired. Fresh cache skips.
+  return (
+    !result ||
+    (typeof result === "object" && "stale" in result && result.stale)
   );
-  unmuteAll(saved);
+}
 
-  // Non-blocking background work
-  Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
+// Auth token once, up front — needed before any authed fetch, but it does
+// NOT gate hydrate/first paint (hydrate is local IDB, no auth).
+const authReady = ensureAuthCookie().catch(() => {});
 
-  // 3. Determine which providers need a network refresh.
-  //    If hydration returned stale data or no data, refresh that provider.
-  //    If cache is fresh, skip it entirely.
-  const staleProviders = providers.filter((_, i) => {
-    const result = hydrationResults[i];
-    // null = no cached data, needs fetch
-    // { stale: true } = cached but expired, needs fetch
-    // { stale: false } = fresh cache, skip
-    return (
-      !result ||
-      (typeof result === "object" && "stale" in result && result.stale)
-    );
-  });
+// Non-blocking background work — independent of the data feeds.
+Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
 
-  if (staleProviders.length > 0) {
-    // Get auth token BEFORE any network requests — avoids 401 → retry round-trips
-    await ensureAuthCookie();
-
-    // Aircraft metadata enrichment moved to the server (see
-    // src/server/api/aircraftEnrichment.ts). Records arriving from
-    // /api/aircraft/states already have acType / registration / military
-    // attached, so the client no longer needs to load the 51 MB DB
-    // before refresh.
-
-    // 4. Network refresh — only stale/missing providers, one batch
-    saved = muteAll();
-    await Promise.all(staleProviders.map((p) => p.refresh().catch(() => {})));
-    unmuteAll(saved);
+void cacheReady.then(() => {
+  for (const p of providers) {
+    void (async () => {
+      const hydrated = await p.hydrate().catch(() => null);
+      if (!needsRefresh(hydrated)) return; // fresh cache — already notified
+      await authReady;
+      await p.refresh().catch(() => {});
+    })();
   }
-})().catch(() => {});
+});
 
 // Register SW
 registerSW({

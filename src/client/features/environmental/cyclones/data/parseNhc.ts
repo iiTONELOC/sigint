@@ -5,7 +5,12 @@
 // guard: no client input flows into any outbound URL).
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { CycloneData, ForecastPoint, Category } from "../types";
+import type {
+  CycloneData,
+  ForecastPoint,
+  Category,
+  GeoJSONPolygon,
+} from "../types";
 import { authenticatedFetch } from "@/lib/authService";
 
 const CYCLONES_URL = "/api/cyclones/latest";
@@ -51,7 +56,9 @@ type NhcStorm = {
     kmzFile?: string;
     zipFile?: string;
   };
+  // Attached server-side (enrichStorms) — not present in raw NHC payloads.
   forecast?: NhcForecastPoint[];
+  officialCone?: GeoJSONPolygon;
 };
 
 type NhcForecastPoint = {
@@ -136,6 +143,8 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
       s.publicAdvisory?.advNum ?? s.forecastTrack?.advisoryNumber ?? "",
     lastUpdate: s.lastUpdate,
     forecast: (s.forecast ?? []).map(toForecastPoint),
+    // Absent if the cone fetch failed — worker falls back to a synthesized cone.
+    officialCone: s.officialCone,
   };
 
   return {
