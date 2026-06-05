@@ -39,7 +39,6 @@ function getName(item: DataPoint): string {
     case "weather":
       return (d.event as string) || (d.headline as string) || "Weather Alert";
     default:
-      // @ts-expect-error fallback path; switch is exhaustive for known types
       return item.id;
   }
 }

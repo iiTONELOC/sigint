@@ -22,6 +22,7 @@
 
 import { Database, type Statement } from "bun:sqlite";
 import { classifyMilitary } from "../data/militaryRules";
+import { classifyRecon } from "../data/reconRules";
 import { countryFromIcao24 } from "../data/icao24CountryRanges";
 import { createLogger, type Logger } from "../lib/logger";
 
@@ -188,6 +189,10 @@ export function enrichRecord(
   // checking falsy).
   const originCountry = countryFromIcao24(hex);
 
+  // recon is deterministic from the hex (a fixed fleet list), so it applies
+  // identically on DB hit and miss — same as originCountry.
+  const recon = classifyRecon(hex);
+
   if (!row) {
     // No DB row (or hex unavailable / DB missing) — fall back to the
     // live typecode + hex range so AE-prefix mil aircraft and live
@@ -206,6 +211,7 @@ export function enrichRecord(
       categoryDescription: undefined,
       originCountry,
       military: classifyMilitary(hex, liveTypecode),
+      recon,
     };
   }
 
@@ -224,5 +230,6 @@ export function enrichRecord(
     categoryDescription: row.category_description ?? undefined,
     originCountry,
     military: row.military === 1,
+    recon,
   };
 }

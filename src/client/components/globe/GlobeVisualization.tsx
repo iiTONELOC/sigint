@@ -21,6 +21,21 @@ import {
 } from "./inputHandlers";
 import type { DataPoint } from "@/features/base/dataPoints";
 
+// ── Shared render worker (survives globe remounts) ──────────────────
+// The PaneManager re-parents the globe leaf when a pane (e.g. the dossier)
+// splits in, which unmounts + remounts this component. Terminating the worker
+// on every remount meant re-fetching land, re-sending all data, and a blank
+// first frame = a visible flash. Instead the worker lives at module scope and
+// is reused: it keeps its land polygons, `_data`, and trail state across the
+// remount, so the new canvas gets a painted frame almost immediately. The new
+// mount transfers a fresh OffscreenCanvas to it (a transferred canvas is
+// one-shot per element), and the worker re-points at it via a new "init".
+let sharedWorker: Worker | null = null;
+function getSharedWorker(): Worker {
+  sharedWorker ??= new Worker("/workers/pointWorker.js");
+  return sharedWorker;
+}
+
 export function GlobeVisualization({
   flat = false,
   autoRotate = true,
@@ -246,11 +261,14 @@ export function GlobeVisualization({
     let running = true;
 
     // ── Initialize point rendering worker ────────────────────────
-    if (!workerRef.current) {
-      const worker = new Worker("/workers/pointWorker.js");
+    // Reuse the module-level worker across remounts (see getSharedWorker).
+    // This mount's <canvas> is new, so always transfer a fresh OffscreenCanvas
+    // and (re)bind onmessage — the worker keeps its land/data/trail state and
+    // simply re-points at the new draw target, so it repaints immediately.
+    {
+      const worker = getSharedWorker();
       workerRef.current = worker;
 
-      // Create OffscreenCanvas for the worker
       const osc = new OffscreenCanvas(
         canvas.width || 800,
         canvas.height || 600,
@@ -341,6 +359,7 @@ export function GlobeVisualization({
             slim && dd
               ? {
                   military: dd.military,
+                  recon: dd.recon,
                   squawkStatus: dd.squawkStatus,
                   squawk: dd.squawk,
                   onGround: dd.onGround,
@@ -654,10 +673,13 @@ export function GlobeVisualization({
     requestAnimationFrame(render);
     return () => {
       running = false;
-      if (workerRef.current) {
-        workerRef.current.terminate();
-        workerRef.current = null;
-      }
+      // Keep the shared worker alive across remounts (don't terminate); just
+      // detach this mount's stale onmessage so it stops compositing into a
+      // canvas that's going away. The next mount rebinds onmessage + inits a
+      // fresh OffscreenCanvas. Worker state (land/data/trails) is preserved.
+      const w = workerRef.current;
+      if (w && w.onmessage) w.onmessage = null;
+      workerRef.current = null;
       if (latestBitmapRef.current) {
         latestBitmapRef.current.close();
         latestBitmapRef.current = null;

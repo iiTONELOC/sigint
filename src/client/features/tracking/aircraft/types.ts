@@ -32,6 +32,8 @@ export type AircraftData = {
   categoryDescription?: string;
   squawk?: SquawkStatus | string;
   military?: boolean;
+  /** Hurricane Hunter / reconnaissance aircraft (server-tagged by ICAO hex). */
+  recon?: boolean;
 };
 
 export type AircraftFilter = {
@@ -40,6 +42,7 @@ export type AircraftFilter = {
   showGround: boolean;
   squawks: Set<SquawkCode>;
   countries: Set<string>;
-  /** "all" = show everything, "military" = mil only, "civilian" = civ only */
-  milFilter: "all" | "military" | "civilian";
+  /** "all" = everything, "military" = mil only, "civilian" = civ only,
+   *  "recon" = Hurricane Hunter / reconnaissance aircraft only. */
+  milFilter: "all" | "military" | "civilian" | "recon";
 };

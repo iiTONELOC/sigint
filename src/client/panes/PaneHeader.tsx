@@ -205,7 +205,7 @@ export function PaneHeader({
               data-tour={paneType === "globe" ? "split-right-btn" : undefined}
               aria-label="Split pane right"
               onClick={onSplitH}
-              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
               <Columns2 size={13} strokeWidth={2.5} aria-hidden="true" />
             </button>
@@ -218,7 +218,7 @@ export function PaneHeader({
               data-tour={paneType === "globe" ? "split-down-btn" : undefined}
               aria-label="Split pane down"
               onClick={onSplitV}
-              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
             >
               <Rows2 size={13} strokeWidth={2.5} aria-hidden="true" />
             </button>
@@ -234,7 +234,7 @@ export function PaneHeader({
             aria-label={chromeHidden ? "Exit fullscreen" : "Enter fullscreen"}
             aria-pressed={chromeHidden}
             onClick={() => setChromeHidden((v) => !v)}
-            className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
             {chromeHidden ? (
               <Minimize2 size={13} strokeWidth={2.5} aria-hidden="true" />
@@ -249,7 +249,7 @@ export function PaneHeader({
             type="button"
             aria-label="Minimize pane"
             onClick={onMinimize}
-            className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
           >
             <Minus size={13} strokeWidth={2.5} aria-hidden="true" />
           </button>
@@ -261,7 +261,7 @@ export function PaneHeader({
               type="button"
               aria-label="Close pane"
               onClick={onClose}
-              className="p-2 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
             >
               <X size={13} strokeWidth={2.5} aria-hidden="true" />
             </button>

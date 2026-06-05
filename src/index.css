@@ -213,11 +213,23 @@ button:focus-visible {
 
 /* ── Scrollbar theming ────────────────────────────────────────────── */
 
-/* Touch devices: native scrollbars, auto-hide */
+/* Touch targets. The CONDITION is purely the pointer type: a touch
+   (coarse) device gets the large 36px hit area + roomy padding so fingers
+   can hit it; a mouse (fine) device gets nothing here, so the element stays
+   compact. Keyed on the device, NOT the mobile/desktop layout — a
+   touchscreen laptop still gets big targets; a phone with a mouse stays
+   compact. The `.touch-target` rule lives ONLY inside this media query. */
 @media (pointer: coarse) {
   .touch-target {
     min-height: 36px;
     min-width: 36px;
+    padding: 0.5rem;
+  }
+  .touch-resize.cursor-col-resize {
+    width: 16px;
+  }
+  .touch-resize.cursor-row-resize {
+    height: 16px;
   }
   .sigint-scroll {
     scrollbar-width: none;
@@ -225,12 +237,6 @@ button:focus-visible {
   }
   .sigint-scroll::-webkit-scrollbar {
     display: none;
-  }
-  .touch-resize.cursor-col-resize {
-    width: 16px;
-  }
-  .touch-resize.cursor-row-resize {
-    height: 16px;
   }
 }
 

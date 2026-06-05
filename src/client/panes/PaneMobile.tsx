@@ -1193,7 +1193,7 @@ export function PaneMobile({
                           );
                         }
                       }}
-                      className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                      className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                       title="Split side-by-side"
                       data-tour={`split-right-${block.primaryLeaf.paneType}`}
                     >
@@ -1229,7 +1229,7 @@ export function PaneMobile({
                           );
                         }
                       }}
-                      className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                      className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                       title="Add pane below"
                       data-tour={
                         block.primaryLeaf.paneType === "globe"
@@ -1244,7 +1244,7 @@ export function PaneMobile({
                 {!moveSourceLeafId && (
                   <button
                     onClick={() => toggleMinimize(block.id)}
-                    className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                    className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                     title={isMinimized ? "Expand" : "Minimize"}
                   >
                     {isMinimized ? (
@@ -1260,7 +1260,7 @@ export function PaneMobile({
                   !moveSourceLeafId && (
                     <button
                       onClick={() => closePane(block.primaryLeaf.id)}
-                      className="p-1 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+                      className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
                       title="Close pane"
                     >
                       <X size={11} strokeWidth={2.5} />

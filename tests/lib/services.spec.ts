@@ -190,7 +190,7 @@ describe("buildTickerItems", () => {
   });
 
   test("returns empty for empty data", () => {
-    const result = buildTickerItems([], {}, {});
+    const result = buildTickerItems([]);
     expect(result).toHaveLength(0);
   });
 
@@ -198,7 +198,7 @@ describe("buildTickerItems", () => {
     const data = [
       pt("a1", "aircraft", 35, 139, { onGround: false, callsign: "UAL123" }),
     ];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result.length).toBe(1);
   });
 
@@ -206,19 +206,19 @@ describe("buildTickerItems", () => {
     const data = [
       pt("a1", "aircraft", 35, 139, { onGround: true, callsign: "UAL123" }),
     ];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result.length).toBe(0);
   });
 
   test("excludes moored ships (sog < 0.5)", () => {
     const data = [pt("s1", "ships", 51, -0.1, { sog: 0.1, name: "TEST" })];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result.length).toBe(0);
   });
 
   test("includes moving ships", () => {
     const data = [pt("s1", "ships", 51, -0.1, { sog: 5.0, name: "TEST" })];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result.length).toBe(1);
   });
 
@@ -228,7 +228,7 @@ describe("buildTickerItems", () => {
       pt("a2", "aircraft", 36, 140, { onGround: false, squawk: "7700" }),
       pt("q1", "quakes", 10, 20, { magnitude: 5.0 }),
     ];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result[0]!.id).toBe("a2");
   });
 
@@ -237,7 +237,7 @@ describe("buildTickerItems", () => {
     for (let i = 0; i < 200; i++) {
       data.push(pt(`q${i}`, "quakes", i % 90, i % 180, { magnitude: 3 }));
     }
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     expect(result.length).toBeLessThanOrEqual(80);
   });
 
@@ -248,7 +248,7 @@ describe("buildTickerItems", () => {
       pt("s1", "ships", 51, -0.1, { sog: 5 }),
       pt("q1", "quakes", 10, 20, {}),
     ];
-    const result = buildTickerItems(data, {}, {});
+    const result = buildTickerItems(data);
     const types = result.map((r) => r.type);
     // Not all same type in a row
     expect(new Set(types).size).toBeGreaterThan(1);

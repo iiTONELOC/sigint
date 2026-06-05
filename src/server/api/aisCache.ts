@@ -7,9 +7,9 @@
 // Serves snapshot via /api/ships/latest with token auth.
 // Optional env var: AISSTREAM_API_KEY — if absent, ships endpoint returns 503.
 
-// @ts-expect-error require() avoids Bun's ESM WebSocket polyfill for aisstream
+// require() (not import) avoids Bun's ESM WebSocket polyfill for aisstream.
 const WebSocketClient = require("ws");
-// @ts-expect-error require() avoids Bun's ESM polyfill so we keep Node's TLS stack
+// require() avoids Bun's ESM polyfill so we keep Node's TLS stack.
 const https = require("https");
 
 import { createLogger } from "../lib/logger";

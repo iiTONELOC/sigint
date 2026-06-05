@@ -17,6 +17,8 @@ export type ThemeColors = {
   fires: string;
   weather: string;
   cyclones: string;
+  /** Hurricane Hunter / recon aircraft — neon orange, distinct from fires. */
+  recon: string;
   text: string;
   dim: string;
   bright: string;
@@ -28,7 +30,9 @@ export type Theme = {
   colors: ThemeColors;
 };
 
-export const themes: Record<ThemeMode, Theme> = {
+// "auto" is not a concrete theme — it resolves to dark/light at runtime by
+// system preference, so only the two real palettes live here.
+export const themes: Record<"dark" | "light", Theme> = {
   dark: {
     colors: {
       bg: "#080a0f",
@@ -50,6 +54,9 @@ export const themes: Record<ThemeMode, Theme> = {
       fires: "#ff6600",
       weather: "#aa66ff",
       cyclones: "#ff2b3d",
+      // Neon amber — brighter/yellower than fires (#ff6600) so recon birds
+      // stand apart from fire dots on the dark globe.
+      recon: "#ff9500",
       text: "#b0bec5",
       dim: "#556070",
       bright: "#e8eef4",
@@ -75,6 +82,9 @@ export const themes: Record<ThemeMode, Theme> = {
       fires: "#cc2200",
       weather: "#e07000",
       cyclones: "#a3001a",
+      // Deep amber — readable on the light background, distinct from the
+      // red-leaning light fires (#cc2200) and weather orange (#e07000).
+      recon: "#b86b00",
       text: "#1a2530",
       dim: "#4a5a6a",
       bright: "#0a1018",

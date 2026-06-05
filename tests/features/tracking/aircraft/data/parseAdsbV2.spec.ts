@@ -118,7 +118,12 @@ describe("toAircraftData — field mapping", () => {
   });
 
   test("emergency field is intentionally dropped — squawk carries the signal", () => {
-    const data = toAircraftData({ ...SAMPLE_AIRCRAFT, emergency: "general" });
+    // `emergency` isn't part of AdsbAircraft; pass it via a cast to prove the
+    // mapper drops unknown upstream fields.
+    const data = toAircraftData({
+      ...SAMPLE_AIRCRAFT,
+      emergency: "general",
+    } as Parameters<typeof toAircraftData>[0]);
     // Existing AircraftData has no `emergency` field; squawk codes
     // 7700/7600/7500 carry the emergency signal in the rest of the app.
     expect((data as Record<string, unknown>).emergency).toBeUndefined();

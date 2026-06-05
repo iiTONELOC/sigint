@@ -71,6 +71,7 @@ type AdsbAircraft = {
   operatorIcao?: string;
   categoryDescription?: string;
   military?: boolean;
+  recon?: boolean;
   originCountry?: string;
 };
 
@@ -123,6 +124,7 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
     operatorIcao: a.operatorIcao,
     categoryDescription: a.categoryDescription,
     military: a.military,
+    recon: a.recon,
   };
 }
 

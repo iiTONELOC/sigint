@@ -182,26 +182,27 @@ export function AircraftFilterControl({
               <div className="flex gap-1 flex-wrap">
                 {(
                   [
-                    ["ALL", "all"],
-                    ["MIL", "military"],
-                    ["CIV", "civilian"],
+                    // [label, value, full static class string for the ON state —
+                    // written literally so Tailwind's JIT can see each class.]
+                    ["ALL", "all", "bg-sig-aircraft/15 border-sig-aircraft/80 text-sig-aircraft"],
+                    ["MIL", "military", "bg-sig-bright/15 border-sig-bright/80 text-sig-bright"],
+                    ["CIV", "civilian", "bg-sig-aircraft/15 border-sig-aircraft/80 text-sig-aircraft"],
+                    ["HUNTER", "recon", "bg-sig-recon/15 border-sig-recon/80 text-sig-recon"],
                   ] as const
-                ).map(([label, value]) => {
+                ).map(([label, value, onClass]) => {
                   const on = aircraftFilter.milFilter === value;
-                  const milClr =
-                    value === "military" ? "#e0e0e0" : aircraftColor;
                   return (
                     <button
                       key={value}
+                      type="button"
                       onClick={() =>
                         setAircraftFilter((f) => ({ ...f, milFilter: value }))
                       }
-                      className="rounded-sm px-1.5 py-0.5 text-[12px]"
-                      style={{
-                        background: on ? milClr + "24" : colors.panel + "55",
-                        border: `1px solid ${on ? milClr + "d0" : colors.bright + "66"}`,
-                        color: on ? milClr : colors.bright,
-                      }}
+                      className={`rounded-sm px-1.5 py-0.5 text-[12px] border transition-colors ${
+                        on
+                          ? onClass
+                          : "bg-sig-panel/30 border-sig-bright/40 text-sig-bright"
+                      }`}
                     >
                       {label}
                     </button>

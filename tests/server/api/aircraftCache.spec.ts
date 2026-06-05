@@ -305,7 +305,7 @@ describe("fetchTileWithRetry", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const sleeps: number[] = [];
     const result = await fetchTileWithRetry(40, -100, async (ms) => {
@@ -331,7 +331,7 @@ describe("fetchTileWithRetry", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const sleeps: number[] = [];
     await fetchTileWithRetry(40, -100, async (ms) => {
@@ -346,7 +346,7 @@ describe("fetchTileWithRetry", () => {
     globalThis.fetch = (async () => {
       calls++;
       return new Response("rate limited", { status: 429 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const result = await fetchTileWithRetry(40, -100, async () => {});
     expect(calls).toBe(2);
@@ -358,7 +358,7 @@ describe("fetchTileWithRetry", () => {
     globalThis.fetch = (async () => {
       calls++;
       return new Response("server error", { status: 500 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
 
     const sleeps: number[] = [];
     const result = await fetchTileWithRetry(40, -100, async (ms) => {

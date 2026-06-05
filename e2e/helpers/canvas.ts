@@ -15,7 +15,9 @@ export async function pixelAt(
   y: number,
 ): Promise<[number, number, number, number]> {
   return await canvas.evaluate(
-    (el, [px, py]) => {
+    (el, coords) => {
+      const px = coords[0] ?? 0;
+      const py = coords[1] ?? 0;
       const ctx = (el as HTMLCanvasElement).getContext("2d");
       if (!ctx) return [0, 0, 0, 0];
       const data = ctx.getImageData(px, py, 1, 1).data;
@@ -63,13 +65,15 @@ export async function projectLatLon(
     { timeout: 5_000 },
   );
   return await page.evaluate(
-    ([la, lo]) => {
+    (coords) => {
+      const la = coords[0] ?? 0;
+      const lo = coords[1] ?? 0;
       const fn = (globalThis as unknown as Record<string, unknown>)
         .__projectLatLon as
         | ((la: number, lo: number) => { x: number; y: number; z: number })
         | undefined;
       if (typeof fn !== "function") {
-        throw new Error(
+        throw new TypeError(
           "globalThis.__projectLatLon is not exposed; ensure GlobeVisualization mounted",
         );
       }

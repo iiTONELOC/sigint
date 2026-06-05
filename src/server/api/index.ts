@@ -43,9 +43,14 @@ export function createApiRoutes(deps: ApiDeps) {
     const json = JSON.stringify(body);
     const acceptEncoding = req.headers.get("accept-encoding") ?? "";
     if (acceptEncoding.includes("gzip")) {
-      const compressed = (await gzipAsync(Buffer.from(json))) as Buffer;
+      const compressed = (await gzipAsync(Buffer.from(json))) as Uint8Array;
+      // Copy into a fresh ArrayBuffer-backed Uint8Array. The DOM lib's BodyInit
+      // rejects ArrayBufferLike (potentially SharedArrayBuffer) backing, which
+      // a raw Buffer/gzip output reports; Uint8Array.from guarantees an
+      // ArrayBuffer and so is unambiguously a BodyInit.
+      const body = Uint8Array.from(compressed);
       return withSecurityHeaders(
-        new Response(compressed, {
+        new Response(body, {
           headers: {
             "Content-Type": "application/json",
             "Content-Encoding": "gzip",

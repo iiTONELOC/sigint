@@ -38,6 +38,17 @@ function makeMockProvider(opts?: {
     onChange(cb: (() => void) | null) {
       _onChange = cb;
     },
+    mute() {
+      const saved = _onChange;
+      _onChange = null;
+      return () => {
+        _onChange = saved;
+      };
+    },
+    unmute(restore: () => void) {
+      restore();
+      _onChange?.();
+    },
     async hydrate() {
       return data;
     },
@@ -58,6 +69,7 @@ function makeMockProvider(opts?: {
     getSnapshot(): ProviderSnapshot<DataPoint> {
       return {
         entities: hydrated ? data : [],
+        version: 0,
         lastUpdatedAt: hydrated ? Date.now() : null,
         loading: !hydrated && !lastError,
         error: lastError,
@@ -138,6 +150,7 @@ describe("useProviderData", () => {
     // Override getSnapshot to return data with error
     provider.getSnapshot = () => ({
       entities: [makePoint("cached")],
+      version: 0,
       lastUpdatedAt: Date.now(),
       loading: false,
       error: new Error("stale"),

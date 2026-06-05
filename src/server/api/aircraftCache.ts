@@ -224,7 +224,11 @@ export function shuffleTiles<T>(tiles: ReadonlyArray<T>): T[] {
   const arr = [...tiles];
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    // Indices i and j are both in-bounds, so the elements are defined; the
+    // temp swap satisfies noUncheckedIndexedAccess without a non-null assert.
+    const tmp = arr[i] as T;
+    arr[i] = arr[j] as T;
+    arr[j] = tmp;
   }
   return arr;
 }

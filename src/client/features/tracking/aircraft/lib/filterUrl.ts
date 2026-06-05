@@ -49,8 +49,14 @@ export function getInitialAircraftFilter(): AircraftFilter {
   }
 
   const milRaw = (params.get("mil") ?? "").trim().toLowerCase();
-  const milFilter: "all" | "military" | "civilian" =
-    milRaw === "military" ? "military" : milRaw === "civilian" ? "civilian" : "all";
+  const milFilter: AircraftFilter["milFilter"] =
+    milRaw === "military"
+      ? "military"
+      : milRaw === "civilian"
+        ? "civilian"
+        : milRaw === "recon"
+          ? "recon"
+          : "all";
 
   return {
     enabled: parseBoolParam(params, "ac", DEFAULT_AIRCRAFT_FILTER.enabled),

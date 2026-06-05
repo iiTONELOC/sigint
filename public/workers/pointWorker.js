@@ -221,6 +221,7 @@ function matchesAF(d, f) {
   var mf = f.milFilter || "all";
   if (mf === "military" && !d.military) return false;
   if (mf === "civilian" && d.military) return false;
+  if (mf === "recon" && !d.recon) return false;
   if (f.squawks.length > 0) {
     var sq = d.squawk || "";
     var bucket =
@@ -599,7 +600,9 @@ self.onmessage = function (e) {
   if (msg.type === "init") {
     canvas = msg.canvas;
     ctx = canvas.getContext("2d");
-    fetchLandData();
+    // On a remount the worker is reused: it already has land (and _data), so
+    // skip the re-fetch and keep painting without a blank land-less frame.
+    if (landPolygons.length === 0) fetchLandData();
     return;
   }
   if (msg.type === "trails") {
@@ -711,8 +714,11 @@ function renderFrame() {
   var cyclonesShowCone = p.cyclonesShowCone !== false;
   var reducedMotion = p.prefersReducedMotion === true;
 
-  // Military aircraft color — orange-red, distinct from civilian yellow
+  // Military aircraft color — neutral grey, distinct from civilian yellow.
   var milColor = light ? "#3a3a3a" : "#e0e0e0";
+  // Recon (Hurricane Hunter) color — neon amber from the theme, distinct
+  // from fires and from military grey. Fallback mirrors the theme defaults.
+  var reconColor = colors.recon || (light ? "#b86b00" : "#ff9500");
 
   var projFn;
   var fm;
@@ -1137,12 +1143,19 @@ function renderFrame() {
 
     // Aircraft
     var isMil = item.data && item.data.military;
+    // Recon (Hurricane Hunter): a distinct, higher-priority class than mil.
+    // These are also military by hex, but get their own colour + emphasis.
+    var isRecon = item.data && item.data.recon;
     var acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
     // Military aircraft: slightly higher base alpha so they stand out
     if (isMil) acAlpha = Math.min(0.9, acAlpha + 0.15);
+    // Recon: always prominent (few of them, operationally important)
+    if (isRecon) acAlpha = Math.min(1, Math.max(acAlpha, 0.75) + 0.1);
     var acSize = Math.min(4, 1 + Math.max(0, (zoomLevel - 1) * 0.5));
     // Military aircraft: slightly larger
     if (isMil) acSize = Math.min(5, acSize * 1.2);
+    // Recon: a bit larger still, with a floor so they're visible at globe zoom
+    if (isRecon) acSize = Math.max(acSize, 2.2) * 1.2;
     if (isSel) acSize *= 2;
     var status = item.data && item.data.squawkStatus;
     var isEmergency =
@@ -1150,16 +1163,16 @@ function renderFrame() {
       status === "radio_failure" ||
       status === "hijack";
     ctx.globalAlpha = isEmergency ? depthAlpha : depthAlpha * acAlpha;
-    ctx.fillStyle =
-      status === "emergency"
-        ? "#ff3333"
-        : status === "radio_failure"
-          ? "#ff8800"
-          : status === "hijack"
-            ? "#cc44ff"
-            : isMil
-              ? milColor
-              : baseColor;
+    // Colour precedence: emergency squawks first (red/orange/purple), then
+    // recon (neon amber), then military (grey), else the base aircraft colour.
+    var acColor;
+    if (status === "emergency") acColor = "#ff3333";
+    else if (status === "radio_failure") acColor = "#ff8800";
+    else if (status === "hijack") acColor = "#cc44ff";
+    else if (isRecon) acColor = reconColor;
+    else if (isMil) acColor = milColor;
+    else acColor = baseColor;
+    ctx.fillStyle = acColor;
     var a = (((item.data && item.data.heading) || 0) * Math.PI) / 180;
     var s = acSize;
     ctx.beginPath();

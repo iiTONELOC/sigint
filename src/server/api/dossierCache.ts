@@ -102,6 +102,8 @@ type HexDbRoute = {
   flight?: string;
   route?: string;
   updatetime?: number;
+  // hexdb returns a status string (e.g. "404") when a route isn't found.
+  status?: string;
 };
 
 type HexDbAirport = {

@@ -12,6 +12,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
+import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -491,6 +492,13 @@ function PanelBody({
         {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>
+
+      {/* Cyclone advisory + discussion text (bounded, scrollable) */}
+      {item.type === "cyclones" && (
+        <CycloneAdvisoryBlock
+          stormId={(item.data as { stormId?: string })?.stormId}
+        />
+      )}
 
       {/* Open in Dossier button */}
       {onOpenDossier && (

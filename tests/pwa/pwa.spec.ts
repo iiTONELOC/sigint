@@ -8,11 +8,19 @@ try {
   swSource = await Bun.file(`${projectRoot}/public/sw.js`).text();
 } catch {}
 
-let manifest: Record<string, unknown> = {};
+type ManifestIcon = {
+  src: string;
+  sizes: string;
+  type: string;
+  purpose?: string;
+};
+let manifest: Record<string, unknown> & { icons: ManifestIcon[] } = {
+  icons: [],
+};
 try {
   manifest = (await Bun.file(
     `${projectRoot}/public/manifest.json`,
-  ).json()) as Record<string, unknown>;
+  ).json()) as Record<string, unknown> & { icons: ManifestIcon[] };
 } catch {}
 
 let frontendSource = "";

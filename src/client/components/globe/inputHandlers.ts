@@ -370,11 +370,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
         setTrailTooltip(null);
         const target = lastClickItem!;
         const camTarget = camTargetRef.current;
-        // @ts-expect-error DataPoint id is a discriminated union; helper accepts any string
         const interp = getInterpolatedPosition(target.id);
-        // @ts-expect-error target.lat present on positional types, fallback for the rest
         const tLat = interp ? interp.lat : target.lat;
-        // @ts-expect-error target.lon present on positional types, fallback for the rest
         const tLon = interp ? interp.lon : target.lon;
 
         if (isFlat) {
@@ -400,7 +397,6 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
           camRef.current.vy = 0;
         }
         camTarget.active = true;
-        // @ts-expect-error camTarget.lockedId stored as string; DataPoint.id is a union
         camTarget.lockedId = target.id;
 
         // Reset
