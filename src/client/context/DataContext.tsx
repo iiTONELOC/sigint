@@ -22,6 +22,8 @@ import { useShipData } from "@/features/tracking/ships";
 import { useFireData } from "@/features/environmental/fires";
 import { useWeatherData } from "@/features/environmental/weather";
 import { useCycloneData } from "@/features/environmental/cyclones";
+import { useCycloneWarnings } from "@/features/environmental/cyclones/hooks/useCycloneWarnings";
+import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import { buildTickerItems } from "@/lib/tickerFeed";
@@ -62,6 +64,15 @@ type DataContextValue = {
   availableCountries: string[];
   dataSources: SourceStatus[];
   correlation: CorrelationResult;
+  cycloneWarnings: CycloneWarning[];
+  cycloneFilter: {
+    showForecast: boolean;
+    showCone: boolean;
+    showWarnings: boolean;
+  };
+  toggleCycloneLayer: (
+    key: "showForecast" | "showCone" | "showWarnings",
+  ) => void;
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
 };
 
@@ -85,6 +96,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   });
   const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
     getInitialAircraftFilter(),
+  );
+  // Cyclone layer toggles live on the cyclone filter (settable from the
+  // dossier + detail pane). Were hardcoded constants before.
+  const [cycloneFilter, setCycloneFilter] = useState({
+    showForecast: true,
+    showCone: true,
+    showWarnings: true,
+  });
+  const toggleCycloneLayer = useCallback(
+    (key: "showForecast" | "showCone" | "showWarnings") => {
+      setCycloneFilter((f) => ({ ...f, [key]: !f[key] }));
+    },
+    [],
   );
 
   // ── Data hooks ─────────────────────────────────────────────────
@@ -125,6 +149,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     version: cycloneVersion,
     dataSource: cycloneSource,
   } = useCycloneData();
+  // Tropical watch/warning polygons — region geometry, fetched separately
+  // from the DataPoint path and rendered as their own globe layer.
+  const cycloneWarnings = useCycloneWarnings();
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
 
   // ── Merged data (rAF debounced, identity-preserving) ──────────
@@ -277,11 +304,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       cyclones: {
         enabled: layers.cyclones ?? true,
         minCategory: 0,
-        showForecast: true,
-        showCone: true,
+        showForecast: cycloneFilter.showForecast,
+        showCone: cycloneFilter.showCone,
+        showWarnings: cycloneFilter.showWarnings,
       },
     }),
-    [aircraftFilter, layers],
+    [aircraftFilter, layers, cycloneFilter],
   );
 
   // ── Derived state — ONE pass over allData ──────────────────────
@@ -431,13 +459,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       availableCountries,
       dataSources,
       correlation,
+      cycloneWarnings,
+      cycloneFilter,
+      toggleCycloneLayer,
       requestAircraftEnrichment,
     }),
     [
       allData, newsArticles, spatialGrid, filteredIds,
       layers, toggleLayer, aircraftFilter, filters,
       counts, activeCount, tickerItems, availableCountries,
-      dataSources, correlation, requestAircraftEnrichment,
+      dataSources, correlation, cycloneWarnings, cycloneFilter,
+      toggleCycloneLayer, requestAircraftEnrichment,
     ],
   );
 

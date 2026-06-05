@@ -19,6 +19,8 @@ export type DossierProductBody = {
   advisoryNumber: string;
   issuedAt: string;
   body: string;
+  /** NHC's published next-advisory time, verbatim. "" if absent. */
+  nextAdvisory: string;
 };
 
 export type CycloneDossierBundle = {

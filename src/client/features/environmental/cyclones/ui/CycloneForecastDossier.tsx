@@ -85,7 +85,7 @@ export function CycloneForecastDossier({
           </Section>
 
           <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-text">
+            <div className="text-sm font-mono text-sig-bright">
               {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
               {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
             </div>

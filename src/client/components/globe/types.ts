@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
+import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import type { TrailPoint } from "@/lib/trailService";
 import type { SpatialGrid } from "@/lib/spatialIndex";
 
@@ -91,6 +92,8 @@ export type GlobeVisualizationProps = {
   readonly searchMatchIds?: Set<string> | null;
   readonly spatialGrid: SpatialGrid;
   readonly filteredIds: Set<string>;
+  /** Tropical watch/warning area polygons (NWS Alerts GeoJSON). */
+  readonly cycloneWarnings?: CycloneWarning[];
 };
 
 export type TrailHitTarget = {

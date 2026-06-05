@@ -57,10 +57,14 @@
   --color-sig-aircraft: var(--sigint-aircraft);
   --color-sig-events: var(--sigint-events);
   --color-sig-quakes: var(--sigint-quakes);
+  --color-sig-recon: var(--sigint-recon);
+  --color-sig-cycWarning: var(--sigint-cycWarning);
+  --color-sig-cycWatch: var(--sigint-cycWatch);
   --color-sig-text: var(--sigint-text);
   --color-sig-dim: var(--sigint-dim);
   --color-sig-bright: var(--sigint-bright);
   --color-sig-danger: var(--sigint-danger);
+  --color-sig-warn: var(--sigint-warn);
 
   /* SIGINT font family */
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;

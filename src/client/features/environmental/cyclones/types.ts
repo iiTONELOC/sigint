@@ -95,4 +95,6 @@ export type CycloneFilter = {
   showForecast: boolean;
   /** Show synthesized uncertainty cone */
   showCone: boolean;
+  /** Show NWS tropical watch/warning area polygons */
+  showWarnings: boolean;
 };

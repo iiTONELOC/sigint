@@ -13,6 +13,8 @@ import { getColorMap } from "@/config/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
+import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/CycloneLayerToggles";
+import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -441,7 +443,7 @@ function ModeButton({
       onClick={onClick}
       title={label}
       className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-[10px] tracking-wide min-h-9 ${
-        active ? "border" : "text-sig-dim border border-sig-bright/20"
+        active ? "border" : "text-sig-bright border border-sig-border hover:border-sig-grid/40"
       }`}
       style={
         active
@@ -477,7 +479,7 @@ function PanelBody({
       <div className="pt-2.5 border-t border-sig-border">
         {dataRows.map(([k, v]) => (
           <div key={k} className="flex justify-between mb-1.5">
-            <span className="uppercase tracking-wide text-sig-dim text-(length:--sig-text-sm)">
+            <span className="uppercase tracking-wide text-sig-accent text-(length:--sig-text-sm)">
               {k}
             </span>
             <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-lg)">
@@ -488,16 +490,24 @@ function PanelBody({
       </div>
 
       {/* Coordinates */}
-      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-dim text-(length:--sig-text-md)">
+      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-(length:--sig-text-md)">
         {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>
 
-      {/* Cyclone advisory + discussion text (bounded, scrollable) */}
+      {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
       {item.type === "cyclones" && (
-        <CycloneAdvisoryBlock
-          stormId={(item.data as { stormId?: string })?.stormId}
-        />
+        <>
+          <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+            <CycloneIntensityCurve storm={item.data} />
+          </div>
+          <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+            <CycloneLayerToggles />
+          </div>
+          <CycloneAdvisoryBlock
+            stormId={(item.data as { stormId?: string })?.stormId}
+          />
+        </>
       )}
 
       {/* Open in Dossier button */}

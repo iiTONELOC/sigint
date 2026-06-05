@@ -56,6 +56,7 @@ export function GlobeVisualization({
   searchMatchIds,
   spatialGrid,
   filteredIds,
+  cycloneWarnings,
 }: Readonly<GlobeVisualizationProps>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef<CamState>({
@@ -118,6 +119,7 @@ export function GlobeVisualization({
     searchMatchIds,
     spatialGrid,
     filteredIds,
+    cycloneWarnings,
   });
   propsRef.current = {
     data,
@@ -138,6 +140,7 @@ export function GlobeVisualization({
     searchMatchIds,
     spatialGrid,
     filteredIds,
+    cycloneWarnings,
   };
 
   const { theme, mode: themeMode } = useTheme();
@@ -161,6 +164,9 @@ export function GlobeVisualization({
   // postMessage. The progressive reveal ramp now lives in the worker.
   const dataDirtyRef = useRef(false);
   const dataPumpScheduledRef = useRef(false);
+  // Warning polygons (region geometry) are sent to the worker as their own
+  // "warnings" message when the array OR the theme changes — small + rare.
+  const lastSentWarningsRef = useRef<unknown>(null);
 
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
@@ -491,6 +497,25 @@ export function GlobeVisualization({
       // ── Send render job to worker ─────────────────────────────
       const worker = workerRef.current;
       if (worker) {
+        // Warning polygons: send on change (array ref or theme). Small + rare
+        // (~5 min cadence), so a direct postMessage here is cheap; the worker
+        // stores them and draws each frame under the showWarnings toggle.
+        const warnings = propsRef.current.cycloneWarnings ?? [];
+        if (
+          warnings !== lastSentWarningsRef.current ||
+          themeRef.current !== lastSentThemeRef.current
+        ) {
+          lastSentWarningsRef.current = warnings;
+          worker.postMessage({
+            type: "warnings",
+            payload: {
+              features: warnings,
+              warnColor: colorsRef.current.cycWarning,
+              watchColor: colorsRef.current.cycWatch,
+            },
+          });
+        }
+
         // Sync trail data periodically (~every 30 frames) — small payload.
         trailSyncRef.current++;
         if (trailSyncRef.current >= 30) {
@@ -576,6 +601,7 @@ export function GlobeVisualization({
             },
             cyclonesShowForecast: cyc?.showForecast ?? true,
             cyclonesShowCone: cyc?.showCone ?? true,
+            cyclonesShowWarnings: cyc?.showWarnings ?? true,
             prefersReducedMotion,
             searchMatchIds: searchIds,
             selectedItem,
@@ -738,6 +764,15 @@ export function GlobeVisualization({
         // This prevents the canvas from going blank between resize and next frame
         if (canvas.width !== cw || canvas.height !== ch) {
           pendingResizeRef.current = { cw, ch, dpr };
+        }
+        const prevMin = Math.min(sizeRef.current.w, sizeRef.current.h);
+        const nextMin = Math.min(w, h);
+        if (prevMin > 0 && nextMin > 0 && prevMin !== nextMin) {
+          const cam = camRef.current;
+          const target = camTargetRef.current;
+          const k = prevMin / nextMin;
+          cam.zoomGlobe *= k;
+          if (target.zoom > 0) target.zoom *= k;
         }
         sizeRef.current = { w, h };
       });

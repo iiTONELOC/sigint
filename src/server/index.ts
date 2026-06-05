@@ -10,6 +10,7 @@ import { startAisPolling } from "./api/aisCache";
 import { startFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling } from "./api/newsCache";
 import { startCyclonesPolling } from "./api/cyclonesCache";
+import { startCycloneWarningsPolling } from "./api/cyclonesWarningsCache";
 import { startAircraftPolling } from "./api/aircraftCache";
 import { createStaticRoutes } from "./staticRoutes";
 import { createLogger } from "./lib/logger";
@@ -58,6 +59,7 @@ startCyclonesPolling({
   enabled: config.fixtureOverridesEnabled,
   label: process.env.CYCLONES_FIXTURE,
 });
+startCycloneWarningsPolling();
 startAircraftPolling({
   enabled: config.fixtureOverridesEnabled,
   label: process.env.AIRCRAFT_FIXTURE,

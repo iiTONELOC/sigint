@@ -7,7 +7,7 @@
 // Per-feature render modules. Each exposes draw* functions on the worker
 // global scope. importScripts is synchronous in workers — these are loaded
 // before the message handler runs.
-importScripts("/workers/render/cyclones.js");
+importScripts("/workers/render/cyclones.js", "/workers/render/warnings.js");
 
 // ── Projection ──────────────────────────────────────────────────────
 
@@ -585,6 +585,12 @@ var _colors = null;
 var _pendingFrame = null;
 var _frameScheduled = false;
 
+// Tropical watch/warning polygons + their fill colours, set by the "warnings"
+// message and drawn each frame under the showWarnings toggle.
+var _warnings = null;
+var _warnColor = "#ff1a6e";
+var _watchColor = "#ffb300";
+
 // Progressive reveal ("framebuffer drain"). The main thread hands the full
 // data array once per change; the worker reveals it in chunks across its own
 // render ticks instead of drawing all ~60k at once on the first frame. The
@@ -607,6 +613,17 @@ self.onmessage = function (e) {
   }
   if (msg.type === "trails") {
     trailMap = new Map(msg.entries);
+    return;
+  }
+  if (msg.type === "warnings") {
+    _warnings = msg.payload.features || null;
+    if (msg.payload.warnColor) _warnColor = msg.payload.warnColor;
+    if (msg.payload.watchColor) _watchColor = msg.payload.watchColor;
+    // Repaint with the new warning areas even if the camera is still.
+    if (!_frameScheduled && _pendingFrame) {
+      _frameScheduled = true;
+      requestAnimationFrame(renderFrame);
+    }
     return;
   }
   if (msg.type === "data") {
@@ -712,6 +729,7 @@ function renderFrame() {
   // Cyclone filter flags + reduced-motion flag from main-thread frame payload
   var cyclonesShowForecast = p.cyclonesShowForecast !== false;
   var cyclonesShowCone = p.cyclonesShowCone !== false;
+  var cyclonesShowWarnings = p.cyclonesShowWarnings !== false;
   var reducedMotion = p.prefersReducedMotion === true;
 
   // Military aircraft color — neutral grey, distinct from civilian yellow.
@@ -784,6 +802,14 @@ function renderFrame() {
       accentColor: colors.grid || colors.accent,
       gridAlpha: gridAlpha,
     });
+  }
+
+  // ── Tropical watch/warning areas ──────────────────────────────
+  // Drawn inside the land/grid clip (over the ocean+coast, under the storm
+  // marker/track which render later) so the areas read as a ground overlay.
+  if (cyclonesShowWarnings && _warnings && _warnings.length > 0) {
+    var _gr = isFlat ? 0 : Math.min(W, H) * 0.4 * cam.zoomGlobe - 0.5;
+    drawWarnings(ctx, projFn, _warnings, isFlat, cx, cy, _gr, _warnColor, _watchColor);
   }
 
   // ── Project + filter points ───────────────────────────────────

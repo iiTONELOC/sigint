@@ -13,6 +13,7 @@ import {
 } from "./dossierCache";
 import { getCycloneDossier } from "./cyclonesDossierCache";
 import { getCycloneCone } from "./cyclonesConeCache";
+import { getCycloneWarningsCache } from "./cyclonesWarningsCache";
 import { gzip } from "zlib";
 import { promisify } from "util";
 
@@ -167,6 +168,20 @@ export function createApiRoutes(deps: ApiDeps) {
           activeStorms: cache.body.activeStorms,
           fetchedAt: cache.fetchedAt,
           stormCount: cache.stormCount,
+        });
+      },
+    },
+
+    "/api/cyclones/warnings": {
+      async GET(req: Request) {
+        const blocked = await guardAuth(req);
+        if (blocked) return blocked;
+
+        const cache = getCycloneWarningsCache();
+        return jsonResponse(req, {
+          features: cache.features,
+          fetchedAt: cache.fetchedAt,
+          featureCount: cache.featureCount,
         });
       },
     },

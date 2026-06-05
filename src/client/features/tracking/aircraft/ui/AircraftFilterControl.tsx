@@ -182,14 +182,36 @@ export function AircraftFilterControl({
               <div className="flex gap-1 flex-wrap">
                 {(
                   [
-                    // [label, value, full static class string for the ON state —
-                    // written literally so Tailwind's JIT can see each class.]
-                    ["ALL", "all", "bg-sig-aircraft/15 border-sig-aircraft/80 text-sig-aircraft"],
-                    ["MIL", "military", "bg-sig-bright/15 border-sig-bright/80 text-sig-bright"],
-                    ["CIV", "civilian", "bg-sig-aircraft/15 border-sig-aircraft/80 text-sig-aircraft"],
-                    ["HUNTER", "recon", "bg-sig-recon/15 border-sig-recon/80 text-sig-recon"],
+                    // [label, value, ON-state classes, OFF-state classes].
+                    // Pure Tailwind sig-* classes (theme-aware via the
+                    // @theme bridge in index.css). Written literally so the
+                    // JIT generates them.
+                    [
+                      "ALL",
+                      "all",
+                      "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
+                      "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
+                    ],
+                    [
+                      "MIL",
+                      "military",
+                      "bg-sig-bright/15 border-sig-bright text-sig-bright",
+                      "bg-sig-panel/30 border-sig-bright/40 text-sig-bright",
+                    ],
+                    [
+                      "CIV",
+                      "civilian",
+                      "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
+                      "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
+                    ],
+                    [
+                      "HUNTER",
+                      "recon",
+                      "bg-sig-recon/15 border-sig-recon text-sig-recon",
+                      "bg-sig-panel/30 border-sig-recon/40 text-sig-recon",
+                    ],
                   ] as const
-                ).map(([label, value, onClass]) => {
+                ).map(([label, value, onCls, offCls]) => {
                   const on = aircraftFilter.milFilter === value;
                   return (
                     <button
@@ -198,11 +220,7 @@ export function AircraftFilterControl({
                       onClick={() =>
                         setAircraftFilter((f) => ({ ...f, milFilter: value }))
                       }
-                      className={`rounded-sm px-1.5 py-0.5 text-[12px] border transition-colors ${
-                        on
-                          ? onClass
-                          : "bg-sig-panel/30 border-sig-bright/40 text-sig-bright"
-                      }`}
+                      className={`rounded-sm px-1.5 py-0.5 text-[12px] border transition-colors ${on ? onCls : offCls}`}
                     >
                       {label}
                     </button>

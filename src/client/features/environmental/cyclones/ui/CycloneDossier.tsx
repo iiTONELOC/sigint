@@ -5,10 +5,13 @@ import { useCycloneDossier } from "../hooks/useCycloneDossier";
 import {
   DossierToolbar,
   Section,
+  CollapsibleSection,
   Row,
   LinkRow,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
+import { CycloneLayerToggles } from "./CycloneLayerToggles";
+import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
 
 const CATEGORY_LABEL: Record<string, string> = {
   TD: "Tropical Depression",
@@ -66,6 +69,10 @@ export function CycloneDossier({
       />
       <div className="flex-1 overflow-y-auto sigint-scroll">
         <div className="p-3 space-y-3">
+          <Section title="LAYERS">
+            <CycloneLayerToggles />
+          </Section>
+
           <Section title="IDENTITY">
             <Row label="STORM ID" value={d.stormId} />
             <Row label="BASIN" value={d.basin} />
@@ -73,6 +80,10 @@ export function CycloneDossier({
             <Row
               label="LAST UPDATE"
               value={new Date(d.lastUpdate).toLocaleString()}
+            />
+            <Row
+              label="NEXT UPDATE"
+              value={dossier?.advisory?.nextAdvisory ?? ""}
             />
           </Section>
 
@@ -94,7 +105,13 @@ export function CycloneDossier({
           )}
 
           {d.forecast.length > 0 && (
-            <Section title="FORECAST TRACK">
+            <Section title="INTENSITY TREND">
+              <CycloneIntensityCurve storm={d} />
+            </Section>
+          )}
+
+          {d.forecast.length > 0 && (
+            <CollapsibleSection title="FORECAST TRACK" defaultOpen={false}>
               {d.forecast.map((f) => (
                 <Row
                   key={f.fcstHour}
@@ -102,13 +119,13 @@ export function CycloneDossier({
                   value={`${f.maxWindKt}kn ${f.category} — ${f.lat.toFixed(1)},${f.lon.toFixed(1)}`}
                 />
               ))}
-            </Section>
+            </CollapsibleSection>
           )}
 
-          <Section title="ADVISORY">
+          <CollapsibleSection title="ADVISORY" defaultOpen={false}>
             {loading && !dossier?.advisory ? (
               <div
-                className="text-xs text-sig-dim"
+                className="text-xs text-sig-text"
                 aria-live="polite"
               >
                 Loading…
@@ -119,12 +136,12 @@ export function CycloneDossier({
                 {dossier.advisory.body}
               </pre>
             ) : null}
-          </Section>
+          </CollapsibleSection>
 
-          <Section title="DISCUSSION">
+          <CollapsibleSection title="DISCUSSION" defaultOpen={false}>
             {loading && !dossier?.discussion ? (
               <div
-                className="text-xs text-sig-dim"
+                className="text-xs text-sig-text"
                 aria-live="polite"
               >
                 Loading…
@@ -135,10 +152,10 @@ export function CycloneDossier({
                 {dossier.discussion.body}
               </pre>
             ) : null}
-          </Section>
+          </CollapsibleSection>
 
           <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-dim">
+            <div className="text-sm font-mono text-sig-bright">
               {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
               {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
             </div>

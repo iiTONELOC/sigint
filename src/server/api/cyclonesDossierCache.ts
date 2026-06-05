@@ -30,6 +30,9 @@ export type ProductBody = {
   advisoryNumber: string;
   issuedAt: string;
   body: string;
+  /** NHC's published "next advisory" time, verbatim from the bulletin's
+   *  NEXT ADVISORY section (e.g. "300 AM PDT" / "0900 UTC"). "" if absent. */
+  nextAdvisory: string;
 };
 
 export type CycloneDossierBundle = {
@@ -88,6 +91,12 @@ const TIMESTAMP_RE =
   /^(\d{3,4}\s+(?:(?:AM|PM)\s+\w{3,4}|UTC)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{4})\s*$/im;
 // Wind-probabilities products use "WIND SPEED PROBABILITIES NUMBER 8"
 const WNDPRB_NUMBER_RE = /WIND SPEED PROBABILITIES NUMBER\s+(\d+[A-Z]?)/i;
+// NHC closes each public advisory with a NEXT ADVISORY section, e.g.:
+//   "Next complete advisory at 300 AM PDT."
+//   "Next intermediate advisory at 1200 PM PDT."
+// Capture the time phrase NHC actually published — never computed.
+const NEXT_ADVISORY_RE =
+  /Next (?:complete|intermediate)?\s*advisory at\s+(.+?)\.?\s*$/im;
 
 const PRE_TAG_RE = /<pre[^>]*>/i;
 
@@ -151,7 +160,12 @@ export function parseProductHtml(
   const tsMatch = TIMESTAMP_RE.exec(body);
   const issuedAt = tsMatch?.[1] ?? "";
 
-  return { advisoryNumber, issuedAt, body };
+  // NEXT ADVISORY can sit just after the $$ trailer, so search the whole
+  // bulletin (trimmed), not just the extracted body.
+  const nextMatch = NEXT_ADVISORY_RE.exec(trimmed);
+  const nextAdvisory = nextMatch?.[1]?.trim() ?? "";
+
+  return { advisoryNumber, issuedAt, body, nextAdvisory };
 }
 
 // ── Single-product fetch ─────────────────────────────────────────────

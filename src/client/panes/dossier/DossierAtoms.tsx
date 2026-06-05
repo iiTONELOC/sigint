@@ -2,10 +2,10 @@ import { useEffect, useId, useRef } from "react";
 import {
   MapPin,
   ExternalLink,
-  X,
   Eye,
   Crosshair,
   LocateFixed,
+  ChevronRight,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,7 +40,7 @@ export function IsoBtn({
       className={`flex items-center gap-1 px-1.5 py-1 rounded text-[11px] font-mono tracking-wider transition-colors border shrink-0 ${
         active
           ? "text-sig-accent bg-sig-accent/15 border-sig-accent/40"
-          : "text-sig-dim bg-transparent border-sig-grid/50 hover:text-sig-text"
+          : "text-sig-bright bg-transparent border-sig-border hover:text-sig-bright hover:border-sig-grid/40"
       }`}
     >
       <Icon className="w-3 h-3" aria-hidden="true" />
@@ -67,12 +67,45 @@ export function Section({
     <section aria-labelledby={headingId}>
       <h3
         id={headingId}
-        className="text-xs text-sig-accent tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-normal"
+        className="text-xs tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold"
+        style={{ color: "var(--sigint-warn)" }}
       >
         {title}
       </h3>
       <div className="space-y-0.5">{children}</div>
     </section>
+  );
+}
+
+// ── CollapsibleSection ───────────────────────────────────────────────
+// Same amber header treatment as Section, but built on native
+// <details>/<summary> so it's keyboard- and screen-reader-accessible with
+// no JS state. The chevron rotates open. `defaultOpen` controls the initial
+// state — key data stays open, heavy text (advisory/discussion) collapses.
+
+export function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  readonly title: string;
+  readonly defaultOpen?: boolean;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="group">
+      <summary
+        className="flex items-center gap-1 cursor-pointer list-none select-none text-xs tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold min-h-7"
+        style={{ color: "var(--sigint-warn)" }}
+      >
+        <ChevronRight
+          className="w-3 h-3 shrink-0 transition-transform group-open:rotate-90"
+          aria-hidden="true"
+        />
+        {title}
+      </summary>
+      <div className="space-y-0.5 pt-1">{children}</div>
+    </details>
   );
 }
 
@@ -88,8 +121,8 @@ export function Row({
   if (!value || value === "UNKNOWN" || value === "Unknown") return null;
   return (
     <div className="flex justify-between text-sm gap-2">
-      <span className="text-sig-dim shrink-0">{label}</span>
-      <span className="text-sig-text text-right truncate font-mono">
+      <span className="text-sig-accent shrink-0">{label}</span>
+      <span className="text-sig-bright text-right truncate font-mono">
         {value}
       </span>
     </div>
@@ -170,8 +203,6 @@ export function DossierToolbar({
   onLocate,
   onFocus,
   onSolo,
-  onClose,
-  closeButtonRef,
 }: DossierToolbarProps) {
   return (
     <div className="p-3 pb-0">
@@ -185,18 +216,9 @@ export function DossierToolbar({
             {badge}
           </span>
         )}
-        <button
-          ref={closeButtonRef}
-          type="button"
-          aria-label="Close dossier"
-          onClick={onClose}
-          className="p-1.5 rounded text-sig-dim hover:text-sig-bright transition-colors shrink-0"
-        >
-          <X className="w-4 h-4" aria-hidden="true" />
-        </button>
       </div>
       {subtitle && (
-        <div className="text-xs text-sig-dim mt-0.5 truncate font-mono">
+        <div className="text-xs text-sig-text mt-0.5 truncate font-mono">
           {subtitle}
         </div>
       )}

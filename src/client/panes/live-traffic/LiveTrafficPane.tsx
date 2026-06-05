@@ -47,6 +47,7 @@ export function LiveTrafficPane() {
     searchMatchIds,
     spatialGrid,
     filteredIds,
+    cycloneWarnings,
     watchActive,
     watchPaused,
     watchMode,
@@ -182,6 +183,7 @@ export function LiveTrafficPane() {
         onSelectedSide={setPanelSide}
         spatialGrid={spatialGrid}
         filteredIds={filteredIds}
+        cycloneWarnings={cycloneWarnings}
       />
 
       {/* ── View controls — top-left overlay on globe ─────────────── */}

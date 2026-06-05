@@ -26,6 +26,7 @@ export const cycloneFeature: FeatureDefinition<CycloneData, CycloneFilter> = {
     minCategory: 0,
     showForecast: true,
     showCone: true,
+    showWarnings: true,
   },
 
   buildDetailRows: (data: CycloneData, timestamp?: string) =>

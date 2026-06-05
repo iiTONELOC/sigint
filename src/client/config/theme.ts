@@ -19,6 +19,10 @@ export type ThemeColors = {
   cyclones: string;
   /** Hurricane Hunter / recon aircraft — neon orange, distinct from fires. */
   recon: string;
+  /** Tropical WARNING area fill (hurricane/TS/surge warning). */
+  cycWarning: string;
+  /** Tropical WATCH area fill (one step below a warning). */
+  cycWatch: string;
   text: string;
   dim: string;
   bright: string;
@@ -57,6 +61,10 @@ export const themes: Record<"dark" | "light", Theme> = {
       // Neon amber — brighter/yellower than fires (#ff6600) so recon birds
       // stand apart from fire dots on the dark globe.
       recon: "#ff9500",
+      // Warning = hot magenta-red (pinker than cyclone red #ff2b3d so the
+      // area fill reads apart from the storm marker); watch = amber.
+      cycWarning: "#ff1a6e",
+      cycWatch: "#ffb300",
       text: "#b0bec5",
       dim: "#556070",
       bright: "#e8eef4",
@@ -85,6 +93,10 @@ export const themes: Record<"dark" | "light", Theme> = {
       // Deep amber — readable on the light background, distinct from the
       // red-leaning light fires (#cc2200) and weather orange (#e07000).
       recon: "#b86b00",
+      // Warning = deep magenta-red; watch = deep amber. Both legible on the
+      // light background and distinct from cyclone red (#a3001a).
+      cycWarning: "#c2185b",
+      cycWatch: "#b45309",
       text: "#1a2530",
       dim: "#4a5a6a",
       bright: "#0a1018",

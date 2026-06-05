@@ -101,6 +101,7 @@ describe("cyclones types", () => {
       minCategory: 0,
       showForecast: true,
       showCone: true,
+      showWarnings: true,
     };
     expect(f.enabled).toBe(true);
     expect(f.minCategory).toBe(0);
