@@ -8,7 +8,9 @@
 
 import { getStormProducts } from "./cyclonesCache";
 import { getCycloneCone } from "./cyclonesConeCache";
+import { getCycloneWindRadii } from "./cyclonesAtcfCache";
 import { unzipSingleEntryKmz } from "./zipReader";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 
 const logger = createLogger({ service: "nhc" });
@@ -89,23 +91,13 @@ export function parseTrackKml(kml: string): TrackForecastPoint[] {
   return points;
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // Returns [] on any failure — a track outage must not block the storm render.
 async function fetchForecastTrack(stormId: string): Promise<TrackForecastPoint[]> {
   const products = getStormProducts(stormId);
   const url = products?.trackKmzUrl;
   if (!url) return [];
   try {
-    const res = await fetchWithTimeout(url);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     if (!res.ok) return [];
     const buf = await res.arrayBuffer();
     const kml = await unzipSingleEntryKmz(new Uint8Array(buf));
@@ -125,12 +117,14 @@ export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
       const rawId = obj.id;
       if (typeof rawId !== "string") return;
       const stormId = rawId.toUpperCase();
-      const [forecast, coneResult] = await Promise.all([
+      const [forecast, coneResult, radiiResult] = await Promise.all([
         fetchForecastTrack(stormId),
         getCycloneCone(stormId).catch(() => ({ cone: null })),
+        getCycloneWindRadii(stormId).catch(() => ({ radii: null })),
       ]);
       obj.forecast = forecast;
       if (coneResult.cone) obj.officialCone = coneResult.cone;
+      if (radiiResult.radii) obj.windRadii = radiiResult.radii;
     }),
   );
   logger.info("🌀 NHC: forecast track + cone enrichment complete");

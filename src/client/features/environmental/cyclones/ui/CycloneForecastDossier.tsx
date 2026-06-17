@@ -1,6 +1,6 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { formatKtMph } from "@/lib/units";
+import { formatKtMph, nmToKm } from "@/lib/units";
 import type { CycloneForecastPointData } from "../types";
 import {
   DossierToolbar,
@@ -8,23 +8,9 @@ import {
   Row,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
+import { CATEGORY_LABEL } from "../classification";
 
 // Dossier for one forecast-track point — shows that point's own projected data.
-
-const CATEGORY_LABEL: Record<string, string> = {
-  TD: "Tropical Depression",
-  TS: "Tropical Storm",
-  HU1: "Hurricane Cat 1",
-  HU2: "Hurricane Cat 2",
-  HU3: "Hurricane Cat 3 (major)",
-  HU4: "Hurricane Cat 4 (major)",
-  HU5: "Hurricane Cat 5 (major)",
-  STD: "Subtropical Depression",
-  STS: "Subtropical Storm",
-  PT: "Post-Tropical",
-};
-
-const NM_TO_KM = 1.852;
 
 type Props = {
   readonly item: DataPoint & {
@@ -50,7 +36,7 @@ export function CycloneForecastDossier({
   const category = CATEGORY_LABEL[d.category] ?? d.category;
   const closeBtnRef = useDossierFocus(item.id);
   const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
-  const errKm = Math.round(d.errorRadiusNm * NM_TO_KM);
+  const errKm = nmToKm(d.errorRadiusNm);
 
   return (
     <div className="h-full flex flex-col">

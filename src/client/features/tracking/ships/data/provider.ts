@@ -2,6 +2,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
 import { authenticatedFetch } from "@/lib/authService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { ktToMps } from "@/lib/units";
 
 const SHIPS_URL = "/api/ships/latest";
 
@@ -41,7 +42,7 @@ function toDataPoint(v: ServerVessel): DataPoint | null {
   if (v.lat === 0 && v.lon === 0) return null;
 
   const sogKnots = v.sog ?? 0;
-  const speedMps = sogKnots * 0.5144;
+  const speedMps = ktToMps(sogKnots);
 
   return {
     id: `S${v.mmsi}`,

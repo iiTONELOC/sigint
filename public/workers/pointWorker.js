@@ -799,6 +799,7 @@ function renderFrame() {
   // Cyclone filter flags + reduced-motion flag from main-thread frame payload
   var cyclonesShowForecast = p.cyclonesShowForecast !== false;
   var cyclonesShowCone = p.cyclonesShowCone !== false;
+  var cyclonesShowWindField = p.cyclonesShowWindField === true; // default off
   var cyclonesShowWarnings = p.cyclonesShowWarnings !== false;
   var reducedMotion = p.prefersReducedMotion === true;
 
@@ -1149,6 +1150,7 @@ function renderFrame() {
         isSel,
         cyclonesShowForecast,
         cyclonesShowCone,
+        cyclonesShowWindField,
         reducedMotion,
       );
       continue;

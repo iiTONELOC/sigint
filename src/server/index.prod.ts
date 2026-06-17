@@ -4,12 +4,7 @@ import { loadConfig, ConfigError } from "./config";
 import { createApiRoutes } from "./api";
 import { createAuthGuards } from "./api/auth";
 import { createSecurityHeaders } from "./api/securityHeaders";
-import { startGdeltPolling } from "./api/gdeltCache";
-import { startAisPolling } from "./api/aisCache";
-import { startFirmsPolling } from "./api/firmsCache";
-import { startNewsPolling } from "./api/newsCache";
-import { startCyclonesPolling } from "./api/cyclonesCache";
-import { startAircraftPolling } from "./api/aircraftCache";
+import { startAllPolling } from "./startPolling";
 import { createStaticRoutes, safePath } from "./staticRoutes";
 import { createLogger } from "./lib/logger";
 
@@ -69,15 +64,4 @@ if (config.domain) {
 } else {
   logger.info(`🚀 Production server running at ${server.url}`);
 }
-startGdeltPolling();
-startAisPolling(config.aisstreamApiKey);
-startFirmsPolling(config.firmsMapKey);
-startNewsPolling();
-startCyclonesPolling({
-  enabled: config.fixtureOverridesEnabled,
-  label: process.env.CYCLONES_FIXTURE,
-});
-startAircraftPolling({
-  enabled: config.fixtureOverridesEnabled,
-  label: process.env.AIRCRAFT_FIXTURE,
-});
+startAllPolling(config);

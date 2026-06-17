@@ -37,6 +37,7 @@ export const CACHE_KEYS = {
   walkthroughComplete: `sigint.walkthrough.complete.${V}`,
   layoutMode: `sigint.layout.mode.${V}`,
   alwaysShowCyclones: `sigint.preferences.always-show-cyclones.${V}`,
+  units: `sigint.preferences.units.${V}`,
 } as const;
 
 export type CacheKey = (typeof CACHE_KEYS)[keyof typeof CACHE_KEYS];
@@ -75,6 +76,7 @@ export const CACHE_KEY_LABELS: Record<
   },
   [CACHE_KEYS.dismissedAlerts]: { label: "Dismissed alerts", group: "UI" },
   [CACHE_KEYS.tickerSpeed]: { label: "Ticker speed", group: "UI" },
+  [CACHE_KEYS.units]: { label: "Units preference", group: "UI" },
   [CACHE_KEYS.tickerHeight]: { label: "Ticker height mode", group: "UI" },
   [CACHE_KEYS.walkthroughComplete]: {
     label: "Walkthrough completed",

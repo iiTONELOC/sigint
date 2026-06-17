@@ -17,6 +17,8 @@
 
 import { getStormProducts } from "./cyclonesCache";
 import { unzipSingleEntryKmz } from "./zipReader";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { createPerKeyCache } from "../lib/perKeyCache";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -30,38 +32,6 @@ export type GeoJSONPolygon = {
   type: "Polygon";
   coordinates: number[][][];
 };
-
-type CacheEntry = {
-  cone: GeoJSONPolygon | null;
-  expiresAt: number;
-  fetchedAt: number;
-};
-
-// ── Cache state ──────────────────────────────────────────────────────
-
-const cache = new Map<string, CacheEntry>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (now > entry.expiresAt) cache.delete(key);
-  }
-}, PURGE_INTERVAL_MS);
-
-// ── Fetch with timeout ───────────────────────────────────────────────
-
-async function fetchWithTimeout(
-  url: string,
-  timeoutMs: number = FETCH_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── KML → GeoJSON ────────────────────────────────────────────────────
 
@@ -101,7 +71,7 @@ async function fetchConeForStorm(stormId: string): Promise<GeoJSONPolygon | null
   const products = getStormProducts(stormId);
   if (!products?.conekmzUrl) return null;
   try {
-    const res = await fetchWithTimeout(products.conekmzUrl);
+    const res = await fetchWithTimeout(products.conekmzUrl, FETCH_TIMEOUT_MS);
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     const kml = await unzipSingleEntryKmz(new Uint8Array(buf));
@@ -121,29 +91,18 @@ export type CycloneConeResult = {
 /** Get the cone GeoJSON for a storm. Same TTL + stale-while-revalidate
  *  pattern as cyclonesDossierCache. Cone fetch failure is silent — the
  *  client falls back to the synthesized cone. */
+const coneCache = createPerKeyCache<GeoJSONPolygon | null>({
+  ttlMs: CONE_CACHE_TTL_MS,
+  purgeIntervalMs: PURGE_INTERVAL_MS,
+  emptyValue: null,
+  fetch: fetchConeForStorm,
+});
+
 export async function getCycloneCone(stormId: string): Promise<CycloneConeResult> {
-  const now = Date.now();
-  const existing = cache.get(stormId);
-
-  if (existing && existing.expiresAt > now) {
-    return { cone: existing.cone, fetchedAt: existing.fetchedAt };
-  }
-
-  try {
-    const cone = await fetchConeForStorm(stormId);
-    const entry: CacheEntry = {
-      cone,
-      expiresAt: now + CONE_CACHE_TTL_MS,
-      fetchedAt: now,
-    };
-    cache.set(stormId, entry);
-    return { cone, fetchedAt: now };
-  } catch {
-    if (existing) return { cone: existing.cone, fetchedAt: existing.fetchedAt };
-    return { cone: null, fetchedAt: now };
-  }
+  const { value, fetchedAt } = await coneCache.get(stormId);
+  return { cone: value, fetchedAt };
 }
 
 export function __resetCycloneConeCacheForTests(): void {
-  cache.clear();
+  coneCache.reset();
 }

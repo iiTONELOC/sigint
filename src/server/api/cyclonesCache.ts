@@ -18,7 +18,9 @@
 
 import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
 import { enrichStorms } from "./cyclonesForecastTrack";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
+import { createPoller } from "../lib/poller";
 
 const logger = createLogger({ service: "nhc" });
 
@@ -95,7 +97,6 @@ const stormProducts = new Map<string, StormProducts>();
 type AdvisoryChangeListener = (stormIds: string[]) => void;
 let advisoryChangeListener: AdvisoryChangeListener | null = null;
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── Pure helpers (testable) ─────────────────────────────────────────
 
@@ -301,11 +302,8 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
     return;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(NHC_URL, {
-      signal: controller.signal,
+    const res = await fetchWithTimeout(NHC_URL, FETCH_TIMEOUT_MS, {
       headers: buildFetchHeaders(conditionalState),
     });
     await processCyclonesResponse(res);
@@ -315,8 +313,6 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
       error: err instanceof Error ? err.message : "Unknown fetch error",
     };
     logger.warn("🌀 NHC: fetch error");
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -466,19 +462,16 @@ export function setAdvisoryChangeListener(
 
 // ── Public API ───────────────────────────────────────────────────────
 
+const poller = createPoller(fetchCyclones, POLL_INTERVAL_MS);
+
 export function startCyclonesPolling(opts?: CyclonesFixtureOptions): void {
-  if (intervalId) return;
   if (opts) cyclonesFixtureOptions = opts;
   logger.info("🌀 NHC: starting cyclone poll...");
-  void fetchCyclones();
-  intervalId = setInterval(() => void fetchCyclones(), POLL_INTERVAL_MS);
+  poller.start();
 }
 
 export function stopCyclonesPolling(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  poller.stop();
 }
 
 export function getCyclonesCache(): CyclonesCache {

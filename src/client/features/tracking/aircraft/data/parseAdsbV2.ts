@@ -41,10 +41,10 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftData } from "../types";
 import { authenticatedFetch } from "@/lib/authService";
 import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
+import { ktToMps } from "@/lib/units";
 
 export const AIRCRAFT_STATES_URL = "/api/aircraft/states";
 
-const KNOTS_TO_MPS = 0.5144;
 const FT_PER_MIN_TO_MPS = 196.85;
 
 // ── adsb.fi response shapes ──────────────────────────────────────
@@ -89,7 +89,7 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
       : 0;
 
   const speed = typeof a.gs === "number" ? a.gs : 0;
-  const speedMps = speed * KNOTS_TO_MPS;
+  const speedMps = ktToMps(speed);
 
   const heading =
     typeof a.track === "number"

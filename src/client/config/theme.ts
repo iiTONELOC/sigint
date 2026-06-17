@@ -155,8 +155,10 @@ export function getColorMap(theme: Theme): Record<string, string> {
     weather: theme.colors.weather,
     cyclones: theme.colors.cyclones,
     // Defined so consumers reading colorMap by raw type don't get undefined
-    // (which renders black). Forecast points share the cyclones color.
+    // (which renders black). Forecast points + warning areas share the
+    // cyclones color.
     "cyclones-forecast": theme.colors.cyclones,
+    "cyclones-warning": theme.colors.cyclones,
   };
 }
 

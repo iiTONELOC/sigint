@@ -7,12 +7,13 @@
 
 import { useId } from "react";
 import { TrendingUp } from "lucide-react";
-import { ktToMph } from "@/lib/units";
+import { formatKtMph } from "@/lib/units";
 import type { CycloneData } from "../types";
 import {
   analyzeIntensity,
   peakForecastWindKt,
 } from "../data/intensity";
+import { SAFFIR_SIMPSON, TS_MIN_KT } from "../classification";
 
 const W = 260;
 const H = 84;
@@ -23,12 +24,8 @@ const PAD_BOTTOM = 4;
 // Saffir-Simpson lower bounds (kt). Bands shade the chart so a viewer reads
 // the line's height as a category, not just a number.
 const SS_BANDS = [
-  { label: "C5", kt: 137 },
-  { label: "C4", kt: 113 },
-  { label: "C3", kt: 96 },
-  { label: "C2", kt: 83 },
-  { label: "C1", kt: 64 },
-  { label: "TS", kt: 34 },
+  ...SAFFIR_SIMPSON.map((b) => ({ label: b.label, kt: b.minKt })),
+  { label: "TS", kt: TS_MIN_KT },
 ];
 
 export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }) {
@@ -72,7 +69,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           INTENSITY
         </span>
         <span className="text-[10px] font-mono text-sig-text">
-          peak {peak} kt ({ktToMph(peak)} mph)
+          peak {formatKtMph(peak)}
           {lastW < firstW ? " · weakening" : lastW > firstW ? " · strengthening" : " · steady"}
         </span>
       </div>
@@ -87,7 +84,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           }}
         >
           <TrendingUp className="w-3.5 h-3.5" aria-hidden="true" />
-          RAPID INTENSIFICATION · +{ri.maxGain24hKt} kt ({ktToMph(ri.maxGain24hKt)} mph)/24h
+          RAPID INTENSIFICATION · +{formatKtMph(ri.maxGain24hKt)}/24h
         </div>
       )}
 
@@ -150,8 +147,8 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
       </svg>
 
       <div className="flex justify-between text-[10px] font-mono text-sig-text mt-0.5">
-        <span>now · {firstW} kt ({ktToMph(firstW)} mph)</span>
-        <span>+{maxH}h · {lastW} kt ({ktToMph(lastW)} mph)</span>
+        <span>now · {formatKtMph(firstW)}</span>
+        <span>+{maxH}h · {formatKtMph(lastW)}</span>
       </div>
     </div>
   );

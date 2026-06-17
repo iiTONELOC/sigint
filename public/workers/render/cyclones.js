@@ -27,6 +27,7 @@ function drawCyclone(
   isSelected,
   showForecast,
   showCone,
+  showWindField,
   reducedMotion,
 ) {
   var d = item.data || {};
@@ -74,6 +75,12 @@ function drawCyclone(
     );
   }
 
+  // Real 34/50/64-kt wind radii (ATCF b-deck) — translucent quadrant wedges
+  // showing actual storm size. Its own toggle; independent of the track/cone.
+  if (showWindField) {
+    drawWindRadii(ctx, projFn, x, y, item, depthAlpha);
+  }
+
   // Selection ring — fixed radius under reduced motion (no oscillation)
   if (isSelected) {
     ctx.globalAlpha = 0.85;
@@ -83,6 +90,48 @@ function drawCyclone(
     var ringDelta = reducedMotion ? 0 : Math.sin(t * 2) * 2;
     ctx.arc(x, y, s * 2.5 + ringDelta, 0, Math.PI * 2);
     ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Quadrant wind radii. wr.kt34/50/64 are nautical miles per quadrant
+// [NE, SE, SW, NW]; each is drawn as a filled wedge from the eye. Outer→inner
+// (34→64) with an intensity ramp so the strongest band reads on top. nm→px
+// uses 60 nm = 1° latitude (same approximation as the synthesized cone).
+function drawWindRadii(ctx, projFn, x, y, item, depthAlpha) {
+  var wr = item.data && item.data.windRadii;
+  if (!wr) return;
+  var north = projFn(item.lat + 1, item.lon);
+  if (north.z <= 0) return;
+  var pxPerNm = Math.hypot(north.x - x, north.y - y) / 60;
+  if (!(pxPerNm > 0)) return;
+
+  // canvas angle: 0 = east, positive = clockwise (y-down). NE, SE, SW, NW.
+  var QUAD = [
+    [-Math.PI / 2, 0],
+    [0, Math.PI / 2],
+    [Math.PI / 2, Math.PI],
+    [Math.PI, (3 * Math.PI) / 2],
+  ];
+  var BANDS = [
+    [wr.kt34, "#ffd24a", 0.1],
+    [wr.kt50, "#ff8c42", 0.13],
+    [wr.kt64, "#ff5d5d", 0.17],
+  ];
+  for (var b = 0; b < BANDS.length; b++) {
+    var q = BANDS[b][0];
+    if (!q) continue;
+    ctx.fillStyle = BANDS[b][1];
+    ctx.globalAlpha = depthAlpha * BANDS[b][2];
+    for (var k = 0; k < 4; k++) {
+      var nm = q[k];
+      if (!nm || nm <= 0) continue;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.arc(x, y, nm * pxPerNm, QUAD[k][0], QUAD[k][1]);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
 }

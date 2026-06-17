@@ -40,6 +40,9 @@ import { requestWalkthroughLaunch } from "@/lib/layoutSignals";
 import {
   useAlwaysShowCyclones,
   setAlwaysShowCyclones,
+  useUnitsMode,
+  setUnitsMode,
+  type UnitMode,
 } from "@/lib/userPreferences";
 import {
   useLayoutMode,
@@ -361,6 +364,9 @@ function AppearanceTab({
     void setAlwaysShowCyclones(v);
   }, []);
 
+  // Wind/speed units — same signal pattern; every readout updates instantly.
+  const unitsMode = useUnitsMode();
+
   const speedLabel =
     tickerSpeed === 0
       ? "STOPPED"
@@ -409,6 +415,35 @@ function AppearanceTab({
             <Sun size={18} />
             <span className="text-[10px] font-semibold tracking-wider">LIGHT</span>
           </button>
+        </div>
+      </div>
+
+      {/* Wind / speed units */}
+      <div>
+        <div className="text-xs text-sig-dim tracking-widest mb-3">
+          WIND / SPEED UNITS
+        </div>
+        <div className="flex gap-2">
+          {(
+            [
+              ["both", "BOTH"],
+              ["kt", "KT"],
+              ["mph", "MPH"],
+              ["kmh", "KM/H"],
+            ] as [UnitMode, string][]
+          ).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => void setUnitsMode(val)}
+              className={`flex-1 px-2 py-2 rounded border text-[10px] font-semibold tracking-wider transition-all ${
+                unitsMode === val
+                  ? "bg-sig-accent/10 border-sig-accent/40 text-sig-accent"
+                  : "bg-transparent border-sig-border/50 text-sig-dim hover:text-sig-text hover:border-sig-border"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 

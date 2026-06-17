@@ -7,6 +7,8 @@
 //
 // All JSON responses cached in memory with TTL.
 
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+
 // ── Config ───────────────────────────────────────────────────────────
 
 const HEXDB_BASE = "https://hexdb.io";
@@ -75,16 +77,6 @@ setInterval(() => {
 }, 10 * 60_000);
 
 // ── Fetch with timeout ───────────────────────────────────────────────
-
-async function fetchWithTimeout(url: string, timeoutMs: number = FETCH_TIMEOUT_MS): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── hexdb.io types ───────────────────────────────────────────────────
 
@@ -333,7 +325,7 @@ async function fetchAircraftInfo(hex: string): Promise<HexDbAircraft | null> {
   if (cached) return cached;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/aircraft/${hex}`);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/aircraft/${hex}`, FETCH_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
     if (data?.status === "404") return null;
@@ -350,7 +342,7 @@ async function fetchHexDbRoute(callsign: string): Promise<LiveRoute | null> {
   if (cached !== null) return cached || null;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/route/icao/${callsign}`);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/route/icao/${callsign}`, FETCH_TIMEOUT_MS);
     if (!res.ok) {
       setCached(cacheKey, false, CACHE_TTL_MS);
       return null;
@@ -401,7 +393,7 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
   if (cached) return cached;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/airport/icao/${icao}`);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/airport/icao/${icao}`, FETCH_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
     if (data?.status === "404") return null;
@@ -426,7 +418,7 @@ async function fetchPhoto(hex: string, reg?: string, typeCode?: string): Promise
     if (typeCode) params.push(`icaoType=${encodeURIComponent(typeCode)}`);
     if (params.length > 0) url += `?${params.join("&")}`;
 
-    const res = await fetchWithTimeout(url);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     if (!res.ok) {
       setCached(cacheKey, false, PHOTO_CACHE_TTL_MS);
       return null;

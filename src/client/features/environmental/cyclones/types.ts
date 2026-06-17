@@ -60,11 +60,25 @@ export type CycloneData = {
    *  /api/cyclones/:stormId/cone after CurrentStorms.json parse. Absent
    *  → worker falls back to the synthesized error-radius cone. */
   officialCone?: GeoJSONPolygon;
+  /** Current 34/50/64-kt wind radii from the ATCF b-deck (real analyzed storm
+   *  size). Attached server-side; absent for storms NHC reports no radii for. */
+  windRadii?: WindRadii;
 };
 
 export type GeoJSONPolygon = {
   type: "Polygon";
   coordinates: number[][][];
+};
+
+export type WindRadii = {
+  lat: number;
+  lon: number;
+  vmaxKt: number;
+  validTime: string;
+  /** Nautical miles per quadrant [NE, SE, SW, NW], or null at that threshold. */
+  kt34: number[] | null;
+  kt50: number[] | null;
+  kt64: number[] | null;
 };
 
 // Synthetic per-forecast-point shape — produced by
@@ -95,6 +109,8 @@ export type CycloneFilter = {
   showForecast: boolean;
   /** Show synthesized uncertainty cone */
   showCone: boolean;
+  /** Show real 34/50/64-kt wind radii (ATCF b-deck). Off by default. */
+  showWindField: boolean;
   /** Show NWS tropical watch/warning area polygons */
   showWarnings: boolean;
 };

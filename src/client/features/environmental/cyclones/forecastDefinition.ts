@@ -1,14 +1,12 @@
 import { Wind } from "lucide-react";
 import type { FeatureDefinition, BasePoint } from "@/features/base/types";
-import { formatKtMph } from "@/lib/units";
+import { formatKtMph, nmToKm } from "@/lib/units";
 import type { CycloneForecastPointData } from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 
 // Feature entry for the synthetic "cyclones-forecast" points. Needed so
 // featureRegistry.get(type) resolves for the hit-test/detail pipeline.
 // Minimal: forecast points piggyback on the cyclones layer toggle.
-
-const NM_TO_KM = 1.852;
 
 export const cycloneForecastFeature: FeatureDefinition<
   CycloneForecastPointData,
@@ -42,7 +40,7 @@ export const cycloneForecastFeature: FeatureDefinition<
       ["CLASS", data.category],
       [
         "TRACK ERROR",
-        `${data.errorRadiusNm} nm (${Math.round(data.errorRadiusNm * NM_TO_KM)} km)`,
+        `${data.errorRadiusNm} nm (${nmToKm(data.errorRadiusNm)} km)`,
       ],
     ];
   },

@@ -4,7 +4,9 @@
 //   startNewsPolling() / stopNewsPolling() / getNewsCache()
 // No server-side persistence — memory only, repopulates on restart.
 
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
+import { createPoller } from "../lib/poller";
 
 const logger = createLogger({ service: "news" });
 
@@ -124,15 +126,11 @@ function parseRssItems(xml: string, sourceName: string): NewsItem[] {
 
 async function fetchFeed(feed: FeedSource): Promise<NewsItem[]> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    const res = await fetch(feed.url, {
+    const res = await fetchWithTimeout(feed.url, 15_000, {
       headers: {
         Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
       },
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
     if (!res.ok) {
       logger.warn(`📰 ${feed.name}: HTTP ${res.status}`);
       return [];
@@ -154,7 +152,6 @@ type NewsCache = {
 };
 
 let cache: NewsCache = { items: [], fetchedAt: 0, itemCount: 0, error: null };
-let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── Poll pipeline ───────────────────────────────────────────────────
 
@@ -199,17 +196,14 @@ async function fetchAllNews(): Promise<void> {
 
 // ── Public API (matches gdeltCache/firmsCache contract) ─────────────
 
+const poller = createPoller(fetchAllNews, POLL_INTERVAL_MS);
+
 export function startNewsPolling(): void {
-  if (intervalId) return;
-  fetchAllNews();
-  intervalId = setInterval(fetchAllNews, POLL_INTERVAL_MS);
+  poller.start();
 }
 
 export function stopNewsPolling(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  poller.stop();
 }
 
 export function getNewsCache(): {

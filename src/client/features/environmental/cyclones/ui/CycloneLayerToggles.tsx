@@ -6,13 +6,14 @@
 // state there, not hardcoded). Rendered in both the cyclone dossier and the
 // detail-panel cyclone block.
 
-import { Spline, Circle, TriangleAlert } from "lucide-react";
+import { Spline, Circle, Target, TriangleAlert } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { IsoBtn } from "@/panes/dossier/DossierAtoms";
 
 const LAYERS = [
   { key: "showForecast", label: "TRACK", icon: Spline },
   { key: "showCone", label: "CONE", icon: Circle },
+  { key: "showWindField", label: "WIND FIELD", icon: Target },
   { key: "showWarnings", label: "WARNINGS", icon: TriangleAlert },
 ] as const;
 

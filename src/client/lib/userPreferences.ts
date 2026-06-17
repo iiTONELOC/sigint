@@ -17,6 +17,46 @@ let alwaysShowCyclones = false;
 let hydrated = false;
 const alwaysShowCyclonesListeners = new Set<() => void>();
 
+// ── Units preference (kt / mph / km/h / both) ──────────────────────
+// `getUnitsMode()` is a sync read so the pure formatters in lib/units.ts
+// (used inside buildDetailRows etc., which can't call hooks) stay simple;
+// `useUnitsMode()` lets components re-render the instant it changes.
+export type UnitMode = "both" | "kt" | "mph" | "kmh";
+
+let unitsMode: UnitMode = "both";
+const unitsListeners = new Set<() => void>();
+
+function subscribeUnits(cb: () => void): () => void {
+  unitsListeners.add(cb);
+  return () => unitsListeners.delete(cb);
+}
+
+function getUnitsSnapshot(): UnitMode {
+  return unitsMode;
+}
+
+/** Sync read — safe to call from non-React pure functions. */
+export function getUnitsMode(): UnitMode {
+  return unitsMode;
+}
+
+export async function setUnitsMode(mode: UnitMode): Promise<void> {
+  if (unitsMode !== mode) {
+    unitsMode = mode;
+    unitsListeners.forEach((cb) => cb());
+  }
+  await cacheSet(CACHE_KEYS.units, mode);
+}
+
+/** React hook — current mode, re-renders the consumer on every change. */
+export function useUnitsMode(): UnitMode {
+  return useSyncExternalStore(
+    subscribeUnits,
+    getUnitsSnapshot,
+    getUnitsSnapshot,
+  );
+}
+
 function subscribeAlwaysShowCyclones(cb: () => void): () => void {
   alwaysShowCyclonesListeners.add(cb);
   return () => alwaysShowCyclonesListeners.delete(cb);
@@ -63,8 +103,13 @@ async function hydrate(): Promise<void> {
       alwaysShowCyclones = true;
       alwaysShowCyclonesListeners.forEach((cb) => cb());
     }
+    const savedUnits = await cacheGet<UnitMode>(CACHE_KEYS.units);
+    if (savedUnits && savedUnits !== unitsMode) {
+      unitsMode = savedUnits;
+      unitsListeners.forEach((cb) => cb());
+    }
   } catch {
-    /* hydrate is best-effort; fall back to default false */
+    /* hydrate is best-effort; fall back to defaults */
   }
 }
 

@@ -1,19 +1,7 @@
 import { relativeAge } from "@/lib/timeFormat";
 import { formatKtMph } from "@/lib/units";
 import type { CycloneData } from "./types";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  TD: "Tropical Depression",
-  TS: "Tropical Storm",
-  HU1: "Hurricane Cat 1",
-  HU2: "Hurricane Cat 2",
-  HU3: "Hurricane Cat 3 (major)",
-  HU4: "Hurricane Cat 4 (major)",
-  HU5: "Hurricane Cat 5 (major)",
-  STD: "Subtropical Depression",
-  STS: "Subtropical Storm",
-  PT: "Post-Tropical",
-};
+import { CATEGORY_LABEL } from "./classification";
 
 function formatTime(iso?: string): string {
   if (!iso) return "";

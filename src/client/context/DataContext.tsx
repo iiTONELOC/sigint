@@ -29,6 +29,7 @@ import type { NewsArticle } from "@/features/news";
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { recordPositions } from "@/lib/trailService";
 import { scheduleIdle } from "@/lib/idle";
+import { ktToMps } from "@/lib/units";
 import { type SpatialGrid } from "@/lib/spatialIndex";
 import {
   buildDerivedSync,
@@ -73,10 +74,11 @@ type DataContextValue = {
   cycloneFilter: {
     showForecast: boolean;
     showCone: boolean;
+    showWindField: boolean;
     showWarnings: boolean;
   };
   toggleCycloneLayer: (
-    key: "showForecast" | "showCone" | "showWarnings",
+    key: "showForecast" | "showCone" | "showWindField" | "showWarnings",
   ) => void;
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
 };
@@ -107,10 +109,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [cycloneFilter, setCycloneFilter] = useState({
     showForecast: true,
     showCone: true,
+    showWindField: false,
     showWarnings: true,
   });
   const toggleCycloneLayer = useCallback(
-    (key: "showForecast" | "showCone" | "showWarnings") => {
+    (key: "showForecast" | "showCone" | "showWindField" | "showWarnings") => {
       setCycloneFilter((f) => ({ ...f, [key]: !f[key] }));
     },
     [],
@@ -279,7 +282,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           speedMps:
             (d.data as any)?.speedMps ??
             ((d.data as any)?.speed
-              ? (d.data as any).speed * 0.5144
+              ? ktToMps((d.data as any).speed)
               : undefined),
           altitude: (d.data as any)?.altitude,
           speed: (d.data as any)?.speed,
@@ -317,6 +320,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         minCategory: 0,
         showForecast: cycloneFilter.showForecast,
         showCone: cycloneFilter.showCone,
+        showWindField: cycloneFilter.showWindField,
         showWarnings: cycloneFilter.showWarnings,
       },
     }),

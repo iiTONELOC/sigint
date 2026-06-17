@@ -7,6 +7,7 @@
 import { inflateRaw } from "zlib";
 import { promisify } from "util";
 import { createLogger } from "../lib/logger";
+import { createPoller } from "../lib/poller";
 
 const logger = createLogger({ service: "gdelt" });
 
@@ -259,7 +260,6 @@ let cache: GdeltCache = {
   lastExportUrl: null,
 };
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
@@ -338,17 +338,14 @@ async function fetchGdelt(): Promise<void> {
 
 // ── Public API ───────────────────────────────────────────────────────
 
+const poller = createPoller(fetchGdelt, POLL_INTERVAL_MS);
+
 export function startGdeltPolling(): void {
-  if (intervalId) return;
-  fetchGdelt();
-  intervalId = setInterval(fetchGdelt, POLL_INTERVAL_MS);
+  poller.start();
 }
 
 export function stopGdeltPolling(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  poller.stop();
 }
 
 export function getGdeltCache(): {

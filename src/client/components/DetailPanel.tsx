@@ -10,6 +10,7 @@ import {
 import { useHasDossier } from "@/lib/layoutSignals";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
+import { useUnitsMode } from "@/lib/userPreferences";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
@@ -268,6 +269,7 @@ export function DetailPanel({
   const colorMap = getColorMap(theme);
   const drag = useDrag();
   const sheet = useSheetDismiss(onClose);
+  useUnitsMode(); // re-render rows when the units pref flips
 
   // LOCATE button stays highlighted until the selected item changes
   const [locateActive, setLocateActive] = useState(false);

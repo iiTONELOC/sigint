@@ -17,6 +17,8 @@
 // only — never interpolated into a URL.
 
 import { getStormProducts } from "./cyclonesCache";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { createPerKeyCache } from "../lib/perKeyCache";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -42,37 +44,8 @@ export type CycloneDossierBundle = {
   windProbs?: ProductBody;
 };
 
-type CacheEntry = {
-  bundle: CycloneDossierBundle;
-  expiresAt: number;
-  fetchedAt: number;
-};
-
-// ── Cache state ──────────────────────────────────────────────────────
-
-const cache = new Map<string, CacheEntry>();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (now > entry.expiresAt) cache.delete(key);
-  }
-}, PURGE_INTERVAL_MS);
 
 // ── Fetch with timeout ───────────────────────────────────────────────
-
-async function fetchWithTimeout(
-  url: string,
-  timeoutMs: number = FETCH_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Body parser ──────────────────────────────────────────────────────
 // NHC wraps each text product in HTML with the bulletin in a <pre>
@@ -175,7 +148,7 @@ async function fetchProduct(
   productKind: "advisory" | "discussion" | "windProbs",
 ): Promise<ProductBody | undefined> {
   try {
-    const res = await fetchWithTimeout(url);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     if (!res.ok) return undefined;
     const html = await res.text();
     const parsed = parseProductHtml(html, productKind);
@@ -222,43 +195,24 @@ export type CycloneDossierResult = {
 /** Get the dossier for a storm, fetching if absent or expired. On
  *  background-refresh failure the stale entry is retained and returned
  *  (mirrors firmsCache stale-protect). */
+// Dossier never caches a null bundle (isEmpty) — an outage keeps the last good
+// bundle and keeps retrying, rather than caching the gap for the full TTL.
+const dossierCache = createPerKeyCache<CycloneDossierBundle | null>({
+  ttlMs: DOSSIER_CACHE_TTL_MS,
+  purgeIntervalMs: PURGE_INTERVAL_MS,
+  emptyValue: null,
+  fetch: fetchBundle,
+  isEmpty: (bundle) => bundle === null,
+});
+
 export async function getCycloneDossier(
   stormId: string,
 ): Promise<CycloneDossierResult> {
-  const now = Date.now();
-  const existing = cache.get(stormId);
-
-  if (existing && existing.expiresAt > now) {
-    return { dossier: existing.bundle, fetchedAt: existing.fetchedAt };
-  }
-
-  try {
-    const bundle = await fetchBundle(stormId);
-    if (!bundle) {
-      // Outage or unregistered storm — keep the last good bundle rather than
-      // wiping it; only surface null when nothing was ever cached.
-      if (existing) {
-        return { dossier: existing.bundle, fetchedAt: existing.fetchedAt };
-      }
-      return { dossier: null, fetchedAt: now };
-    }
-    const entry: CacheEntry = {
-      bundle,
-      expiresAt: now + DOSSIER_CACHE_TTL_MS,
-      fetchedAt: now,
-    };
-    cache.set(stormId, entry);
-    return { dossier: bundle, fetchedAt: now };
-  } catch {
-    // Refresh failure — serve stale if we have it, else null.
-    if (existing) {
-      return { dossier: existing.bundle, fetchedAt: existing.fetchedAt };
-    }
-    return { dossier: null, fetchedAt: now };
-  }
+  const { value, fetchedAt } = await dossierCache.get(stormId);
+  return { dossier: value, fetchedAt };
 }
 
 /** Test-only reset hook so specs run in isolation. */
 export function __resetCycloneDossierCacheForTests(): void {
-  cache.clear();
+  dossierCache.reset();
 }

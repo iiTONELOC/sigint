@@ -13,7 +13,6 @@ import {
 } from "./dossierCache";
 import { getCycloneDossier } from "./cyclonesDossierCache";
 import { getCycloneCone } from "./cyclonesConeCache";
-import { getCycloneWarningsCache } from "./cyclonesWarningsCache";
 import { gzip } from "zlib";
 import { promisify } from "util";
 
@@ -70,6 +69,46 @@ export function createApiRoutes(deps: ApiDeps) {
     return withSecurityHeaders(Response.json(body, { status }));
   }
 
+  // ── Route guards ─────────────────────────────────────────────────────
+  // Every authed route repeated the same guardAuth check; the param routes
+  // also repeated the method-405 + stormId validation. These wrap it once.
+  type Handler = (req: any) => Promise<Response>;
+
+  function authedGet(handler: (req: Request) => Promise<Response>) {
+    return {
+      async GET(req: Request) {
+        const blocked = await guardAuth(req);
+        if (blocked) return blocked;
+        return handler(req);
+      },
+    };
+  }
+
+  function authedFnGet(handler: Handler): Handler {
+    return async (req) => {
+      const blocked = await guardAuth(req);
+      if (blocked) return blocked;
+      if (req.method !== "GET") {
+        return withSecurityHeaders(
+          new Response("Method Not Allowed", { status: 405 }),
+        );
+      }
+      return handler(req);
+    };
+  }
+
+  function authedStormGet(
+    handler: (req: any, stormId: string) => Promise<Response>,
+  ): Handler {
+    return authedFnGet(async (req) => {
+      const stormId = String(req.params?.stormId ?? "");
+      if (!isValidStormId(stormId)) {
+        return jsonError({ error: "Invalid stormId" }, 400);
+      }
+      return handler(req, stormId.toUpperCase());
+    });
+  }
+
   return {
     "/api/auth/token": {
       async GET(req: Request) {
@@ -89,151 +128,77 @@ export function createApiRoutes(deps: ApiDeps) {
       },
     },
 
-    "/api/events/latest": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getGdeltCache();
-        if (!cache.data) {
-          return jsonError(
-            { error: cache.error ?? "No data available yet" },
-            503,
-          );
-        }
-
-        return jsonResponse(req, {
-          data: cache.data,
-          fetchedAt: cache.fetchedAt,
-        });
-      },
-    },
-
-    "/api/ships/latest": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getAisCache();
-        if (!cache.data) {
-          return jsonError(
-            { error: cache.error ?? "No AIS data available yet" },
-            503,
-          );
-        }
-
-        return jsonResponse(req, {
-          data: cache.data,
-          vesselCount: cache.vesselCount,
-          connected: cache.connected,
-        });
-      },
-    },
-
-    "/api/fires/latest": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getFirmsCache();
-        if (!cache.data) {
-          return jsonError(
-            { error: cache.error ?? "No fire data available yet" },
-            503,
-          );
-        }
-
-        return jsonResponse(req, {
-          data: cache.data,
-          fetchedAt: cache.fetchedAt,
-          fireCount: cache.fireCount,
-        });
-      },
-    },
-
-    "/api/cyclones/latest": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getCyclonesCache();
-        if (!cache.body) {
-          return jsonError(
-            { error: cache.error ?? "No cyclone data available yet" },
-            503,
-          );
-        }
-
-        return jsonResponse(req, {
-          activeStorms: cache.body.activeStorms,
-          fetchedAt: cache.fetchedAt,
-          stormCount: cache.stormCount,
-        });
-      },
-    },
-
-    "/api/cyclones/warnings": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getCycloneWarningsCache();
-        return jsonResponse(req, {
-          features: cache.features,
-          fetchedAt: cache.fetchedAt,
-          featureCount: cache.featureCount,
-        });
-      },
-    },
-
-    "/api/aircraft/states": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getAircraftCache();
-        return jsonResponse(req, {
-          ac: cache.body?.ac ?? [],
-          fetchedAt: cache.fetchedAt,
-          aircraftCount: cache.aircraftCount,
-          error: cache.error,
-        });
-      },
-    },
-
-    "/api/news/latest": {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
-        if (blocked) return blocked;
-
-        const cache = getNewsCache();
-        if (!cache.items || cache.items.length === 0) {
-          return jsonError(
-            { error: cache.error ?? "No news data available yet" },
-            503,
-          );
-        }
-
-        return jsonResponse(req, {
-          items: cache.items,
-          fetchedAt: cache.fetchedAt,
-          itemCount: cache.itemCount,
-        });
-      },
-    },
-
-    "/api/dossier/aircraft/:icao24": async (req: any) => {
-      const blocked = await guardAuth(req);
-      if (blocked) return blocked;
-
-      const { method, params } = req;
-      if (method !== "GET") {
-        return withSecurityHeaders(
-          new Response("Method Not Allowed", { status: 405 }),
-        );
+    "/api/events/latest": authedGet(async (req) => {
+      const cache = getGdeltCache();
+      if (!cache.data) {
+        return jsonError({ error: cache.error ?? "No data available yet" }, 503);
       }
+      return jsonResponse(req, {
+        data: cache.data,
+        fetchedAt: cache.fetchedAt,
+      });
+    }),
 
-      const { icao24 = "" } = params ?? {};
+    "/api/ships/latest": authedGet(async (req) => {
+      const cache = getAisCache();
+      if (!cache.data) {
+        return jsonError({ error: cache.error ?? "No AIS data available yet" }, 503);
+      }
+      return jsonResponse(req, {
+        data: cache.data,
+        vesselCount: cache.vesselCount,
+        connected: cache.connected,
+      });
+    }),
+
+    "/api/fires/latest": authedGet(async (req) => {
+      const cache = getFirmsCache();
+      if (!cache.data) {
+        return jsonError({ error: cache.error ?? "No fire data available yet" }, 503);
+      }
+      return jsonResponse(req, {
+        data: cache.data,
+        fetchedAt: cache.fetchedAt,
+        fireCount: cache.fireCount,
+      });
+    }),
+
+    "/api/cyclones/latest": authedGet(async (req) => {
+      const cache = getCyclonesCache();
+      if (!cache.body) {
+        return jsonError({ error: cache.error ?? "No cyclone data available yet" }, 503);
+      }
+      return jsonResponse(req, {
+        activeStorms: cache.body.activeStorms,
+        fetchedAt: cache.fetchedAt,
+        stormCount: cache.stormCount,
+      });
+    }),
+
+    "/api/aircraft/states": authedGet(async (req) => {
+      const cache = getAircraftCache();
+      return jsonResponse(req, {
+        ac: cache.body?.ac ?? [],
+        fetchedAt: cache.fetchedAt,
+        aircraftCount: cache.aircraftCount,
+        error: cache.error,
+      });
+    }),
+
+    "/api/news/latest": authedGet(async (req) => {
+      const cache = getNewsCache();
+      if (!cache.items || cache.items.length === 0) {
+        return jsonError({ error: cache.error ?? "No news data available yet" }, 503);
+      }
+      return jsonResponse(req, {
+        items: cache.items,
+        fetchedAt: cache.fetchedAt,
+        itemCount: cache.itemCount,
+      });
+    }),
+
+    "/api/dossier/aircraft/:icao24": authedFnGet(async (req) => {
+      const { icao24 = "" } = req.params ?? {};
       if (!isValidIcao24(String(icao24))) {
         return jsonError({ error: "Invalid ICAO24 hex code" }, 400);
       }
@@ -249,46 +214,14 @@ export function createApiRoutes(deps: ApiDeps) {
       }
 
       return jsonResponse(req, { dossier });
-    },
+    }),
 
-    "/api/dossier/cyclone/:stormId": async (req: any) => {
-      const blocked = await guardAuth(req);
-      if (blocked) return blocked;
+    "/api/dossier/cyclone/:stormId": authedStormGet(async (req, stormId) =>
+      jsonResponse(req, await getCycloneDossier(stormId)),
+    ),
 
-      const { method, params } = req;
-      if (method !== "GET") {
-        return withSecurityHeaders(
-          new Response("Method Not Allowed", { status: 405 }),
-        );
-      }
-
-      const stormId = String(params?.stormId ?? "");
-      if (!isValidStormId(stormId)) {
-        return jsonError({ error: "Invalid stormId" }, 400);
-      }
-
-      const result = await getCycloneDossier(stormId.toUpperCase());
-      return jsonResponse(req, result);
-    },
-
-    "/api/cyclones/:stormId/cone": async (req: any) => {
-      const blocked = await guardAuth(req);
-      if (blocked) return blocked;
-
-      const { method, params } = req;
-      if (method !== "GET") {
-        return withSecurityHeaders(
-          new Response("Method Not Allowed", { status: 405 }),
-        );
-      }
-
-      const stormId = String(params?.stormId ?? "");
-      if (!isValidStormId(stormId)) {
-        return jsonError({ error: "Invalid stormId" }, 400);
-      }
-
-      const result = await getCycloneCone(stormId.toUpperCase());
-      return jsonResponse(req, result);
-    },
+    "/api/cyclones/:stormId/cone": authedStormGet(async (req, stormId) =>
+      jsonResponse(req, await getCycloneCone(stormId)),
+    ),
   };
 }

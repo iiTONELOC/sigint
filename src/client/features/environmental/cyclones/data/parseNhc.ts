@@ -10,8 +10,10 @@ import type {
   ForecastPoint,
   Category,
   GeoJSONPolygon,
+  WindRadii,
 } from "../types";
 import { authenticatedFetch } from "@/lib/authService";
+import { saffirSimpson, TS_MIN_KT } from "../classification";
 
 const CYCLONES_URL = "/api/cyclones/latest";
 
@@ -59,6 +61,7 @@ type NhcStorm = {
   // Attached server-side (enrichStorms) — not present in raw NHC payloads.
   forecast?: NhcForecastPoint[];
   officialCone?: GeoJSONPolygon;
+  windRadii?: WindRadii;
 };
 
 type NhcForecastPoint = {
@@ -77,12 +80,9 @@ export function classify(
 ): { category: Category; saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5 } {
   if (classification === "PT") return { category: "PT", saffirSimpson: 0 };
   const sub = classification.startsWith("S");
-  if (maxWindKt >= 137) return { category: "HU5", saffirSimpson: 5 };
-  if (maxWindKt >= 113) return { category: "HU4", saffirSimpson: 4 };
-  if (maxWindKt >= 96) return { category: "HU3", saffirSimpson: 3 };
-  if (maxWindKt >= 83) return { category: "HU2", saffirSimpson: 2 };
-  if (maxWindKt >= 64) return { category: "HU1", saffirSimpson: 1 };
-  if (maxWindKt >= 34)
+  const ss = saffirSimpson(maxWindKt);
+  if (ss > 0) return { category: `HU${ss}` as Category, saffirSimpson: ss };
+  if (maxWindKt >= TS_MIN_KT)
     return { category: sub ? "STS" : "TS", saffirSimpson: 0 };
   return { category: sub ? "STD" : "TD", saffirSimpson: 0 };
 }
@@ -145,6 +145,8 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     forecast: (s.forecast ?? []).map(toForecastPoint),
     // Absent if the cone fetch failed — worker falls back to a synthesized cone.
     officialCone: s.officialCone,
+    // Absent for storms NHC reports no wind radii for (weak depressions).
+    windRadii: s.windRadii,
   };
 
   return {

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { Plane } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { useUnitsMode } from "@/lib/userPreferences";
 import { AircraftDossier } from "@/features/tracking/aircraft/ui/AircraftDossier";
 import { NonAircraftDossier } from "./NonAircraftDossier";
 
@@ -16,6 +17,7 @@ export function DossierPane() {
     setIsolateMode,
     setZoomToId,
   } = useData();
+  useUnitsMode(); // re-render the dossier body when the units pref flips
 
   const handleClose = useCallback(() => {
     setSelected(null);

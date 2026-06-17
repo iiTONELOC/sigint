@@ -5,7 +5,9 @@
 // the bulk file is a static no-quota file. Parsed into structured records,
 // cached in memory, served via /api/fires/latest with token auth.
 
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
+import { createPoller } from "../lib/poller";
 
 const logger = createLogger({ service: "firms" });
 
@@ -51,7 +53,6 @@ let cache: FirmsCache = {
   error: null,
 };
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
 
 // ── CSV parsing ──────────────────────────────────────────────────────
 
@@ -128,15 +129,7 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
 
 async function fetchFirms(): Promise<void> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    let res: Response;
-    try {
-      res = await fetch(FIRMS_URL, { signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
+    const res = await fetchWithTimeout(FIRMS_URL, FETCH_TIMEOUT_MS);
 
     if (!res.ok) {
       cache = { ...cache, error: `FIRMS returned ${res.status}` };
@@ -177,18 +170,15 @@ async function fetchFirms(): Promise<void> {
 // ── Public API ───────────────────────────────────────────────────────
 
 // apiKey kept for call-site compatibility; the keyless bulk feed ignores it.
+const poller = createPoller(fetchFirms, POLL_INTERVAL_MS);
+
 export function startFirmsPolling(_apiKey?: string | undefined): void {
-  if (intervalId) return;
   logger.info("🔥 FIRMS: starting poll (keyless global 24h feed)...");
-  void fetchFirms();
-  intervalId = setInterval(() => void fetchFirms(), POLL_INTERVAL_MS);
+  poller.start();
 }
 
 export function stopFirmsPolling(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  poller.stop();
 }
 
 export function getFirmsCache(): {

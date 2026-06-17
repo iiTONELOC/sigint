@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { getLand, enrichLand } from "@/lib/landService";
 import type { ForecastPoint } from "../types";
+import { windColor } from "../classification";
 
 const W = 260;
 const H = 150;
@@ -20,17 +21,6 @@ type Pt = {
   maxWindKt: number;
   current?: boolean;
 };
-
-// Saffir-Simpson-ish color ramp by wind, so the dot reads as intensity.
-function windColor(kt: number): string {
-  if (kt >= 137) return "#ff5dff"; // C5
-  if (kt >= 113) return "#ff5d5d"; // C4
-  if (kt >= 96) return "#ff8c42"; // C3
-  if (kt >= 83) return "#ffb142"; // C2
-  if (kt >= 64) return "#ffd24a"; // C1
-  if (kt >= 34) return "#4ad2ff"; // TS
-  return "#8fd3ff"; // TD / depression
-}
 
 export function CycloneForecastMiniMap({
   current,

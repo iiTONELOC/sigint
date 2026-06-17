@@ -49,21 +49,77 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-function idbGet(key: string): Promise<unknown> {
-  return new Promise((resolve, reject) => {
+// ── Transparent gzip for large cached values ─────────────────────────
+// IndexedDB structured-clones values as-is, so a ~22 MB fire array sits raw.
+// Large values are JSON+gzip'd to a Uint8Array before storage (~8-10x) and
+// decoded on read. The compress runs in the idle write-behind queue and the
+// decode at boot, so neither lands on the data-poll tick. Small values and
+// pre-existing (plain-object) entries are stored/returned as-is — distinguished
+// on read by `instanceof Uint8Array`, so this is backward-compatible.
+const COMPRESS_THRESHOLD = 16_384; // JSON bytes; below this, not worth gzipping
+const hasCompression =
+  typeof CompressionStream !== "undefined" &&
+  typeof DecompressionStream !== "undefined";
+
+async function gzip(str: string): Promise<Uint8Array> {
+  const stream = new Blob([str])
+    .stream()
+    .pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzip(bytes: Uint8Array): Promise<string> {
+  const stream = new Blob([bytes])
+    .stream()
+    .pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+
+async function encodeForStore(value: unknown): Promise<unknown> {
+  if (!hasCompression) return value;
+  let json: string;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    return value; // non-serializable — store as-is
+  }
+  if (json.length < COMPRESS_THRESHOLD) return value;
+  try {
+    return await gzip(json);
+  } catch {
+    return value; // compression unavailable/failed — fall back to raw
+  }
+}
+
+async function decodeStored(stored: unknown): Promise<unknown> {
+  if (stored instanceof Uint8Array) {
+    try {
+      return JSON.parse(await gunzip(stored));
+    } catch {
+      return null; // corrupt entry — treat as a miss
+    }
+  }
+  return stored; // legacy plain object / small value
+}
+
+async function idbGet(key: string): Promise<unknown> {
+  const raw = await new Promise<unknown>((resolve, reject) => {
     if (!db) {
       resolve(null);
       return;
     }
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.get(key);
+    const req = db
+      .transaction(STORE_NAME, "readonly")
+      .objectStore(STORE_NAME)
+      .get(key);
     req.onsuccess = () => resolve(req.result ?? null);
     req.onerror = () => reject(req.error);
   });
+  return decodeStored(raw);
 }
 
-function idbSet(key: string, value: unknown): Promise<void> {
+async function idbSet(key: string, value: unknown): Promise<void> {
+  const stored = await encodeForStore(value);
   return new Promise((resolve, reject) => {
     if (!db) {
       resolve();
@@ -71,7 +127,7 @@ function idbSet(key: string, value: unknown): Promise<void> {
     }
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
-    const req = store.put(value, key);
+    const req = store.put(stored, key);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
@@ -99,15 +155,21 @@ function idbGetAll(): Promise<Array<{ key: string; value: unknown }>> {
     }
     const tx = db.transaction(STORE_NAME, "readonly");
     const store = tx.objectStore(STORE_NAME);
-    const results: Array<{ key: string; value: unknown }> = [];
+    const raws: Array<{ key: string; value: unknown }> = [];
     const req = store.openCursor();
     req.onsuccess = () => {
       const cursor = req.result;
       if (cursor) {
-        results.push({ key: cursor.key as string, value: cursor.value });
+        raws.push({ key: cursor.key as string, value: cursor.value });
         cursor.continue();
       } else {
-        resolve(results);
+        // Decode (decompress + parse) each entry off the IDB callback.
+        Promise.all(
+          raws.map(async (e) => ({
+            key: e.key,
+            value: await decodeStored(e.value),
+          })),
+        ).then(resolve, reject);
       }
     };
     req.onerror = () => reject(req.error);
@@ -386,15 +448,20 @@ export async function cacheListKeys(): Promise<string[]> {
 }
 
 /**
- * Estimate the byte size of a cached value (JSON serialization length).
- * Awaits dbReady so the value is available.
+ * Estimate the on-disk byte size of a cached value — the gzipped size for
+ * entries large enough to be compressed, otherwise the JSON length. Awaits
+ * dbReady so the value is available.
  */
 export async function cacheEstimateSize(key: string): Promise<number> {
   await dbReady();
   const value = memoryCache.get(key);
   if (value == null) return 0;
   try {
-    return JSON.stringify(value).length;
+    const json = JSON.stringify(value);
+    if (hasCompression && json.length >= COMPRESS_THRESHOLD) {
+      return (await gzip(json)).byteLength;
+    }
+    return json.length;
   } catch {
     return 0;
   }

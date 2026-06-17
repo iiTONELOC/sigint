@@ -1,6 +1,6 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { formatKtMph, ktToMph } from "@/lib/units";
+import { formatKtMph, formatKtShort } from "@/lib/units";
 import type { CycloneData } from "../types";
 import { useCycloneDossier } from "../hooks/useCycloneDossier";
 import {
@@ -14,19 +14,7 @@ import {
 import { CycloneLayerToggles } from "./CycloneLayerToggles";
 import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "./CycloneForecastMiniMap";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  TD: "Tropical Depression",
-  TS: "Tropical Storm",
-  HU1: "Hurricane Cat 1",
-  HU2: "Hurricane Cat 2",
-  HU3: "Hurricane Cat 3 (major)",
-  HU4: "Hurricane Cat 4 (major)",
-  HU5: "Hurricane Cat 5 (major)",
-  STD: "Subtropical Depression",
-  STS: "Subtropical Storm",
-  PT: "Post-Tropical",
-};
+import { CATEGORY_LABEL } from "../classification";
 
 type Props = {
   readonly item: DataPoint & { type: "cyclones"; data: CycloneData };
@@ -120,7 +108,7 @@ export function CycloneDossier({
                   <Row
                     key={f.fcstHour}
                     label={`+${f.fcstHour}h`}
-                    value={`${f.maxWindKt}kn/${ktToMph(f.maxWindKt)}mph ${f.category}`}
+                    value={`${formatKtShort(f.maxWindKt)} ${f.category}`}
                   />
                 ))}
               </div>

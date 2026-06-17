@@ -3,6 +3,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useData } from "@/context/DataContext";
 import { cacheGet } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { useUnitsMode } from "@/lib/userPreferences";
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import { relativeAge } from "@/lib/timeFormat";
@@ -115,6 +116,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const baseItemWidth = useItemWidth();
   const itemWidth = compact ? ITEM_WIDTH_MOBILE : baseItemWidth;
   const speed = useTickerSpeed();
+  useUnitsMode(); // re-render ticker items when the units pref flips
 
   useAgeRefresh();
 

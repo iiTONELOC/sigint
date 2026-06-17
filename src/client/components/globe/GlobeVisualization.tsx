@@ -654,6 +654,7 @@ export function GlobeVisualization({
             },
             cyclonesShowForecast: cyc?.showForecast ?? true,
             cyclonesShowCone: cyc?.showCone ?? true,
+            cyclonesShowWindField: cyc?.showWindField ?? false,
             cyclonesShowWarnings: cyc?.showWarnings ?? true,
             prefersReducedMotion,
             searchMatchIds: searchIds,

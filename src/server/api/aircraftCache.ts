@@ -24,7 +24,9 @@
 // 100 nm baseline; 500 nm returned 400, server-capped).
 
 import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
+import { createPoller } from "../lib/poller";
 
 const logger = createLogger({ service: "adsbfi" });
 
@@ -131,7 +133,6 @@ const sweepState: SweepState = createSweepState();
 let lastFetchedAt = 0;
 let lastError: string | null = null;
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
 // Re-entry guard. POLL_INTERVAL_MS (300 s) is shorter than the worst-case
 // sweep duration (~340 s + retries), so without this flag overlapping
 // setInterval kicks would launch parallel sweeps and burn the 1 req/sec
@@ -307,11 +308,8 @@ async function attemptTileFetch(
   lon: number,
 ): Promise<TileAttemptResult> {
   const url = `${ADSB_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS, {
       headers: {
         "User-Agent": USER_AGENT,
         Accept: "application/json",
@@ -335,8 +333,6 @@ async function attemptTileFetch(
       `✈️  adsb.fi tile [${lat},${lon}]: ${err instanceof Error ? err.message : "fetch error"}`,
     );
     return { ok: true, ac: [] };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -491,19 +487,16 @@ export async function runSweep(
 
 // ── Public API ───────────────────────────────────────────────────────
 
+const poller = createPoller(fetchAircraft, POLL_INTERVAL_MS);
+
 export function startAircraftPolling(opts?: AircraftFixtureOptions): void {
-  if (intervalId) return;
   if (opts) aircraftFixtureOptions = opts;
   logger.info("✈️  adsb.fi: starting aircraft poll...");
-  void fetchAircraft();
-  intervalId = setInterval(() => void fetchAircraft(), POLL_INTERVAL_MS);
+  poller.start();
 }
 
 export function stopAircraftPolling(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
+  poller.stop();
 }
 
 export function getAircraftCache(): AircraftCache {

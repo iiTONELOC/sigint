@@ -1,6 +1,6 @@
 import type { CycloneForecastPointData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { ktToMph } from "@/lib/units";
+import { formatKtShort } from "@/lib/units";
 
 export function CycloneForecastTickerContent({
   data,
@@ -12,7 +12,7 @@ export function CycloneForecastTickerContent({
         {d.parentName}
       </div>
       <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-dim text-[length:var(--sig-text-sm)]">
-        +{d.fcstHour}h · {d.maxWindKt}kn/{ktToMph(d.maxWindKt)}mph
+        +{d.fcstHour}h · {formatKtShort(d.maxWindKt)}
       </div>
     </div>
   );
