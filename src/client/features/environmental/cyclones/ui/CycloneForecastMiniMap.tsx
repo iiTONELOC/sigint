@@ -7,27 +7,33 @@
 
 import { useEffect, useState } from "react";
 import { getLand, enrichLand } from "@/lib/landService";
-import type { ForecastPoint } from "../types";
+import type { ForecastPoint, PastTrackPoint, ModelTrack } from "../types";
 import { windColor } from "../classification";
 
 const W = 260;
 const H = 150;
 const PAD = 8;
+const NM_PER_DEG = 60;
 
 type Pt = {
   lat: number;
   lon: number;
   fcstHour: number;
   maxWindKt: number;
+  errorRadiusNm?: number;
   current?: boolean;
 };
 
 export function CycloneForecastMiniMap({
   current,
   forecast,
+  pastTrack,
+  models,
 }: {
   readonly current: { lat: number; lon: number; maxWindKt: number };
   readonly forecast: ForecastPoint[];
+  readonly pastTrack?: PastTrackPoint[];
+  readonly models?: ModelTrack[];
 }) {
   const [land, setLand] = useState<number[][][]>(() => getLand());
   useEffect(() => {
@@ -42,15 +48,19 @@ export function CycloneForecastMiniMap({
       lon: f.lon,
       fcstHour: f.fcstHour,
       maxWindKt: f.maxWindKt,
+      errorRadiusNm: f.errorRadiusNm,
     })),
   ];
   if (pts.length < 2) return null;
+
+  const past = pastTrack ?? [];
+  const modelPts = (models ?? []).flatMap((m) => m.points);
 
   let minLat = Infinity,
     maxLat = -Infinity,
     minLon = Infinity,
     maxLon = -Infinity;
-  for (const p of pts) {
+  for (const p of [...pts, ...past, ...modelPts]) {
     minLat = Math.min(minLat, p.lat);
     maxLat = Math.max(maxLat, p.lat);
     minLon = Math.min(minLon, p.lon);
@@ -98,6 +108,19 @@ export function CycloneForecastMiniMap({
     .map((p, i) => `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`)
     .join(" ");
 
+  // Observed past track (genesis → now), genesis first then up to the eye.
+  const pastPath =
+    past.length > 0
+      ? past
+          .map(
+            (p, i) =>
+              `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`,
+          )
+          .join(" ") +
+        ` L${px(current.lon).toFixed(1)},${py(current.lat).toFixed(1)}`
+      : "";
+  const genesis = past[0];
+
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
@@ -117,6 +140,71 @@ export function CycloneForecastMiniMap({
           strokeWidth={0.5}
         />
       ))}
+
+      {/* Cone of uncertainty — faint error-radius discs at each forecast point */}
+      {pts
+        .filter((p) => p.errorRadiusNm)
+        .map((p) => (
+          <circle
+            key={`cone-${p.fcstHour}`}
+            cx={px(p.lon)}
+            cy={py(p.lat)}
+            r={(p.errorRadiusNm! / NM_PER_DEG) * scale}
+            fill="var(--sigint-cyclones, #ff66cc)"
+            fillOpacity={0.07}
+          />
+        ))}
+
+      {/* Spaghetti model guidance — thin muted lines, subordinate to the
+          official track drawn on top */}
+      {(models ?? []).map((m) => (
+        <path
+          key={m.model}
+          d={m.points
+            .map(
+              (p, i) =>
+                `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`,
+            )
+            .join(" ")}
+          fill="none"
+          stroke="#6fb7ff"
+          strokeOpacity={0.7}
+          strokeWidth={1}
+        />
+      ))}
+
+      {/* Observed past track + genesis X */}
+      {pastPath && (
+        <path
+          d={pastPath}
+          fill="none"
+          stroke="var(--sigint-cyclones, #ff66cc)"
+          strokeOpacity={0.5}
+          strokeWidth={1.25}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+      {genesis && (
+        <g
+          stroke="var(--sigint-cyclones, #ff66cc)"
+          strokeWidth={1.25}
+          strokeOpacity={0.9}
+        >
+          <line
+            x1={px(genesis.lon) - 3}
+            y1={py(genesis.lat) - 3}
+            x2={px(genesis.lon) + 3}
+            y2={py(genesis.lat) + 3}
+          />
+          <line
+            x1={px(genesis.lon) - 3}
+            y1={py(genesis.lat) + 3}
+            x2={px(genesis.lon) + 3}
+            y2={py(genesis.lat) - 3}
+          />
+        </g>
+      )}
 
       <path
         d={track}
@@ -150,6 +238,16 @@ export function CycloneForecastMiniMap({
           </text>
         </g>
       ))}
+
+      {/* Current-position bullseye — matches the globe marker */}
+      <circle
+        cx={px(current.lon)}
+        cy={py(current.lat)}
+        r={6}
+        fill="none"
+        stroke="var(--sigint-cyclones, #ff66cc)"
+        strokeWidth={1.25}
+      />
     </svg>
   );
 }

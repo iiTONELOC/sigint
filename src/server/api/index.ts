@@ -13,6 +13,7 @@ import {
 } from "./dossierCache";
 import { getCycloneDossier } from "./cyclonesDossierCache";
 import { getCycloneCone } from "./cyclonesConeCache";
+import { getCycloneModels } from "./cyclonesAtcfCache";
 import { gzip } from "zlib";
 import { promisify } from "util";
 
@@ -222,6 +223,10 @@ export function createApiRoutes(deps: ApiDeps) {
 
     "/api/cyclones/:stormId/cone": authedStormGet(async (req, stormId) =>
       jsonResponse(req, await getCycloneCone(stormId)),
+    ),
+
+    "/api/cyclones/:stormId/models": authedStormGet(async (req, stormId) =>
+      jsonResponse(req, await getCycloneModels(stormId)),
     ),
   };
 }

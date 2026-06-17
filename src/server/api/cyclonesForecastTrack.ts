@@ -8,7 +8,7 @@
 
 import { getStormProducts } from "./cyclonesCache";
 import { getCycloneCone } from "./cyclonesConeCache";
-import { getCycloneWindRadii } from "./cyclonesAtcfCache";
+import { getCycloneAtcf } from "./cyclonesAtcfCache";
 import { unzipSingleEntryKmz } from "./zipReader";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
@@ -117,14 +117,15 @@ export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
       const rawId = obj.id;
       if (typeof rawId !== "string") return;
       const stormId = rawId.toUpperCase();
-      const [forecast, coneResult, radiiResult] = await Promise.all([
+      const [forecast, coneResult, atcf] = await Promise.all([
         fetchForecastTrack(stormId),
         getCycloneCone(stormId).catch(() => ({ cone: null })),
-        getCycloneWindRadii(stormId).catch(() => ({ radii: null })),
+        getCycloneAtcf(stormId).catch(() => ({ radii: null, track: [] })),
       ]);
       obj.forecast = forecast;
       if (coneResult.cone) obj.officialCone = coneResult.cone;
-      if (radiiResult.radii) obj.windRadii = radiiResult.radii;
+      if (atcf.radii) obj.windRadii = atcf.radii;
+      if (atcf.track && atcf.track.length > 0) obj.pastTrack = atcf.track;
     }),
   );
   logger.info("🌀 NHC: forecast track + cone enrichment complete");

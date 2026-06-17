@@ -11,6 +11,7 @@ import type {
   Category,
   GeoJSONPolygon,
   WindRadii,
+  PastTrackPoint,
 } from "../types";
 import { authenticatedFetch } from "@/lib/authService";
 import { saffirSimpson, TS_MIN_KT } from "../classification";
@@ -62,6 +63,7 @@ type NhcStorm = {
   forecast?: NhcForecastPoint[];
   officialCone?: GeoJSONPolygon;
   windRadii?: WindRadii;
+  pastTrack?: PastTrackPoint[];
 };
 
 type NhcForecastPoint = {
@@ -147,6 +149,8 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     officialCone: s.officialCone,
     // Absent for storms NHC reports no wind radii for (weak depressions).
     windRadii: s.windRadii,
+    // Observed best-track history (genesis → now); absent until b-deck fetched.
+    pastTrack: s.pastTrack,
   };
 
   return {

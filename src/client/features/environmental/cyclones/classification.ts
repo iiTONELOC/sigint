@@ -3,6 +3,12 @@
 // classification-code → label map. These were copy-pasted across parseNhc,
 // the intensity curve, the mini-map, and three dossier/detail components.
 
+/** Section-heading accent for cyclone panels — the storm red lightened toward
+ *  white so it reads cleanly as text on the dark theme. One source for the
+ *  dossier accent context + the detail-pane headings. */
+export const CYCLONE_HEADING =
+  "color-mix(in srgb, var(--sigint-cyclones) 65%, white)";
+
 /** Storm classification code → human label (NHC categories). */
 export const CATEGORY_LABEL: Record<string, string> = {
   TD: "Tropical Depression",

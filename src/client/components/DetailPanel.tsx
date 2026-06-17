@@ -17,6 +17,9 @@ import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/Cyclo
 import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/CycloneLayerToggles";
 import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "@/features/environmental/cyclones/ui/CycloneForecastMiniMap";
+import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
+import { CYCLONE_HEADING } from "@/features/environmental/cyclones/classification";
+import { DossierAccentContext } from "@/panes/dossier/DossierAtoms";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -482,10 +485,10 @@ function PanelBody({
       <div className="pt-2.5 border-t border-sig-border">
         {dataRows.map(([k, v]) => (
           <div key={k} className="flex justify-between mb-1.5">
-            <span className="uppercase tracking-wide text-sig-accent text-(length:--sig-text-sm)">
+            <span className="uppercase tracking-wide text-sig-accent text-xs">
               {k}
             </span>
-            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-lg)">
+            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-xs">
               {v}
             </span>
           </div>
@@ -493,22 +496,23 @@ function PanelBody({
       </div>
 
       {/* Coordinates */}
-      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-(length:--sig-text-md)">
+      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
         {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
         {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
       </div>
 
       {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
       {item.type === "cyclones" && (
-        <>
+        <DossierAccentContext.Provider value={CYCLONE_HEADING}>
           <div className="mt-1.5 pt-1.5 border-t border-sig-border">
             <CycloneIntensityCurve storm={item.data} />
           </div>
+          <CycloneDetailExtras item={item} />
           {item.data.forecast.length > 0 && (
             <div className="mt-1.5 pt-1.5 border-t border-sig-border">
               <div
-                className="text-[10px] font-mono tracking-widest mb-1"
-                style={{ color: "var(--sigint-warn)" }}
+                className="text-sm font-semibold font-mono tracking-widest mb-1"
+                style={{ color: CYCLONE_HEADING }}
               >
                 FORECAST TRACK
               </div>
@@ -519,6 +523,7 @@ function PanelBody({
                   maxWindKt: item.data.maxWindKt,
                 }}
                 forecast={item.data.forecast}
+                pastTrack={item.data.pastTrack}
               />
             </div>
           )}
@@ -528,7 +533,7 @@ function PanelBody({
           <CycloneAdvisoryBlock
             stormId={(item.data as { stormId?: string })?.stormId}
           />
-        </>
+        </DossierAccentContext.Provider>
       )}
 
       {/* Open in Dossier button */}
@@ -536,7 +541,7 @@ function PanelBody({
         <div className="mt-1.5 pt-1.5 border-t border-sig-border">
           <button
             onClick={onOpenDossier}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-xs tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
           >
             <FileSearch size={12} strokeWidth={2.5} />
             OPEN IN DOSSIER
@@ -553,7 +558,7 @@ function PanelBody({
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-xs tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
             >
               {label}
               <ExternalLink size={9} />

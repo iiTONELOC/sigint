@@ -3,9 +3,9 @@
 // not DataPoints, so they're not in the spatial grid). Outer ring only — holes
 // are ignored, matching how the worker renders them.
 
-type Ring = [number, number][]; // [lon, lat]
+export type Ring = [number, number][]; // [lon, lat]
 
-function ringContains(lat: number, lon: number, ring: Ring): boolean {
+export function ringContains(lat: number, lon: number, ring: Ring): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const loni = ring[i]![0],

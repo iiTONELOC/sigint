@@ -63,7 +63,22 @@ export type CycloneData = {
   /** Current 34/50/64-kt wind radii from the ATCF b-deck (real analyzed storm
    *  size). Attached server-side; absent for storms NHC reports no radii for. */
   windRadii?: WindRadii;
+  /** Observed best-track history (genesis → now) from the ATCF b-deck. Absent
+   *  until the b-deck is fetched. */
+  pastTrack?: PastTrackPoint[];
 };
+
+/** One analyzed past position from the ATCF best track. */
+export type PastTrackPoint = {
+  lat: number;
+  lon: number;
+  validTime: string;
+  vmaxKt: number;
+};
+
+/** A single model's forecast track from the a-deck (spaghetti). */
+export type ModelTrackPoint = { tau: number; lat: number; lon: number };
+export type ModelTrack = { model: string; points: ModelTrackPoint[] };
 
 export type GeoJSONPolygon = {
   type: "Polygon";

@@ -16,9 +16,18 @@ import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createPerKeyCache } from "../lib/perKeyCache";
 
 const ATCF_BTK_BASE = "https://ftp.nhc.noaa.gov/atcf/btk";
-const ATCF_CACHE_TTL_MS = 60 * 60_000;
+// Revalidate on the advisory rhythm (full advisories every 6h, intermediate
+// every 3h during watches/warnings). Each revalidation is a conditional GET, so
+// an unchanged b-deck costs only a 304. Keep an active storm's entry for 12h of
+// no access so its accumulated past track survives between polls and isn't
+// re-downloaded; a dissipated storm (no longer polled) is purged after that.
+const ATCF_CACHE_TTL_MS = 3 * 60 * 60_000;
+const ATCF_RETENTION_MS = 12 * 60 * 60_000;
 const FETCH_TIMEOUT_MS = 8_000;
 const PURGE_INTERVAL_MS = 10 * 60_000;
+
+// Last-Modified per storm for conditional revalidation (If-Modified-Since).
+const lastModified = new Map<string, string>();
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -107,42 +116,189 @@ export function parseAtcfBdeckRadii(text: string): WindRadii | null {
   return result;
 }
 
+/** One analyzed past position from the best track. */
+export type TrackPoint = {
+  lat: number;
+  lon: number;
+  validTime: string; // ATCF YYYYMMDDHH
+  vmaxKt: number;
+};
+
+/** Full observed (best-track) history, genesis → latest, one point per analysis
+ *  time. Same b-deck file as the radii — the storm's actual path so far. */
+export function parseAtcfTrack(text: string): TrackPoint[] {
+  const byTime = new Map<string, TrackPoint>();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const f = line.split(",").map((s) => s.trim());
+    if (f.length < 9 || f[4] !== "BEST") continue;
+    const time = f[2]!;
+    if (byTime.has(time)) continue; // first row per timestamp carries position
+    const pos = parseAtcfLatLon(f[6]!, f[7]!);
+    if (!pos) continue;
+    byTime.set(time, {
+      lat: pos.lat,
+      lon: pos.lon,
+      validTime: time,
+      vmaxKt: Number.parseInt(f[8]!, 10) || 0,
+    });
+  }
+  return [...byTime.values()].sort((a, b) =>
+    a.validTime < b.validTime ? -1 : 1,
+  );
+}
+
 // ── Single-storm fetch ───────────────────────────────────────────────
 
-async function fetchRadiiForStorm(stormId: string): Promise<WindRadii | null> {
+export type AtcfData = { radii: WindRadii | null; track: TrackPoint[] };
+
+const EMPTY_ATCF: AtcfData = { radii: null, track: [] };
+
+// One b-deck fetch yields both the current radii and the full past track. When
+// the storm is already cached we send If-Modified-Since: an unchanged file 304s
+// and we reuse the previously-parsed data instead of re-downloading + re-parsing.
+async function fetchAtcfForStorm(
+  stormId: string,
+  prev: AtcfData | undefined,
+): Promise<AtcfData> {
   const url = `${ATCF_BTK_BASE}/b${stormId.toLowerCase()}.dat`;
+  const since = lastModified.get(stormId);
   try {
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
-    if (!res.ok) return null;
-    return parseAtcfBdeckRadii(await res.text());
+    const res = await fetchWithTimeout(
+      url,
+      FETCH_TIMEOUT_MS,
+      since ? { headers: { "If-Modified-Since": since } } : undefined,
+    );
+    if (res.status === 304 && prev) return prev; // unchanged — reuse parsed data
+    if (!res.ok) return prev ?? EMPTY_ATCF;
+    const mod = res.headers.get("last-modified");
+    if (mod) lastModified.set(stormId, mod);
+    const text = await res.text();
+    return { radii: parseAtcfBdeckRadii(text), track: parseAtcfTrack(text) };
   } catch {
-    return null;
+    return prev ?? EMPTY_ATCF;
   }
 }
 
 // ── Public API ───────────────────────────────────────────────────────
 
-export type CycloneWindRadiiResult = {
-  radii: WindRadii | null;
-  fetchedAt: number;
-};
+export type CycloneAtcfResult = AtcfData & { fetchedAt: number };
 
-/** Current wind radii for a storm. TTL + stale-while-revalidate; a fetch
- *  failure is silent (client just doesn't draw the wind field). */
-const radiiCache = createPerKeyCache<WindRadii | null>({
+/** Current wind radii + observed past track for a storm. TTL + stale-while-
+ *  revalidate; a fetch failure is silent (client just omits the overlays). */
+const atcfCache = createPerKeyCache<AtcfData>({
   ttlMs: ATCF_CACHE_TTL_MS,
+  retentionMs: ATCF_RETENTION_MS,
   purgeIntervalMs: PURGE_INTERVAL_MS,
-  emptyValue: null,
-  fetch: fetchRadiiForStorm,
+  emptyValue: EMPTY_ATCF,
+  fetch: fetchAtcfForStorm,
 });
 
-export async function getCycloneWindRadii(
+export async function getCycloneAtcf(
   stormId: string,
-): Promise<CycloneWindRadiiResult> {
-  const { value, fetchedAt } = await radiiCache.get(stormId);
-  return { radii: value, fetchedAt };
+): Promise<CycloneAtcfResult> {
+  const { value, fetchedAt } = await atcfCache.get(stormId);
+  return { radii: value.radii, track: value.track, fetchedAt };
+}
+
+// ── Model guidance (a-deck "spaghetti") ──────────────────────────────
+// Lazy, on-demand only (the MODELS toggle) — never embedded in the storm feed,
+// since the a-deck is large. Curated to the major track-guidance models so the
+// plot reads as spaghetti, not noise. Same conditional-GET + retention pattern.
+
+const ATCF_ADECK_BASE = "https://ftp.nhc.noaa.gov/atcf/aid_public";
+const SPAGHETTI_MODELS = new Set([
+  "OFCL", "AVNO", "GFSO", "EMXI", "EMX", "CMC", "CMCI",
+  "HWRF", "HWFI", "HMON", "HMNI", "UKM", "UKMI", "NVGM", "AEMN", "TVCN",
+]);
+
+export type ModelTrackPoint = { tau: number; lat: number; lon: number };
+export type ModelTrack = { model: string; points: ModelTrackPoint[] };
+
+/** Per-model forecast tracks for the latest init cycle in the a-deck. One point
+ *  per (model, TAU); models with fewer than 2 points are dropped. */
+export function parseAtcfAdeck(text: string): ModelTrack[] {
+  const rows: string[][] = [];
+  let latest = "";
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const f = line.split(",").map((s) => s.trim());
+    if (f.length < 8) continue;
+    rows.push(f);
+    if (f[2]! > latest) latest = f[2]!;
+  }
+  if (!latest) return [];
+
+  const byModel = new Map<string, Map<number, ModelTrackPoint>>();
+  for (const f of rows) {
+    if (f[2] !== latest || !SPAGHETTI_MODELS.has(f[4]!)) continue;
+    const tau = Number.parseInt(f[5]!, 10);
+    const pos = parseAtcfLatLon(f[6]!, f[7]!);
+    if (!Number.isFinite(tau) || !pos) continue;
+    let m = byModel.get(f[4]!);
+    if (!m) {
+      m = new Map();
+      byModel.set(f[4]!, m);
+    }
+    if (!m.has(tau)) m.set(tau, { tau, lat: pos.lat, lon: pos.lon });
+  }
+
+  const tracks: ModelTrack[] = [];
+  for (const [model, m] of byModel) {
+    const points = [...m.values()].sort((a, b) => a.tau - b.tau);
+    if (points.length >= 2) tracks.push({ model, points });
+  }
+  return tracks;
+}
+
+const adeckLastModified = new Map<string, string>();
+
+async function fetchModelsForStorm(
+  stormId: string,
+  prev: ModelTrack[] | undefined,
+): Promise<ModelTrack[]> {
+  // aid_public a-decks are gzipped on the NHC server, unlike the plain b-deck.
+  const url = `${ATCF_ADECK_BASE}/a${stormId.toLowerCase()}.dat.gz`;
+  const since = adeckLastModified.get(stormId);
+  try {
+    const res = await fetchWithTimeout(
+      url,
+      FETCH_TIMEOUT_MS,
+      since ? { headers: { "If-Modified-Since": since } } : undefined,
+    );
+    if (res.status === 304 && prev) return prev;
+    if (!res.ok || !res.body) return prev ?? [];
+    const mod = res.headers.get("last-modified");
+    if (mod) adeckLastModified.set(stormId, mod);
+    const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+    const text = await new Response(stream).text();
+    return parseAtcfAdeck(text);
+  } catch {
+    return prev ?? [];
+  }
+}
+
+const modelsCache = createPerKeyCache<ModelTrack[]>({
+  ttlMs: ATCF_CACHE_TTL_MS,
+  retentionMs: ATCF_RETENTION_MS,
+  purgeIntervalMs: PURGE_INTERVAL_MS,
+  emptyValue: [],
+  fetch: fetchModelsForStorm,
+});
+
+export type CycloneModelsResult = { models: ModelTrack[]; fetchedAt: number };
+
+/** Spaghetti model tracks for a storm (lazy — only fetched when requested). */
+export async function getCycloneModels(
+  stormId: string,
+): Promise<CycloneModelsResult> {
+  const { value, fetchedAt } = await modelsCache.get(stormId);
+  return { models: value, fetchedAt };
 }
 
 export function __resetCycloneAtcfCacheForTests(): void {
-  radiiCache.reset();
+  atcfCache.reset();
+  modelsCache.reset();
+  lastModified.clear();
+  adeckLastModified.clear();
 }

@@ -7,13 +7,13 @@
 
 import { useId } from "react";
 import { TrendingUp } from "lucide-react";
-import { formatKtMph } from "@/lib/units";
+import { formatKtShort } from "@/lib/units";
 import type { CycloneData } from "../types";
 import {
   analyzeIntensity,
   peakForecastWindKt,
 } from "../data/intensity";
-import { SAFFIR_SIMPSON, TS_MIN_KT } from "../classification";
+import { SAFFIR_SIMPSON, TS_MIN_KT, CYCLONE_HEADING } from "../classification";
 
 const W = 260;
 const H = 84;
@@ -63,13 +63,13 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
     <div>
       <div className="flex items-baseline justify-between mb-1">
         <span
-          className="text-[10px] font-mono tracking-widest"
-          style={{ color: "var(--sigint-warn)" }}
+          className="text-[11px] font-mono tracking-widest"
+          style={{ color: CYCLONE_HEADING }}
         >
           INTENSITY
         </span>
-        <span className="text-[10px] font-mono text-sig-text">
-          peak {formatKtMph(peak)}
+        <span className="text-[11px] font-mono text-sig-text text-right pl-2">
+          peak {formatKtShort(peak)}
           {lastW < firstW ? " · weakening" : lastW > firstW ? " · strengthening" : " · steady"}
         </span>
       </div>
@@ -84,7 +84,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           }}
         >
           <TrendingUp className="w-3.5 h-3.5" aria-hidden="true" />
-          RAPID INTENSIFICATION · +{formatKtMph(ri.maxGain24hKt)}/24h
+          RAPID INTENSIFICATION · +{formatKtShort(ri.maxGain24hKt)}/24h
         </div>
       )}
 
@@ -146,9 +146,9 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
         ))}
       </svg>
 
-      <div className="flex justify-between text-[10px] font-mono text-sig-text mt-0.5">
-        <span>now · {formatKtMph(firstW)}</span>
-        <span>+{maxH}h · {formatKtMph(lastW)}</span>
+      <div className="flex justify-between text-[11px] font-mono text-sig-text mt-0.5">
+        <span>now · {formatKtShort(firstW)}</span>
+        <span>+{maxH}h · {formatKtShort(lastW)}</span>
       </div>
     </div>
   );

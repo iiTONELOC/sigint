@@ -52,11 +52,31 @@ function drawCyclone(
   ctx.arc(x, y, gr, 0, Math.PI * 2);
   ctx.fill();
 
+  // Observed past track (genesis → now), under the eye. Tied to the track toggle.
+  if (showForecast) {
+    drawPastTrack(ctx, projFn, x, y, item, color, depthAlpha);
+  }
+
   // Eye dot
   ctx.fillStyle = color;
   ctx.globalAlpha = depthAlpha;
   ctx.beginPath();
   ctx.arc(x, y, s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Current-position marker: hollow ring + bright centre pip so the live eye is
+  // the obvious click target for current data — distinct from the genesis X and
+  // the small past-trail / forecast dots, which both lead the eye to here.
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = depthAlpha * 0.95;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, s + 3.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.globalAlpha = depthAlpha;
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(1, s * 0.35), 0, Math.PI * 2);
   ctx.fill();
 
   // Forecast track + cone (official KMZ-derived if present, synthesized
@@ -95,9 +115,30 @@ function drawCyclone(
 }
 
 // Quadrant wind radii. wr.kt34/50/64 are nautical miles per quadrant
-// [NE, SE, SW, NW]; each is drawn as a filled wedge from the eye. Outer→inner
-// (34→64) with an intensity ramp so the strongest band reads on top. nm→px
-// uses 60 nm = 1° latitude (same approximation as the synthesized cone).
+// [NE, SE, SW, NW]. Drawing four hard pie-wedges leaves unreal straight
+// N/S/E/W edges — a one-sided storm renders as a perfect cardinal-bounded
+// semicircle. Instead each band is ONE smooth closed curve: the per-quadrant
+// radius is anchored at its centre bearing (45/135/225/315°) and smoothstep-
+// interpolated around the eye, so a missing quadrant tapers to the centre
+// rather than a flat wall. nm→px uses 60 nm = 1° latitude.
+var WR_QUAD_CENTER = [45, 135, 225, 315]; // NE, SE, SW, NW (compass degrees)
+var WR_STEPS = 64;
+
+// Smoothstep-interpolated radius (nm) at a compass bearing, from the four
+// quadrant-centre values.
+function wrRadiusAt(q, bearing) {
+  for (var i = 0; i < 4; i++) {
+    var d = (((bearing - WR_QUAD_CENTER[i]) % 360) + 360) % 360;
+    if (d <= 90) {
+      var v0 = q[i] > 0 ? q[i] : 0;
+      var v1 = q[(i + 1) % 4] > 0 ? q[(i + 1) % 4] : 0;
+      var tt = d / 90;
+      return v0 + (v1 - v0) * (tt * tt * (3 - 2 * tt));
+    }
+  }
+  return 0;
+}
+
 function drawWindRadii(ctx, projFn, x, y, item, depthAlpha) {
   var wr = item.data && item.data.windRadii;
   if (!wr) return;
@@ -106,82 +147,151 @@ function drawWindRadii(ctx, projFn, x, y, item, depthAlpha) {
   var pxPerNm = Math.hypot(north.x - x, north.y - y) / 60;
   if (!(pxPerNm > 0)) return;
 
-  // canvas angle: 0 = east, positive = clockwise (y-down). NE, SE, SW, NW.
-  var QUAD = [
-    [-Math.PI / 2, 0],
-    [0, Math.PI / 2],
-    [Math.PI / 2, Math.PI],
-    [Math.PI, (3 * Math.PI) / 2],
-  ];
   var BANDS = [
-    [wr.kt34, "#ffd24a", 0.1],
-    [wr.kt50, "#ff8c42", 0.13],
-    [wr.kt64, "#ff5d5d", 0.17],
+    [wr.kt34, "#ffd24a", 0.12],
+    [wr.kt50, "#ff8c42", 0.16],
+    [wr.kt64, "#ff5d5d", 0.2],
   ];
   for (var b = 0; b < BANDS.length; b++) {
     var q = BANDS[b][0];
-    if (!q) continue;
+    if (!q || !(q[0] > 0 || q[1] > 0 || q[2] > 0 || q[3] > 0)) continue;
     ctx.fillStyle = BANDS[b][1];
     ctx.globalAlpha = depthAlpha * BANDS[b][2];
-    for (var k = 0; k < 4; k++) {
-      var nm = q[k];
-      if (!nm || nm <= 0) continue;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.arc(x, y, nm * pxPerNm, QUAD[k][0], QUAD[k][1]);
-      ctx.closePath();
-      ctx.fill();
+    ctx.beginPath();
+    for (var i = 0; i <= WR_STEPS; i++) {
+      var bearing = (i / WR_STEPS) * 360;
+      var r = wrRadiusAt(q, bearing) * pxPerNm;
+      // compass bearing → canvas angle (0 = east, clockwise, y-down)
+      var a = ((bearing - 90) * Math.PI) / 180;
+      var px = x + Math.cos(a) * r;
+      var py = y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
     }
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.globalAlpha = 1;
 }
 
-function hasOfficialCone(d) {
-  var c = d.officialCone;
-  return !!(c?.coordinates?.[0] && c.coordinates[0].length >= 4);
-}
-
-function drawOfficialCone(ctx, projFn, cone, color, baseAlpha) {
-  var ring = cone.coordinates[0];
-  ctx.beginPath();
-  var moved = false;
-  for (var ri = 0; ri < ring.length; ri++) {
-    var pt = ring[ri];
-    var rp = projFn(pt[1], pt[0]);
-    if (rp.z <= 0) continue;
-    if (moved) {
-      ctx.lineTo(rp.x, rp.y);
-    } else {
-      ctx.moveTo(rp.x, rp.y);
-      moved = true;
-    }
+// Observed best-track history: a solid trail from genesis (X marker) through
+// each analyzed past position to the current eye — distinct from the dashed
+// forecast track ahead. Data is the ATCF b-deck (item.data.pastTrack).
+function drawPastTrack(ctx, projFn, eyeX, eyeY, item, color, depthAlpha) {
+  var track = item.data && item.data.pastTrack;
+  if (!track || track.length < 2) return;
+  var pts = [];
+  for (var i = 0; i < track.length; i++) {
+    var p = projFn(track[i].lat, track[i].lon);
+    if (p.z > 0) pts.push(p);
   }
-  if (!moved) return;
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.globalAlpha = baseAlpha * 0.15;
-  ctx.fill();
+  if (pts.length < 2) return;
+
+  // solid trail genesis → eye
   ctx.strokeStyle = color;
-  ctx.globalAlpha = baseAlpha * 0.6;
+  ctx.lineWidth = 1.25;
+  ctx.globalAlpha = depthAlpha * 0.45;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+  ctx.lineTo(eyeX, eyeY);
+  ctx.stroke();
+
+  // past-position dots
+  ctx.fillStyle = color;
+  ctx.globalAlpha = depthAlpha * 0.55;
+  for (var k = 1; k < pts.length; k++) {
+    ctx.beginPath();
+    ctx.arc(pts[k].x, pts[k].y, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // genesis "X" at the first analyzed position
+  var g = pts[0];
+  var xs = 4;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
+  ctx.globalAlpha = depthAlpha * 0.9;
+  ctx.beginPath();
+  ctx.moveTo(g.x - xs, g.y - xs);
+  ctx.lineTo(g.x + xs, g.y + xs);
+  ctx.moveTo(g.x - xs, g.y + xs);
+  ctx.lineTo(g.x + xs, g.y - xs);
   ctx.stroke();
   ctx.globalAlpha = 1;
 }
 
-function drawSynthesizedCone(ctx, projFn, fp, color, baseAlpha) {
+// Cone of uncertainty as time-step segments. Each segment is a tapered band
+// between two forecast points, its half-width = the real NHC average track-error
+// radius at that lead time (errorRadiusNm). It starts from a point at the eye
+// (r=0) so there's no bulbous base, shades fainter the further out the forecast,
+// and strokes a divider at each forecast hour so the day-out structure reads.
+function drawSegmentedCone(ctx, projFn, eyeX, eyeY, fp, color, baseAlpha) {
+  var pts = [{ x: eyeX, y: eyeY, r: 0, h: 0 }];
   for (var k = 0; k < fp.length; k++) {
     var fc = fp[k];
-    var nearby = projFn(fc.lat + 1, fc.lon);
-    if (nearby.z <= 0) continue;
-    var pxPerDeg = Math.hypot(nearby.x - fc.x, nearby.y - fc.y);
-    var radiusPx = (fc.errorRadiusNm / 60) * pxPerDeg;
-    var fadeC = 1 - fc.fcstHour / 144;
-    ctx.fillStyle = color;
-    ctx.globalAlpha = baseAlpha * 0.12 * fadeC;
-    ctx.beginPath();
-    ctx.arc(fc.x, fc.y, radiusPx, 0, Math.PI * 2);
-    ctx.fill();
+    var nb = projFn(fc.lat + 1, fc.lon);
+    if (nb.z <= 0) continue;
+    var pxPerDeg = Math.hypot(nb.x - fc.x, nb.y - fc.y);
+    pts.push({
+      x: fc.x,
+      y: fc.y,
+      r: (fc.errorRadiusNm / 60) * pxPerDeg,
+      h: fc.fcstHour,
+    });
   }
+  if (pts.length < 2) return;
+  var maxH = pts[pts.length - 1].h || 1;
+
+  for (var i = 0; i < pts.length - 1; i++) {
+    var A = pts[i];
+    var B = pts[i + 1];
+    var dx = B.x - A.x;
+    var dy = B.y - A.y;
+    var len = Math.hypot(dx, dy) || 1;
+    var nx = -dy / len;
+    var ny = dx / len;
+    var t = B.h / maxH; // 0 (near) → 1 (far)
+
+    var ax1 = A.x + nx * A.r;
+    var ay1 = A.y + ny * A.r;
+    var bx1 = B.x + nx * B.r;
+    var by1 = B.y + ny * B.r;
+    var bx2 = B.x - nx * B.r;
+    var by2 = B.y - ny * B.r;
+    var ax2 = A.x - nx * A.r;
+    var ay2 = A.y - ny * A.r;
+
+    ctx.beginPath();
+    ctx.moveTo(ax1, ay1);
+    ctx.lineTo(bx1, by1);
+    ctx.lineTo(bx2, by2);
+    ctx.lineTo(ax2, ay2);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = baseAlpha * (0.26 - 0.18 * t);
+    ctx.fill();
+
+    // cone rim edges
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
+    ctx.globalAlpha = baseAlpha * (0.6 - 0.35 * t);
+    ctx.beginPath();
+    ctx.moveTo(ax1, ay1);
+    ctx.lineTo(bx1, by1);
+    ctx.moveTo(ax2, ay2);
+    ctx.lineTo(bx2, by2);
+    ctx.stroke();
+
+    // time-step divider at the forecast hour
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = baseAlpha * (0.5 - 0.3 * t);
+    ctx.beginPath();
+    ctx.moveTo(bx1, by1);
+    ctx.lineTo(bx2, by2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawCycloneForecast(
@@ -224,11 +334,7 @@ function drawCycloneForecast(
   // (server proxies /api/cyclones/:stormId/cone), synthesized error-
   // radius circles otherwise. Both branches respect the showCone flag.
   if (showCone) {
-    if (hasOfficialCone(d)) {
-      drawOfficialCone(ctx, projFn, d.officialCone, color, baseAlpha);
-    } else {
-      drawSynthesizedCone(ctx, projFn, fp, color, baseAlpha);
-    }
+    drawSegmentedCone(ctx, projFn, eyeX, eyeY, fp, color, baseAlpha);
   }
 
   // Forecast track polyline — eye → forecast points (dashed). The
