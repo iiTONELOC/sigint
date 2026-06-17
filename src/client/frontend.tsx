@@ -4,6 +4,7 @@
  *
  * It is included in `src/index.html`.
  */
+import "./disablePerfTracks"; // MUST be first — runs before react-dom loads
 import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

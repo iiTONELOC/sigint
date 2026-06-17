@@ -11,61 +11,9 @@ import { describe, test, expect } from "bun:test";
 // FIRMS CSV PARSER (from firmsCache.ts)
 // ═════════════════════════════════════════════════════════════════════
 
-type FireRecord = {
-  lat: number;
-  lon: number;
-  brightness: number;
-  scan: number;
-  track: number;
-  acqDate: string;
-  acqTime: string;
-  satellite: string;
-  instrument: string;
-  confidence: string;
-  version: string;
-  brightT31: number;
-  frp: number;
-  daynight: string;
-};
-
-function parseFirmsCsv(csv: string): FireRecord[] {
-  const lines = csv.split("\n");
-  if (lines.length < 2) return [];
-  const header = lines[0]!.toLowerCase();
-  if (!header.includes("latitude")) return [];
-  const records: FireRecord[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i]!.trim();
-    if (!line) continue;
-    const cols = line.split(",");
-    if (cols.length < 14) continue;
-    const lat = parseFloat(cols[0] ?? "");
-    const lon = parseFloat(cols[1] ?? "");
-    if (!isFinite(lat) || !isFinite(lon)) continue;
-    if (lat === 0 && lon === 0) continue;
-    records.push({
-      lat,
-      lon,
-      brightness: isFinite(parseFloat(cols[2] ?? "0"))
-        ? parseFloat(cols[2]!)
-        : 0,
-      scan: isFinite(parseFloat(cols[3] ?? "0")) ? parseFloat(cols[3]!) : 0,
-      track: isFinite(parseFloat(cols[4] ?? "0")) ? parseFloat(cols[4]!) : 0,
-      acqDate: cols[5]?.trim() ?? "",
-      acqTime: cols[6]?.trim() ?? "",
-      satellite: cols[7]?.trim() ?? "",
-      instrument: cols[8]?.trim() ?? "",
-      confidence: cols[9]?.trim() ?? "",
-      version: cols[10]?.trim() ?? "",
-      brightT31: isFinite(parseFloat(cols[11] ?? "0"))
-        ? parseFloat(cols[11]!)
-        : 0,
-      frp: isFinite(parseFloat(cols[12] ?? "0")) ? parseFloat(cols[12]!) : 0,
-      daynight: cols[13]?.trim() ?? "",
-    });
-  }
-  return records;
-}
+// Test the REAL parser (header-driven; handles the keyless 13-col bulk file
+// and the keyed 14-col api/area CSV).
+import { parseFirmsCsv } from "../../src/server/api/firmsCache";
 
 describe("parseFirmsCsv", () => {
   test("parses valid CSV with header", () => {
@@ -78,6 +26,19 @@ describe("parseFirmsCsv", () => {
     expect(records[0]!.lon).toBeCloseTo(45.456, 3);
     expect(records[0]!.frp).toBeCloseTo(42.5, 1);
     expect(records[1]!.daynight).toBe("D");
+  });
+
+  test("parses the keyless 13-col bulk file (no instrument column)", () => {
+    const csv = `latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,confidence,version,bright_ti5,frp,daynight
+15.27001,-10.23617,310.87,0.56,0.69,2026-06-15,0308,N20,nominal,2.0NRT,291.19,6.07,N`;
+    const records = parseFirmsCsv(csv);
+    expect(records.length).toBe(1);
+    expect(records[0]!.lat).toBeCloseTo(15.27001, 4);
+    expect(records[0]!.frp).toBeCloseTo(6.07, 2);
+    expect(records[0]!.brightness).toBeCloseTo(310.87, 2); // bright_ti4
+    expect(records[0]!.brightT31).toBeCloseTo(291.19, 2); // bright_ti5
+    expect(records[0]!.confidence).toBe("nominal");
+    expect(records[0]!.instrument).toBe("VIIRS"); // defaulted, absent in feed
   });
 
   test("returns empty for no header", () => {

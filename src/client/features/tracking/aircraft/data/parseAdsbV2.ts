@@ -40,6 +40,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftData } from "../types";
 import { authenticatedFetch } from "@/lib/authService";
+import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
 
 export const AIRCRAFT_STATES_URL = "/api/aircraft/states";
 
@@ -105,9 +106,15 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
   const callsignTrimmed = (a.flight ?? "").trim();
   const callsign = callsignTrimmed.length > 0 ? callsignTrimmed : "Unknown";
 
+  // squawkStatus is a UI-only enum and icao24 normalization is cheap — both
+  // derived here in the single parse pass so the provider doesn't re-spread
+  // every record on the poll tick.
+  const icao24 = normalizeIcao24(a.hex) ?? a.hex;
+
   return {
-    icao24: a.hex,
+    icao24,
     callsign,
+    squawkStatus: getSquawkStatus(a.squawk),
     originCountry: a.originCountry ?? "",
     acType: a.acType ?? "Unknown",
     altitude,

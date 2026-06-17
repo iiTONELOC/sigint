@@ -1,6 +1,7 @@
 import {
   getInterpolatedPosition,
   getTrail,
+  getTrailsRev,
   type TrailPoint,
 } from "@/lib/trailService";
 import { useEffect, useRef, useState } from "react";
@@ -34,6 +35,35 @@ let sharedWorker: Worker | null = null;
 function getSharedWorker(): Worker {
   sharedWorker ??= new Worker("/workers/pointWorker.js");
   return sharedWorker;
+}
+
+// High-count types ship only the fields the worker draws/filters with — the
+// full enriched blob (acType, registration, route, …) would balloon the clone.
+const SLIM_TYPES = new Set(["aircraft", "ships", "quakes", "fires", "events"]);
+function slimPoint(item: DataPoint) {
+  const dd = (item as any).data;
+  return {
+    id: item.id,
+    type: item.type,
+    lat: item.lat,
+    lon: item.lon,
+    timestamp: item.timestamp,
+    data:
+      SLIM_TYPES.has(item.type) && dd
+        ? {
+            military: dd.military,
+            recon: dd.recon,
+            squawkStatus: dd.squawkStatus,
+            squawk: dd.squawk,
+            onGround: dd.onGround,
+            originCountry: dd.originCountry,
+            heading: dd.heading,
+            magnitude: dd.magnitude,
+            severity: dd.severity,
+            frp: dd.frp,
+          }
+        : dd,
+  };
 }
 
 export function GlobeVisualization({
@@ -154,16 +184,26 @@ export function GlobeVisualization({
   const workerCanvasRef = useRef<OffscreenCanvas | null>(null);
   const latestBitmapRef = useRef<ImageBitmap | null>(null);
   const trailSyncRef = useRef(30);
+  const lastTrailRevRef = useRef(-1);
 
   // Track what was last sent to worker — skip re-sending heavy data.
   // Updated by the off-path data pump once it has serialized + sent.
   const lastSentDataRef = useRef<DataPoint[] | null>(null);
   const lastSentThemeRef = useRef<typeof theme | null>(null);
+  // Per-type item arrays last sent to the worker. A poll only mutates one
+  // source, so only that type's array gets a new reference — we re-send just
+  // that type and the worker replaces its bucket (stale points drop out).
+  const lastSentByTypeRef = useRef<Map<string, DataPoint[]>>(new Map());
   // The render loop sets this when data/theme changed; the data pump (a
   // separate scheduled task, OFF the paint frame) does the heavy serialize +
   // postMessage. The progressive reveal ramp now lives in the worker.
   const dataDirtyRef = useRef(false);
   const dataPumpScheduledRef = useRef(false);
+  // Changed layers waiting to stream to the worker, drained a chunk per frame
+  // so a big layer (13k ships) never clones in one blocking go.
+  const pumpQueueRef = useRef<
+    Array<{ source: string; items: DataPoint[]; offset: number }>
+  >([]);
   // Warning polygons (region geometry) are sent to the worker as their own
   // "warnings" message when the array OR the theme changes — small + rare.
   const lastSentWarningsRef = useRef<unknown>(null);
@@ -325,87 +365,92 @@ export function GlobeVisualization({
     }
 
     // ── Data pump — OFF the paint frame ───────────────────────────
-    // Serializing the full point array (~60k objects) + structuredClone
-    // across the worker boundary is the work that used to hitch dragging
-    // when aircraft data fed in (it ran inline in the paint frame). It now
-    // runs here, on its own rAF, scheduled only when data/theme changed —
-    // so the paint frame and DOM input events are never blocked by it.
+    // Serializing every point + structuredClone across the worker boundary is
+    // the cost that froze the globe on each poll. A poll only mutates one
+    // source, so we partition by type and re-send ONLY the types whose item
+    // arrays changed — the worker replaces that type's bucket (so departed
+    // points drop out). The 35k static fires aren't re-cloned on a 15s
+    // aircraft poll. Runs on its own rAF, off the paint frame.
+    // Queue the layers that changed this poll (whole-bucket replace, so
+    // departed points drop out). Cheap: partition + reference compare, no clone.
+    const queuePumpJobs = () => {
+      const d = propsRef.current.data;
+      // Theme change recolors every layer — force all buckets to re-send.
+      if (themeRef.current !== lastSentThemeRef.current) {
+        lastSentByTypeRef.current = new Map();
+      }
+
+      const byType = new Map<string, DataPoint[]>();
+      for (const item of d) {
+        const arr = byType.get(item.type);
+        if (arr) arr.push(item);
+        else byType.set(item.type, [item]);
+      }
+
+      const last = lastSentByTypeRef.current;
+      const unchanged = (a: DataPoint[] | undefined, b: DataPoint[]) => {
+        if (!a || a.length !== b.length) return false;
+        for (let i = 0; i < b.length; i++) if (a[i] !== b[i]) return false;
+        return true;
+      };
+      const queue = pumpQueueRef.current;
+      const enqueue = (source: string, items: DataPoint[]) => {
+        const i = queue.findIndex((j) => j.source === source);
+        if (i >= 0) queue.splice(i, 1); // supersede any in-flight job
+        queue.push({ source, items, offset: 0 });
+      };
+
+      for (const [type, items] of byType) {
+        if (unchanged(last.get(type), items)) continue;
+        last.set(type, items);
+        enqueue(type, items);
+      }
+      // A source that emptied out this poll — clear its bucket in the worker.
+      for (const type of last.keys()) {
+        if (byType.has(type) || last.get(type)!.length === 0) continue;
+        last.set(type, []);
+        enqueue(type, []);
+      }
+
+      lastSentDataRef.current = d;
+      lastSentThemeRef.current = themeRef.current;
+    };
+
+    // Drain one chunk per frame. The worker accumulates chunks into a pending
+    // bucket and swaps it in on `done`, so a 13k-point layer streams over a few
+    // frames instead of cloning in one blocking postMessage.
+    const PUMP_CHUNK = 4000;
     const pumpData = () => {
       dataPumpScheduledRef.current = false;
       const worker = workerRef.current;
       if (!worker || !running) return;
-      if (!dataDirtyRef.current) return;
-      dataDirtyRef.current = false;
 
-      const d = propsRef.current.data;
+      if (dataDirtyRef.current) {
+        dataDirtyRef.current = false;
+        queuePumpJobs();
+      }
+
+      const queue = pumpQueueRef.current;
+      if (queue.length === 0) return;
+
       const C = colorsRef.current;
-
-      // Send ONLY the fields the worker renders/filters with for the high-
-      // count types — not the full enriched `data` blob. The server attaches
-      // acType, registration, route, owner, etc. to each aircraft;
-      // structuredClone deep-copies all of it per point, which cost ~2µs/point
-      // (45ms at 22k) and hitched the globe on every poll. Cyclones/weather
-      // are a handful of points and need richer fields to draw, so they keep
-      // their full data — the cost there is negligible.
-      const plainData = d.map((item) => {
-        const dd = (item as any).data;
-        const slim =
-          item.type === "aircraft" ||
-          item.type === "ships" ||
-          item.type === "quakes" ||
-          item.type === "fires" ||
-          item.type === "events";
-        return {
-          id: item.id,
-          type: item.type,
-          lat: item.lat,
-          lon: item.lon,
-          timestamp: item.timestamp,
-          data:
-            slim && dd
-              ? {
-                  military: dd.military,
-                  recon: dd.recon,
-                  squawkStatus: dd.squawkStatus,
-                  squawk: dd.squawk,
-                  onGround: dd.onGround,
-                  originCountry: dd.originCountry,
-                  heading: dd.heading,
-                  magnitude: dd.magnitude,
-                  severity: dd.severity,
-                  frp: dd.frp,
-                }
-              : dd,
-        };
+      const job = queue[0]!;
+      const end = Math.min(job.offset + PUMP_CHUNK, job.items.length);
+      const chunk: ReturnType<typeof slimPoint>[] = [];
+      for (let i = job.offset; i < end; i++) chunk.push(slimPoint(job.items[i]!));
+      const reset = job.offset === 0;
+      job.offset = end;
+      const done = job.offset >= job.items.length;
+      worker.postMessage({
+        type: "data",
+        payload: { source: job.source, data: chunk, colors: C, reset, done },
       });
+      if (done) queue.shift();
 
-      // Full trail history for all moving items, sent with the data change.
-      const fullTrails: Array<[string, any]> = [];
-      for (const item of d) {
-        if (item.type === "aircraft" || item.type === "ships") {
-          const trail = getTrail(item.id);
-          if (trail.length > 0) {
-            const last = trail[trail.length - 1]!;
-            fullTrails.push([
-              item.id,
-              {
-                lat: last.lat,
-                lon: last.lon,
-                ts: last.ts,
-                heading: (item as any).data?.heading ?? 0,
-                speedMps: (item as any).data?.speedMps ?? 0,
-              },
-            ]);
-          }
-        }
+      if (queue.length > 0) {
+        dataPumpScheduledRef.current = true;
+        requestAnimationFrame(pumpData);
       }
-      if (fullTrails.length > 0) {
-        worker.postMessage({ type: "trails", entries: fullTrails });
-      }
-      worker.postMessage({ type: "data", payload: { data: plainData, colors: C } });
-
-      lastSentDataRef.current = d;
-      lastSentThemeRef.current = themeRef.current;
     };
     const scheduleDataPump = () => {
       if (dataPumpScheduledRef.current) return;
@@ -516,30 +561,38 @@ export function GlobeVisualization({
           });
         }
 
-        // Sync trail data periodically (~every 30 frames) — small payload.
+        // Sync trail state to the worker only when positions actually changed
+        // (a poll bumped the rev). Between polls the data is identical, so this
+        // skips re-cloning every track in the paint loop every ~0.5s.
         trailSyncRef.current++;
-        if (trailSyncRef.current >= 30) {
+        if (trailSyncRef.current >= 30 && getTrailsRev() !== lastTrailRevRef.current) {
           trailSyncRef.current = 0;
-          const trailEntries: Array<[string, any]> = [];
+          lastTrailRevRef.current = getTrailsRev();
+          // Pack into transferable buffers so the worker boundary doesn't
+          // structuredClone ~20k objects in the paint loop. Numerics ride
+          // Float32/Float64 buffers (transferred zero-copy); only the flat id
+          // list is cloned. ts needs Float64 (ms epoch loses precision in f32).
+          const ids: string[] = [];
+          const vals: number[] = [];
+          const tss: number[] = [];
           for (const item of d) {
             if (item.type === "aircraft" || item.type === "ships") {
               const trail = getTrail(item.id);
               if (trail.length > 0) {
                 const last = trail[trail.length - 1]!;
-                trailEntries.push([
-                  item.id,
-                  {
-                    lat: last.lat,
-                    lon: last.lon,
-                    ts: last.ts,
-                    heading: (item as any).data?.heading ?? 0,
-                    speedMps: (item as any).data?.speedMps ?? 0,
-                  },
-                ]);
+                const dd = (item as any).data;
+                ids.push(item.id);
+                vals.push(last.lat, last.lon, dd?.heading ?? 0, dd?.speedMps ?? 0);
+                tss.push(last.ts);
               }
             }
           }
-          worker.postMessage({ type: "trails", entries: trailEntries });
+          const valBuf = new Float32Array(vals);
+          const tsBuf = new Float64Array(tss);
+          worker.postMessage(
+            { type: "trails", ids, vals: valBuf, tss: tsBuf },
+            [valBuf.buffer, tsBuf.buffer],
+          );
         }
 
         const selId = sel?.id ?? null;

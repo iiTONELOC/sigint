@@ -29,11 +29,6 @@ function getTimestamp(item: DataPoint): number {
   return 0;
 }
 
-/** Sort newest first */
-function byRecency(a: DataPoint, b: DataPoint): number {
-  return getTimestamp(b) - getTimestamp(a);
-}
-
 const TICKER_SIZE = 80;
 const TYPE_ORDER = [
   "aircraft",
@@ -61,8 +56,15 @@ export function buildTickerItems(allData: DataPoint[]): DataPoint[] {
     byType.get(item.type)?.push(item);
   }
 
-  for (const [type, items] of byType) {
-    byType.set(type, items.sort(byRecency));
+  // Parse each timestamp ONCE. byRecency used to call new Date() inside the
+  // sort comparator — O(n log n) date parses per bucket, ~1M for 35k fires,
+  // synchronous on every poll. Cache the number, then sort on it.
+  const tsOf = new Map<DataPoint, number>();
+  for (const items of byType.values()) {
+    for (const item of items) tsOf.set(item, getTimestamp(item));
+  }
+  for (const items of byType.values()) {
+    items.sort((a, b) => tsOf.get(b)! - tsOf.get(a)!);
   }
 
   const result: DataPoint[] = [];

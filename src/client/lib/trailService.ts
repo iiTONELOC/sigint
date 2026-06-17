@@ -59,6 +59,14 @@ export type TrailEntry = {
 let trails = new Map<string, TrailEntry>();
 let lastPersist = 0;
 let loaded = false;
+// Bumped whenever positions are recorded. The globe syncs trail state to the
+// render worker only when this changes — between polls it's stable, so the
+// per-frame loop skips the (heavy) re-clone of every track.
+let trailsRev = 0;
+
+export function getTrailsRev(): number {
+  return trailsRev;
+}
 
 // ── Cache ────────────────────────────────────────────────────────────
 
@@ -246,6 +254,7 @@ export function recordPositions(
     }
   }
 
+  trailsRev++;
   maybePersist();
 }
 

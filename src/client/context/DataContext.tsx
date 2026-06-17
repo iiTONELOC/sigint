@@ -28,8 +28,13 @@ import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import { buildTickerItems } from "@/lib/tickerFeed";
 import { recordPositions } from "@/lib/trailService";
-import { featureRegistry } from "@/features/registry";
-import { cellKey, type SpatialGrid } from "@/lib/spatialIndex";
+import { scheduleIdle } from "@/lib/idle";
+import { type SpatialGrid } from "@/lib/spatialIndex";
+import {
+  buildDerivedSync,
+  buildDerivedChunked,
+  type Derived,
+} from "@/lib/deriveData";
 import type { SourceStatus } from "@/lib/sourceHealth";
 import {
   emptyBaseline,
@@ -260,21 +265,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Effect's `.map` extracts plain values immediately, so in-place
   // mutation under the array does not corrupt prior trail points.
   useEffect(() => {
-    const movingItems = allData
-      .filter((d) => d.type === "aircraft" || d.type === "ships")
-      .map((d) => ({
-        id: d.id,
-        type: d.type as "aircraft" | "ships",
-        lat: d.lat,
-        lon: d.lon,
-        heading: (d.data as any)?.heading,
-        speedMps:
-          (d.data as any)?.speedMps ??
-          ((d.data as any)?.speed ? (d.data as any).speed * 0.5144 : undefined),
-        altitude: (d.data as any)?.altitude,
-        speed: (d.data as any)?.speed,
-      }));
-    if (movingItems.length > 0) recordPositions(movingItems);
+    // Trail history feeds future frames, not the current one — run the O(n)
+    // scan + record in idle time so it never blocks the commit/poll tick.
+    scheduleIdle(() => {
+      const movingItems = allData
+        .filter((d) => d.type === "aircraft" || d.type === "ships")
+        .map((d) => ({
+          id: d.id,
+          type: d.type as "aircraft" | "ships",
+          lat: d.lat,
+          lon: d.lon,
+          heading: (d.data as any)?.heading,
+          speedMps:
+            (d.data as any)?.speedMps ??
+            ((d.data as any)?.speed
+              ? (d.data as any).speed * 0.5144
+              : undefined),
+          altitude: (d.data as any)?.altitude,
+          speed: (d.data as any)?.speed,
+        }));
+      if (movingItems.length > 0) recordPositions(movingItems);
+    });
   }, [allData, allDataVersion]);
 
   // ── Data source status ─────────────────────────────────────────
@@ -312,77 +323,34 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [aircraftFilter, layers, cycloneFilter],
   );
 
-  // ── Derived state — ONE pass over allData ──────────────────────
-  // idMap, spatialGrid, filteredIds, tickerItems, counts and
-  // availableCountries were six separate O(n) scans of the same array,
-  // run back-to-back on every membership poll — the main-thread stall that
-  // hitched dragging when aircraft data fed in. They are membership-gated
-  // (a point merely moving changes none of them: same bucket, same filter
-  // outcome, same ticker membership), so they collapse into a single walk.
-  // Cheap finalizers (ticker round-robin, country sort, forecast-parent
-  // pass) run on the collected buckets, not on allData.
-  const derived = useMemo(() => {
-    const idMap = new Map<string, DataPoint>();
-    const cells = new Map<number, DataPoint[]>();
-    const filteredIds = new Set<string>();
-    const countsAcc: Record<string, number> = {};
-    for (const [id] of featureRegistry) countsAcc[id] = 0;
-    const countryTally = new Map<string, number>();
+  // ── Derived state — OFF the render path ────────────────────────
+  // idMap, spatialGrid, filteredIds, counts, availableCountries and
+  // tickerItems are one O(n) walk of allData. Run synchronously in a render
+  // useMemo this ~22k-item loop was the main-thread stall that froze the DOM
+  // on every poll. It now runs in a chunked, cancelable async pass (see
+  // lib/deriveData.ts) that yields between chunks — we serve the prior result
+  // until the fresh one lands (stale-while-recompute). The globe reads allData
+  // directly, so points stay visually current; only idMap/grid/counts lag a
+  // beat, which is fine at a 15 s cadence. The initial value is computed
+  // synchronously once for first paint.
+  const [derived, setDerived] = useState<Derived>(() =>
+    buildDerivedSync(allData, filters),
+  );
 
-    for (let i = 0; i < allData.length; i++) {
-      const item = allData[i]!;
-
-      // idMap
-      idMap.set(item.id, item);
-
-      // spatial grid cell
-      const key = cellKey(item.lat, item.lon);
-      const cell = cells.get(key);
-      if (cell) cell.push(item);
-      else cells.set(key, [item]);
-
-      const feature = featureRegistry.get(item.type);
-      if (feature) {
-        const filter = filters[item.type];
-        if (filter != null && feature.matchesFilter(item as never, filter)) {
-          filteredIds.add(item.id);
-          countsAcc[item.type] = (countsAcc[item.type] ?? 0) + 1;
-        }
-      }
-
-      // available aircraft countries
-      if (item.type === "aircraft") {
-        const country = (item.data as { originCountry?: string })?.originCountry;
-        if (country) countryTally.set(country, (countryTally.get(country) ?? 0) + 1);
-      }
-    }
-
-    // Forecast points inherit their parent storm's filter status (needs the
-    // first pass complete so the parent id is already settled in the set).
-    for (let i = 0; i < allData.length; i++) {
-      const item = allData[i]!;
-      if (item.type !== "cyclones-forecast") continue;
-      const parentId = `CY${(item.data as { parentStormId: string }).parentStormId}`;
-      if (filteredIds.has(parentId)) filteredIds.add(item.id);
-    }
-
-    const availableCountries = Array.from(countryTally.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([country]) => country);
-
-    return {
-      idMap,
-      spatialGrid: { cells, size: allData.length } as SpatialGrid,
-      filteredIds,
-      counts: countsAcc,
-      availableCountries,
+  useEffect(() => {
+    let cancelled = false;
+    void buildDerivedChunked(allData, filters, () => cancelled).then((res) => {
+      if (res && !cancelled) setDerived(res);
+    });
+    return () => {
+      cancelled = true;
     };
   }, [allData, filters]);
 
   const { idMap, spatialGrid, filteredIds, counts, availableCountries } = derived;
 
-  // Ticker is intentionally NOT in the fused pass: it gates on MEMBERSHIP
-  // only ([allData]), so toggling a filter/layer never reshuffles the feed.
+  // Ticker gates on MEMBERSHIP only ([allData]) — a filter/layer toggle must
+  // never reshuffle the feed. Kept out of the derived pass deliberately.
   const tickerItems = useMemo(() => buildTickerItems(allData), [allData]);
   const activeCount = useMemo(
     () => Object.values(counts).reduce((sum, n) => sum + n, 0),
@@ -426,14 +394,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!client) return;
     const id = setTimeout(() => {
       if (cancelled) return;
-      void client
-        .request(allData, newsArticles, baselineRef.current)
-        .then((result) => {
-          if (cancelled) return;
-          baselineRef.current = result.baseline;
-          persistBaseline(result.baseline);
-          setCorrelation(result);
-        });
+      // The request structured-clones all of allData to the worker — run that
+      // marshalling in idle time so it never lands during a drag/zoom.
+      scheduleIdle(() => {
+        if (cancelled) return;
+        void client
+          .request(allData, newsArticles, baselineRef.current)
+          .then((result) => {
+            if (cancelled) return;
+            baselineRef.current = result.baseline;
+            persistBaseline(result.baseline);
+            setCorrelation(result);
+          });
+      });
     }, 1000);
     return () => {
       cancelled = true;

@@ -31,6 +31,8 @@ export type AircraftData = {
   manufacturerName?: string;
   categoryDescription?: string;
   squawk?: SquawkStatus | string;
+  /** UI-only emergency classification derived from `squawk` (parseAdsbV2). */
+  squawkStatus?: SquawkStatus;
   military?: boolean;
   /** Hurricane Hunter / reconnaissance aircraft (server-tagged by ICAO hex). */
   recon?: boolean;

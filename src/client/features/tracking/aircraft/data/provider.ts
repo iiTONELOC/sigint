@@ -4,8 +4,7 @@ import {
   type ProviderSnapshot,
 } from "@/features/base/types";
 import { generateMockAircraft } from "@/data/mockData";
-import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheSetDeferred } from "@/lib/storageService";
 import { CACHE_KEYS } from "@/lib/cacheKeys";
 import { fetchAircraftStates } from "./parseAdsbV2";
 import { diffAndApply } from "@/features/base/diffEntities";
@@ -39,7 +38,8 @@ export class AircraftProvider implements DataProvider<DataPoint> {
   }
 
   private persistCache(data: DataPoint[]): void {
-    cacheSet(this.cacheKey, { timestamp: Date.now(), data });
+    // Deferred: the IDB structured clone runs in idle time, off the poll tick.
+    cacheSetDeferred(this.cacheKey, { timestamp: Date.now(), data });
   }
 
   private async readPersistedCache(): Promise<{
@@ -76,33 +76,6 @@ export class AircraftProvider implements DataProvider<DataPoint> {
     this.notifyChange();
   }
 
-  private async fetchAircraftStates(): Promise<DataPoint[]> {
-    // The server cache (src/server/api/aircraftCache.ts) already enriched
-    // each record with acType / registration / military / etc. via the
-    // local NDJSON metadata DB before the response left the wire — the
-    // client side is now a pure shape mapper. We still derive squawkStatus
-    // (it's a local UI-only enum, not metadata) and normalise icao24.
-    //
-    // Persistence intentionally lives in refresh(), AFTER the empty-
-    // protection check, so a cold-start ac:[] response from the server
-    // never poisons IDB with `{ data: [] }`. Documented invariant in
-    // docs/caching.md "Client-Side Stale Cache Retention".
-    const aircraft = await fetchAircraftStates();
-    return aircraft.map((entity) => {
-      if (entity.type !== "aircraft") return entity;
-      const d = entity.data as { squawk?: string; icao24?: string };
-      const norm = normalizeIcao24(d.icao24);
-      return {
-        ...entity,
-        data: {
-          ...d,
-          icao24: norm && norm !== d.icao24 ? norm : d.icao24,
-          squawkStatus: getSquawkStatus(d.squawk),
-        },
-      } as DataPoint;
-    });
-  }
-
   async hydrate(): Promise<{ data: DataPoint[]; stale: boolean } | null> {
     await this.hydrateMemoryCacheFromPersisted();
     if (!this.cache) return null;
@@ -127,7 +100,11 @@ export class AircraftProvider implements DataProvider<DataPoint> {
 
   private async doRefresh(): Promise<DataPoint[]> {
     try {
-      const incoming = await this.fetchAircraftStates();
+      // Server already enriched each record (acType / registration / military
+      // / etc.) before the response left the wire; parseAdsbV2 derives the
+      // UI-only squawkStatus + normalizes icao24 in the same pass. The client
+      // does one allocation per poll — no second re-spread map.
+      const incoming = await fetchAircraftStates();
       // Server returns ac:[] during cold-start (sweep in flight) — see
       // src/server/api/index.ts /api/aircraft/states. Don't blank a
       // populated cache with that transient empty: keep showing the

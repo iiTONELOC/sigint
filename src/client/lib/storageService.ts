@@ -11,6 +11,7 @@
 // cacheInit finishes (or immediately if init was already done/skipped).
 
 import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { scheduleIdle } from "@/lib/idle";
 
 const DB_NAME = "sigint-cache";
 const DB_VERSION = 1;
@@ -280,6 +281,90 @@ export async function cacheSet(key: string, value: unknown): Promise<void> {
   memoryCache.set(key, value);
   await dbReady();
   idbSet(key, value).catch(() => {});
+}
+
+// ── Write-behind persistence queue ───────────────────────────────────
+// The synchronous structured clone inside IDBObjectStore.put() used to ride
+// every data-poll tick (provider.persistCache / trailService.writeCache),
+// stacking onto the same frame as the React re-render and freezing drag/zoom.
+// This queue coalesces writes per key (only the latest value survives), runs
+// at most one IDB write per key at a time (mutual exclusion — no clobbering),
+// and flushes during idle time so the clone never lands during interaction.
+
+const MIN_WRITE_INTERVAL_MS = 5_000;
+const pendingWrites = new Map<string, unknown>();
+const lastWriteAt = new Map<string, number>();
+const inflightKeys = new Set<string>();
+let flushScheduled = false;
+
+function scheduleFlush(delayMs = 0): void {
+  if (flushScheduled) return;
+  flushScheduled = true;
+  const run = () => {
+    flushScheduled = false;
+    void flushPendingWrites();
+  };
+  if (delayMs > 0) setTimeout(run, delayMs);
+  else scheduleIdle(run);
+}
+
+async function flushPendingWrites(): Promise<void> {
+  await dbReady();
+  const now = Date.now();
+  let nextDelay = Infinity;
+  for (const [key, value] of pendingWrites) {
+    // A write already in flight for this key — its finally() reschedules.
+    if (inflightKeys.has(key)) continue;
+    const wait = MIN_WRITE_INTERVAL_MS - (now - (lastWriteAt.get(key) ?? 0));
+    if (wait > 0) {
+      nextDelay = Math.min(nextDelay, wait);
+      continue;
+    }
+    pendingWrites.delete(key);
+    lastWriteAt.set(key, now);
+    inflightKeys.add(key);
+    idbSet(key, value)
+      .catch(() => {})
+      .finally(() => {
+        inflightKeys.delete(key);
+        if (pendingWrites.has(key)) scheduleFlush();
+      });
+  }
+  if (nextDelay !== Infinity) scheduleFlush(nextDelay);
+}
+
+/**
+ * Write to memory immediately (so subsequent cacheGet hits) but defer the
+ * IndexedDB structured clone to idle time, coalesced + mutually exclusive.
+ * Use for large datasets written on a hot path (provider/trail persistence).
+ */
+export function cacheSetDeferred(key: string, value: unknown): void {
+  memoryCache.set(key, value);
+  pendingWrites.set(key, value);
+  scheduleFlush();
+}
+
+/** Force-flush all pending deferred writes (e.g. before the tab is hidden). */
+export async function cacheFlushPending(): Promise<void> {
+  await dbReady();
+  const entries = [...pendingWrites];
+  pendingWrites.clear();
+  const now = Date.now();
+  await Promise.all(
+    entries.map(([key, value]) => {
+      lastWriteAt.set(key, now);
+      return idbSet(key, value).catch(() => {});
+    }),
+  );
+}
+
+if (typeof document !== "undefined") {
+  // Persistence can sit in the queue for several seconds; make sure a tab
+  // switch or close doesn't drop it.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") void cacheFlushPending();
+  });
+  globalThis.addEventListener("pagehide", () => void cacheFlushPending());
 }
 
 /**

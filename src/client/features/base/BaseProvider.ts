@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheSet } from "@/lib/storageService";
+import { cacheGet, cacheSetDeferred } from "@/lib/storageService";
 import { diffAndApply } from "@/features/base/diffEntities";
 
 // ── Config each concrete provider supplies ───────────────────────────
@@ -78,7 +78,8 @@ export class BaseProvider implements DataProvider<DataPoint> {
   // ── Persistence ───────────────────────────────────────────────────
 
   private persistCache(data: DataPoint[]): void {
-    cacheSet(this.cacheKey, { timestamp: Date.now(), data });
+    // Deferred: the IDB structured clone runs in idle time, off the poll tick.
+    cacheSetDeferred(this.cacheKey, { timestamp: Date.now(), data });
   }
 
   private async readPersistedCache(): Promise<{

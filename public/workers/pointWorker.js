@@ -193,6 +193,33 @@ function zoomScale(zoom) {
   return Math.min(1.8, 0.5 + Math.max(0, (zoom - 1) / 4));
 }
 
+// Glow baked into a per-(color,alpha) sprite once, then blitted per point —
+// avoids a createRadialGradient allocation per point per frame.
+var GLOW_SPRITE_PX = 128;
+var glowSpriteCache = new Map();
+
+function getGlowSprite(color, alphaHex) {
+  var key = color + alphaHex;
+  var sprite = glowSpriteCache.get(key);
+  if (sprite) return sprite;
+  if (glowSpriteCache.size > 512) glowSpriteCache.clear();
+  var c = new OffscreenCanvas(GLOW_SPRITE_PX, GLOW_SPRITE_PX);
+  var g = c.getContext("2d");
+  var r = GLOW_SPRITE_PX / 2;
+  var grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0, color + alphaHex);
+  grad.addColorStop(1, color + "00");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, GLOW_SPRITE_PX, GLOW_SPRITE_PX);
+  glowSpriteCache.set(key, c);
+  return c;
+}
+
+function drawGlow(ctx, color, alphaHex, x, y, gr, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(getGlowSprite(color, alphaHex), x - gr, y - gr, gr * 2, gr * 2);
+}
+
 // ── Weather severity helpers ────────────────────────────────────
 
 var WEATHER_SEV_RANK = {
@@ -582,6 +609,8 @@ var canvas = null;
 var ctx = null;
 var _data = null;
 var _colors = null;
+var _dataBySource = null; // per-type buckets; _data is their concatenation
+var _pendingBuckets = null; // chunks accumulating before a bucket swap
 var _pendingFrame = null;
 var _frameScheduled = false;
 
@@ -612,7 +641,25 @@ self.onmessage = function (e) {
     return;
   }
   if (msg.type === "trails") {
-    trailMap = new Map(msg.entries);
+    if (msg.ids) {
+      var tm = new Map();
+      var ids = msg.ids,
+        v = msg.vals,
+        ts = msg.tss;
+      for (var ti = 0; ti < ids.length; ti++) {
+        var o = ti * 4;
+        tm.set(ids[ti], {
+          lat: v[o],
+          lon: v[o + 1],
+          heading: v[o + 2],
+          speedMps: v[o + 3],
+          ts: ts[ti],
+        });
+      }
+      trailMap = tm;
+    } else {
+      trailMap = new Map(msg.entries);
+    }
     return;
   }
   if (msg.type === "warnings") {
@@ -627,8 +674,31 @@ self.onmessage = function (e) {
     return;
   }
   if (msg.type === "data") {
-    _data = msg.payload.data;
     _colors = msg.payload.colors;
+    // Per-type bucket streamed in chunks: accumulate into a pending array, swap
+    // it in only on `done` (so departed points drop out), then rebuild the flat
+    // _data the draw loop walks.
+    if (msg.payload.source !== undefined) {
+      if (!_dataBySource) _dataBySource = {};
+      if (!_pendingBuckets) _pendingBuckets = {};
+      var src = msg.payload.source;
+      if (msg.payload.reset) _pendingBuckets[src] = [];
+      var pend = _pendingBuckets[src] || (_pendingBuckets[src] = []);
+      var chunk = msg.payload.data || [];
+      for (var ci = 0; ci < chunk.length; ci++) pend.push(chunk[ci]);
+      if (!msg.payload.done) return; // keep the old bucket until the layer is whole
+      _dataBySource[src] = _pendingBuckets[src];
+      _pendingBuckets[src] = null;
+      var merged = [];
+      for (var k in _dataBySource) {
+        var bucket = _dataBySource[k];
+        if (!bucket) continue;
+        for (var bi = 0; bi < bucket.length; bi++) merged.push(bucket[bi]);
+      }
+      _data = merged;
+    } else {
+      _data = msg.payload.data;
+    }
     // Preserve the ramp position but never exceed the new length. A grown
     // dataset keeps revealing from where it was; a shrunk one clamps down.
     var len = _data ? _data.length : 0;
@@ -944,14 +1014,7 @@ function renderFrame() {
           Math.sin(t + (parseInt(item.id.slice(1), 36) || 0) * 0.7) *
             (0.1 + pi * 0.2);
         var gr = s * (1.8 + pi * 1.5) * pulse;
-        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, qc + "40");
-        g.addColorStop(1, qc + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * af2 * qGlow * 0.5;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        drawGlow(ctx, qc, "40", x, y, gr, depthAlpha * af2 * qGlow * 0.5);
       }
       ctx.globalAlpha = depthAlpha * af2 * 0.8;
       ctx.fillStyle = qc;
@@ -984,14 +1047,7 @@ function renderFrame() {
           Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
             (0.1 + pi * 0.2);
         var gr = s * (1.8 + pi * 1.2) * pulse;
-        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, ec + "30");
-        g.addColorStop(1, ec + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * af2 * eGlow * 0.4;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        drawGlow(ctx, ec, "30", x, y, gr, depthAlpha * af2 * eGlow * 0.4);
       }
       ctx.globalAlpha = depthAlpha * af2 * 0.75;
       ctx.fillStyle = ec;
@@ -1024,14 +1080,7 @@ function renderFrame() {
           Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.6) *
             (0.05 + pi * 0.15);
         var gr = s * (1.5 + pi * 1.5) * pulse;
-        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, fc + "30");
-        g.addColorStop(1, fc + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * af2 * glowFactor * 0.35;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        drawGlow(ctx, fc, "30", x, y, gr, depthAlpha * af2 * glowFactor * 0.35);
       }
       ctx.globalAlpha = depthAlpha * af2 * 0.5;
       ctx.fillStyle = fc;
@@ -1064,14 +1113,7 @@ function renderFrame() {
           Math.sin(t + (parseInt(item.id.slice(2), 36) || 0) * 0.5) *
             (0.1 + pi * 0.2);
         var gr = s * (1.8 + pi * 1.5) * pulse;
-        var g = ctx.createRadialGradient(x, y, 0, x, y, gr);
-        g.addColorStop(0, baseColor + "30");
-        g.addColorStop(1, baseColor + "00");
-        ctx.fillStyle = g;
-        ctx.globalAlpha = depthAlpha * walpha * wGlow * 0.4;
-        ctx.beginPath();
-        ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fill();
+        drawGlow(ctx, baseColor, "30", x, y, gr, depthAlpha * walpha * wGlow * 0.4);
       }
       ctx.globalAlpha = depthAlpha * walpha * 0.8;
       ctx.fillStyle = baseColor;
