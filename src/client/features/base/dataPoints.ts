@@ -9,6 +9,7 @@ import type {
   CycloneData,
   CycloneForecastPointData,
 } from "@/features/environmental/cyclones/types";
+import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 
 // ── DataPoint union ──────────────────────────────────────────────────
 
@@ -20,7 +21,8 @@ export type DataPoint =
   | (BasePoint & { type: "fires"; data: FireData })
   | (BasePoint & { type: "weather"; data: WeatherData })
   | (BasePoint & { type: "cyclones"; data: CycloneData })
-  | (BasePoint & { type: "cyclones-forecast"; data: CycloneForecastPointData });
+  | (BasePoint & { type: "cyclones-forecast"; data: CycloneForecastPointData })
+  | (BasePoint & { type: "cyclones-warning"; data: CycloneWarning });
 
 export type DataType = DataPoint["type"];
 

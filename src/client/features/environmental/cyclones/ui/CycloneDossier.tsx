@@ -1,5 +1,6 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { formatKtMph, ktToMph } from "@/lib/units";
 import type { CycloneData } from "../types";
 import { useCycloneDossier } from "../hooks/useCycloneDossier";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/panes/dossier/DossierAtoms";
 import { CycloneLayerToggles } from "./CycloneLayerToggles";
 import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
+import { CycloneForecastMiniMap } from "./CycloneForecastMiniMap";
 
 const CATEGORY_LABEL: Record<string, string> = {
   TD: "Tropical Depression",
@@ -47,7 +49,7 @@ export function CycloneDossier({
   const category = CATEGORY_LABEL[d.classification] ?? d.classification;
   const movement =
     d.movementDir != null && d.movementSpeedKt != null
-      ? `${d.movementDir}° at ${d.movementSpeedKt} kn`
+      ? `${d.movementDir}° at ${formatKtMph(d.movementSpeedKt)}`
       : null;
   const closeBtnRef = useDossierFocus(item.id);
   const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
@@ -88,10 +90,7 @@ export function CycloneDossier({
           </Section>
 
           <Section title="INTENSITY">
-            <Row
-              label="WINDS"
-              value={`${d.maxWindKt} kn (${Math.round(d.maxWindKt * 1.15078)} mph)`}
-            />
+            <Row label="WINDS" value={formatKtMph(d.maxWindKt)} />
             {d.minPressureMb != null && (
               <Row label="PRESSURE" value={`${d.minPressureMb} mb`} />
             )}
@@ -112,13 +111,19 @@ export function CycloneDossier({
 
           {d.forecast.length > 0 && (
             <CollapsibleSection title="FORECAST TRACK" defaultOpen={false}>
-              {d.forecast.map((f) => (
-                <Row
-                  key={f.fcstHour}
-                  label={`+${f.fcstHour}h`}
-                  value={`${f.maxWindKt}kn ${f.category} — ${f.lat.toFixed(1)},${f.lon.toFixed(1)}`}
-                />
-              ))}
+              <CycloneForecastMiniMap
+                current={{ lat: item.lat, lon: item.lon, maxWindKt: d.maxWindKt }}
+                forecast={d.forecast}
+              />
+              <div className="mt-2">
+                {d.forecast.map((f) => (
+                  <Row
+                    key={f.fcstHour}
+                    label={`+${f.fcstHour}h`}
+                    value={`${f.maxWindKt}kn/${ktToMph(f.maxWindKt)}mph ${f.category}`}
+                  />
+                ))}
+              </div>
             </CollapsibleSection>
           )}
 

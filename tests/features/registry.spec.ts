@@ -19,10 +19,10 @@ describe("feature registry", () => {
   });
 
   test("registry covers every DataPoint type in scope", () => {
-    // "cyclones-forecast" is the synthetic per-track-point variant
-    // produced by synthesizeForecastPoints — registered so DetailPanel
-    // (and other featureRegistry consumers) can resolve it without
-    // null-coalescing every call site.
+    // "cyclones-forecast" (synthetic per-track-point) and "cyclones-warning"
+    // (clicked watch/warning polygon) are registered so DetailPanel and other
+    // featureRegistry consumers resolve them without null-coalescing every call
+    // site, even though neither is a point layer in allData.
     const expected = [
       "aircraft",
       "ships",
@@ -32,6 +32,7 @@ describe("feature registry", () => {
       "weather",
       "cyclones",
       "cyclones-forecast",
+      "cyclones-warning",
     ].sort();
     const ids = featureList.map((f) => f.id).sort();
     expect(ids).toEqual(expected);

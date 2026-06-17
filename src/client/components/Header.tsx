@@ -139,7 +139,11 @@ function Toggles({
           // other status (loading / live / cached / mock / error /
           // unavailable) keeps the toggle visible.
           .filter((f) => {
-            if (f.id === "aircraft" || f.id === "cyclones-forecast") {
+            if (
+              f.id === "aircraft" ||
+              f.id === "cyclones-forecast" ||
+              f.id === "cyclones-warning"
+            ) {
               return false;
             }
             if (f.id === "cyclones") {

@@ -382,7 +382,10 @@ export function DataTablePane() {
         >
           ALL
         </button>
-        {featureList.map((f) => {
+        {featureList
+          // Warnings are area polygons, not rows in the table.
+          .filter((f) => f.id !== "cyclones-warning")
+          .map((f) => {
           const Icon = f.icon;
           const color = colorMap[f.id];
           const active = typeFilter === f.id;

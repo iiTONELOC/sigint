@@ -7,6 +7,7 @@
 
 import { useId } from "react";
 import { TrendingUp } from "lucide-react";
+import { ktToMph } from "@/lib/units";
 import type { CycloneData } from "../types";
 import {
   analyzeIntensity,
@@ -71,7 +72,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           INTENSITY
         </span>
         <span className="text-[10px] font-mono text-sig-text">
-          peak {peak} kt
+          peak {peak} kt ({ktToMph(peak)} mph)
           {lastW < firstW ? " · weakening" : lastW > firstW ? " · strengthening" : " · steady"}
         </span>
       </div>
@@ -86,7 +87,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           }}
         >
           <TrendingUp className="w-3.5 h-3.5" aria-hidden="true" />
-          RAPID INTENSIFICATION · +{ri.maxGain24hKt} kt/24h
+          RAPID INTENSIFICATION · +{ri.maxGain24hKt} kt ({ktToMph(ri.maxGain24hKt)} mph)/24h
         </div>
       )}
 
@@ -149,8 +150,8 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
       </svg>
 
       <div className="flex justify-between text-[10px] font-mono text-sig-text mt-0.5">
-        <span>now · {firstW} kt</span>
-        <span>+{maxH}h · {lastW} kt</span>
+        <span>now · {firstW} kt ({ktToMph(firstW)} mph)</span>
+        <span>+{maxH}h · {lastW} kt ({ktToMph(lastW)} mph)</span>
       </div>
     </div>
   );

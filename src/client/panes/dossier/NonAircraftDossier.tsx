@@ -6,6 +6,7 @@ import { FireDossier } from "@/features/environmental/fires/ui/FireDossier";
 import { WeatherDossier } from "@/features/environmental/weather/ui/WeatherDossier";
 import { CycloneDossier } from "@/features/environmental/cyclones/ui/CycloneDossier";
 import { CycloneForecastDossier } from "@/features/environmental/cyclones/ui/CycloneForecastDossier";
+import { CycloneWarningDossier } from "@/features/environmental/cyclones/ui/CycloneWarningDossier";
 
 // Dispatcher — picks the per-feature dossier for the selected DataPoint.
 
@@ -34,6 +35,8 @@ export function NonAircraftDossier(props: Props) {
       return <CycloneDossier {...(props as Props & { item: Parameters<typeof CycloneDossier>[0]["item"] })} />;
     case "cyclones-forecast":
       return <CycloneForecastDossier {...(props as Props & { item: Parameters<typeof CycloneForecastDossier>[0]["item"] })} />;
+    case "cyclones-warning":
+      return <CycloneWarningDossier {...(props as Props & { item: Parameters<typeof CycloneWarningDossier>[0]["item"] })} />;
     default:
       return null;
   }

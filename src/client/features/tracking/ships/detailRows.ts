@@ -1,4 +1,5 @@
 import type { ShipData } from "./types";
+import { formatKtMph } from "@/lib/units";
 
 export function buildShipDetailRows(data: ShipData): [string, string][] {
   const rows: [string, string][] = [];
@@ -12,8 +13,7 @@ export function buildShipDetailRows(data: ShipData): [string, string][] {
   if (data.navStatusLabel && data.navStatusLabel !== "Not defined")
     rows.push(["Status", data.navStatusLabel]);
   if (data.speed != null) {
-    const mph = Math.round(data.speed * 1.15078);
-    rows.push(["Speed", `${data.speed} kn (${mph} mph)`]);
+    rows.push(["Speed", formatKtMph(data.speed)]);
   }
   if (data.heading != null && data.heading < 511)
     rows.push(["Heading", `${data.heading}\u00B0`]);

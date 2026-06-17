@@ -6,6 +6,9 @@ const HD_URL = "/data/ne_50m_land.json";
 
 let landData: number[][][] | null = null;
 let fetchInFlight = false;
+// Everyone waiting on the in-flight fetch. A single callback slot dropped the
+// second caller (e.g. dossier + detail mini-maps both mounting) on the floor.
+let landWaiters: Array<(land: number[][][]) => void> = [];
 
 // ── GeoJSON parsing ──────────────────────────────────────────────────
 
@@ -80,6 +83,9 @@ export function enrichLand(onReady: (land: number[][][]) => void): void {
     return;
   }
 
+  // Queue every caller so concurrent waiters (dossier + detail mini-maps) all
+  // get notified, not just the one that kicked off the fetch.
+  landWaiters.push(onReady);
   if (fetchInFlight) return;
   fetchInFlight = true;
 
@@ -91,10 +97,13 @@ export function enrichLand(onReady: (land: number[][][]) => void): void {
     .then((geojson) => {
       landData = parseGeoJSON(geojson);
       writeCache(landData);
-      onReady(landData);
+      const waiters = landWaiters;
+      landWaiters = [];
+      for (const cb of waiters) cb(landData);
     })
     .catch((err) => {
       console.error("Failed to load land data:", err);
+      landWaiters = [];
     })
     .finally(() => {
       fetchInFlight = false;

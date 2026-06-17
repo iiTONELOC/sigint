@@ -1,5 +1,6 @@
 import type { AircraftData } from "./types";
 import { getSquawkStatus, getSquawkStatusLabel } from "./lib/utils";
+import { ktToMph } from "@/lib/units";
 
 export function buildAircraftDetailRows(
   data: AircraftData,
@@ -30,10 +31,9 @@ export function buildAircraftDetailRows(
     categoryDescription ||
     "Unknown";
 
-  const speedMph = Math.round(speed * 1.15078);
   const speedLine =
     typeof speedMps === "number"
-      ? `${speed} kn (${speedMph} mph)`
+      ? `${speed} kn (${ktToMph(speed)} mph)`
       : `${speed} kn`;
 
   const fl = altitude > 0 ? `${altitude} ft` : "GND";

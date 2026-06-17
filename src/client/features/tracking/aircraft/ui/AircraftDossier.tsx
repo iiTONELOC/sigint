@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Plane, Loader2, ImageOff, Camera } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { authenticatedFetch } from "@/lib/authService";
+import { ktToMph } from "@/lib/units";
 import {
   getSquawkStatus,
   getSquawkStatusLabel,
@@ -156,10 +157,9 @@ export function AircraftDossier({
   const typeCode = dossier?.aircraft?.ICAOTypeCode ?? "";
   const { route, photo } = dossier ?? {};
 
-  const speedMph = Math.round(speed * 1.15078);
   const speedLine =
     typeof speedMps === "number"
-      ? `${speed} kn (${speedMph} mph)`
+      ? `${speed} kn (${ktToMph(speed)} mph)`
       : `${speed} kn`;
 
   const squawkLine = squawk

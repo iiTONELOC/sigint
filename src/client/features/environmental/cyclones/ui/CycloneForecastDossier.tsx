@@ -1,5 +1,6 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { formatKtMph } from "@/lib/units";
 import type { CycloneForecastPointData } from "../types";
 import {
   DossierToolbar,
@@ -23,7 +24,6 @@ const CATEGORY_LABEL: Record<string, string> = {
   PT: "Post-Tropical",
 };
 
-const KT_TO_MPH = 1.15078;
 const NM_TO_KM = 1.852;
 
 type Props = {
@@ -50,7 +50,6 @@ export function CycloneForecastDossier({
   const category = CATEGORY_LABEL[d.category] ?? d.category;
   const closeBtnRef = useDossierFocus(item.id);
   const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
-  const mph = Math.round(d.maxWindKt * KT_TO_MPH);
   const errKm = Math.round(d.errorRadiusNm * NM_TO_KM);
 
   return (
@@ -77,7 +76,7 @@ export function CycloneForecastDossier({
           </Section>
 
           <Section title="INTENSITY">
-            <Row label="WINDS" value={`${d.maxWindKt} kn (${mph} mph)`} />
+            <Row label="WINDS" value={formatKtMph(d.maxWindKt)} />
             {d.minPressureMb != null && (
               <Row label="PRESSURE" value={`${d.minPressureMb} mb`} />
             )}

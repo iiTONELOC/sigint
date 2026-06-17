@@ -879,7 +879,7 @@ function renderFrame() {
   // marker/track which render later) so the areas read as a ground overlay.
   if (cyclonesShowWarnings && _warnings && _warnings.length > 0) {
     var _gr = isFlat ? 0 : Math.min(W, H) * 0.4 * cam.zoomGlobe - 0.5;
-    drawWarnings(ctx, projFn, _warnings, isFlat, cx, cy, _gr, _warnColor, _watchColor);
+    drawWarnings(ctx, projFn, _warnings, isFlat, cx, cy, _gr, _warnColor, _watchColor, selId, t);
   }
 
   // ── Project + filter points ───────────────────────────────────

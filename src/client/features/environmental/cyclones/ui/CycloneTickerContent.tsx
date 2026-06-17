@@ -1,5 +1,6 @@
 import type { CycloneData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
+import { ktToMph } from "@/lib/units";
 
 export function CycloneTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as CycloneData;
@@ -10,7 +11,7 @@ export function CycloneTickerContent({ data }: Readonly<TickerRendererProps>) {
         {d.name}
       </div>
       <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-dim text-[length:var(--sig-text-sm)]">
-        {badge} · {d.maxWindKt} kn
+        {badge} · {d.maxWindKt}kn/{ktToMph(d.maxWindKt)}mph
       </div>
     </div>
   );

@@ -69,7 +69,7 @@ function drawWarningGeometry(ctx, geometry, projFn, isFlat, gcx, gcy, gr, fill, 
 
 // Public entry: draw all warning/watch features. `features` is the array from
 // the "warnings" message; warnColor/watchColor come from the theme.
-function drawWarnings(ctx, projFn, features, isFlat, gcx, gcy, gr, warnColor, watchColor) {
+function drawWarnings(ctx, projFn, features, isFlat, gcx, gcy, gr, warnColor, watchColor, selectedId, t) {
   if (!features || features.length === 0) return;
   for (var i = 0; i < features.length; i++) {
     var f = features[i];
@@ -79,6 +79,11 @@ function drawWarnings(ctx, projFn, features, isFlat, gcx, gcy, gr, warnColor, wa
     // Warnings read stronger than watches; both stay translucent so land +
     // the storm track remain visible through them.
     var alpha = isWarn ? 0.22 : 0.14;
+    // Selected area pulses brighter so the click reads on the map.
+    if (selectedId && f.id === selectedId) {
+      var pulse = 0.5 + 0.5 * Math.sin((t || 0) * 4);
+      alpha = (isWarn ? 0.42 : 0.34) + 0.2 * pulse;
+    }
     drawWarningGeometry(
       ctx,
       f.geometry,

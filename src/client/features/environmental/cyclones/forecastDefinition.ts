@@ -1,5 +1,6 @@
 import { Wind } from "lucide-react";
 import type { FeatureDefinition, BasePoint } from "@/features/base/types";
+import { formatKtMph } from "@/lib/units";
 import type { CycloneForecastPointData } from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 
@@ -7,7 +8,6 @@ import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent"
 // featureRegistry.get(type) resolves for the hit-test/detail pipeline.
 // Minimal: forecast points piggyback on the cyclones layer toggle.
 
-const KT_TO_MPH = 1.15078;
 const NM_TO_KM = 1.852;
 
 export const cycloneForecastFeature: FeatureDefinition<
@@ -37,10 +37,7 @@ export const cycloneForecastFeature: FeatureDefinition<
       ["STORM", data.parentName],
       ["BASIN", data.parentBasin],
       ["FORECAST", `+${data.fcstHour}h`],
-      [
-        "WINDS",
-        `${data.maxWindKt} kn (${Math.round(data.maxWindKt * KT_TO_MPH)} mph)`,
-      ],
+      ["WINDS", formatKtMph(data.maxWindKt)],
       ...pressureRow,
       ["CLASS", data.category],
       [

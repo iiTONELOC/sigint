@@ -1,5 +1,6 @@
 import type { ShipData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
+import { ktToMph } from "@/lib/units";
 
 export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as ShipData;
@@ -8,7 +9,7 @@ export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
 
   const speedText =
     d.speed != null && d.speed > 0
-      ? `${d.speed}kn/${Math.round(d.speed * 1.15078)}mph`
+      ? `${d.speed}kn/${ktToMph(d.speed)}mph`
       : "0kn";
 
   const hdg = d.heading != null && d.heading < 511 ? `${d.heading}°` : "---";

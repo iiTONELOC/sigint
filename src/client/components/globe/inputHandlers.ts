@@ -19,6 +19,8 @@ import {
   screenToLatLonGlobe,
   screenToLatLonFlat,
 } from "@/lib/spatialIndex";
+import { pointInPolygon } from "@/lib/pointInPolygon";
+import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
 
 export type InputRefs = {
   canvas: HTMLCanvasElement;
@@ -124,6 +126,50 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       return out;
     }
     return raw;
+  }
+
+  // ── Inverse projection (screen → lat/lon) ──────────────────────
+  function screenToLatLon(
+    mx: number,
+    my: number,
+  ): { lat: number; lon: number } | null {
+    const { w: W, h: H } = sizeRef.current;
+    if (propsRef.current.flat) {
+      const fm = getFlatMetrics(
+        W,
+        H,
+        camRef.current.zoomFlat,
+        camRef.current.panX,
+        camRef.current.panY,
+      );
+      return screenToLatLonFlat(mx, my, fm.cx, fm.cy, fm.mW, fm.mH);
+    }
+    const r = Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
+    return screenToLatLonGlobe(
+      mx,
+      my,
+      W / 2,
+      H / 2,
+      r,
+      camRef.current.rotY,
+      camRef.current.rotX,
+    );
+  }
+
+  // First watch/warning polygon containing the given screen point, if any.
+  // Warnings are a separate area layer (not DataPoints), so they're hit-tested
+  // here against their geometry rather than via the spatial grid.
+  function findWarningAt(mx: number, my: number): DataPoint | null {
+    const warnings = propsRef.current.cycloneWarnings ?? [];
+    if (warnings.length === 0) return null;
+    const ll = screenToLatLon(mx, my);
+    if (!ll) return null;
+    for (const w of warnings) {
+      if (pointInPolygon(ll.lat, ll.lon, w.geometry)) {
+        return warningToDataPoint(w);
+      }
+    }
+    return null;
   }
 
   const onDown = (e: MouseEvent | TouchEvent) => {
@@ -429,9 +475,10 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
         drag.lastClickId = null;
         lastClickItem = null;
       } else {
-        // Clicked inside globe but hit nothing — deselect
+        // No point/trail hit — try a watch/warning polygon (a separate area
+        // layer) before deselecting.
         setTrailTooltip(null);
-        sel(null);
+        sel(findWarningAt(mx, my));
         drag.lastClickTime = 0;
         drag.lastClickId = null;
         lastClickItem = null;
@@ -534,7 +581,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       if (p.z <= 0) return;
       if (Math.hypot(p.x - mx, p.y - my) < 14) hit = true;
     });
-    canvas.style.cursor = hit ? "pointer" : "grab";
+    canvas.style.cursor = hit || findWarningAt(mx, my) ? "pointer" : "grab";
   };
 
   const onWheel = (e: WheelEvent) => {

@@ -1,5 +1,6 @@
 import type { AircraftData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
+import { ktToMph } from "@/lib/units";
 
 export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as AircraftData;
@@ -26,7 +27,7 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
 
   const speedText =
     typeof speedMps === "number"
-      ? `${speed}kn/${Math.round(speed * 1.15078)}mph`
+      ? `${speed}kn/${ktToMph(speed)}mph`
       : `${speed}kn`;
 
   const opLabel = operator || operatorIcao || "UNK OP";

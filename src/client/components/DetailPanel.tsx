@@ -15,6 +15,7 @@ import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/CycloneLayerToggles";
 import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
+import { CycloneForecastMiniMap } from "@/features/environmental/cyclones/ui/CycloneForecastMiniMap";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -501,6 +502,24 @@ function PanelBody({
           <div className="mt-1.5 pt-1.5 border-t border-sig-border">
             <CycloneIntensityCurve storm={item.data} />
           </div>
+          {item.data.forecast.length > 0 && (
+            <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+              <div
+                className="text-[10px] font-mono tracking-widest mb-1"
+                style={{ color: "var(--sigint-warn)" }}
+              >
+                FORECAST TRACK
+              </div>
+              <CycloneForecastMiniMap
+                current={{
+                  lat: item.lat,
+                  lon: item.lon,
+                  maxWindKt: item.data.maxWindKt,
+                }}
+                forecast={item.data.forecast}
+              />
+            </div>
+          )}
           <div className="mt-1.5 pt-1.5 border-t border-sig-border">
             <CycloneLayerToggles />
           </div>

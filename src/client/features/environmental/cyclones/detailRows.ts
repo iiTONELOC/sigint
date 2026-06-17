@@ -1,4 +1,5 @@
 import { relativeAge } from "@/lib/timeFormat";
+import { formatKtMph } from "@/lib/units";
 import type { CycloneData } from "./types";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -47,10 +48,7 @@ export function buildCycloneDetailRows(
     rows.push(["Category", String(data.saffirSimpson)]);
   }
 
-  rows.push([
-    "Winds",
-    `${data.maxWindKt} kn (${Math.round(data.maxWindKt * 1.15078)} mph)`,
-  ]);
+  rows.push(["Winds", formatKtMph(data.maxWindKt)]);
 
   if (data.minPressureMb != null) {
     rows.push(["Pressure", `${data.minPressureMb} mb`]);
@@ -59,7 +57,7 @@ export function buildCycloneDetailRows(
   if (data.movementDir != null && data.movementSpeedKt != null) {
     rows.push([
       "Movement",
-      `${data.movementDir}° at ${data.movementSpeedKt} kn`,
+      `${data.movementDir}° at ${formatKtMph(data.movementSpeedKt)}`,
     ]);
   }
 

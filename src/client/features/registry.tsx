@@ -8,6 +8,7 @@ import { weatherFeature } from "./environmental/weather";
 import {
   cycloneFeature,
   cycloneForecastFeature,
+  cycloneWarningFeature,
 } from "./environmental/cyclones";
 
 // ── Registry ─────────────────────────────────────────────────────────
@@ -21,6 +22,10 @@ const features: FeatureDefinition<any, any>[] = [
   weatherFeature,
   cycloneFeature,
   cycloneForecastFeature,
+  // Not a data layer — synthetic feature so a clicked watch/warning polygon
+  // resolves through the detail pipeline. Excluded from the Header toggles and
+  // the DataTable filter (no points in allData). See inputHandlers.ts.
+  cycloneWarningFeature,
 ];
 
 export const featureRegistry = new Map<string, FeatureDefinition<any, any>>(
