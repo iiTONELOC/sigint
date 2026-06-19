@@ -20,6 +20,7 @@ import {
   attachInputHandlers,
   detachInputHandlers,
 } from "./inputHandlers";
+import { getSelectedRoute } from "@/lib/layoutSignals";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 // ── Shared render worker (survives globe remounts) ──────────────────
@@ -600,7 +601,7 @@ export function GlobeVisualization({
         // ── Light message — camera + interaction state every frame ──
         const dpr = canvas.width / W || 1;
 
-        // Build selected item with trail for worker
+        // Build selected item with trail + planned route for worker
         let selectedItem = null;
         if (sel) {
           const trail = getTrail(sel.id);
@@ -610,6 +611,7 @@ export function GlobeVisualization({
             lat: sel.lat,
             lon: sel.lon,
             _trail: trail,
+            _route: getSelectedRoute(sel.id),
           };
         }
 

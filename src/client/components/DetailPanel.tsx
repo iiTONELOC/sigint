@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useHasDossier } from "@/lib/layoutSignals";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap } from "@/config/theme";
+import { getColorMap, filterHeadingColor } from "@/config/theme";
 import { useUnitsMode } from "@/lib/userPreferences";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
@@ -18,8 +18,6 @@ import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/Cyclon
 import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "@/features/environmental/cyclones/ui/CycloneForecastMiniMap";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
-import { CYCLONE_HEADING } from "@/features/environmental/cyclones/classification";
-import { DossierAccentContext } from "@/panes/dossier/DossierAtoms";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -503,7 +501,13 @@ function PanelBody({
 
       {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
       {item.type === "cyclones" && (
-        <DossierAccentContext.Provider value={CYCLONE_HEADING}>
+        <div
+          style={
+            {
+              "--dossier-accent": filterHeadingColor(theme, item.type),
+            } as React.CSSProperties
+          }
+        >
           <div className="mt-1.5 pt-1.5 border-t border-sig-border">
             <CycloneIntensityCurve storm={item.data} />
           </div>
@@ -512,7 +516,7 @@ function PanelBody({
             <div className="mt-1.5 pt-1.5 border-t border-sig-border">
               <div
                 className="text-sm font-semibold font-mono tracking-widest mb-1"
-                style={{ color: CYCLONE_HEADING }}
+                style={{ color: filterHeadingColor(theme, item.type) }}
               >
                 FORECAST TRACK
               </div>
@@ -533,7 +537,7 @@ function PanelBody({
           <CycloneAdvisoryBlock
             stormId={(item.data as { stormId?: string })?.stormId}
           />
-        </DossierAccentContext.Provider>
+        </div>
       )}
 
       {/* Open in Dossier button */}

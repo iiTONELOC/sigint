@@ -20,6 +20,9 @@ export function ResizeHandle({
       const parent = handle.parentElement;
       if (!parent) return;
 
+      const captureEl = e.currentTarget as HTMLElement;
+      captureEl.setPointerCapture?.(e.pointerId);
+
       const rect = parent.getBoundingClientRect();
       const isH = direction === "h";
       const totalSize = isH ? rect.width : rect.height;
@@ -36,16 +39,19 @@ export function ResizeHandle({
         onResize(splitId, ratio);
       };
 
-      const onUp = () => {
-        document.removeEventListener("pointermove", onMove);
-        document.removeEventListener("pointerup", onUp);
+      const onUp = (ev: PointerEvent) => {
+        captureEl.releasePointerCapture?.(ev.pointerId);
+        captureEl.removeEventListener("pointermove", onMove);
+        captureEl.removeEventListener("pointerup", onUp);
+        captureEl.removeEventListener("pointercancel", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         setDragging(false);
       };
 
-      document.addEventListener("pointermove", onMove);
-      document.addEventListener("pointerup", onUp);
+      captureEl.addEventListener("pointermove", onMove);
+      captureEl.addEventListener("pointerup", onUp);
+      captureEl.addEventListener("pointercancel", onUp);
     },
     [splitId, direction, onResize],
   );
@@ -55,14 +61,13 @@ export function ResizeHandle({
   return (
     <div
       ref={handleRef}
-      className={`relative flex items-center justify-center touch-resize ${
+      className={`relative z-10 flex items-center justify-center touch-none ${
         isH ? "cursor-col-resize w-[6px]" : "cursor-row-resize h-[6px]"
       } ${
         dragging
           ? "bg-sig-accent/40"
           : "bg-sig-border/30 hover:bg-sig-accent/25"
       } transition-colors`}
-      onPointerDown={onPointerDown}
     >
       <div
         className={`flex ${isH ? "flex-col" : "flex-row"} gap-[3px] pointer-events-none`}
@@ -79,8 +84,8 @@ export function ResizeHandle({
       <div
         className={`absolute ${
           isH
-            ? "inset-y-0 -left-[4px] w-[14px]"
-            : "inset-x-0 -top-[4px] h-[14px]"
+            ? "inset-y-0 -left-[7px] w-[20px]"
+            : "inset-x-0 -top-[7px] h-[20px]"
         } touch-none`}
         onPointerDown={onPointerDown}
       />

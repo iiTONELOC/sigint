@@ -2,6 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Plane, Loader2, ImageOff, Camera } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { authenticatedFetch } from "@/lib/authService";
+import { getTrail } from "@/lib/trailService";
+import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
+import { AircraftFlightPath3D } from "./AircraftFlightPath3D";
+import { AircraftRouteMap } from "./AircraftRouteMap";
+import { RouteProgress } from "./RouteProgress";
 import { formatKtMph } from "@/lib/units";
 import {
   getSquawkStatus,
@@ -14,6 +19,7 @@ import type {
 import {
   getCachedDossier,
   setCachedDossier,
+  airportCode,
 } from "@/panes/dossier/dossierTypes";
 import {
   DossierToolbar,
@@ -119,6 +125,8 @@ export function AircraftDossier({
     military: isMilitary,
   } = acData;
 
+  const photo = useAircraftPhoto(icao24, liveReg || undefined);
+
   const title = callsign?.trim() || icao24.toUpperCase();
   const toolbar = (
     <DossierToolbar
@@ -155,7 +163,7 @@ export function AircraftDossier({
   const owner =
     dossier?.aircraft?.RegisteredOwners ?? liveOp ?? operatorIcao ?? "";
   const typeCode = dossier?.aircraft?.ICAOTypeCode ?? "";
-  const { route, photo } = dossier ?? {};
+  const { route } = dossier ?? {};
 
   const speedLine =
     typeof speedMps === "number" ? formatKtMph(speed) : `${speed} kn`;
@@ -171,6 +179,27 @@ export function AircraftDossier({
     categoryDescription && categoryDescription !== "UNKNOWN"
       ? categoryDescription
       : null;
+
+  const flightPathPts = [
+    ...getTrail(item.id),
+    { lat: item.lat, lon: item.lon, altitude, heading, speed, ts: Date.now() },
+  ];
+
+  const originCode = airportCode(route?.origin);
+  const destCode = airportCode(route?.destination);
+
+  const isoPath =
+    flightPathPts.length >= 2 ? (
+      <AircraftFlightPath3D
+        trail={flightPathPts}
+        heading={heading}
+        altitude={altitude}
+        speed={speed}
+        speedMps={speedMps}
+        verticalRate={verticalRate}
+        onGround={onGround}
+      />
+    ) : null;
 
   return (
     <div className="h-full flex flex-col">
@@ -247,15 +276,34 @@ export function AircraftDossier({
             {squawkLine && <Row label="SQUAWK" value={squawkLine} />}
           </Section>
 
+          {!route && isoPath && (
+            <Section title="3D FLIGHT PATH">{isoPath}</Section>
+          )}
+
           {route && (
             <Section
               title={route.source === "flightaware" ? "ROUTE" : "ROUTE *"}
             >
+              <AircraftRouteMap
+                originCode={originCode}
+                destCode={destCode}
+                lat={item.lat}
+                lon={item.lon}
+                heading={heading}
+                waypoints={route.waypoints}
+                fallback={isoPath}
+              />
               <div className="flex items-center gap-2 text-sm text-sig-text">
                 <RouteAirport apt={route.origin} />
                 <span className="text-sig-dim">→</span>
                 <RouteAirport apt={route.destination} />
               </div>
+              <RouteProgress
+                origin={originCode}
+                dest={destCode}
+                departureTime={route.departureTime}
+                arrivalTime={route.arrivalTime}
+              />
               {route.status && (
                 <Row
                   label="STATUS"

@@ -2,7 +2,6 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { useAssetsInCone } from "../hooks/useAssetsInCone";
 import { useLandfallEta, landfallText } from "../hooks/useLandfallEta";
 import { CycloneWindRadii } from "./CycloneWindRadii";
-import { CYCLONE_HEADING } from "../classification";
 
 // Surfaces the high-value dossier-only data (landfall ETA + wind radii + assets
 // in the cone) in the compact detail pane, so users who never open the dossier
@@ -25,7 +24,7 @@ export function CycloneDetailExtras({
         <div className="mt-1.5 pt-1.5 border-t border-sig-border">
           <div
             className="text-sm font-semibold font-mono tracking-widest mb-1"
-            style={{ color: CYCLONE_HEADING }}
+            style={{ color: "var(--dossier-accent)" }}
           >
             LANDFALL
           </div>
@@ -42,7 +41,7 @@ export function CycloneDetailExtras({
           <div className="mt-1.5 pt-1.5 border-t border-sig-border">
             <div
               className="text-sm font-semibold font-mono tracking-widest mb-1"
-              style={{ color: CYCLONE_HEADING }}
+              style={{ color: "var(--dossier-accent)" }}
             >
               WIND RADII (nm)
             </div>
@@ -53,7 +52,7 @@ export function CycloneDetailExtras({
         <div className="mt-1.5 pt-1.5 border-t border-sig-border">
           <div
             className="text-sm font-semibold font-mono tracking-widest mb-1"
-            style={{ color: CYCLONE_HEADING }}
+            style={{ color: "var(--dossier-accent)" }}
           >
             ASSETS IN CONE
           </div>

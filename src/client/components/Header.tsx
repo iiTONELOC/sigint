@@ -76,11 +76,14 @@ function LayerToggle({
         }}
       >
         <Icon
-          size="var(--sig-text-icon)"
           aria-hidden="true"
           {...iconProps}
+          style={{
+            width: "var(--sig-text-icon)",
+            height: "var(--sig-text-icon)",
+          }}
         />
-        <span className="hidden sm:inline">
+        <span className="hidden sm:inline-flex items-center min-h-lh">
           {down && count === 0 ? (
             <AlertTriangle
               size={10}
@@ -217,8 +220,8 @@ const MODE_TOOLTIPS: Record<LayoutMode, string> = {
 };
 
 function LayoutModeToggle() {
-  const { mode, cycleMode } = useLayoutMode();
-  const Icon = mode === "mobile" ? Smartphone : Monitor;
+  const { mode, cycleMode, isMobile } = useLayoutMode();
+  const Icon = isMobile ? Smartphone : Monitor;
   const isForced = mode !== "auto";
 
   return (

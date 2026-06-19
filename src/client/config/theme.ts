@@ -162,6 +162,12 @@ export function getColorMap(theme: Theme): Record<string, string> {
   };
 }
 
+export function filterHeadingColor(theme: Theme, type: string): string {
+  const base = getColorMap(theme)[type];
+  if (!base) return "var(--sigint-warn)";
+  return `color-mix(in srgb, ${base} 68%, var(--sigint-bright))`;
+}
+
 export function applyThemeToRoot(theme: Theme) {
   const root = document.documentElement;
   const { colors } = theme;

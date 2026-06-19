@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 import { useData } from "@/context/DataContext";
+import { useLayoutMode } from "@/context/LayoutModeContext";
 
 type PaneOption = {
   id: string;
@@ -57,6 +58,7 @@ export function PaneHeader({
   isDragTarget,
 }: PaneHeaderProps) {
   const { chromeHidden, setChromeHidden } = useData();
+  const isPhone = useLayoutMode().deviceType === "phone";
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLButtonElement>(null);
@@ -225,24 +227,26 @@ export function PaneHeader({
           </Tooltip>
         )}
 
-        <Tooltip
-          content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
-          placement="bottom"
-        >
-          <button
-            type="button"
-            aria-label={chromeHidden ? "Exit fullscreen" : "Enter fullscreen"}
-            aria-pressed={chromeHidden}
-            onClick={() => setChromeHidden((v) => !v)}
-            className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+        {!isPhone && (
+          <Tooltip
+            content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
+            placement="bottom"
           >
-            {chromeHidden ? (
-              <Minimize2 size={13} strokeWidth={2.5} aria-hidden="true" />
-            ) : (
-              <Maximize2 size={13} strokeWidth={2.5} aria-hidden="true" />
-            )}
-          </button>
-        </Tooltip>
+            <button
+              type="button"
+              aria-label={chromeHidden ? "Exit fullscreen" : "Enter fullscreen"}
+              aria-pressed={chromeHidden}
+              onClick={() => setChromeHidden((v) => !v)}
+              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            >
+              {chromeHidden ? (
+                <Minimize2 size={13} strokeWidth={2.5} aria-hidden="true" />
+              ) : (
+                <Maximize2 size={13} strokeWidth={2.5} aria-hidden="true" />
+              )}
+            </button>
+          </Tooltip>
+        )}
 
         <Tooltip content="Minimize" placement="bottom">
           <button

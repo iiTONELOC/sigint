@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import { Plane } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { useTheme } from "@/context/ThemeContext";
+import { filterHeadingColor } from "@/config/theme";
 import { useUnitsMode } from "@/lib/userPreferences";
 import { AircraftDossier } from "@/features/tracking/aircraft/ui/AircraftDossier";
 import { NonAircraftDossier } from "./NonAircraftDossier";
@@ -18,6 +20,7 @@ export function DossierPane() {
     setZoomToId,
   } = useData();
   useUnitsMode(); // re-render the dossier body when the units pref flips
+  const { theme } = useTheme();
 
   const handleClose = useCallback(() => {
     setSelected(null);
@@ -52,8 +55,8 @@ export function DossierPane() {
     );
   }
 
-  if (selectedCurrent.type === "aircraft") {
-    return (
+  const body =
+    selectedCurrent.type === "aircraft" ? (
       <AircraftDossier
         item={selectedCurrent}
         isolateMode={isolateMode}
@@ -62,17 +65,27 @@ export function DossierPane() {
         onSolo={handleSolo}
         onClose={handleClose}
       />
+    ) : (
+      <NonAircraftDossier
+        item={selectedCurrent}
+        isolateMode={isolateMode}
+        onLocate={handleLocate}
+        onFocus={handleFocus}
+        onSolo={handleSolo}
+        onClose={handleClose}
+      />
     );
-  }
 
   return (
-    <NonAircraftDossier
-      item={selectedCurrent}
-      isolateMode={isolateMode}
-      onLocate={handleLocate}
-      onFocus={handleFocus}
-      onSolo={handleSolo}
-      onClose={handleClose}
-    />
+    <div
+      className="h-full"
+      style={
+        {
+          "--dossier-accent": filterHeadingColor(theme, selectedCurrent.type),
+        } as React.CSSProperties
+      }
+    >
+      {body}
+    </div>
   );
 }

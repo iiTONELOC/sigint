@@ -3,20 +3,18 @@
 //   1. FlightAware scrape — live route, times, gates, delays, status
 //      (extracts trackpollBootstrap JSON embedded in page HTML)
 //   2. hexdb.io — aircraft info, route fallback, airport details
-//   3. planespotters.net — aircraft photo (direct URL per ToS)
 //
-// All JSON responses cached in memory with TTL.
+// All JSON responses cached in memory with TTL. The aircraft photo is fetched
+// client-side (useAircraftPhoto) so it isn't blocked on the server IP.
 
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 
 // ── Config ───────────────────────────────────────────────────────────
 
 const HEXDB_BASE = "https://hexdb.io";
-const PLANESPOTTERS_API = "https://api.planespotters.net/pub/photos/hex";
 const FLIGHTAWARE_BASE = "https://www.flightaware.com/live/flight";
 const CACHE_TTL_MS = 30 * 60_000;
 const ROUTE_CACHE_TTL_MS = 5 * 60_000; // 5 min for live route data
-const PHOTO_CACHE_TTL_MS = 12 * 60 * 60_000; // 12h (planespotters ToS: max 24h)
 const FETCH_TIMEOUT_MS = 8_000;
 const FA_FETCH_TIMEOUT_MS = 12_000; // FA pages are heavier
 
@@ -141,27 +139,10 @@ type FAflightData = {
   };
   distance?: { elapsed?: number; remaining?: number; actual?: number };
   airline?: { fullName?: string; shortName?: string; icao?: string; iata?: string };
-};
-
-// ── Planespotters photo type ─────────────────────────────────────────
-
-type PlaneSpottersPhoto = {
-  id: string;
-  thumbnail: { src: string; size: { width: number; height: number } };
-  thumbnail_large: { src: string; size: { width: number; height: number } };
-  link: string;
-  photographer: string;
+  waypoints?: number[][];
 };
 
 // ── Public API types ─────────────────────────────────────────────────
-
-export type AircraftPhoto = {
-  src: string;
-  link: string;
-  photographer: string;
-  width: number;
-  height: number;
-};
 
 export type LiveRoute = {
   source: "flightaware" | "hexdb";
@@ -190,13 +171,14 @@ export type LiveRoute = {
   filedSpeed?: number;
   distance?: number;
   airline?: string;
+  /** Decoded planned route as [lat, lon] pairs (from FlightAware). */
+  waypoints?: [number, number][];
 };
 
 export type AircraftDossier = {
   icao24: string;
   aircraft: HexDbAircraft | null;
   route: LiveRoute | null;
-  photo: AircraftPhoto | null;
 };
 
 // ── FlightAware scraper ──────────────────────────────────────────────
@@ -243,6 +225,21 @@ async function scrapeFlightAware(callsign: string): Promise<LiveRoute | null> {
       setCached(cacheKey, false, ROUTE_CACHE_TTL_MS);
       return null;
     }
+
+    // FlightAware ships the decoded route as [lon, lat] pairs — store [lat, lon]
+    // to match the rest of the app (landService/airports), capped to bound size.
+    const waypoints = Array.isArray(fd.waypoints)
+      ? fd.waypoints
+          .filter(
+            (p): p is [number, number] =>
+              Array.isArray(p) &&
+              p.length >= 2 &&
+              Number.isFinite(p[0]) &&
+              Number.isFinite(p[1]),
+          )
+          .slice(0, 400)
+          .map(([lonV, latV]) => [latV, lonV] as [number, number])
+      : undefined;
 
     // Determine best departure/arrival times
     const depTime = fd.gateDepartureTimes?.actual
@@ -297,8 +294,15 @@ async function scrapeFlightAware(callsign: string): Promise<LiveRoute | null> {
       filedRoute: fd.flightPlan?.route || undefined,
       filedAltitude: fd.flightPlan?.altitude ? fd.flightPlan.altitude * 100 : undefined,
       filedSpeed: fd.flightPlan?.speed || undefined,
-      distance: fd.flightPlan?.directDistance || fd.distance?.actual || undefined,
+      // Planned distance follows the filed route (waypoints); direct is the
+      // great circle. Prefer planned so DISTANCE matches the actual routing.
+      distance:
+        fd.flightPlan?.plannedDistance ||
+        fd.flightPlan?.directDistance ||
+        fd.distance?.actual ||
+        undefined,
       airline: fd.airline?.shortName || fd.airline?.fullName || undefined,
+      waypoints: waypoints && waypoints.length >= 2 ? waypoints : undefined,
     };
 
     setCached(cacheKey, route, ROUTE_CACHE_TTL_MS);
@@ -404,50 +408,6 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
   }
 }
 
-// ── Planespotters photo ──────────────────────────────────────────────
-
-async function fetchPhoto(hex: string, reg?: string, typeCode?: string): Promise<AircraftPhoto | null> {
-  const cacheKey = `photo:${hex}`;
-  const cached = getCached<AircraftPhoto | false>(cacheKey);
-  if (cached !== null) return cached || null;
-
-  try {
-    let url = `${PLANESPOTTERS_API}/${hex.toUpperCase()}`;
-    const params: string[] = [];
-    if (reg) params.push(`reg=${encodeURIComponent(reg)}`);
-    if (typeCode) params.push(`icaoType=${encodeURIComponent(typeCode)}`);
-    if (params.length > 0) url += `?${params.join("&")}`;
-
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
-    if (!res.ok) {
-      setCached(cacheKey, false, PHOTO_CACHE_TTL_MS);
-      return null;
-    }
-
-    const data = (await res.json()) as { photos?: PlaneSpottersPhoto[] };
-    const first = data.photos?.[0];
-    if (!first) {
-      setCached(cacheKey, false, PHOTO_CACHE_TTL_MS);
-      return null;
-    }
-
-    const thumb = first.thumbnail_large ?? first.thumbnail;
-    const result: AircraftPhoto = {
-      src: thumb.src,
-      link: first.link,
-      photographer: first.photographer,
-      width: thumb.size.width,
-      height: thumb.size.height,
-    };
-
-    setCached(cacheKey, result, PHOTO_CACHE_TTL_MS);
-    return result;
-  } catch {
-    setCached(cacheKey, false, 5 * 60_000);
-    return null;
-  }
-}
-
 // ── Composite dossier fetch ──────────────────────────────────────────
 
 export async function getAircraftDossier(icao24Raw: string, callsignRaw?: string): Promise<AircraftDossier | null> {
@@ -460,26 +420,15 @@ export async function getAircraftDossier(icao24Raw: string, callsignRaw?: string
 
   const callsign = callsignRaw ? sanitizeCallsign(callsignRaw) : null;
 
-  // Fetch aircraft info + photo in parallel with route
-  const [aircraft, route, photo] = await Promise.all([
+  const [aircraft, route] = await Promise.all([
     fetchAircraftInfo(hex),
     callsign ? fetchRoute(callsign) : Promise.resolve(null),
-    fetchPhoto(hex).then(async (p) => {
-      // If no photo by hex, try by registration from aircraft info
-      if (p) return p;
-      const ac = await fetchAircraftInfo(hex);
-      if (ac?.Registration) {
-        return fetchPhoto(hex, ac.Registration, ac.ICAOTypeCode);
-      }
-      return null;
-    }),
   ]);
 
   const dossier: AircraftDossier = {
     icao24: hex,
     aircraft,
     route,
-    photo,
   };
 
   // Cache dossier for shorter TTL if we have live FA data

@@ -603,6 +603,97 @@ function drawTrail(ctx, projFn, selectedItem, colors, t) {
   return hitTargets;
 }
 
+// Planned route (decoded FlightAware waypoints, [lat,lon] pairs) for the
+// selected aircraft. Split at the plane's projected point ON the route (not the
+// nearest waypoint, which can sit ahead of the plane): flown is thick + solid,
+// the leg ahead is thin + dashed (mirrors the dossier route map).
+function drawRoute(ctx, projFn, route, planeLat, planeLon, colors) {
+  if (!route || route.length < 2) return;
+
+  // Closest point on the polyline to the plane → segment index + fraction.
+  var segI = 0;
+  var segT = 0;
+  var best = Infinity;
+  for (var i = 0; i < route.length - 1; i++) {
+    var ax = route[i][1],
+      ay = route[i][0];
+    var bx = route[i + 1][1],
+      by = route[i + 1][0];
+    var dx = bx - ax,
+      dy = by - ay;
+    var len2 = dx * dx + dy * dy;
+    var t = len2 > 0 ? ((planeLon - ax) * dx + (planeLat - ay) * dy) / len2 : 0;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    var cx = ax + t * dx,
+      cy = ay + t * dy;
+    var ex = planeLon - cx,
+      ey = planeLat - cy;
+    var dd = ex * ex + ey * ey;
+    if (dd < best) {
+      best = dd;
+      segI = i;
+      segT = t;
+    }
+  }
+  var splitLat = route[segI][0] + segT * (route[segI + 1][0] - route[segI][0]);
+  var splitLon = route[segI][1] + segT * (route[segI + 1][1] - route[segI][1]);
+
+  var flown = [];
+  for (var f = 0; f <= segI; f++) flown.push(route[f]);
+  flown.push([splitLat, splitLon]);
+  var ahead = [[splitLat, splitLon]];
+  for (var a = segI + 1; a < route.length; a++) ahead.push(route[a]);
+
+  function strokePts(pts) {
+    ctx.beginPath();
+    var pen = false;
+    for (var k = 0; k < pts.length; k++) {
+      var p = projFn(pts[k][0], pts[k][1]);
+      if (p.z > 0) {
+        if (pen) ctx.lineTo(p.x, p.y);
+        else {
+          ctx.moveTo(p.x, p.y);
+          pen = true;
+        }
+      } else {
+        pen = false;
+      }
+    }
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = colors.cyclones || colors.accent;
+  // Ahead — thin, dashed.
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([6, 4]);
+  strokePts(ahead);
+  // Flown — thick, solid.
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 0.95;
+  ctx.lineWidth = 2.75;
+  strokePts(flown);
+
+  // Waypoint markers — theme bright (distinct from the line), just fatter than
+  // the line so they read as nodes without becoming blobs.
+  ctx.fillStyle = colors.bright || "#ffffff";
+  ctx.globalAlpha = 0.95;
+  for (var j = 0; j < route.length; j++) {
+    var wp = projFn(route[j][0], route[j][1]);
+    if (wp.z > 0) {
+      ctx.beginPath();
+      ctx.arc(wp.x, wp.y, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
 // ── Canvas + state ──────────────────────────────────────────────────
 
 var canvas = null;
@@ -984,6 +1075,19 @@ function renderFrame() {
         if (layers[selectedItem.type] === false) drawSelectedTrail = false;
       }
     }
+  }
+  if (drawSelectedTrail && selectedItem._route) {
+    // Split the route at the plane's interpolated position (the same one the
+    // marker uses) so the flown leg fills in as it flies, between polls.
+    var routePos = getInterp(selectedItem.id);
+    drawRoute(
+      ctx,
+      projFn,
+      selectedItem._route,
+      routePos ? routePos.lat : selectedItem.lat,
+      routePos ? routePos.lon : selectedItem.lon,
+      colors,
+    );
   }
   var hitTargets = drawSelectedTrail
     ? drawTrail(ctx, projFn, selectedItem, colors, t)

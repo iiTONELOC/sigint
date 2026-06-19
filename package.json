@@ -15,6 +15,7 @@
     "dev": "bun --hot src/server/index.ts",
     "start": "NODE_ENV=production bun src/server/index.prod.ts",
     "build:aircraft-db": "bun run scripts/build-aircraft-db.ts",
+    "build:airports": "bun run scripts/build-airports.ts",
     "probe:tiles": "bun run scripts/probe-aircraft-tiles.ts",
     "build": "bun run build:aircraft-db && bun run build.ts && bun run postbuild.ts",
     "audit": "bun audit",

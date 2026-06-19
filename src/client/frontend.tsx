@@ -13,6 +13,7 @@ import { cacheInit } from "./lib/storageService";
 import { initBaseline } from "./lib/correlation";
 import { initTrails } from "./lib/trailService";
 import { initLand } from "./lib/landService";
+import { initAirports } from "./lib/airportService";
 import { registerSW, applyUpdate } from "./lib/swRegistration";
 import { ensureAuthCookie } from "./lib/authService";
 
@@ -96,7 +97,9 @@ function needsRefresh(result: HydrateResult): boolean {
 const authReady = ensureAuthCookie().catch(() => {});
 
 // Non-blocking background work — independent of the data feeds.
-Promise.all([initBaseline(), initTrails(), initLand()]).catch(() => {});
+Promise.all([initBaseline(), initTrails(), initLand(), initAirports()]).catch(
+  () => {},
+);
 
 void cacheReady.then(() => {
   for (const p of providers) {

@@ -43,6 +43,22 @@ export type LayoutState = {
 
 export type LayoutPreset = { name: string; state: LayoutState };
 
+// On mobile these stay full-width: children go below only (no side-by-side
+// h-split, no left/right insert). Enforced in the mobile UI + auto-split logic.
+export const FULL_WIDTH_ONLY: ReadonlySet<PaneType> = new Set([
+  "globe",
+  "video-feed",
+]);
+
+/** Force a vertical split when the anchor must stay full-width on mobile. */
+export function mobileSplitDir(
+  dir: "h" | "v",
+  anchorType: PaneType,
+  isMobile: boolean,
+): "h" | "v" {
+  return isMobile && FULL_WIDTH_ONLY.has(anchorType) ? "v" : dir;
+}
+
 // ── Tree helpers ─────────────────────────────────────────────────────
 
 let _idC = 0;
@@ -190,12 +206,6 @@ function layoutKey(mobile: boolean): string {
   return mobile ? CACHE_KEYS.layoutMobile : CACHE_KEYS.layoutDesktop;
 }
 
-function presetsKey(mobile: boolean): string {
-  return mobile
-    ? CACHE_KEYS.layoutPresetsMobile
-    : CACHE_KEYS.layoutPresetsDesktop;
-}
-
 export function defaultLayout(): LayoutState {
   return { root: leaf("globe"), minimized: [] };
 }
@@ -253,11 +263,32 @@ export function persistLayout(layout: LayoutState, mobile: boolean) {
   cacheSet(layoutKey(mobile), layout);
 }
 
-export async function loadPresets(mobile: boolean): Promise<LayoutPreset[]> {
-  const key = presetsKey(mobile);
-  return (await cacheGet<LayoutPreset[]>(key)) ?? [];
+// Presets are shared across devices — a view saved on desktop shows on mobile
+// and vice versa. The live layout stays per-device (globe must be full-width on
+// mobile), but a named view is the user's intent and should follow them.
+export async function loadPresets(): Promise<LayoutPreset[]> {
+  const shared = await cacheGet<LayoutPreset[]>(
+    CACHE_KEYS.layoutPresetsShared,
+  );
+  if (shared) return shared;
+
+  // First run: merge the old per-device + legacy lists by name.
+  const lists = await Promise.all([
+    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresetsDesktop),
+    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresetsMobile),
+    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresets),
+  ]);
+  const seen = new Set<string>();
+  const merged: LayoutPreset[] = [];
+  for (const p of lists.flatMap((l) => l ?? [])) {
+    if (seen.has(p.name)) continue;
+    seen.add(p.name);
+    merged.push(p);
+  }
+  cacheSet(CACHE_KEYS.layoutPresetsShared, merged);
+  return merged;
 }
 
-export function savePresets(presets: LayoutPreset[], mobile: boolean) {
-  cacheSet(presetsKey(mobile), presets);
+export function savePresets(presets: LayoutPreset[]) {
+  cacheSet(CACHE_KEYS.layoutPresetsShared, presets);
 }

@@ -20,6 +20,7 @@ import type {
   LayoutState,
   LayoutPreset,
 } from "./paneTree";
+import { FULL_WIDTH_ONLY } from "./paneTree";
 import { useData } from "@/context/DataContext";
 import { ResizeHandle } from "./ResizeHandle";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
@@ -607,7 +608,7 @@ export function PaneMobile({
             {/* Move grip — tap to enter move mode for this leaf */}
             <button
               onClick={() => handleGripTap(lf.id)}
-              className={`bg-transparent border-none p-0 px-0.5 py-1 -ml-0.5 transition-colors ${
+              className={`bg-transparent border-none p-1 -ml-0.5 transition-colors touch-target ${
                 moveSourceLeafId === lf.id
                   ? "text-sig-accent"
                   : "text-sig-dim hover:text-sig-accent"
@@ -634,7 +635,7 @@ export function PaneMobile({
                       },
                 );
               }}
-              className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group"
+              className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group touch-target"
             >
               <LfIcon
                 size={10}
@@ -660,7 +661,7 @@ export function PaneMobile({
                   onClick={() =>
                     insertPaneBeside(lf.id, siblingLeafId, "bottom")
                   }
-                  className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+                  className="p-0.5 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                   title="Pop out to own block"
                 >
                   <Maximize2 size={10} strokeWidth={2.5} />
@@ -680,7 +681,7 @@ export function PaneMobile({
               {totalLeafCount > 1 && (
                 <button
                   onClick={() => closePane(lf.id)}
-                  className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+                  className="p-0.5 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
                   title={`Close ${lfMeta.label}`}
                 >
                   <X size={10} strokeWidth={2.5} />
@@ -906,6 +907,14 @@ export function PaneMobile({
                 </span>
               );
             })}
+            {(counts.cyclones ?? 0) > 0 && (
+              <span
+                className="text-(length:--sig-text-sm) tabular-nums font-semibold"
+                style={{ color: colorMap.cyclones }}
+              >
+                {(counts.cyclones ?? 0).toLocaleString()}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Satellite
@@ -1086,6 +1095,13 @@ export function PaneMobile({
           const isMoveTarget =
             moveSourceLeafId !== null &&
             !block.leafIds.includes(moveSourceLeafId);
+          const moveSrcType = moveSourceLeafId
+            ? allLeaves.find((l) => l.id === moveSourceLeafId)?.paneType
+            : undefined;
+          const allowBeside =
+            !!moveSrcType &&
+            !FULL_WIDTH_ONLY.has(moveSrcType) &&
+            !FULL_WIDTH_ONLY.has(block.primaryLeaf.paneType);
 
           return (
             <div
@@ -1115,7 +1131,7 @@ export function PaneMobile({
               >
                 <button
                   onClick={() => handleGripTap(block.primaryLeaf.id)}
-                  className={`bg-transparent border-none p-0 px-0.5 py-1 -ml-0.5 transition-colors ${
+                  className={`bg-transparent border-none p-1 -ml-0.5 transition-colors touch-target ${
                     isMoveSource
                       ? "text-sig-accent"
                       : "text-sig-dim hover:text-sig-accent"
@@ -1141,7 +1157,7 @@ export function PaneMobile({
                             },
                       );
                     }}
-                    className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group"
+                    className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group touch-target"
                   >
                     <Icon
                       size={11}
@@ -1167,7 +1183,8 @@ export function PaneMobile({
 
                 {block.node.type === "leaf" &&
                   availableTypes.length > 0 &&
-                  !moveSourceLeafId && (
+                  !moveSourceLeafId &&
+                  !FULL_WIDTH_ONLY.has(block.primaryLeaf.paneType) && (
                     <button
                       onClick={(e) => {
                         if (availableTypes.length === 1) {
@@ -1291,27 +1308,33 @@ export function PaneMobile({
                         >
                           ↑ ABOVE
                         </button>
-                        {/* Left zone */}
-                        <button
-                          onClick={() => handleMoveAction(block.id, "left")}
-                          className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
-                        >
-                          ← LEFT
-                        </button>
-                        {/* Center = swap */}
+                        {/* Left zone — only when both panes allow side-by-side */}
+                        {allowBeside && (
+                          <button
+                            onClick={() => handleMoveAction(block.id, "left")}
+                            className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                          >
+                            ← LEFT
+                          </button>
+                        )}
+                        {/* Center = swap (spans full width when beside is disallowed) */}
                         <button
                           onClick={() => handleMoveAction(block.id, "swap")}
-                          className="rounded flex items-center justify-center gap-1 bg-sig-bg/90 border-2 border-sig-accent/80 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                          className={`rounded flex items-center justify-center gap-1 bg-sig-bg/90 border-2 border-sig-accent/80 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors ${
+                            allowBeside ? "" : "col-span-3"
+                          }`}
                         >
                           ⇄ SWAP
                         </button>
-                        {/* Right zone */}
-                        <button
-                          onClick={() => handleMoveAction(block.id, "right")}
-                          className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
-                        >
-                          RIGHT →
-                        </button>
+                        {/* Right zone — only when both panes allow side-by-side */}
+                        {allowBeside && (
+                          <button
+                            onClick={() => handleMoveAction(block.id, "right")}
+                            className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                          >
+                            RIGHT →
+                          </button>
+                        )}
                         {/* Bottom zone */}
                         <button
                           onClick={() => handleMoveAction(block.id, "below")}
@@ -1324,7 +1347,7 @@ export function PaneMobile({
                   </div>
 
                   <div
-                    className="shrink-0 h-4 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
+                    className="shrink-0 h-6 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
                     onPointerDown={(e) => handleHeightDrag(block.id, e)}
                   >
                     <div className="w-10 h-1 rounded-full bg-sig-dim/40" />

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useData } from "@/context/DataContext";
-import { useIsMobileLayout } from "@/context/LayoutModeContext";
+import { useLayoutMode } from "@/context/LayoutModeContext";
 import {
   useHasDossier,
   requestDossierOpen,
@@ -8,6 +8,7 @@ import {
   useWalkthroughStepId,
 } from "@/lib/layoutSignals";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { useSelectedAircraftRoute } from "@/features/tracking/aircraft/hooks/useSelectedAircraftRoute";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Tooltip } from "@/components/Tooltip";
@@ -63,7 +64,16 @@ export function LiveTrafficPane() {
   const hasDossier = useHasDossier();
   const walkthroughActive = useWalkthroughActive();
   const walkthroughStepId = useWalkthroughStepId();
-  const isMobileLayout = useIsMobileLayout();
+  const { isMobile: isMobileLayout, deviceType } = useLayoutMode();
+  const isPhone = deviceType === "phone";
+
+  // Publish the selected aircraft's route to the globe on selection (not just
+  // when the dossier is open).
+  useSelectedAircraftRoute(selectedCurrent);
+
+  useEffect(() => {
+    if (isMobileLayout && selectedCurrent && !hasDossier) requestDossierOpen();
+  }, [isMobileLayout, selectedCurrent, hasDossier]);
 
   // Close watch menu on outside click
   useEffect(() => {
@@ -132,6 +142,7 @@ export function LiveTrafficPane() {
       setIsolateMode(null);
       return;
     }
+    if (isPhone) return;
     setChromeHidden((v) => {
       const next = !v;
       if (next) {
@@ -148,6 +159,7 @@ export function LiveTrafficPane() {
     walkthroughActive,
     walkthroughStepId,
     isMobileLayout,
+    isPhone,
   ]);
 
   const handleClose = useCallback(() => {
@@ -346,7 +358,7 @@ export function LiveTrafficPane() {
       )}
 
       {/* ── Detail panel ──────────────────────────────────────────── */}
-      {!chromeHidden && !hasDossier && (
+      {!chromeHidden && !hasDossier && !isMobileLayout && (
         <DetailPanel
           item={selectedCurrent}
           onClose={handleClose}

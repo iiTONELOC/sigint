@@ -13,7 +13,7 @@ import {
   analyzeIntensity,
   peakForecastWindKt,
 } from "../data/intensity";
-import { SAFFIR_SIMPSON, TS_MIN_KT, CYCLONE_HEADING } from "../classification";
+import { SAFFIR_SIMPSON, TS_MIN_KT } from "../classification";
 
 const W = 260;
 const H = 84;
@@ -64,7 +64,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
       <div className="flex items-baseline justify-between mb-1">
         <span
           className="text-[11px] font-mono tracking-widest"
-          style={{ color: CYCLONE_HEADING }}
+          style={{ color: "var(--dossier-accent)" }}
         >
           INTENSITY
         </span>

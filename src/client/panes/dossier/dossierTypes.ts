@@ -38,7 +38,15 @@ export type LiveRoute = {
   filedSpeed?: number;
   distance?: number;
   airline?: string;
+  /** Decoded planned route as [lat, lon] pairs. */
+  waypoints?: [number, number][];
 };
+
+/** Single source for an airport's display/lookup code — ICAO ("K…") first,
+ *  IATA fallback. The airports table is keyed by both, so either resolves. */
+export function airportCode(apt?: { iata?: string; icao?: string }): string {
+  return apt?.icao || apt?.iata || "";
+}
 
 export type AircraftDossier = {
   icao24: string;
@@ -52,7 +60,6 @@ export type AircraftDossier = {
     Type?: string;
   } | null;
   route: LiveRoute | null;
-  photo: AircraftPhoto | null;
 };
 
 export type DossierState = {

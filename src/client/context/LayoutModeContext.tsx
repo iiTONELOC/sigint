@@ -36,6 +36,8 @@ type LayoutModeContextValue = {
   cycleMode: () => void;
   /** Effective boolean — the single source of truth for "is mobile layout" */
   isMobile: boolean;
+  /** The detected device, independent of the chosen layout/orientation */
+  deviceType: DeviceType;
 };
 
 const LayoutModeContext = createContext<LayoutModeContextValue | undefined>(
@@ -44,10 +46,44 @@ const LayoutModeContext = createContext<LayoutModeContextValue | undefined>(
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function computeIsMobile(mode: LayoutMode, width: number): boolean {
+export type DeviceType = "phone" | "tablet" | "desktop";
+
+// Device type from the user-agent. iPadOS 13+ reports as desktop Safari, so a
+// MacIntel platform with touch points is treated as a tablet.
+export function detectDeviceType(): DeviceType {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent;
+  const uaData = (navigator as { userAgentData?: { mobile?: boolean } })
+    .userAgentData;
+  if (
+    /iPhone|iPod|Windows Phone/i.test(ua) ||
+    (/Android/i.test(ua) && /Mobile/i.test(ua)) ||
+    uaData?.mobile === true
+  ) {
+    return "phone";
+  }
+  if (
+    /iPad|Tablet|PlayBook|Silk/i.test(ua) ||
+    (/Android/i.test(ua) && !/Mobile/i.test(ua)) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  ) {
+    return "tablet";
+  }
+  return "desktop";
+}
+
+// The device type chooses the deciding factor: a phone is mobile in portrait,
+// desktop grid in landscape (the wide-short viewport suits the grid); tablets
+// and desktops use the grid. The header toggle (layoutMode) overrides any of it.
+function computeIsMobile(
+  mode: LayoutMode,
+  device: DeviceType,
+  portrait: boolean,
+): boolean {
   if (mode === "mobile") return true;
   if (mode === "desktop") return false;
-  return width < 768;
+  if (device === "phone") return portrait;
+  return false;
 }
 
 const CYCLE_ORDER: LayoutMode[] = ["auto", "mobile", "desktop"];
@@ -56,8 +92,11 @@ const CYCLE_ORDER: LayoutMode[] = ["auto", "mobile", "desktop"];
 
 export function LayoutModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<LayoutMode>("auto");
-  const [windowWidth, setWindowWidth] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth : 1024,
+  const [deviceType] = useState<DeviceType>(detectDeviceType);
+  const [portrait, setPortrait] = useState(() =>
+    typeof window !== "undefined"
+      ? window.innerHeight >= window.innerWidth
+      : true,
   );
 
   // Hydrate from IndexedDB on mount
@@ -85,14 +124,13 @@ export function LayoutModeProvider({ children }: { children: ReactNode }) {
   // so fullscreen survives the rotation. On `fullscreenchange` (exit)
   // we resync to the now-current width.
   useEffect(() => {
+    const sync = () => setPortrait(window.innerHeight >= window.innerWidth);
     const onResize = () => {
       if (document.fullscreenElement) return;
-      setWindowWidth(window.innerWidth);
+      sync();
     };
     const onFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setWindowWidth(window.innerWidth);
-      }
+      if (!document.fullscreenElement) sync();
     };
     window.addEventListener("resize", onResize);
     document.addEventListener("fullscreenchange", onFullscreenChange);
@@ -117,13 +155,13 @@ export function LayoutModeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isMobile = useMemo(
-    () => computeIsMobile(mode, windowWidth),
-    [mode, windowWidth],
+    () => computeIsMobile(mode, deviceType, portrait),
+    [mode, deviceType, portrait],
   );
 
   const value = useMemo<LayoutModeContextValue>(
-    () => ({ mode, setMode, cycleMode, isMobile }),
-    [mode, setMode, cycleMode, isMobile],
+    () => ({ mode, setMode, cycleMode, isMobile, deviceType }),
+    [mode, setMode, cycleMode, isMobile, deviceType],
   );
 
   return (

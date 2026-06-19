@@ -11,12 +11,11 @@ import {
   Row,
   LinkRow,
   useDossierFocus,
-  DossierAccentContext,
 } from "@/panes/dossier/DossierAtoms";
 import { CycloneLayerToggles } from "./CycloneLayerToggles";
 import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "./CycloneForecastMiniMap";
-import { CATEGORY_LABEL, CYCLONE_HEADING } from "../classification";
+import { CATEGORY_LABEL } from "../classification";
 import { useAssetsInCone } from "../hooks/useAssetsInCone";
 import { useLandfallEta, landfallText } from "../hooks/useLandfallEta";
 import { useCycloneModels } from "../hooks/useCycloneModels";
@@ -60,7 +59,6 @@ export function CycloneDossier({
   const models = useCycloneModels(d.stormId, showModels);
 
   return (
-    <DossierAccentContext.Provider value={CYCLONE_HEADING}>
     <div className="h-full flex flex-col">
       <DossierToolbar
         icon={Wind}
@@ -236,6 +234,5 @@ export function CycloneDossier({
         </div>
       </div>
     </div>
-    </DossierAccentContext.Provider>
   );
 }

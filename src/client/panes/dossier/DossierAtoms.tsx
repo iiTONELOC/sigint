@@ -1,8 +1,7 @@
-import { createContext, useContext, useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+import { airportCode } from "./dossierTypes";
 
-// Per-dossier heading accent. Defaults to the theme warn (amber); a feature can
-// override it (e.g. cyclones → storm red) by wrapping its content in the provider.
-export const DossierAccentContext = createContext("var(--sigint-warn)");
+const HEADING_ACCENT = "var(--dossier-accent, var(--sigint-warn))";
 import {
   MapPin,
   ExternalLink,
@@ -67,13 +66,12 @@ export function Section({
   readonly children: React.ReactNode;
 }) {
   const headingId = useId();
-  const accent = useContext(DossierAccentContext);
   return (
     <section aria-labelledby={headingId}>
       <h3
         id={headingId}
         className="text-sm tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold"
-        style={{ color: accent }}
+        style={{ color: HEADING_ACCENT }}
       >
         {title}
       </h3>
@@ -97,12 +95,11 @@ export function CollapsibleSection({
   readonly defaultOpen?: boolean;
   readonly children: React.ReactNode;
 }) {
-  const accent = useContext(DossierAccentContext);
   return (
     <details open={defaultOpen} className="group">
       <summary
         className="flex items-center gap-1 cursor-pointer list-none select-none text-sm tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold min-h-7"
-        style={{ color: accent }}
+        style={{ color: HEADING_ACCENT }}
       >
         <ChevronRight
           className="w-3 h-3 shrink-0 transition-transform group-open:rotate-90"
@@ -140,7 +137,7 @@ export function RouteAirport({
 }: {
   readonly apt: { iata?: string; icao?: string; name?: string };
 }) {
-  const code = apt.iata || apt.icao || "???";
+  const code = airportCode(apt) || "???";
   return (
     <div className="flex items-center gap-1">
       <MapPin className="w-3 h-3 text-sig-dim" aria-hidden="true" />

@@ -21,6 +21,7 @@ import {
 } from "@/lib/spatialIndex";
 import { pointInPolygon } from "@/lib/pointInPolygon";
 import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
+import { getSelectedRoute } from "@/lib/layoutSignals";
 
 export type InputRefs = {
   canvas: HTMLCanvasElement;
@@ -46,6 +47,24 @@ export type InputHandlers = {
   onContextMenu: () => void;
   onKeyDown: (e: KeyboardEvent) => void;
 };
+
+// Distance from point (px,py) to segment (ax,ay)-(bx,by).
+function segDist(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
 
 export function createInputHandlers(refs: InputRefs): InputHandlers {
   const {
@@ -170,6 +189,44 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       }
     }
     return null;
+  }
+
+  // Is the screen point on the selected flight's drawn route (line or a
+  // waypoint)? Clicking the route should NOT deselect the flight.
+  function isRouteHit(mx: number, my: number): boolean {
+    const selId = propsRef.current.selected?.id;
+    if (!selId) return false;
+    const route = getSelectedRoute(String(selId));
+    if (!route || route.length < 2) return false;
+
+    const { w: W, h: H } = sizeRef.current;
+    const isFlat = propsRef.current.flat;
+    const fm = getFlatMetrics(
+      W,
+      H,
+      camRef.current.zoomFlat,
+      camRef.current.panX,
+      camRef.current.panY,
+    );
+    const r = Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
+    const project = (lat: number, lon: number) =>
+      isFlat
+        ? projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH)
+        : projGlobe(lat, lon, W / 2, H / 2, r, camRef.current.rotY, camRef.current.rotX);
+
+    const THRESH = 8;
+    let prev: { x: number; y: number } | null = null;
+    for (const [lat, lon] of route) {
+      const p = project(lat, lon);
+      if (p.z <= 0) {
+        prev = null;
+        continue;
+      }
+      if (Math.hypot(p.x - mx, p.y - my) < THRESH) return true;
+      if (prev && segDist(mx, my, prev.x, prev.y, p.x, p.y) < THRESH) return true;
+      prev = { x: p.x, y: p.y };
+    }
+    return false;
   }
 
   const onDown = (e: MouseEvent | TouchEvent) => {
@@ -475,10 +532,16 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
         drag.lastClickId = null;
         lastClickItem = null;
       } else {
-        // No point/trail hit — try a watch/warning polygon (a separate area
-        // layer) before deselecting.
+        // No point/trail hit. Try a watch/warning polygon (a separate area
+        // layer); otherwise deselect — UNLESS the click landed on the selected
+        // flight's route, which should keep the flight selected.
         setTrailTooltip(null);
-        sel(findWarningAt(mx, my));
+        const warning = findWarningAt(mx, my);
+        if (warning) {
+          sel(warning);
+        } else if (!isRouteHit(mx, my)) {
+          sel(null);
+        }
         drag.lastClickTime = 0;
         drag.lastClickId = null;
         lastClickItem = null;

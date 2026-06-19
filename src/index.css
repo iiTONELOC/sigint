@@ -229,12 +229,6 @@ button:focus-visible {
     min-width: 36px;
     padding: 0.5rem;
   }
-  .touch-resize.cursor-col-resize {
-    width: 16px;
-  }
-  .touch-resize.cursor-row-resize {
-    height: 16px;
-  }
   .sigint-scroll {
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;

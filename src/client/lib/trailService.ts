@@ -15,6 +15,7 @@ const SETTINGS: Record<
     maxTrailPoints: number;
     maxMissedRefreshes: number;
     missThresholdMs: number;
+    staleMs: number;
   }
 > = {
   aircraft: {
@@ -22,12 +23,14 @@ const SETTINGS: Record<
     maxTrailPoints: 50, // ~3.3 hours at 4-min intervals
     maxMissedRefreshes: 8, // ~32 min
     missThresholdMs: 180_000, // 3 min — one poll interval
+    staleMs: 900_000, // 15 min unseen (landed/arrived) — drop the trail
   },
   ships: {
     minMoveDeg: 0.0002, // ~22m — ships move slowly
     maxTrailPoints: 500, // days of history at slow poll rates
     maxMissedRefreshes: 60, // ~1 hour at ~1-min AIS intervals
     missThresholdMs: 300_000, // 5 min — AIS can be bursty
+    staleMs: 3_600_000, // 1 hour unseen — drop the trail
   },
 };
 
@@ -151,6 +154,12 @@ export function mergeCachedTrails(
 export async function initTrails(): Promise<void> {
   if (loaded) return;
   const cached = await readCache();
+  // Drop trails that were already stale when last persisted (e.g. a flight that
+  // landed before the previous session ended) so they don't reappear.
+  const now = Date.now();
+  for (const [id, entry] of cached) {
+    if (now - entry.lastSeen > getSettings(id).staleMs) cached.delete(id);
+  }
   mergeCachedTrails(trails, cached);
   loaded = true;
 }
@@ -245,6 +254,12 @@ export function recordPositions(
   for (const [id, entry] of trails) {
     if (!seenIds.has(id)) {
       const cfg = getSettings(id);
+      // Hard cutoff: a flight that's been gone this long has arrived/landed —
+      // drop the trail outright so stale paths don't accumulate.
+      if (now - entry.lastSeen > cfg.staleMs) {
+        trails.delete(id);
+        continue;
+      }
       if (now - entry.lastSeen > cfg.missThresholdMs) {
         entry.missedRefreshes++;
         if (entry.missedRefreshes > cfg.maxMissedRefreshes) {

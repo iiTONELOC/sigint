@@ -41,6 +41,7 @@ import type {
 import {
   leaf,
   split,
+  mobileSplitDir,
   collectLeafTypes,
   leafCount,
   hasDossierInTree,
@@ -170,7 +171,8 @@ export function PaneManager() {
         if (globeId) {
           const target = findNodeById(prev.root, globeId);
           if (!target) return prev;
-          const newSplit = split("h", target, leaf("dossier"), 0.75);
+          const dir = mobileSplitDir("h", "globe", isMobileRef.current);
+          const newSplit = split(dir, target, leaf("dossier"), 0.75);
           return { ...prev, root: replaceNode(prev.root, globeId, newSplit) };
         }
         return { ...prev, root: split("h", prev.root, leaf("dossier"), 0.75) };
@@ -196,6 +198,8 @@ export function PaneManager() {
           second: boolean,
         ) => {
           if (openPanes.has(paneType)) return; // already open
+
+          const dir = mobileSplitDir(splitDir, anchorType, isMobileRef.current);
 
           // Check minimized
           const minIdx = minimized.findIndex((m) => m.paneType === paneType);
@@ -225,8 +229,8 @@ export function PaneManager() {
             const target = findNodeById(root, anchorId);
             if (target) {
               const newSplit = second
-                ? split(splitDir, target, newLeaf, ratio)
-                : split(splitDir, newLeaf, target, ratio);
+                ? split(dir, target, newLeaf, ratio)
+                : split(dir, newLeaf, target, ratio);
               root = replaceNode(root, anchorId, newSplit);
               openPanes.add(paneType);
               return;
@@ -234,8 +238,8 @@ export function PaneManager() {
           }
           // Fallback: split on root
           root = second
-            ? split(splitDir, root, newLeaf, ratio)
-            : split(splitDir, newLeaf, root, ratio);
+            ? split(dir, root, newLeaf, ratio)
+            : split(dir, newLeaf, root, ratio);
           openPanes.add(paneType);
         };
 
@@ -287,7 +291,7 @@ export function PaneManager() {
           next = [...existing, { name: "Pre-Tour Layout", state: cur }];
         }
         setPresets(next);
-        savePresets(next, isMobileRef.current);
+        savePresets(next);
       }
 
       setLayout({ root: leaf("globe"), minimized: [] });
@@ -646,7 +650,7 @@ export function PaneManager() {
   }, [layout.root, presets.length]);
 
   useEffect(() => {
-    loadPresets(isMobile).then((loaded) => {
+    loadPresets().then((loaded) => {
       setPresets(loaded);
       setPresetsLoaded(true);
     });
@@ -656,7 +660,7 @@ export function PaneManager() {
     (name: string) => {
       const next = [...presets, { name, state: layout }];
       setPresets(next);
-      savePresets(next, isMobileRef.current);
+      savePresets(next);
     },
     [presets, layout],
   );
@@ -670,7 +674,7 @@ export function PaneManager() {
         i === idx ? { ...p, state: layout } : p,
       );
       setPresets(next);
-      savePresets(next, isMobileRef.current);
+      savePresets(next);
     },
     [presets, layout],
   );
@@ -678,7 +682,7 @@ export function PaneManager() {
     (idx: number) => {
       const next = presets.filter((_, i) => i !== idx);
       setPresets(next);
-      savePresets(next, isMobileRef.current);
+      savePresets(next);
     },
     [presets],
   );
