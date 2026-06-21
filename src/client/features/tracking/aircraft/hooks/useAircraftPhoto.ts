@@ -38,27 +38,42 @@ async function fetchPhoto(
   };
 }
 
+export type AircraftPhotoState = {
+  readonly photo: AircraftPhoto | null;
+  readonly loading: boolean;
+};
+
 export function useAircraftPhoto(
   icao24: string,
   reg?: string,
   typeCode?: string,
-): AircraftPhoto | null {
+): AircraftPhotoState {
   const [photo, setPhoto] = useState<AircraftPhoto | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!icao24) {
       setPhoto(null);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
     let cancelled = false;
+    setPhoto(null);
+    setLoading(true);
     (async () => {
       try {
         let p = await fetchPhoto(icao24, undefined, undefined, controller.signal);
         if (!p && reg) p = await fetchPhoto(icao24, reg, typeCode, controller.signal);
-        if (!cancelled) setPhoto(p);
-      } catch {
-        if (!cancelled) setPhoto(null);
+        if (!cancelled) {
+          setPhoto(p);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled && (err as Error)?.name !== "AbortError") {
+          setPhoto(null);
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -67,5 +82,5 @@ export function useAircraftPhoto(
     };
   }, [icao24, reg, typeCode]);
 
-  return photo;
+  return { photo, loading };
 }

@@ -18,6 +18,7 @@ import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/Cyclon
 import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "@/features/environmental/cyclones/ui/CycloneForecastMiniMap";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
+import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -479,19 +480,20 @@ function PanelBody({
 
   return (
     <>
-      {/* Data rows */}
-      <div className="pt-2.5 border-t border-sig-border">
-        {dataRows.map(([k, v]) => (
-          <div key={k} className="flex justify-between mb-1.5">
-            <span className="uppercase tracking-wide text-sig-accent text-xs">
-              {k}
-            </span>
-            <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-xs">
-              {v}
-            </span>
-          </div>
-        ))}
-      </div>
+      {item.type === "aircraft" ? (
+        <AircraftDetailSummary item={item} />
+      ) : (
+        <div className="pt-2.5 border-t border-sig-border">
+          {dataRows.map(([k, v]) => (
+            <div key={k} className="flex justify-between mb-1.5">
+              <span className="uppercase tracking-wide text-sig-accent text-xs">{k}</span>
+              <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-xs">
+                {v}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Coordinates */}
       <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">

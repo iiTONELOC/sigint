@@ -56,9 +56,28 @@ type AdsbAircraft = {
   lon?: number;
   alt_baro?: number | string;
   gs?: number;
+  ias?: number;
+  tas?: number;
+  mach?: number;
+  wd?: number;
+  ws?: number;
+  oat?: number;
+  tat?: number;
   track?: number;
+  track_rate?: number;
   true_heading?: number;
+  mag_heading?: number;
+  roll?: number;
   baro_rate?: number;
+  geom_rate?: number;
+  nav_heading?: number;
+  nav_altitude_mcp?: number;
+  nav_altitude_fms?: number;
+  nav_qnh?: number;
+  nav_modes?: readonly string[];
+  rssi?: number;
+  nac_p?: number;
+  type?: string;
   squawk?: string;
   // ── Server-attached enrichment (post-aircraftEnrichment.ts) ─────
   // Previously computed in the browser via the local NDJSON DB.
@@ -123,6 +142,25 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
     heading,
     verticalRate,
     onGround,
+    tas: a.tas,
+    mach: a.mach,
+    ias: a.ias,
+    windDir: a.wd,
+    windSpd: a.ws,
+    oat: a.oat,
+    tat: a.tat,
+    roll: a.roll,
+    trackRate: a.track_rate,
+    magHeading: a.mag_heading,
+    geomRate: a.geom_rate,
+    navHeading: a.nav_heading,
+    navAltitudeMcp: a.nav_altitude_mcp,
+    navAltitudeFms: a.nav_altitude_fms,
+    navQnh: a.nav_qnh,
+    navModes: a.nav_modes,
+    rssi: a.rssi,
+    nacP: a.nac_p,
+    adsbType: a.type,
     squawk: a.squawk,
     registration: a.registration,
     manufacturerName: a.manufacturerName,

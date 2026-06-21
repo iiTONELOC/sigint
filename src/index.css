@@ -55,6 +55,7 @@
   --color-sig-coastFill: var(--sigint-coastFill);
   --color-sig-ships: var(--sigint-ships);
   --color-sig-aircraft: var(--sigint-aircraft);
+  --color-sig-fires: var(--sigint-fires);
   --color-sig-events: var(--sigint-events);
   --color-sig-quakes: var(--sigint-quakes);
   --color-sig-recon: var(--sigint-recon);

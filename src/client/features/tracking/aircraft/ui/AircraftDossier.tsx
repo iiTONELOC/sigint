@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Plane, Loader2, ImageOff, Camera } from "lucide-react";
+import { Plane, ExternalLink, LocateFixed } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { authenticatedFetch } from "@/lib/authService";
 import { getTrail } from "@/lib/trailService";
 import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
-import { AircraftFlightPath3D } from "./AircraftFlightPath3D";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
-import { formatKtMph } from "@/lib/units";
+import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
+import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
+import { SectionLabel, Card, StatCell, Label, RouteEndpoint } from "./dossierKit";
+import { ktToMph, machFromGs, isaTempC } from "@/lib/units";
 import {
   getSquawkStatus,
-  getSquawkStatusLabel,
+  delaySeverity,
+  sourceLabel,
+  windComponents,
 } from "@/features/tracking/aircraft/lib/utils";
 import type {
   AircraftDossier as AircraftDossierData,
@@ -23,10 +27,6 @@ import {
 } from "@/panes/dossier/dossierTypes";
 import {
   DossierToolbar,
-  Section,
-  Row,
-  RouteAirport,
-  LinkRow,
   formatEpoch,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
@@ -39,6 +39,16 @@ type Props = {
   readonly onSolo: () => void;
   readonly onClose: () => void;
 };
+
+type Chip = { readonly label: string; readonly tone: string };
+
+function onTimeChip(hasRoute: boolean, delay?: string): Chip | null {
+  if (!hasRoute) return null;
+  if (!delay) return { label: "ON TIME", tone: "sig-quakes" };
+  const m = /(-?\d+)/.exec(delay);
+  const mins = m ? Number(m[1]) : 0;
+  return { label: mins <= 0 ? "ON TIME" : `+${mins}m`, tone: delaySeverity(mins) };
+}
 
 export function AircraftDossier({
   item,
@@ -86,9 +96,7 @@ export function AircraftDossier({
         setState({ status: "error", data: null, entityId: entity.id });
         return;
       }
-      const { dossier } = (await res.json()) as {
-        dossier: AircraftDossierData;
-      };
+      const { dossier } = (await res.json()) as { dossier: AircraftDossierData };
       void setCachedDossier(cacheKey, dossier);
       setState({ status: "loaded", data: dossier, entityId: entity.id });
     } catch (err: any) {
@@ -114,7 +122,6 @@ export function AircraftDossier({
     onGround,
     originCountry = "",
     verticalRate,
-    speedMps,
     registration: liveReg,
     operator: liveOp,
     operatorIcao,
@@ -123,16 +130,31 @@ export function AircraftDossier({
     acType: liveAcType,
     categoryDescription,
     military: isMilitary,
+    recon: isRecon,
+    mach,
+    tas,
+    windDir,
+    windSpd,
+    oat,
+    tat,
+    navQnh,
+    navModes,
+    navHeading,
+    navAltitudeMcp,
+    navAltitudeFms,
+    rssi,
+    nacP,
+    adsbType,
   } = acData;
 
-  const photo = useAircraftPhoto(icao24, liveReg || undefined);
+  const { photo, loading: photoLoading } = useAircraftPhoto(icao24, liveReg || undefined);
 
   const title = callsign?.trim() || icao24.toUpperCase();
   const toolbar = (
     <DossierToolbar
       icon={Plane}
       title={title}
-      badge={isMilitary ? "MIL" : null}
+      badge={isRecon ? "RECON" : isMilitary ? "MIL" : null}
       isolateMode={isolateMode}
       onLocate={onLocate}
       onFocus={onFocus}
@@ -142,275 +164,236 @@ export function AircraftDossier({
     />
   );
 
-  if (state.status === "loading") {
-    return (
-      <div className="h-full flex flex-col">
-        {toolbar}
-        <div className="flex-1 flex items-center justify-center text-sig-dim">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" aria-hidden="true" />
-          <span>Loading dossier...</span>
-        </div>
-      </div>
-    );
-  }
-
   const dossier = state.data;
   const reg = dossier?.aircraft?.Registration ?? liveReg ?? "";
   const mfr = dossier?.aircraft?.Manufacturer ?? liveMfr ?? "";
   const typeFullName = dossier?.aircraft?.Type ?? "";
   const acTypeShort = liveAcType || (dossier?.aircraft?.ICAOTypeCode ?? "");
   const displayModel = liveModel ?? "";
+  const modelFamily = displayModel.split(/[\s/-]/)[0] ?? "";
+  const typeBadge = modelFamily.length >= 3 ? modelFamily : acTypeShort;
   const owner =
     dossier?.aircraft?.RegisteredOwners ?? liveOp ?? operatorIcao ?? "";
-  const typeCode = dossier?.aircraft?.ICAOTypeCode ?? "";
   const { route } = dossier ?? {};
 
-  const speedLine =
-    typeof speedMps === "number" ? formatKtMph(speed) : `${speed} kn`;
-
-  const squawkLine = squawk
-    ? `${squawk} — ${getSquawkStatusLabel(getSquawkStatus(squawk))}`
-    : null;
-
-  const vsLine =
-    verticalRate != null ? `${Math.round(verticalRate * 196.85)} fpm` : null;
-
-  const category =
+  const speedFooter = `${ktToMph(speed)} mph`;
+  const fpm = verticalRate != null ? Math.round(verticalRate * 196.85) : 0;
+  const emergency = squawk ? getSquawkStatus(squawk) !== "normal" : false;
+  const wake =
     categoryDescription && categoryDescription !== "UNKNOWN"
       ? categoryDescription
       : null;
+  const selectedAlt = navAltitudeMcp ?? navAltitudeFms;
 
-  const flightPathPts = [
+  const machVal = typeof mach === "number" ? mach : machFromGs(speed, altitude);
+  const machText = `${typeof mach === "number" ? "" : "~"}M ${machVal.toFixed(2)}`;
+  const tasText = `${Math.round(typeof tas === "number" ? tas : speed)} kt`;
+
+  const isaDev = typeof oat === "number" ? Math.round(oat - isaTempC(altitude)) : null;
+  const isaText = isaDev != null ? `ISA ${isaDev >= 0 ? "+" : ""}${isaDev}` : null;
+  const tatText = typeof tat === "number" ? `${Math.round(tat)}°C` : null;
+  const wc = windComponents(windDir, windSpd, heading);
+  const windCompText = wc
+    ? `${wc.head >= 0 ? `H${wc.head}` : `T${Math.abs(wc.head)}`} · X${wc.cross}${wc.side}`
+    : null;
+  const rssiText = typeof rssi === "number" ? `${Math.round(rssi)} dB` : null;
+  const accText = typeof nacP === "number" ? `${nacP}` : null;
+  const sourceText = sourceLabel(adsbType);
+
+  const trail = [
     ...getTrail(item.id),
     { lat: item.lat, lon: item.lon, altitude, heading, speed, ts: Date.now() },
   ];
 
   const originCode = airportCode(route?.origin);
   const destCode = airportCode(route?.destination);
+  const chip = onTimeChip(!!route, route?.delays?.departure);
+  const arrLate = !!chip && chip.label !== "ON TIME";
 
-  const isoPath =
-    flightPathPts.length >= 2 ? (
-      <AircraftFlightPath3D
-        trail={flightPathPts}
-        heading={heading}
-        altitude={altitude}
-        speed={speed}
-        speedMps={speedMps}
-        verticalRate={verticalRate}
-        onGround={onGround}
-      />
-    ) : null;
+  const links: ReadonlyArray<readonly [string, string]> = [
+    ...(callsign?.trim()
+      ? ([
+          ["FlightAware", `https://flightaware.com/live/flight/${callsign.trim()}`],
+          ["FlightRadar24", `https://www.flightradar24.com/${callsign.trim()}`],
+        ] as const)
+      : []),
+    ["ADS-B Exchange", `https://globe.adsbexchange.com/?icao=${icao24}`],
+    ["Planespotters", `https://www.planespotters.net/hex/${icao24.toUpperCase()}`],
+    ...(reg
+      ? ([["JetPhotos", `https://www.jetphotos.com/registration/${reg}`]] as const)
+      : []),
+  ];
+
+  const coords = (
+    <div className="flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5">
+      <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
+        <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden="true" />
+        POSITION
+      </span>
+      <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">
+        {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"} ·{" "}
+        {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+      </span>
+    </div>
+  );
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="@container/dossier h-full flex flex-col">
       {toolbar}
-      <div className="flex-1 overflow-y-auto sigint-scroll">
-        <div className="p-3 space-y-3">
-          {photo && photo.src && !photoError && (
-            <a
-              href={photo.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded overflow-hidden bg-sig-bg/50 border border-sig-grid hover:border-sig-accent/40 transition-colors"
-            >
-              <img
-                src={photo.src}
-                alt={`${reg || icao24}`}
-                className="w-full h-auto object-cover max-h-52"
-                onError={() => setPhotoError(true)}
-                onLoad={(e) => {
-                  const el = e.currentTarget as any;
-                  if (el.__photoTimeout) clearTimeout(el.__photoTimeout);
-                }}
-                ref={(el) => {
-                  if (!el) return;
-                  (el as any).__photoTimeout = setTimeout(() => {
-                    if (!el.complete || el.naturalWidth === 0)
-                      setPhotoError(true);
-                  }, 8000);
-                }}
+      <div className="flex-1 min-h-0 overflow-auto sigint-scroll p-3 flex flex-col gap-3">
+      <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 @min-[76rem]/dossier:grid-cols-4 gap-2 items-start @min-[40rem]/dossier:items-stretch">
+        <section className="sec identity min-w-0">
+          <AircraftIdentityTicket
+            photo={photo}
+            photoLoading={photoLoading}
+            photoError={photoError}
+            onPhotoError={() => setPhotoError(true)}
+            typeBadge={typeBadge}
+            military={!!isMilitary}
+            recon={!!isRecon}
+            operator={owner}
+            chip={chip}
+            reg={reg}
+            icao24={icao24}
+            originCountry={originCountry}
+            model={displayModel}
+            aircraft={typeFullName}
+            mfr={mfr}
+            wake={wake}
+          />
+        </section>
+
+        {route && (
+          <section className="sec flightplan min-w-0 flex flex-col">
+            <SectionLabel>FLIGHT PLAN</SectionLabel>
+            <div className="flex flex-col gap-2">
+              <RouteEndpoint
+                label="DEPART"
+                gate={route.origin?.gate}
+                name={route.origin?.name || route.origin?.city || originCode || "—"}
+                time={route.departureTime ? formatEpoch(route.departureTime) : undefined}
+                actual={route.departureActual}
               />
-              <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-sig-dim">
-                <Camera className="w-3 h-3 shrink-0" aria-hidden="true" />
-                <span className="truncate">{photo.photographer}</span>
-                <span className="ml-auto shrink-0 text-sig-accent/60">
-                  planespotters.net
-                </span>
-              </div>
-            </a>
-          )}
-          {(photoError || (photo && !photo.src)) && (
-            <div className="rounded bg-sig-bg/50 border border-sig-grid flex items-center justify-center h-20 text-sig-dim">
-              <ImageOff
-                className="w-4 h-4 mr-2 opacity-40"
-                aria-hidden="true"
+              <RouteEndpoint
+                label="ARRIVE"
+                gate={route.destination?.gate}
+                name={route.destination?.name || route.destination?.city || destCode || "—"}
+                time={route.arrivalTime ? formatEpoch(route.arrivalTime) : undefined}
+                actual={route.arrivalActual}
+                late={arrLate}
               />
-              <span className="text-xs">No photo available</span>
             </div>
-          )}
-
-          <Section title="IDENTITY">
-            <Row label="CALLSIGN" value={callsign} />
-            <Row label="ICAO24" value={icao24.toUpperCase()} />
-            {acTypeShort && <Row label="TYPE" value={acTypeShort} />}
-            {typeCode && typeCode !== acTypeShort && (
-              <Row label="TYPE CODE" value={typeCode} />
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              {route.distance != null && <StatCell label="DIST nm" value={String(route.distance)} />}
+              {route.filedAltitude != null && (
+                <StatCell label="FILED ALT" value={`FL${route.filedAltitude / 100}`} />
+              )}
+              {route.filedSpeed != null && <StatCell label="FILED kn" value={String(route.filedSpeed)} />}
+            </div>
+            {route.filedRoute && (
+              <Card className="p-2.5 mt-2">
+                <Label className="mb-1.5">FILED ROUTE</Label>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto sigint-scroll">
+                  {route.filedRoute
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .map((wp, i) => (
+                      <span
+                        key={`${wp}-${i}`}
+                        className="text-(length:--sig-text-xs) font-mono text-sig-text bg-sig-bg/60 border border-sig-border rounded px-1.5 py-0.5"
+                      >
+                        {wp}
+                      </span>
+                    ))}
+                </div>
+              </Card>
             )}
-            {reg && <Row label="REG" value={reg} />}
-            {owner && <Row label="OPERATOR" value={owner} />}
-            {mfr && <Row label="MANUFACTURER" value={mfr} />}
-            {displayModel && <Row label="MODEL" value={displayModel} />}
-            {typeFullName && typeFullName !== displayModel && (
-              <Row label="AIRCRAFT" value={typeFullName} />
-            )}
-            {category && <Row label="CATEGORY" value={category} />}
-            {originCountry && <Row label="ORIGIN" value={originCountry} />}
-          </Section>
-
-          <Section title="TELEMETRY">
-            <Row label="ALTITUDE" value={onGround ? "GND" : `${altitude} ft`} />
-            <Row label="SPEED" value={speedLine} />
-            <Row label="HEADING" value={`${heading}°`} />
-            {vsLine && <Row label="V/S" value={vsLine} />}
-            <Row label="STATUS" value={onGround ? "ON GROUND" : "AIRBORNE"} />
-            {squawkLine && <Row label="SQUAWK" value={squawkLine} />}
-          </Section>
-
-          {!route && isoPath && (
-            <Section title="3D FLIGHT PATH">{isoPath}</Section>
-          )}
-
-          {route && (
-            <Section
-              title={route.source === "flightaware" ? "ROUTE" : "ROUTE *"}
-            >
-              <AircraftRouteMap
-                originCode={originCode}
-                destCode={destCode}
-                lat={item.lat}
-                lon={item.lon}
-                heading={heading}
-                waypoints={route.waypoints}
-                fallback={isoPath}
-              />
-              <div className="flex items-center gap-2 text-sm text-sig-text">
-                <RouteAirport apt={route.origin} />
-                <span className="text-sig-dim">→</span>
-                <RouteAirport apt={route.destination} />
+            {route.source === "hexdb" && (
+              <div className="text-(length:--sig-text-xs) text-sig-dim/60 mt-1">
+                * Last known route — may not reflect current flight
               </div>
+            )}
+          </section>
+        )}
+
+        <section className="sec route min-w-0 flex flex-col">
+          <SectionLabel>ROUTE</SectionLabel>
+          <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-0">
+            <AircraftRouteMap
+              originCode={originCode}
+              destCode={destCode}
+              lat={item.lat}
+              lon={item.lon}
+              heading={heading}
+              waypoints={route?.waypoints}
+              trail={trail}
+              hud={{
+                mach: machText,
+                tas: tasText,
+                heading: `${Math.round(heading)}°`,
+                eta: route?.arrivalTime ? formatEpoch(route.arrivalTime) : undefined,
+              }}
+            />
+          </div>
+          <div className="mt-2">{coords}</div>
+          {route && (
+            <div className="mt-2">
               <RouteProgress
                 origin={originCode}
                 dest={destCode}
                 departureTime={route.departureTime}
                 arrivalTime={route.arrivalTime}
               />
-              {route.status && (
-                <Row
-                  label="STATUS"
-                  value={route.status.toUpperCase().replace("_", " ")}
-                />
-              )}
-              {route.origin?.name && (
-                <Row
-                  label="FROM"
-                  value={`${route.origin.name}${route.origin.city ? ` — ${route.origin.city}` : ""}`}
-                />
-              )}
-              {route.origin?.gate && (
-                <Row label="GATE" value={route.origin.gate} />
-              )}
-              {route.destination?.name && (
-                <Row
-                  label="TO"
-                  value={`${route.destination.name}${route.destination.city ? ` — ${route.destination.city}` : ""}`}
-                />
-              )}
-              {route.destination?.gate && (
-                <Row label="GATE" value={route.destination.gate} />
-              )}
-              {route.departureTime && (
-                <Row
-                  label={route.departureActual ? "DEPARTED" : "DEP (EST)"}
-                  value={formatEpoch(route.departureTime)}
-                />
-              )}
-              {route.arrivalTime && (
-                <Row
-                  label={route.arrivalActual ? "ARRIVED" : "ARR (EST)"}
-                  value={formatEpoch(route.arrivalTime)}
-                />
-              )}
-              {route.delays?.departure && (
-                <Row label="DEP DELAY" value={route.delays.departure} />
-              )}
-              {route.delays?.arrival && (
-                <Row label="ARR DELAY" value={route.delays.arrival} />
-              )}
-              {route.airline && <Row label="AIRLINE" value={route.airline} />}
-              {route.distance && (
-                <Row label="DISTANCE" value={`${route.distance} nm`} />
-              )}
-              {route.filedAltitude && (
-                <Row
-                  label="FILED ALT"
-                  value={`FL${route.filedAltitude / 100}`}
-                />
-              )}
-              {route.filedSpeed && (
-                <Row label="FILED SPD" value={`${route.filedSpeed} kn`} />
-              )}
-              {route.filedRoute && (
-                <div className="mt-1">
-                  <span className="text-xs text-sig-dim">FILED ROUTE</span>
-                  <div className="text-xs font-mono text-sig-text/70 mt-0.5 break-all leading-relaxed">
-                    {route.filedRoute}
-                  </div>
-                </div>
-              )}
-              {route.source === "hexdb" && (
-                <div className="text-xs text-sig-dim/60 mt-1">
-                  * Last known route — may not reflect current flight
-                </div>
-              )}
-            </Section>
-          )}
-
-          <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-dim">
-              {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-              {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
             </div>
-          </Section>
+          )}
+        </section>
 
-          <Section title="INTEL LINKS">
-            {callsign?.trim() && (
-              <>
-                <LinkRow
-                  label="FlightAware"
-                  href={`https://flightaware.com/live/flight/${callsign.trim()}`}
-                />
-                <LinkRow
-                  label="FlightRadar24"
-                  href={`https://www.flightradar24.com/${callsign.trim()}`}
-                />
-              </>
-            )}
-            <LinkRow
-              label="ADS-B Exchange"
-              href={`https://globe.adsbexchange.com/?icao=${icao24}`}
-            />
-            <LinkRow
-              label="Planespotters"
-              href={`https://www.planespotters.net/hex/${icao24.toUpperCase()}`}
-            />
-            {reg && (
-              <LinkRow
-                label="JetPhotos"
-                href={`https://www.jetphotos.com/registration/${reg}`}
-              />
-            )}
-          </Section>
+        <section className="sec telemetry min-w-0 flex flex-col">
+          <SectionLabel>LIVE TELEMETRY</SectionLabel>
+          <AircraftTelemetryPFD
+            speed={speed}
+            speedFooter={speedFooter}
+            heading={heading}
+            selectedHeading={navHeading}
+            altitude={altitude}
+            selectedAlt={selectedAlt}
+            onGround={onGround}
+            fpm={fpm}
+            squawk={squawk}
+            emergency={emergency}
+            windDir={windDir}
+            windSpd={windSpd}
+            oat={oat}
+            navQnh={navQnh}
+            navModes={navModes}
+            windCompText={windCompText}
+            isaText={isaText}
+            tatText={tatText}
+            rssiText={rssiText}
+            accText={accText}
+            sourceText={sourceText}
+          />
+        </section>
+      </div>
+
+      <section className="intel">
+        <SectionLabel>INTEL LINKS</SectionLabel>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2">
+          {links.map(([label, href]) => (
+            <a
+              key={label}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
+            >
+              <span className="truncate">{label}</span>
+              <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden="true" />
+            </a>
+          ))}
         </div>
+      </section>
       </div>
     </div>
   );

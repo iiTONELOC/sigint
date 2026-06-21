@@ -28,6 +28,39 @@ export function getSquawkStatus(squawk?: string): SquawkStatus {
   }
 }
 
+// Delay-severity → sig token class. Single owner for the on-time/late ramp used
+// by the dossier on-time chip and arrival time. Red is reserved for 60+ min.
+export function delaySeverity(mins: number): string {
+  if (mins <= 0) return "sig-quakes";
+  if (mins <= 15) return "sig-warn";
+  if (mins <= 60) return "sig-fires";
+  return "sig-danger";
+}
+
+// readsb message-source type → short label (how we're tracking it).
+export function sourceLabel(type?: string): string | null {
+  if (!type) return null;
+  if (type.startsWith("adsb") || type.startsWith("adsr")) return "ADS-B";
+  if (type.startsWith("mlat")) return "MLAT";
+  if (type.startsWith("tisb")) return "TIS-B";
+  if (type.startsWith("mode_s")) return "MODE-S";
+  return type.toUpperCase();
+}
+
+// Headwind (+) / tailwind (−) and crosswind component from wind (FROM dir, kt)
+// relative to the aircraft track. Returns null when wind/track are absent.
+export function windComponents(
+  windDir?: number,
+  windSpd?: number,
+  track?: number,
+): { readonly head: number; readonly cross: number; readonly side: "L" | "R" } | null {
+  if (windDir == null || windSpd == null || track == null) return null;
+  const a = ((windDir - track) * Math.PI) / 180;
+  const head = Math.round(windSpd * Math.cos(a));
+  const crossRaw = windSpd * Math.sin(a);
+  return { head, cross: Math.round(Math.abs(crossRaw)), side: crossRaw >= 0 ? "R" : "L" };
+}
+
 export function getSquawkStatusLabel(status: SquawkStatus): string {
   switch (status) {
     case "emergency":

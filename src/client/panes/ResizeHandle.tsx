@@ -32,10 +32,16 @@ export function ResizeHandle({
       document.body.style.cursor = isH ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
 
+      // Pixel floor so a pane can't be dragged narrower than its content needs
+      // (the dossier truncates badly below ~18rem). Falls back to the old 10%
+      // bound on very small parents so the clamp can never invert.
+      const minPx = isH ? 340 : 200;
+      const minRatio = Math.min(0.4, minPx / totalSize);
+
       const onMove = (ev: PointerEvent) => {
         const pos = isH ? ev.clientX : ev.clientY;
         const raw = (pos - startOffset) / totalSize;
-        const ratio = Math.max(0.1, Math.min(0.9, raw));
+        const ratio = Math.max(minRatio, Math.min(1 - minRatio, raw));
         onResize(splitId, ratio);
       };
 

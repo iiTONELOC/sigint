@@ -210,7 +210,7 @@ export function DossierToolbar({
   return (
     <div className="p-3 pb-0">
       <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 text-sig-accent shrink-0" aria-hidden="true" />
+        <Icon className="w-4 h-4 shrink-0 text-(--dossier-accent)" aria-hidden="true" />
         <span className="text-sig-bright font-mono tracking-wider text-base truncate flex-1">
           {title}
         </span>
