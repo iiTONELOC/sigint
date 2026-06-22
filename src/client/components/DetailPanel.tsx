@@ -17,6 +17,7 @@ import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
 import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
+import { EarthquakeDetailSummary } from "@/features/environmental/earthquake/ui/EarthquakeDetailSummary";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -480,6 +481,8 @@ function PanelBody({
     <>
       {item.type === "aircraft" ? (
         <AircraftDetailSummary item={item} />
+      ) : item.type === "quakes" ? (
+        <EarthquakeDetailSummary item={item} />
       ) : item.type === "cyclones" ? null : (
         <div className="pt-2.5 border-t border-sig-border">
           {dataRows.map(([k, v]) => (
@@ -494,7 +497,7 @@ function PanelBody({
       )}
 
       {/* Coordinates */}
-      {item.type !== "cyclones" && (
+      {item.type !== "cyclones" && item.type !== "quakes" && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
           {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
           {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
@@ -575,7 +578,7 @@ function PanelHeader({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <Icon
-            size="clamp(14px, 2vw, 18px)"
+            size={16}
             style={{ color }}
             {...feature.iconProps}
           />

@@ -8,6 +8,26 @@ export const KT_TO_MPH = 1.15078;
 export const KT_TO_KMH = 1.852;
 export const KT_TO_MPS = 0.5144;
 export const NM_TO_KM = 1.852;
+export const KM_TO_MI = 0.621371;
+
+/** Kilometres → whole miles. */
+export function kmToMi(km: number): number {
+  return Math.round(km * KM_TO_MI);
+}
+
+/** Distance, unit-pref aware: `10 km (6 mi)` / `10 km` / `6 mi`. */
+export function formatKmMi(km: number): string {
+  const rounded = Math.round(km);
+  switch (getUnitsMode()) {
+    case "mph":
+      return `${kmToMi(km)} mi`;
+    case "kt":
+    case "kmh":
+      return `${rounded} km`;
+    default:
+      return `${rounded} km (${kmToMi(km)} mi)`;
+  }
+}
 
 /** Knots → whole mph. */
 export function ktToMph(kt: number): number {
