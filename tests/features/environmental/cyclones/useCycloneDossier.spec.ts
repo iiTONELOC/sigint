@@ -8,7 +8,7 @@ import {
 } from "bun:test";
 import { renderHook } from "../../../hookHelper";
 import { useCycloneDossier } from "@/features/environmental/cyclones/hooks/useCycloneDossier";
-import { cacheClearAll } from "@/lib/storageService";
+import { cacheClearAll } from "@/lib/cache/storageService";
 
 // Each test uses a distinct stormId so the per-test IDB cache entries
 // don't collide. The hook fires an async cacheSet on success that may

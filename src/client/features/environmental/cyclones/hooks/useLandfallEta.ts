@@ -6,10 +6,10 @@
 // the land test runs in idle, narrowed by a per-ring bbox pre-check.
 
 import { useEffect, useState } from "react";
-import { getLand, enrichLand } from "@/lib/landService";
-import { ringContains, type Ring } from "@/lib/pointInPolygon";
-import { scheduleIdle } from "@/lib/idle";
-import { formatTime } from "@/lib/timeFormat";
+import { getLand, enrichLand } from "@/lib/geo/landService";
+import { ringContains, type Ring } from "@/lib/geo/pointInPolygon";
+import { scheduleIdle } from "@/lib/runtime/idle";
+import { formatTime } from "@/lib/format/timeFormat";
 import type { ForecastPoint } from "../types";
 
 export type Landfall =

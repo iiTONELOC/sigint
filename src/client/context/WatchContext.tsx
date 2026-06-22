@@ -10,7 +10,8 @@ import {
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CorrelationResult } from "@/lib/correlation";
-import { requestWatchLayout } from "@/lib/layoutSignals";
+import { requestWatchLayout } from "@/lib/runtime/layoutSignals";
+import { revealThenClear } from "@/lib/runtime/revealSignals";
 import { useUI } from "@/context/UIContext";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -219,8 +220,7 @@ export function WatchProvider({
     const current = items[idx]!;
     const currentOrigin = watchEntriesRef.current[idx]?.origin ?? null;
     setSelected(current);
-    setRevealId(current.id);
-    setTimeout(() => setRevealId(null), 200);
+    revealThenClear(setRevealId, current.id);
     setWatchCountdown(WATCH_DWELL_MS);
     setWatchState((prev) => ({
       ...prev,
@@ -244,8 +244,7 @@ export function WatchProvider({
       const nextItem = currentItems[nextIdx]!;
       const nextOrigin = currentEntries[nextIdx]?.origin ?? null;
       setSelected(nextItem);
-      setRevealId(nextItem.id);
-      setTimeout(() => setRevealId(null), 200);
+      revealThenClear(setRevealId, nextItem.id);
       setWatchCountdown(WATCH_DWELL_MS);
       setWatchState((prev) => ({
         ...prev,

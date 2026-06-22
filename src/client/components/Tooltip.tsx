@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { isMobileWidth } from "@/config/breakpoints";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ export function Tooltip({
     if (disabled) return;
     // Skip tooltips on touch devices and narrow viewports (mobile)
     if (window.matchMedia("(pointer: coarse)").matches) return;
-    if (window.innerWidth < 768) return;
+    if (isMobileWidth(window.innerWidth)) return;
     timerRef.current = setTimeout(() => {
       setVisible(true);
     }, delay);

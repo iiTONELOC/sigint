@@ -1,5 +1,27 @@
-import { resolve, relative, normalize } from "path";
+import { resolve, relative, normalize, basename } from "path";
 import type { SecurityHeaders } from "./api/securityHeaders";
+
+const WORKER_SRC_DIR = resolve(import.meta.dir, "../client/workers");
+
+async function buildWorkerFromTs(pathname: string): Promise<Response | null> {
+  if (!pathname.endsWith(".js")) return null;
+  const name = basename(pathname, ".js");
+  const entry = resolve(WORKER_SRC_DIR, `${name}.ts`);
+  if (!(await Bun.file(entry).exists())) return null;
+  const built = await Bun.build({
+    entrypoints: [entry],
+    target: "browser",
+    format: "esm",
+  });
+  if (!built.success || built.outputs.length === 0) return null;
+  const code = await built.outputs[0]!.text();
+  return new Response(code, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-cache, must-revalidate",
+    },
+  });
+}
 
 export function safePath(base: string, urlPath: string): string | null {
   const decoded = decodeURIComponent(urlPath);
@@ -50,7 +72,8 @@ export function createStaticRoutes(
 
     "/workers/*": async (req) => {
       const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
+      const built = await buildWorkerFromTs(pathname);
+      return built ?? servePublicFile(pathname);
     },
 
     "/sw.js": async () => {

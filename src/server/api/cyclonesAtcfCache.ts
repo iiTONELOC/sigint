@@ -12,8 +12,9 @@
 // (^(AL|EP|CP)\d{2}\d{4}$) before it reaches here, so interpolating it into the
 // fixed NHC ATCF URL cannot escape the host/path.
 
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
-import { createPerKeyCache } from "../lib/perKeyCache";
+import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
+import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
+import { getStormProducts } from "./cyclonesCache";
 
 const ATCF_BTK_BASE = "https://ftp.nhc.noaa.gov/atcf/btk";
 // Revalidate on the advisory rhythm (full advisories every 6h, intermediate
@@ -23,8 +24,6 @@ const ATCF_BTK_BASE = "https://ftp.nhc.noaa.gov/atcf/btk";
 // re-downloaded; a dissipated storm (no longer polled) is purged after that.
 const ATCF_CACHE_TTL_MS = 3 * 60 * 60_000;
 const ATCF_RETENTION_MS = 12 * 60 * 60_000;
-const FETCH_TIMEOUT_MS = 8_000;
-const PURGE_INTERVAL_MS = 10 * 60_000;
 
 // Last-Modified per storm for conditional revalidation (If-Modified-Since).
 const lastModified = new Map<string, string>();
@@ -166,7 +165,7 @@ async function fetchAtcfForStorm(
   try {
     const res = await fetchWithTimeout(
       url,
-      FETCH_TIMEOUT_MS,
+      FETCH_TIMEOUT_STANDARD_MS,
       since ? { headers: { "If-Modified-Since": since } } : undefined,
     );
     if (res.status === 304 && prev) return prev; // unchanged — reuse parsed data
@@ -215,32 +214,89 @@ const SPAGHETTI_MODELS = new Set([
 export type ModelTrackPoint = { tau: number; lat: number; lon: number };
 export type ModelTrack = { model: string; points: ModelTrackPoint[] };
 
-/** Per-model forecast tracks for the latest init cycle in the a-deck. One point
- *  per (model, TAU); models with fewer than 2 points are dropped. */
-export function parseAtcfAdeck(text: string): ModelTrack[] {
-  const rows: string[][] = [];
-  let latest = "";
+// A meaningful spaghetti plot needs several models agreeing/diverging, not a
+// lone straggler. The chosen init must carry at least this many distinct models.
+const MIN_SPAGHETTI_MODELS = 3;
+
+/** Get-or-create the value for `key` in a Map — flattens the build loops below. */
+function mapEntry<K, V>(map: Map<K, V>, key: K, make: () => V): V {
+  const existing = map.get(key);
+  if (existing) return existing;
+  const created = make();
+  map.set(key, created);
+  return created;
+}
+
+/** Parse the lines of an a-deck into the spaghetti-model rows we care about,
+ *  paired with their init time and curated model code. */
+function spaghettiRows(text: string): Array<{ init: string; model: string; fields: string[] }> {
+  const out: Array<{ init: string; model: string; fields: string[] }> = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     const f = line.split(",").map((s) => s.trim());
-    if (f.length < 8) continue;
-    rows.push(f);
-    if (f[2]! > latest) latest = f[2]!;
+    if (f.length >= 8 && SPAGHETTI_MODELS.has(f[4]!)) {
+      out.push({ init: f[2]!, model: f[4]!, fields: f });
+    }
   }
-  if (!latest) return [];
+  return out;
+}
+
+/** YYYYMMDDHH → epoch ms (UTC). Returns NaN if not a 10-digit init string. */
+function initToMs(init: string): number {
+  if (!/^\d{10}$/.test(init)) return Number.NaN;
+  const y = +init.slice(0, 4), mo = +init.slice(4, 6), d = +init.slice(6, 8), h = +init.slice(8, 10);
+  return Date.UTC(y, mo - 1, d, h);
+}
+
+/** Init carrying at least MIN_SPAGHETTI_MODELS distinct models that best matches
+ *  the storm. When `analysisInit` is given, choose the guidance init CLOSEST to
+ *  the storm's analysis time so the spaghetti aligns with the storm's actual
+ *  position/forecast (a fixture at peak shouldn't borrow the weakening-tail
+ *  cycle's tracks). Without it, fall back to the newest guidance-bearing init —
+ *  NOT the newest init overall, since a storm's final a-deck cycles are often a
+ *  sparse tail (only CARQ / a lone late model). */
+function pickGuidanceInit(
+  rows: ReadonlyArray<{ init: string; model: string }>,
+  analysisInit?: string,
+): string | null {
+  const modelsByInit = new Map<string, Set<string>>();
+  for (const r of rows) {
+    mapEntry(modelsByInit, r.init, () => new Set<string>()).add(r.model);
+  }
+  const candidates = [...modelsByInit.entries()]
+    .filter(([, models]) => models.size >= MIN_SPAGHETTI_MODELS)
+    .map(([init]) => init);
+  if (candidates.length === 0) return null;
+
+  const seed = candidates[0]!;
+  const targetMs = analysisInit ? initToMs(analysisInit) : Number.NaN;
+  if (Number.isFinite(targetMs)) {
+    return candidates.reduce(
+      (best, init) =>
+        Math.abs(initToMs(init) - targetMs) < Math.abs(initToMs(best) - targetMs) ? init : best,
+      seed,
+    );
+  }
+  return candidates.reduce((best, init) => (init.localeCompare(best) > 0 ? init : best), seed);
+}
+
+/** Per-model forecast tracks from the a-deck. Picks the guidance init nearest
+ *  `analysisInit` (the storm's YYYYMMDDHH analysis time) so the spaghetti aligns
+ *  with the storm's position/forecast; without it, the newest guidance-bearing
+ *  init. One point per (model, TAU); models with fewer than 2 points dropped. */
+export function parseAtcfAdeck(text: string, analysisInit?: string): ModelTrack[] {
+  const rows = spaghettiRows(text);
+  const chosen = pickGuidanceInit(rows, analysisInit);
+  if (!chosen) return [];
 
   const byModel = new Map<string, Map<number, ModelTrackPoint>>();
-  for (const f of rows) {
-    if (f[2] !== latest || !SPAGHETTI_MODELS.has(f[4]!)) continue;
-    const tau = Number.parseInt(f[5]!, 10);
-    const pos = parseAtcfLatLon(f[6]!, f[7]!);
+  for (const { init, model, fields } of rows) {
+    if (init !== chosen) continue;
+    const tau = Number.parseInt(fields[5]!, 10);
+    const pos = parseAtcfLatLon(fields[6]!, fields[7]!);
     if (!Number.isFinite(tau) || !pos) continue;
-    let m = byModel.get(f[4]!);
-    if (!m) {
-      m = new Map();
-      byModel.set(f[4]!, m);
-    }
-    if (!m.has(tau)) m.set(tau, { tau, lat: pos.lat, lon: pos.lon });
+    const tauMap = mapEntry(byModel, model, () => new Map<number, ModelTrackPoint>());
+    if (!tauMap.has(tau)) tauMap.set(tau, { tau, lat: pos.lat, lon: pos.lon });
   }
 
   const tracks: ModelTrack[] = [];
@@ -258,12 +314,16 @@ async function fetchModelsForStorm(
   prev: ModelTrack[] | undefined,
 ): Promise<ModelTrack[]> {
   // aid_public a-decks are gzipped on the NHC server, unlike the plain b-deck.
-  const url = `${ATCF_ADECK_BASE}/a${stormId.toLowerCase()}.dat.gz`;
+  // A dev fixture may override the URL (e.g. point at a real archived a-deck).
+  const products = getStormProducts(stormId);
+  const url =
+    products?.modelsUrl ??
+    `${ATCF_ADECK_BASE}/a${stormId.toLowerCase()}.dat.gz`;
   const since = adeckLastModified.get(stormId);
   try {
     const res = await fetchWithTimeout(
       url,
-      FETCH_TIMEOUT_MS,
+      FETCH_TIMEOUT_STANDARD_MS,
       since ? { headers: { "If-Modified-Since": since } } : undefined,
     );
     if (res.status === 304 && prev) return prev;
@@ -272,7 +332,7 @@ async function fetchModelsForStorm(
     if (mod) adeckLastModified.set(stormId, mod);
     const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
     const text = await new Response(stream).text();
-    return parseAtcfAdeck(text);
+    return parseAtcfAdeck(text, products?.analysisInit);
   } catch {
     return prev ?? [];
   }

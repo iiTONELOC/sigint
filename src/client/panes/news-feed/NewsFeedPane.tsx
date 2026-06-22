@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Rss, ExternalLink, ArrowLeft, RefreshCw, Filter } from "lucide-react";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import { relativeAge } from "@/lib/timeFormat";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { relativeAge } from "@/lib/format/timeFormat";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { useData } from "@/context/DataContext";
 import type { NewsArticle } from "@/features/news";
 

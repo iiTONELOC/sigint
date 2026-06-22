@@ -23,10 +23,10 @@ function pt(
 // ── timeFormat ──────────────────────────────────────────────────────
 
 describe("relativeAge", () => {
-  let relativeAge: typeof import("@/lib/timeFormat").relativeAge;
+  let relativeAge: typeof import("@/lib/format/timeFormat").relativeAge;
 
   beforeEach(async () => {
-    relativeAge = (await import("@/lib/timeFormat")).relativeAge;
+    relativeAge = (await import("@/lib/format/timeFormat")).relativeAge;
   });
 
   test("null/undefined returns LIVE (compact)", () => {
@@ -68,11 +68,11 @@ describe("relativeAge", () => {
 // ── sourceHealth ────────────────────────────────────────────────────
 
 describe("sourceHealth", () => {
-  let isSourceDown: typeof import("@/lib/sourceHealth").isSourceDown;
-  let buildSourceStatusMap: typeof import("@/lib/sourceHealth").buildSourceStatusMap;
+  let isSourceDown: typeof import("@/lib/net/sourceHealth").isSourceDown;
+  let buildSourceStatusMap: typeof import("@/lib/net/sourceHealth").buildSourceStatusMap;
 
   beforeEach(async () => {
-    const mod = await import("@/lib/sourceHealth");
+    const mod = await import("@/lib/net/sourceHealth");
     isSourceDown = mod.isSourceDown;
     buildSourceStatusMap = mod.buildSourceStatusMap;
   });
@@ -115,13 +115,13 @@ describe("sourceHealth", () => {
 // ── spatialIndex ────────────────────────────────────────────────────
 
 describe("spatialIndex", () => {
-  let buildSpatialGrid: typeof import("@/lib/spatialIndex").buildSpatialGrid;
-  let queryNearest: typeof import("@/lib/spatialIndex").queryNearest;
-  let screenToLatLonFlat: typeof import("@/lib/spatialIndex").screenToLatLonFlat;
-  let screenToLatLonGlobe: typeof import("@/lib/spatialIndex").screenToLatLonGlobe;
+  let buildSpatialGrid: typeof import("@/lib/geo/spatialIndex").buildSpatialGrid;
+  let queryNearest: typeof import("@/lib/geo/spatialIndex").queryNearest;
+  let screenToLatLonFlat: typeof import("@/lib/geo/spatialIndex").screenToLatLonFlat;
+  let screenToLatLonGlobe: typeof import("@/lib/geo/spatialIndex").screenToLatLonGlobe;
 
   beforeEach(async () => {
-    const mod = await import("@/lib/spatialIndex");
+    const mod = await import("@/lib/geo/spatialIndex");
     buildSpatialGrid = mod.buildSpatialGrid;
     queryNearest = mod.queryNearest;
     screenToLatLonFlat = mod.screenToLatLonFlat;
@@ -183,10 +183,10 @@ describe("spatialIndex", () => {
 // ── tickerFeed ──────────────────────────────────────────────────────
 
 describe("buildTickerItems", () => {
-  let buildTickerItems: typeof import("@/lib/tickerFeed").buildTickerItems;
+  let buildTickerItems: typeof import("@/lib/ui/tickerFeed").buildTickerItems;
 
   beforeEach(async () => {
-    buildTickerItems = (await import("@/lib/tickerFeed")).buildTickerItems;
+    buildTickerItems = (await import("@/lib/ui/tickerFeed")).buildTickerItems;
   });
 
   test("returns empty for empty data", () => {
@@ -258,12 +258,12 @@ describe("buildTickerItems", () => {
 // ── uiSelectors ─────────────────────────────────────────────────────
 
 describe("uiSelectors", () => {
-  let selectLayerCounts: typeof import("@/lib/uiSelectors").selectLayerCounts;
-  let selectActiveCount: typeof import("@/lib/uiSelectors").selectActiveCount;
-  let selectAvailableAircraftCountries: typeof import("@/lib/uiSelectors").selectAvailableAircraftCountries;
+  let selectLayerCounts: typeof import("@/lib/runtime/uiSelectors").selectLayerCounts;
+  let selectActiveCount: typeof import("@/lib/runtime/uiSelectors").selectActiveCount;
+  let selectAvailableAircraftCountries: typeof import("@/lib/runtime/uiSelectors").selectAvailableAircraftCountries;
 
   beforeEach(async () => {
-    const mod = await import("@/lib/uiSelectors");
+    const mod = await import("@/lib/runtime/uiSelectors");
     selectLayerCounts = mod.selectLayerCounts;
     selectActiveCount = mod.selectActiveCount;
     selectAvailableAircraftCountries = mod.selectAvailableAircraftCountries;
@@ -334,11 +334,11 @@ describe("uiSelectors", () => {
 
 describe("authenticatedFetch (client)", () => {
   let originalFetch: typeof globalThis.fetch;
-  let authenticatedFetch: typeof import("@/lib/authService").authenticatedFetch;
+  let authenticatedFetch: typeof import("@/lib/net/authService").authenticatedFetch;
 
   beforeEach(async () => {
     originalFetch = globalThis.fetch;
-    authenticatedFetch = (await import("@/lib/authService?t=" + Math.random()))
+    authenticatedFetch = (await import("@/lib/net/authService?t=" + Math.random()))
       .authenticatedFetch;
   });
 

@@ -4,7 +4,7 @@
 // feed. Server caches + revalidates it (conditional GET); this just pulls it.
 
 import { useEffect, useState } from "react";
-import { authenticatedFetch } from "@/lib/authService";
+import { authenticatedFetch } from "@/lib/net/authService";
 import type { ModelTrack } from "../types";
 
 export function useCycloneModels(

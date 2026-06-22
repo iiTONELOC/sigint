@@ -1,6 +1,6 @@
 import type { AircraftData } from "./types";
 import { getSquawkStatus, getSquawkStatusLabel } from "./lib/utils";
-import { formatKtMph } from "@/lib/units";
+import { formatKtMph } from "@/lib/format/units";
 
 export function buildAircraftDetailRows(
   data: AircraftData,

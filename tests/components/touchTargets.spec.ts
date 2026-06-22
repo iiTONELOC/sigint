@@ -167,7 +167,7 @@ describe("Speed slider touch", () => {
 
 describe("Ticker filter independence", () => {
   test("buildTickerItems takes only allData param", async () => {
-    const src = await Bun.file("src/client/lib/tickerFeed.ts").text();
+    const src = await Bun.file("src/client/lib/ui/tickerFeed.ts").text();
     expect(src).toContain(
       "export function buildTickerItems(allData: DataPoint[])",
     );

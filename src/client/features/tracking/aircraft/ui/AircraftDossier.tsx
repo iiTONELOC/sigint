@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Plane, ExternalLink, LocateFixed } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { authenticatedFetch } from "@/lib/authService";
-import { getTrail } from "@/lib/trailService";
+import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { authenticatedFetch } from "@/lib/net/authService";
+import { getTrail } from "@/lib/geo/trailService";
 import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
 import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
 import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
 import { SectionLabel, Card, StatCell, Label, RouteEndpoint } from "./dossierKit";
-import { ktToMph, machFromGs, isaTempC } from "@/lib/units";
+import { ktToMph, machFromGs, isaTempC } from "@/lib/format/units";
 import {
   getSquawkStatus,
   delaySeverity,
@@ -231,8 +232,7 @@ export function AircraftDossier({
         POSITION
       </span>
       <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">
-        {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"} ·{" "}
-        {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+        {formatLat(item.lat)} · {formatLon(item.lon)}
       </span>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Save, Trash2 } from "lucide-react";
-import { useWalkthroughStepId } from "@/lib/layoutSignals";
+import { useWalkthroughStepId } from "@/lib/runtime/layoutSignals";
 import type { Preset } from "./videoFeedTypes";
 
 export function PresetMenu({

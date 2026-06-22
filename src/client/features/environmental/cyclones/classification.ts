@@ -3,6 +3,8 @@
 // classification-code → label map. These were copy-pasted across parseNhc,
 // the intensity curve, the mini-map, and three dossier/detail components.
 
+import { ktToMph } from "@/lib/format/units";
+
 /** Storm classification code → human label (NHC categories). */
 export const CATEGORY_LABEL: Record<string, string> = {
   TD: "Tropical Depression",
@@ -28,6 +30,7 @@ export const SAFFIR_SIMPSON = [
 ];
 
 export const TS_MIN_KT = 34;
+export const HURRICANE_MIN_KT = SAFFIR_SIMPSON.at(-1)?.minKt ?? 64;
 const TS_COLOR = "#4ad2ff";
 const TD_COLOR = "#8fd3ff";
 
@@ -37,9 +40,83 @@ export function saffirSimpson(kt: number): 0 | 1 | 2 | 3 | 4 | 5 {
   return 0;
 }
 
+/** Short category tag for a sustained wind: "C5"…"C1", "TS", or "TD". */
+export function categoryShort(kt: number): string {
+  for (const b of SAFFIR_SIMPSON) if (kt >= b.minKt) return b.label;
+  return kt >= TS_MIN_KT ? "TS" : "TD";
+}
+
+/** Saffir-Simpson legend rows: label, color, and the wind range (mph) for each
+ *  band, top-down (C5 first). Single source for the map/chart category keys. */
+export const SAFFIR_LEGEND: ReadonlyArray<{
+  label: string;
+  color: string;
+  range: string;
+}> = [
+  ...SAFFIR_SIMPSON.map((b, i) => {
+    const upperKt = i === 0 ? null : SAFFIR_SIMPSON[i - 1]!.minKt - 1;
+    return {
+      label: b.label,
+      color: b.color,
+      range: upperKt === null ? `${ktToMph(b.minKt)}+ mph` : `${ktToMph(b.minKt)}–${ktToMph(upperKt)} mph`,
+    };
+  }),
+  {
+    label: "TS",
+    color: TS_COLOR,
+    range: `${ktToMph(TS_MIN_KT)}–${ktToMph(SAFFIR_SIMPSON.at(-1)!.minKt - 1)} mph`,
+  },
+];
+
 /** Display color for a sustained wind in knots (C5 → depression ramp). */
 export function windColor(kt: number): string {
   for (const b of SAFFIR_SIMPSON) if (kt >= b.minKt) return b.color;
   if (kt >= TS_MIN_KT) return TS_COLOR;
   return TD_COLOR;
+}
+
+/** Color for a wind-radii threshold band (34/50/64 kt). Hottest threshold is the
+ *  reddest: 64kt=red, 50kt=amber, 34kt=cyan — matches the dossier legend. */
+const RADII_BAND_COLOR: Record<number, string> = {
+  64: "#ff5d5d", // red
+  50: "#ffd24a", // amber
+  34: TS_COLOR, // cyan
+};
+export function windRadiiBandColor(thresholdKt: number): string {
+  return RADII_BAND_COLOR[thresholdKt] ?? TS_COLOR;
+}
+
+/** Per-model spaghetti colors, TV-style: each guidance model its own hue so
+ *  diverging tracks read distinctly. Official (OFCL) and consensus (TVCN) are
+ *  emphasized; others get a stable distinct color, falling back by hash. */
+// Mid-tone hues only — each reads on both the dark panel and a light theme
+// (no near-white / near-black, which vanish on one or the other).
+const MODEL_COLOR: Record<string, string> = {
+  OFCL: "#8a5cff", // official — strong violet, the anchor
+  TVCN: "#c026d3", // track consensus — fuchsia
+  AVNO: "#0ea5e9", // GFS — sky blue
+  GFSO: "#0ea5e9",
+  EMXI: "#e11d48", // ECMWF — rose red
+  EMX: "#e11d48",
+  CMC: "#16a34a", // Canadian — green
+  CMCI: "#16a34a",
+  UKM: "#d97706", // UKMET — amber
+  UKMI: "#d97706",
+  HWRF: "#ea580c", // HWRF — orange
+  HWFI: "#ea580c",
+  HMON: "#db2777", // HMON — pink
+  HMNI: "#db2777",
+  NVGM: "#0891b2", // Navy — teal
+  AEMN: "#6b7280", // GEFS mean — slate grey
+};
+
+const MODEL_FALLBACK = ["#0ea5e9", "#e11d48", "#16a34a", "#d97706", "#ea580c", "#db2777", "#8a5cff"];
+
+/** Distinct display color for a guidance model code. */
+export function modelColor(model: string): string {
+  const known = MODEL_COLOR[model];
+  if (known) return known;
+  let h = 0;
+  for (const ch of model) h = (h * 31 + (ch.codePointAt(0) ?? 0)) >>> 0;
+  return MODEL_FALLBACK[h % MODEL_FALLBACK.length]!;
 }

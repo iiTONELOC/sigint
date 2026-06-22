@@ -39,9 +39,9 @@
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftData } from "../types";
-import { authenticatedFetch } from "@/lib/authService";
+import { authenticatedFetch } from "@/lib/net/authService";
 import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
-import { ktToMps } from "@/lib/units";
+import { ktToMps } from "@/lib/format/units";
 
 export const AIRCRAFT_STATES_URL = "/api/aircraft/states";
 

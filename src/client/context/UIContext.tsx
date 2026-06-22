@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { getColorMap } from "@/config/theme";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -102,14 +103,12 @@ export function UIProvider({
   }, []);
 
   const handleSearchZoomTo = useCallback((item: DataPoint) => {
-    setZoomToId(item.id);
-    setTimeout(() => setZoomToId(null), 100);
+    zoomToThenClear(setZoomToId, item.id);
   }, []);
 
   const selectAndZoom = useCallback((item: DataPoint) => {
     setSelected(item);
-    setZoomToId(item.id);
-    setTimeout(() => setZoomToId(null), 100);
+    zoomToThenClear(setZoomToId, item.id);
   }, []);
 
   const handleSearchMatchIds = useCallback(

@@ -7,8 +7,8 @@ import {
   Sparkles,
   GripHorizontal,
 } from "lucide-react";
-import { cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import {
   ESSENTIAL_STEPS,
   ADVANCED_STEPS,
@@ -16,7 +16,7 @@ import {
   MOBILE_ADVANCED_STEPS,
   type WalkthroughStep,
   type StepPlacement,
-} from "@/lib/walkthroughSteps";
+} from "@/lib/ui/walkthroughSteps";
 import {
   requestWalkthroughReset,
   requestWalkthroughUndo,
@@ -25,7 +25,7 @@ import {
   useWalkthroughLeafCount,
   useWalkthroughPresetCount,
   useVideoPresetCount,
-} from "@/lib/layoutSignals";
+} from "@/lib/runtime/layoutSignals";
 import { useData } from "@/context/DataContext";
 import { useIsMobileLayout } from "@/context/LayoutModeContext";
 

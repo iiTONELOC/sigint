@@ -141,7 +141,6 @@ const result = await Bun.build({
   plugins: [plugin],
   minify: true,
   target: "browser",
-  sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
@@ -149,13 +148,15 @@ const result = await Bun.build({
 });
 
 const workerResult = await Bun.build({
-  entrypoints: [path.resolve("src/client/workers/correlationWorker.ts")],
+  entrypoints: [
+    path.resolve("src/client/workers/correlationWorker.ts"),
+    path.resolve("src/client/workers/pointWorker.ts"),
+  ],
   outdir: path.resolve("public/workers"),
-  naming: "correlationWorker.js",
+  naming: "[name].js",
   target: "browser",
   format: "esm",
   minify: true,
-  sourcemap: "linked",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },

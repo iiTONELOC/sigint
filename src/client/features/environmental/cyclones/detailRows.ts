@@ -1,5 +1,5 @@
-import { relativeAge, formatTime } from "@/lib/timeFormat";
-import { formatKtMph } from "@/lib/units";
+import { relativeAge, formatTime } from "@/lib/format/timeFormat";
+import { formatKtMph } from "@/lib/format/units";
 import type { CycloneData } from "./types";
 import { CATEGORY_LABEL } from "./classification";
 

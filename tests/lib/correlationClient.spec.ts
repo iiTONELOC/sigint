@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createCorrelationClient } from "../../src/client/lib/correlationClient";
+import { createCorrelationClient } from "../../src/client/lib/net/correlationClient";
 import { emptyBaseline } from "../../src/client/lib/correlation";
 
 describe("createCorrelationClient — inline fallback", () => {

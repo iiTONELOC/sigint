@@ -13,6 +13,8 @@ const WebSocketClient = require("ws");
 const https = require("https");
 
 import { createLogger } from "../lib/logger";
+import { errorMessage } from "../lib/errorMessage";
+import { isNullIsland, isUsableCoordinate } from "../lib/geoValidation";
 
 const logger = createLogger({ service: "ais" });
 
@@ -169,7 +171,7 @@ function connect(): void {
       logger.error(`🚢 AIS: ${lastError}`);
     });
   } catch (err) {
-    lastError = err instanceof Error ? err.message : "Connection failed";
+    lastError = errorMessage(err, "Connection failed");
     logger.error(`🚢 AIS: connection failed — ${lastError}`);
     scheduleReconnect();
   }
@@ -200,8 +202,7 @@ function handleAisMessage(msg: any): void {
     const lat = pos.Latitude ?? meta.latitude;
     const lon = pos.Longitude ?? meta.longitude;
     if (lat == null || lon == null) return;
-    if (lat === 0 && lon === 0) return;
-    if (lat > 90 || lat < -90 || lon > 180 || lon < -180) return;
+    if (!isUsableCoordinate(lat, lon)) return;
 
     const existing = vessels.get(mmsi);
     if (existing) {
@@ -251,7 +252,7 @@ function handleAisMessage(msg: any): void {
     } else {
       const lat = meta.latitude ?? 0;
       const lon = meta.longitude ?? 0;
-      if (lat === 0 && lon === 0) return;
+      if (isNullIsland(lat, lon)) return;
 
       vessels.set(mmsi, {
         mmsi,

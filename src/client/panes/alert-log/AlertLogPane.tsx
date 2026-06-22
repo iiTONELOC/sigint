@@ -2,8 +2,9 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   Bell,
@@ -18,7 +19,7 @@ import {
   Trash2,
   Clock,
 } from "lucide-react";
-import { relativeAge } from "@/lib/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -214,21 +215,10 @@ export function AlertLogPane() {
 
   // ── Handlers ────────────────────────────────────────────────────
 
-  const handleClick = useCallback(
-    (item: DataPoint) => {
-      setSelected(item);
-      setRevealId(item.id);
-      setTimeout(() => setRevealId(null), 200);
-    },
-    [setSelected, setRevealId],
-  );
-
-  const handleZoom = useCallback(
-    (item: DataPoint, e: React.MouseEvent) => {
-      e.stopPropagation();
-      selectAndZoom(item);
-    },
-    [selectAndZoom],
+  const { handleClick, handleZoom } = useItemSelectHandlers(
+    setSelected,
+    setRevealId,
+    selectAndZoom,
   );
 
   // ── Render ──────────────────────────────────────────────────────

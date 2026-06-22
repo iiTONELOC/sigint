@@ -10,8 +10,8 @@
 // IndexedDB hasn't opened yet. The dbReady promise resolves once
 // cacheInit finishes (or immediately if init was already done/skipped).
 
-import { CACHE_KEYS } from "@/lib/cacheKeys";
-import { scheduleIdle } from "@/lib/idle";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { scheduleIdle } from "@/lib/runtime/idle";
 
 const DB_NAME = "sigint-cache";
 const DB_VERSION = 1;

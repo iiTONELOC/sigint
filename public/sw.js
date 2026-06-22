@@ -13,7 +13,7 @@
 // (see the filter in the activate handler below). Bump this whenever
 // a deploy ships meaningful behavior changes that returning PWA users
 // must pick up without having to clear site data.
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `sigint-shell-${CACHE_VERSION}`;
 
 // App shell resources cached on install.

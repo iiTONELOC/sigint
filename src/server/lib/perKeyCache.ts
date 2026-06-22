@@ -10,6 +10,9 @@
 // while (a dissipated storm) is eventually purged. `fetch` receives the previous
 // value so it can revalidate cheaply (e.g. a conditional GET that 304s).
 
+/** How often unaccessed entries are swept. Shared by every per-key cache. */
+export const PURGE_INTERVAL_MS = 10 * 60_000;
+
 export type PerKeyCacheResult<T> = { value: T; fetchedAt: number };
 
 export type PerKeyCacheOptions<T> = {

@@ -85,6 +85,24 @@ export function createApiRoutes(deps: ApiDeps) {
     };
   }
 
+  /** Authed GET over a polling cache: 503 (with the cache's error) until the
+   *  cache is ready, then the built body. Collapses the repeated
+   *  "get cache → if empty return 503 → jsonResponse" shape. */
+  function authedCachedGet<C extends { error?: string | null }>(
+    getCache: () => C,
+    isReady: (cache: C) => boolean,
+    emptyMessage: string,
+    buildBody: (cache: C) => unknown,
+  ) {
+    return authedGet(async (req) => {
+      const cache = getCache();
+      if (!isReady(cache)) {
+        return jsonError({ error: cache.error ?? emptyMessage }, 503);
+      }
+      return jsonResponse(req, buildBody(cache));
+    });
+  }
+
   function authedFnGet(handler: Handler): Handler {
     return async (req) => {
       const blocked = await guardAuth(req);
@@ -129,52 +147,33 @@ export function createApiRoutes(deps: ApiDeps) {
       },
     },
 
-    "/api/events/latest": authedGet(async (req) => {
-      const cache = getGdeltCache();
-      if (!cache.data) {
-        return jsonError({ error: cache.error ?? "No data available yet" }, 503);
-      }
-      return jsonResponse(req, {
-        data: cache.data,
-        fetchedAt: cache.fetchedAt,
-      });
-    }),
+    "/api/events/latest": authedCachedGet(
+      getGdeltCache,
+      (c) => Boolean(c.data),
+      "No data available yet",
+      (c) => ({ data: c.data, fetchedAt: c.fetchedAt }),
+    ),
 
-    "/api/ships/latest": authedGet(async (req) => {
-      const cache = getAisCache();
-      if (!cache.data) {
-        return jsonError({ error: cache.error ?? "No AIS data available yet" }, 503);
-      }
-      return jsonResponse(req, {
-        data: cache.data,
-        vesselCount: cache.vesselCount,
-        connected: cache.connected,
-      });
-    }),
+    "/api/ships/latest": authedCachedGet(
+      getAisCache,
+      (c) => Boolean(c.data),
+      "No AIS data available yet",
+      (c) => ({ data: c.data, vesselCount: c.vesselCount, connected: c.connected }),
+    ),
 
-    "/api/fires/latest": authedGet(async (req) => {
-      const cache = getFirmsCache();
-      if (!cache.data) {
-        return jsonError({ error: cache.error ?? "No fire data available yet" }, 503);
-      }
-      return jsonResponse(req, {
-        data: cache.data,
-        fetchedAt: cache.fetchedAt,
-        fireCount: cache.fireCount,
-      });
-    }),
+    "/api/fires/latest": authedCachedGet(
+      getFirmsCache,
+      (c) => Boolean(c.data),
+      "No fire data available yet",
+      (c) => ({ data: c.data, fetchedAt: c.fetchedAt, fireCount: c.fireCount }),
+    ),
 
-    "/api/cyclones/latest": authedGet(async (req) => {
-      const cache = getCyclonesCache();
-      if (!cache.body) {
-        return jsonError({ error: cache.error ?? "No cyclone data available yet" }, 503);
-      }
-      return jsonResponse(req, {
-        activeStorms: cache.body.activeStorms,
-        fetchedAt: cache.fetchedAt,
-        stormCount: cache.stormCount,
-      });
-    }),
+    "/api/cyclones/latest": authedCachedGet(
+      getCyclonesCache,
+      (c) => Boolean(c.body),
+      "No cyclone data available yet",
+      (c) => ({ activeStorms: c.body?.activeStorms, fetchedAt: c.fetchedAt, stormCount: c.stormCount }),
+    ),
 
     "/api/aircraft/states": authedGet(async (req) => {
       const cache = getAircraftCache();
@@ -186,17 +185,12 @@ export function createApiRoutes(deps: ApiDeps) {
       });
     }),
 
-    "/api/news/latest": authedGet(async (req) => {
-      const cache = getNewsCache();
-      if (!cache.items || cache.items.length === 0) {
-        return jsonError({ error: cache.error ?? "No news data available yet" }, 503);
-      }
-      return jsonResponse(req, {
-        items: cache.items,
-        fetchedAt: cache.fetchedAt,
-        itemCount: cache.itemCount,
-      });
-    }),
+    "/api/news/latest": authedCachedGet(
+      getNewsCache,
+      (c) => c.items.length > 0,
+      "No news data available yet",
+      (c) => ({ items: c.items, fetchedAt: c.fetchedAt, itemCount: c.itemCount }),
+    ),
 
     "/api/dossier/aircraft/:icao24": authedFnGet(async (req) => {
       const { icao24 = "" } = req.params ?? {};

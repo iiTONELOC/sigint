@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cacheKeys";
+import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cache/cacheKeys";
 
 describe("cacheKeys", () => {
   test("all keys include version prefix", () => {

@@ -5,9 +5,11 @@
 // the bulk file is a static no-quota file. Parsed into structured records,
 // cached in memory, served via /api/fires/latest with token auth.
 
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
+import { errorMessage } from "../lib/errorMessage";
+import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
 
 const logger = createLogger({ service: "firms" });
 
@@ -16,7 +18,6 @@ const logger = createLogger({ service: "firms" });
 const FIRMS_URL =
   "https://firms.modaps.eosdis.nasa.gov/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv";
 const POLL_INTERVAL_MS = 30 * 60_000; // 30 min
-const FETCH_TIMEOUT_MS = 30_000; // global file is large
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -101,8 +102,7 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
 
     const lat = Number.parseFloat(cols[iLat] ?? "");
     const lon = Number.parseFloat(cols[iLon] ?? "");
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    if (lat === 0 && lon === 0) continue;
+    if (!isFiniteCoordinate(lat, lon) || isNullIsland(lat, lon)) continue;
 
     records.push({
       lat,
@@ -129,7 +129,7 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
 
 async function fetchFirms(): Promise<void> {
   try {
-    const res = await fetchWithTimeout(FIRMS_URL, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(FIRMS_URL, FETCH_TIMEOUT_LARGE_MS);
 
     if (!res.ok) {
       cache = { ...cache, error: `FIRMS returned ${res.status}` };
@@ -162,7 +162,7 @@ async function fetchFirms(): Promise<void> {
   } catch (err) {
     cache = {
       ...cache,
-      error: err instanceof Error ? err.message : "Unknown fetch error",
+      error: errorMessage(err, "Unknown fetch error"),
     };
   }
 }

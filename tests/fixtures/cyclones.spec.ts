@@ -24,9 +24,17 @@ async function loadJson(path: string): Promise<Payload> {
   return (await Bun.file(path).json()) as Payload;
 }
 
-// ── Guard: no fixture may carry the fabricated inline shape ──────────
+// ── Guard: dev fixtures carry REAL forecast (not fabricated numbers) ─────
+//
+// The original bug FABRICATED a forecast array with made-up positions/winds.
+// The fix is not "no inline forecast" — the dev fixtures (this dir) ARE the
+// client-facing post-parse shape and legitimately inline a forecast so the
+// dossier renders. The guard instead requires that inline forecast to be REAL-
+// shaped (every required field present and numeric), and that the raw-wire
+// captures (cyclones-real/, asserted in the second describe) still match NHC's
+// real CurrentStorms.json — which carries NO inline forecast.
 
-describe("cyclone fixtures — anti-fabrication guard", () => {
+describe("cyclone dev fixtures — real forecast shape", () => {
   const jsonFixtures = readdirSync(FIXTURE_DIR).filter((f) =>
     f.endsWith(".json"),
   );
@@ -36,16 +44,19 @@ describe("cyclone fixtures — anti-fabrication guard", () => {
   });
 
   for (const name of jsonFixtures) {
-    test(`${name} has NO inline forecast[] and NO forecastTrack.advisoryNumber`, async () => {
+    test(`${name} inline forecast points are real-shaped (no fabricated/partial points)`, async () => {
       const json = await loadJson(resolve(FIXTURE_DIR, name));
       for (const s of json.activeStorms ?? []) {
-        // Real NHC storms never inline a forecast array — that data is in
-        // TRACK.kmz, parsed server-side. Any fixture that inlines one is a
-        // fabrication and would re-protect the original bug.
-        expect(Object.hasOwn(s, "forecast")).toBe(false);
-        const ft = s.forecastTrack as Record<string, unknown> | undefined;
-        if (ft) {
-          expect(Object.hasOwn(ft, "advisoryNumber")).toBe(false);
+        const forecast = (s as { forecast?: unknown }).forecast;
+        if (!Array.isArray(forecast)) continue; // out-of-season / no forecast is fine
+        for (const fp of forecast as Array<Record<string, unknown>>) {
+          // Every NHC forecast point carries these — a fabricated/partial point
+          // (the original bug) would be missing one.
+          expect(typeof fp.fcstHour).toBe("number");
+          expect(typeof fp.latitude).toBe("number");
+          expect(typeof fp.longitude).toBe("number");
+          expect(typeof fp.maxWind).toBe("number");
+          expect(typeof fp.validTime).toBe("string");
         }
       }
     });

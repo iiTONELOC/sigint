@@ -5,7 +5,7 @@ import {
   ESSENTIAL_COUNT,
   ADVANCED_COUNT,
   TOTAL_STEPS,
-} from "@/lib/walkthroughSteps";
+} from "@/lib/ui/walkthroughSteps";
 
 describe("walkthroughSteps — essential", () => {
   test("has exactly 13 essential steps", () => {
@@ -424,7 +424,7 @@ describe("walkthroughSteps — complete step text", () => {
 describe("walkthroughSteps — ticker independence", () => {
   test("buildTickerItems accepts only allData param", () => {
     // Verify the function signature — should work with 1 arg
-    const { buildTickerItems } = require("@/lib/tickerFeed");
+    const { buildTickerItems } = require("@/lib/ui/tickerFeed");
     const result = buildTickerItems([]);
     expect(Array.isArray(result)).toBe(true);
   });

@@ -1,5 +1,5 @@
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 const CACHE_KEY = CACHE_KEYS.land;
 const HD_URL = "/data/ne_50m_land.json";

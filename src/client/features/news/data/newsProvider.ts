@@ -3,9 +3,9 @@
 // hydrate / refresh / getData / getSnapshot — same lifecycle.
 // IndexedDB persistence via storageService.
 
-import { authenticatedFetch } from "@/lib/authService";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { authenticatedFetch } from "@/lib/net/authService";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 // ── Types ───────────────────────────────────────────────────────────
 

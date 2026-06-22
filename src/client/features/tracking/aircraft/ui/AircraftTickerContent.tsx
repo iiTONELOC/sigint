@@ -1,6 +1,6 @@
 import type { AircraftData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { formatKtShort } from "@/lib/units";
+import { formatKtShort } from "@/lib/format/units";
 
 export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as AircraftData;

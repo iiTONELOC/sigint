@@ -9,13 +9,13 @@ import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
-import { cacheInit } from "./lib/storageService";
+import { cacheInit } from "./lib/cache/storageService";
 import { initBaseline } from "./lib/correlation";
-import { initTrails } from "./lib/trailService";
-import { initLand } from "./lib/landService";
-import { initAirports } from "./lib/airportService";
-import { registerSW, applyUpdate } from "./lib/swRegistration";
-import { ensureAuthCookie } from "./lib/authService";
+import { initTrails } from "./lib/geo/trailService";
+import { initLand } from "./lib/geo/landService";
+import { initAirports } from "./lib/geo/airportService";
+import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
+import { ensureAuthCookie } from "./lib/net/authService";
 
 // Singleton providers
 import { shipProvider } from "./features/tracking/ships/data/provider";

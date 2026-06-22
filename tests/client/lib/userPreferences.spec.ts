@@ -13,7 +13,7 @@ import {
 
 const mockStorage = new Map<string, unknown>();
 
-mock.module("@/lib/storageService", () => ({
+mock.module("@/lib/cache/storageService", () => ({
   cacheGet: async <T,>(key: string): Promise<T | null> =>
     (mockStorage.get(key) as T | undefined) ?? null,
   cacheSet: async (key: string, value: unknown): Promise<void> => {
@@ -31,8 +31,8 @@ import {
   getAlwaysShowCyclones,
   setAlwaysShowCyclones,
   __resetUserPreferencesForTests,
-} from "../../../src/client/lib/userPreferences";
-import { CACHE_KEYS } from "../../../src/client/lib/cacheKeys";
+} from "../../../src/client/lib/ui/userPreferences";
+import { CACHE_KEYS } from "../../../src/client/lib/cache/cacheKeys";
 
 beforeEach(() => {
   mockStorage.clear();
@@ -62,7 +62,7 @@ describe("userPreferences — alwaysShowCyclones", () => {
     // Subscribe via the same hook contract used by useSyncExternalStore.
     // We grab the subscribe path via setAlwaysShowCyclones triggering
     // listener fires through the module's internal Set.
-    const _unsub = (await import("../../../src/client/lib/userPreferences"))
+    const _unsub = (await import("../../../src/client/lib/ui/userPreferences"))
       .useAlwaysShowCyclones;
     void _unsub;
     // The listener-storm guard is internal — we observe its effect by

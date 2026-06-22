@@ -1,5 +1,5 @@
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 const CACHE_KEY = CACHE_KEYS.trails;
 const PERSIST_INTERVAL_MS = 10_000;

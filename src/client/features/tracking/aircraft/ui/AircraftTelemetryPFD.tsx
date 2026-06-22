@@ -1,7 +1,7 @@
 import { Tape } from "./instruments/Tape";
 import { HeadingHSI } from "./instruments/HeadingHSI";
 import { VerticalSpeed } from "./instruments/VerticalSpeed";
-import { isaTempC } from "@/lib/units";
+import { isaTempC } from "@/lib/format/units";
 import { Card, Field } from "./dossierKit";
 
 function Corner({

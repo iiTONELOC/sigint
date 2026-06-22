@@ -9,12 +9,12 @@ import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip } from "@/components/Tooltip";
 import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
-import { useAlwaysShowCyclones } from "@/lib/userPreferences";
+import { useAlwaysShowCyclones } from "@/lib/ui/userPreferences";
 import {
   isSourceDown,
   buildSourceStatusMap,
   type SourceStatus,
-} from "@/lib/sourceHealth";
+} from "@/lib/net/sourceHealth";
 import { SettingsModal } from "@/components/SettingsModal";
 
 type HeaderProps = {

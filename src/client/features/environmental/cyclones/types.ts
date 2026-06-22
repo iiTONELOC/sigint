@@ -66,6 +66,10 @@ export type CycloneData = {
   /** Observed best-track history (genesis → now) from the ATCF b-deck. Absent
    *  until the b-deck is fetched. */
   pastTrack?: PastTrackPoint[];
+  /** Per-model spaghetti tracks from the ATCF a-deck. Attached server-side like
+   *  windRadii/pastTrack; ride on the storm so the globe draws them under the
+   *  MODELS toggle without a separate fetch. Absent until the a-deck is fetched. */
+  models?: ModelTrack[];
 };
 
 /** One analyzed past position from the ATCF best track. */
@@ -126,6 +130,10 @@ export type CycloneFilter = {
   showCone: boolean;
   /** Show real 34/50/64-kt wind radii (ATCF b-deck). Off by default. */
   showWindField: boolean;
+  /** Show per-model spaghetti tracks (ATCF a-deck). Off by default. */
+  showModels: boolean;
+  /** Model codes the user has toggled off in the legend (hidden everywhere). */
+  hiddenModels?: readonly string[];
   /** Show NWS tropical watch/warning area polygons */
   showWarnings: boolean;
 };

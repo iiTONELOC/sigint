@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { useData } from "@/context/DataContext";
 import { useLayoutMode } from "@/context/LayoutModeContext";
 import {
@@ -6,7 +7,7 @@ import {
   requestDossierOpen,
   useWalkthroughActive,
   useWalkthroughStepId,
-} from "@/lib/layoutSignals";
+} from "@/lib/runtime/layoutSignals";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useSelectedAircraftRoute } from "@/features/tracking/aircraft/hooks/useSelectedAircraftRoute";
 import { GlobeVisualization } from "@/components/globe";
@@ -98,8 +99,7 @@ export function LiveTrafficPane() {
 
   const handleZoomToSelected = useCallback(() => {
     if (selectedCurrent) {
-      setZoomToId(selectedCurrent.id);
-      setTimeout(() => setZoomToId(null), 100);
+      zoomToThenClear(setZoomToId, selectedCurrent.id);
     }
   }, [setZoomToId, selectedCurrent]);
 

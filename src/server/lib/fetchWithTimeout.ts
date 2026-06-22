@@ -1,7 +1,14 @@
 // Shared fetch-with-timeout. Every cache poller had its own byte-identical
 // AbortController + setTimeout(abort) + clearTimeout wrapper; this is the one
-// copy. Callers pass their own timeout (feeds vary: 8s cone/dossier, 12s FA,
-// 15s news, 30s the big NHC/FIRMS/aircraft/AIS payloads) and optional headers.
+// copy. Callers pass a timeout from the named tiers below and optional headers.
+
+/** Standard upstream call (NHC products, ATCF, cone/dossier, HexDB lookups). */
+export const FETCH_TIMEOUT_STANDARD_MS = 8_000;
+/** Large payloads (full NHC/FIRMS/aircraft feeds). */
+export const FETCH_TIMEOUT_LARGE_MS = 30_000;
+/** FlightAware dossier pages — heavier HTML, needs more headroom. */
+export const FETCH_TIMEOUT_FLIGHTAWARE_MS = 12_000;
+
 export async function fetchWithTimeout(
   url: string,
   timeoutMs: number,

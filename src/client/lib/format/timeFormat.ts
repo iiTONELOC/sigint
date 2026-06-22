@@ -36,17 +36,30 @@ export function relativeAge(
 
 /** Absolute local timestamp: "Jun 17, 14:30 CDT" (24h, short TZ). "" if no
  *  input; the raw string back if it doesn't parse. */
+const BASE_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+};
+
+/** Absolute local timestamp, 24h, no zone: "Jun 17, 14:30". Accepts a unix ms
+ *  number or ISO string. "" for no input; raw string back if it doesn't parse. */
+export function formatTimestamp(input?: number | string | null): string {
+  if (input == null) return "";
+  try {
+    return new Date(input).toLocaleString("en-US", BASE_TIME_FORMAT);
+  } catch {
+    return typeof input === "string" ? input : "";
+  }
+}
+
+/** Absolute local timestamp with short TZ suffix: "Jun 17, 14:30 CDT". */
 export function formatTime(iso?: string): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZoneName: "short",
-    });
+    return new Date(iso).toLocaleString("en-US", { ...BASE_TIME_FORMAT, timeZoneName: "short" });
   } catch {
     return iso;
   }

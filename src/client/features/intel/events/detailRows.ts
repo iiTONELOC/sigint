@@ -1,13 +1,17 @@
-import { relativeAge } from "@/lib/timeFormat";
+import { relativeAge, formatTimestamp } from "@/lib/format/timeFormat";
+import { rampBand, type Band } from "@/lib/format/rampLookup";
 import type { EventData } from "./types";
 
+const TONE_LABEL_BANDS: ReadonlyArray<Band<string>> = [
+  { max: -15, value: "VERY NEGATIVE" },
+  { max: -5, value: "NEGATIVE" },
+  { max: -1, value: "SLIGHTLY NEGATIVE" },
+  { max: 1, value: "NEUTRAL" },
+  { max: 5, value: "SLIGHTLY POSITIVE" },
+];
+
 function toneLabel(tone: number): string {
-  if (tone <= -15) return `${tone.toFixed(1)} VERY NEGATIVE`;
-  if (tone <= -5) return `${tone.toFixed(1)} NEGATIVE`;
-  if (tone <= -1) return `${tone.toFixed(1)} SLIGHTLY NEGATIVE`;
-  if (tone <= 1) return `${tone.toFixed(1)} NEUTRAL`;
-  if (tone <= 5) return `${tone.toFixed(1)} SLIGHTLY POSITIVE`;
-  return `${tone.toFixed(1)} POSITIVE`;
+  return `${tone.toFixed(1)} ${rampBand(tone, TONE_LABEL_BANDS, "POSITIVE")}`;
 }
 
 export function buildEventDetailRows(
@@ -57,14 +61,7 @@ export function buildEventDetailRows(
 
   if (timestamp) {
     const ts = new Date(timestamp).getTime();
-    const dateStr = new Date(timestamp).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    rows.push(["Time", `${dateStr} (${relativeAge(ts, "verbose")})`]);
+    rows.push(["Time", `${formatTimestamp(timestamp)} (${relativeAge(ts, "verbose")})`]);
   }
 
   // ── Intel links ─────────────────────────────────────────────────

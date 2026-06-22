@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { cacheGet, cacheSet } from "./storageService";
-import { CACHE_KEYS } from "./cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 // ── User preferences ────────────────────────────────────────────────
 // Persistent UI flags that survive reload. Persistence is via the

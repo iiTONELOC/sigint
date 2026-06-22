@@ -11,9 +11,9 @@
 // confusing "loading…" spinner.
 
 import { useEffect, useState } from "react";
-import { authenticatedFetch } from "@/lib/authService";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { authenticatedFetch } from "@/lib/net/authService";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 export type DossierProductBody = {
   advisoryNumber: string;

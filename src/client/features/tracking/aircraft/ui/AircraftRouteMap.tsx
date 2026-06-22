@@ -7,8 +7,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
-import { getLand, enrichLand } from "@/lib/landService";
-import { getAirport, enrichAirports } from "@/lib/airportService";
+import { getLand, enrichLand } from "@/lib/geo/landService";
+import { getAirport, enrichAirports } from "@/lib/geo/airportService";
 import { projGlobe } from "@/components/globe/projection";
 import { drawLand } from "@/components/globe/landRenderer";
 import { drawGrid } from "@/components/globe/gridRenderer";

@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
-import { cacheGet, cacheSetDeferred } from "@/lib/storageService";
+import { cacheGet, cacheSetDeferred } from "@/lib/cache/storageService";
 import { diffAndApply } from "@/features/base/diffEntities";
 
 // ── Config each concrete provider supplies ───────────────────────────
@@ -39,6 +39,13 @@ export type BaseProviderConfig = {
    * empty likely means quota exhaustion or a temporary upstream outage.
    */
   allowEmptyResult?: boolean;
+
+  /**
+   * Optional last-resort data when a fetch throws and there is no memory or
+   * persisted cache to fall back on. Defaults to an empty array. Aircraft
+   * supplies mock data so a cold-start network failure still paints a globe.
+   */
+  errorFallbackFn?: () => DataPoint[];
 };
 
 // ── Base class ───────────────────────────────────────────────────────
@@ -54,6 +61,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     incoming: DataPoint[],
   ) => DataPoint[];
   private readonly allowEmptyResult: boolean;
+  private readonly errorFallbackFn?: () => DataPoint[];
 
   protected cache: { data: DataPoint[]; timestamp: number } | null = null;
   private fetchInProgress: Promise<DataPoint[]> | null = null;
@@ -73,6 +81,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     this.fetchFn = config.fetchFn;
     this.mergeFn = config.mergeFn;
     this.allowEmptyResult = config.allowEmptyResult ?? false;
+    this.errorFallbackFn = config.errorFallbackFn;
   }
 
   // ── Persistence ───────────────────────────────────────────────────
@@ -196,7 +205,15 @@ export class BaseProvider implements DataProvider<DataPoint> {
       return entities;
     } catch (error) {
       const persisted = await this.readPersistedCache();
-      const fallback = this.cache?.data ?? persisted?.data ?? [];
+      const fallback =
+        this.cache?.data ?? persisted?.data ?? this.errorFallbackFn?.() ?? [];
+      // Keep a populated cache warm (refresh its timestamp); adopt persisted
+      // data into memory if that's where the fallback came from.
+      if (this.cache) {
+        this.cache = { ...this.cache, timestamp: Date.now() };
+      } else if (persisted?.data) {
+        this.cache = { data: persisted.data, timestamp: Date.now() };
+      }
       this.snapshot = {
         entities: fallback,
         version: this.snapshot.version + 1,

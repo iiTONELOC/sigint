@@ -17,14 +17,13 @@
 // only — never interpolated into a URL.
 
 import { getStormProducts } from "./cyclonesCache";
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
-import { createPerKeyCache } from "../lib/perKeyCache";
+import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
+import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
+import { decodeHtmlEntities } from "../lib/htmlEntities";
 
 // ── Config ───────────────────────────────────────────────────────────
 
 export const DOSSIER_CACHE_TTL_MS = 60 * 60_000;
-const FETCH_TIMEOUT_MS = 8_000;
-const PURGE_INTERVAL_MS = 10 * 60_000;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -87,12 +86,7 @@ function extractPreText(html: string): string | null {
   const inner = html.slice(start + openLen, end);
   // NHC pages don't HTML-entity-encode their bulletin text, but unescape
   // a few common ones defensively for fixture portability.
-  return inner
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&#39;", "'")
-    .replaceAll("&quot;", '"');
+  return decodeHtmlEntities(inner);
 }
 
 export function parseProductHtml(
@@ -148,7 +142,7 @@ async function fetchProduct(
   productKind: "advisory" | "discussion" | "windProbs",
 ): Promise<ProductBody | undefined> {
   try {
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) return undefined;
     const html = await res.text();
     const parsed = parseProductHtml(html, productKind);

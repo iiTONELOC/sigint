@@ -18,9 +18,11 @@
 
 import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
 import { enrichStorms } from "./cyclonesForecastTrack";
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
+import { errorMessage } from "../lib/errorMessage";
+import { resolveFixtureOverride, type FixtureOptions, type FixtureOverride } from "../lib/fixtureOverride";
 
 const logger = createLogger({ service: "nhc" });
 
@@ -28,7 +30,6 @@ export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
 export const USER_AGENT =
   "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
 export const POLL_INTERVAL_MS = 30 * 60_000; // 30 min — matches client poll
-const FETCH_TIMEOUT_MS = 30_000;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -86,6 +87,12 @@ export type StormProducts = {
   windProbsUrl?: string;
   conekmzUrl?: string;
   trackKmzUrl?: string;
+  /** Optional a-deck (model guidance) URL override. Live storms derive it from
+   *  the stormId; a dev fixture can point it at a real archived a-deck. */
+  modelsUrl?: string;
+  /** Storm analysis time as ATCF YYYYMMDDHH, used to pick the a-deck init that
+   *  aligns the spaghetti with the storm's actual position/forecast. */
+  analysisInit?: string;
 };
 
 const stormProducts = new Map<string, StormProducts>();
@@ -201,40 +208,21 @@ export function computeAdvisoryHash(activeStorms: readonly unknown[]): string {
   return JSON.stringify(sigs);
 }
 
-const FIXTURE_LABEL_RE = /^[a-z0-9-]+$/;
-
-export type CyclonesFixtureOverride = { body: unknown };
-
-export type CyclonesFixtureOptions = Readonly<{
-  enabled: boolean;
-  label: string | undefined;
-}>;
-
-let cyclonesFixtureOptions: CyclonesFixtureOptions = {
+let cyclonesFixtureOptions: FixtureOptions = {
   enabled: false,
   label: undefined,
 };
 
 export function __setCyclonesFixtureOptionsForTests(
-  opts: CyclonesFixtureOptions,
+  opts: FixtureOptions,
 ): void {
   cyclonesFixtureOptions = opts;
 }
 
-export async function resolveCyclonesFixtureOverride(
-  opts: CyclonesFixtureOptions = cyclonesFixtureOptions,
-): Promise<CyclonesFixtureOverride | null> {
-  if (!opts.enabled) return null;
-  if (!opts.label) return null;
-  if (!FIXTURE_LABEL_RE.test(opts.label)) {
-    throw new Error(`Invalid CYCLONES_FIXTURE value: ${opts.label}`);
-  }
-  const path = `tests/fixtures/cyclones/${opts.label}.json`;
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    throw new Error(`Fixture not found: ${path}`);
-  }
-  return { body: await file.json() };
+export function resolveCyclonesFixtureOverride(
+  opts: FixtureOptions = cyclonesFixtureOptions,
+): Promise<FixtureOverride | null> {
+  return resolveFixtureOverride("cyclones", "CYCLONES_FIXTURE", opts);
 }
 
 // ── Fetch pipeline ───────────────────────────────────────────────────
@@ -261,6 +249,13 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
         logger.warn("🌀 NHC: fixture override rejected (bad shape)");
         return;
       }
+      // Stash per-storm product URLs so the dossier text + cone fetch work in
+      // fixture mode too (the live path does this; the fixture path must match).
+      refreshStormProducts(normalized.activeStorms);
+      // Enrich identically to the live path so forecast/cone/windRadii/pastTrack/
+      // models ride on the storm (e.g. globe spaghetti reads item.data.models).
+      // A fixture that inlines these keeps them; the per-storm fetch only fills gaps.
+      await enrichStorms(normalized.activeStorms);
       cache = {
         body: normalized,
         fetchedAt: Date.now(),
@@ -275,7 +270,7 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
   } catch (err) {
     cache = {
       ...cache,
-      error: err instanceof Error ? err.message : "Fixture override error",
+      error: errorMessage(err, "Fixture override error"),
     };
     logger.warn("🌀 NHC: fixture override error");
     return;
@@ -303,14 +298,14 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
   }
 
   try {
-    const res = await fetchWithTimeout(NHC_URL, FETCH_TIMEOUT_MS, {
+    const res = await fetchWithTimeout(NHC_URL, FETCH_TIMEOUT_LARGE_MS, {
       headers: buildFetchHeaders(conditionalState),
     });
     await processCyclonesResponse(res);
   } catch (err) {
     cache = {
       ...cache,
-      error: err instanceof Error ? err.message : "Unknown fetch error",
+      error: errorMessage(err, "Unknown fetch error"),
     };
     logger.warn("🌀 NHC: fetch error");
   }
@@ -428,6 +423,8 @@ function extractStormProducts(s: unknown): { id: string; products: StormProducts
       windProbsUrl: readNestedString(obj, "windSpeedProbabilities", "url"),
       conekmzUrl: readNestedString(obj, "trackCone", "kmzFile"),
       trackKmzUrl: readNestedString(obj, "forecastTrack", "kmzFile"),
+      modelsUrl: readNestedString(obj, "modelGuidance", "url"),
+      analysisInit: readNestedString(obj, "windRadii", "validTime"),
     },
   };
 }
@@ -464,7 +461,7 @@ export function setAdvisoryChangeListener(
 
 const poller = createPoller(fetchCyclones, POLL_INTERVAL_MS);
 
-export function startCyclonesPolling(opts?: CyclonesFixtureOptions): void {
+export function startCyclonesPolling(opts?: FixtureOptions): void {
   if (opts) cyclonesFixtureOptions = opts;
   logger.info("🌀 NHC: starting cyclone poll...");
   poller.start();

@@ -1,6 +1,6 @@
 import { Wind } from "lucide-react";
 import type { FeatureDefinition, BasePoint } from "@/features/base/types";
-import { formatKtMph, nmToKm } from "@/lib/units";
+import { formatKtMph, nmToKm } from "@/lib/format/units";
 import type { CycloneForecastPointData } from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 

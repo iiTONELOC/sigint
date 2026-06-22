@@ -24,9 +24,11 @@
 // 100 nm baseline; 500 nm returned 400, server-capped).
 
 import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
+import { errorMessage } from "../lib/errorMessage";
+import { resolveFixtureOverride, type FixtureOptions, type FixtureOverride } from "../lib/fixtureOverride";
 
 const logger = createLogger({ service: "adsbfi" });
 
@@ -49,7 +51,6 @@ export const RATE_LIMIT_DELAY_MS = 3_000;
 // we don't immediately re-trip the limiter on retry. One retry per tile,
 // then the tile is skipped for this sweep.
 export const RETRY_DEFAULT_DELAY_MS = 30_000;
-const FETCH_TIMEOUT_MS = 30_000;
 
 export {
   AIRCRAFT_TILES,
@@ -166,40 +167,21 @@ export function dedupByHex<T>(records: T[]): T[] {
   return Array.from(map.values());
 }
 
-const FIXTURE_LABEL_RE = /^[a-z0-9-]+$/;
-
-export type AircraftFixtureOverride = { body: unknown };
-
-export type AircraftFixtureOptions = Readonly<{
-  enabled: boolean;
-  label: string | undefined;
-}>;
-
-let aircraftFixtureOptions: AircraftFixtureOptions = {
+let aircraftFixtureOptions: FixtureOptions = {
   enabled: false,
   label: undefined,
 };
 
 export function __setAircraftFixtureOptionsForTests(
-  opts: AircraftFixtureOptions,
+  opts: FixtureOptions,
 ): void {
   aircraftFixtureOptions = opts;
 }
 
-export async function resolveAircraftFixtureOverride(
-  opts: AircraftFixtureOptions = aircraftFixtureOptions,
-): Promise<AircraftFixtureOverride | null> {
-  if (!opts.enabled) return null;
-  if (!opts.label) return null;
-  if (!FIXTURE_LABEL_RE.test(opts.label)) {
-    throw new Error(`Invalid AIRCRAFT_FIXTURE value: ${opts.label}`);
-  }
-  const path = `tests/fixtures/aircraft/${opts.label}.json`;
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    throw new Error(`Fixture not found: ${path}`);
-  }
-  return { body: await file.json() };
+export function resolveAircraftFixtureOverride(
+  opts: FixtureOptions = aircraftFixtureOptions,
+): Promise<FixtureOverride | null> {
+  return resolveFixtureOverride("aircraft", "AIRCRAFT_FIXTURE", opts);
 }
 
 // ── Tile fetch ───────────────────────────────────────────────────────
@@ -309,7 +291,7 @@ async function attemptTileFetch(
 ): Promise<TileAttemptResult> {
   const url = `${ADSB_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
   try {
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS, {
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS, {
       headers: {
         "User-Agent": USER_AGENT,
         Accept: "application/json",
@@ -330,7 +312,7 @@ async function attemptTileFetch(
     return { ok: true, ac: [] };
   } catch (err) {
     logger.warn(
-      `✈️  adsb.fi tile [${lat},${lon}]: ${err instanceof Error ? err.message : "fetch error"}`,
+      `✈️  adsb.fi tile [${lat},${lon}]: ${errorMessage(err, "fetch error")}`,
     );
     return { ok: true, ac: [] };
   }
@@ -438,7 +420,7 @@ export async function runSweep(
       return;
     }
   } catch (err) {
-    lastError = err instanceof Error ? err.message : "Fixture override error";
+    lastError = errorMessage(err, "Fixture override error");
     logger.warn("✈️  adsb.fi: fixture override error");
     return;
   }
@@ -489,7 +471,7 @@ export async function runSweep(
 
 const poller = createPoller(fetchAircraft, POLL_INTERVAL_MS);
 
-export function startAircraftPolling(opts?: AircraftFixtureOptions): void {
+export function startAircraftPolling(opts?: FixtureOptions): void {
   if (opts) aircraftFixtureOptions = opts;
   logger.info("✈️  adsb.fi: starting aircraft poll...");
   poller.start();

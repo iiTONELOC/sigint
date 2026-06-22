@@ -11,9 +11,9 @@ import {
   setWalkthroughActive,
   onWalkthroughLaunch,
   type WalkthroughLaunchMode,
-} from "@/lib/layoutSignals";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+} from "@/lib/runtime/layoutSignals";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { GripHorizontal } from "lucide-react";
 
 export function AppShell() {

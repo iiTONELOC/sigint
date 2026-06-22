@@ -1,6 +1,7 @@
 import { Wind } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { formatKtMph, nmToKm } from "@/lib/units";
+import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatKtMph, nmToKm } from "@/lib/format/units";
 import type { CycloneForecastPointData } from "../types";
 import {
   DossierToolbar,
@@ -70,9 +71,8 @@ export function CycloneForecastDossier({
           </Section>
 
           <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-bright">
-              {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-              {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+            <div className="text-(length:--sig-text-sm) font-mono text-sig-bright">
+              {formatLat(item.lat)}, {formatLon(item.lon)}
             </div>
           </Section>
 

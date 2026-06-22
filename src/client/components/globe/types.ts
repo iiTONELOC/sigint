@@ -2,8 +2,8 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
-import type { TrailPoint } from "@/lib/trailService";
-import type { SpatialGrid } from "@/lib/spatialIndex";
+import type { TrailPoint } from "@/lib/geo/trailService";
+import type { SpatialGrid } from "@/lib/geo/spatialIndex";
 
 export type Projected = {
   x: number;

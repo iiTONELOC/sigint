@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Search as SearchIcon, X } from "lucide-react";
+import { isMobileWidth } from "@/config/breakpoints";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureRegistry } from "@/features/registry";
@@ -218,7 +219,7 @@ export function Search({
       // On mobile, scroll back to the top of the pane column so the user
       // sees the globe zoom. The scroll container is the overflow-y-auto
       // parent of [data-pane-id] elements.
-      if (window.innerWidth < 768) {
+      if (isMobileWidth(window.innerWidth)) {
         requestAnimationFrame(() => {
           const firstPane =
             document.querySelector<HTMLElement>("[data-pane-id]");
@@ -370,7 +371,7 @@ export function Search({
             ref={dropdownRef}
             className="fixed z-[80] rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
             style={
-              window.innerWidth < 768
+              isMobileWidth(window.innerWidth)
                 ? {
                     top:
                       containerRef.current.getBoundingClientRect().bottom + 4,

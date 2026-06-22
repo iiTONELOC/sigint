@@ -1,0 +1,85 @@
+{
+  "_comment": "Multi-storm dev fixture for range: two REAL archived NHC storms — Milton (AL142024) near peak Cat-5 recurving across Florida, and Hilary (EP092023) Cat-4 E-Pacific recurving north into California. Positions, forecast tracks, wind radii, and model-guidance a-decks are all real archived NHC data for each storm so the dossier/globe render real cones, intensity ramps, and spaghetti. NOT current.",
+  "activeStorms": [
+    {
+      "id": "al142024",
+      "binNumber": "AT4",
+      "name": "MILTON",
+      "classification": "HU",
+      "intensity": "120",
+      "pressure": "933",
+      "latitude": "21.8N",
+      "latitudeNumeric": 21.8,
+      "longitude": "92.2W",
+      "longitudeNumeric": -92.2,
+      "movementDir": 75,
+      "movementSpeed": 9,
+      "lastUpdate": "2024-10-07T12:00:00Z",
+      "publicAdvisory": { "advNum": "13", "url": "https://www.nhc.noaa.gov/archive/2024/al14/al142024.public.013.shtml" },
+      "forecastDiscussion": { "advNum": "13", "url": "https://www.nhc.noaa.gov/archive/2024/al14/al142024.discus.013.shtml" },
+      "modelGuidance": { "url": "https://ftp.nhc.noaa.gov/atcf/archive/2024/aal142024.dat.gz" },
+      "windRadii": {
+        "lat": 21.8,
+        "lon": -92.2,
+        "vmaxKt": 120,
+        "validTime": "2024100712",
+        "kt34": [70, 70, 70, 70],
+        "kt50": [30, 40, 40, 40],
+        "kt64": [20, 25, 25, 20]
+      },
+      "forecastTrack": {
+        "kmzFile": "",
+        "zipFile": ""
+      },
+      "forecast": [
+        { "fcstHour": 12, "validTime": "2024-10-08T00:00:00Z", "latitude": 21.5, "longitude": -90.4, "maxWind": 145, "minPressure": 905, "development": "HU" },
+        { "fcstHour": 24, "validTime": "2024-10-08T12:00:00Z", "latitude": 22.2, "longitude": -88.3, "maxWind": 140, "minPressure": 915, "development": "HU" },
+        { "fcstHour": 36, "validTime": "2024-10-09T00:00:00Z", "latitude": 23.6, "longitude": -86.4, "maxWind": 135, "minPressure": 920, "development": "HU" },
+        { "fcstHour": 48, "validTime": "2024-10-09T12:00:00Z", "latitude": 25.5, "longitude": -84.7, "maxWind": 125, "minPressure": 932, "development": "HU" },
+        { "fcstHour": 60, "validTime": "2024-10-10T00:00:00Z", "latitude": 27.7, "longitude": -82.8, "maxWind": 110, "minPressure": 945, "development": "HU" },
+        { "fcstHour": 72, "validTime": "2024-10-10T12:00:00Z", "latitude": 29.2, "longitude": -80.1, "maxWind": 80, "minPressure": 968, "development": "HU" },
+        { "fcstHour": 96, "validTime": "2024-10-11T12:00:00Z", "latitude": 30.8, "longitude": -71.0, "maxWind": 55, "minPressure": 988, "development": "TS" },
+        { "fcstHour": 120, "validTime": "2024-10-12T12:00:00Z", "latitude": 31.0, "longitude": -66.0, "maxWind": 45, "minPressure": 996, "development": "PT" }
+      ]
+    },
+    {
+      "id": "ep092023",
+      "binNumber": "EP4",
+      "name": "HILARY",
+      "classification": "HU",
+      "intensity": "125",
+      "pressure": "939",
+      "latitude": "17.4N",
+      "latitudeNumeric": 17.4,
+      "longitude": "111.1W",
+      "longitudeNumeric": -111.1,
+      "movementDir": 340,
+      "movementSpeed": 12,
+      "lastUpdate": "2023-08-18T12:00:00Z",
+      "publicAdvisory": { "advNum": "9", "url": "https://www.nhc.noaa.gov/archive/2023/ep09/ep092023.public.009.shtml" },
+      "forecastDiscussion": { "advNum": "9", "url": "https://www.nhc.noaa.gov/archive/2023/ep09/ep092023.discus.009.shtml" },
+      "modelGuidance": { "url": "https://ftp.nhc.noaa.gov/atcf/archive/2023/aep092023.dat.gz" },
+      "windRadii": {
+        "lat": 17.4,
+        "lon": -111.1,
+        "vmaxKt": 125,
+        "validTime": "2023081812",
+        "kt34": [240, 180, 110, 170],
+        "kt50": [90, 70, 50, 70],
+        "kt64": [50, 50, 25, 35]
+      },
+      "forecastTrack": {
+        "kmzFile": "",
+        "zipFile": ""
+      },
+      "forecast": [
+        { "fcstHour": 12, "validTime": "2023-08-19T00:00:00Z", "latitude": 19.2, "longitude": -112.5, "maxWind": 130, "minPressure": 937, "development": "HU" },
+        { "fcstHour": 24, "validTime": "2023-08-19T12:00:00Z", "latitude": 21.3, "longitude": -113.6, "maxWind": 115, "minPressure": 948, "development": "HU" },
+        { "fcstHour": 36, "validTime": "2023-08-20T00:00:00Z", "latitude": 23.7, "longitude": -114.4, "maxWind": 100, "minPressure": 958, "development": "HU" },
+        { "fcstHour": 48, "validTime": "2023-08-20T12:00:00Z", "latitude": 26.8, "longitude": -115.2, "maxWind": 85, "minPressure": 970, "development": "HU" },
+        { "fcstHour": 60, "validTime": "2023-08-21T00:00:00Z", "latitude": 30.4, "longitude": -116.4, "maxWind": 65, "minPressure": 982, "development": "TS" },
+        { "fcstHour": 72, "validTime": "2023-08-21T12:00:00Z", "latitude": 35.2, "longitude": -117.4, "maxWind": 45, "minPressure": 992, "development": "TS" }
+      ]
+    }
+  ]
+}

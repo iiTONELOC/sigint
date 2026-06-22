@@ -8,6 +8,8 @@ import { inflateRaw } from "zlib";
 import { promisify } from "util";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
+import { errorMessage } from "../lib/errorMessage";
+import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
 
 const logger = createLogger({ service: "gdelt" });
 
@@ -163,10 +165,9 @@ function parseExportCsv(csv: string): GdeltEvent[] {
     if (!rootCode || !RELEVANT_ROOT_CODES.has(rootCode)) continue;
 
     // Must have lat/lon
-    const lat = parseFloat(cols[COL.ActionGeo_Lat] ?? "");
-    const lon = parseFloat(cols[COL.ActionGeo_Long] ?? "");
-    if (!isFinite(lat) || !isFinite(lon)) continue;
-    if (lat === 0 && lon === 0) continue; // skip null island
+    const lat = Number.parseFloat(cols[COL.ActionGeo_Lat] ?? "");
+    const lon = Number.parseFloat(cols[COL.ActionGeo_Long] ?? "");
+    if (!isFiniteCoordinate(lat, lon) || isNullIsland(lat, lon)) continue;
 
     const goldstein = parseFloat(cols[COL.GoldsteinScale] ?? "0");
     const tone = parseFloat(cols[COL.AvgTone] ?? "0");
@@ -331,7 +332,7 @@ async function fetchGdelt(): Promise<void> {
   } catch (err) {
     cache = {
       ...cache,
-      error: err instanceof Error ? err.message : "Unknown fetch error",
+      error: errorMessage(err, "Unknown fetch error"),
     };
   }
 }

@@ -58,7 +58,7 @@ export function CycloneWarningDossier({
           </Section>
           {w.headline && (
             <Section title="DETAILS">
-              <p className="text-xs text-sig-text whitespace-pre-wrap">
+              <p className="text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap">
                 {w.headline}
               </p>
             </Section>

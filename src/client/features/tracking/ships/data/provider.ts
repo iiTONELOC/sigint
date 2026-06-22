@@ -1,8 +1,8 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
-import { authenticatedFetch } from "@/lib/authService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
-import { ktToMps } from "@/lib/units";
+import { authenticatedFetch } from "@/lib/net/authService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { ktToMps } from "@/lib/format/units";
 
 const SHIPS_URL = "/api/ships/latest";
 

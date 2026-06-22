@@ -21,7 +21,8 @@ import {
   Eye,
   List,
 } from "lucide-react";
-import { relativeAge } from "@/lib/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
+import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -284,22 +285,8 @@ export function IntelFeedPane() {
 
   // ── Handlers ────────────────────────────────────────────────────
 
-  const handleItemClick = useCallback(
-    (item: DataPoint) => {
-      setSelected(item);
-      setRevealId(item.id);
-      setTimeout(() => setRevealId(null), 200);
-    },
-    [setSelected, setRevealId],
-  );
-
-  const handleZoomTo = useCallback(
-    (item: DataPoint, e: React.MouseEvent) => {
-      e.stopPropagation();
-      selectAndZoom(item);
-    },
-    [selectAndZoom],
-  );
+  const { handleClick: handleItemClick, handleZoom: handleZoomTo } =
+    useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));

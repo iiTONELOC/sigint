@@ -5,7 +5,7 @@
 // We also test the cycle order and persistence key.
 
 import { describe, test, expect } from "bun:test";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 // ── Replicate computeIsMobile from LayoutModeContext.tsx ─────────────
 

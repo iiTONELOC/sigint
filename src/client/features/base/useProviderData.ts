@@ -29,6 +29,20 @@ const defaultResolveDataSource: ResolveDataSource = (data, snapshot) => {
   return data.length > 0 ? "live" : "empty";
 };
 
+/**
+ * Resolver for feeds whose server returns 503 when an API key is unset
+ * (ships, fires): treat a keyless 503 as "unavailable" rather than "error",
+ * and a no-data steady state as "unavailable" too. Shared so both features
+ * read the same status semantics.
+ */
+export const resolveSourceWith503Unavailable: ResolveDataSource = (data, snapshot) => {
+  if (snapshot.error) {
+    if (data.length > 0) return "cached";
+    return snapshot.error.message.includes("503") ? "unavailable" : "error";
+  }
+  return data.length > 0 ? "live" : "unavailable";
+};
+
 // ── Hook result ─────────────────────────────────────────────────────
 
 type UseProviderDataResult = {

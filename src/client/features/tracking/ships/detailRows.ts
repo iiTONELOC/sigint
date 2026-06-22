@@ -1,5 +1,5 @@
 import type { ShipData } from "./types";
-import { formatKtMph } from "@/lib/units";
+import { formatKtMph } from "@/lib/format/units";
 
 export function buildShipDetailRows(data: ShipData): [string, string][] {
   const rows: [string, string][] = [];

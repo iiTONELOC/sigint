@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { generateMockAircraft } from "@/data/mockData";
+import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { AircraftProvider } from "../data/provider";
 
 export const aircraftProvider = new AircraftProvider();
@@ -28,10 +29,8 @@ type UseAircraftDataResult = {
 // the streaming sweep — server pushes ingestTile per ~3 s, client
 // catches each batch within one poll. The previous 240 s left users
 // staring at a stale snapshot through an entire sweep cycle.
-export const DEFAULT_AIRCRAFT_POLL_MS = 15_000;
-
 export function useAircraftData(
-  pollInterval: number = DEFAULT_AIRCRAFT_POLL_MS,
+  pollInterval: number = POLL_INTERVALS.aircraft,
 ): UseAircraftDataResult {
   const [data, setData] = useState<DataPoint[]>(() => generateMockAircraft());
   const [version, setVersion] = useState(0);

@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   recordPositions,
   getTrail,
-} from "../../src/client/lib/trailService";
+} from "../../src/client/lib/geo/trailService";
 
 type Item = {
   id: string;

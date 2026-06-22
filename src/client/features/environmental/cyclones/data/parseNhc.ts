@@ -12,8 +12,9 @@ import type {
   GeoJSONPolygon,
   WindRadii,
   PastTrackPoint,
+  ModelTrack,
 } from "../types";
-import { authenticatedFetch } from "@/lib/authService";
+import { authenticatedFetch } from "@/lib/net/authService";
 import { saffirSimpson, TS_MIN_KT } from "../classification";
 
 const CYCLONES_URL = "/api/cyclones/latest";
@@ -64,6 +65,7 @@ type NhcStorm = {
   officialCone?: GeoJSONPolygon;
   windRadii?: WindRadii;
   pastTrack?: PastTrackPoint[];
+  models?: ModelTrack[];
 };
 
 type NhcForecastPoint = {
@@ -151,6 +153,8 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     windRadii: s.windRadii,
     // Observed best-track history (genesis → now); absent until b-deck fetched.
     pastTrack: s.pastTrack,
+    // Per-model spaghetti tracks; absent until a-deck fetched.
+    models: s.models,
   };
 
   return {

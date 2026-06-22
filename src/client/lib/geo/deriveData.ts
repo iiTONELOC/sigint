@@ -8,8 +8,8 @@
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
-import { cellKey, type SpatialGrid } from "@/lib/spatialIndex";
-import { yieldToMain } from "@/lib/yield";
+import { cellKey, type SpatialGrid } from "@/lib/geo/spatialIndex";
+import { yieldToMain } from "@/lib/runtime/yield";
 
 // Ticker is intentionally NOT here: it gates on membership only ([allData]),
 // so a filter/layer toggle must not reshuffle the feed. It stays a separate

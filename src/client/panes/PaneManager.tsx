@@ -17,7 +17,7 @@ import {
   onWalkthroughReset,
   onWalkthroughUndo,
   setWalkthroughLayoutSnapshot,
-} from "@/lib/layoutSignals";
+} from "@/lib/runtime/layoutSignals";
 import {
   Globe,
   Table2,

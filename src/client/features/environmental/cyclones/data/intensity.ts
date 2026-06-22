@@ -91,5 +91,95 @@ export function analyzeIntensity(storm: CycloneData): {
   return { series, ri: detectRapidIntensification(series) };
 }
 
+/** Direction of change over the near term. */
+export type Trend = "rising" | "falling" | "steady";
+
+/** Semantic tone for a trend: weakening/filling is good (green), the opposite
+ *  is bad (red), no change is dim. NOT directional — meaning, not sign. */
+export type TrendTone = "good" | "bad" | "dim";
+export type TrendLabel = { text: string; tone: TrendTone };
+
+/** Single source for wind/pressure trend display. A weakening storm (falling
+ *  wind / rising pressure) is `good`; strengthening is `bad`. */
+export const WIND_TREND_LABEL: Record<Trend, TrendLabel> = {
+  falling: { text: "↓ weakening", tone: "good" },
+  rising: { text: "↑ strengthening", tone: "bad" },
+  steady: { text: "→ steady", tone: "dim" },
+};
+export const PRESS_TREND_LABEL: Record<Trend, TrendLabel> = {
+  rising: { text: "↑ rising", tone: "good" },
+  falling: { text: "↓ falling", tone: "bad" },
+  steady: { text: "→ steady", tone: "dim" },
+};
+
+/** Plain-word wind trend (no arrow) for inline prose. Single source so it
+ *  always matches WIND_TREND_LABEL's wording. */
+export const WIND_TREND_WORD: Record<Trend, string> = {
+  falling: "weakening",
+  rising: "strengthening",
+  steady: "steady",
+};
+
+/** Classify a signed wind delta (kt) into a Trend with a ±3kt deadband. */
+export function trendFromWindDelta(deltaKt: number): Trend {
+  if (deltaKt <= -3) return "falling";
+  if (deltaKt >= 3) return "rising";
+  return "steady";
+}
+
+/**
+ * Wind trend now: compares the current sustained wind against the most recent
+ * observed past-track point (real history from the ATCF b-deck), falling back to
+ * the first forecast point when no past track is loaded yet. `falling` =
+ * weakening, `rising` = strengthening.
+ */
+export function windTrend(storm: CycloneData): Trend {
+  // Prefer past history (current − past): rising means it grew.
+  const recentPast = storm.pastTrack?.at(-2)?.vmaxKt; // -1 ≈ current analysis
+  if (recentPast != null) return trendFromWindDelta(storm.maxWindKt - recentPast);
+  // No history yet — read the forecast forward (next − current). The forecast is
+  // the FUTURE, so a lower next wind means the storm is weakening.
+  const next = storm.forecast[0]?.maxWindKt;
+  if (next == null) return "steady";
+  return trendFromWindDelta(next - storm.maxWindKt);
+}
+
+const PRESS_STEADY_BAND_MB = 1;
+
+type PressureChange = { curMb: number; nextMb: number; leadHours: number };
+
+function pressureChange(storm: CycloneData): PressureChange | null {
+  const curMb = storm.minPressureMb;
+  if (curMb == null) return null;
+  const next = storm.forecast.find((f) => f.minPressureMb != null);
+  if (next?.minPressureMb == null) return null;
+  return { curMb, nextMb: next.minPressureMb, leadHours: next.fcstHour };
+}
+
+/**
+ * Pressure trend now: current central pressure vs the first forecast point's
+ * minPressure (both real, already plumbed through the feed). Rising pressure =
+ * filling = weakening. Returns "steady" when either value is missing.
+ */
+export function pressureTrend(storm: CycloneData): Trend {
+  const change = pressureChange(storm);
+  if (!change) return "steady";
+  const delta = change.nextMb - change.curMb;
+  if (delta >= PRESS_STEADY_BAND_MB) return "rising";
+  if (delta <= -PRESS_STEADY_BAND_MB) return "falling";
+  return "steady";
+}
+
+/**
+ * Rate of central-pressure change in hPa per hour (1 mb = 1 hPa), signed:
+ * negative = deepening, positive = filling. Null when pressure data or a
+ * forecast lead time is missing.
+ */
+export function pressureRateHpaPerH(storm: CycloneData): number | null {
+  const change = pressureChange(storm);
+  if (!change || change.leadHours <= 0) return null;
+  return (change.nextMb - change.curMb) / change.leadHours;
+}
+
 // Re-export for callers that only need the forecast point type alongside.
 export type { ForecastPoint } from "../types";

@@ -14,8 +14,8 @@ import {
   applyThemeToRoot,
   applyColorOverrides,
 } from "@/config/theme";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 /** Resolve "auto" to the actual dark/light based on system preference */
 function resolveMode(mode: ThemeMode): "dark" | "light" {

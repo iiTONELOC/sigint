@@ -2,7 +2,7 @@ import { describe, test, expect, mock } from "bun:test";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CamState, CamTarget } from "@/components/globe/types";
 
-mock.module("@/lib/trailService", () => ({
+mock.module("@/lib/geo/trailService", () => ({
   getInterpolatedPosition: () => null,
 }));
 

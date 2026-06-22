@@ -1,6 +1,6 @@
 import type { ShipData } from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { formatKtShort } from "@/lib/units";
+import { formatKtShort } from "@/lib/format/units";
 
 export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as ShipData;

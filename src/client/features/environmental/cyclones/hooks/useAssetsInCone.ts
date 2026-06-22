@@ -9,9 +9,9 @@
 import { useEffect, useState } from "react";
 import { useData } from "@/context/DataContext";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { pointInPolygon } from "@/lib/pointInPolygon";
-import { queryNearest } from "@/lib/spatialIndex";
-import { scheduleIdle } from "@/lib/idle";
+import { pointInPolygon } from "@/lib/geo/pointInPolygon";
+import { queryNearest } from "@/lib/geo/spatialIndex";
+import { scheduleIdle } from "@/lib/runtime/idle";
 import type { GeoJSONPolygon } from "../types";
 
 export type ConeAssets = { ships: DataPoint[]; aircraft: DataPoint[] };

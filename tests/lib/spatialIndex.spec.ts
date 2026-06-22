@@ -4,7 +4,7 @@ import {
   queryNearest,
   screenToLatLonGlobe,
   screenToLatLonFlat,
-} from "@/lib/spatialIndex";
+} from "@/lib/geo/spatialIndex";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 function makePoint(id: string, lat: number, lon: number): DataPoint {

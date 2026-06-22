@@ -3,7 +3,7 @@ import {
   getTrail,
   getTrailsRev,
   type TrailPoint,
-} from "@/lib/trailService";
+} from "@/lib/geo/trailService";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import type {
@@ -20,7 +20,8 @@ import {
   attachInputHandlers,
   detachInputHandlers,
 } from "./inputHandlers";
-import { getSelectedRoute } from "@/lib/layoutSignals";
+import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
+import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 // ── Shared render worker (survives globe remounts) ──────────────────
@@ -34,7 +35,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 // one-shot per element), and the worker re-points at it via a new "init".
 let sharedWorker: Worker | null = null;
 function getSharedWorker(): Worker {
-  sharedWorker ??= new Worker("/workers/pointWorker.js");
+  sharedWorker ??= new Worker("/workers/pointWorker.js", { type: "module" });
   return sharedWorker;
 }
 
@@ -208,7 +209,6 @@ export function GlobeVisualization({
   // Warning polygons (region geometry) are sent to the worker as their own
   // "warnings" message when the array OR the theme changes — small + rare.
   const lastSentWarningsRef = useRef<unknown>(null);
-
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -278,7 +278,7 @@ export function GlobeVisualization({
       const mH = fh * 0.84 * targetZoom;
       camTarget.panX = -(tLon / 180) * (mW / 2);
       const basePanY = (tLat / 90) * (mH / 2);
-      camTarget.panY = fw < 768 ? basePanY - fh * 0.23 : basePanY;
+      camTarget.panY = isMobileWidth(fw) ? basePanY - fh * 0.23 : basePanY;
       camTarget.zoom = targetZoom;
     } else {
       // Always rotate to show the point — no visibility guessing
@@ -288,7 +288,7 @@ export function GlobeVisualization({
       const baseRotX = -(phi - Math.PI / 2);
       const { w: rw, h: rh } = sizeRef.current;
       const targetZoom = Math.max(cam.zoomGlobe, 2.5);
-      if (rw < 768) {
+      if (isMobileWidth(rw)) {
         const r = Math.min(rw, rh) * 0.4 * targetZoom;
         camTarget.rotX = baseRotX - Math.asin(Math.min(0.95, (rh * 0.19) / r));
       } else {
@@ -658,6 +658,8 @@ export function GlobeVisualization({
             cyclonesShowCone: cyc?.showCone ?? true,
             cyclonesShowWindField: cyc?.showWindField ?? false,
             cyclonesShowWarnings: cyc?.showWarnings ?? true,
+            cyclonesShowModels: cyc?.showModels ?? false,
+            cyclonesHiddenModels: cyc?.hiddenModels ?? [],
             prefersReducedMotion,
             searchMatchIds: searchIds,
             selectedItem,
@@ -896,7 +898,7 @@ export function GlobeVisualization({
           cursor: "default",
           display: "block",
           touchAction:
-            typeof window !== "undefined" && window.innerWidth < 768
+            typeof window !== "undefined" && isMobileWidth(window.innerWidth)
               ? "pan-y"
               : "none",
         }}

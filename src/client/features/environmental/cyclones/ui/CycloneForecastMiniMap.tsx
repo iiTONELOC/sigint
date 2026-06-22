@@ -1,253 +1,333 @@
 // ── CycloneForecastMiniMap ───────────────────────────────────────────
-// Small equirectangular map of the forecast track over a coastline backdrop —
-// far more readable than a list of raw lat/lon. Uses the shared land polygons
-// (landService) and an aspect-correct local projection. The globe renders land
-// in its worker, so the main-thread copy may be empty here — fetch it on demand
-// (cached after first load) and re-render when it arrives.
+// Interactive orthographic-globe minimap of the storm track — same technique as
+// the aircraft route map: a <canvas> that reuses the globe's own renderers
+// (projGlobe + drawLand + drawGrid) so the basemap matches the main globe, with
+// drag-to-pan and +/- zoom. Draws cyclone geometry instead of a route: observed
+// past track (genesis→now), dashed forecast track, cone (error-radius discs),
+// category-colored forecast points, and spaghetti model guidance when supplied.
 
-import { useEffect, useState } from "react";
-import { getLand, enrichLand } from "@/lib/landService";
-import type { ForecastPoint, PastTrackPoint, ModelTrack } from "../types";
-import { windColor } from "../classification";
+import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/context/ThemeContext";
+import { getLand, enrichLand } from "@/lib/geo/landService";
+import { projGlobe } from "@/components/globe/projection";
+import { drawLand } from "@/components/globe/landRenderer";
+import { drawGrid } from "@/components/globe/gridRenderer";
+import type { ForecastPoint, PastTrackPoint, WindRadii, ModelTrack } from "../types";
+import { windColor, modelColor, categoryShort, SAFFIR_LEGEND } from "../classification";
+import {
+  NM_PER_DEG,
+  windRadiiBandColor,
+  windRadiiBandPoints,
+  segmentedConeSegments,
+} from "../render/cycloneGeometry";
 
-const W = 260;
-const H = 150;
 const PAD = 8;
-const NM_PER_DEG = 60;
-
-type Pt = {
-  lat: number;
-  lon: number;
-  fcstHour: number;
-  maxWindKt: number;
-  errorRadiusNm?: number;
-  current?: boolean;
-};
+const rad = (d: number) => (d * Math.PI) / 180;
 
 export function CycloneForecastMiniMap({
   current,
   forecast,
   pastTrack,
+  windRadii,
   models,
+  showForecast = true,
+  showCone = true,
+  showWindField = false,
+  showModels = false,
 }: {
   readonly current: { lat: number; lon: number; maxWindKt: number };
   readonly forecast: ForecastPoint[];
   readonly pastTrack?: PastTrackPoint[];
+  readonly windRadii?: WindRadii;
   readonly models?: ModelTrack[];
+  /** Gate the forecast track + past track (TRACK toggle). */
+  readonly showForecast?: boolean;
+  /** Gate the cone discs (CONE toggle). */
+  readonly showCone?: boolean;
+  /** Gate the 34/50/64-kt wind radii at the eye (WIND FIELD toggle). */
+  readonly showWindField?: boolean;
+  /** Gate the spaghetti model tracks (MODELS toggle). */
+  readonly showModels?: boolean;
 }) {
+  const { theme } = useTheme();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const panRef = useRef({ ry: 0, rx: 0 });
+  const dimsRef = useRef({ r: 1 });
   const [land, setLand] = useState<number[][][]>(() => getLand());
+  const [zoom, setZoom] = useState(1);
+  const colors = theme.colors;
+
+  // Frame the whole track (past + forecast) so it fits, recentred on its midpoint.
+  const all = [
+    ...(pastTrack ?? []).map((p) => ({ lat: p.lat, lon: p.lon })),
+    { lat: current.lat, lon: current.lon },
+    ...forecast.map((f) => ({ lat: f.lat, lon: f.lon })),
+  ];
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  for (const p of all) {
+    minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
+    minLon = Math.min(minLon, p.lon); maxLon = Math.max(maxLon, p.lon);
+  }
+  const midLat = (minLat + maxLat) / 2;
+  const midLon = (minLon + maxLon) / 2;
+  const spanDeg = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(rad(midLat)), 1);
+
+  useEffect(() => {
+    panRef.current = { ry: 0, rx: 0 };
+    setZoom(1);
+  }, [current.lat, current.lon]);
+
   useEffect(() => {
     if (land.length === 0) enrichLand((l) => setLand(l));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [land.length]);
 
-  const pts: Pt[] = [
-    { ...current, fcstHour: 0, current: true },
-    ...forecast.map((f) => ({
-      lat: f.lat,
-      lon: f.lon,
-      fcstHour: f.fcstHour,
-      maxWindKt: f.maxWindKt,
-      errorRadiusNm: f.errorRadiusNm,
-    })),
-  ];
-  if (pts.length < 2) return null;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const past = pastTrack ?? [];
-  const modelPts = (models ?? []).flatMap((m) => m.points);
+    const draw = () => {
+      const cssW = canvas.clientWidth || 264;
+      const cssH = canvas.clientHeight || 200;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
 
-  let minLat = Infinity,
-    maxLat = -Infinity,
-    minLon = Infinity,
-    maxLon = -Infinity;
-  for (const p of [...pts, ...past, ...modelPts]) {
-    minLat = Math.min(minLat, p.lat);
-    maxLat = Math.max(maxLat, p.lat);
-    minLon = Math.min(minLon, p.lon);
-    maxLon = Math.max(maxLon, p.lon);
-  }
-  // Pad the bounds so the track isn't jammed against the edges.
-  const padLat = Math.max(maxLat - minLat, 0.5) * 0.45;
-  const padLon = Math.max(maxLon - minLon, 0.5) * 0.45;
-  minLat -= padLat;
-  maxLat += padLat;
-  minLon -= padLon;
-  maxLon += padLon;
+      const cx = cssW / 2;
+      const cy = cssH / 2;
+      const frameR = Math.min(cssW, cssH) / 2 - PAD;
+      // Globe radius so the track span fills ~80% of the frame.
+      const r = Math.min((frameR * 0.8) / Math.max(Math.sin(rad(spanDeg / 2)), 0.05), frameR * 9) * zoom;
+      const ry = Math.PI / 2 - rad(midLon + 180) + panRef.current.ry;
+      const rx = rad(midLat) + panRef.current.rx;
+      dimsRef.current.r = r;
+      const proj = (la: number, lo: number) => projGlobe(la, lo, cx, cy, r, ry, rx);
 
-  const midLat = (minLat + maxLat) / 2;
-  const cosLat = Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
-  const geoW = (maxLon - minLon) * cosLat;
-  const geoH = maxLat - minLat;
-  const innerW = W - 2 * PAD;
-  const innerH = H - 2 * PAD;
-  const scale = Math.min(innerW / geoW, innerH / geoH);
-  const offX = PAD + (innerW - geoW * scale) / 2;
-  const offY = PAD + (innerH - geoH * scale) / 2;
-  const px = (lon: number) => offX + (lon - minLon) * cosLat * scale;
-  const py = (lat: number) => offY + (maxLat - lat) * scale;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = colors.oceanDeep;
+      ctx.fill();
+      ctx.clip();
 
-  // Coastline polygons that touch the view box (stored as [lat, lon]).
-  const landPaths: string[] = [];
-  for (const poly of land) {
-    let touches = false;
-    for (const v of poly) {
-      if (v[0]! >= minLat && v[0]! <= maxLat && v[1]! >= minLon && v[1]! <= maxLon) {
-        touches = true;
-        break;
+      drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
+      drawLand(ctx, proj, colors, false, cx, cy, r);
+
+      // Cone + track use the storm's Saffir-Simpson category color (matches the
+      // rest of the dossier), not the generic cyclones-layer red.
+      const accent = windColor(current.maxWindKt);
+      const strokeLine = (pts: { lat: number; lon: number }[], dash: number[]) => {
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        let pen = false;
+        for (const p of pts) {
+          const pp = proj(p.lat, p.lon);
+          if (pp.z > 0) {
+            if (pen) ctx.lineTo(pp.x, pp.y);
+            else { ctx.moveTo(pp.x, pp.y); pen = true; }
+          } else pen = false;
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      };
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      // Spaghetti model tracks — thin muted lines beneath the official track
+      // (MODELS toggle).
+      if (showModels && models) {
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 1.25;
+        for (const m of models) {
+          ctx.strokeStyle = modelColor(m.model);
+          strokeLine(m.points, []);
+        }
+        ctx.globalAlpha = 1;
       }
-    }
-    if (!touches) continue;
-    let d = "";
-    for (let i = 0; i < poly.length; i++) {
-      d += `${i === 0 ? "M" : "L"}${px(poly[i]![1]!).toFixed(1)},${py(poly[i]![0]!).toFixed(1)}`;
-    }
-    landPaths.push(d + "Z");
-  }
 
-  const track = pts
-    .map((p, i) => `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`)
-    .join(" ");
+      // Cone — tapered segmented band matching the globe (shared geometry).
+      if (showCone) {
+        const eye = proj(current.lat, current.lon);
+        if (eye.z > 0) {
+          for (const seg of segmentedConeSegments(eye.x, eye.y, forecast, proj, current.maxWindKt)) {
+            ctx.beginPath();
+            seg.quad.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+            ctx.closePath();
+            // Color each band by its far-point forecast intensity so the cone
+            // cools as the storm weakens — matches the forecast dots.
+            ctx.fillStyle = seg.maxWindKt > 0 ? windColor(seg.maxWindKt) : accent;
+            ctx.globalAlpha = 0.3 - 0.18 * seg.t;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
 
-  // Observed past track (genesis → now), genesis first then up to the eye.
-  const pastPath =
-    past.length > 0
-      ? past
-          .map(
-            (p, i) =>
-              `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`,
-          )
-          .join(" ") +
-        ` L${px(current.lon).toFixed(1)},${py(current.lat).toFixed(1)}`
-      : "";
-  const genesis = past[0];
+      // Wind radii at the eye — 34/50/64-kt footprint, shared band geometry.
+      if (showWindField && windRadii) {
+        const eye = proj(current.lat, current.lon);
+        if (eye.z > 0) {
+          const pxPerNm = rad(1) * r / NM_PER_DEG;
+          const bands: ReadonlyArray<readonly [number, number[] | null]> = [
+            [34, windRadii.kt34],
+            [50, windRadii.kt50],
+            [64, windRadii.kt64],
+          ];
+          for (const [kt, q] of bands) {
+            if (!q) continue;
+            const pts = windRadiiBandPoints(q, eye.x, eye.y, pxPerNm);
+            if (pts.length === 0) continue;
+            ctx.beginPath();
+            pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+            ctx.closePath();
+            ctx.fillStyle = windRadiiBandColor(kt);
+            ctx.globalAlpha = 0.18;
+            ctx.fill();
+            ctx.globalAlpha = 0.9;
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = windRadiiBandColor(kt);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+
+      // Observed past track (genesis → now), solid (TRACK toggle).
+      if (showForecast && pastTrack && pastTrack.length >= 1) {
+        ctx.strokeStyle = accent;
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 1.5;
+        strokeLine([...pastTrack, { lat: current.lat, lon: current.lon }], []);
+        ctx.globalAlpha = 1;
+        const g = pastTrack[0];
+        const gp = proj(g.lat, g.lon);
+        if (gp.z > 0) {
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(gp.x - 3, gp.y - 3); ctx.lineTo(gp.x + 3, gp.y + 3);
+          ctx.moveTo(gp.x - 3, gp.y + 3); ctx.lineTo(gp.x + 3, gp.y - 3);
+          ctx.stroke();
+        }
+      }
+
+      // Forecast track (dashed) eye → forecast points (TRACK toggle).
+      if (showForecast) {
+        ctx.strokeStyle = accent;
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 1.5;
+        strokeLine([{ lat: current.lat, lon: current.lon }, ...forecast], [4, 3]);
+        ctx.globalAlpha = 1;
+      }
+
+      // Forecast points — category-colored dots, each tagged with its category.
+      for (const f of showForecast ? forecast : []) {
+        const p = proj(f.lat, f.lon);
+        if (p.z <= 0) continue;
+        const col = windColor(f.maxWindKt);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+        // Category tag above-right of the dot.
+        ctx.font = "600 9px 'JetBrains Mono', monospace";
+        ctx.fillStyle = col;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(categoryShort(f.maxWindKt), p.x + 4, p.y - 3);
+      }
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+
+      // Current eye — bullseye in the storm color.
+      const pe = proj(current.lat, current.lon);
+      if (pe.z > 0) {
+        ctx.beginPath();
+        ctx.arc(pe.x, pe.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = windColor(current.maxWindKt);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pe.x, pe.y, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Rim.
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = colors.coast;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    };
+
+    let dragging = false;
+    let lx = 0, ly = 0;
+    const onDown = (e: PointerEvent) => {
+      dragging = true; lx = e.clientX; ly = e.clientY;
+      canvas.setPointerCapture?.(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const rr = dimsRef.current.r || 1;
+      panRef.current.ry += (e.clientX - lx) / rr;
+      panRef.current.rx = Math.max(-1.2, Math.min(1.2, panRef.current.rx + (e.clientY - ly) / rr));
+      lx = e.clientX; ly = e.clientY;
+      draw();
+    };
+    const onUp = (e: PointerEvent) => {
+      dragging = false;
+      canvas.releasePointerCapture?.(e.pointerId);
+    };
+
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(canvas);
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onUp);
+    return () => {
+      ro.disconnect();
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+    };
+  }, [current.lat, current.lon, current.maxWindKt, forecast, pastTrack, windRadii, models, showForecast, showCone, showWindField, showModels, land, colors, midLat, midLon, spanDeg, zoom]);
+
+  const zoomBtn =
+    "w-6 h-6 flex items-center justify-center rounded bg-sig-panel/80 border border-sig-border/60 text-sig-dim hover:text-(--dossier-accent) hover:border-(--dossier-accent)/50 transition-colors touch-target";
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="w-full rounded border border-sig-border"
-      style={{ height: "9.5rem", background: "var(--sigint-oceanDeep, #0a1420)" }}
-      role="img"
-      aria-label="Forecast track over coastline"
-    >
-      {landPaths.map((d, i) => (
-        <path
-          key={i}
-          d={d}
-          fill="var(--sigint-land, #1c2b3c)"
-          fillOpacity={0.6}
-          stroke="var(--sigint-grid, #2a3a4a)"
-          strokeOpacity={0.4}
-          strokeWidth={0.5}
-        />
-      ))}
-
-      {/* Cone of uncertainty — faint error-radius discs at each forecast point */}
-      {pts
-        .filter((p) => p.errorRadiusNm)
-        .map((p) => (
-          <circle
-            key={`cone-${p.fcstHour}`}
-            cx={px(p.lon)}
-            cy={py(p.lat)}
-            r={(p.errorRadiusNm! / NM_PER_DEG) * scale}
-            fill="var(--sigint-cyclones, #ff66cc)"
-            fillOpacity={0.07}
-          />
+    <div className="relative w-full h-full min-h-48">
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full block rounded-[10px] border border-sig-border touch-none cursor-grab active:cursor-grabbing"
+        aria-label="Forecast track — storm position, past track, and forecast over coastline"
+      />
+      <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
+        <button type="button" className={zoomBtn} aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(8, z * 1.4))}>+</button>
+        <button type="button" className={zoomBtn} aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.5, z / 1.4))}>−</button>
+      </div>
+      {/* Saffir-Simpson key — color, category, wind range — so the cone/dot
+          colors read as categories on the map. */}
+      <div className="absolute bottom-1.5 left-1.5 flex flex-col gap-px rounded bg-sig-bg/70 backdrop-blur-sm px-1.5 py-1 text-(length:--sig-text-xs) leading-tight">
+        {SAFFIR_LEGEND.map((b) => (
+          <span key={b.label} className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: b.color }} />
+            <span className="font-semibold w-5" style={{ color: b.color }}>{b.label}</span>
+            <span className="text-sig-dim">{b.range}</span>
+          </span>
         ))}
-
-      {/* Spaghetti model guidance — thin muted lines, subordinate to the
-          official track drawn on top */}
-      {(models ?? []).map((m) => (
-        <path
-          key={m.model}
-          d={m.points
-            .map(
-              (p, i) =>
-                `${i === 0 ? "M" : "L"}${px(p.lon).toFixed(1)},${py(p.lat).toFixed(1)}`,
-            )
-            .join(" ")}
-          fill="none"
-          stroke="#6fb7ff"
-          strokeOpacity={0.7}
-          strokeWidth={1}
-        />
-      ))}
-
-      {/* Observed past track + genesis X */}
-      {pastPath && (
-        <path
-          d={pastPath}
-          fill="none"
-          stroke="var(--sigint-cyclones, #ff66cc)"
-          strokeOpacity={0.5}
-          strokeWidth={1.25}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
-      {genesis && (
-        <g
-          stroke="var(--sigint-cyclones, #ff66cc)"
-          strokeWidth={1.25}
-          strokeOpacity={0.9}
-        >
-          <line
-            x1={px(genesis.lon) - 3}
-            y1={py(genesis.lat) - 3}
-            x2={px(genesis.lon) + 3}
-            y2={py(genesis.lat) + 3}
-          />
-          <line
-            x1={px(genesis.lon) - 3}
-            y1={py(genesis.lat) + 3}
-            x2={px(genesis.lon) + 3}
-            y2={py(genesis.lat) - 3}
-          />
-        </g>
-      )}
-
-      <path
-        d={track}
-        fill="none"
-        stroke="var(--sigint-cyclones, #ff66cc)"
-        strokeWidth={1.5}
-        strokeDasharray="3 2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {pts.map((p) => (
-        <g key={p.fcstHour}>
-          <circle
-            cx={px(p.lon)}
-            cy={py(p.lat)}
-            r={p.current ? 3.5 : 2.5}
-            fill={windColor(p.maxWindKt)}
-            stroke="#000"
-            strokeWidth={0.5}
-          />
-          <text
-            x={px(p.lon)}
-            y={py(p.lat) - 4.5}
-            textAnchor="middle"
-            fontSize={6}
-            fill="var(--sigint-dim, #8aa)"
-            fontFamily="monospace"
-          >
-            {p.current ? "now" : `+${p.fcstHour}h`}
-          </text>
-        </g>
-      ))}
-
-      {/* Current-position bullseye — matches the globe marker */}
-      <circle
-        cx={px(current.lon)}
-        cy={py(current.lat)}
-        r={6}
-        fill="none"
-        stroke="var(--sigint-cyclones, #ff66cc)"
-        strokeWidth={1.25}
-      />
-    </svg>
+      </div>
+    </div>
   );
 }

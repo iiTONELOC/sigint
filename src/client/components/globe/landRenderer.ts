@@ -1,4 +1,4 @@
-import { getLand } from "@/lib/landService";
+import { getLand } from "@/lib/geo/landService";
 import type { Projected, ProjFn, HorizonCircle } from "./types";
 import type { ThemeColors } from "@/config/theme";
 

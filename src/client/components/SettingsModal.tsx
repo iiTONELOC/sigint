@@ -28,22 +28,22 @@ import {
   cacheClearAll,
   cacheGet,
   cacheSet,
-} from "@/lib/storageService";
-import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cacheKeys";
+} from "@/lib/cache/storageService";
+import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cache/cacheKeys";
 import {
   themes,
   LAYER_COLOR_KEYS,
   LAYER_COLOR_LABELS,
   type LayerColorKey,
 } from "@/config/theme";
-import { requestWalkthroughLaunch } from "@/lib/layoutSignals";
+import { requestWalkthroughLaunch } from "@/lib/runtime/layoutSignals";
 import {
   useAlwaysShowCyclones,
   setAlwaysShowCyclones,
   useUnitsMode,
   setUnitsMode,
   type UnitMode,
-} from "@/lib/userPreferences";
+} from "@/lib/ui/userPreferences";
 import {
   useLayoutMode,
   type LayoutMode as LayoutModeType,

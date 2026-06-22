@@ -9,6 +9,7 @@ import {
   Crosshair,
   LocateFixed,
   ChevronRight,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -206,6 +207,8 @@ export function DossierToolbar({
   onLocate,
   onFocus,
   onSolo,
+  onClose,
+  closeButtonRef,
 }: DossierToolbarProps) {
   return (
     <div className="p-3 pb-0">
@@ -219,6 +222,15 @@ export function DossierToolbar({
             {badge}
           </span>
         )}
+        <button
+          ref={closeButtonRef}
+          type="button"
+          aria-label="Close dossier"
+          onClick={onClose}
+          className="touch-target shrink-0 flex items-center justify-center rounded text-sig-text hover:text-sig-bright hover:bg-sig-bright/10 transition-colors"
+        >
+          <X className="w-4 h-4" aria-hidden="true" />
+        </button>
       </div>
       {subtitle && (
         <div className="text-xs text-sig-text mt-0.5 truncate font-mono">

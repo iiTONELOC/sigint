@@ -7,6 +7,8 @@
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
+import { errorMessage } from "../lib/errorMessage";
+import { decodeHtmlEntities } from "../lib/htmlEntities";
 
 const logger = createLogger({ service: "news" });
 
@@ -39,14 +41,7 @@ export type NewsItem = {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function stripHtml(html: string): string {
-  let text = html
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  text = text.replace(/<[^>]+>/g, " ");
+  const text = decodeHtmlEntities(html).replace(/<[^>]+>/g, " ");
   return text.replace(/\s+/g, " ").trim();
 }
 
@@ -137,7 +132,7 @@ async function fetchFeed(feed: FeedSource): Promise<NewsItem[]> {
     }
     return parseRssItems(await res.text(), feed.name);
   } catch (err) {
-    logger.warn(`📰 ${feed.name}: ${err instanceof Error ? err.message : "Unknown error"}`);
+    logger.warn(`📰 ${feed.name}: ${errorMessage(err, "Unknown error")}`);
     return [];
   }
 }

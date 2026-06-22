@@ -26,17 +26,17 @@ import { useCycloneWarnings } from "@/features/environmental/cyclones/hooks/useC
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
-import { buildTickerItems } from "@/lib/tickerFeed";
-import { recordPositions } from "@/lib/trailService";
-import { scheduleIdle } from "@/lib/idle";
-import { ktToMps } from "@/lib/units";
-import { type SpatialGrid } from "@/lib/spatialIndex";
+import { buildTickerItems } from "@/lib/ui/tickerFeed";
+import { recordPositions } from "@/lib/geo/trailService";
+import { scheduleIdle } from "@/lib/runtime/idle";
+import { ktToMps } from "@/lib/format/units";
+import { type SpatialGrid } from "@/lib/geo/spatialIndex";
 import {
   buildDerivedSync,
   buildDerivedChunked,
   type Derived,
-} from "@/lib/deriveData";
-import type { SourceStatus } from "@/lib/sourceHealth";
+} from "@/lib/geo/deriveData";
+import type { SourceStatus } from "@/lib/net/sourceHealth";
 import {
   emptyBaseline,
   loadBaseline,
@@ -44,7 +44,7 @@ import {
   type CorrelationResult,
   type RegionBaseline,
 } from "@/lib/correlation";
-import { createCorrelationClient } from "@/lib/correlationClient";
+import { createCorrelationClient } from "@/lib/net/correlationClient";
 
 import { UIProvider, useUI } from "@/context/UIContext";
 import { WatchProvider, useWatch } from "@/context/WatchContext";
@@ -75,11 +75,15 @@ type DataContextValue = {
     showForecast: boolean;
     showCone: boolean;
     showWindField: boolean;
+    showModels: boolean;
     showWarnings: boolean;
   };
   toggleCycloneLayer: (
-    key: "showForecast" | "showCone" | "showWindField" | "showWarnings",
+    key: "showForecast" | "showCone" | "showWindField" | "showModels" | "showWarnings",
   ) => void;
+  hiddenModels: ReadonlySet<string>;
+  toggleModel: (model: string) => void;
+  toggleAllModels: (models: readonly string[]) => void;
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
 };
 
@@ -110,14 +114,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
     showForecast: true,
     showCone: true,
     showWindField: false,
+    showModels: false,
     showWarnings: true,
   });
   const toggleCycloneLayer = useCallback(
-    (key: "showForecast" | "showCone" | "showWindField" | "showWarnings") => {
+    (key: "showForecast" | "showCone" | "showWindField" | "showModels" | "showWarnings") => {
       setCycloneFilter((f) => ({ ...f, [key]: !f[key] }));
     },
     [],
   );
+  const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
+  const toggleModel = useCallback((model: string) => {
+    setHiddenModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      return next;
+    });
+  }, []);
+  const toggleAllModels = useCallback((models: readonly string[]) => {
+    setHiddenModels((prev) => {
+      const anyVisible = models.some((m) => !prev.has(m));
+      return anyVisible ? new Set(models) : new Set();
+    });
+  }, []);
 
   // ── Data hooks ─────────────────────────────────────────────────
   const {
@@ -321,10 +341,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
         showForecast: cycloneFilter.showForecast,
         showCone: cycloneFilter.showCone,
         showWindField: cycloneFilter.showWindField,
+        showModels: cycloneFilter.showModels,
         showWarnings: cycloneFilter.showWarnings,
+        hiddenModels: [...hiddenModels],
       },
     }),
-    [aircraftFilter, layers, cycloneFilter],
+    [aircraftFilter, layers, cycloneFilter, hiddenModels],
   );
 
   // ── Derived state — OFF the render path ────────────────────────
@@ -439,6 +461,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       cycloneWarnings,
       cycloneFilter,
       toggleCycloneLayer,
+      hiddenModels,
+      toggleModel,
+      toggleAllModels,
       requestAircraftEnrichment,
     }),
     [
@@ -446,7 +471,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       layers, toggleLayer, aircraftFilter, filters,
       counts, activeCount, tickerItems, availableCountries,
       dataSources, correlation, cycloneWarnings, cycloneFilter,
-      toggleCycloneLayer, requestAircraftEnrichment,
+      toggleCycloneLayer, hiddenModels, toggleModel, toggleAllModels, requestAircraftEnrichment,
     ],
   );
 

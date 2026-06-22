@@ -1,5 +1,5 @@
 import { BaseProvider } from "@/features/base/BaseProvider";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { fetchCurrentStorms } from "./parseNhc";
 
 // Plain BaseProvider over one fetch of /api/cyclones/latest, like the other

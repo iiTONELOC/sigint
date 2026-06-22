@@ -1,4 +1,5 @@
-import { getInterpolatedPosition } from "@/lib/trailService";
+import { getInterpolatedPosition } from "@/lib/geo/trailService";
+import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CamState, CamTarget } from "./types";
 import { clampFlatPan } from "./projection";
@@ -49,7 +50,7 @@ export function updateCamera(
     // On mobile, the bottom sheet covers ~38% of viewport height.
     // Shift the target point UP so it lands in the center of the visible
     // area above the sheet (~19% of viewport height above center).
-    const isMobile = viewportW < 768;
+    const isMobile = isMobileWidth(viewportW);
 
     if (isFlat) {
       const targetZoom = camTarget.zoom > 0 ? camTarget.zoom : cam.zoomFlat;

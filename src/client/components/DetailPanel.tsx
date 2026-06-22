@@ -7,16 +7,14 @@ import {
   FileSearch,
   LocateFixed,
 } from "lucide-react";
-import { useHasDossier } from "@/lib/layoutSignals";
+import { useHasDossier } from "@/lib/runtime/layoutSignals";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap, filterHeadingColor } from "@/config/theme";
-import { useUnitsMode } from "@/lib/userPreferences";
+import { getColorMap } from "@/config/theme";
+import { windColor } from "@/features/environmental/cyclones/classification";
+import { useUnitsMode } from "@/lib/ui/userPreferences";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
-import { CycloneLayerToggles } from "@/features/environmental/cyclones/ui/CycloneLayerToggles";
-import { CycloneIntensityCurve } from "@/features/environmental/cyclones/ui/CycloneIntensityCurve";
-import { CycloneForecastMiniMap } from "@/features/environmental/cyclones/ui/CycloneForecastMiniMap";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
 import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
 
@@ -482,7 +480,7 @@ function PanelBody({
     <>
       {item.type === "aircraft" ? (
         <AircraftDetailSummary item={item} />
-      ) : (
+      ) : item.type === "cyclones" ? null : (
         <div className="pt-2.5 border-t border-sig-border">
           {dataRows.map(([k, v]) => (
             <div key={k} className="flex justify-between mb-1.5">
@@ -496,46 +494,23 @@ function PanelBody({
       )}
 
       {/* Coordinates */}
-      <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
-        {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-        {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
-      </div>
+      {item.type !== "cyclones" && (
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
+          {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
+          {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+        </div>
+      )}
 
       {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
       {item.type === "cyclones" && (
         <div
           style={
             {
-              "--dossier-accent": filterHeadingColor(theme, item.type),
+              "--dossier-accent": windColor(item.data.maxWindKt),
             } as React.CSSProperties
           }
         >
-          <div className="mt-1.5 pt-1.5 border-t border-sig-border">
-            <CycloneIntensityCurve storm={item.data} />
-          </div>
           <CycloneDetailExtras item={item} />
-          {item.data.forecast.length > 0 && (
-            <div className="mt-1.5 pt-1.5 border-t border-sig-border">
-              <div
-                className="text-sm font-semibold font-mono tracking-widest mb-1"
-                style={{ color: filterHeadingColor(theme, item.type) }}
-              >
-                FORECAST TRACK
-              </div>
-              <CycloneForecastMiniMap
-                current={{
-                  lat: item.lat,
-                  lon: item.lon,
-                  maxWindKt: item.data.maxWindKt,
-                }}
-                forecast={item.data.forecast}
-                pastTrack={item.data.pastTrack}
-              />
-            </div>
-          )}
-          <div className="mt-1.5 pt-1.5 border-t border-sig-border">
-            <CycloneLayerToggles />
-          </div>
           <CycloneAdvisoryBlock
             stormId={(item.data as { stormId?: string })?.stormId}
           />

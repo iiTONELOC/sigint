@@ -7,7 +7,9 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry, featureList } from "@/features/registry";
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown, Locate } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
-import { relativeAge } from "@/lib/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
+import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
+import { isMobileWidth } from "@/config/breakpoints";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -329,25 +331,11 @@ export function DataTablePane() {
     });
   }, []);
 
-  const handleRowClick = useCallback(
-    (item: DataPoint) => {
-      setSelected(item);
-      setRevealId(item.id);
-      setTimeout(() => setRevealId(null), 200);
-    },
-    [setSelected, setRevealId],
-  );
-
-  const handleZoomTo = useCallback(
-    (item: DataPoint, e: React.MouseEvent) => {
-      e.stopPropagation();
-      selectAndZoom(item);
-    },
-    [selectAndZoom],
-  );
+  const { handleClick: handleRowClick, handleZoom: handleZoomTo } =
+    useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
 
   const isMobileTable =
-    typeof window !== "undefined" && window.innerWidth < 768;
+    typeof window !== "undefined" && isMobileWidth(window.innerWidth);
   const visibleColumns = isMobileTable
     ? COLUMNS.filter((c) => !c.hideOnMobile)
     : COLUMNS;

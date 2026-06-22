@@ -9,7 +9,7 @@ let mockStorage = new Map<string, unknown>();
 let resetCalls = 0;
 let lastStepId: string | null = null;
 
-mock.module("@/lib/storageService", () => ({
+mock.module("@/lib/cache/storageService", () => ({
   cacheGet: async (key: string) => mockStorage.get(key) ?? null,
   cacheSet: async (key: string, value: unknown) => {
     mockStorage.set(key, value);
@@ -20,7 +20,7 @@ mock.module("@/lib/storageService", () => ({
   cacheInit: async () => {},
 }));
 
-mock.module("@/lib/layoutSignals", () => ({
+mock.module("@/lib/runtime/layoutSignals", () => ({
   requestWalkthroughReset: () => {
     resetCalls++;
   },
@@ -35,7 +35,7 @@ mock.module("@/lib/layoutSignals", () => ({
 }));
 
 const { Walkthrough } = await import("@/components/Walkthrough");
-const { CACHE_KEYS } = await import("@/lib/cacheKeys");
+const { CACHE_KEYS } = await import("@/lib/cache/cacheKeys");
 const { ThemeProvider } = await import("@/context/ThemeContext");
 const { DataProvider } = await import("@/context/DataContext");
 const { LayoutModeProvider } = await import("@/context/LayoutModeContext");
@@ -384,7 +384,7 @@ describe("Walkthrough", () => {
   // ── CompletionCheck logic (tested directly on step objects) ────────
 
   test("globe-select completionCheck responds to selectedId", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/walkthroughSteps");
+    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
     const step = ESSENTIAL_STEPS.find((s: any) => s.id === "globe-select");
     expect(step).toBeDefined();
     expect(step.mode).toBe("action");
@@ -393,28 +393,28 @@ describe("Walkthrough", () => {
   });
 
   test("globe-deselect completionCheck responds to selectedId null", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/walkthroughSteps");
+    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
     const step = ESSENTIAL_STEPS.find((s: any) => s.id === "globe-deselect");
     expect(step.completionCheck(new Set(), 1, 0, "Aabc123", false)).toBe(false);
     expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(true);
   });
 
   test("focus-enter completionCheck responds to chromeHidden", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/walkthroughSteps");
+    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
     const step = ESSENTIAL_STEPS.find((s: any) => s.id === "focus-enter");
     expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(false);
     expect(step.completionCheck(new Set(), 1, 0, null, true)).toBe(true);
   });
 
   test("focus-exit completionCheck responds to chromeHidden false", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/walkthroughSteps");
+    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
     const step = ESSENTIAL_STEPS.find((s: any) => s.id === "focus-exit");
     expect(step.completionCheck(new Set(), 1, 0, null, true)).toBe(false);
     expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(true);
   });
 
   test("save-preset action step description mentions VIEWS", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/walkthroughSteps");
+    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
     const step = ESSENTIAL_STEPS.find((s: any) => s.id === "save-preset");
     expect(step).toBeDefined();
     expect(step.description).toContain("VIEWS");

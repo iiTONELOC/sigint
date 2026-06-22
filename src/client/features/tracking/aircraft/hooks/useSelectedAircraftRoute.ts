@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { authenticatedFetch } from "@/lib/authService";
+import { authenticatedFetch } from "@/lib/net/authService";
 import {
   getCachedDossier,
   setCachedDossier,
   type AircraftDossier,
 } from "@/panes/dossier/dossierTypes";
-import { setSelectedRoute } from "@/lib/layoutSignals";
+import { setSelectedRoute } from "@/lib/runtime/layoutSignals";
 
 // Publishes the selected aircraft's decoded route to layoutSignals so the globe
 // can draw it on selection — not just when the dossier pane is open. Single

@@ -1,7 +1,8 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
-import { authenticatedFetch } from "@/lib/authService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { authenticatedFetch } from "@/lib/net/authService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { rampBand, type Band } from "@/lib/format/rampLookup";
 
 const EVENTS_URL = "/api/events/latest";
 const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60_000; // 7 days — rolling window
@@ -47,15 +48,17 @@ type ServerResponse = {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function toneToCategorySeverity(tone: number): {
-  category: string;
-  severity: number;
-} {
-  if (tone <= -15) return { category: "Crisis", severity: 5 };
-  if (tone <= -10) return { category: "Conflict", severity: 4 };
-  if (tone <= -5) return { category: "Tension", severity: 3 };
-  if (tone <= -1) return { category: "Concern", severity: 2 };
-  return { category: "Monitoring", severity: 1 };
+type ToneClass = { category: string; severity: number };
+
+const TONE_CLASS_BANDS: ReadonlyArray<Band<ToneClass>> = [
+  { max: -15, value: { category: "Crisis", severity: 5 } },
+  { max: -10, value: { category: "Conflict", severity: 4 } },
+  { max: -5, value: { category: "Tension", severity: 3 } },
+  { max: -1, value: { category: "Concern", severity: 2 } },
+];
+
+function toneToCategorySeverity(tone: number): ToneClass {
+  return rampBand(tone, TONE_CLASS_BANDS, { category: "Monitoring", severity: 1 });
 }
 
 function extractTitle(html?: string, url?: string): string {

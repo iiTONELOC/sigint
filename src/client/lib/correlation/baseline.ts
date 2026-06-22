@@ -3,8 +3,8 @@
 // to IndexedDB so it survives reloads and grows smarter with use.
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import type { CountryWindow, RegionBaseline } from "./types";
 import { BASELINE_BUCKETS, HOUR, getCountry, getTs } from "./shared";
 

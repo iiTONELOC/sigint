@@ -1,5 +1,6 @@
 import { Activity } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import {
   DossierToolbar,
   Section,
@@ -58,8 +59,7 @@ export function EarthquakeDossier({
           </Section>
           <Section title="POSITION">
             <div className="text-sm font-mono text-sig-dim">
-              {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
-              {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
+              {formatLat(item.lat)}, {formatLon(item.lon)}
             </div>
           </Section>
           {url && (

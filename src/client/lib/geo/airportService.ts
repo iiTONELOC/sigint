@@ -4,8 +4,8 @@
 // DecompressionStream("gzip") — the same gzip transport storageService uses.
 // Mirrors landService's cache + in-flight-waiter pattern.
 
-import { cacheGet, cacheSet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 type AirportMap = Record<string, [number, number]>;
 

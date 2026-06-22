@@ -3,7 +3,7 @@
 // allData, so UIContext's `idMap.get(id) ?? selected` falls back to this object.
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { geometryCentroid } from "@/lib/pointInPolygon";
+import { geometryCentroid } from "@/lib/geo/pointInPolygon";
 import type { CycloneWarning } from "./warnings";
 
 export const WARNING_TYPE = "cyclones-warning";

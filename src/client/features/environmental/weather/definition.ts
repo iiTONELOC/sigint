@@ -3,14 +3,7 @@ import type { FeatureDefinition, BasePoint } from "@/features/base/types";
 import type { WeatherData, WeatherFilter } from "./types";
 import { buildWeatherDetailRows } from "./detailRows";
 import { WeatherTickerContent } from "./ui/WeatherTickerContent";
-
-const SEVERITY_RANK: Record<string, number> = {
-  Extreme: 4,
-  Severe: 3,
-  Moderate: 2,
-  Minor: 1,
-  Unknown: 0,
-};
+import { weatherSeverityRank } from "./severity";
 
 export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter> = {
   id: "weather",
@@ -24,7 +17,7 @@ export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter> = {
   ) => {
     if (!filter.enabled) return false;
     if (filter.minSeverity > 0) {
-      const rank = SEVERITY_RANK[_item.data?.severity ?? "Unknown"] ?? 0;
+      const rank = weatherSeverityRank(_item.data?.severity);
       if (rank < filter.minSeverity) return false;
     }
     return true;

@@ -120,6 +120,9 @@
   --sig-text-title: clamp(14px, 3vw, 24px);
   --sig-text-subtitle: clamp(10px, 1.8vw, 16px);
   --sig-text-clock: clamp(11px, 1.5vw, 15px);
+  /* Big stat value (MAX WIND / PRESSURE). Caps just under --sig-text-title so
+     it never balloons in a wide pane; viewport-anchored, not cqi. */
+  --sig-text-cqtitle: clamp(16px, 2.5cqi, 21px);
 }
 
 .dark {
@@ -202,6 +205,33 @@
   }
 }
 
+@keyframes windsock-flutter {
+  0%,
+  100% {
+    transform: rotate(calc(var(--sock-sway) * -1));
+  }
+  50% {
+    transform: rotate(var(--sock-sway));
+  }
+}
+
+@keyframes wind-streak {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(80px);
+    opacity: 0;
+  }
+}
+
 /* ── Global button affordance ─────────────────────────────────────── */
 button:not(:disabled) {
   cursor: pointer;
@@ -229,6 +259,21 @@ button:focus-visible {
     min-height: 36px;
     min-width: 36px;
     padding: 0.5rem;
+  }
+  /* Resize handles stay visually thin (6px) but get a finger-sized invisible
+     hit area on touch devices via a centered ::before overlay. */
+  .touch-resize::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+  }
+  .touch-resize.cursor-col-resize::before {
+    inset-block: 0;
+    inset-inline: -9px;
+  }
+  .touch-resize.cursor-row-resize::before {
+    inset-inline: 0;
+    inset-block: -9px;
   }
   .sigint-scroll {
     scrollbar-width: none;

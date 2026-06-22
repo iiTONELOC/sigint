@@ -27,7 +27,7 @@ export function CycloneAdvisoryBlock({
     <div className="mt-1.5 pt-1.5 border-t border-sig-border space-y-2">
       <CollapsibleSection title={advisoryTitle} defaultOpen={false}>
         {advisory ? (
-          <pre className="text-xs text-sig-text whitespace-pre-wrap font-mono max-h-48 overflow-y-auto sigint-scroll">
+          <pre className="text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap font-mono max-h-48 overflow-y-auto sigint-scroll">
             {advisory.body}
           </pre>
         ) : (
@@ -39,7 +39,7 @@ export function CycloneAdvisoryBlock({
 
       {discussion ? (
         <CollapsibleSection title="DISCUSSION" defaultOpen={false}>
-          <pre className="text-xs text-sig-text whitespace-pre-wrap font-mono max-h-48 overflow-y-auto sigint-scroll">
+          <pre className="text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap font-mono max-h-48 overflow-y-auto sigint-scroll">
             {discussion.body}
           </pre>
         </CollapsibleSection>

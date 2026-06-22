@@ -7,7 +7,11 @@
 // All JSON responses cached in memory with TTL. The aircraft photo is fetched
 // client-side (useAircraftPhoto) so it isn't blocked on the server IP.
 
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import {
+  fetchWithTimeout,
+  FETCH_TIMEOUT_STANDARD_MS,
+  FETCH_TIMEOUT_FLIGHTAWARE_MS,
+} from "../lib/fetchWithTimeout";
 
 // ── Config ───────────────────────────────────────────────────────────
 
@@ -15,8 +19,6 @@ const HEXDB_BASE = "https://hexdb.io";
 const FLIGHTAWARE_BASE = "https://www.flightaware.com/live/flight";
 const CACHE_TTL_MS = 30 * 60_000;
 const ROUTE_CACHE_TTL_MS = 5 * 60_000; // 5 min for live route data
-const FETCH_TIMEOUT_MS = 8_000;
-const FA_FETCH_TIMEOUT_MS = 12_000; // FA pages are heavier
 
 // ── Input sanitization ───────────────────────────────────────────────
 
@@ -193,7 +195,7 @@ async function scrapeFlightAware(callsign: string): Promise<LiveRoute | null> {
 
   try {
     const url = `${FLIGHTAWARE_BASE}/${encodeURIComponent(callsign)}`;
-    const res = await fetchWithTimeout(url, FA_FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_FLIGHTAWARE_MS);
     if (!res.ok) {
       setCached(cacheKey, false, ROUTE_CACHE_TTL_MS);
       return null;
@@ -329,7 +331,7 @@ async function fetchAircraftInfo(hex: string): Promise<HexDbAircraft | null> {
   if (cached) return cached;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/aircraft/${hex}`, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/aircraft/${hex}`, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) return null;
     const data = await res.json();
     if (data?.status === "404") return null;
@@ -346,7 +348,7 @@ async function fetchHexDbRoute(callsign: string): Promise<LiveRoute | null> {
   if (cached !== null) return cached || null;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/route/icao/${callsign}`, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/route/icao/${callsign}`, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) {
       setCached(cacheKey, false, CACHE_TTL_MS);
       return null;
@@ -397,7 +399,7 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
   if (cached) return cached;
 
   try {
-    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/airport/icao/${icao}`, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${HEXDB_BASE}/api/v1/airport/icao/${icao}`, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) return null;
     const data = await res.json();
     if (data?.status === "404") return null;

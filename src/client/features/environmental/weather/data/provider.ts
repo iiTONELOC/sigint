@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 const ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert";

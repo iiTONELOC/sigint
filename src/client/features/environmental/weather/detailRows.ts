@@ -1,4 +1,4 @@
-import { relativeAge, formatTime } from "@/lib/timeFormat";
+import { relativeAge, formatTime } from "@/lib/format/timeFormat";
 import type { WeatherData } from "./types";
 
 export function buildWeatherDetailRows(

@@ -2,7 +2,7 @@
 // speed all arrive in knots; how they're shown follows the user's Units pref
 // (Settings → Appearance), defaulting to "both". Single source for the
 // conversions that used to be inlined across the cyclone/aircraft/ship displays.
-import { getUnitsMode } from "@/lib/userPreferences";
+import { getUnitsMode } from "@/lib/ui/userPreferences";
 
 export const KT_TO_MPH = 1.15078;
 export const KT_TO_KMH = 1.852;

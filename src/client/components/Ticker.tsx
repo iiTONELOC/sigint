@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { useData } from "@/context/DataContext";
-import { cacheGet } from "@/lib/storageService";
-import { CACHE_KEYS } from "@/lib/cacheKeys";
-import { useUnitsMode } from "@/lib/userPreferences";
+import { cacheGet } from "@/lib/cache/storageService";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { useUnitsMode } from "@/lib/ui/userPreferences";
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { relativeAge } from "@/lib/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
 import { featureRegistry } from "@/features/registry";
 
 type TickerProps = {

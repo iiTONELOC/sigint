@@ -17,14 +17,13 @@
 
 import { getStormProducts } from "./cyclonesCache";
 import { unzipSingleEntryKmz } from "./zipReader";
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
-import { createPerKeyCache } from "../lib/perKeyCache";
+import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
+import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
+import { isFiniteCoordinate } from "../lib/geoValidation";
 
 // ── Config ───────────────────────────────────────────────────────────
 
 export const CONE_CACHE_TTL_MS = 60 * 60_000;
-const FETCH_TIMEOUT_MS = 8_000;
-const PURGE_INTERVAL_MS = 10 * 60_000;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -56,7 +55,7 @@ export function parseKmlConeToGeoJSON(kml: string): GeoJSONPolygon | null {
     if (parts.length < 2) throw new Error("Malformed coordinate triple");
     const lon = Number.parseFloat(parts[0]!);
     const lat = Number.parseFloat(parts[1]!);
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+    if (!isFiniteCoordinate(lat, lon)) {
       throw new Error("Malformed coordinate value");
     }
     ring.push([lon, lat]);
@@ -71,7 +70,7 @@ async function fetchConeForStorm(stormId: string): Promise<GeoJSONPolygon | null
   const products = getStormProducts(stormId);
   if (!products?.conekmzUrl) return null;
   try {
-    const res = await fetchWithTimeout(products.conekmzUrl, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(products.conekmzUrl, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     const kml = await unzipSingleEntryKmz(new Uint8Array(buf));

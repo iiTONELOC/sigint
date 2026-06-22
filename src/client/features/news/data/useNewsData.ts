@@ -3,6 +3,7 @@
 // getData() handles hydration internally. Starts empty, data trickles in.
 
 import { useEffect, useState } from "react";
+import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { newsProvider, type NewsArticle } from "./newsProvider";
 
 type NewsDataSource = "loading" | "live" | "cached" | "error" | "empty";
@@ -13,8 +14,6 @@ type UseNewsDataResult = {
   error: Error | null;
   dataSource: NewsDataSource;
 };
-
-const POLL_INTERVAL = 600_000; // 10 min
 
 export function useNewsData(): UseNewsDataResult {
   const [data, setData] = useState<NewsArticle[]>([]);
@@ -71,7 +70,7 @@ export function useNewsData(): UseNewsDataResult {
         setLoading(false);
         setDataSource("error");
       }
-    }, POLL_INTERVAL);
+    }, POLL_INTERVALS.news);
 
     return () => {
       isMounted = false;

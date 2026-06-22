@@ -8,14 +8,13 @@
 
 import { getStormProducts } from "./cyclonesCache";
 import { getCycloneCone } from "./cyclonesConeCache";
-import { getCycloneAtcf } from "./cyclonesAtcfCache";
+import { getCycloneAtcf, getCycloneModels } from "./cyclonesAtcfCache";
 import { unzipSingleEntryKmz } from "./zipReader";
-import { fetchWithTimeout } from "../lib/fetchWithTimeout";
+import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
+import { isFiniteCoordinate } from "../lib/geoValidation";
 
 const logger = createLogger({ service: "nhc" });
-
-const FETCH_TIMEOUT_MS = 8_000;
 
 // Field names match what client parseNhc.toForecastPoint maps from.
 export type TrackForecastPoint = {
@@ -44,7 +43,7 @@ function pointCoords(placemark: string): { lon: number; lat: number } | null {
   const parts = first.split(",");
   const lon = Number.parseFloat(parts[0] ?? "");
   const lat = Number.parseFloat(parts[1] ?? "");
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  if (!isFiniteCoordinate(lat, lon)) return null;
   return { lon, lat };
 }
 
@@ -97,7 +96,7 @@ async function fetchForecastTrack(stormId: string): Promise<TrackForecastPoint[]
   const url = products?.trackKmzUrl;
   if (!url) return [];
   try {
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_STANDARD_MS);
     if (!res.ok) return [];
     const buf = await res.arrayBuffer();
     const kml = await unzipSingleEntryKmz(new Uint8Array(buf));
@@ -117,15 +116,20 @@ export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
       const rawId = obj.id;
       if (typeof rawId !== "string") return;
       const stormId = rawId.toUpperCase();
-      const [forecast, coneResult, atcf] = await Promise.all([
+      const [forecast, coneResult, atcf, modelsResult] = await Promise.all([
         fetchForecastTrack(stormId),
         getCycloneCone(stormId).catch(() => ({ cone: null })),
         getCycloneAtcf(stormId).catch(() => ({ radii: null, track: [] })),
+        getCycloneModels(stormId).catch(() => ({ models: [] })),
       ]);
-      obj.forecast = forecast;
+      // Gap-fill, never destroy: a fixture (or NHC payload) that already inlines
+      // a forecast keeps it when the product fetch returns nothing.
+      if (forecast.length > 0) obj.forecast = forecast;
+      else if (!Array.isArray(obj.forecast)) obj.forecast = [];
       if (coneResult.cone) obj.officialCone = coneResult.cone;
       if (atcf.radii) obj.windRadii = atcf.radii;
       if (atcf.track && atcf.track.length > 0) obj.pastTrack = atcf.track;
+      if (modelsResult.models.length > 0) obj.models = modelsResult.models;
     }),
   );
   logger.info("🌀 NHC: forecast track + cone enrichment complete");

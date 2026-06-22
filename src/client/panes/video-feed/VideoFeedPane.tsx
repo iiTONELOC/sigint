@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useWalkthroughActive, setVideoPresetCount } from "@/lib/layoutSignals";
+import { useWalkthroughActive, setVideoPresetCount } from "@/lib/runtime/layoutSignals";
 import {
   Square,
   Columns2,

@@ -1,7 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
-import type { CorrelationResult, RegionBaseline } from "./correlation";
-import { computeCorrelations } from "./correlation";
+import type { CorrelationResult, RegionBaseline } from "../correlation";
+import { computeCorrelations } from "../correlation";
 
 type Job = {
   requestId: number;

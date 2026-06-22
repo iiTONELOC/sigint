@@ -1,4 +1,4 @@
-import { getInterpolatedPosition, type TrailPoint } from "@/lib/trailService";
+import { getInterpolatedPosition, type TrailPoint } from "@/lib/geo/trailService";
 import { matchesAircraftFilter } from "@/features/tracking/aircraft";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type {
@@ -18,10 +18,10 @@ import {
   queryNearest,
   screenToLatLonGlobe,
   screenToLatLonFlat,
-} from "@/lib/spatialIndex";
-import { pointInPolygon } from "@/lib/pointInPolygon";
+} from "@/lib/geo/spatialIndex";
+import { pointInPolygon } from "@/lib/geo/pointInPolygon";
 import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
-import { getSelectedRoute } from "@/lib/layoutSignals";
+import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
 
 export type InputRefs = {
   canvas: HTMLCanvasElement;
