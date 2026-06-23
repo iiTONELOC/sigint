@@ -23,6 +23,7 @@ import {
 import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
 import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { weatherSeverityRank, severityMeta } from "@/features/environmental/weather/severity";
 
 // ── Shared render worker (survives globe remounts) ──────────────────
 // The PaneManager re-parents the globe leaf when a pane (e.g. the dossier)
@@ -209,6 +210,10 @@ export function GlobeVisualization({
   // Warning polygons (region geometry) are sent to the worker as their own
   // "warnings" message when the array OR the theme changes — small + rare.
   const lastSentWarningsRef = useRef<unknown>(null);
+  // NWS weather-alert polygons — rebuilt from the weather points (which carry
+  // the alert geometry) and posted when the data or theme changes.
+  const lastSentWxDataRef = useRef<DataPoint[] | null>(null);
+  const lastSentWxThemeRef = useRef<typeof theme | null>(null);
   // ── External zoom-to trigger (from search) ──────────────────────────
   const lastZoomToIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -558,6 +563,33 @@ export function GlobeVisualization({
               features: warnings,
               warnColor: colorsRef.current.cycWarning,
               watchColor: colorsRef.current.cycWatch,
+            },
+          });
+        }
+
+        // NWS weather-alert polygons — rebuilt from the weather points (which
+        // carry the alert geometry) and posted on data/theme change. Drawn by
+        // the worker under the weather layer toggle, severity-coloured.
+        if (d !== lastSentWxDataRef.current || themeRef.current !== lastSentWxThemeRef.current) {
+          lastSentWxDataRef.current = d;
+          lastSentWxThemeRef.current = themeRef.current;
+          const wxFeatures: { id: string; kind: string; geometry: unknown }[] = [];
+          for (const it of d) {
+            if (it.type !== "weather") continue;
+            const wd = (it as { data?: { geometry?: unknown; severity?: string } }).data;
+            if (!wd?.geometry) continue;
+            wxFeatures.push({
+              id: it.id,
+              kind: weatherSeverityRank(wd.severity) >= 3 ? "warning" : "watch",
+              geometry: wd.geometry,
+            });
+          }
+          worker.postMessage({
+            type: "wxAlerts",
+            payload: {
+              features: wxFeatures,
+              warnColor: severityMeta("Extreme").ink,
+              watchColor: severityMeta("Moderate").ink,
             },
           });
         }

@@ -114,6 +114,9 @@ function toDataPoint(f: NWSFeature): DataPoint | null {
       messageType: props.messageType,
       category: props.category,
       response: props.response,
+      // Retained so the worker can draw the actual alert AREA, not just the
+      // centroid marker. Only present for storm-based (polygon) alerts.
+      geometry: f.geometry ?? undefined,
     },
   } as DataPoint;
 }

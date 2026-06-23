@@ -1,9 +1,10 @@
 // ── NASA FIRMS server-side cache ─────────────────────────────────────
-// Fetches the KEYLESS global VIIRS NOAA-20 "last 24h" bulk CSV from NASA
-// FIRMS every 30 min — no API key, ~75k rows, full day + night coverage.
-// The keyed api/area NRT query thinned out and dropped points at night;
-// the bulk file is a static no-quota file. Parsed into structured records,
-// cached in memory, served via /api/fires/latest with token auth.
+// Pulls the KEYLESS global "last 24h" VIIRS bulk file, polled every 30 min. The
+// three birds (NOAA-20, S-NPP, NOAA-21) are tried in priority order as FAILOVER:
+// the first feed that returns data wins, so if one platform's feed is down or
+// empty the next covers it — without unioning them (which only duplicates the
+// same fires). Parsed into structured records, cached in memory, served via
+// /api/fires/latest.
 
 import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
@@ -13,10 +14,13 @@ import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
 
 const logger = createLogger({ service: "firms" });
 
-// Keyless global bulk file. One column shorter than the keyed api/area CSV
-// (it omits `instrument`), so parseFirmsCsv maps fields by header name.
-const FIRMS_URL =
-  "https://firms.modaps.eosdis.nasa.gov/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv";
+const FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov";
+// Failover priority order — first feed that returns data wins.
+const FIRMS_BULK_FEEDS = [
+  { label: "NOAA-20", url: `${FIRMS_BASE}/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv` },
+  { label: "S-NPP", url: `${FIRMS_BASE}/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv` },
+  { label: "NOAA-21", url: `${FIRMS_BASE}/data/active_fire/noaa-21-viirs-c2/csv/J2_VIIRS_C2_Global_24h.csv` },
+] as const;
 const POLL_INTERVAL_MS = 30 * 60_000; // 30 min
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -127,38 +131,43 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
 
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
+// Fetch + parse one feed. Returns parsed records, or null on any failure so the
+// failover can move to the next feed. A non-CSV body (error/maintenance page)
+// has no header row — guard on that.
+async function fetchOneSource(url: string, label: string): Promise<FireRecord[] | null> {
+  try {
+    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS);
+    if (!res.ok) {
+      logger.warn(`🔥 FIRMS: ${label} returned ${res.status}`);
+      return null;
+    }
+    const body = await res.text();
+    if (!body.toLowerCase().includes("latitude")) {
+      logger.warn(`🔥 FIRMS: ${label} non-CSV response — ${body.slice(0, 120)}`);
+      return null;
+    }
+    return parseFirmsCsv(body);
+  } catch (err) {
+    logger.warn(`🔥 FIRMS: ${label} fetch failed — ${errorMessage(err, "unknown")}`);
+    return null;
+  }
+}
+
 async function fetchFirms(): Promise<void> {
   try {
-    const res = await fetchWithTimeout(FIRMS_URL, FETCH_TIMEOUT_LARGE_MS);
-
-    if (!res.ok) {
-      cache = { ...cache, error: `FIRMS returned ${res.status}` };
-      return;
+    // Failover: try feeds in priority order, take the first that returns data.
+    for (const feed of FIRMS_BULK_FEEDS) {
+      const rows = await fetchOneSource(feed.url, feed.label);
+      if (rows && rows.length > 0) {
+        cache = { data: rows, fetchedAt: Date.now(), fireCount: rows.length, error: null };
+        logger.info(`🔥 FIRMS: ${rows.length} hotspots loaded (${feed.label})`);
+        return;
+      }
     }
 
-    const csv = await res.text();
-    const records = parseFirmsCsv(csv);
-
-    // If upstream returned valid response but 0 records (quota exhausted,
-    // temporary outage), retain stale cache instead of overwriting with empty
-    if (records.length === 0 && cache.data && cache.data.length > 0) {
-      logger.info(
-        "🔥 FIRMS: upstream returned 0 records — retaining stale cache",
-      );
-      cache = { ...cache, error: "Upstream returned 0 records" };
-      return;
-    }
-
-    cache = {
-      data: records,
-      fetchedAt: Date.now(),
-      fireCount: records.length,
-      error: null,
-    };
-
-    if (records.length > 0) {
-      logger.info(`🔥 FIRMS: ${records.length} fire hotspots loaded`);
-    }
+    // No feed returned data — retain the last good cache rather than blank.
+    logger.info("🔥 FIRMS: no feed returned data — retaining stale cache");
+    cache = { ...cache, error: "All FIRMS feeds empty/failed" };
   } catch (err) {
     cache = {
       ...cache,
@@ -169,11 +178,10 @@ async function fetchFirms(): Promise<void> {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-// apiKey kept for call-site compatibility; the keyless bulk feed ignores it.
 const poller = createPoller(fetchFirms, POLL_INTERVAL_MS);
 
 export function startFirmsPolling(_apiKey?: string | undefined): void {
-  logger.info("🔥 FIRMS: starting poll (keyless global 24h feed)...");
+  logger.info(`🔥 FIRMS: starting poll (merging ${FIRMS_BULK_FEEDS.length} VIIRS bulk feeds, last 24h)...`);
   poller.start();
 }
 

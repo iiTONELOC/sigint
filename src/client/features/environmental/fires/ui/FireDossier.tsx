@@ -1,13 +1,13 @@
 import { Flame } from "lucide-react";
+import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import {
-  DossierToolbar,
-  Section,
-  Row,
-  LinkRow,
-  useDossierFocus,
-} from "@/panes/dossier/DossierAtoms";
+import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
+import type { FireData } from "../types";
+import { frpInk } from "../intensity";
+import { FireIdentityCard } from "./FireIdentityCard";
+import { ThermalSignature } from "./ThermalSignature";
+import { FrpScale } from "./FrpScale";
+import { DetectionFootprint } from "./DetectionFootprint";
 
 type Props = {
   readonly item: DataPoint;
@@ -26,29 +26,24 @@ export function FireDossier({
   onSolo,
   onClose,
 }: Props) {
-  const d = (item.data as Record<string, any>) ?? {};
-  const {
-    frp,
-    brightness,
-    brightT31,
-    confidence,
-    satellite,
-    instrument,
-    daynight,
-    scan,
-    track,
-    acqDate,
-    acqTime,
-  } = d;
+  const d = (item.data as FireData) ?? {};
+  const frp = d.frp ?? 0;
+  const fireK = d.brightness;
+  const bgK = d.brightT31;
+  const hasThermal = fireK != null && fireK > 0 && bgK != null && bgK > 0;
+  const { scan, track } = d;
   const closeBtnRef = useDossierFocus(item.id);
-  const title = `Fire Hotspot${frp ? ` — FRP ${(frp as number).toFixed(1)} MW` : ""}`;
+  const title = frp > 0 ? `Fire hotspot — ${frp.toFixed(1)} MW` : "Fire hotspot";
 
   return (
-    <div className="h-full flex flex-col">
+    <div
+      className="h-full min-w-0 flex flex-col"
+      style={{ "--dossier-accent": frpInk(frp) } as CSSProperties}
+    >
       <DossierToolbar
         icon={Flame}
         title={title}
-        subtitle="FIRE HOTSPOT"
+        subtitle="ACTIVE FIRE"
         isolateMode={isolateMode}
         onLocate={onLocate}
         onFocus={onFocus}
@@ -56,70 +51,61 @@ export function FireDossier({
         onClose={onClose}
         closeButtonRef={closeBtnRef}
       />
-      <div className="flex-1 overflow-y-auto sigint-scroll">
-        <div className="p-3 space-y-3">
-          <Section title="THERMAL">
-            {frp != null && (frp as number) > 0 && (
-              <Row label="FRP" value={`${(frp as number).toFixed(1)} MW`} />
-            )}
-            {brightness != null && (brightness as number) > 0 && (
-              <Row
-                label="BRIGHTNESS"
-                value={`${(brightness as number).toFixed(1)} K`}
+      <div className="@container/fire flex-1 min-w-0 overflow-y-auto sigint-scroll p-3">
+        <div className="w-full max-w-200 mx-auto">
+          <div className="grid w-full min-w-0 grid-cols-1 @min-[40rem]/fire:grid-cols-2 gap-3 items-start *:min-w-0">
+            <div className="@min-[40rem]/fire:col-span-2">
+              <FireIdentityCard
+                frp={frp}
+                confidence={d.confidence}
+                fireK={fireK}
+                bgK={bgK}
+                lat={item.lat}
+                lon={item.lon}
+                scan={d.scan}
+                track={d.track}
+                daynight={d.daynight}
+                satellite={d.satellite}
+                instrument={d.instrument}
+                timestamp={item.timestamp}
               />
-            )}
-            {brightT31 != null && (brightT31 as number) > 0 && (
-              <Row
-                label="BRIGHT T31"
-                value={`${(brightT31 as number).toFixed(1)} K`}
-              />
-            )}
-            {confidence && (
-              <Row
-                label="CONFIDENCE"
-                value={(confidence as string).toUpperCase()}
-              />
-            )}
-          </Section>
-          <Section title="DETECTION">
-            {satellite && <Row label="SATELLITE" value={satellite as string} />}
-            {instrument && (
-              <Row label="INSTRUMENT" value={instrument as string} />
-            )}
-            {daynight && (
-              <Row
-                label="TIME"
-                value={daynight === "D" ? "DAYTIME" : "NIGHTTIME"}
-              />
-            )}
-            {scan != null && track != null && (
-              <Row
-                label="PIXEL"
-                value={`${(scan as number).toFixed(1)} × ${(track as number).toFixed(1)} km`}
-              />
-            )}
-            {acqDate && (
-              <Row
-                label="DATE"
-                value={`${acqDate}${acqTime ? ` ${(acqTime as string).slice(0, 2)}:${(acqTime as string).slice(2)}Z` : ""}`}
-              />
-            )}
-          </Section>
-          <Section title="POSITION">
-            <div className="text-sm font-mono text-sig-dim">
-              {formatLat(item.lat)}, {formatLon(item.lon)}
             </div>
-          </Section>
-          <Section title="INTEL LINKS">
-            <LinkRow
-              label="NASA FIRMS Map"
-              href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${item.lon},${item.lat},10z`}
-            />
-            <LinkRow
-              label="Google Maps (Satellite)"
-              href={`https://www.google.com/maps/@${item.lat},${item.lon},14z/data=!3m1!1e1`}
-            />
-          </Section>
+
+            {hasThermal && (
+              <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+                <Section title="THERMAL SIGNATURE">
+                  <ThermalSignature fireK={fireK} bgK={bgK} frp={frp} />
+                </Section>
+              </section>
+            )}
+
+            <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+              <Section title="INTENSITY">
+                <FrpScale frp={frp} />
+              </Section>
+            </section>
+
+            {scan != null && track != null && (
+              <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+                <Section title="DETECTION FOOTPRINT">
+                  <DetectionFootprint scan={scan} track={track} />
+                </Section>
+              </section>
+            )}
+
+            <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+              <Section title="INTEL LINKS">
+                <LinkRow
+                  label="NASA FIRMS Map"
+                  href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${item.lon},${item.lat},10z`}
+                />
+                <LinkRow
+                  label="Google Maps (Satellite)"
+                  href={`https://www.google.com/maps/@${item.lat},${item.lon},14z/data=!3m1!1e1`}
+                />
+              </Section>
+            </section>
+          </div>
         </div>
       </div>
     </div>

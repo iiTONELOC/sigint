@@ -20,10 +20,10 @@ const SETTINGS: Record<
 > = {
   aircraft: {
     minMoveDeg: 0.001, // ~100m
-    maxTrailPoints: 50, // ~3.3 hours at 4-min intervals
-    maxMissedRefreshes: 8, // ~32 min
-    missThresholdMs: 180_000, // 3 min — one poll interval
-    staleMs: 900_000, // 15 min unseen (landed/arrived) — drop the trail
+    maxTrailPoints: 120, // ~30 min of history at the 15s aircraft poll
+    maxMissedRefreshes: 8, // legacy — prune is now time-based (see staleMs)
+    missThresholdMs: 180_000, // 3 min
+    staleMs: 900_000, // 15 min unseen (landed/left coverage) — drop the trail
   },
   ships: {
     minMoveDeg: 0.0002, // ~22m — ships move slowly
@@ -250,23 +250,14 @@ export function recordPositions(
     }
   }
 
-  // Prune tracks that haven't been seen — type-aware thresholds
+  // Prune only tracks gone long enough to have landed / left coverage. Purely
+  // time-based on staleMs so it's independent of poll cadence — a brief feed gap
+  // must NOT erase a watched plane's trail. (The old missed-refresh counter
+  // deleted ~16x too early once the aircraft poll dropped to 15s, which wiped
+  // trails mid-flight and restarted them.)
   for (const [id, entry] of trails) {
-    if (!seenIds.has(id)) {
-      const cfg = getSettings(id);
-      // Hard cutoff: a flight that's been gone this long has arrived/landed —
-      // drop the trail outright so stale paths don't accumulate.
-      if (now - entry.lastSeen > cfg.staleMs) {
-        trails.delete(id);
-        continue;
-      }
-      if (now - entry.lastSeen > cfg.missThresholdMs) {
-        entry.missedRefreshes++;
-        if (entry.missedRefreshes > cfg.maxMissedRefreshes) {
-          trails.delete(id);
-        }
-      }
-    }
+    if (seenIds.has(id)) continue;
+    if (now - entry.lastSeen > getSettings(id).staleMs) trails.delete(id);
   }
 
   trailsRev++;

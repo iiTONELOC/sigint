@@ -9,6 +9,55 @@ export const KT_TO_KMH = 1.852;
 export const KT_TO_MPS = 0.5144;
 export const NM_TO_KM = 1.852;
 export const KM_TO_MI = 0.621371;
+export const KELVIN_OFFSET = 273.15;
+
+/** Kelvin → Celsius. */
+export function kelvinToC(k: number): number {
+  return k - KELVIN_OFFSET;
+}
+
+/** Celsius → Fahrenheit. */
+export function cToF(c: number): number {
+  return (c * 9) / 5 + 32;
+}
+
+export const KM_TO_M = 1000;
+export const M_TO_FT = 3.28084;
+
+/** Sub-km footprint (two dims, in km), unit-pref aware like formatKmMi: both
+ *  metres + feet by default, or one under an explicit pref —
+ *  `330 × 550 m (1083 × 1804 ft)` / `330 × 550 m` / `1083 × 1804 ft`. */
+export function formatPixelKm(scanKm: number, trackKm: number): string {
+  const sm = Math.round(scanKm * KM_TO_M);
+  const tm = Math.round(trackKm * KM_TO_M);
+  const sf = Math.round(scanKm * KM_TO_M * M_TO_FT);
+  const tf = Math.round(trackKm * KM_TO_M * M_TO_FT);
+  switch (getUnitsMode()) {
+    case "mph":
+      return `${sf} × ${tf} ft`;
+    case "kt":
+    case "kmh":
+      return `${sm} × ${tm} m`;
+    default:
+      return `${sm} × ${tm} m (${sf} × ${tf} ft)`;
+  }
+}
+
+/** Brightness/air temp in Kelvin, unit-pref aware: `33 °C (91 °F)` / `33 °C` /
+ *  `91 °F`. Mirrors formatKmMi — imperial under the mph pref, metric otherwise. */
+export function formatTempCF(kelvin: number): string {
+  const c = kelvinToC(kelvin);
+  const f = cToF(c);
+  switch (getUnitsMode()) {
+    case "mph":
+      return `${Math.round(f)} °F`;
+    case "kt":
+    case "kmh":
+      return `${Math.round(c)} °C`;
+    default:
+      return `${Math.round(c)} °C (${Math.round(f)} °F)`;
+  }
+}
 
 /** Kilometres → whole miles. */
 export function kmToMi(km: number): number {

@@ -160,8 +160,9 @@ function connect(): void {
       }
     });
 
-    ws.on("close", (code: number) => {
-      logger.warn(`🚢 AIS: WebSocket closed (code: ${code})`);
+    ws.on("close", (code: number, reason: Buffer) => {
+      const why = reason?.length ? ` — ${reason.toString("utf8")}` : "";
+      logger.warn(`🚢 AIS: WebSocket closed (code: ${code})${why}`);
       wsConnection = null;
       scheduleReconnect();
     });

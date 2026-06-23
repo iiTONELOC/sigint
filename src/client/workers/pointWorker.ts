@@ -514,7 +514,14 @@ function drawTrail(
 ): HitTarget[] {
   const trail = selectedItem?._trail;
   if (!selectedItem || !trail || trail.length < 1) return [];
-  const coords: TrailPoint[] = trail.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
+  const coords: TrailPoint[] = trail.map((p) => ({
+    lat: p.lat,
+    lon: p.lon,
+    ts: p.ts,
+    altitude: p.altitude,
+    speed: p.speed,
+    heading: p.heading,
+  }));
   const interp = getInterp(selectedItem.id);
   if (interp) coords.push({ lat: interp.lat, lon: interp.lon, ts: Date.now() });
   if (coords.length < 2) return [];
@@ -671,6 +678,13 @@ let _warnings: WarningFeature[] | null = null;
 let _warnColor = "#ff1a6e";
 let _watchColor = "#ffb300";
 
+// NWS weather-alert polygons + severity fill colours, set by the "wxAlerts"
+// message and drawn each frame under the weather layer toggle. Defaults are the
+// weather violet/magenta palette so an unset frame never flashes off-palette.
+let _wxAlerts: WarningFeature[] | null = null;
+let _wxWarnColor = "#e64980";
+let _wxWatchColor = "#9775fa";
+
 // Progressive reveal: the main thread hands the full data array once per change;
 // the worker reveals it in chunks across its own render ticks. Preserved across
 // same-length updates so the ramp doesn't restart.
@@ -745,6 +759,13 @@ globalThis.onmessage = (e: MessageEvent<WorkerMsg>) => {
     _warnings = msg.payload.features || null;
     if (msg.payload.warnColor) _warnColor = msg.payload.warnColor;
     if (msg.payload.watchColor) _watchColor = msg.payload.watchColor;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "wxAlerts") {
+    _wxAlerts = msg.payload.features || null;
+    if (msg.payload.warnColor) _wxWarnColor = msg.payload.warnColor;
+    if (msg.payload.watchColor) _wxWatchColor = msg.payload.watchColor;
     scheduleRender();
     return;
   }
@@ -1184,6 +1205,18 @@ function renderFrame(): void {
       { ctx, proj: projFn, isFlat, gcx: cx, gcy: cy, gr, prims: { simpleDraw, drawClippedPoly } },
       _warnings,
       { warn: _warnColor, watch: _watchColor },
+      selId ?? null,
+      t,
+    );
+  }
+
+  // ── NWS weather-alert areas (under the markers, gated by the layer toggle) ──
+  if (layers.weather !== false && _wxAlerts && _wxAlerts.length > 0) {
+    const gr = isFlat ? 0 : globeR - 0.5;
+    drawWarnings(
+      { ctx, proj: projFn, isFlat, gcx: cx, gcy: cy, gr, prims: { simpleDraw, drawClippedPoly } },
+      _wxAlerts,
+      { warn: _wxWarnColor, watch: _wxWatchColor },
       selId ?? null,
       t,
     );

@@ -120,6 +120,11 @@ function toDataPoint(f: GdeltFeature, idx: number): DataPoint | null {
       tone: isFinite(tone) ? tone : undefined,
       severity,
       locationName: props.name ?? undefined,
+      goldstein: props.goldstein,
+      mentions: props.mentions,
+      actor1: props.actor1 || undefined,
+      actor2: props.actor2 || undefined,
+      eventCode: props.eventCode || undefined,
     },
   } as DataPoint;
 }

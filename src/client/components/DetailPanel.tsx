@@ -18,6 +18,9 @@ import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/Cyclo
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
 import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
 import { EarthquakeDetailSummary } from "@/features/environmental/earthquake/ui/EarthquakeDetailSummary";
+import { FireDetailSummary } from "@/features/environmental/fires/ui/FireDetailSummary";
+import { WeatherDetailSummary } from "@/features/environmental/weather/ui/WeatherDetailSummary";
+import { EventDetailSummary } from "@/features/intel/events/ui/EventDetailSummary";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -483,6 +486,12 @@ function PanelBody({
         <AircraftDetailSummary item={item} />
       ) : item.type === "quakes" ? (
         <EarthquakeDetailSummary item={item} />
+      ) : item.type === "fires" ? (
+        <FireDetailSummary item={item} />
+      ) : item.type === "weather" ? (
+        <WeatherDetailSummary item={item} />
+      ) : item.type === "events" ? (
+        <EventDetailSummary item={item} />
       ) : item.type === "cyclones" ? null : (
         <div className="pt-2.5 border-t border-sig-border">
           {dataRows.map(([k, v]) => (
@@ -497,7 +506,7 @@ function PanelBody({
       )}
 
       {/* Coordinates */}
-      {item.type !== "cyclones" && item.type !== "quakes" && (
+      {item.type !== "cyclones" && item.type !== "quakes" && item.type !== "fires" && item.type !== "weather" && item.type !== "events" && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
           {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
           {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}

@@ -13,6 +13,11 @@ export type EventData = {
   // Analysis
   tone?: number;
   severity?: number;
+  goldstein?: number; // -10 (conflict) … +10 (cooperation)
+  mentions?: number; // media volume across sources
+  actor1?: string;
+  actor2?: string;
+  eventCode?: string; // CAMEO event code
 
   // Location context from GDELT
   locationName?: string;
