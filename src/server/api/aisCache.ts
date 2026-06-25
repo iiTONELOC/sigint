@@ -35,17 +35,34 @@ type VesselRecord = {
   navStatus: number;
   lastSeen: number;
 
+  rot?: number;
+
   name?: string;
   callSign?: string;
   imo?: number;
   shipType?: number;
   destination?: string;
   draught?: number;
+  eta?: string;
   dimA?: number;
   dimB?: number;
   dimC?: number;
   dimD?: number;
 };
+
+// AIS ETA arrives as {Month,Day,Hour,Minute} (no year); 0/24/60 are the
+// "unavailable" sentinels. Format to a compact "Jun 24 14:30" or undefined.
+const ETA_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatEta(eta: { Month?: number; Day?: number; Hour?: number; Minute?: number } | undefined): string | undefined {
+  if (!eta) return undefined;
+  const mo = eta.Month ?? 0;
+  const day = eta.Day ?? 0;
+  if (mo < 1 || mo > 12 || day < 1 || day > 31) return undefined;
+  const hh = eta.Hour != null && eta.Hour < 24 ? String(eta.Hour).padStart(2, "0") : "00";
+  const mm = eta.Minute != null && eta.Minute < 60 ? String(eta.Minute).padStart(2, "0") : "00";
+  return `${ETA_MONTHS[mo]} ${day} ${hh}:${mm}`;
+}
 
 // ── Cache state ──────────────────────────────────────────────────────
 
@@ -213,6 +230,7 @@ function handleAisMessage(msg: any): void {
       existing.cog = pos.Cog ?? existing.cog;
       existing.heading = pos.TrueHeading ?? existing.heading;
       existing.navStatus = pos.NavigationalStatus ?? existing.navStatus;
+      existing.rot = pos.RateOfTurn ?? existing.rot;
       existing.lastSeen = now;
       if (!existing.name && meta.ShipName) {
         existing.name = meta.ShipName.trim();
@@ -226,6 +244,7 @@ function handleAisMessage(msg: any): void {
         cog: pos.Cog ?? 0,
         heading: pos.TrueHeading ?? 0,
         navStatus: pos.NavigationalStatus ?? 15,
+        rot: pos.RateOfTurn ?? undefined,
         lastSeen: now,
         name: meta.ShipName?.trim() || undefined,
       });
@@ -243,6 +262,8 @@ function handleAisMessage(msg: any): void {
       if (sd.Destination)
         existing.destination = sd.Destination.trim().replace(/@+$/, "");
       if (sd.MaximumStaticDraught) existing.draught = sd.MaximumStaticDraught;
+      const eta = formatEta(sd.Eta);
+      if (eta) existing.eta = eta;
       if (sd.Dimension) {
         existing.dimA = sd.Dimension.A;
         existing.dimB = sd.Dimension.B;
@@ -270,6 +291,7 @@ function handleAisMessage(msg: any): void {
         shipType: sd.Type ?? undefined,
         destination: sd.Destination?.trim().replace(/@+$/, "") || undefined,
         draught: sd.MaximumStaticDraught || undefined,
+        eta: formatEta(sd.Eta),
         dimA: sd.Dimension?.A,
         dimB: sd.Dimension?.B,
         dimC: sd.Dimension?.C,
@@ -305,6 +327,7 @@ function toClientPayload(): object[] {
       heading: v.heading,
       navStatus: v.navStatus,
       navStatusLabel: NAV_STATUS_LABELS[v.navStatus] ?? "Unknown",
+      rot: v.rot,
       lastSeen: v.lastSeen,
       name: v.name,
       callSign: v.callSign,
@@ -313,8 +336,13 @@ function toClientPayload(): object[] {
       shipTypeLabel: shipTypeLabel(v.shipType),
       destination: v.destination,
       draught: v.draught,
+      eta: v.eta,
       length: length > 0 ? length : undefined,
       width: width > 0 ? width : undefined,
+      dimA: v.dimA,
+      dimB: v.dimB,
+      dimC: v.dimC,
+      dimD: v.dimD,
     });
   }
   return result;

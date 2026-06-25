@@ -615,7 +615,11 @@ export function GlobeVisualization({
                 const last = trail[trail.length - 1]!;
                 const dd = (item as any).data;
                 ids.push(item.id);
-                vals.push(last.lat, last.lon, dd?.heading ?? 0, dd?.speedMps ?? 0);
+                // Dead-reckon along the ground track: ships travel along COG
+                // (heading is the bow, and is 0/missing when not transmitted),
+                // aircraft `heading` is already the track.
+                const course = item.type === "ships" ? (dd?.cog ?? dd?.heading ?? 0) : (dd?.heading ?? 0);
+                vals.push(last.lat, last.lon, course, dd?.speedMps ?? 0);
                 tss.push(last.ts);
               }
             }

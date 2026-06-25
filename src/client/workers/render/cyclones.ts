@@ -203,14 +203,15 @@ function drawPastTrack(
     ctx.fill();
   }
 
-  // Genesis "X".
+  // Genesis "X" — bigger + bolder than the past-position dots so the spawn
+  // point reads distinctly.
   const genesis = pts[0];
   if (!genesis) return;
   const [gx, gy] = genesis;
-  const xs = 4;
+  const xs = 5;
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.globalAlpha = depthAlpha * 0.9;
+  ctx.lineWidth = 2.2;
+  ctx.globalAlpha = depthAlpha;
   ctx.beginPath();
   ctx.moveTo(gx - xs, gy - xs);
   ctx.lineTo(gx + xs, gy + xs);

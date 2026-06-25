@@ -17,6 +17,7 @@ type ServerVessel = {
   heading: number;
   navStatus: number;
   navStatusLabel: string;
+  rot?: number;
   lastSeen: number;
   name?: string;
   callSign?: string;
@@ -25,8 +26,13 @@ type ServerVessel = {
   shipTypeLabel?: string;
   destination?: string;
   draught?: number;
+  eta?: string;
   length?: number;
   width?: number;
+  dimA?: number;
+  dimB?: number;
+  dimC?: number;
+  dimD?: number;
 };
 
 type ServerResponse = {
@@ -63,10 +69,16 @@ function toDataPoint(v: ServerVessel): DataPoint | null {
       heading: v.heading,
       navStatus: v.navStatus,
       navStatusLabel: v.navStatusLabel,
+      rot: v.rot,
       destination: v.destination,
       draught: v.draught,
+      eta: v.eta,
       length: v.length,
       width: v.width,
+      dimA: v.dimA,
+      dimB: v.dimB,
+      dimC: v.dimC,
+      dimD: v.dimD,
       speedMps,
     },
   } as DataPoint;

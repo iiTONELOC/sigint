@@ -12,9 +12,15 @@ export type ShipData = {
   heading?: number;
   navStatus?: number;
   navStatusLabel?: string;
+  rot?: number;
   destination?: string;
   draught?: number;
+  eta?: string;
   length?: number;
   width?: number;
+  dimA?: number;
+  dimB?: number;
+  dimC?: number;
+  dimD?: number;
   speedMps?: number;
 };

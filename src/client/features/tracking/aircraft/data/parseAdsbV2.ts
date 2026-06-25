@@ -142,6 +142,7 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
     heading,
     verticalRate,
     onGround,
+    trueHeading: a.true_heading,
     tas: a.tas,
     mach: a.mach,
     ias: a.ias,

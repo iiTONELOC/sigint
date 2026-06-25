@@ -44,6 +44,7 @@ type Props = {
   readonly rssiText?: string | null;
   readonly accText?: string | null;
   readonly sourceText?: string | null;
+  readonly driftText?: string | null;
 };
 
 export function AircraftTelemetryPFD({
@@ -68,6 +69,7 @@ export function AircraftTelemetryPFD({
   rssiText,
   accText,
   sourceText,
+  driftText,
 }: Props) {
   const wind =
     windDir != null && windSpd != null ? `${Math.round(windDir)}° / ${Math.round(windSpd)} kt` : null;
@@ -79,6 +81,7 @@ export function AircraftTelemetryPFD({
   const stats: { label: string; value: string }[] = [];
   if (wind) stats.push({ label: "WIND", value: wind });
   if (windCompText) stats.push({ label: "W-COMP", value: windCompText });
+  if (driftText) stats.push({ label: "DRIFT", value: driftText });
   if (oatText) stats.push({ label: "OAT", value: oatText });
   if (isaText) stats.push({ label: "ISA DEV", value: isaText });
   if (tatText) stats.push({ label: "TAT", value: tatText });

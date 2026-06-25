@@ -40,7 +40,15 @@ type FireRecord = {
   brightT31: number;
   frp: number;
   daynight: string;
+  // Fire-complex tagging (filled by clusterFires): how many detections are in
+  // this fire's connected cluster, and the cluster's combined FRP.
+  complexSize?: number;
+  complexFrp?: number;
 };
+
+// ~2 km cells, 8-neighbour connectivity — groups adjacent VIIRS pixels into one
+// "fire complex" so a smear of dots reads as a countable thing.
+const COMPLEX_CELL_DEG = 0.02;
 
 // ── Cache state ──────────────────────────────────────────────────────
 
@@ -153,12 +161,80 @@ async function fetchOneSource(url: string, label: string): Promise<FireRecord[] 
   }
 }
 
+// Group adjacent detections into connected "complexes" (union-find over a ~2 km
+// grid) and tag every record with its complex's pixel count + combined FRP.
+function clusterFires(records: FireRecord[]): void {
+  const cellOf = (la: number, lo: number) =>
+    `${Math.round(la / COMPLEX_CELL_DEG)}:${Math.round(lo / COMPLEX_CELL_DEG)}`;
+  const cellFires = new Map<string, number[]>();
+  records.forEach((r, i) => {
+    const k = cellOf(r.lat, r.lon);
+    const arr = cellFires.get(k);
+    if (arr) arr.push(i);
+    else cellFires.set(k, [i]);
+  });
+
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let root = x;
+    while ((parent.get(root) ?? root) !== root) root = parent.get(root) ?? root;
+    let cur = x;
+    while (cur !== root) {
+      const nxt = parent.get(cur) ?? cur;
+      parent.set(cur, root);
+      cur = nxt;
+    }
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  const neighbours: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (const k of cellFires.keys()) {
+    const [cxs, cys] = k.split(":");
+    const cx = Number(cxs);
+    const cy = Number(cys);
+    for (const [dx, dy] of neighbours) {
+      const nk = `${cx + dx}:${cy + dy}`;
+      if (cellFires.has(nk)) union(k, nk);
+    }
+  }
+
+  const stats = new Map<string, { count: number; frp: number }>();
+  for (const [k, idxs] of cellFires) {
+    const root = find(k);
+    const st = stats.get(root) ?? { count: 0, frp: 0 };
+    for (const i of idxs) {
+      const r = records[i];
+      if (!r) continue;
+      st.count += 1;
+      st.frp += r.frp;
+    }
+    stats.set(root, st);
+  }
+
+  for (const [k, idxs] of cellFires) {
+    const st = stats.get(find(k));
+    if (!st) continue;
+    for (const i of idxs) {
+      const r = records[i];
+      if (!r) continue;
+      r.complexSize = st.count;
+      r.complexFrp = Math.round(st.frp);
+    }
+  }
+}
+
 async function fetchFirms(): Promise<void> {
   try {
     // Failover: try feeds in priority order, take the first that returns data.
     for (const feed of FIRMS_BULK_FEEDS) {
       const rows = await fetchOneSource(feed.url, feed.label);
       if (rows && rows.length > 0) {
+        clusterFires(rows);
         cache = { data: rows, fetchedAt: Date.now(), fireCount: rows.length, error: null };
         logger.info(`🔥 FIRMS: ${rows.length} hotspots loaded (${feed.label})`);
         return;

@@ -133,6 +133,7 @@ export function AircraftDossier({
     military: isMilitary,
     recon: isRecon,
     mach,
+    trueHeading,
     tas,
     windDir,
     windSpd,
@@ -197,6 +198,15 @@ export function AircraftDossier({
   const windCompText = wc
     ? `${wc.head >= 0 ? `H${wc.head}` : `T${Math.abs(wc.head)}`} · X${wc.cross}${wc.side}`
     : null;
+  // Wind-drift crab: ground track (heading) vs nose (true heading), when both
+  // are transmitted. Right/left of the nose.
+  const driftText = (() => {
+    if (typeof trueHeading !== "number") return null;
+    let dd = heading - trueHeading;
+    while (dd > 180) dd -= 360;
+    while (dd < -180) dd += 360;
+    return Math.abs(dd) < 1 ? "0°" : `${Math.abs(Math.round(dd))}° ${dd > 0 ? "R" : "L"}`;
+  })();
   const rssiText = typeof rssi === "number" ? `${Math.round(rssi)} dB` : null;
   const accText = typeof nacP === "number" ? `${nacP}` : null;
   const sourceText = sourceLabel(adsbType);
@@ -373,6 +383,7 @@ export function AircraftDossier({
             rssiText={rssiText}
             accText={accText}
             sourceText={sourceText}
+            driftText={driftText}
           />
         </section>
       </div>

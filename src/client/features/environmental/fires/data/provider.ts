@@ -22,6 +22,8 @@ type ServerFire = {
   brightT31: number;
   frp: number;
   daynight: string;
+  complexSize?: number;
+  complexFrp?: number;
 };
 
 type ServerResponse = {
@@ -65,6 +67,8 @@ function toDataPoint(f: ServerFire, idx: number): DataPoint | null {
       daynight: f.daynight,
       acqDate: f.acqDate,
       acqTime: f.acqTime,
+      complexSize: f.complexSize,
+      complexFrp: f.complexFrp,
     },
   } as DataPoint;
 }

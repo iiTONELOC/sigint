@@ -10,6 +10,8 @@ export type FireData = {
   daynight?: string;
   acqDate?: string;
   acqTime?: string;
+  complexSize?: number;
+  complexFrp?: number;
 };
 
 export type FireFilter = {

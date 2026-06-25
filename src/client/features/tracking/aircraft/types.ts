@@ -41,6 +41,10 @@ export type AircraftData = {
   trackRate?: number;
   /** Magnetic heading (°). `heading` already carries track/true_heading. */
   magHeading?: number;
+  /** True heading (°, nose direction) when transmitted — kept separate from
+   *  `heading` (which prefers ground track) so the wind-drift crab angle
+   *  (track − heading) can be shown. */
+  trueHeading?: number;
   /** Geometric (GNSS) vertical rate (fpm). `verticalRate` is baro. */
   geomRate?: number;
   /** Flight-director / autopilot selected values + engaged modes (real bugs). */

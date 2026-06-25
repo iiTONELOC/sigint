@@ -21,6 +21,7 @@ import { EarthquakeDetailSummary } from "@/features/environmental/earthquake/ui/
 import { FireDetailSummary } from "@/features/environmental/fires/ui/FireDetailSummary";
 import { WeatherDetailSummary } from "@/features/environmental/weather/ui/WeatherDetailSummary";
 import { EventDetailSummary } from "@/features/intel/events/ui/EventDetailSummary";
+import { ShipDetailSummary } from "@/features/tracking/ships/ui/ShipDetailSummary";
 
 function isUrl(value: string): boolean {
   return value.startsWith("https://") || value.startsWith("http://");
@@ -492,6 +493,8 @@ function PanelBody({
         <WeatherDetailSummary item={item} />
       ) : item.type === "events" ? (
         <EventDetailSummary item={item} />
+      ) : item.type === "ships" ? (
+        <ShipDetailSummary item={item} />
       ) : item.type === "cyclones" ? null : (
         <div className="pt-2.5 border-t border-sig-border">
           {dataRows.map(([k, v]) => (
@@ -506,7 +509,7 @@ function PanelBody({
       )}
 
       {/* Coordinates */}
-      {item.type !== "cyclones" && item.type !== "quakes" && item.type !== "fires" && item.type !== "weather" && item.type !== "events" && (
+      {item.type !== "cyclones" && item.type !== "quakes" && item.type !== "fires" && item.type !== "weather" && item.type !== "events" && item.type !== "ships" && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
           {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
           {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}

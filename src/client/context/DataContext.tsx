@@ -298,7 +298,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
           type: d.type as "aircraft" | "ships",
           lat: d.lat,
           lon: d.lon,
-          heading: (d.data as any)?.heading,
+          // Ships dead-reckon along COG (ground track); their `heading` is the
+          // bow and is 0/missing when not transmitted. Aircraft `heading` is
+          // already the track.
+          heading:
+            d.type === "ships"
+              ? ((d.data as any)?.cog ?? (d.data as any)?.heading)
+              : (d.data as any)?.heading,
           speedMps:
             (d.data as any)?.speedMps ??
             ((d.data as any)?.speed

@@ -85,6 +85,28 @@ export function FireDossier({
               </Section>
             </section>
 
+            <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+              <Section title="FIRE COMPLEX">
+                {(d.complexSize ?? 1) > 1 ? (
+                  <div className="flex items-end gap-6 flex-wrap">
+                    <div className="leading-none">
+                      <div className="text-(length:--sig-text-lg) text-sig-bright font-bold font-mono">{d.complexSize}</div>
+                      <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">DETECTIONS</div>
+                    </div>
+                    <div className="leading-none">
+                      <div className="text-(length:--sig-text-lg) text-sig-bright font-bold font-mono">{d.complexFrp} MW</div>
+                      <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">TOTAL FRP</div>
+                    </div>
+                    <div className="text-(length:--sig-text-xs) text-sig-dim self-center min-w-0">
+                      connected cluster (~2 km) · detection extent, not burn area
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-(length:--sig-text-xs) text-sig-dim">isolated detection</div>
+                )}
+              </Section>
+            </section>
+
             {scan != null && track != null && (
               <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
                 <Section title="DETECTION FOOTPRINT">
