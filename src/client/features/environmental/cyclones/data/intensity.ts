@@ -4,7 +4,7 @@
 // Rapid Intensification per the NHC definition: a max-sustained-wind
 // increase of >= 30 kt within any 24 h window.
 
-import type { CycloneData } from "../types";
+import type { CycloneData, PastTrackPoint } from "../types";
 
 /** One sample on the intensity curve: lead time (h) + max wind (kt). */
 export type IntensitySample = {
@@ -93,6 +93,7 @@ export function analyzeIntensity(storm: CycloneData): {
 
 /** Direction of change over the near term. */
 export type Trend = "rising" | "falling" | "steady";
+export type ObservedTrend = Trend | "unknown";
 
 /** Semantic tone for a trend: weakening/filling is good (green), the opposite
  *  is bad (red), no change is dim. NOT directional — meaning, not sign. */
@@ -101,15 +102,17 @@ export type TrendLabel = { text: string; tone: TrendTone };
 
 /** Single source for wind/pressure trend display. A weakening storm (falling
  *  wind / rising pressure) is `good`; strengthening is `bad`. */
-export const WIND_TREND_LABEL: Record<Trend, TrendLabel> = {
+export const WIND_TREND_LABEL: Record<ObservedTrend, TrendLabel> = {
   falling: { text: "↓ weakening", tone: "good" },
   rising: { text: "↑ strengthening", tone: "bad" },
   steady: { text: "→ steady", tone: "dim" },
+  unknown: { text: "trend unavailable", tone: "dim" },
 };
-export const PRESS_TREND_LABEL: Record<Trend, TrendLabel> = {
+export const PRESS_TREND_LABEL: Record<ObservedTrend, TrendLabel> = {
   rising: { text: "↑ rising", tone: "good" },
   falling: { text: "↓ falling", tone: "bad" },
   steady: { text: "→ steady", tone: "dim" },
+  unknown: { text: "trend unavailable", tone: "dim" },
 };
 
 /** Plain-word wind trend (no arrow) for inline prose. Single source so it
@@ -127,58 +130,94 @@ export function trendFromWindDelta(deltaKt: number): Trend {
   return "steady";
 }
 
-/**
- * Wind trend now: compares the current sustained wind against the most recent
- * observed past-track point (real history from the ATCF b-deck), falling back to
- * the first forecast point when no past track is loaded yet. `falling` =
- * weakening, `rising` = strengthening.
- */
-export function windTrend(storm: CycloneData): Trend {
-  // Prefer past history (current − past): rising means it grew.
-  const recentPast = storm.pastTrack?.at(-2)?.vmaxKt; // -1 ≈ current analysis
-  if (recentPast != null) return trendFromWindDelta(storm.maxWindKt - recentPast);
-  // No history yet — read the forecast forward (next − current). The forecast is
-  // the FUTURE, so a lower next wind means the storm is weakening.
-  const next = storm.forecast[0]?.maxWindKt;
-  if (next == null) return "steady";
-  return trendFromWindDelta(next - storm.maxWindKt);
+const PRESS_STEADY_BAND_MB = 1;
+const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
+const ATCF_TIMESTAMP = /^(\d{4})(\d{2})(\d{2})(\d{2})$/;
+
+type TimedPastTrackPoint = Readonly<{
+  point: PastTrackPoint;
+  observedAt: number;
+}>;
+
+function cycloneTimestamp(value: string): number | null {
+  const atcf = ATCF_TIMESTAMP.exec(value);
+  if (atcf) {
+    const year = atcf[1];
+    const month = atcf[2];
+    const day = atcf[3];
+    const hour = atcf[4];
+    if (!year || !month || !day || !hour) return null;
+    return Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+    );
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-const PRESS_STEADY_BAND_MB = 1;
+function previousObservedPoint(storm: CycloneData): TimedPastTrackPoint | null {
+  const currentTime = cycloneTimestamp(storm.lastUpdate);
+  if (currentTime === null) return null;
+  let previous: TimedPastTrackPoint | null = null;
+  for (const point of storm.pastTrack ?? []) {
+    const observedAt = cycloneTimestamp(point.validTime);
+    if (observedAt === null || observedAt >= currentTime) continue;
+    if (!previous || observedAt > previous.observedAt) {
+      previous = { point, observedAt };
+    }
+  }
+  return previous;
+}
 
-type PressureChange = { curMb: number; nextMb: number; leadHours: number };
+export function windTrend(storm: CycloneData): ObservedTrend {
+  const previous = previousObservedPoint(storm);
+  return previous
+    ? trendFromWindDelta(storm.maxWindKt - previous.point.vmaxKt)
+    : "unknown";
+}
+
+type PressureChange = Readonly<{
+  currentMb: number;
+  previousMb: number;
+  elapsedHours: number;
+}>;
 
 function pressureChange(storm: CycloneData): PressureChange | null {
-  const curMb = storm.minPressureMb;
-  if (curMb == null) return null;
-  const next = storm.forecast.find((f) => f.minPressureMb != null);
-  if (next?.minPressureMb == null) return null;
-  return { curMb, nextMb: next.minPressureMb, leadHours: next.fcstHour };
+  const currentMb = storm.minPressureMb;
+  const previous = previousObservedPoint(storm);
+  const previousMb = previous?.point.minPressureMb;
+  const currentTime = cycloneTimestamp(storm.lastUpdate);
+  if (
+    currentMb == null ||
+    previousMb == null ||
+    !previous ||
+    currentTime === null
+  ) {
+    return null;
+  }
+  return {
+    currentMb,
+    previousMb,
+    elapsedHours: (currentTime - previous.observedAt) / MILLISECONDS_PER_HOUR,
+  };
 }
 
-/**
- * Pressure trend now: current central pressure vs the first forecast point's
- * minPressure (both real, already plumbed through the feed). Rising pressure =
- * filling = weakening. Returns "steady" when either value is missing.
- */
-export function pressureTrend(storm: CycloneData): Trend {
+export function pressureTrend(storm: CycloneData): ObservedTrend {
   const change = pressureChange(storm);
-  if (!change) return "steady";
-  const delta = change.nextMb - change.curMb;
+  if (!change) return "unknown";
+  const delta = change.currentMb - change.previousMb;
   if (delta >= PRESS_STEADY_BAND_MB) return "rising";
   if (delta <= -PRESS_STEADY_BAND_MB) return "falling";
   return "steady";
 }
 
-/**
- * Rate of central-pressure change in hPa per hour (1 mb = 1 hPa), signed:
- * negative = deepening, positive = filling. Null when pressure data or a
- * forecast lead time is missing.
- */
 export function pressureRateHpaPerH(storm: CycloneData): number | null {
   const change = pressureChange(storm);
-  if (!change || change.leadHours <= 0) return null;
-  return (change.nextMb - change.curMb) / change.leadHours;
+  if (!change || change.elapsedHours <= 0) return null;
+  return (change.currentMb - change.previousMb) / change.elapsedHours;
 }
 
 // Re-export for callers that only need the forecast point type alongside.

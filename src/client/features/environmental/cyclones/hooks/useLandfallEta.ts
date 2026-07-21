@@ -1,115 +1,88 @@
-// ── useLandfallEta ───────────────────────────────────────────────────
-// When (and whether) the storm's official forecast track first crosses a
-// coastline. Pure real data: the NHC forecast positions tested against the
-// shared coastline polygons — the ETA is the first forecast point that lands on
-// land, reported verbatim (no interpolation, no invented time). Non-blocking:
-// the land test runs in idle, narrowed by a per-ring bbox pre-check.
-
 import { useEffect, useState } from "react";
-import { getLand, enrichLand } from "@/lib/geo/landService";
-import { ringContains, type Ring } from "@/lib/geo/pointInPolygon";
-import { scheduleIdle } from "@/lib/runtime/idle";
 import { formatTime } from "@/lib/format/timeFormat";
+import { enrichLand } from "@/lib/geo/landService";
+import { scheduleIdle } from "@/lib/runtime/idle";
+import { createGeoPoint, type GeoMultiPolygon } from "@shared/geo";
+import {
+  assessLandfall,
+  createLandfallIndex,
+  type LandfallAssessment,
+  type LandfallIndex,
+} from "../data/landfall";
 import type { ForecastPoint } from "../types";
 
-export type Landfall =
-  | { kind: "onshore" } // already over land
-  | { kind: "eta"; fcstHour: number; validTime: string }
-  | { kind: "none" }; // stays over water through the forecast
+export type Landfall = LandfallAssessment;
 
-/** Human label for the landfall state. `urgent` is false only when the storm
- *  stays offshore through the forecast (so the UI can dim that case). */
-export function landfallText(lf: Landfall): { text: string; urgent: boolean } {
-  if (lf.kind === "onshore") return { text: "Onshore now", urgent: true };
-  if (lf.kind === "none") return { text: "None in forecast", urgent: false };
-  return { text: `≈ +${lf.fcstHour}h · ${formatTime(lf.validTime)}`, urgent: true };
+export type LandfallTone = "critical" | "forecast" | "neutral";
+
+type LandfallText = Readonly<{ text: string; tone: LandfallTone }>;
+
+let indexCache: Readonly<{
+  land: GeoMultiPolygon;
+  index: LandfallIndex;
+}> | null = null;
+
+function landfallIndex(land: GeoMultiPolygon): LandfallIndex {
+  if (indexCache?.land === land) return indexCache.index;
+  const index = createLandfallIndex(land);
+  indexCache = { land, index };
+  return index;
 }
 
-type LandBox = {
-  ring: Ring;
-  minLat: number;
-  maxLat: number;
-  minLon: number;
-  maxLon: number;
-};
-
-// Per-ring bbox list, memoized against the land array reference so it's built
-// once (land is global + stable after load).
-let boxCache: { land: number[][][]; boxes: LandBox[] } | null = null;
-
-function ringBox(ring: number[][]): LandBox | null {
-  if (!ring || ring.length < 3) return null;
-  let minLat = 90;
-  let maxLat = -90;
-  let minLon = 180;
-  let maxLon = -180;
-  for (const [lon, lat] of ring) {
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
+export function landfallText(landfall: Landfall): LandfallText {
+  if (landfall.kind === "onshore") {
+    return { text: "Onshore now", tone: "critical" };
   }
-  return { ring: ring as Ring, minLat, maxLat, minLon, maxLon };
-}
-
-function landBoxes(): LandBox[] {
-  const land = getLand();
-  if (boxCache && boxCache.land === land) return boxCache.boxes;
-  const boxes: LandBox[] = [];
-  for (const ring of land) {
-    const box = ringBox(ring);
-    if (box) boxes.push(box);
+  if (landfall.kind === "none") {
+    return { text: "None in forecast", tone: "neutral" };
   }
-  boxCache = { land, boxes };
-  return boxes;
-}
-
-function onLand(lat: number, lon: number, boxes: LandBox[]): boolean {
-  for (const b of boxes) {
-    if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) {
-      continue;
-    }
-    if (ringContains(lat, lon, b.ring)) return true;
+  if (landfall.kind === "indeterminate") {
+    return { text: "Unavailable", tone: "neutral" };
   }
-  return false;
+  return {
+    text: `≈ +${Math.round(landfall.fcstHour)}h · ${formatTime(landfall.validTime)}`,
+    tone: "forecast",
+  };
 }
 
 export function useLandfallEta(
-  forecast: ForecastPoint[],
-  currentLat: number,
-  currentLon: number,
+  forecast: readonly ForecastPoint[],
+  currentLatitude: number,
+  currentLongitude: number,
   advisoryNumber: string,
+  advisoryTime: string,
 ): Landfall | null {
   const [result, setResult] = useState<Landfall | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    enrichLand(() => {
+    enrichLand((land) => {
       if (cancelled) return;
       scheduleIdle(() => {
         if (cancelled) return;
-        const boxes = landBoxes();
-        if (boxes.length === 0) {
-          setResult(null);
-          return;
-        }
-        if (onLand(currentLat, currentLon, boxes)) {
-          setResult({ kind: "onshore" });
-          return;
-        }
-        for (const p of forecast) {
-          if (onLand(p.lat, p.lon, boxes)) {
-            setResult({ kind: "eta", fcstHour: p.fcstHour, validTime: p.validTime });
-            return;
-          }
-        }
-        setResult({ kind: "none" });
+        const current = createGeoPoint(currentLongitude, currentLatitude);
+        setResult(
+          current
+            ? assessLandfall(
+                current,
+                advisoryTime,
+                forecast,
+                landfallIndex(land),
+              )
+            : { kind: "indeterminate" },
+        );
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [forecast, currentLat, currentLon, advisoryNumber]);
+  }, [
+    advisoryNumber,
+    advisoryTime,
+    currentLatitude,
+    currentLongitude,
+    forecast,
+  ]);
 
   return result;
 }

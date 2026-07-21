@@ -64,6 +64,12 @@ function parseAtcfLatLon(
   };
 }
 
+function parseAtcfPressure(value: string | undefined): number | null {
+  if (!value) return null;
+  const pressure = Number.parseInt(value, 10);
+  return Number.isFinite(pressure) && pressure > 0 ? pressure : null;
+}
+
 export function parseAtcfBdeckRadii(text: string): WindRadii | null {
   let latestTime = "";
   const best: string[][] = [];
@@ -121,6 +127,7 @@ export type TrackPoint = {
   lon: number;
   validTime: string; // ATCF YYYYMMDDHH
   vmaxKt: number;
+  minPressureMb: number | null;
 };
 
 /** Full observed (best-track) history, genesis → latest, one point per analysis
@@ -140,6 +147,7 @@ export function parseAtcfTrack(text: string): TrackPoint[] {
       lon: pos.lon,
       validTime: time,
       vmaxKt: Number.parseInt(f[8]!, 10) || 0,
+      minPressureMb: parseAtcfPressure(f[9]),
     });
   }
   return [...byTime.values()].sort((a, b) =>

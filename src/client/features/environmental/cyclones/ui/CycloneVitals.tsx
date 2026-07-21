@@ -30,8 +30,10 @@ export function CycloneVitals({
   readonly lat: number;
   readonly lon: number;
 }) {
-  const w = WIND_TREND_LABEL[windTrend(data)];
-  const p = PRESS_TREND_LABEL[pressureTrend(data)];
+  const windTrendValue = windTrend(data);
+  const pressureTrendValue = pressureTrend(data);
+  const w = WIND_TREND_LABEL[windTrendValue];
+  const p = PRESS_TREND_LABEL[pressureTrendValue];
   const pressRate = pressureRateHpaPerH(data);
   const pressRateText =
     pressRate == null ? null : `${pressRate > 0 ? "+" : ""}${pressRate.toFixed(1)} hPa/h`;
@@ -48,6 +50,7 @@ export function CycloneVitals({
           <StatValue value={data.maxWindKt} unit="kt" />
           <StatTrend tone={w.tone}>
             <span style={{ color: windColor(data.maxWindKt) }}>{ktToMph(data.maxWindKt)} mph</span> · {w.text}
+            {windTrendValue === "unknown" ? "" : " since prior advisory"}
           </StatTrend>
         </StatBox>
         {data.minPressureMb != null && (
@@ -58,6 +61,7 @@ export function CycloneVitals({
             <StatValue value={data.minPressureMb} unit="hPa" />
             <StatTrend tone={p.tone}>
               {pressRateText ? `${pressRateText} · ${p.text}` : p.text}
+              {pressureTrendValue === "unknown" ? "" : " since prior advisory"}
             </StatTrend>
           </StatBox>
         )}

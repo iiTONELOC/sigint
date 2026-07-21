@@ -4,7 +4,10 @@ import {
   buildIntensitySeries,
   detectRapidIntensification,
   peakForecastWindKt,
+  pressureRateHpaPerH,
+  pressureTrend,
   RI_THRESHOLD_KT,
+  windTrend,
 } from "@/features/environmental/cyclones/data/intensity";
 import type { CycloneData, ForecastPoint } from "@/features/environmental/cyclones/types";
 
@@ -101,5 +104,47 @@ describe("analyzeIntensity", () => {
     const { series, ri } = analyzeIntensity(storm(35, [fp(12, 55), fp(24, 70)]));
     expect(series.length).toBe(3);
     expect(ri.isRapid).toBe(true);
+  });
+});
+
+describe("observed intensity trend", () => {
+  it("uses the prior observation even when the forecast later weakens", () => {
+    const value: CycloneData = {
+      ...storm(40, [fp(12, 45), fp(24, 30)]),
+      lastUpdate: "2026-07-20T06:00:00.000Z",
+      pastTrack: [
+        {
+          lat: 28,
+          lon: -86,
+          validTime: "2026072000",
+          vmaxKt: 30,
+          minPressureMb: 1005,
+        },
+        {
+          lat: 28.6,
+          lon: -86,
+          validTime: "2026072006",
+          vmaxKt: 40,
+          minPressureMb: 1000,
+        },
+      ],
+      minPressureMb: 1000,
+    };
+
+    expect(windTrend(value)).toBe("rising");
+    expect(pressureTrend(value)).toBe("falling");
+    expect(pressureRateHpaPerH(value)).toBeCloseTo(-5 / 6, 6);
+  });
+
+  it("does not substitute the forecast when observed history is absent", () => {
+    const value: CycloneData = {
+      ...storm(40, [fp(12, 70)]),
+      lastUpdate: "2026-07-20T06:00:00.000Z",
+      minPressureMb: 1000,
+    };
+
+    expect(windTrend(value)).toBe("unknown");
+    expect(pressureTrend(value)).toBe("unknown");
+    expect(pressureRateHpaPerH(value)).toBeNull();
   });
 });

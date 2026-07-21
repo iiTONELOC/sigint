@@ -46,7 +46,13 @@ export function CycloneDetailExtras({
   const models = useCycloneModels(d.stormId, cycloneFilter.showModels);
   const visibleModels = models.filter((m) => !hiddenModels.has(m.model));
   const assets = useAssetsInCone(d.officialCone, d.advisoryNumber);
-  const landfall = useLandfallEta(d.forecast, item.lat, item.lon, d.advisoryNumber);
+  const landfall = useLandfallEta(
+    d.forecast,
+    item.lat,
+    item.lon,
+    d.advisoryNumber,
+    d.lastUpdate,
+  );
   const hasForecast = d.forecast.length > 0;
   const hasRadii =
     d.windRadii && (d.windRadii.kt34 || d.windRadii.kt50 || d.windRadii.kt64);

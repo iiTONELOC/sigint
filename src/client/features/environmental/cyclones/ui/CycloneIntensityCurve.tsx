@@ -12,8 +12,6 @@ import type { CycloneData } from "../types";
 import {
   analyzeIntensity,
   peakForecastWindKt,
-  trendFromWindDelta,
-  WIND_TREND_WORD,
 } from "../data/intensity";
 import { SAFFIR_SIMPSON, TS_MIN_KT, windColor } from "../classification";
 
@@ -43,8 +41,13 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
   const minH = Math.min(...hours);
   const maxH = Math.max(...hours);
   const peak = peakForecastWindKt(series);
+  const peakSample = series.reduce((highest, sample) =>
+    sample.maxWindKt > highest.maxWindKt ? sample : highest,
+  );
   const firstW = winds[0] ?? 0;
   const lastW = winds.at(-1) ?? 0;
+  const peakTime =
+    peakSample.fcstHour === 0 ? "now" : `+${peakSample.fcstHour}h`;
 
   // Fixed y-domain (0..150 kt) so the same wind sits at the same height across
   // storms and the category bands line up with real thresholds.
@@ -76,7 +79,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           INTENSITY
         </span>
         <span className="text-(length:--sig-text-xs) font-mono text-sig-text text-right pl-2">
-          peak {formatKtShort(peak)} · {WIND_TREND_WORD[trendFromWindDelta(lastW - firstW)]}
+          peak {formatKtShort(peak)} {peakTime} · +{maxH}h {formatKtShort(lastW)}
         </span>
       </div>
 
@@ -92,7 +95,7 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
         preserveAspectRatio="none"
         className="w-full h-28 @min-[28rem]/dossier:h-36"
         role="img"
-        aria-label={`Forecast intensity: peak ${peak} knots${
+        aria-label={`Forecast intensity: peak ${peak} knots at ${peakTime}, ${lastW} knots at ${maxH} hours${
           ri.isRapid ? `, rapid intensification +${ri.maxGain24hKt} knots per 24 hours` : ""
         }`}
       >

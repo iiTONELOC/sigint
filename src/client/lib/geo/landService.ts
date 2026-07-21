@@ -1,111 +1,86 @@
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import {
+  isRecord,
+  parseGeoMultiPolygonCoordinates,
+  type GeoMultiPolygon,
+} from "@shared/geo";
+import { parseLandGeoJson } from "@shared/land";
 
 const CACHE_KEY = CACHE_KEYS.land;
-const HD_URL = "/data/ne_50m_land.json";
+const LAND_URL = "/data/ne_50m_land.json";
+const LAND_CACHE_SCHEMA_VERSION = 2;
+const EMPTY_LAND: GeoMultiPolygon = [];
 
-let landData: number[][][] | null = null;
-let fetchInFlight = false;
-// Everyone waiting on the in-flight fetch. A single callback slot dropped the
-// second caller (e.g. dossier + detail mini-maps both mounting) on the floor.
-let landWaiters: Array<(land: number[][][]) => void> = [];
+type LandCache = Readonly<{
+  schemaVersion: number;
+  polygons: GeoMultiPolygon;
+}>;
 
-// ── GeoJSON parsing ──────────────────────────────────────────────────
+let landData: GeoMultiPolygon | null = null;
+let loadInFlight: Promise<GeoMultiPolygon> | null = null;
 
-function parseGeoJSON(geojson: any): number[][][] {
-  const polygons: number[][][] = [];
-  for (const feature of geojson.features) {
-    const { type, coordinates } = feature.geometry;
-    const rings: number[][][] =
-      type === "Polygon"
-        ? coordinates
-        : type === "MultiPolygon"
-          ? coordinates.flat()
-          : [];
-    for (const ring of rings) {
-      // GeoJSON is [lon, lat] — we store [lat, lon]
-      const converted = ring
-        .filter(
-          (coords): coords is [number, number] =>
-            Array.isArray(coords) &&
-            coords.length === 2 &&
-            typeof coords[0] === "number" &&
-            typeof coords[1] === "number",
-        )
-        .map(([lon, lat]) => [
-          Math.round(lat * 100) / 100,
-          Math.round(lon * 100) / 100,
-        ]);
-      if (converted.length >= 3) {
-        polygons.push(converted);
-      }
-    }
+function parseLandCache(value: unknown): LandCache | null {
+  if (!isRecord(value)) return null;
+  if (value.schemaVersion !== LAND_CACHE_SCHEMA_VERSION) return null;
+  const polygons = parseGeoMultiPolygonCoordinates(value.polygons);
+  return polygons
+    ? { schemaVersion: LAND_CACHE_SCHEMA_VERSION, polygons }
+    : null;
+}
+
+async function readCache(): Promise<GeoMultiPolygon | null> {
+  const cached = parseLandCache(await cacheGet<unknown>(CACHE_KEY));
+  return cached?.polygons ?? null;
+}
+
+function writeCache(polygons: GeoMultiPolygon): void {
+  cacheSet(CACHE_KEY, {
+    schemaVersion: LAND_CACHE_SCHEMA_VERSION,
+    polygons,
+  } satisfies LandCache);
+}
+
+async function fetchLand(): Promise<GeoMultiPolygon> {
+  const response = await fetch(LAND_URL);
+  if (!response.ok) {
+    throw new Error(`Land geometry request failed with status ${response.status}`);
   }
+  const polygons = parseLandGeoJson(await response.json());
+  if (polygons.length === 0) {
+    throw new Error("Land geometry contained no valid polygons");
+  }
+  landData = polygons;
+  writeCache(polygons);
   return polygons;
 }
 
-// ── Cache ────────────────────────────────────────────────────────────
-
-async function readCache(): Promise<number[][][] | null> {
-  const cached = await cacheGet<number[][][]>(CACHE_KEY);
-  if (Array.isArray(cached) && cached.length > 0) return cached;
-  return null;
-}
-
-/** Call once at boot to load land data from IndexedDB */
 export async function initLand(): Promise<void> {
   if (landData) return;
-  const cached = await readCache();
-  if (cached) landData = cached;
+  landData = await readCache();
 }
 
-function writeCache(data: number[][][]): void {
-  cacheSet(CACHE_KEY, data);
+export function getLand(): GeoMultiPolygon {
+  return landData ?? EMPTY_LAND;
 }
 
-// ── Public API ───────────────────────────────────────────────────────
-
-/**
- * Returns land data synchronously.
- * Returns cached data if available, empty array if still loading.
- */
-export function getLand(): number[][][] {
-  return landData ?? [];
-}
-
-/**
- * Fetches land data if not already available. Checks cache first,
- * then network. Calls `onReady` when data becomes available.
- */
-export function enrichLand(onReady: (land: number[][][]) => void): void {
-  if (landData) {
-    onReady(landData);
-    return;
-  }
-
-  // Queue every caller so concurrent waiters (dossier + detail mini-maps) all
-  // get notified, not just the one that kicked off the fetch.
-  landWaiters.push(onReady);
-  if (fetchInFlight) return;
-  fetchInFlight = true;
-
-  fetch(HD_URL)
-    .then((res) => {
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.json();
-    })
-    .then((geojson) => {
-      landData = parseGeoJSON(geojson);
-      writeCache(landData);
-      const waiters = landWaiters;
-      landWaiters = [];
-      for (const cb of waiters) cb(landData);
-    })
-    .catch((err) => {
-      console.error("Failed to load land data:", err);
-      landWaiters = [];
+export function loadLand(): Promise<GeoMultiPolygon> {
+  if (landData) return Promise.resolve(landData);
+  if (loadInFlight) return loadInFlight;
+  loadInFlight = readCache()
+    .then((cached) => {
+      if (cached) {
+        landData = cached;
+        return cached;
+      }
+      return fetchLand();
     })
     .finally(() => {
-      fetchInFlight = false;
+      loadInFlight = null;
     });
+  return loadInFlight;
+}
+
+export function enrichLand(onReady: (land: GeoMultiPolygon) => void): void {
+  void loadLand().then(onReady).catch(() => undefined);
 }

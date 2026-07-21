@@ -53,7 +53,7 @@ export function CycloneForecastMiniMap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const panRef = useRef({ ry: 0, rx: 0 });
   const dimsRef = useRef({ r: 1 });
-  const [land, setLand] = useState<number[][][]>(() => getLand());
+  const [land, setLand] = useState(() => getLand());
   const [zoom, setZoom] = useState(1);
   const colors = theme.colors;
 

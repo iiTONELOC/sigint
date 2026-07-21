@@ -44,7 +44,13 @@ export function CycloneDossier({
   const closeBtnRef = useDossierFocus(item.id);
   const { dossier, loading } = useCycloneDossier(d.stormId);
   const coneAssets = useAssetsInCone(d.officialCone, d.advisoryNumber);
-  const landfall = useLandfallEta(d.forecast, item.lat, item.lon, d.advisoryNumber);
+  const landfall = useLandfallEta(
+    d.forecast,
+    item.lat,
+    item.lon,
+    d.advisoryNumber,
+    d.lastUpdate,
+  );
   const { cycloneFilter, hiddenModels } = useData();
   const models = useCycloneModels(d.stormId, cycloneFilter.showModels);
   const visibleModels = models.filter((m) => !hiddenModels.has(m.model));

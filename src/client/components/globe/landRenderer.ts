@@ -169,9 +169,11 @@ export function drawLand(
   gcy: number,
   gr: number,
 ) {
-  getLand().forEach((poly) => {
+  getLand().forEach((polygon) => {
+    const poly = polygon[0];
+    if (!poly) return;
     const pts: Projected[] = poly.reduce<Projected[]>((acc, coord) => {
-      const [lat, lon] = coord;
+      const [lon, lat] = coord;
       if (typeof lat !== "number" || typeof lon !== "number") return acc;
       acc.push(proj(lat, lon));
       return acc;
@@ -184,12 +186,12 @@ export function drawLand(
       let seg: Projected[] = [];
 
       poly.forEach((coord, i) => {
-        const [lat, lon] = coord;
+        const [lon, lat] = coord;
         if (typeof lat !== "number" || typeof lon !== "number") return;
 
         const prev = i > 0 ? poly[i - 1] : undefined;
         if (prev) {
-          const [, prevLon] = prev;
+          const [prevLon] = prev;
           if (typeof prevLon === "number" && Math.abs(lon - prevLon) > 120) {
             if (seg.length >= 3) segments.push(seg);
             seg = [];

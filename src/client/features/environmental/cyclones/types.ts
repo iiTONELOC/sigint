@@ -78,6 +78,7 @@ export type PastTrackPoint = {
   lon: number;
   validTime: string;
   vmaxKt: number;
+  minPressureMb?: number | null;
 };
 
 /** A single model's forecast track from the a-deck (spaghetti). */
