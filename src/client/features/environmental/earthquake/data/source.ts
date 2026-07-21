@@ -19,7 +19,6 @@ export type EarthquakeSourcePolicy = Readonly<{
   pollIntervalMs: number;
   retryIntervalMs: number;
   freshDurationMs: number;
-  maximumStaleDurationMs: number;
   requestTimeoutMs: number;
   identityRule: "usgs_feature_id";
   observationTimestampRule: "usgs_origin_time";
@@ -28,7 +27,6 @@ export type EarthquakeSourcePolicy = Readonly<{
 }>;
 
 const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
 
 export const EARTHQUAKE_SOURCE_POLICY: EarthquakeSourcePolicy = {
   id: "earthquake",
@@ -39,7 +37,6 @@ export const EARTHQUAKE_SOURCE_POLICY: EarthquakeSourcePolicy = {
   pollIntervalMs: POLL_INTERVALS.earthquakes,
   retryIntervalMs: MINUTE_MS,
   freshDurationMs: 30 * MINUTE_MS,
-  maximumStaleDurationMs: 24 * HOUR_MS,
   requestTimeoutMs: 20_000,
   identityRule: "usgs_feature_id",
   observationTimestampRule: "usgs_origin_time",

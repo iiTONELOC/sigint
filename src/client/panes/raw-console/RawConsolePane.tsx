@@ -97,7 +97,7 @@ function HighlightedJson({ json }: { readonly json: string }) {
 // ── Component ───────────────────────────────────────────────────────
 
 export function RawConsolePane() {
-  const { selectedCurrent, allData } = useData();
+  const { selectedCurrent, allData, earthquakeCount } = useData();
   const [copied, setCopied] = useState(false);
 
   const jsonStr = useMemo(() => {
@@ -133,16 +133,17 @@ export function RawConsolePane() {
     for (const item of allData) {
       counts[item.type] = (counts[item.type] ?? 0) + 1;
     }
+    counts.quakes = earthquakeCount;
     return JSON.stringify(
       {
-        totalPoints: allData.length,
+        totalPoints: allData.length + earthquakeCount,
         byType: counts,
         timestamp: new Date().toISOString(),
       },
       null,
       2,
     );
-  }, [allData]);
+  }, [allData, earthquakeCount]);
 
   const displayStr = displayJsonStr ?? statsStr;
   const copyStr = jsonStr ?? statsStr;

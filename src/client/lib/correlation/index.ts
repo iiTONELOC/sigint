@@ -45,6 +45,14 @@ export {
   persistBaseline,
   emptyBaseline,
 } from "./baseline";
+export type CorrelationPolicy = Readonly<{
+  recentWindowMs: number;
+}>;
+
+export const CORRELATION_POLICY: CorrelationPolicy = {
+  recentWindowMs: 24 * HOUR,
+};
+
 
 // ── Intel product builder ───────────────────────────────────────────
 
@@ -380,7 +388,7 @@ export function computeCorrelations(
   const now = Date.now();
   const baseline = accumulate(allData, baselineIn);
 
-  const recentCutoff = now - 24 * HOUR;
+  const recentCutoff = now - CORRELATION_POLICY.recentWindowMs;
   const recentItems = allData.filter((item) => {
     if (
       !intelTypes.has(item.type) &&

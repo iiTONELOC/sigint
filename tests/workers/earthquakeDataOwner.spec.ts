@@ -8,6 +8,8 @@ import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
 import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 
+const OLD_CACHE_AGE_MS = 8 * 24 * 60 * 60 * 1000;
+
 function point(
   id: string,
   longitude: number,
@@ -123,4 +125,28 @@ describe("earthquake worker dataset", () => {
     expect(snapshots.at(-1)?.status).toBe("empty");
     expect(persisted.at(-1)?.data).toEqual([]);
   });
+});
+
+test("retains an old cached snapshot when refresh is unavailable", async () => {
+  const cached = point("Qcached", -80, 30, 2);
+  const snapshots: DataWorkerSourceSnapshot[] = [];
+  const rebases: Array<readonly EarthquakePoint[]> = [];
+  const owner = createEarthquakeSourceOwner({
+    readCache: async () => ({ timestamp: 1_000, data: [cached] }),
+    persistCache: () => undefined,
+    fetchPoints: async () => {
+      throw new Error("offline");
+    },
+    publish: (snapshot) => snapshots.push(snapshot),
+    rebaseRender: (points) => rebases.push(points),
+    now: () => OLD_CACHE_AGE_MS,
+    schedule: () => () => undefined,
+  });
+
+  await owner.start();
+
+  expect(owner.read()).toEqual([cached]);
+  expect(rebases.at(-1)).toEqual([cached]);
+  expect(snapshots.at(-1)?.status).toBe("cached");
+  expect(snapshots.at(-1)?.error).toBe("offline");
 });

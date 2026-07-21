@@ -169,7 +169,7 @@ describe("Ticker filter independence", () => {
   test("buildTickerItems takes only allData param", async () => {
     const src = await Bun.file("src/client/lib/ui/tickerFeed.ts").text();
     expect(src).toContain(
-      "export function buildTickerItems(allData: DataPoint[])",
+      "export function buildTickerItems(allData: readonly DataPoint[])",
     );
     expect(src).not.toContain("_filters");
     expect(src).not.toContain("_layers");
@@ -177,15 +177,12 @@ describe("Ticker filter independence", () => {
 
   test("tickerItems memo does not depend on filters or layers", async () => {
     const src = await Bun.file("src/client/context/DataContext.tsx").text();
-    const idx = src.indexOf("buildTickerItems(allData)");
-    expect(idx).toBeGreaterThan(-1);
-    const after = src.slice(idx, idx + 100);
-    // Render-batching gate: allowed deps are `allData` (membership) and
-    // `allDataVersion` (positions/data fields). Filters and layers are
-    // forbidden — re-adding either re-introduces the old "ticker churns
-    // on every filter toggle" bug.
-    expect(after).toContain("allData");
-    expect(after).not.toContain("filters");
-    expect(after).not.toContain("layers");
+    const index = src.indexOf("const tickerItems = useMemo(");
+    expect(index).toBeGreaterThan(-1);
+    const block = src.slice(index, index + 260);
+    expect(block).toContain("allData");
+    expect(block).toContain("earthquakeTickerItems");
+    expect(block).not.toContain("filters");
+    expect(block).not.toContain("layers");
   });
 });

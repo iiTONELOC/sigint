@@ -1,33 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { earthquakeProvider } from "@/features/environmental/earthquake/data/provider";
 import { shipProvider } from "@/features/tracking/ships/data/provider";
 import { fireProvider } from "@/features/environmental/fires/data/provider";
 import { weatherProvider } from "@/features/environmental/weather/data/provider";
 import { gdeltProvider } from "@/features/intel/events/data/provider";
 
 // ── Mock responses ──────────────────────────────────────────────────
-
-const MOCK_USGS = {
-  features: [
-    {
-      id: "us7000test",
-      properties: {
-        mag: 5.2,
-        place: "42km NE of Tokyo",
-        time: Date.now(),
-        felt: 100,
-        tsunami: 0,
-        alert: null,
-        sig: 450,
-        magType: "mww",
-        type: "earthquake",
-        status: "reviewed",
-        url: "https://earthquake.usgs.gov/earthquakes/eventpage/us7000test",
-      },
-      geometry: { coordinates: [139.7, 35.7, 30] },
-    },
-  ],
-};
 
 const MOCK_SHIPS = {
   data: [
@@ -196,40 +173,6 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-});
-
-// ── Earthquake ──────────────────────────────────────────────────────
-
-describe("earthquakeProvider", () => {
-  test("fetches and transforms USGS data", async () => {
-    mockResponses.set("earthquake.usgs.gov", { ok: true, body: MOCK_USGS });
-    const result = await earthquakeProvider.refresh();
-    expect(result.length).toBe(1);
-    expect(result[0]!.type).toBe("quakes");
-    expect(result[0]!.id).toBe("Qus7000test");
-    expect(result[0]!.lat).toBe(35.7);
-    expect(result[0]!.lon).toBe(139.7);
-  });
-
-  test("DataPoint shape", async () => {
-    mockResponses.set("earthquake.usgs.gov", { ok: true, body: MOCK_USGS });
-    const result = await earthquakeProvider.refresh();
-    const d = result[0]!.data as any;
-    expect(d.magnitude).toBe(5.2);
-    expect(d.depth).toBe(30);
-    expect(d.location).toBe("42km NE of Tokyo");
-    expect(d.tsunami).toBe(false);
-    expect(d.felt).toBe(100);
-    expect(typeof d.url).toBe("string");
-  });
-
-  test("error fallback", async () => {
-    mockResponses.set("earthquake.usgs.gov", { ok: false, body: {} });
-    const result = await earthquakeProvider.refresh();
-    const snap = earthquakeProvider.getSnapshot();
-    expect(snap.error).not.toBeNull();
-    expect(Array.isArray(result)).toBe(true);
-  });
 });
 
 // ── Ships ───────────────────────────────────────────────────────────

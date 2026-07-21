@@ -73,6 +73,7 @@ export type RenderPresentationPayload = Readonly<{
   isolateMode: "solo" | "focus" | null;
   layers: Readonly<Record<string, boolean | undefined>>;
   aircraftFilter: RenderAircraftFilter;
+  earthquakeMinMagnitude: number;
   searchMatchIds: readonly string[] | null;
   selectedItem: SelectedRenderItem | null;
   cyclonesShowForecast: boolean;

@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { resolve } from "path";
+import { POINT_LAYER_ORDER } from "@/workers/render/layerOrder";
 
 // Worker code is now bundled TS (src/client/workers/), imported as ESM and
 // built to public/workers/*.js by build.ts. Bun's test runner can't drive a
@@ -57,16 +58,10 @@ describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
     expect(src).toMatch(/import\s+\{[^}]*drawCyclone[^}]*\}\s+from\s+"\.\/render\/cyclones"/);
   });
 
-  test("layerOrder draws cyclones above cyclones-forecast (eye on top of its own track)", async () => {
-    const src = await readSource("src/client/workers/pointWorker.ts");
-    // Forecast points must render below the eye so the eye glyph
-    // visually sits above its own track.
-    const forecastMatch = /"cyclones-forecast":\s*(\d+)/.exec(src);
-    const cyclonesMatch = /cyclones:\s*(\d+)\b/.exec(src);
-    expect(forecastMatch).not.toBeNull();
-    expect(cyclonesMatch).not.toBeNull();
-    const forecastOrder = Number.parseInt(forecastMatch![1] ?? "0", 10);
-    const cyclonesOrder = Number.parseInt(cyclonesMatch![1] ?? "0", 10);
+  test("layerOrder draws cyclones above cyclones-forecast (eye on top of its own track)", () => {
+    const forecastOrder = POINT_LAYER_ORDER.indexOf("cyclones-forecast");
+    const cyclonesOrder = POINT_LAYER_ORDER.indexOf("cyclones");
+    expect(forecastOrder).toBeGreaterThanOrEqual(0);
     expect(cyclonesOrder).toBeGreaterThan(forecastOrder);
   });
 

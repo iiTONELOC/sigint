@@ -1,6 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
+import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import type { SpatialGrid } from "@/lib/geo/spatialIndex";
 
@@ -78,6 +79,7 @@ export type GlobeVisualizationProps = {
   readonly dataVersion: number;
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
+  readonly earthquakeFilter: EarthquakeFilter;
   readonly cycloneFilter?: CycloneFilter;
   readonly selected: DataPoint | null;
   readonly isolatedId: string | null;

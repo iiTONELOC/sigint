@@ -251,6 +251,73 @@ describe("createDataWorkerClient", () => {
     });
   });
 
+  test("returns a validated versioned source query", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.querySource("earthquake", {
+      kind: "table",
+      minMagnitude: 3,
+      sortKey: "value1",
+      sortDirection: "desc",
+      offset: 0,
+      limit: 20,
+    });
+    const command = latestCommand(harness);
+    if (command.type !== "querySource") {
+      throw new Error("Expected querySource command");
+    }
+    expect(command.query.kind).toBe("table");
+
+    harness.emit(
+      event(command.requestId, {
+        type: "sourceQuery",
+        source: "earthquake",
+        sourceVersion: 8,
+        result: {
+          kind: "table",
+          total: 1,
+          items: [
+            {
+              id: "Qone",
+              type: "quakes",
+              lon: -80,
+              lat: 30,
+              timestamp: "2026-07-21T12:00:00.000Z",
+              data: { magnitude: 4 },
+            },
+          ],
+        },
+      }),
+    );
+
+    const result = await pending;
+    expect(result.sourceVersion).toBe(8);
+    expect(result.result).toEqual({
+      kind: "table",
+      total: 1,
+      items: [
+        {
+          id: "Qone",
+          type: "quakes",
+          lon: -80,
+          lat: 30,
+          timestamp: "2026-07-21T12:00:00.000Z",
+          data: { magnitude: 4 },
+        },
+      ],
+    });
+  });
+
+  test("sets the worker-owned source search filter", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.setSourceSearch("earthquake", "Mexico");
+    const command = latestCommand(harness);
+    expect(command.type).toBe("setSourceSearch");
+    harness.emit(event(command.requestId, { type: "complete" }));
+    await pending;
+  });
+
   test("waits for worker completion on durable writes", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
@@ -293,6 +360,34 @@ describe("createDataWorkerClient", () => {
     );
 
     await expect(pending).rejects.toThrow("IndexedDB unavailable");
+  });
+
+  test("rejects incompatible worker generations instead of hanging", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.init();
+    const command = latestCommand(harness);
+
+    harness.emit({
+      type: "ready",
+      protocolVersion: DATA_WORKER_PROTOCOL_VERSION - 1,
+      requestId: command.requestId,
+      entries: [],
+    });
+
+    await expect(pending).rejects.toThrow("protocol is incompatible");
+  });
+
+  test("times out an unanswered worker request", async () => {
+    const requestTimeoutMs = 1;
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport, {
+      requestTimeoutMs,
+    });
+
+    await expect(client.init()).rejects.toThrow(
+      `timed out after ${requestTimeoutMs}ms`,
+    );
   });
 
   test("imports legacy JSON through the worker boundary", async () => {

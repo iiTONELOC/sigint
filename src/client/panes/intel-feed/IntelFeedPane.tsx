@@ -23,6 +23,9 @@ import {
 } from "lucide-react";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
+import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
+import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
+import { mergeSortedPrefix } from "@/lib/data/mergeSortedPrefix";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -33,6 +36,7 @@ type FeedFilter = "all" | "events" | "quakes" | "fires" | "weather";
 
 const RAW_ROW_HEIGHT = 68;
 const OVERSCAN = 6;
+const INITIAL_QUERY_LIMIT = OVERSCAN * 2;
 
 // ── Priority badge ──────────────────────────────────────────────────
 
@@ -187,6 +191,16 @@ function rawUrl(item: DataPoint): string | null {
   return null;
 }
 
+function compareNewestFirst(left: DataPoint, right: DataPoint): number {
+  const leftTimestamp = left.timestamp
+    ? new Date(left.timestamp).getTime()
+    : 0;
+  const rightTimestamp = right.timestamp
+    ? new Date(right.timestamp).getTime()
+    : 0;
+  return rightTimestamp - leftTimestamp;
+}
+
 // ── Component ───────────────────────────────────────────────────────
 
 export function IntelFeedPane() {
@@ -202,12 +216,15 @@ export function IntelFeedPane() {
     watchActive,
     watchMode,
     watchProgress,
+    earthquakeFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [viewMode, setViewMode] = useState<ViewMode>("intel");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [earthquakePrefixLimit, setEarthquakePrefixLimit] =
+    useState(INITIAL_QUERY_LIMIT);
 
   // Is watch targeting intel products?
   const isWatchingIntel =
@@ -244,43 +261,77 @@ export function IntelFeedPane() {
     [],
   );
 
-  const rawItems = useMemo(() => {
-    let items = allData.filter((i) => feedTypes.has(i.type));
-    if (feedFilter !== "all")
-      items = items.filter((i) => i.type === feedFilter);
-    items.sort((a, b) => {
-      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return tb - ta;
-    });
+  const rawLocalItems = useMemo(() => {
+    let items = allData.filter((item) => feedTypes.has(item.type));
+    if (feedFilter !== "all") {
+      items = items.filter((item) => item.type === feedFilter);
+    }
+    items.sort(compareNewestFirst);
     return items;
   }, [allData, feedFilter, feedTypes]);
+  const earthquakeRawQuery = useMemo<EarthquakeUiQuery | null>(
+    () =>
+      earthquakeFilter.enabled
+        ? {
+            kind: "table",
+            minMagnitude: earthquakeFilter.minMagnitude,
+            sortKey: "age",
+            sortDirection: "asc",
+            offset: 0,
+            limit: earthquakePrefixLimit,
+          }
+        : null,
+    [earthquakeFilter, earthquakePrefixLimit],
+  );
+  const earthquakeRawResult = useEarthquakeUiQuery(earthquakeRawQuery);
+  const earthquakeTotal =
+    earthquakeRawResult?.kind === "table" ? earthquakeRawResult.total : 0;
+  const includeEarthquakes =
+    feedFilter === "all" || feedFilter === "quakes";
+  const earthquakeItems =
+    includeEarthquakes && earthquakeRawResult?.kind === "table"
+      ? earthquakeRawResult.items
+      : [];
+  const rawItemCount =
+    rawLocalItems.length + (includeEarthquakes ? earthquakeTotal : 0);
 
   const typeCounts = useMemo(() => {
-    const c: Record<string, number> = {
+    const counts: Record<string, number> = {
       events: 0,
-      quakes: 0,
+      quakes: earthquakeTotal,
       fires: 0,
       weather: 0,
     };
     for (const item of allData) {
-      if (feedTypes.has(item.type)) c[item.type] = (c[item.type] ?? 0) + 1;
+      if (feedTypes.has(item.type)) {
+        counts[item.type] = (counts[item.type] ?? 0) + 1;
+      }
     }
-    return c;
-  }, [allData, feedTypes]);
+    return counts;
+  }, [allData, feedTypes, earthquakeTotal]);
 
   // ── Virtual scroll (raw mode) ───────────────────────────────────
 
   const { scrollRef, totalHeight, offsetY, startIdx, endIdx, onScroll } =
     useVirtualScroll({
-      itemCount: rawItems.length,
+      itemCount: rawItemCount,
       rowHeight: RAW_ROW_HEIGHT,
       overscan: OVERSCAN,
     });
 
+  useEffect(() => {
+    if (endIdx > earthquakePrefixLimit) setEarthquakePrefixLimit(endIdx);
+  }, [endIdx, earthquakePrefixLimit]);
+
   const visibleRaw = useMemo(
-    () => rawItems.slice(startIdx, endIdx),
-    [rawItems, startIdx, endIdx],
+    () =>
+      mergeSortedPrefix(
+        rawLocalItems,
+        earthquakeItems,
+        compareNewestFirst,
+        endIdx,
+      ).slice(startIdx, endIdx),
+    [rawLocalItems, earthquakeItems, startIdx, endIdx],
   );
 
   // ── Handlers ────────────────────────────────────────────────────
@@ -374,7 +425,7 @@ export function IntelFeedPane() {
         <span className="text-sig-dim text-(length:--sig-text-sm) shrink-0">
           {viewMode === "intel"
             ? `${correlation.products.length} products`
-            : `${rawItems.length} items`}
+            : `${rawItemCount} items`}
         </span>
       </div>
 
@@ -717,7 +768,7 @@ export function IntelFeedPane() {
               })}
             </div>
           </div>
-          {rawItems.length === 0 && (
+          {rawItemCount === 0 && (
             <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
               No intel data available
             </div>

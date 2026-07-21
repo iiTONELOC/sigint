@@ -1,16 +1,34 @@
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
+import type {
+  EarthquakeUiQuery,
+  EarthquakeUiQueryResult,
+} from "@/features/environmental/earthquake/data/uiQueries";
+import { isRecord } from "@shared/geo";
 import {
   createDataWorkerCommand,
   parseDataWorkerEvent,
+  DATA_WORKER_PROTOCOL_VERSION,
   type DataWorkerCacheEntry,
   type DataWorkerCommandBody,
   type DataWorkerEvent,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
+export type DataWorkerClientPolicy = Readonly<{
+  requestTimeoutMs: number;
+}>;
+
+export const DATA_WORKER_CLIENT_POLICY: DataWorkerClientPolicy = {
+  requestTimeoutMs: 10_000,
+};
+
+export type DataWorkerClientOptions = Readonly<{
+  requestTimeoutMs?: number;
+}>;
 
 type PendingRequest = Readonly<{
   resolve: (event: DataWorkerEvent) => void;
   reject: (error: Error) => void;
+  cancelTimeout: () => void;
 }>;
 
 export type DataWorkerSourceListener = (
@@ -20,6 +38,11 @@ export type DataWorkerSourceListener = (
 export type DataWorkerSourceEntityResult = Readonly<{
   sourceVersion: number;
   value: EarthquakePoint | null;
+}>;
+
+export type DataWorkerSourceQueryResult = Readonly<{
+  sourceVersion: number;
+  result: EarthquakeUiQueryResult;
 }>;
 
 export type DataWorkerTransport = {
@@ -40,6 +63,14 @@ export type DataWorkerClient = Readonly<{
     source: "earthquake",
     id: string,
   ) => Promise<DataWorkerSourceEntityResult>;
+  querySource: (
+    source: "earthquake",
+    query: EarthquakeUiQuery,
+  ) => Promise<DataWorkerSourceQueryResult>;
+  setSourceSearch: (
+    source: "earthquake",
+    text: string | null,
+  ) => Promise<void>;
   getSourceSnapshot: (
     source: "earthquake",
   ) => DataWorkerSourceSnapshot | null;
@@ -64,7 +95,10 @@ function unexpectedEvent(expected: string): Error {
 
 export function createDataWorkerClient(
   worker: DataWorkerTransport,
+  options: DataWorkerClientOptions = {},
 ): DataWorkerClient {
+  const requestTimeoutMs =
+    options.requestTimeoutMs ?? DATA_WORKER_CLIENT_POLICY.requestTimeoutMs;
   let nextRequestId = 0;
   let failed: Error | null = null;
   let earthquakeSnapshot: DataWorkerSourceSnapshot | null = null;
@@ -73,11 +107,22 @@ export function createDataWorkerClient(
 
   const rejectAll = (error: Error): void => {
     failed = error;
-    for (const request of pending.values()) request.reject(error);
+    for (const request of pending.values()) {
+      request.cancelTimeout();
+      request.reject(error);
+    }
     pending.clear();
   };
 
   worker.onmessage = (message: MessageEvent<unknown>) => {
+    if (
+      isRecord(message.data) &&
+      "protocolVersion" in message.data &&
+      message.data.protocolVersion !== DATA_WORKER_PROTOCOL_VERSION
+    ) {
+      rejectAll(new Error("DataWorker protocol is incompatible"));
+      return;
+    }
     const event = parseDataWorkerEvent(message.data);
     if (!event) return;
     if (event.type === "sourceSnapshot") {
@@ -91,6 +136,7 @@ export function createDataWorkerClient(
     const request = pending.get(event.requestId);
     if (!request) return;
     pending.delete(event.requestId);
+    request.cancelTimeout();
     if (event.type === "error") {
       request.reject(new Error(event.message));
     } else {
@@ -110,7 +156,14 @@ export function createDataWorkerClient(
     nextRequestId++;
     const requestId = nextRequestId;
     return new Promise((resolve, reject) => {
-      pending.set(requestId, { resolve, reject });
+      const timeout = setTimeout(() => {
+        if (!pending.delete(requestId)) return;
+        reject(
+          new Error(`DataWorker request timed out after ${requestTimeoutMs}ms`),
+        );
+      }, requestTimeoutMs);
+      const cancelTimeout = (): void => clearTimeout(timeout);
+      pending.set(requestId, { resolve, reject, cancelTimeout });
       try {
         worker.postMessage(
           createDataWorkerCommand(body, requestId),
@@ -123,6 +176,7 @@ export function createDataWorkerClient(
             ? error
             : new Error("DataWorker postMessage failed"),
         );
+        cancelTimeout();
       }
     });
   };
@@ -172,6 +226,31 @@ export function createDataWorkerClient(
         sourceVersion: event.sourceVersion,
         value: event.value,
       };
+    },
+
+    async querySource(
+      source: "earthquake",
+      query: EarthquakeUiQuery,
+    ): Promise<DataWorkerSourceQueryResult> {
+      const event = await request({
+        type: "querySource",
+        source,
+        query,
+      });
+      if (event.type !== "sourceQuery") {
+        throw unexpectedEvent("source query");
+      }
+      return {
+        sourceVersion: event.sourceVersion,
+        result: event.result,
+      };
+    },
+
+    setSourceSearch(
+      source: "earthquake",
+      text: string | null,
+    ): Promise<void> {
+      return requireComplete({ type: "setSourceSearch", source, text });
     },
 
     getSourceSnapshot(

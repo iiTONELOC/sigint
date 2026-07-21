@@ -2,9 +2,15 @@ import {
   parseEarthquakePoint,
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
+import {
+  parseEarthquakeUiQuery,
+  parseEarthquakeUiQueryResult,
+  type EarthquakeUiQuery,
+  type EarthquakeUiQueryResult,
+} from "@/features/environmental/earthquake/data/uiQueries";
 import { isRecord } from "@shared/geo";
 
-export const DATA_WORKER_PROTOCOL_VERSION: 3 = 3;
+export const DATA_WORKER_PROTOCOL_VERSION: 5 = 5;
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
@@ -49,6 +55,16 @@ export type DataWorkerCommandBody =
       source: "earthquake";
       id: string;
     }>
+  | Readonly<{
+      type: "querySource";
+      source: "earthquake";
+      query: EarthquakeUiQuery;
+    }>
+  | Readonly<{
+      type: "setSourceSearch";
+      source: "earthquake";
+      text: string | null;
+    }>
   | Readonly<{ type: "get"; key: string }>
   | Readonly<{ type: "set"; key: string; value: unknown }>
   | Readonly<{ type: "setDeferred"; key: string; value: unknown }>
@@ -83,6 +99,13 @@ export type DataWorkerEvent =
         source: "earthquake";
         sourceVersion: number;
         value: EarthquakePoint | null;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
+        type: "sourceQuery";
+        source: "earthquake";
+        sourceVersion: number;
+        result: EarthquakeUiQueryResult;
       }>)
   | (DataWorkerEnvelope &
       Readonly<{ type: "error"; message: string }>);
@@ -210,6 +233,30 @@ export function parseDataWorkerCommand(
     };
   }
 
+  if (value.type === "querySource" && value.source === "earthquake") {
+    const query = parseEarthquakeUiQuery(value.query);
+    if (!query) return null;
+    return {
+      ...envelope,
+      type: "querySource",
+      source: "earthquake",
+      query,
+    };
+  }
+
+  if (
+    value.type === "setSourceSearch" &&
+    value.source === "earthquake" &&
+    (value.text === null || typeof value.text === "string")
+  ) {
+    return {
+      ...envelope,
+      type: "setSourceSearch",
+      source: "earthquake",
+      text: value.text,
+    };
+  }
+
   if (
     value.type === "init" ||
     value.type === "clear" ||
@@ -293,6 +340,23 @@ export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
       source: "earthquake",
       sourceVersion: value.sourceVersion,
       value: point,
+    };
+  }
+  if (
+    value.type === "sourceQuery" &&
+    value.source === "earthquake" &&
+    typeof value.sourceVersion === "number" &&
+    Number.isSafeInteger(value.sourceVersion) &&
+    value.sourceVersion >= 0
+  ) {
+    const result = parseEarthquakeUiQueryResult(value.result);
+    if (!result) return null;
+    return {
+      ...envelope,
+      type: "sourceQuery",
+      source: "earthquake",
+      sourceVersion: value.sourceVersion,
+      result,
     };
   }
   if (value.type === "complete") {

@@ -22,7 +22,6 @@ import { shipProvider } from "./features/tracking/ships/data/provider";
 import { gdeltProvider } from "./features/intel/events/data/provider";
 import { fireProvider } from "./features/environmental/fires/data/provider";
 import { weatherProvider } from "./features/environmental/weather/data/provider";
-import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
 import { newsProvider } from "./features/news";
 import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
 import { cycloneProvider } from "./features/environmental/cyclones";
@@ -76,7 +75,6 @@ const providers = [
   gdeltProvider,
   fireProvider,
   weatherProvider,
-  earthquakeProvider,
   newsProvider,
   aircraftProvider,
   cycloneProvider,

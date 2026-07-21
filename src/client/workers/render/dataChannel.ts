@@ -1,6 +1,6 @@
 import { isRecord } from "@shared/geo";
 
-export const RENDER_DATA_PROTOCOL_VERSION: 2 = 2;
+export const RENDER_DATA_PROTOCOL_VERSION: 3 = 3;
 
 export const EARTHQUAKE_POSITION_COMPONENTS = 2;
 export const EARTHQUAKE_UNIT_VECTOR_COMPONENTS = 3;
@@ -21,6 +21,10 @@ export type PackedEarthquakeRenderData = Readonly<{
 
 export type RenderDataCommandBody =
   | Readonly<{ type: "bind" }>
+  | Readonly<{
+      type: "earthquakeSearch";
+      matchingIds: readonly string[] | null;
+    }>
   | (Readonly<{ type: "earthquakeRebase" }> &
       PackedEarthquakeRenderData);
 
@@ -73,6 +77,18 @@ export function parseRenderDataCommand(
   const envelope = parseEnvelope(value);
   if (!envelope) return null;
   if (value.type === "bind") return { ...envelope, type: "bind" };
+  if (value.type === "earthquakeSearch") {
+    if (value.matchingIds === null) {
+      return { ...envelope, type: "earthquakeSearch", matchingIds: null };
+    }
+    if (!Array.isArray(value.matchingIds)) return null;
+    const matchingIds: string[] = [];
+    for (const id of value.matchingIds) {
+      if (typeof id !== "string") return null;
+      matchingIds.push(id);
+    }
+    return { ...envelope, type: "earthquakeSearch", matchingIds };
+  }
   if (
     value.type !== "earthquakeRebase" ||
     !Array.isArray(value.ids) ||

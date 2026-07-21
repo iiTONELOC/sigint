@@ -1,4 +1,8 @@
 import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
+import {
+  findEarthquakeSearchIds,
+  runEarthquakeUiQuery,
+} from "@/features/environmental/earthquake/data/uiQueries";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
@@ -6,6 +10,7 @@ import {
 } from "@/workers/data/cacheStore";
 import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
 import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
+import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 import {
   DATA_WORKER_PROTOCOL_VERSION,
   parseDataWorkerCommand,
@@ -19,6 +24,7 @@ const store = createDataCacheStore(indexedDB);
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
+let earthquakeSearchText: string | null = null;
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
   minWriteIntervalMs: DATA_CACHE_POLICY.minWriteIntervalMs,
@@ -44,6 +50,21 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
   });
 }
 
+function publishEarthquakeSearch(): void {
+  if (!renderPort || !renderSessionId) return;
+  const matchingIds = earthquakeSearchText
+    ? findEarthquakeSearchIds(earthquakeOwner.read(), earthquakeSearchText)
+    : null;
+  renderSequence++;
+  renderPort.postMessage(
+    createRenderDataCommand(
+      { type: "earthquakeSearch", matchingIds },
+      renderSessionId,
+      renderSequence,
+    ),
+  );
+}
+
 function rebaseEarthquakeRender(
   points: ReturnType<typeof earthquakeOwner.read>,
 ): void {
@@ -63,6 +84,7 @@ function rebaseEarthquakeRender(
       packed.timestamps.buffer,
     ],
   );
+  publishEarthquakeSearch();
 }
 
 const earthquakeOwner = createEarthquakeSourceOwner({
@@ -121,7 +143,7 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         type: "ready",
         protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
         requestId,
-        entries: await store.getAll(),
+        entries: mainThreadCacheEntries(await store.getAll()),
       });
       void earthquakeOwner.start();
       return;
@@ -141,6 +163,28 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         sourceVersion: snapshot.version,
         value: earthquakeOwner.find(command.id),
       });
+      return;
+    }
+    if (command.type === "querySource") {
+      const snapshot = earthquakeOwner.snapshot();
+      post({
+        type: "sourceQuery",
+        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+        requestId,
+        source: "earthquake",
+        sourceVersion: snapshot.version,
+        result: runEarthquakeUiQuery(
+          earthquakeOwner.read(),
+          command.query,
+        ),
+      });
+      return;
+    }
+    if (command.type === "setSourceSearch") {
+      const normalized = command.text?.trim() ?? "";
+      earthquakeSearchText = normalized.length > 0 ? normalized : null;
+      publishEarthquakeSearch();
+      complete(requestId);
       return;
     }
     if (command.type === "get") {

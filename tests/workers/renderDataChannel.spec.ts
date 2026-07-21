@@ -47,6 +47,18 @@ describe("render data channel", () => {
     ).toBeNull();
   });
 
+  test("validates a worker-owned earthquake search filter", () => {
+    const command = createRenderDataCommand(
+      { type: "earthquakeSearch", matchingIds: ["Qone", "Qtwo"] },
+      "session-a",
+      3,
+    );
+    expect(parseRenderDataCommand(command)).toEqual(command);
+    expect(
+      parseRenderDataCommand({ ...command, matchingIds: ["Qone", 2] }),
+    ).toBeNull();
+  });
+
   test("rejects malformed envelopes", () => {
     expect(
       parseRenderDataCommand({

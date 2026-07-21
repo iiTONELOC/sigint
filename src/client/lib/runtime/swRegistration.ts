@@ -1,84 +1,86 @@
-// ── Service Worker registration ──────────────────────────────────────
-// Call registerSW() once at boot. Handles registration, update
-// detection, and provides onUpdate callback for UI notification.
-//
-// Update flow:
-//   1. Browser detects new SW (periodic check or navigation)
-//   2. New SW installs → enters "waiting" state (does NOT skipWaiting)
-//   3. SW posts SW_UPDATE_AVAILABLE to all clients during install
-//   4. This code also detects via updatefound + statechange → "installed"
-//   5. onUpdate callback fires → shows banner
-//   6. User clicks RELOAD → applyUpdate() → posts SW_SKIP_WAITING
-//   7. New SW calls skipWaiting → controllerchange fires → page reloads
-
-type SWConfig = {
+type ServiceWorkerRegistrationConfig = {
   onUpdate?: () => void;
+  onError?: (error: unknown) => void;
 };
 
+const SERVICE_WORKER_URL = "/sw.js";
+const SERVICE_WORKER_SCOPE = "/";
+const ACTIVATION_MESSAGE = "SW_ACTIVATE_WAITING";
+const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
 let updateCallback: (() => void) | null = null;
+let errorCallback: ((error: unknown) => void) | null = null;
+let registration: ServiceWorkerRegistration | null = null;
+let updateCheck: Promise<void> | null = null;
+let registrationStarted = false;
+let reloading = false;
 
-export function registerSW(config?: SWConfig): void {
-  if (!("serviceWorker" in navigator)) return;
+function notifyUpdate(): void {
+  if (!registration?.waiting) return;
+  if (document.getElementById("sw-update-bar")) return;
+  updateCallback?.();
+}
 
-  updateCallback = config?.onUpdate ?? null;
+function reportError(error: unknown): void {
+  errorCallback?.(error);
+}
 
-  navigator.serviceWorker
-    .register("/sw.js", { scope: "/" })
-    .then((registration) => {
-      if (registration.waiting) notifyUpdate();
+function checkForUpdate(): Promise<void> {
+  if (!registration) return Promise.resolve();
+  if (updateCheck) return updateCheck;
 
-      registration.addEventListener("updatefound", () => {
-        const newWorker = registration.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener("statechange", () => {
-          if (
-            newWorker.state === "installed" &&
-            navigator.serviceWorker.controller
-          ) {
-            notifyUpdate();
-          }
-        });
-      });
-
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type === "SW_UPDATE_AVAILABLE") notifyUpdate();
-      });
-
-      setInterval(() => {
-        registration.update().catch(() => {});
-      }, 15 * 60_000);
-    })
-    .catch((err) => {
-      console.warn("[SW] Registration failed:", err);
+  updateCheck = registration
+    .update()
+    .then(() => undefined)
+    .catch(reportError)
+    .finally(() => {
+      updateCheck = null;
     });
+  return updateCheck;
+}
 
-  // Listen for controller change (new SW activated) — reload to get new assets
-  // This only fires AFTER applyUpdate() → skipWaiting() → activate
-  let reloading = false;
+function watchInstallingWorker(worker: ServiceWorker): void {
+  worker.addEventListener("statechange", () => {
+    if (worker.state === "installed") notifyUpdate();
+  });
+}
+
+function installUpdateChecks(): void {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void checkForUpdate();
+  });
+  window.addEventListener("online", () => void checkForUpdate());
+  window.setInterval(() => void checkForUpdate(), UPDATE_CHECK_INTERVAL_MS);
+}
+
+export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
+  updateCallback = config?.onUpdate ?? null;
+  errorCallback = config?.onError ?? null;
+  if (!("serviceWorker" in navigator)) return;
+  if (registrationStarted) return;
+  registrationStarted = true;
+
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloading) return;
     reloading = true;
     window.location.reload();
   });
+
+  void navigator.serviceWorker
+    .register(SERVICE_WORKER_URL, { scope: SERVICE_WORKER_SCOPE })
+    .then((registered) => {
+      registration = registered;
+      if (registered.installing) watchInstallingWorker(registered.installing);
+      registered.addEventListener("updatefound", () => {
+        if (registered.installing) watchInstallingWorker(registered.installing);
+      });
+      notifyUpdate();
+      installUpdateChecks();
+      return checkForUpdate();
+    })
+    .catch(reportError);
 }
 
-function notifyUpdate(): void {
-  // Allow re-notification if banner was dismissed
-  if (document.getElementById("sw-update-bar")) return;
-  updateCallback?.();
-}
-
-/** Tell the waiting SW to activate immediately */
 export function applyUpdate(): void {
-  const reg = navigator.serviceWorker?.getRegistration?.();
-  if (reg && typeof reg.then === "function") {
-    reg.then((r) => {
-      if (r?.waiting) {
-        r.waiting.postMessage("SW_SKIP_WAITING");
-      }
-    });
-  } else {
-    // Fallback — send to controller
-    navigator.serviceWorker?.controller?.postMessage("SW_SKIP_WAITING");
-  }
+  registration?.waiting?.postMessage({ type: ACTIVATION_MESSAGE });
 }

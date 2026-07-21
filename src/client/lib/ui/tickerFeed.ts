@@ -1,35 +1,9 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 
-function isEmergencyAircraft(item: DataPoint): boolean {
-  if (item.type !== "aircraft") return false;
-  const sq = (item.data as any)?.squawk ?? "";
-  return sq === "7700" || sq === "7600" || sq === "7500";
-}
+export const TICKER_ITEM_LIMIT = 80;
 
-function isMoving(item: DataPoint): boolean {
-  if (item.type === "aircraft") {
-    // Emergency aircraft always show regardless
-    if (isEmergencyAircraft(item)) return true;
-    return (item.data as any)?.onGround !== true;
-  }
-  if (item.type === "ships") {
-    const sog = (item.data as any)?.sog ?? 0;
-    return sog >= 0.5;
-  }
-  // Events and quakes always show
-  return true;
-}
-
-function getTimestamp(item: DataPoint): number {
-  if (item.timestamp) {
-    const t = new Date(item.timestamp).getTime();
-    if (Number.isFinite(t)) return t;
-  }
-  return 0;
-}
-
-const TICKER_SIZE = 80;
+const MINIMUM_MOVING_SHIP_SPEED_KNOTS = 0.5;
 const TYPE_ORDER = [
   "aircraft",
   "ships",
@@ -38,94 +12,107 @@ const TYPE_ORDER = [
   "fires",
   "weather",
   "cyclones",
-];
+] as const;
 
-/**
- * Build ticker items — newest first, interleaved across all active types.
- * Emergency aircraft always lead. Then round-robin newest from each type.
- * Grounded aircraft and moored ships (sog < 0.5) are excluded.
- */
-export function buildTickerItems(allData: DataPoint[]): DataPoint[] {
-  // Bucket by type, sorted by recency within each bucket
+function isEmergencyAircraft(item: DataPoint): boolean {
+  if (item.type !== "aircraft") return false;
+  const squawk = item.data.squawk ?? "";
+  return squawk === "7700" || squawk === "7600" || squawk === "7500";
+}
+
+function isMoving(item: DataPoint): boolean {
+  if (item.type === "aircraft") {
+    return isEmergencyAircraft(item) || item.data.onGround !== true;
+  }
+  if (item.type === "ships") {
+    return (item.data.sog ?? 0) >= MINIMUM_MOVING_SHIP_SPEED_KNOTS;
+  }
+  return true;
+}
+
+function getTimestamp(item: DataPoint): number {
+  if (!item.timestamp) return 0;
+  const timestamp = Date.parse(item.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function buildTickerItems(allData: readonly DataPoint[]): DataPoint[] {
   const byType = new Map<string, DataPoint[]>();
   for (const type of TYPE_ORDER) byType.set(type, []);
 
   for (const item of allData) {
-    if (!featureRegistry.has(item.type)) continue;
-    if (!isMoving(item)) continue;
+    if (!featureRegistry.has(item.type) || !isMoving(item)) continue;
     byType.get(item.type)?.push(item);
   }
 
-  // Parse each timestamp ONCE. byRecency used to call new Date() inside the
-  // sort comparator — O(n log n) date parses per bucket, ~1M for 35k fires,
-  // synchronous on every poll. Cache the number, then sort on it.
-  const tsOf = new Map<DataPoint, number>();
+  const timestampByItem = new Map<DataPoint, number>();
   for (const items of byType.values()) {
-    for (const item of items) tsOf.set(item, getTimestamp(item));
+    for (const item of items) timestampByItem.set(item, getTimestamp(item));
   }
   for (const items of byType.values()) {
-    items.sort((a, b) => tsOf.get(b)! - tsOf.get(a)!);
+    items.sort(
+      (left, right) =>
+        (timestampByItem.get(right) ?? 0) -
+        (timestampByItem.get(left) ?? 0),
+    );
   }
 
   const result: DataPoint[] = [];
   const usedIds = new Set<string>();
-
-  // Emergency aircraft always first
   const aircraft = byType.get("aircraft") ?? [];
   for (const item of aircraft) {
-    if (isEmergencyAircraft(item) && result.length < TICKER_SIZE) {
+    if (isEmergencyAircraft(item) && result.length < TICKER_ITEM_LIMIT) {
       result.push(item);
       usedIds.add(item.id);
     }
   }
 
-  // Build index per type (skip already-used emergencies)
   const indices = new Map<string, number>();
   for (const type of TYPE_ORDER) {
-    if (type === "aircraft") {
-      // Find first non-emergency
-      const list = byType.get(type) ?? [];
-      let startIdx = 0;
-      while (startIdx < list.length && usedIds.has(list[startIdx]!.id)) {
-        startIdx++;
-      }
-      indices.set(type, startIdx);
-    } else {
-      indices.set(type, 0);
+    const queue = byType.get(type) ?? [];
+    let index = 0;
+    while (index < queue.length) {
+      const item = queue[index];
+      if (!item || !usedIds.has(item.id)) break;
+      index++;
     }
+    indices.set(type, index);
   }
 
-  // Round-robin: take one from each type that has data, repeat
-  while (result.length < TICKER_SIZE) {
+  while (result.length < TICKER_ITEM_LIMIT) {
     let added = false;
     for (const type of TYPE_ORDER) {
-      if (result.length >= TICKER_SIZE) break;
+      if (result.length >= TICKER_ITEM_LIMIT) break;
       const queue = byType.get(type);
       if (!queue) continue;
-      let idx = indices.get(type) ?? 0;
-
-      // Skip used items
-      while (idx < queue.length && usedIds.has(queue[idx]!.id)) idx++;
-      if (idx >= queue.length) continue;
-
-      result.push(queue[idx]!);
-      usedIds.add(queue[idx]!.id);
-      indices.set(type, idx + 1);
+      let index = indices.get(type) ?? 0;
+      let item = queue[index];
+      while (item && usedIds.has(item.id)) {
+        index++;
+        item = queue[index];
+      }
+      if (!item) continue;
+      result.push(item);
+      usedIds.add(item.id);
+      indices.set(type, index + 1);
       added = true;
     }
-    // All queues exhausted
     if (!added) break;
   }
 
-  // Shuffle non-emergency items so the feed feels varied each refresh
-  // Keep emergencies at the front
-  const emergencyCount = result.findIndex((item) => !isEmergencyAircraft(item));
-  const start = emergencyCount < 0 ? result.length : emergencyCount;
-  const rest = result.slice(start);
-  // Fisher-Yates shuffle
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+  const firstNonEmergency = result.findIndex(
+    (item) => !isEmergencyAircraft(item),
+  );
+  const shuffleStart =
+    firstNonEmergency < 0 ? result.length : firstNonEmergency;
+  const shuffled = result.slice(shuffleStart);
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = shuffled[index];
+    const swap = shuffled[swapIndex];
+    if (!current || !swap) continue;
+    shuffled[index] = swap;
+    shuffled[swapIndex] = current;
   }
-  return [...result.slice(0, start), ...rest];
+  return [...result.slice(0, shuffleStart), ...shuffled];
 }

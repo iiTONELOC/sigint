@@ -90,6 +90,7 @@ export function GlobeVisualization({
   dataVersion,
   layers,
   aircraftFilter,
+  earthquakeFilter,
   cycloneFilter,
   selected,
   isolatedId,
@@ -540,6 +541,7 @@ export function GlobeVisualization({
           countries: Array.from(aircraftFilter.countries),
           milFilter: aircraftFilter.milFilter ?? "all",
         },
+        earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
         searchMatchIds: searchMatchIds
           ? Array.from(searchMatchIds)
           : null,
@@ -558,6 +560,7 @@ export function GlobeVisualization({
     autoRotate,
     cycloneFilter,
     data,
+    earthquakeFilter,
     flat,
     isolatedId,
     isolateMode,

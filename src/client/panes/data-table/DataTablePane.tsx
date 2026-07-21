@@ -10,6 +10,9 @@ import { Tooltip } from "@/components/Tooltip";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 import { isMobileWidth } from "@/config/breakpoints";
+import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
+import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
+import { mergeSortedPrefix } from "@/lib/data/mergeSortedPrefix";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -20,6 +23,7 @@ type SortDir = "asc" | "desc";
 
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
+const INITIAL_QUERY_LIMIT = OVERSCAN * 2;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -139,6 +143,29 @@ function getAge(item: DataPoint): number {
   return Date.now() - new Date(item.timestamp).getTime();
 }
 
+function compareDataPoints(
+  left: DataPoint,
+  right: DataPoint,
+  sortKey: SortKey,
+  sortDir: SortDir,
+): number {
+  let comparison = 0;
+  if (sortKey === "type") comparison = left.type.localeCompare(right.type);
+  else if (sortKey === "name") comparison = getName(left).localeCompare(getName(right));
+  else if (sortKey === "lat") comparison = left.lat - right.lat;
+  else if (sortKey === "lon") comparison = left.lon - right.lon;
+  else if (sortKey === "value1") {
+    comparison =
+      getValue1Num(left) - getValue1Num(right) ||
+      getValue1(left).localeCompare(getValue1(right));
+  } else if (sortKey === "value2") {
+    comparison = getValue2Num(left) - getValue2Num(right);
+  } else {
+    comparison = getAge(left) - getAge(right);
+  }
+  return comparison * (sortDir === "asc" ? 1 : -1);
+}
+
 // ── Column definitions ──────────────────────────────────────────────
 
 const COLUMNS: {
@@ -216,12 +243,15 @@ export function DataTablePane() {
     selectAndZoom,
     setRevealId,
     colorMap,
+    earthquakeFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [sortKey, setSortKey] = useState<SortKey>("type");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [earthquakePrefixLimit, setEarthquakePrefixLimit] =
+    useState(INITIAL_QUERY_LIMIT);
 
   // ── Filter ──────────────────────────────────────────────────────
 
@@ -241,38 +271,39 @@ export function DataTablePane() {
 
   const sortedData = useMemo(() => {
     const sorted = [...filteredData];
-    const dir = sortDir === "asc" ? 1 : -1;
-    sorted.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case "type":
-          cmp = a.type.localeCompare(b.type);
-          break;
-        case "name":
-          cmp = getName(a).localeCompare(getName(b));
-          break;
-        case "lat":
-          cmp = a.lat - b.lat;
-          break;
-        case "lon":
-          cmp = a.lon - b.lon;
-          break;
-        case "value1":
-          cmp =
-            getValue1Num(a) - getValue1Num(b) ||
-            getValue1(a).localeCompare(getValue1(b));
-          break;
-        case "value2":
-          cmp = getValue2Num(a) - getValue2Num(b);
-          break;
-        case "age":
-          cmp = getAge(a) - getAge(b);
-          break;
-      }
-      return cmp * dir;
-    });
+    sorted.sort((left, right) =>
+      compareDataPoints(left, right, sortKey, sortDir),
+    );
     return sorted;
   }, [filteredData, sortKey, sortDir]);
+
+  const earthquakeTableQuery = useMemo<EarthquakeUiQuery | null>(
+    () =>
+      earthquakeFilter.enabled
+        ? {
+            kind: "table",
+            minMagnitude: earthquakeFilter.minMagnitude,
+            sortKey,
+            sortDirection: sortDir,
+            offset: 0,
+            limit: earthquakePrefixLimit,
+          }
+        : null,
+    [earthquakeFilter, sortKey, sortDir, earthquakePrefixLimit],
+  );
+  const earthquakeTableResult = useEarthquakeUiQuery(earthquakeTableQuery);
+  const earthquakeTotal =
+    earthquakeTableResult?.kind === "table"
+      ? earthquakeTableResult.total
+      : 0;
+  const includeEarthquakes =
+    typeFilter === null || typeFilter === "quakes";
+  const earthquakeItems =
+    includeEarthquakes && earthquakeTableResult?.kind === "table"
+      ? earthquakeTableResult.items
+      : [];
+  const itemCount =
+    sortedData.length + (includeEarthquakes ? earthquakeTotal : 0);
 
   // ── Virtual scroll ──────────────────────────────────────────────
 
@@ -285,23 +316,47 @@ export function DataTablePane() {
     onScroll,
     scrollToIndex,
   } = useVirtualScroll({
-    itemCount: sortedData.length,
+    itemCount,
     rowHeight: ROW_HEIGHT,
     overscan: OVERSCAN,
   });
 
+  useEffect(() => {
+    if (endIdx > earthquakePrefixLimit) setEarthquakePrefixLimit(endIdx);
+  }, [endIdx, earthquakePrefixLimit]);
+
   const visibleItems = useMemo(
-    () => sortedData.slice(startIdx, endIdx),
-    [sortedData, startIdx, endIdx],
+    () =>
+      mergeSortedPrefix(
+        sortedData,
+        earthquakeItems,
+        (left, right) => compareDataPoints(left, right, sortKey, sortDir),
+        endIdx,
+      ).slice(startIdx, endIdx),
+    [sortedData, earthquakeItems, sortKey, sortDir, startIdx, endIdx],
   );
 
   // ── Auto-scroll to selected item ─────────────────────────────────
 
   useEffect(() => {
     if (!selectedCurrent) return;
-    const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
-    if (idx >= 0) scrollToIndex(idx);
-  }, [selectedCurrent?.id, sortedData, scrollToIndex]);
+    const prefix = mergeSortedPrefix(
+      sortedData,
+      earthquakeItems,
+      (left, right) => compareDataPoints(left, right, sortKey, sortDir),
+      earthquakePrefixLimit,
+    );
+    const index = prefix.findIndex((item) => item.id === selectedCurrent.id);
+    if (index >= 0) scrollToIndex(index);
+  }, [
+    selectedCurrent?.id,
+    sortedData,
+    earthquakeItems,
+    sortKey,
+    sortDir,
+    earthquakePrefixLimit,
+    scrollToIndex,
+  ]);
 
   // ── Feature counts ──────────────────────────────────────────────
 
@@ -315,8 +370,9 @@ export function DataTablePane() {
       if (!feature.matchesFilter(item as any, filter)) continue;
       counts[item.type] = (counts[item.type] ?? 0) + 1;
     }
+    counts.quakes = earthquakeTotal;
     return counts;
-  }, [allData, filters]);
+  }, [allData, filters, earthquakeTotal]);
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -395,7 +451,7 @@ export function DataTablePane() {
         })}
         <div className="flex-1" />
         <span className="text-sig-dim text-(length:--sig-text-sm)">
-          {sortedData.length} items
+          {itemCount} items
         </span>
       </div>
 
@@ -518,7 +574,7 @@ export function DataTablePane() {
             })}
           </div>
         </div>
-        {sortedData.length === 0 && (
+        {itemCount === 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
             No data matching filters
           </div>

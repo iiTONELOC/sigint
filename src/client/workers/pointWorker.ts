@@ -782,6 +782,7 @@ type EarthquakeRenderState = PackedEarthquakeRenderData & {
 const EARTHQUAKE_CULL_MARGIN_PX = 24;
 const EARTHQUAKE_PULSE_THRESHOLD = 3;
 let _earthquakes: EarthquakeRenderState | null = null;
+let _earthquakeSearchIds: ReadonlySet<string> | null = null;
 let _hasAnimatedEarthquakes = false;
 let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
@@ -835,7 +836,13 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
       globalThis.postMessage(ready);
       return;
     }
-    handleEarthquakeRebase(command);
+    if (command.type === "earthquakeSearch") {
+      _earthquakeSearchIds = command.matchingIds
+        ? new Set(command.matchingIds)
+        : null;
+    } else {
+      handleEarthquakeRebase(command);
+    }
     scheduleRender();
   };
   port.start();
@@ -1263,6 +1270,7 @@ type FilterCfg = {
   isolatedType: string | null;
   layers: Readonly<Record<string, boolean | undefined>>;
   af: AircraftFilter;
+  earthquakeMinMagnitude: number;
   showForecast: boolean;
 };
 
@@ -1387,10 +1395,12 @@ function projectEarthquakes(
     state.projected[projectedOffset + 2] = -1;
     if (!visible) continue;
     const id = state.ids[index];
-    if (id === undefined) continue;
+    const magnitude = state.magnitudes[index];
+    if (id === undefined || magnitude === undefined) continue;
+    if (magnitude < frame.filters.earthquakeMinMagnitude) continue;
     if (
-      frame.filters.searchSet &&
-      !frame.filters.searchSet.has(id)
+      _earthquakeSearchIds &&
+      !_earthquakeSearchIds.has(id)
     ) {
       continue;
     }
@@ -2388,7 +2398,16 @@ function renderFrame(): void {
         )
       : null;
   const searchSet = searchIds ? new Set(searchIds) : null;
-  const filterCfg: FilterCfg = { searchSet, isoMode, isoId, isolatedType, layers, af, showForecast: cyclonesShowForecast };
+  const filterCfg: FilterCfg = {
+    searchSet,
+    isoMode,
+    isoId,
+    isolatedType,
+    layers,
+    af,
+    earthquakeMinMagnitude: p.earthquakeMinMagnitude,
+    showForecast: cyclonesShowForecast,
+  };
   const pts = projectAndFilter(data, projectPoint, filterCfg);
   rebuildHitGrid(pts);
   _hasSelectedProjection = false;

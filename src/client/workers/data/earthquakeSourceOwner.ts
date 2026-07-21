@@ -68,9 +68,7 @@ export function createEarthquakeSourceOwner(
 
   const replace = (nextPoints: readonly EarthquakePoint[]): void => {
     points = nextPoints;
-    pointsById = new Map(
-      nextPoints.map((point) => [point.id, point]),
-    );
+    pointsById = new Map(nextPoints.map((point) => [point.id, point]));
   };
 
   const scheduleRefresh = (delayMs: number): void => {
@@ -94,21 +92,14 @@ export function createEarthquakeSourceOwner(
       error: null,
     });
     dependencies.rebaseRender(nextPoints);
-    dependencies.persistCache({
-      timestamp: receivedAt,
-      data: nextPoints,
-    });
+    dependencies.persistCache({ timestamp: receivedAt, data: nextPoints });
   };
 
   const retainAfterFailure = (error: unknown): void => {
     const message =
       error instanceof Error ? error.message : "USGS refresh failed";
     const lastUpdatedAt = snapshot.lastUpdatedAt;
-    const withinStaleWindow =
-      lastUpdatedAt !== null &&
-      now() - lastUpdatedAt <=
-        EARTHQUAKE_SOURCE_POLICY.maximumStaleDurationMs;
-    if (points.length > 0 && withinStaleWindow) {
+    if (points.length > 0) {
       publish({
         status: "cached",
         loading: false,
@@ -118,7 +109,6 @@ export function createEarthquakeSourceOwner(
       });
       return;
     }
-    replace([]);
     publish({
       status: "error",
       loading: false,
@@ -126,7 +116,6 @@ export function createEarthquakeSourceOwner(
       lastUpdatedAt,
       error: message,
     });
-    dependencies.rebaseRender([]);
   };
 
   const runRefresh = async (): Promise<void> => {
@@ -164,11 +153,7 @@ export function createEarthquakeSourceOwner(
       const cached = parseEarthquakeCacheSnapshot(
         await dependencies.readCache().catch(() => null),
       );
-      if (
-        cached &&
-        now() - cached.timestamp <=
-          EARTHQUAKE_SOURCE_POLICY.maximumStaleDurationMs
-      ) {
+      if (cached) {
         replace(cached.data);
         publish({
           status: "cached",

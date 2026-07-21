@@ -6,6 +6,9 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureRegistry } from "@/features/registry";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
+import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
+import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 
 // ── Search engine ────────────────────────────────────────────────────
 
@@ -121,6 +124,7 @@ export function Search({
   onMatchingIdsChange,
 }: SearchProps) {
   const { theme } = useTheme();
+  const dataWorkerClient = useMemo(getDataWorkerClient, []);
   const C = theme.colors;
   const colorMap = getColorMap(theme);
 
@@ -133,32 +137,95 @@ export function Search({
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { allMatches, topResults } = useMemo(
-    () => searchData(query, data),
-    [query, data],
+  const normalizedQuery = query.trim();
+  const earthquakeSearchQuery = useMemo<EarthquakeUiQuery | null>(
+    () =>
+      normalizedQuery.length > 0
+        ? { kind: "search", text: normalizedQuery }
+        : null,
+    [normalizedQuery],
   );
+  const committedEarthquakeSearchQuery = useMemo<EarthquakeUiQuery | null>(
+    () =>
+      committedQuery
+        ? { kind: "search", text: committedQuery }
+        : null,
+    [committedQuery],
+  );
+  const earthquakeSearchResult = useEarthquakeUiQuery(earthquakeSearchQuery);
+  const committedEarthquakeSearchResult = useEarthquakeUiQuery(
+    committedEarthquakeSearchQuery,
+  );
+  const { allMatches: localMatches } = useMemo(
+    () => searchData(normalizedQuery, data),
+    [normalizedQuery, data],
+  );
+  const earthquakeMatches = useMemo<SearchResult[]>(() => {
+    if (earthquakeSearchResult?.kind !== "search") return [];
+    return earthquakeSearchResult.items.map((item) => {
+      const primary = getPrimaryLabel(item);
+      return {
+        item,
+        score: scoreMatch(normalizedQuery, primary, primary),
+        primary,
+        secondary: getSecondaryLabel(item),
+      };
+    });
+  }, [earthquakeSearchResult, normalizedQuery]);
+  const topResults = useMemo(
+    () =>
+      [...localMatches.slice(0, 15), ...earthquakeMatches]
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 15),
+    [localMatches, earthquakeMatches],
+  );
+  const localMatchingIds = useMemo(
+    () => new Set(localMatches.map((result) => result.item.id)),
+    [localMatches],
+  );
+  const earthquakeMatchCount =
+    earthquakeSearchResult?.kind === "search"
+      ? earthquakeSearchResult.total
+      : 0;
+  const matchingCount = localMatchingIds.size + earthquakeMatchCount;
+  const searchReady = earthquakeSearchResult?.kind === "search";
 
-  // Re-run committed filter on data refresh
   useEffect(() => {
-    if (committedQuery === null) return;
-    const { allMatches: refreshed } = searchData(committedQuery, data);
-    if (refreshed.length > 0) {
-      onMatchingIdsChange(new Set(refreshed.map((r) => r.item.id)));
-      setCommittedCount(refreshed.length);
-    } else {
-      onMatchingIdsChange(null);
-      setCommittedCount(0);
+    if (
+      committedQuery === null ||
+      committedEarthquakeSearchResult?.kind !== "search"
+    ) {
+      return;
     }
-  }, [data, committedQuery, onMatchingIdsChange]);
+    const { allMatches: refreshed } = searchData(committedQuery, data);
+    const ids = new Set(refreshed.map((result) => result.item.id));
+    onMatchingIdsChange(ids);
+    setCommittedCount(
+      ids.size + committedEarthquakeSearchResult.total,
+    );
+  }, [
+    data,
+    committedQuery,
+    committedEarthquakeSearchResult,
+    onMatchingIdsChange,
+  ]);
 
   const commitFilter = useCallback(() => {
-    if (!query.trim() || allMatches.length === 0) return;
-    onMatchingIdsChange(new Set(allMatches.map((r) => r.item.id)));
-    setCommittedQuery(query.trim());
-    setCommittedCount(allMatches.length);
+    if (!normalizedQuery || !searchReady || matchingCount === 0) return;
+    onMatchingIdsChange(new Set(localMatchingIds));
+    void dataWorkerClient?.setSourceSearch("earthquake", normalizedQuery);
+    setCommittedQuery(normalizedQuery);
+    setCommittedCount(matchingCount);
     setOpen(false);
     setActiveIndex(-1);
-  }, [query, allMatches, onMatchingIdsChange]);
+  }, [
+    normalizedQuery,
+    searchReady,
+    matchingCount,
+    localMatchingIds,
+    dataWorkerClient,
+    onMatchingIdsChange,
+  ]);
 
   const clearFilter = useCallback(() => {
     setOpen(false);
@@ -167,7 +234,8 @@ export function Search({
     setCommittedCount(0);
     setActiveIndex(-1);
     onMatchingIdsChange(null);
-  }, [onMatchingIdsChange]);
+    void dataWorkerClient?.setSourceSearch("earthquake", null);
+  }, [dataWorkerClient, onMatchingIdsChange]);
 
   // Ref to focus input immediately when transitioning from button to input.
   // iOS Safari requires .focus() to originate from the user gesture call stack.
@@ -350,9 +418,9 @@ export function Search({
           placeholder="callsign, type..."
           className="bg-transparent outline-none flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) caret-sig-accent"
         />
-        {query.trim() && allMatches.length > 0 && (
+        {normalizedQuery && matchingCount > 0 && (
           <span className="shrink-0 tracking-wider text-sig-accent text-(length:--sig-text-sm)">
-            {allMatches.length}
+            {matchingCount}
           </span>
         )}
         <button
