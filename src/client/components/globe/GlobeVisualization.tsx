@@ -23,7 +23,17 @@ import {
 import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
 import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
 import { weatherSeverityRank, severityMeta } from "@/features/environmental/weather/severity";
+import { RENDER_POLICY } from "@/workers/render/policy";
+import {
+  RENDER_PROTOCOL_VERSION,
+  createRenderCommand,
+  type RenderTrailHitTarget,
+  type RenderWorkerCommandBody,
+  type RenderWorkerEvent,
+  type SelectedRenderItem,
+} from "@/workers/render/protocol";
 
 // ── Shared render worker (survives globe remounts) ──────────────────
 // The PaneManager re-parents the globe leaf when a pane (e.g. the dossier)
@@ -35,38 +45,56 @@ import { weatherSeverityRank, severityMeta } from "@/features/environmental/weat
 // mount transfers a fresh OffscreenCanvas to it (a transferred canvas is
 // one-shot per element), and the worker re-points at it via a new "init".
 let sharedWorker: Worker | null = null;
+
+type RenderWorkerHotData = {
+  renderWorker?: Worker;
+};
+
+function createRenderWorker(): Worker {
+  return new Worker("/workers/pointWorker.js", { type: "module" });
+}
+
 function getSharedWorker(): Worker {
-  sharedWorker ??= new Worker("/workers/pointWorker.js", { type: "module" });
+  if (import.meta.hot) {
+    const hotData: RenderWorkerHotData = import.meta.hot.data;
+    hotData.renderWorker ??= createRenderWorker();
+    return hotData.renderWorker;
+  }
+  sharedWorker ??= createRenderWorker();
   return sharedWorker;
 }
 
 // High-count types ship only the fields the worker draws/filters with — the
 // full enriched blob (acType, registration, route, …) would balloon the clone.
-const SLIM_TYPES = new Set(["aircraft", "ships", "quakes", "fires", "events"]);
-function slimPoint(item: DataPoint) {
-  const dd = (item as any).data;
-  return {
-    id: item.id,
-    type: item.type,
-    lat: item.lat,
-    lon: item.lon,
-    timestamp: item.timestamp,
-    data:
-      SLIM_TYPES.has(item.type) && dd
-        ? {
-            military: dd.military,
-            recon: dd.recon,
-            squawkStatus: dd.squawkStatus,
-            squawk: dd.squawk,
-            onGround: dd.onGround,
-            originCountry: dd.originCountry,
-            heading: dd.heading,
-            magnitude: dd.magnitude,
-            severity: dd.severity,
-            frp: dd.frp,
-          }
-        : dd,
-  };
+function slimPoint(item: DataPoint): DataPoint {
+  if (item.type === "aircraft") {
+    const details = item.data;
+    return {
+      ...item,
+      data: {
+        military: details.military,
+        recon: details.recon,
+        squawkStatus: details.squawkStatus,
+        squawk: details.squawk,
+        onGround: details.onGround,
+        originCountry: details.originCountry,
+        heading: details.heading,
+      },
+    };
+  }
+  if (item.type === "ships") {
+    return { ...item, data: { heading: item.data.heading } };
+  }
+  if (item.type === "quakes") {
+    return { ...item, data: { magnitude: item.data.magnitude } };
+  }
+  if (item.type === "fires") {
+    return { ...item, data: { frp: item.data.frp } };
+  }
+  if (item.type === "events") {
+    return { ...item, data: { severity: item.data.severity } };
+  }
+  return item;
 }
 
 export function GlobeVisualization({
@@ -124,11 +152,8 @@ export function GlobeVisualization({
     lastClickId: null,
   });
   const sizeRef = useRef({ w: 800, h: 600 });
-  const pendingResizeRef = useRef<{
-    cw: number;
-    ch: number;
-    dpr: number;
-  } | null>(null);
+  const devicePixelRatioRef = useRef(1);
+  const trailHitTargetsRef = useRef<readonly RenderTrailHitTarget[]>([]);
   const [trailTooltip, setTrailTooltip] = useState<TrailPoint | null>(null);
   const trailTooltipPointRef = useRef<TrailPoint | null>(null);
   const trailTooltipElRef = useRef<HTMLDivElement>(null);
@@ -185,7 +210,12 @@ export function GlobeVisualization({
   // ── Point rendering worker ──────────────────────────────────────
   const workerRef = useRef<Worker | null>(null);
   const workerCanvasRef = useRef<OffscreenCanvas | null>(null);
-  const latestBitmapRef = useRef<ImageBitmap | null>(null);
+  const renderSessionIdRef = useRef<string | null>(null);
+  const renderSequenceRef = useRef(0);
+  const sendCommandRef = useRef<
+    (body: RenderWorkerCommandBody, transfer?: Transferable[]) => void
+  >(() => undefined);
+  const scheduleDataPumpRef = useRef<() => void>(() => undefined);
   const trailSyncRef = useRef(30);
   const lastTrailRevRef = useRef(-1);
 
@@ -222,89 +252,41 @@ export function GlobeVisualization({
       return;
     }
     if (zoomToId === lastZoomToIdRef.current) return;
-    lastZoomToIdRef.current = zoomToId;
-
-    const item = data.find((d) => d.id === zoomToId);
+    const item = data.find((candidate) => candidate.id === zoomToId);
     if (!item) return;
-
-    const camTarget = camTargetRef.current;
-    const cam = camRef.current;
-    const isFlat = flat;
-
-    const interp = getInterpolatedPosition(item.id);
-    const tLat = interp ? interp.lat : item.lat;
-    const tLon = interp ? interp.lon : item.lon;
-
-    if (isFlat) {
-      const { w: fw, h: fh } = sizeRef.current;
-      const targetZoom = Math.max(cam.zoomFlat, 40);
-      const mW = fw * 0.92 * targetZoom;
-      const mH = fh * 0.84 * targetZoom;
-      camTarget.panX = -(tLon / 180) * (mW / 2);
-      camTarget.panY = (tLat / 90) * (mH / 2);
-      camTarget.zoom = targetZoom;
-    } else {
-      const phi = ((90 - tLat) * Math.PI) / 180;
-      const theta = ((tLon + 180) * Math.PI) / 180;
-      camTarget.rotY = Math.PI / 2 - theta;
-      camTarget.rotX = -(phi - Math.PI / 2);
-      camTarget.zoom = Math.max(cam.zoomGlobe, 35);
-    }
-    camTarget.active = true;
-    camTarget.lockedId = zoomToId;
-  }, [zoomToId, data, flat]);
+    lastZoomToIdRef.current = zoomToId;
+    sendCommandRef.current({
+      type: "focus",
+      payload: {
+        id: item.id,
+        latitude: item.lat,
+        longitude: item.lon,
+        kind: "focus",
+      },
+    });
+  }, [zoomToId, data]);
 
   // ── Reveal effect — gentle pan, ISS zoom, no lock-on ─────────────
   const lastRevealIdRef = useRef<string | null>(null);
   useEffect(() => {
-    // Allow re-reveal of same ID by resetting when cleared
     if (!revealId) {
       lastRevealIdRef.current = null;
       return;
     }
     if (revealId === lastRevealIdRef.current) return;
-    lastRevealIdRef.current = revealId;
-
-    const item = data.find((d) => d.id === revealId);
+    const item = data.find((candidate) => candidate.id === revealId);
     if (!item) return;
-
-    const camTarget = camTargetRef.current;
-    const cam = camRef.current;
-    const isFlat = flat;
-
-    const interp = getInterpolatedPosition(item.id);
-    const tLat = interp ? interp.lat : item.lat;
-    const tLon = interp ? interp.lon : item.lon;
-
-    if (isFlat) {
-      const { w: fw, h: fh } = sizeRef.current;
-      const targetZoom = Math.max(cam.zoomFlat, 2);
-      const mW = fw * 0.92 * targetZoom;
-      const mH = fh * 0.84 * targetZoom;
-      camTarget.panX = -(tLon / 180) * (mW / 2);
-      const basePanY = (tLat / 90) * (mH / 2);
-      camTarget.panY = isMobileWidth(fw) ? basePanY - fh * 0.23 : basePanY;
-      camTarget.zoom = targetZoom;
-    } else {
-      // Always rotate to show the point — no visibility guessing
-      const phi = ((90 - tLat) * Math.PI) / 180;
-      const theta = ((tLon + 180) * Math.PI) / 180;
-      camTarget.rotY = Math.PI / 2 - theta;
-      const baseRotX = -(phi - Math.PI / 2);
-      const { w: rw, h: rh } = sizeRef.current;
-      const targetZoom = Math.max(cam.zoomGlobe, 2.5);
-      if (isMobileWidth(rw)) {
-        const r = Math.min(rw, rh) * 0.4 * targetZoom;
-        camTarget.rotX = baseRotX - Math.asin(Math.min(0.95, (rh * 0.19) / r));
-      } else {
-        camTarget.rotX = baseRotX;
-      }
-      // ISS-level zoom — keep current if already zoomed in, otherwise mild
-      camTarget.zoom = targetZoom;
-    }
-    camTarget.active = true;
-    camTarget.lockedId = null;
-  }, [revealId, data, flat]);
+    lastRevealIdRef.current = revealId;
+    sendCommandRef.current({
+      type: "focus",
+      payload: {
+        id: item.id,
+        latitude: item.lat,
+        longitude: item.lon,
+        kind: "reveal",
+      },
+    });
+  }, [revealId, data]);
 
   // ── Render loop ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -312,63 +294,124 @@ export function GlobeVisualization({
     if (!canvas) return;
     let running = true;
 
-    // ── Initialize point rendering worker ────────────────────────
-    // Reuse the module-level worker across remounts (see getSharedWorker).
-    // This mount's <canvas> is new, so always transfer a fresh OffscreenCanvas
-    // and (re)bind onmessage — the worker keeps its land/data/trail state and
-    // simply re-points at the new draw target, so it repaints immediately.
-    {
-      const worker = getSharedWorker();
-      workerRef.current = worker;
+    // Transfer each mounted canvas once; the worker keeps shared datasets.
+    const worker = getSharedWorker();
+    workerRef.current = worker;
+    const sessionId =
+      renderSessionIdRef.current ?? globalThis.crypto.randomUUID();
+    renderSessionIdRef.current = sessionId;
 
-      const osc = new OffscreenCanvas(
-        canvas.width || 800,
-        canvas.height || 600,
+    const sendCommand = (
+      body: RenderWorkerCommandBody,
+      transfer: Transferable[] = [],
+    ): void => {
+      renderSequenceRef.current += 1;
+      worker.postMessage(
+        createRenderCommand(body, sessionId, renderSequenceRef.current),
+        transfer,
       );
-      workerCanvasRef.current = osc;
-      worker.postMessage({ type: "init", canvas: osc }, [osc]);
+    };
+    sendCommandRef.current = sendCommand;
 
-      worker.onmessage = (e: MessageEvent) => {
-        if (e.data.type === "frame") {
-          // Dispose previous bitmap
-          if (latestBitmapRef.current) {
-            latestBitmapRef.current.close();
-          }
-          latestBitmapRef.current = e.data.bitmap;
+    const parent = canvas.parentElement;
+    const initialWidth = parent?.clientWidth || sizeRef.current.w;
+    const initialHeight = parent?.clientHeight || sizeRef.current.h;
+    const initialDevicePixelRatio = Math.min(
+      window.devicePixelRatio || 1,
+      RENDER_POLICY.maxDevicePixelRatio,
+    );
+    sizeRef.current = { w: initialWidth, h: initialHeight };
+    devicePixelRatioRef.current = initialDevicePixelRatio;
+    canvas.style.width = initialWidth + "px";
+    canvas.style.height = initialHeight + "px";
 
-          // Store trail hit targets for click detection
-          if (e.data.hitTargets && canvasRef.current) {
-            (canvasRef.current as any).__trailHitTargets = e.data.hitTargets;
-          }
-
-          // Composite — single bitmap from worker has everything
-          const mainCanvas = canvasRef.current;
-          if (mainCanvas && latestBitmapRef.current) {
-            const bmp = latestBitmapRef.current;
-            const pr = pendingResizeRef.current;
-
-            // Only apply deferred resize when the bitmap matches the
-            // target dimensions — prevents a flash frame where the canvas
-            // is cleared at the new size but drawn with an old-size bitmap.
-            if (pr && bmp.width === pr.cw && bmp.height === pr.ch) {
-              pendingResizeRef.current = null;
-              mainCanvas.width = pr.cw;
-              mainCanvas.height = pr.ch;
-              mainCanvas
-                .getContext("2d")
-                ?.setTransform(pr.dpr, 0, 0, pr.dpr, 0, 0);
-            }
-
-            const mainCtx = mainCanvas.getContext("2d");
-            if (mainCtx) {
-              mainCtx.setTransform(1, 0, 0, 1, 0, 0);
-              mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-              mainCtx.drawImage(bmp, 0, 0, mainCanvas.width, mainCanvas.height);
-            }
-          }
-        }
-      };
+    if (!workerCanvasRef.current) {
+      canvas.width = Math.round(initialWidth * initialDevicePixelRatio);
+      canvas.height = Math.round(initialHeight * initialDevicePixelRatio);
+      const offscreen = canvas.transferControlToOffscreen();
+      workerCanvasRef.current = offscreen;
+      sendCommand({ type: "init", canvas: offscreen }, [offscreen]);
     }
+
+    worker.onmessage = (event: MessageEvent<RenderWorkerEvent>) => {
+      const message = event.data;
+      if (
+        message.protocolVersion !== RENDER_PROTOCOL_VERSION ||
+        message.sessionId !== sessionId
+      ) {
+        return;
+      }
+      if (message.type === "ready") {
+        canvas.dataset.renderWorkerReady = "true";
+        return;
+      }
+      if (message.type === "trailTargets") {
+        trailHitTargetsRef.current = message.payload.targets;
+        return;
+      }
+      if (message.type === "camera") {
+        camRef.current = {
+          ...message.payload,
+          vy: 0,
+        };
+        return;
+      }
+      const interaction = message.payload;
+      if (interaction.kind === "cursor") {
+        canvas.style.cursor = interaction.cursor;
+        return;
+      }
+      if (interaction.kind === "selection") {
+        const current = propsRef.current;
+        const item =
+          current.data.find((candidate) => candidate.id === interaction.id) ??
+          current.cycloneWarnings
+            ?.find((warning) => warning.id === interaction.id);
+        current.onSelect(
+          item && "event" in item ? warningToDataPoint(item) : item ?? null,
+        );
+        return;
+      }
+      if (interaction.kind === "rawCanvasClick") {
+        propsRef.current.onRawCanvasClick?.();
+        return;
+      }
+      if (interaction.kind === "selectedSide") {
+        propsRef.current.onSelectedSide?.(interaction.side);
+        return;
+      }
+      setTrailTooltip((previous) => {
+        const point = interaction.point;
+        if (!point) return null;
+        return (
+          previous?.ts === point.ts &&
+          previous.lat === point.lat &&
+          previous.lon === point.lon
+        )
+          ? previous
+          : point;
+      });
+      requestAnimationFrame(() => {
+        const element = trailTooltipElRef.current;
+        if (!element || !interaction.visible) {
+          if (element) element.style.display = "none";
+          return;
+        }
+        const { w, h } = sizeRef.current;
+        const tooltipWidth = element.offsetWidth || 200;
+        const tooltipHeight = element.offsetHeight || 80;
+        const right = interaction.x - tooltipWidth - 16 < 0;
+        const x = right
+          ? interaction.x + 14
+          : interaction.x - tooltipWidth - 14;
+        const y = interaction.y - tooltipHeight / 2;
+        element.style.left =
+          `${Math.max(4, Math.min(w - tooltipWidth - 4, x))}px`;
+        element.style.top =
+          `${Math.max(4, Math.min(h - tooltipHeight - 4, y))}px`;
+        element.style.display = "";
+      });
+    };
 
     // ── Data pump — OFF the paint frame ───────────────────────────
     // Serializing every point + structuredClone across the worker boundary is
@@ -425,7 +468,7 @@ export function GlobeVisualization({
     // Drain one chunk per frame. The worker accumulates chunks into a pending
     // bucket and swaps it in on `done`, so a 13k-point layer streams over a few
     // frames instead of cloning in one blocking postMessage.
-    const PUMP_CHUNK = 4000;
+    const PUMP_CHUNK = RENDER_POLICY.dataChunkSize;
     const pumpData = () => {
       dataPumpScheduledRef.current = false;
       const worker = workerRef.current;
@@ -447,7 +490,7 @@ export function GlobeVisualization({
       const reset = job.offset === 0;
       job.offset = end;
       const done = job.offset >= job.items.length;
-      worker.postMessage({
+      sendCommand({
         type: "data",
         payload: { source: job.source, data: chunk, colors: C, reset, done },
       });
@@ -463,11 +506,10 @@ export function GlobeVisualization({
       dataPumpScheduledRef.current = true;
       requestAnimationFrame(pumpData);
     };
+    scheduleDataPumpRef.current = scheduleDataPump;
 
     const render = () => {
       if (!running) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
       const { w: W, h: H } = sizeRef.current;
       const cx = W / 2,
         cy = H / 2;
@@ -557,11 +599,11 @@ export function GlobeVisualization({
           themeRef.current !== lastSentThemeRef.current
         ) {
           lastSentWarningsRef.current = warnings;
-          worker.postMessage({
+          sendCommand({
             type: "warnings",
             payload: {
               features: warnings,
-              warnColor: colorsRef.current.cycWarning,
+              warningColor: colorsRef.current.cycWarning,
               watchColor: colorsRef.current.cycWatch,
             },
           });
@@ -576,19 +618,20 @@ export function GlobeVisualization({
           const wxFeatures: { id: string; kind: string; geometry: unknown }[] = [];
           for (const it of d) {
             if (it.type !== "weather") continue;
-            const wd = (it as { data?: { geometry?: unknown; severity?: string } }).data;
-            if (!wd?.geometry) continue;
+            const wd = it.data;
+            if (!("geometry" in wd) || !wd.geometry) continue;
+            const geometry = wd.geometry;
             wxFeatures.push({
               id: it.id,
               kind: weatherSeverityRank(wd.severity) >= 3 ? "warning" : "watch",
-              geometry: wd.geometry,
+              geometry,
             });
           }
-          worker.postMessage({
-            type: "wxAlerts",
+          sendCommand({
+            type: "weatherAlerts",
             payload: {
               features: wxFeatures,
-              warnColor: severityMeta("Extreme").ink,
+              warningColor: severityMeta("Extreme").ink,
               watchColor: severityMeta("Moderate").ink,
             },
           });
@@ -612,33 +655,34 @@ export function GlobeVisualization({
             if (item.type === "aircraft" || item.type === "ships") {
               const trail = getTrail(item.id);
               if (trail.length > 0) {
-                const last = trail[trail.length - 1]!;
-                const dd = (item as any).data;
+                const last = trail.at(-1);
+                if (!last) continue;
                 ids.push(item.id);
                 // Dead-reckon along the ground track: ships travel along COG
                 // (heading is the bow, and is 0/missing when not transmitted),
                 // aircraft `heading` is already the track.
-                const course = item.type === "ships" ? (dd?.cog ?? dd?.heading ?? 0) : (dd?.heading ?? 0);
-                vals.push(last.lat, last.lon, course, dd?.speedMps ?? 0);
+                const course = item.type === "ships"
+                  ? (item.data.cog ?? item.data.heading ?? 0)
+                  : (item.data.heading ?? 0);
+                vals.push(last.lat, last.lon, course, item.data.speedMps ?? 0);
                 tss.push(last.ts);
               }
             }
           }
           const valBuf = new Float32Array(vals);
           const tsBuf = new Float64Array(tss);
-          worker.postMessage(
-            { type: "trails", ids, vals: valBuf, tss: tsBuf },
+          sendCommand(
+            { type: "trails", ids, values: valBuf, timestamps: tsBuf },
             [valBuf.buffer, tsBuf.buffer],
           );
         }
 
-        const selId = sel?.id ?? null;
 
         // ── Light message — camera + interaction state every frame ──
-        const dpr = canvas.width / W || 1;
+        const dpr = devicePixelRatioRef.current;
 
         // Build selected item with trail + planned route for worker
-        let selectedItem = null;
+        let selectedItem: SelectedRenderItem | null = null;
         if (sel) {
           const trail = getTrail(sel.id);
           selectedItem = {
@@ -646,8 +690,8 @@ export function GlobeVisualization({
             type: sel.type,
             lat: sel.lat,
             lon: sel.lon,
-            _trail: trail,
-            _route: getSelectedRoute(sel.id),
+            trail,
+            route: getSelectedRoute(sel.id),
           };
         }
 
@@ -662,11 +706,11 @@ export function GlobeVisualization({
             ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
             : false;
 
-        worker.postMessage({
+        sendCommand({
           type: "frame",
           payload: {
-            isFlat,
-            cam: {
+            flat: isFlat,
+            camera: {
               rotY: cam.rotY,
               rotX: cam.rotX,
               zoomGlobe: cam.zoomGlobe,
@@ -674,10 +718,10 @@ export function GlobeVisualization({
               panX: cam.panX,
               panY: cam.panY,
             },
-            W,
-            H,
-            dpr,
-            t,
+            width: W,
+            height: H,
+            devicePixelRatio: dpr,
+            animationTime: t,
             selectedId: sel?.id ?? null,
             isolatedId: iso,
             isolateMode: isoMode,
@@ -786,26 +830,181 @@ export function GlobeVisualization({
         }
       }
 
-      // Always schedule next frame for camera updates + static layer.
-      // The actual composite to screen happens only in worker onmessage.
-      if (running) requestAnimationFrame(render);
+      // Temporary bridge until camera input moves to the worker.
     };
     requestAnimationFrame(render);
     return () => {
       running = false;
-      // Keep the shared worker alive across remounts (don't terminate); just
-      // detach this mount's stale onmessage so it stops compositing into a
-      // canvas that's going away. The next mount rebinds onmessage + inits a
-      // fresh OffscreenCanvas. Worker state (land/data/trails) is preserved.
+      // Preserve worker datasets across pane remounts.
       const w = workerRef.current;
       if (w && w.onmessage) w.onmessage = null;
       workerRef.current = null;
-      if (latestBitmapRef.current) {
-        latestBitmapRef.current.close();
-        latestBitmapRef.current = null;
-      }
     };
   }, []);
+  useEffect(() => {
+    const cyc = cycloneFilter;
+    let selectedItem: SelectedRenderItem | null = null;
+    if (selected) {
+      selectedItem = {
+        id: selected.id,
+        type: selected.type,
+        lat: selected.lat,
+        lon: selected.lon,
+        trail: getTrail(selected.id),
+        route: getSelectedRoute(selected.id),
+      };
+    }
+    const prefersReducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+    sendCommandRef.current({
+      type: "presentation",
+      payload: {
+        flat,
+        autoRotate,
+        rotationSpeed,
+        selectedId: selected?.id ?? null,
+        isolatedId,
+        isolateMode,
+        layers,
+        aircraftFilter: {
+          enabled: aircraftFilter.enabled,
+          showAirborne: aircraftFilter.showAirborne,
+          showGround: aircraftFilter.showGround,
+          squawks: Array.from(aircraftFilter.squawks),
+          countries: Array.from(aircraftFilter.countries),
+          milFilter: aircraftFilter.milFilter ?? "all",
+        },
+        searchMatchIds: searchMatchIds
+          ? Array.from(searchMatchIds)
+          : null,
+        selectedItem,
+        cyclonesShowForecast: cyc?.showForecast ?? true,
+        cyclonesShowCone: cyc?.showCone ?? true,
+        cyclonesShowWindField: cyc?.showWindField ?? false,
+        cyclonesShowWarnings: cyc?.showWarnings ?? true,
+        cyclonesShowModels: cyc?.showModels ?? false,
+        cyclonesHiddenModels: cyc?.hiddenModels ?? [],
+        prefersReducedMotion,
+      },
+    });
+  }, [
+    aircraftFilter,
+    autoRotate,
+    cycloneFilter,
+    data,
+    flat,
+    isolatedId,
+    isolateMode,
+    layers,
+    rotationSpeed,
+    searchMatchIds,
+    selected,
+  ]);
+
+  useEffect(() => {
+    dataDirtyRef.current = true;
+    scheduleDataPumpRef.current();
+  }, [data, theme]);
+
+  useEffect(() => {
+    sendCommandRef.current({
+      type: "warnings",
+      payload: {
+        features: cycloneWarnings ?? [],
+        warningColor: theme.colors.cycWarning,
+        watchColor: theme.colors.cycWatch,
+      },
+    });
+  }, [cycloneWarnings, theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let frame = 0;
+    let offset = 0;
+    const ids: string[] = [];
+    const values: number[] = [];
+    const timestamps: number[] = [];
+    const weatherFeatures: {
+      id: string;
+      kind: string;
+      geometry: unknown;
+    }[] = [];
+
+    const scan = (): void => {
+      if (cancelled) return;
+      const end = Math.min(
+        offset + RENDER_POLICY.dataChunkSize,
+        data.length,
+      );
+      for (; offset < end; offset++) {
+        const item = data[offset];
+        if (!item) continue;
+        if (item.type === "weather") {
+          const weather = item.data;
+          if ("geometry" in weather && weather.geometry) {
+            weatherFeatures.push({
+              id: item.id,
+              kind:
+                weatherSeverityRank(weather.severity) >= 3
+                  ? "warning"
+                  : "watch",
+              geometry: weather.geometry,
+            });
+          }
+        }
+        if (item.type !== "aircraft" && item.type !== "ships") {
+          continue;
+        }
+        const last = getTrail(item.id).at(-1);
+        if (!last) continue;
+        ids.push(item.id);
+        const course =
+          item.type === "ships"
+            ? item.data.cog ?? item.data.heading ?? 0
+            : item.data.heading ?? 0;
+        values.push(
+          last.lat,
+          last.lon,
+          course,
+          item.data.speedMps ?? 0,
+        );
+        timestamps.push(last.ts);
+      }
+      if (offset < data.length) {
+        frame = requestAnimationFrame(scan);
+        return;
+      }
+      const packedValues = new Float32Array(values);
+      const packedTimestamps = new Float64Array(timestamps);
+      sendCommandRef.current(
+        {
+          type: "trails",
+          ids,
+          values: packedValues,
+          timestamps: packedTimestamps,
+        },
+        [packedValues.buffer, packedTimestamps.buffer],
+      );
+      sendCommandRef.current({
+        type: "weatherAlerts",
+        payload: {
+          features: weatherFeatures,
+          warningColor: severityMeta("Extreme").ink,
+          watchColor: severityMeta("Moderate").ink,
+        },
+      });
+    };
+
+    frame = requestAnimationFrame(scan);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [data, theme]);
+
 
   // ── E2E projection bridge ───────────────────────────────────────
   // Exposes window.__projectLatLon for Playwright tests (cyclones-
@@ -846,44 +1045,38 @@ export function GlobeVisualization({
       if (rafPending) return;
       rafPending = requestAnimationFrame(() => {
         rafPending = 0;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(
+          window.devicePixelRatio || 1,
+          RENDER_POLICY.maxDevicePixelRatio,
+        );
         const w = par.clientWidth,
           h = par.clientHeight;
         if (w === 0 || h === 0) return;
-        const cw = Math.round(w * dpr);
-        const ch = Math.round(h * dpr);
         canvas.style.width = w + "px";
         canvas.style.height = h + "px";
-        // Defer buffer resize — applied right before next composite
-        // This prevents the canvas from going blank between resize and next frame
-        if (canvas.width !== cw || canvas.height !== ch) {
-          pendingResizeRef.current = { cw, ch, dpr };
-        }
-        const prevMin = Math.min(sizeRef.current.w, sizeRef.current.h);
-        const nextMin = Math.min(w, h);
-        if (prevMin > 0 && nextMin > 0 && prevMin !== nextMin) {
-          const cam = camRef.current;
-          const target = camTargetRef.current;
-          const k = prevMin / nextMin;
-          cam.zoomGlobe *= k;
-          if (target.zoom > 0) target.zoom *= k;
-        }
+        devicePixelRatioRef.current = dpr;
         sizeRef.current = { w, h };
+        sendCommandRef.current({
+          type: "viewport",
+          payload: { width: w, height: h, devicePixelRatio: dpr },
+        });
       });
     };
-    // Initial sizing — apply immediately since canvas is empty anyway
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(
+      window.devicePixelRatio || 1,
+      RENDER_POLICY.maxDevicePixelRatio,
+    );
     const w = par.clientWidth,
       h = par.clientHeight;
     if (w > 0 && h > 0) {
-      const cw = Math.round(w * dpr);
-      const ch = Math.round(h * dpr);
-      canvas.width = cw;
-      canvas.height = ch;
       canvas.style.width = w + "px";
       canvas.style.height = h + "px";
-      canvas.getContext("2d")?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      devicePixelRatioRef.current = dpr;
       sizeRef.current = { w, h };
+      sendCommandRef.current({
+        type: "viewport",
+        payload: { width: w, height: h, devicePixelRatio: dpr },
+      });
     }
     window.addEventListener("resize", resize);
     const ro = new ResizeObserver(resize);
@@ -902,12 +1095,9 @@ export function GlobeVisualization({
 
     const handlers = createInputHandlers({
       canvas,
-      camRef,
-      camTargetRef,
-      dragRef,
-      sizeRef,
-      propsRef,
-      setTrailTooltip,
+      sendInput: (payload) =>
+        sendCommandRef.current({ type: "input", payload }),
+      onMiddleClick: () => propsRef.current.onMiddleClick?.(),
     });
 
     attachInputHandlers(canvas, handlers);

@@ -1,3 +1,5 @@
+import type { GeoJsonPolygon } from "@shared/geo";
+
 // ── Cyclone feature types ────────────────────────────────────────────
 // Shape of NHC tropical-cyclone data once parseNhc.ts has normalized it
 // into the SIGINT DataPoint union.
@@ -85,10 +87,7 @@ export type PastTrackPoint = {
 export type ModelTrackPoint = { tau: number; lat: number; lon: number };
 export type ModelTrack = { model: string; points: ModelTrackPoint[] };
 
-export type GeoJSONPolygon = {
-  type: "Polygon";
-  coordinates: number[][][];
-};
+export type GeoJSONPolygon = GeoJsonPolygon;
 
 export type WindRadii = {
   lat: number;

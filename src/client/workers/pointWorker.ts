@@ -1,39 +1,72 @@
 /// <reference lib="webworker" />
-// ── Complete Rendering Web Worker ──────────────────────────────────────
-// Owns an OffscreenCanvas. Renders EVERYTHING: land, ocean, grid, glow,
-// rim, points, trails. Main thread only composites the finished bitmap.
-// Fetches land data directly from /data/ne_50m_land.json on init.
-// Per-feature render modules — bundled ESM imports (TS), not importScripts.
-import { drawCyclone, drawCycloneForecastPoint, type CycloneRenderItem } from "./render/cyclones";
+// Owns the transferred canvas and all Canvas2D drawing.
+import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
+import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
+import {
+  applyCameraKey,
+  applyCameraWheel,
+  beginCameraPinch,
+  beginCameraPointer,
+  cameraContainsPoint,
+  cameraSnapshot,
+  cancelCameraPointer,
+  createWorkerCameraState,
+  createWorkerCameraTarget,
+  createWorkerPointerState,
+  endCameraPinch,
+  endCameraPointer,
+  focusCamera,
+  lockCamera,
+  moveCameraPinch,
+  moveCameraPointer,
+  stepCamera,
+  type CameraClick,
+  type CameraPosition,
+} from "./render/camera";
+import {
+  RENDER_PROTOCOL_VERSION,
+  acceptRenderCommand,
+  type RenderCamera,
+  type RenderFramePayload,
+  type RenderInputPayload,
+  type RenderInteractionPayload,
+  type RenderPresentationPayload,
+  type RenderViewportPayload,
+  type RenderProtocolState,
+  type RenderTrailHitTarget,
+  type RenderPoint,
+  type RenderWorkerCommand,
+  type RenderWorkerColors,
+  type RenderWorkerEvent,
+  type SelectedRenderItem,
+} from "./render/protocol";
+
 import { drawWarnings, type WarningFeature } from "./render/warnings";
 import { zoomScale } from "./render/workerMath";
 import { weatherSeverityRank } from "@/features/environmental/weather/severity";
+import { pointInPolygon } from "@/lib/geo/pointInPolygon";
+import {
+  screenToLatLonFlat,
+  screenToLatLonGlobe,
+} from "@/lib/geo/spatialIndex";
 import type { Ctx, Projected, ProjFn } from "@/features/environmental/cyclones/render/cycloneGeometry";
+import {
+  advanceGeographicMotion,
+  advanceUnitMotion,
+  createGeographicMotion,
+  createGlobeRotationMatrix,
+  geographicToUnitVector,
+  projectGeographicPoint as projGlobe,
+  projectUnitVector,
+  type GeographicMotion,
+  type GlobeRotationMatrix,
+  type UnitVector,
+} from "@/lib/geo/unitSphere";
+import type { GeoRing } from "@shared/geo";
+import { parseLandGeoJson } from "@shared/land";
 
 // ── Projection ──────────────────────────────────────────────────────
 
-function projGlobe(
-  lat: number,
-  lon: number,
-  cx: number,
-  cy: number,
-  r: number,
-  ry: number,
-  rx: number,
-): Projected {
-  const phi = ((90 - lat) * Math.PI) / 180;
-  const theta = ((lon + 180) * Math.PI) / 180 + ry;
-  const sp = Math.sin(phi);
-  const cp = Math.cos(phi);
-  const st = Math.sin(theta);
-  const ct = Math.cos(theta);
-  const x = -sp * ct;
-  const y = cp;
-  const z = sp * st;
-  const cX = Math.cos(rx);
-  const sX = Math.sin(rx);
-  return { x: cx + x * r, y: cy - (y * cX - z * sX) * r, z: y * sX + z * cX };
-}
 
 function projFlat(
   lat: number,
@@ -61,24 +94,48 @@ function getFlatMetrics(W: number, H: number, zoom: number, panX: number, panY: 
 
 // ── Interpolation ───────────────────────────────────────────────────
 
-const DEG = Math.PI / 180;
-const EARTH_R = 6371000;
-type TrailEntry = { lat: number; lon: number; ts: number; speedMps: number; heading: number };
+type TrailEntry = Readonly<{
+  timestamp: number;
+  speedMetersPerSecond: number;
+  motion: GeographicMotion;
+}>;
+
 let trailMap = new Map<string, TrailEntry>();
 
+function interpolationSeconds(
+  id: string,
+  entry: TrailEntry,
+): number | null {
+  if (entry.speedMetersPerSecond <= 0) return null;
+  const elapsedMilliseconds = Date.now() - entry.timestamp;
+  const limit = id.startsWith("S")
+    ? RENDER_POLICY.shipInterpolationLimitMs
+    : RENDER_POLICY.aircraftInterpolationLimitMs;
+  if (
+    elapsedMilliseconds < RENDER_POLICY.minimumInterpolationAgeMs ||
+    elapsedMilliseconds > limit
+  ) {
+    return null;
+  }
+  return elapsedMilliseconds / 1_000;
+}
+
 function getInterp(id: string): { lat: number; lon: number } | null {
-  const e = trailMap.get(id);
-  if (!e || e.speedMps <= 0) return null;
-  const elapsed = (Date.now() - e.ts) / 1000;
-  // Ships (S-prefix): extrapolate up to 30 min — slow movers, AIS gaps common.
-  // Aircraft: up to 10 min.
-  const maxElapsed = id.startsWith("S") ? 1800 : 600;
-  if (elapsed > maxElapsed || elapsed < 1) return null;
-  const hdg = e.heading * DEG;
-  const dist = e.speedMps * elapsed;
-  const dLat = (dist * Math.cos(hdg)) / EARTH_R / DEG;
-  const dLon = (dist * Math.sin(hdg)) / (EARTH_R * Math.cos(e.lat * DEG)) / DEG;
-  return { lat: e.lat + dLat, lon: e.lon + dLon };
+  const entry = trailMap.get(id);
+  if (!entry) return null;
+  const elapsedSeconds = interpolationSeconds(id, entry);
+  if (elapsedSeconds === null) return null;
+  const position = advanceGeographicMotion(entry.motion, elapsedSeconds);
+  return { lat: position.latitude, lon: position.longitude };
+}
+
+function getInterpUnit(id: string): UnitVector | null {
+  const entry = trailMap.get(id);
+  if (!entry) return null;
+  const elapsedSeconds = interpolationSeconds(id, entry);
+  return elapsedSeconds === null
+    ? null
+    : advanceUnitMotion(entry.motion, elapsedSeconds);
 }
 
 // ── Theme detection ─────────────────────────────────────────────────
@@ -163,7 +220,8 @@ function getGlowSprite(color: string, alphaHex: string): OffscreenCanvas {
   if (cached) return cached;
   if (glowSpriteCache.size > 512) glowSpriteCache.clear();
   const c = new OffscreenCanvas(GLOW_SPRITE_PX, GLOW_SPRITE_PX);
-  const g = c.getContext("2d")!;
+  const g = c.getContext("2d");
+  if (!g) return c;
   const r = GLOW_SPRITE_PX / 2;
   const grad = g.createRadialGradient(r, r, 0, r, r, r);
   grad.addColorStop(0, color + alphaHex);
@@ -200,21 +258,11 @@ function weatherAlpha(sev: string): number {
 
 // ── Aircraft filter ─────────────────────────────────────────────────
 
-type AircraftData = {
-  onGround?: boolean;
-  military?: boolean;
-  recon?: boolean;
-  squawk?: string;
-  originCountry?: string;
-};
-type AircraftFilter = {
-  enabled: boolean;
-  showAirborne: boolean;
-  showGround: boolean;
-  milFilter?: string;
-  squawks: string[];
-  countries: string[];
-};
+type AircraftData = Extract<
+  RenderPoint,
+  { type: "aircraft" }
+>["data"];
+type AircraftFilter = RenderFramePayload["aircraftFilter"];
 
 function matchesAF(d: AircraftData, f: AircraftFilter): boolean {
   if (!f.enabled) return false;
@@ -238,38 +286,39 @@ function matchesAF(d: AircraftData, f: AircraftFilter): boolean {
 
 // ── Land data ───────────────────────────────────────────────────────
 
-type Ring = number[][];
-let landPolygons: Ring[] = [];
+type LandRing = Readonly<{
+  coordinates: GeoRing;
+  unitVectors: readonly UnitVector[];
+}>;
 
-function parseLandGeoJSON(geojson: { features: Array<{ geometry: { type: string; coordinates: unknown } }> }): Ring[] {
-  const polys: Ring[] = [];
-  for (const feature of geojson.features) {
-    const geom = feature.geometry;
-    const rings: number[][][] =
-      geom.type === "Polygon"
-        ? (geom.coordinates as number[][][])
-        : geom.type === "MultiPolygon"
-          ? (geom.coordinates as number[][][][]).flat()
-          : [];
-    for (const ring of rings) {
-      const converted = ring
-        .filter((c) => c.length >= 2 && typeof c[0] === "number" && typeof c[1] === "number")
-        .map((c) => [Math.round(c[1]! * 100) / 100, Math.round(c[0]! * 100) / 100]);
-      if (converted.length >= 3) polys.push(converted);
+let landRings: LandRing[] = [];
+
+function parseLandGeoJSON(value: unknown): LandRing[] {
+  const rings: LandRing[] = [];
+  for (const polygon of parseLandGeoJson(value)) {
+    for (const coordinates of polygon) {
+      rings.push({
+        coordinates,
+        unitVectors: coordinates.map(([longitude, latitude]) =>
+          geographicToUnitVector(latitude, longitude),
+        ),
+      });
     }
   }
-  return polys;
+  return rings;
 }
 
 function fetchLandData(): void {
-  fetch("/data/ne_50m_land.json")
-    .then((res) => res.json())
-    .then((geojson) => {
-      landPolygons = parseLandGeoJSON(geojson);
+  void fetch(RENDER_POLICY.landGeometryUrl)
+    .then((response) => {
+      if (!response.ok) throw new Error("Land geometry request failed");
+      return response.json();
     })
-    .catch(() => {
-      /* Silent fail — land just won't render. */
-    });
+    .then((value: unknown) => {
+      landRings = parseLandGeoJSON(value);
+      scheduleRender();
+    })
+    .catch(() => undefined);
 }
 
 // ── Land renderer (inlined from landRenderer.ts) ────────────────────
@@ -335,8 +384,9 @@ function drawClippedPoly(
   const n = pts.length;
   const path: Pt[] = [];
   for (let i = 0; i < n; i++) {
-    const curr = pts[i]!;
-    const next = pts[(i + 1) % n]!;
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    if (!curr || !next) continue;
     const cVis = curr.z > 0;
     const nVis = next.z > 0;
     if (cVis) path.push({ x: curr.x, y: curr.y });
@@ -373,45 +423,66 @@ function simpleDraw(
 
 type LandColors = { coastFill: string; coast: string };
 
-function drawLandFlatPoly(ctx: Ctx, projFn: ProjFn, poly: Ring, colors: LandColors, landAlpha: number): void {
+function drawLandFlatRing(
+  ctx: Ctx,
+  projFn: ProjFn,
+  ring: LandRing,
+  colors: LandColors,
+  landAlpha: number,
+): void {
   const segments: Projected[][] = [];
-  let seg: Projected[] = [];
-  poly.forEach(([lat, lon], i) => {
-    if (typeof lat !== "number" || typeof lon !== "number") return;
-    const prevLon = poly[i - 1]?.[1];
-    if (typeof prevLon === "number" && Math.abs(lon - prevLon) > 120) {
-      if (seg.length >= 3) segments.push(seg);
-      seg = [];
+  let segment: Projected[] = [];
+  let previousLongitude: number | null = null;
+  for (const [longitude, latitude] of ring.coordinates) {
+    if (
+      previousLongitude !== null &&
+      Math.abs(longitude - previousLongitude) > 120
+    ) {
+      if (segment.length >= 3) segments.push(segment);
+      segment = [];
     }
-    seg.push(projFn(lat, lon));
-  });
-  if (seg.length >= 3) segments.push(seg);
-  for (const s of segments) simpleDraw(ctx, s, colors.coastFill, colors.coast, landAlpha);
+    segment.push(projFn(latitude, longitude));
+    previousLongitude = longitude;
+  }
+  if (segment.length >= 3) segments.push(segment);
+  for (const points of segments) {
+    simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
+  }
 }
 
 function drawLand(
   ctx: Ctx,
   projFn: ProjFn,
+  matrix: GlobeRotationMatrix,
   colors: LandColors,
   isFlat: boolean,
-  gcx: number,
-  gcy: number,
-  gr: number,
+  centerX: number,
+  centerY: number,
+  radius: number,
   landAlpha: number,
 ): void {
-  for (const poly of landPolygons) {
+  for (const ring of landRings) {
     if (isFlat) {
-      if (poly.length >= 3) drawLandFlatPoly(ctx, projFn, poly, colors, landAlpha);
+      drawLandFlatRing(ctx, projFn, ring, colors, landAlpha);
       continue;
     }
-    const pts = poly
-      .filter(([lat, lon]) => typeof lat === "number" && typeof lon === "number")
-      .map(([lat, lon]) => projFn(lat!, lon!));
-    if (pts.length < 3 || !pts.some((p) => p.z > 0)) continue;
-    if (pts.every((p) => p.z > 0)) {
-      simpleDraw(ctx, pts, colors.coastFill, colors.coast, landAlpha);
+    const points = ring.unitVectors.map((unit) =>
+      projectUnitVector(unit, matrix, centerX, centerY, radius),
+    );
+    if (points.length < 3 || !points.some((point) => point.z > 0)) continue;
+    if (points.every((point) => point.z > 0)) {
+      simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
     } else {
-      drawClippedPoly(ctx, pts, gcx, gcy, gr, colors.coastFill, colors.coast, landAlpha);
+      drawClippedPoly(
+        ctx,
+        points,
+        centerX,
+        centerY,
+        radius,
+        colors.coastFill,
+        colors.coast,
+        landAlpha,
+      );
     }
   }
 }
@@ -487,17 +558,16 @@ function drawGrid(ctx: Ctx, projFn: ProjFn, cfg: GridCfg): void {
 
 // ── Trail drawing ───────────────────────────────────────────────────
 
-type TrailPoint = { lat: number; lon: number; ts?: number };
-type ProjTrail = { x: number; y: number; z: number; point: TrailPoint };
-type HitTarget = { x: number; y: number; point: TrailPoint };
-type SelectedItem = { id: string; _trail?: TrailPoint[] };
+type WorkerTrailPoint = SelectedRenderItem["trail"][number];
+type ProjTrail = { x: number; y: number; z: number; point: WorkerTrailPoint };
 
 function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: number, span: number, color: string): void {
   ctx.lineWidth = width;
   ctx.strokeStyle = color;
   for (let i = 1; i < projected.length; i++) {
-    const prev = projected[i - 1]!;
-    const curr = projected[i]!;
+    const prev = projected[i - 1];
+    const curr = projected[i];
+    if (!prev || !curr) continue;
     ctx.globalAlpha = base + (i / projected.length) * span;
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
@@ -509,12 +579,12 @@ function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: 
 function drawTrail(
   ctx: Ctx,
   projFn: ProjFn,
-  selectedItem: SelectedItem | null,
+  selectedItem: SelectedRenderItem | null,
   colors: { accent: string },
-): HitTarget[] {
-  const trail = selectedItem?._trail;
+): RenderTrailHitTarget[] {
+  const trail = selectedItem?.trail;
   if (!selectedItem || !trail || trail.length < 1) return [];
-  const coords: TrailPoint[] = trail.map((p) => ({
+  const coords: WorkerTrailPoint[] = trail.map((p) => ({
     lat: p.lat,
     lon: p.lon,
     ts: p.ts,
@@ -538,7 +608,7 @@ function drawTrail(
   strokeTrailPass(ctx, projected, 6, 0.05, 0.15, colors.accent); // glow pass
   strokeTrailPass(ctx, projected, 2.5, 0.3, 0.7, colors.accent); // main line
 
-  const hitTargets: HitTarget[] = [];
+  const hitTargets: RenderTrailHitTarget[] = [];
   ctx.fillStyle = "#ffffff";
   projected.slice(0, -1).forEach((p, i) => {
     ctx.globalAlpha = 0.4 + (i / projected.length) * 0.6;
@@ -560,7 +630,7 @@ type RouteColors = { cyclones?: string; accent: string; bright?: string };
 function drawRoute(
   ctx: Ctx,
   projFn: ProjFn,
-  route: ReadonlyArray<[number, number]> | null | undefined,
+  route: ReadonlyArray<readonly [number, number]> | null | undefined,
   planeLat: number,
   planeLon: number,
   colors: RouteColors,
@@ -572,8 +642,11 @@ function drawRoute(
   let segT = 0;
   let best = Infinity;
   for (let i = 0; i < route.length - 1; i++) {
-    const [ay, ax] = route[i]!;
-    const [by, bx] = route[i + 1]!;
+    const start = route[i];
+    const end = route[i + 1];
+    if (!start || !end) continue;
+    const [ay, ax] = start;
+    const [by, bx] = end;
     const dx = bx - ax;
     const dy = by - ay;
     const len2 = dx * dx + dy * dy;
@@ -587,14 +660,15 @@ function drawRoute(
       segT = t;
     }
   }
-  const a0 = route[segI]!;
-  const a1 = route[segI + 1]!;
+  const a0 = route[segI];
+  const a1 = route[segI + 1];
+  if (!a0 || !a1) return;
   const split: [number, number] = [a0[0] + segT * (a1[0] - a0[0]), a0[1] + segT * (a1[1] - a0[1])];
 
-  const flown: Array<[number, number]> = [...route.slice(0, segI + 1), split];
-  const ahead: Array<[number, number]> = [split, ...route.slice(segI + 1)];
+  const flown: Array<readonly [number, number]> = [...route.slice(0, segI + 1), split];
+  const ahead: Array<readonly [number, number]> = [split, ...route.slice(segI + 1)];
 
-  const strokePts = (pts: ReadonlyArray<[number, number]>) => {
+  const strokePts = (pts: ReadonlyArray<readonly [number, number]>) => {
     ctx.beginPath();
     let pen = false;
     for (const [lat, lon] of pts) {
@@ -639,37 +713,35 @@ function drawRoute(
 
 // ── Canvas + state ──────────────────────────────────────────────────
 
-type RenderPoint = Record<string, unknown> & { type?: string; lat?: number; lon?: number };
 
-/** Theme palette the main thread sends with each data update. Every field is a
- *  CSS color string; the keys are the layers + chrome the worker paints. */
-type WorkerColors = {
-  accent: string;
-  aircraft: string;
-  bg: string;
-  bright: string;
-  coast: string;
-  coastFill: string;
-  cyclones: string;
-  dim: string;
-  events: string;
-  fires: string;
-  grid: string;
-  ocean: string;
-  oceanDeep: string;
-  quakes: string;
-  recon: string;
-  ships: string;
-  weather: string;
-};
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
 let _data: RenderPoint[] | null = null;
-let _colors: WorkerColors | null = null;
+let _colors: RenderWorkerColors | null = null;
 let _dataBySource: Record<string, RenderPoint[] | null> | null = null;
 let _pendingBuckets: Record<string, RenderPoint[] | null> | null = null;
-let _pendingFrame: FramePayload | null = null;
+let _pendingFrame: RenderFramePayload | null = null;
+let _presentation: RenderPresentationPayload | null = null;
+let _viewport: RenderViewportPayload | null = null;
+const _camera = createWorkerCameraState();
+const _cameraTarget = createWorkerCameraTarget();
+const _pointer = createWorkerPointerState();
+let _lastFrameAt = performance.now();
+let _hasAnimatedPoints = false;
+let _projectedPoints: ProjPoint[] = [];
+let _hitGrid = new Map<string, ProjPoint[]>();
+let _trailHitTargets: RenderTrailHitTarget[] = [];
+let _activeTrailPoint: RenderTrailHitTarget["point"] | null = null;
+let _lastClickTime = 0;
+let _lastClickId: string | null = null;
+let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
+  kind: "cursor",
+  cursor: "default",
+};
+let _lastSelectedSide: "left" | "right" = "right";
+let _lastCameraSummary: RenderCamera | null = null;
+let _lastCameraSummaryAt = 0;
 let _frameScheduled = false;
 
 // Tropical watch/warning polygons + their fill colours, set by the "warnings"
@@ -688,85 +760,361 @@ let _wxWatchColor = "#9775fa";
 // Progressive reveal: the main thread hands the full data array once per change;
 // the worker reveals it in chunks across its own render ticks. Preserved across
 // same-length updates so the ramp doesn't restart.
-const REVEAL_CHUNK = 1500;
+const REVEAL_CHUNK = RENDER_POLICY.revealChunkSize;
 let _revealCount = 0;
 
 // ── Message handler ─────────────────────────────────────────────────
 
-type WorkerMsg =
-  | { type: "init"; canvas: OffscreenCanvas }
-  | { type: "trails"; ids?: string[]; vals?: number[]; tss?: number[]; entries?: [string, TrailEntry][] }
-  | { type: "warnings"; payload: { features?: WarningFeature[]; warnColor?: string; watchColor?: string } }
-  | { type: "data"; payload: { colors: WorkerColors; source?: string; reset?: boolean; data?: RenderPoint[]; done?: boolean } }
-  | { type: "frame"; payload: FramePayload };
+const protocolState: RenderProtocolState = {
+  sessionId: null,
+  sequence: 0,
+};
+function postInteraction(payload: RenderInteractionPayload): void {
+  if (!protocolState.sessionId) return;
+  const event: RenderWorkerEvent = {
+    type: "interaction",
+    protocolVersion: RENDER_PROTOCOL_VERSION,
+    sessionId: protocolState.sessionId,
+    sequence: protocolState.sequence,
+    payload,
+  };
+  globalThis.postMessage(event);
+}
+
+function postCursor(cursor: RenderInteractionPayload & { kind: "cursor" }): void {
+  if (_lastCursor.cursor === cursor.cursor) return;
+  _lastCursor = cursor;
+  postInteraction(cursor);
+}
+
+function postCameraSummary(now: number): void {
+  if (
+    now - _lastCameraSummaryAt <
+    CAMERA_POLICY.cameraSummaryIntervalMs
+  ) {
+    return;
+  }
+  const snapshot = cameraSnapshot(_camera);
+  const previous = _lastCameraSummary;
+  if (
+    previous &&
+    previous.rotY === snapshot.rotY &&
+    previous.rotX === snapshot.rotX &&
+    previous.zoomGlobe === snapshot.zoomGlobe &&
+    previous.zoomFlat === snapshot.zoomFlat &&
+    previous.panX === snapshot.panX &&
+    previous.panY === snapshot.panY
+  ) {
+    return;
+  }
+  if (!protocolState.sessionId) return;
+  _lastCameraSummary = snapshot;
+  _lastCameraSummaryAt = now;
+  const event: RenderWorkerEvent = {
+    type: "camera",
+    protocolVersion: RENDER_PROTOCOL_VERSION,
+    sessionId: protocolState.sessionId,
+    sequence: protocolState.sequence,
+    payload: snapshot,
+  };
+  globalThis.postMessage(event);
+}
+
 
 function scheduleRender(): void {
-  if (!_frameScheduled && _pendingFrame) {
-    _frameScheduled = true;
-    requestAnimationFrame(renderFrame);
-  }
+  const hasState = _presentation !== null && _viewport !== null;
+  if (_frameScheduled || (!hasState && !_pendingFrame)) return;
+  _frameScheduled = true;
+  requestAnimationFrame(renderFrame);
 }
 
-function handleTrails(msg: Extract<WorkerMsg, { type: "trails" }>): void {
-  if (msg.ids && msg.vals && msg.tss) {
-    const { ids, vals: v, tss: ts } = msg;
-    trailMap = new Map(
-      ids.map((id, ti) => {
-        const o = ti * 4;
-        return [id, { lat: v[o]!, lon: v[o + 1]!, heading: v[o + 2]!, speedMps: v[o + 3]!, ts: ts[ti]! }] as const;
-      }),
-    );
-  } else {
-    trailMap = new Map(msg.entries ?? []);
+function handleTrails(msg: Extract<RenderWorkerCommand, { type: "trails" }>): void {
+  const { ids, values, timestamps } = msg;
+  const nextTrails = new Map<string, TrailEntry>();
+  for (const [index, id] of ids.entries()) {
+    const offset = index * 4;
+    const latitude = values[offset];
+    const longitude = values[offset + 1];
+    const heading = values[offset + 2];
+    const speedMetersPerSecond = values[offset + 3];
+    const timestamp = timestamps[index];
+    if (
+      latitude === undefined ||
+      longitude === undefined ||
+      heading === undefined ||
+      speedMetersPerSecond === undefined ||
+      timestamp === undefined
+    ) {
+      continue;
+    }
+    nextTrails.set(id, {
+      timestamp,
+      speedMetersPerSecond,
+      motion: createGeographicMotion(
+        latitude,
+        longitude,
+        heading,
+        speedMetersPerSecond,
+      ),
+    });
   }
+  trailMap = nextTrails;
+}
+function pointHasTimeAnimation(item: RenderPoint): boolean {
+  if (item.type === "cyclones") return true;
+  if (item.type === "quakes") return (item.data.magnitude ?? 0) > 3;
+  if (item.type === "events") return (item.data.severity ?? 1) >= 3;
+  if (item.type === "fires") return (item.data.frp ?? 0) > 15;
+  if (item.type === "weather") {
+    return weatherSeverityRank(item.data.severity || "Unknown") >= 3;
+  }
+  return false;
 }
 
-function handleData(payload: Extract<WorkerMsg, { type: "data" }>["payload"]): boolean {
+
+function handleData(payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"]): boolean {
   _colors = payload.colors;
-  if (payload.source !== undefined) {
-    _dataBySource ??= {};
-    _pendingBuckets ??= {};
-    const src = payload.source;
-    if (payload.reset) _pendingBuckets[src] = [];
-    const pend = _pendingBuckets[src] ?? (_pendingBuckets[src] = []);
-    pend.push(...(payload.data ?? []));
-    if (!payload.done) return false; // keep the old bucket until the layer is whole
-    _dataBySource[src] = _pendingBuckets[src];
-    _pendingBuckets[src] = null;
-    _data = Object.values(_dataBySource).filter((b): b is RenderPoint[] => Boolean(b)).flat();
-  } else {
-    _data = payload.data ?? null;
+  _dataBySource ??= {};
+  _pendingBuckets ??= {};
+  const source = payload.source;
+  if (payload.reset) _pendingBuckets[source] = [];
+  const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
+  for (const item of payload.data) {
+    pending.push(item);
   }
-  const len = _data?.length ?? 0;
+  if (!payload.done) return false;
+  _dataBySource[source] = pending;
+  _pendingBuckets[source] = null;
+  const nextData: RenderPoint[] = [];
+  for (const bucket of Object.values(_dataBySource)) {
+    if (!bucket) continue;
+    for (const item of bucket) {
+      nextData.push(item);
+    }
+  _data = nextData;
+  }
+  _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
+  const len = nextData.length;
   if (_revealCount > len) _revealCount = len;
   if (_revealCount === 0 && len > 0) _revealCount = Math.min(REVEAL_CHUNK, len);
   return true;
 }
+function handleLegacyFrame(payload: RenderFramePayload): void {
+  _pendingFrame = payload;
+  _viewport = {
+    width: payload.width,
+    height: payload.height,
+    devicePixelRatio: payload.devicePixelRatio,
+  };
+  _presentation = {
+    flat: payload.flat,
+    autoRotate: false,
+    rotationSpeed: 0,
+    selectedId: payload.selectedId,
+    isolatedId: payload.isolatedId,
+    isolateMode: payload.isolateMode,
+    layers: payload.layers,
+    aircraftFilter: payload.aircraftFilter,
+    searchMatchIds: payload.searchMatchIds,
+    selectedItem: payload.selectedItem,
+    cyclonesShowForecast: payload.cyclonesShowForecast,
+    cyclonesShowCone: payload.cyclonesShowCone,
+    cyclonesShowWindField: payload.cyclonesShowWindField,
+    cyclonesShowWarnings: payload.cyclonesShowWarnings,
+    cyclonesShowModels: payload.cyclonesShowModels,
+    cyclonesHiddenModels: payload.cyclonesHiddenModels,
+    prefersReducedMotion: payload.prefersReducedMotion,
+  };
+  _camera.rotY = payload.camera.rotY;
+  _camera.rotX = payload.camera.rotX;
+  _camera.zoomGlobe = payload.camera.zoomGlobe;
+  _camera.zoomFlat = payload.camera.zoomFlat;
+  _camera.panX = payload.camera.panX;
+  _camera.panY = payload.camera.panY;
+}
 
-globalThis.onmessage = (e: MessageEvent<WorkerMsg>) => {
+function selectedCameraPosition(): CameraPosition | null {
+  const selected = _presentation?.selectedItem;
+  if (!selected) return null;
+  const interpolated = getInterp(selected.id);
+  return {
+    id: selected.id,
+    latitude: interpolated?.lat ?? selected.lat,
+    longitude: interpolated?.lon ?? selected.lon,
+  };
+}
+
+function handleCameraInput(payload: RenderInputPayload): void {
+  if (!_viewport || !_presentation) return;
+  const viewport = {
+    width: _viewport.width,
+    height: _viewport.height,
+  };
+  const flat = _presentation.flat;
+
+  if (payload.kind === "pointer") {
+    if (payload.phase === "hover") {
+      handlePointerHover(payload.x, payload.y);
+      return;
+    }
+    if (payload.phase === "start") {
+      beginCameraPointer(
+        _camera,
+        _pointer,
+        viewport,
+        flat,
+        payload.x,
+        payload.y,
+      );
+      postCursor({
+        kind: "cursor",
+        cursor: _pointer.interactive ? "grabbing" : "default",
+      });
+    } else if (payload.phase === "move") {
+      moveCameraPointer(
+        _camera,
+        _cameraTarget,
+        _pointer,
+        viewport,
+        flat,
+        payload.x,
+        payload.y,
+      );
+    } else if (payload.phase === "end") {
+      const click = endCameraPointer(_pointer);
+      if (click) handlePointerClick(click);
+      postCursor({ kind: "cursor", cursor: "default" });
+    } else {
+      cancelCameraPointer(_pointer);
+      postCursor({ kind: "cursor", cursor: "default" });
+    }
+    scheduleRender();
+    return;
+  }
+
+  if (payload.kind === "pinch") {
+    if (payload.phase === "start") {
+      beginCameraPinch(_pointer, payload.distance);
+    } else if (payload.phase === "move") {
+      moveCameraPinch(
+        _camera,
+        _cameraTarget,
+        _pointer,
+        viewport,
+        flat,
+        payload.centerX,
+        payload.centerY,
+        payload.distance,
+      );
+    } else {
+      endCameraPinch(_pointer);
+    }
+    scheduleRender();
+    return;
+  }
+
+  if (payload.kind === "wheel") {
+    applyCameraWheel(
+      _camera,
+      _cameraTarget,
+      viewport,
+      flat,
+      payload.x,
+      payload.y,
+      payload.deltaY,
+    );
+    scheduleRender();
+    return;
+  }
+
+  applyCameraKey(
+    _camera,
+    viewport,
+    flat,
+    payload.code,
+  );
+  scheduleRender();
+}
+
+
+globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
   const msg = e.data;
+  if (!acceptRenderCommand(protocolState, msg)) return;
   if (msg.type === "init") {
     canvas = msg.canvas;
     ctx = canvas.getContext("2d");
-    if (landPolygons.length === 0) fetchLandData();
+    _pendingFrame = null;
+    const ready: RenderWorkerEvent = {
+      type: "ready",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
+      sessionId: msg.sessionId,
+      sequence: msg.sequence,
+    };
+    globalThis.postMessage(ready);
+    if (landRings.length === 0) fetchLandData();
     return;
   }
   if (msg.type === "trails") {
     handleTrails(msg);
+    scheduleRender();
     return;
   }
   if (msg.type === "warnings") {
-    _warnings = msg.payload.features || null;
-    if (msg.payload.warnColor) _warnColor = msg.payload.warnColor;
-    if (msg.payload.watchColor) _watchColor = msg.payload.watchColor;
+    _warnings = [...msg.payload.features];
+    _warnColor = msg.payload.warningColor;
+    _watchColor = msg.payload.watchColor;
     scheduleRender();
     return;
   }
-  if (msg.type === "wxAlerts") {
-    _wxAlerts = msg.payload.features || null;
-    if (msg.payload.warnColor) _wxWarnColor = msg.payload.warnColor;
-    if (msg.payload.watchColor) _wxWatchColor = msg.payload.watchColor;
+  if (msg.type === "weatherAlerts") {
+    _wxAlerts = [...msg.payload.features];
+    _wxWarnColor = msg.payload.warningColor;
+    _wxWatchColor = msg.payload.watchColor;
     scheduleRender();
+    return;
+  }
+  if (msg.type === "viewport") {
+    _viewport = msg.payload;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "presentation") {
+    _presentation = msg.payload;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "focus") {
+    if (_viewport && _presentation) {
+      focusCamera(
+        _camera,
+        _cameraTarget,
+        {
+          id: msg.payload.id,
+          latitude: msg.payload.latitude,
+          longitude: msg.payload.longitude,
+        },
+        {
+          width: _viewport.width,
+          height: _viewport.height,
+        },
+        _presentation.flat,
+        msg.payload.kind,
+      );
+      scheduleRender();
+    }
+    return;
+  }
+  if (msg.type === "input") {
+    handleCameraInput(msg.payload);
+    return;
+  }
+  if (msg.type === "dispose") {
+    canvas = null;
+    ctx = null;
+    _pendingFrame = null;
+    _presentation = null;
+    _viewport = null;
+    _frameScheduled = false;
     return;
   }
   if (msg.type === "data") {
@@ -774,47 +1122,14 @@ globalThis.onmessage = (e: MessageEvent<WorkerMsg>) => {
     return;
   }
   if (msg.type === "frame") {
-    _pendingFrame = msg.payload;
-    if (!_frameScheduled) {
-      _frameScheduled = true;
-      requestAnimationFrame(renderFrame);
-    }
+    handleLegacyFrame(msg.payload);
+    scheduleRender();
     return;
   }
 };
 
 // ── Render everything ───────────────────────────────────────────────
 
-type Cam = {
-  zoomFlat: number;
-  zoomGlobe: number;
-  panX: number;
-  panY: number;
-  rotY: number;
-  rotX: number;
-};
-type FramePayload = {
-  W: number;
-  H: number;
-  dpr: number;
-  isFlat: boolean;
-  cam: Cam;
-  t: number;
-  selectedId?: string;
-  isolatedId?: string;
-  isolateMode?: string;
-  layers: Record<string, boolean | undefined>;
-  aircraftFilter: AircraftFilter;
-  searchMatchIds?: string[];
-  selectedItem?: (SelectedItem & RenderPoint) | null;
-  cyclonesShowForecast?: boolean;
-  cyclonesShowCone?: boolean;
-  cyclonesShowWindField?: boolean;
-  cyclonesShowWarnings?: boolean;
-  cyclonesShowModels?: boolean;
-  cyclonesHiddenModels?: string[];
-  prefersReducedMotion?: boolean;
-};
 
 // ── Per-type point drawing (extracted from the render loop) ─────────
 
@@ -864,58 +1179,484 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
 
+type PointProjector = (item: RenderPoint) => Projected;
+
+const unitVectorByPoint = new WeakMap<RenderPoint, UnitVector>();
+
+function unitVectorForPoint(item: RenderPoint): UnitVector {
+  const cached = unitVectorByPoint.get(item);
+  if (cached) return cached;
+  const unit = geographicToUnitVector(item.lat, item.lon);
+  unitVectorByPoint.set(item, unit);
+  return unit;
+}
+
 const POINT_LAYER_ORDER: Record<string, number> = {
   aircraft: 0, ships: 1, fires: 2, events: 3, quakes: 4, weather: 5, "cyclones-forecast": 6, cyclones: 7,
 };
 
 type FilterCfg = {
   searchSet: Set<string> | null;
-  isoMode: string | undefined;
-  isoId: string | undefined;
+  isoMode: RenderFramePayload["isolateMode"];
+  isoId: string | null;
   isolatedType: string | null;
-  layers: Record<string, boolean | undefined>;
+  layers: Readonly<Record<string, boolean | undefined>>;
   af: AircraftFilter;
   showForecast: boolean;
 };
 
 /** Does one item survive the search / isolation / layer filters? */
 function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
-  if (c.searchSet && !c.searchSet.has(item.id as string)) return false;
+  if (c.searchSet && !c.searchSet.has(item.id)) return false;
   if (c.isoMode === "solo" && item.id !== c.isoId) return false;
   if (c.isoMode === "focus" && c.isolatedType && item.type !== c.isolatedType) return false;
-  if (item.type === "aircraft") return matchesAF(item.data as AircraftData, c.af);
+  if (item.type === "aircraft") return matchesAF(item.data, c.af);
   if (item.type === "cyclones-forecast") return c.layers.cyclones !== false && c.showForecast !== false;
-  return c.layers[item.type as string] !== false;
+  return c.layers[item.type] !== false;
 }
 
 /** Project every visible item to screen space, drop back-facing points, and
  *  sort by layer order so markers stack correctly. */
-function projectAndFilter(data: ReadonlyArray<RenderPoint>, projFn: ProjFn, c: FilterCfg): ProjPoint[] {
+function projectAndFilter(data: ReadonlyArray<RenderPoint>, projectPoint: PointProjector, c: FilterCfg): ProjPoint[] {
   const pts: ProjPoint[] = [];
   for (const item of data) {
     if (!pointPassesFilters(item, c)) continue;
-    let lat = item.lat ?? 0;
-    let lon = item.lon ?? 0;
-    if (item.type === "aircraft" || item.type === "ships") {
-      const interp = getInterp(item.id as string);
-      if (interp) { lat = interp.lat; lon = interp.lon; }
-    }
-    const pt = projFn(lat, lon);
+    const pt = projectPoint(item);
     if (pt.z <= 0) continue;
     pts.push({ x: pt.x, y: pt.y, z: pt.z, item });
   }
   if (pts.length > 1) {
-    pts.sort((a, b) => (POINT_LAYER_ORDER[a.item.type ?? ""] ?? 0) - (POINT_LAYER_ORDER[b.item.type ?? ""] ?? 0));
+    pts.sort((a, b) => (POINT_LAYER_ORDER[a.item.type] ?? 0) - (POINT_LAYER_ORDER[b.item.type] ?? 0));
   }
   return pts;
 }
+function hitGridKey(x: number, y: number): string {
+  const cellX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
+  const cellY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
+  return `${cellX}:${cellY}`;
+}
+
+function rebuildHitGrid(points: readonly ProjPoint[]): void {
+  const next = new Map<string, ProjPoint[]>();
+  for (const point of points) {
+    const key = hitGridKey(point.x, point.y);
+    const cell = next.get(key);
+    if (!cell) {
+      next.set(key, [point]);
+    } else if (
+      cell.length < CAMERA_POLICY.maximumHitCandidates
+    ) {
+      cell.push(point);
+    }
+  }
+  _hitGrid = next;
+}
+
+function hitCandidates(x: number, y: number): ProjPoint[] {
+  const centerX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
+  const centerY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
+  const candidates: ProjPoint[] = [];
+  for (let row = centerY - 1; row <= centerY + 1; row++) {
+    for (let column = centerX - 1; column <= centerX + 1; column++) {
+      const cell = _hitGrid.get(`${column}:${row}`);
+      if (!cell) continue;
+      for (const point of cell) {
+        if (
+          candidates.length >=
+          CAMERA_POLICY.maximumHitCandidates
+        ) {
+          return candidates;
+        }
+        candidates.push(point);
+      }
+    }
+  }
+  return candidates;
+}
+
+function nearestPoint(
+  x: number,
+  y: number,
+  radius: number,
+): RenderPoint | null {
+  let closest: RenderPoint | null = null;
+  let distance = radius;
+  for (const point of hitCandidates(x, y)) {
+    const candidateDistance = Math.hypot(
+      point.x - x,
+      point.y - y,
+    );
+    if (candidateDistance < distance) {
+      closest = point.item;
+      distance = candidateDistance;
+    }
+  }
+  return closest;
+}
+
+function nearestTrailTarget(
+  x: number,
+  y: number,
+): RenderTrailHitTarget | null {
+  let closest: RenderTrailHitTarget | null = null;
+  let distance = CAMERA_POLICY.trailHitRadiusPx;
+  for (const target of _trailHitTargets) {
+    const candidateDistance = Math.hypot(
+      target.x - x,
+      target.y - y,
+    );
+    if (candidateDistance < distance) {
+      closest = target;
+      distance = candidateDistance;
+    }
+  }
+  return closest;
+}
+
+function currentProjection(): ProjFn | null {
+  if (!_viewport || !_presentation) return null;
+  const camera = cameraSnapshot(_camera);
+  const { width, height } = _viewport;
+  if (_presentation.flat) {
+    const metrics = getFlatMetrics(
+      _viewport.width,
+      _viewport.height,
+      camera.zoomFlat,
+      camera.panX,
+      camera.panY,
+    );
+    return (latitude, longitude) =>
+      projFlat(
+        latitude,
+        longitude,
+        metrics.cx,
+        metrics.cy,
+        metrics.mW,
+        metrics.mH,
+      );
+  }
+  const radius =
+    Math.min(_viewport.width, _viewport.height) *
+    CAMERA_POLICY.globeRadiusRatio *
+    camera.zoomGlobe;
+  return (latitude, longitude) =>
+    projGlobe(
+      latitude,
+      longitude,
+      width / 2,
+      height / 2,
+      radius,
+      camera.rotY,
+      camera.rotX,
+    );
+}
+
+function segmentDistance(
+  x: number,
+  y: number,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+): number {
+  const deltaX = endX - startX;
+  const deltaY = endY - startY;
+  const lengthSquared =
+    deltaX * deltaX + deltaY * deltaY;
+  if (lengthSquared === 0) {
+    return Math.hypot(x - startX, y - startY);
+  }
+  const ratio = Math.max(
+    0,
+    Math.min(
+      1,
+      ((x - startX) * deltaX + (y - startY) * deltaY) /
+        lengthSquared,
+    ),
+  );
+  return Math.hypot(
+    x - (startX + ratio * deltaX),
+    y - (startY + ratio * deltaY),
+  );
+}
+
+function selectedRouteContains(x: number, y: number): boolean {
+  const route = _presentation?.selectedItem?.route;
+  const project = currentProjection();
+  if (!route || route.length < 2 || !project) return false;
+  let previous: Projected | null = null;
+  for (const [latitude, longitude] of route) {
+    const point = project(latitude, longitude);
+    if (point.z <= 0) {
+      previous = null;
+      continue;
+    }
+    if (
+      Math.hypot(point.x - x, point.y - y) <
+      CAMERA_POLICY.routeHitRadiusPx
+    ) {
+      return true;
+    }
+    if (
+      previous &&
+      segmentDistance(
+        x,
+        y,
+        previous.x,
+        previous.y,
+        point.x,
+        point.y,
+      ) < CAMERA_POLICY.routeHitRadiusPx
+    ) {
+      return true;
+    }
+    previous = point;
+  }
+  return false;
+}
+
+function screenCoordinate(
+  x: number,
+  y: number,
+): { lat: number; lon: number } | null {
+  if (!_viewport || !_presentation) return null;
+  const camera = cameraSnapshot(_camera);
+  if (_presentation.flat) {
+    const metrics = getFlatMetrics(
+      _viewport.width,
+      _viewport.height,
+      camera.zoomFlat,
+      camera.panX,
+      camera.panY,
+    );
+    return screenToLatLonFlat(
+      x,
+      y,
+      metrics.cx,
+      metrics.cy,
+      metrics.mW,
+      metrics.mH,
+    );
+  }
+  const radius =
+    Math.min(_viewport.width, _viewport.height) *
+    CAMERA_POLICY.globeRadiusRatio *
+    camera.zoomGlobe;
+  return screenToLatLonGlobe(
+    x,
+    y,
+    _viewport.width / 2,
+    _viewport.height / 2,
+    radius,
+    camera.rotY,
+    camera.rotX,
+  );
+}
+
+function warningIdAt(x: number, y: number): string | null {
+  const coordinate = screenCoordinate(x, y);
+  if (!coordinate || !_warnings) return null;
+  for (const warning of _warnings) {
+    if (
+      warning.id &&
+      pointInPolygon(
+        coordinate.lat,
+        coordinate.lon,
+        warning.geometry,
+      )
+    ) {
+      return warning.id;
+    }
+  }
+  return null;
+}
+
+function clearTrailTooltip(): void {
+  if (!_activeTrailPoint) return;
+  _activeTrailPoint = null;
+  postInteraction({
+    kind: "trailTooltip",
+    point: null,
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+}
+
+function positionForItem(item: RenderPoint): CameraPosition {
+  const interpolated =
+    item.type === "aircraft" || item.type === "ships"
+      ? getInterp(item.id)
+      : null;
+  return {
+    id: item.id,
+    latitude: interpolated?.lat ?? item.lat,
+    longitude: interpolated?.lon ?? item.lon,
+  };
+}
+
+function resetClickMemory(): void {
+  _lastClickTime = 0;
+  _lastClickId = null;
+}
+
+function handlePointerClick(click: CameraClick): void {
+  if (!click.interactive) {
+    postInteraction({ kind: "rawCanvasClick" });
+    resetClickMemory();
+    return;
+  }
+
+  const trailTarget = nearestTrailTarget(click.x, click.y);
+  const point = nearestPoint(
+    click.x,
+    click.y,
+    CAMERA_POLICY.pointHitRadiusPx,
+  );
+  const now = Date.now();
+  const isDoubleClick =
+    now - _lastClickTime < CAMERA_POLICY.doubleClickIntervalMs &&
+    _lastClickId !== null;
+
+  if (isDoubleClick) {
+    clearTrailTooltip();
+    const target = _data?.find(
+      (item) => item.id === _lastClickId,
+    );
+    if (target && _viewport && _presentation) {
+      focusCamera(
+        _camera,
+        _cameraTarget,
+        positionForItem(target),
+        {
+          width: _viewport.width,
+          height: _viewport.height,
+        },
+        _presentation.flat,
+        "double",
+      );
+    }
+    resetClickMemory();
+    return;
+  }
+
+  if (point && !trailTarget) {
+    clearTrailTooltip();
+    postInteraction({ kind: "selection", id: point.id });
+    if (_presentation) {
+      lockCamera(
+        _camera,
+        _cameraTarget,
+        point.id,
+        _presentation.flat,
+      );
+    }
+    _lastClickTime = now;
+    _lastClickId = point.id;
+    return;
+  }
+
+  if (trailTarget) {
+    _activeTrailPoint = trailTarget.point;
+    postInteraction({
+      kind: "trailTooltip",
+      point: trailTarget.point,
+      x: trailTarget.x,
+      y: trailTarget.y,
+      visible: true,
+    });
+    resetClickMemory();
+    return;
+  }
+
+  clearTrailTooltip();
+  const warningId = warningIdAt(click.x, click.y);
+  if (warningId) {
+    postInteraction({ kind: "selection", id: warningId });
+  } else if (!selectedRouteContains(click.x, click.y)) {
+    postInteraction({ kind: "selection", id: null });
+  }
+  resetClickMemory();
+}
+
+function handlePointerHover(x: number, y: number): void {
+  if (!_viewport || !_presentation || _pointer.active) return;
+  const viewport = {
+    width: _viewport.width,
+    height: _viewport.height,
+  };
+  if (
+    !cameraContainsPoint(
+      _camera,
+      viewport,
+      _presentation.flat,
+      x,
+      y,
+    )
+  ) {
+    postCursor({ kind: "cursor", cursor: "default" });
+    return;
+  }
+  const hasTrail = nearestTrailTarget(x, y) !== null;
+  const hasPoint =
+    nearestPoint(x, y, CAMERA_POLICY.hoverHitRadiusPx) !== null;
+  const hasWarning = warningIdAt(x, y) !== null;
+  postCursor({
+    kind: "cursor",
+    cursor:
+      hasTrail || hasPoint || hasWarning ? "pointer" : "grab",
+  });
+}
+
+function updateSelectedSide(): void {
+  const selectedId = _presentation?.selectedId;
+  if (!selectedId || !_viewport) return;
+  const point = _projectedPoints.find(
+    (candidate) => candidate.item.id === selectedId,
+  );
+  if (!point || point.z <= 0) return;
+  const ratio = point.x / _viewport.width;
+  let next = _lastSelectedSide;
+  if (
+    next === "right" &&
+    ratio > CAMERA_POLICY.selectedSideRightRatio
+  ) {
+    next = "left";
+  } else if (
+    next === "left" &&
+    ratio < CAMERA_POLICY.selectedSideLeftRatio
+  ) {
+    next = "right";
+  }
+  if (next === _lastSelectedSide) return;
+  _lastSelectedSide = next;
+  postInteraction({ kind: "selectedSide", side: next });
+}
+
+function updateTrailTooltip(): void {
+  if (!_activeTrailPoint) return;
+  const target = _trailHitTargets.find(
+    (candidate) =>
+      candidate.point.ts === _activeTrailPoint?.ts &&
+      candidate.point.lat === _activeTrailPoint?.lat &&
+      candidate.point.lon === _activeTrailPoint?.lon,
+  );
+  postInteraction({
+    kind: "trailTooltip",
+    point: _activeTrailPoint,
+    x: target?.x ?? 0,
+    y: target?.y ?? 0,
+    visible: target !== undefined,
+  });
+}
+
 
 type PointDrawCtx = {
   ctx: Ctx;
   projFn: ProjFn;
   colorMap: Record<string, string>;
   accent: string;
-  selId: string | undefined;
+  selId: string | null;
   t: number;
   zoomLevel: number;
   milColor: string;
@@ -932,17 +1673,16 @@ type PointDrawCtx = {
 function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   const { ctx, projFn, colorMap, accent, selId, t, zoomLevel, milColor, reconColor } = pc;
   const { x, y, z, item } = pt;
-  const d = (item.data ?? {}) as Record<string, unknown>;
-  const baseColor = colorMap[item.type ?? ""] || accent;
+  const baseColor = colorMap[item.type] || accent;
   const depthAlpha = 0.4 + z * 0.6;
   const isSel = item.id === selId;
-  const id = (item.id as string) ?? "";
-  const ts = item.timestamp as string | undefined;
+  const id = item.id;
+  const ts = item.timestamp;
   const env: DotEnv = { ctx, t, zoomLevel };
   const circle = (s: number) => { ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); };
 
   if (item.type === "quakes") {
-    const mag = (d.magnitude as number) || 0;
+    const mag = item.data.magnitude ?? 0;
     const af2 = quakeAgeFactor(ts);
     const color = quakeColor(af2, baseColor);
     const s = quakeSize(mag) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
@@ -953,7 +1693,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   }
 
   if (item.type === "events") {
-    const sev = (d.severity as number) || 1;
+    const sev = item.data.severity ?? 1;
     const af2 = eventAgeFactor(ts);
     const color = eventColor(af2, baseColor);
     const s = eventSize(sev) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
@@ -964,7 +1704,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   }
 
   if (item.type === "fires") {
-    const frp = (d.frp as number) || 0;
+    const frp = item.data.frp ?? 0;
     const af2 = fireAgeFactor(ts);
     const color = fireColor(af2, baseColor);
     const s = fireSize(frp) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
@@ -975,7 +1715,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   }
 
   if (item.type === "weather") {
-    const wsev = (d.severity as string) || "Unknown";
+    const wsev = item.data.severity || "Unknown";
     const wrank = weatherSeverityRank(wsev);
     const s = weatherSize(wsev) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
     const diamond = (sz: number) => {
@@ -993,10 +1733,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   }
 
   if (item.type === "cyclones") {
-    // Trust-boundary narrow: the main thread sends cyclone points in CycloneRenderItem
-    // shape; the worker's heterogeneous RenderPoint can't express that statically.
-    const storm = item as unknown as CycloneRenderItem;
-    drawCyclone(ctx, projFn, x, y, storm, baseColor, depthAlpha, t, isSel, {
+    drawCyclone(ctx, projFn, x, y, item, baseColor, depthAlpha, t, isSel, {
       showForecast: pc.showForecast,
       showCone: pc.showCone,
       showWindField: pc.showWindField,
@@ -1008,7 +1745,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   }
 
   if (item.type === "cyclones-forecast") {
-    drawCycloneForecastPoint(ctx, x, y, (d.fcstHour as number) || 0,
+    drawCycloneForecastPoint(ctx, x, y, item.data.fcstHour,
       colorMap.cyclones || baseColor, depthAlpha,
       { isSelected: isSel, t, reducedMotion: pc.reducedMotion });
     return;
@@ -1017,7 +1754,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   if (item.type === "ships") {
     const shipAlpha = Math.min(0.85, 0.35 + Math.max(0, (zoomLevel - 1) / 2) * 0.5);
     const s = 2.5 * zoomScale(zoomLevel) * (isSel ? 2 : 1);
-    const a = (((d.heading as number) || 0) * Math.PI) / 180;
+    const a = ((item.data.heading ?? 0) * Math.PI) / 180;
     const hw = s * 0.7;
     ctx.globalAlpha = depthAlpha * shipAlpha;
     ctx.fillStyle = baseColor;
@@ -1033,9 +1770,11 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
     return;
   }
 
+  if (item.type !== "aircraft") return;
+
   // Aircraft. Recon (Hurricane Hunter) outranks military.
-  const isMil = Boolean(d.military);
-  const isRecon = Boolean(d.recon);
+  const isMil = Boolean(item.data.military);
+  const isRecon = Boolean(item.data.recon);
   let acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
   if (isMil) acAlpha = Math.min(0.9, acAlpha + 0.15);
   if (isRecon) acAlpha = Math.min(1, Math.max(acAlpha, 0.75) + 0.1);
@@ -1043,7 +1782,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   if (isMil) acSize = Math.min(5, acSize * 1.2);
   if (isRecon) acSize = Math.max(acSize, 2.2) * 1.2;
   if (isSel) acSize *= 2;
-  const status = d.squawkStatus as string | undefined;
+  const status = item.data.squawkStatus;
   const isEmergency = status === "emergency" || status === "radio_failure" || status === "hijack";
   ctx.globalAlpha = isEmergency ? depthAlpha : depthAlpha * acAlpha;
   // Colour precedence: emergency → recon → military → base.
@@ -1055,7 +1794,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
             : isMil ? milColor
               : baseColor;
   ctx.fillStyle = acColor;
-  const a = (((d.heading as number) || 0) * Math.PI) / 180;
+  const a = ((item.data.heading ?? 0) * Math.PI) / 180;
   const s = acSize;
   ctx.beginPath();
   ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
@@ -1069,7 +1808,8 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
 type StaticLayerCtx = {
   ctx: Ctx;
   projFn: ProjFn;
-  colors: WorkerColors;
+  globeMatrix: GlobeRotationMatrix;
+  colors: RenderWorkerColors;
   isFlat: boolean;
   W: number;
   H: number;
@@ -1106,18 +1846,19 @@ function drawStaticLayer(s: StaticLayerCtx): void {
     ctx.beginPath();
     ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
     ctx.clip();
-    drawLand(ctx, projFn, colors, false, cx, cy, r - 0.5, landAlpha);
+    drawLand(ctx, projFn, s.globeMatrix, colors, false, cx, cy, r - 0.5, landAlpha);
     drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.grid || colors.accent, gridAlpha });
     return;
   }
-  const fm = s.fm!;
+  const fm = s.fm;
+  if (!fm) return;
   ctx.fillStyle = colors.oceanDeep || "#081018";
   ctx.fillRect(fm.mx, fm.my, fm.mW, fm.mH);
   ctx.save();
   ctx.beginPath();
   ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
   ctx.clip();
-  drawLand(ctx, projFn, colors, true, 0, 0, 0, landAlpha);
+  drawLand(ctx, projFn, s.globeMatrix, colors, true, 0, 0, 0, landAlpha);
   drawGrid(ctx, projFn, {
     isFlat: true, cx, cy, mW: fm.mW, mH: fm.mH, mx: fm.mx, my: fm.my,
     accentColor: colors.grid || colors.accent, gridAlpha,
@@ -1126,12 +1867,39 @@ function drawStaticLayer(s: StaticLayerCtx): void {
 
 function renderFrame(): void {
   _frameScheduled = false;
-  // Keep the last frame payload (don't null it) so the reveal ramp re-renders
-  // with the last camera between "frame" messages.
-  if (!canvas || !ctx || !_data || !_colors || !_pendingFrame) return;
+  if (
+    !canvas ||
+    !ctx ||
+    !_data ||
+    !_colors ||
+    !_presentation ||
+    !_viewport
+  ) {
+    return;
+  }
 
-  const p = _pendingFrame;
-  const { W, H, dpr, isFlat, cam, t } = p;
+  const p = _presentation;
+  const {
+    width: W,
+    height: H,
+    devicePixelRatio: dpr,
+  } = _viewport;
+  const isFlat = p.flat;
+  const now = performance.now();
+  const cameraActive = stepCamera(
+    _camera,
+    _cameraTarget,
+    _pointer,
+    { width: W, height: H },
+    isFlat,
+    p.autoRotate,
+    p.rotationSpeed,
+    selectedCameraPosition(),
+    now - _lastFrameAt,
+  );
+  _lastFrameAt = now;
+  const cam = cameraSnapshot(_camera);
+  const t = Date.now() * 0.003;
   const selId = p.selectedId;
   const isoId = p.isolatedId;
   const isoMode = p.isolateMode;
@@ -1191,12 +1959,41 @@ function renderFrame(): void {
 
   const fm = isFlat ? getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY) : null;
   const globeR = Math.min(W, H) * 0.4 * cam.zoomGlobe;
+  const globeMatrix = createGlobeRotationMatrix(cam.rotY, cam.rotX);
+  const projectPoint: PointProjector = fm
+    ? (item) => {
+        const interpolated =
+          item.type === "aircraft" || item.type === "ships"
+            ? getInterp(item.id)
+            : null;
+        return projFlat(
+          interpolated?.lat ?? item.lat,
+          interpolated?.lon ?? item.lon,
+          fm.cx,
+          fm.cy,
+          fm.mW,
+          fm.mH,
+        );
+      }
+    : (item) => {
+        const interpolated =
+          item.type === "aircraft" || item.type === "ships"
+            ? getInterpUnit(item.id)
+            : null;
+        return projectUnitVector(
+          interpolated ?? unitVectorForPoint(item),
+          globeMatrix,
+          cx,
+          cy,
+          globeR,
+        );
+      };
   const projFn: ProjFn = fm
     ? (lat, lon) => projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH)
     : (lat, lon) => projGlobe(lat, lon, cx, cy, globeR, cam.rotY, cam.rotX);
 
   // ── Draw static layer (leaves clip active for the points) ─────
-  drawStaticLayer({ ctx, projFn, colors, isFlat, W, H, cx, cy, globeR, fm, landAlpha, gridAlpha, glowAlpha });
+  drawStaticLayer({ ctx, projFn, globeMatrix, colors, isFlat, W, H, cx, cy, globeR, fm, landAlpha, gridAlpha, glowAlpha });
 
   // ── Tropical watch/warning areas (under the storm marker/track) ──
   if (cyclonesShowWarnings && _warnings && _warnings.length > 0) {
@@ -1227,7 +2024,9 @@ function renderFrame(): void {
     isoId && selId ? (data.find((d) => d.id === isoId)?.type ?? null) : null;
   const searchSet = searchIds ? new Set(searchIds) : null;
   const filterCfg: FilterCfg = { searchSet, isoMode, isoId, isolatedType, layers, af, showForecast: cyclonesShowForecast };
-  const pts = projectAndFilter(data, projFn, filterCfg);
+  const pts = projectAndFilter(data, projectPoint, filterCfg);
+  _projectedPoints = pts;
+  rebuildHitGrid(pts);
 
   // ── Draw trail (only if the selected item passes current filters) ──
   const selPassesFilters = (): boolean => {
@@ -1237,24 +2036,26 @@ function renderFrame(): void {
     if (isoMode === "focus" && isolatedType && selectedItem.type !== isolatedType) return false;
     if (selectedItem.type === "aircraft") {
       const fullItem = data.find((d) => d.id === selectedItem.id);
-      return Boolean(fullItem && matchesAF((fullItem.data as AircraftData) || {}, af));
+      if (!fullItem || fullItem.type !== "aircraft") return false;
+      return matchesAF(fullItem.data, af);
     }
-    return layers[selectedItem.type ?? ""] !== false;
+    return layers[selectedItem.type] !== false;
   };
   const drawSelectedTrail = selPassesFilters();
 
-  if (drawSelectedTrail && selectedItem && (selectedItem as RenderPoint)._route) {
+  if (drawSelectedTrail && selectedItem?.route) {
     const routePos = getInterp(selectedItem.id);
     drawRoute(
       ctx,
       projFn,
-      (selectedItem as RenderPoint)._route as [number, number][],
-      routePos ? routePos.lat : (selectedItem.lat as number),
-      routePos ? routePos.lon : (selectedItem.lon as number),
+      selectedItem.route,
+      routePos ? routePos.lat : selectedItem.lat,
+      routePos ? routePos.lon : selectedItem.lon,
       colors,
     );
   }
   const hitTargets = drawSelectedTrail ? drawTrail(ctx, projFn, selectedItem ?? null, colors) : [];
+  _trailHitTargets = hitTargets;
   ctx.globalAlpha = 1;
 
   // ── Draw points ───────────────────────────────────────────────
@@ -1294,12 +2095,30 @@ function renderFrame(): void {
     }
   }
 
-  const bitmap = canvas.transferToImageBitmap();
-  globalThis.postMessage({ type: "frame", bitmap, hitTargets }, [bitmap]);
+  updateSelectedSide();
+  updateTrailTooltip();
+  postCameraSummary(now);
 
-  // Reveal ramp not finished — schedule another frame so it keeps filling in
-  // even if no new "frame" message arrives (still camera).
-  if (_data && _revealCount < _data.length && !_frameScheduled) {
+  if (protocolState.sessionId) {
+    const event: RenderWorkerEvent = {
+      type: "trailTargets",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
+      sessionId: protocolState.sessionId,
+      sequence: protocolState.sequence,
+      payload: { targets: hitTargets },
+    };
+    globalThis.postMessage(event);
+  }
+
+  const hasRevealWork = _revealCount < fullData.length;
+  const hasMotion = trailMap.size > 0;
+  const hasVisualAnimation =
+    !p.prefersReducedMotion &&
+    (_hasAnimatedPoints || p.selectedId !== null);
+  if (
+    (hasRevealWork || hasMotion || hasVisualAnimation || cameraActive) &&
+    !_frameScheduled
+  ) {
     _frameScheduled = true;
     requestAnimationFrame(renderFrame);
   }

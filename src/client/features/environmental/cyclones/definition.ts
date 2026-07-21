@@ -27,6 +27,7 @@ export const cycloneFeature: FeatureDefinition<CycloneData, CycloneFilter> = {
     showForecast: true,
     showCone: true,
     showWindField: false,
+    showModels: false,
     showWarnings: true,
   },
 

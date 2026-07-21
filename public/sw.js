@@ -26,7 +26,6 @@ let PRECACHE_URLS = [
   "/fonts/jetbrains-mono/JetBrainsMono-Regular.woff2",
   "/fonts/jetbrains-mono/JetBrainsMono-Bold.woff2",
   "/data/ne_50m_land.json",
-  "/workers/pointWorker.js",
   "/manifest.json",
 ];
 
@@ -83,6 +82,17 @@ self.addEventListener("activate", (event) => {
             .map((key) => caches.delete(key)),
         ),
       )
+      .then(async () => {
+        const cache = await caches.open(CACHE_NAME);
+        const requests = await cache.keys();
+        await Promise.all(
+          requests
+            .filter((request) =>
+              new URL(request.url).pathname.startsWith("/workers/"),
+            )
+            .map((request) => cache.delete(request)),
+        );
+      })
       .then(() => self.clients.claim())
       .then(() => {
         // After claiming, notify again in case install message was missed
@@ -113,6 +123,28 @@ self.addEventListener("fetch", (event) => {
 
   // API routes — network only, let providers handle errors via IndexedDB
   if (url.pathname.startsWith("/api/")) return;
+
+  // Worker code must never be stale while the network is available.
+  if (url.pathname.startsWith("/workers/")) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const response = await fetch(request, { cache: "no-store" });
+          if (response.ok) {
+            await cache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          const cached = await cache.match(request);
+          return (
+            cached ??
+            new Response("Worker unavailable", { status: 503 })
+          );
+        }
+      }),
+    );
+    return;
+  }
 
   // HTML navigation — cache first so app loads instantly like a native app.
   // Background fetch updates the cache for next load.

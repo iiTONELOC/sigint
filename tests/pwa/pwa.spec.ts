@@ -49,11 +49,15 @@ describe("sw.js — cache strategy", () => {
     expect(srcMatch(/sigint-shell-/)).toBe(true);
   });
 
-  test("precaches app shell URLs", () => {
-    expect(srcHas("/fonts.css")).toBe(true);
-    expect(srcHas("/manifest.json")).toBe(true);
-    expect(srcHas("/workers/pointWorker.js")).toBe(true);
-    expect(srcHas("/data/ne_50m_land.json")).toBe(true);
+  test("precaches only immutable app shell assets", () => {
+    const precacheBlock = swSource.slice(
+      swSource.indexOf("let PRECACHE_URLS"),
+      swSource.indexOf("// Injected by post-build"),
+    );
+    expect(precacheBlock.includes("/fonts.css")).toBe(true);
+    expect(precacheBlock.includes("/manifest.json")).toBe(true);
+    expect(precacheBlock.includes("/data/ne_50m_land.json")).toBe(true);
+    expect(precacheBlock.includes("/workers/")).toBe(false);
   });
 
   test("supports __PRECACHE_MANIFEST injection", () => {
@@ -91,11 +95,28 @@ describe("sw.js — fetch routing", () => {
     expect(srcMatch(/url\.origin\s*!==\s*self\.location\.origin/)).toBe(true);
   });
 
+  test("workers are network-first with cache fallback", () => {
+    const fetchStart = swSource.indexOf('addEventListener("fetch"');
+    const workerStart = swSource.indexOf(
+      'pathname.startsWith("/workers/")',
+      fetchStart,
+    );
+    const workerEnd = swSource.indexOf(
+      'request.mode === "navigate"',
+      workerStart,
+    );
+    const workerBlock = swSource.slice(workerStart, workerEnd);
+    expect(workerBlock.includes('cache: "no-store"')).toBe(true);
+    expect(workerBlock.indexOf("fetch(request")).toBeLessThan(
+      workerBlock.indexOf("cache.match(request)"),
+    );
+  });
+
   test("API routes are network-only", () => {
     expect(srcMatch(/url\.pathname\.startsWith\(\s*"\/api\/"\s*\)/)).toBe(true);
   });
 
-  test("HTML navigation is network-first with cache fallback", () => {
+  test("HTML navigation is cache-first with background refresh", () => {
     expect(srcMatch(/request\.mode\s*===\s*"navigate"/)).toBe(true);
     expect(srcHas(".catch(")).toBe(true);
   });
@@ -121,6 +142,15 @@ describe("sw.js — activation", () => {
     expect(srcMatch(/caches\s*\.\s*delete/)).toBe(true);
     expect(srcMatch(/key\.startsWith\(\s*"sigint-"\s*\)/)).toBe(true);
     expect(srcHas("key !== CACHE_NAME")).toBe(true);
+  });
+
+  test("removes cached worker bundles on activation", () => {
+    const activationBlock = swSource.slice(
+      swSource.indexOf('addEventListener("activate"'),
+      swSource.indexOf('addEventListener("fetch"'),
+    );
+    expect(activationBlock.includes('pathname.startsWith("/workers/")')).toBe(true);
+    expect(activationBlock.includes("cache.delete(request)")).toBe(true);
   });
 
   test("claims clients on activate", () => {
@@ -229,10 +259,6 @@ describe("offline cache coverage", () => {
 
   test("precache includes map data", () => {
     expect(srcHas("ne_50m_land.json")).toBe(true);
-  });
-
-  test("precache includes web worker", () => {
-    expect(srcHas("pointWorker.js")).toBe(true);
   });
 
   test("precache includes manifest", () => {

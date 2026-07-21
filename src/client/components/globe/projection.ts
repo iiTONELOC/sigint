@@ -1,4 +1,5 @@
 import type { Projected, CamState } from "./types";
+import { projectGeographicPoint } from "@/lib/geo/unitSphere";
 
 export function getFlatMetrics(
   W: number,
@@ -38,16 +39,7 @@ export function projGlobe(
   ry: number,
   rx: number,
 ): Projected {
-  const phi = ((90 - lat) * Math.PI) / 180;
-  const theta = ((lon + 180) * Math.PI) / 180 + ry;
-  const x = -Math.sin(phi) * Math.cos(theta);
-  const y = Math.cos(phi);
-  const z = Math.sin(phi) * Math.sin(theta);
-  const cX = Math.cos(rx),
-    sX = Math.sin(rx);
-  const y2 = y * cX - z * sX;
-  const z2 = y * sX + z * cX;
-  return { x: cx + x * r, y: cy - y2 * r, z: z2 };
+  return projectGeographicPoint(lat, lon, cx, cy, r, ry, rx);
 }
 
 export function projFlat(

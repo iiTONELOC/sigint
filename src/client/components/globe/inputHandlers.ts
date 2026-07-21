@@ -1,752 +1,270 @@
-import { getInterpolatedPosition, type TrailPoint } from "@/lib/geo/trailService";
-import { matchesAircraftFilter } from "@/features/tracking/aircraft";
-import type { DataPoint } from "@/features/base/dataPoints";
-import type {
-  CamState,
-  CamTarget,
-  DragState,
-  GlobeVisualizationProps,
-  TrailHitTarget,
-} from "./types";
-import {
-  getFlatMetrics,
-  clampFlatPan,
-  projGlobe,
-  projFlat,
-} from "./projection";
-import {
-  queryNearest,
-  screenToLatLonGlobe,
-  screenToLatLonFlat,
-} from "@/lib/geo/spatialIndex";
-import { pointInPolygon } from "@/lib/geo/pointInPolygon";
-import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
-import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
+import type { RenderInputPayload } from "@/workers/render/protocol";
+import { CAMERA_POLICY } from "@/workers/render/policy";
 
-export type InputRefs = {
+export type InputRefs = Readonly<{
   canvas: HTMLCanvasElement;
-  camRef: { current: CamState };
-  camTargetRef: { current: CamTarget };
-  dragRef: { current: DragState };
-  sizeRef: { current: { w: number; h: number } };
-  propsRef: {
-    current: Readonly<GlobeVisualizationProps> & {
-      onSelect: (item: DataPoint | null) => void;
-    };
+  sendInput: (payload: RenderInputPayload) => void;
+  onMiddleClick: () => void;
+}>;
+
+export type InputHandlers = Readonly<{
+  onDown: (event: MouseEvent | TouchEvent) => void;
+  onMove: (event: MouseEvent | TouchEvent) => void;
+  onUp: (event: MouseEvent | TouchEvent) => void;
+  onHover: (event: MouseEvent) => void;
+  onWheel: (event: WheelEvent) => void;
+  onTouchMove: (event: TouchEvent) => void;
+  onContextMenu: (event: MouseEvent) => void;
+  onKeyDown: (event: KeyboardEvent) => void;
+  dispose: () => void;
+}>;
+
+type PointerPayload = Extract<
+  RenderInputPayload,
+  { kind: "pointer" }
+>;
+
+type ClientPoint = Readonly<{
+  clientX: number;
+  clientY: number;
+}>;
+
+const CAMERA_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Equal",
+  "NumpadAdd",
+  "Minus",
+  "NumpadSubtract",
+]);
+
+function firstTouch(event: TouchEvent): Touch | null {
+  return event.touches.item(0);
+}
+
+function touchPair(
+  event: TouchEvent,
+): readonly [Touch, Touch] | null {
+  const first = event.touches.item(0);
+  const second = event.touches.item(1);
+  return first && second ? [first, second] : null;
+}
+
+function relativePoint(
+  canvas: HTMLCanvasElement,
+  point: ClientPoint,
+): Readonly<{ x: number; y: number }> {
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    x: point.clientX - bounds.left,
+    y: point.clientY - bounds.top,
   };
-  setTrailTooltip: (point: TrailPoint | null) => void;
-};
+}
 
-export type InputHandlers = {
-  onDown: (e: MouseEvent | TouchEvent) => void;
-  onMove: (e: MouseEvent | TouchEvent) => void;
-  onUp: () => void;
-  onHover: (e: MouseEvent) => void;
-  onWheel: (e: WheelEvent) => void;
-  onTouchMove: (e: TouchEvent) => void;
-  onContextMenu: () => void;
-  onKeyDown: (e: KeyboardEvent) => void;
-};
-
-// Distance from point (px,py) to segment (ax,ay)-(bx,by).
-function segDist(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return Math.hypot(px - ax, py - ay);
-  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+function pinchPayload(
+  canvas: HTMLCanvasElement,
+  event: TouchEvent,
+  phase: "start" | "move",
+): Extract<RenderInputPayload, { kind: "pinch" }> | null {
+  const pair = touchPair(event);
+  if (!pair) return null;
+  const [first, second] = pair;
+  const center = relativePoint(canvas, {
+    clientX: (first.clientX + second.clientX) / 2,
+    clientY: (first.clientY + second.clientY) / 2,
+  });
+  return {
+    kind: "pinch",
+    phase,
+    centerX: center.x,
+    centerY: center.y,
+    distance: Math.hypot(
+      second.clientX - first.clientX,
+      second.clientY - first.clientY,
+    ),
+  };
 }
 
 export function createInputHandlers(refs: InputRefs): InputHandlers {
-  const {
-    canvas,
-    camRef,
-    camTargetRef,
-    dragRef,
-    sizeRef,
-    propsRef,
-    setTrailTooltip,
-  } = refs;
-  const cam = camRef.current;
-  const drag = dragRef.current;
-
-  // Store the actual DataPoint on first click — propsRef.current.selected
-  // is a React state value that may not have updated by the second click.
-  let lastClickItem: DataPoint | null = null;
-
-  // Track touch events to suppress synthesized mouse events on mobile.
-  // After a touchstart/touchend, the browser fires fake mousedown/mouseup
-  // ~300ms later. These cause false double-clicks on the first tap.
+  const { canvas, sendInput, onMiddleClick } = refs;
+  let active = false;
+  let pinching = false;
   let lastTouchTime = 0;
+  let lastPoint = { x: 0, y: 0 };
+  let pendingPointer: PointerPayload | null = null;
+  let pointerFrame = 0;
 
-  // ── Spatial grid candidate lookup ──────────────────────────────
-  // Inverse-projects screen coords to lat/lon, queries grid for
-  // nearby points, filters by filteredIds. Returns null if inverse
-  // projection fails (click outside globe) — caller falls back to
-  // original full scan.
+  const flushPointer = (): void => {
+    if (pointerFrame) cancelAnimationFrame(pointerFrame);
+    pointerFrame = 0;
+    const pending = pendingPointer;
+    pendingPointer = null;
+    if (pending) sendInput(pending);
+  };
 
-  function getCandidates(mx: number, my: number): DataPoint[] | null {
-    const { w: W, h: H } = sizeRef.current;
-    const {
-      flat: isFlat,
-      spatialGrid: grid,
-      filteredIds: fids,
-    } = propsRef.current;
-    if (!grid || grid.size === 0) return null;
+  const queuePointer = (payload: PointerPayload): void => {
+    pendingPointer = payload;
+    if (pointerFrame) return;
+    pointerFrame = requestAnimationFrame(flushPointer);
+  };
 
-    let latLon: { lat: number; lon: number } | null = null;
-    if (isFlat) {
-      const fm = getFlatMetrics(
-        W,
-        H,
-        camRef.current.zoomFlat,
-        camRef.current.panX,
-        camRef.current.panY,
-      );
-      latLon = screenToLatLonFlat(mx, my, fm.cx, fm.cy, fm.mW, fm.mH);
-    } else {
-      const r = Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
-      latLon = screenToLatLonGlobe(
-        mx,
-        my,
-        W / 2,
-        H / 2,
-        r,
-        camRef.current.rotY,
-        camRef.current.rotX,
-      );
-    }
-    if (!latLon) return null;
-
-    // Search radius in degrees — wider at low zoom, tighter when zoomed in
-    const zoom = isFlat ? camRef.current.zoomFlat : camRef.current.zoomGlobe;
-    const radiusDeg = Math.max(
-      1,
-      Math.min(15, 90 / Math.sqrt(Math.max(1, zoom))),
-    );
-
-    const raw = queryNearest(grid, latLon.lat, latLon.lon, radiusDeg);
-
-    // Filter by pre-computed filteredIds if available
-    if (fids && fids.size > 0) {
-      const out: DataPoint[] = [];
-      for (let i = 0; i < raw.length; i++) {
-        if (fids.has(raw[i]!.id)) out.push(raw[i]!);
-      }
-      return out;
-    }
-    return raw;
-  }
-
-  // ── Inverse projection (screen → lat/lon) ──────────────────────
-  function screenToLatLon(
-    mx: number,
-    my: number,
-  ): { lat: number; lon: number } | null {
-    const { w: W, h: H } = sizeRef.current;
-    if (propsRef.current.flat) {
-      const fm = getFlatMetrics(
-        W,
-        H,
-        camRef.current.zoomFlat,
-        camRef.current.panX,
-        camRef.current.panY,
-      );
-      return screenToLatLonFlat(mx, my, fm.cx, fm.cy, fm.mW, fm.mH);
-    }
-    const r = Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
-    return screenToLatLonGlobe(
-      mx,
-      my,
-      W / 2,
-      H / 2,
-      r,
-      camRef.current.rotY,
-      camRef.current.rotX,
-    );
-  }
-
-  // First watch/warning polygon containing the given screen point, if any.
-  // Warnings are a separate area layer (not DataPoints), so they're hit-tested
-  // here against their geometry rather than via the spatial grid.
-  function findWarningAt(mx: number, my: number): DataPoint | null {
-    const warnings = propsRef.current.cycloneWarnings ?? [];
-    if (warnings.length === 0) return null;
-    const ll = screenToLatLon(mx, my);
-    if (!ll) return null;
-    for (const w of warnings) {
-      if (pointInPolygon(ll.lat, ll.lon, w.geometry)) {
-        return warningToDataPoint(w);
-      }
-    }
-    return null;
-  }
-
-  // Is the screen point on the selected flight's drawn route (line or a
-  // waypoint)? Clicking the route should NOT deselect the flight.
-  function isRouteHit(mx: number, my: number): boolean {
-    const selId = propsRef.current.selected?.id;
-    if (!selId) return false;
-    const route = getSelectedRoute(String(selId));
-    if (!route || route.length < 2) return false;
-
-    const { w: W, h: H } = sizeRef.current;
-    const isFlat = propsRef.current.flat;
-    const fm = getFlatMetrics(
-      W,
-      H,
-      camRef.current.zoomFlat,
-      camRef.current.panX,
-      camRef.current.panY,
-    );
-    const r = Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
-    const project = (lat: number, lon: number) =>
-      isFlat
-        ? projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH)
-        : projGlobe(lat, lon, W / 2, H / 2, r, camRef.current.rotY, camRef.current.rotX);
-
-    const THRESH = 8;
-    let prev: { x: number; y: number } | null = null;
-    for (const [lat, lon] of route) {
-      const p = project(lat, lon);
-      if (p.z <= 0) {
-        prev = null;
-        continue;
-      }
-      if (Math.hypot(p.x - mx, p.y - my) < THRESH) return true;
-      if (prev && segDist(mx, my, prev.x, prev.y, p.x, p.y) < THRESH) return true;
-      prev = { x: p.x, y: p.y };
-    }
-    return false;
-  }
-
-  const onDown = (e: MouseEvent | TouchEvent) => {
-    if ("touches" in e) {
+  const onDown = (event: MouseEvent | TouchEvent): void => {
+    if ("touches" in event) {
       lastTouchTime = Date.now();
-    } else if (Date.now() - lastTouchTime < 1000) {
-      return; // Synthesized mouse event after touch — ignore
-    }
-
-    if ("button" in e && e.button === 1) {
-      e.preventDefault();
-      propsRef.current.onMiddleClick?.();
-      return;
-    }
-    if ("button" in e && e.button !== 0) return;
-
-    if ("touches" in e && e.touches.length === 2) {
-      const t0 = e.touches[0]!,
-        t1 = e.touches[1]!;
-      drag.pinching = true;
-      drag.pinchDist = Math.hypot(
-        t1.clientX - t0.clientX,
-        t1.clientY - t0.clientY,
-      );
-      drag.active = false;
-      return;
-    }
-
-    const p = "touches" in e ? e.touches[0] : e;
-    if (!p) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = p.clientX - rect.left;
-    const my = p.clientY - rect.top;
-    const { w: W, h: H } = sizeRef.current;
-    const isFlat = propsRef.current.flat;
-    let interactive = false;
-    if (isFlat) {
-      const {
-        mW,
-        mH,
-        mx: ox,
-        my: oy,
-      } = getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY);
-      interactive = mx >= ox && mx <= ox + mW && my >= oy && my <= oy + mH;
-    } else {
-      const r = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-      interactive = Math.hypot(mx - W / 2, my - H / 2) <= r;
-    }
-    drag.active = true;
-    drag.interactive = interactive;
-    drag.dist = 0;
-    drag.lx = p.clientX;
-    drag.ly = p.clientY;
-    drag.sx = p.clientX;
-    drag.sy = p.clientY;
-  };
-
-  const onMove = (e: MouseEvent | TouchEvent) => {
-    // Detect pinch even if touchstart didn't catch the second finger
-    if ("touches" in e && e.touches.length === 2) {
-      const t0 = e.touches[0]!,
-        t1 = e.touches[1]!;
-      const newDist = Math.hypot(
-        t1.clientX - t0.clientX,
-        t1.clientY - t0.clientY,
-      );
-
-      if (!drag.pinching) {
-        // Transition from 1-finger pan to 2-finger pinch
-        drag.pinching = true;
-        drag.pinchDist = newDist;
-        drag.active = false;
+      event.preventDefault();
+      const pinch = pinchPayload(canvas, event, "start");
+      if (pinch) {
+        flushPointer();
+        pinching = true;
+        active = false;
+        sendInput(pinch);
         return;
       }
-
-      if (drag.pinchDist > 0) {
-        // Break camera lock — pinch zoom directly modifies cam state,
-        // the lerp would overwrite it every frame if lock is active
-        camTargetRef.current.lockedId = null;
-        camTargetRef.current.active = false;
-
-        const factor = newDist / drag.pinchDist;
-        if (propsRef.current.flat) {
-          const { w: W, h: H } = sizeRef.current;
-          const rect = canvas.getBoundingClientRect();
-          // Midpoint of two fingers, relative to viewport center
-          const mx = (t0.clientX + t1.clientX) / 2 - rect.left - W / 2;
-          const my = (t0.clientY + t1.clientY) / 2 - rect.top - H / 2;
-          const oldZoom = cam.zoomFlat;
-          cam.zoomFlat = Math.max(0.85, Math.min(500.0, oldZoom * factor));
-          const actualFactor = cam.zoomFlat / oldZoom;
-          cam.panX = mx - actualFactor * (mx - cam.panX);
-          cam.panY = my - actualFactor * (my - cam.panY);
-          clampFlatPan(cam, W, H);
-        } else {
-          cam.zoomGlobe = Math.max(
-            0.55,
-            Math.min(350.0, cam.zoomGlobe * factor),
-          );
-        }
-      }
-      drag.pinchDist = newDist;
-      return;
-    }
-
-    if (!drag.active) return;
-    if (!drag.interactive) return;
-    canvas.style.cursor = "grabbing";
-    const p = "touches" in e ? e.touches[0] : e;
-    if (!p) return;
-    const dx = p.clientX - drag.lx,
-      dy = p.clientY - drag.ly;
-    drag.dist += Math.abs(dx) + Math.abs(dy);
-
-    if (drag.dist > 15) {
-      camTargetRef.current.lockedId = null;
-      camTargetRef.current.active = false;
-    }
-
-    if (!propsRef.current.flat) {
-      const zf = cam.zoomGlobe || 1;
-      cam.rotY += (dx * 0.005) / zf;
-      cam.rotX += (dy * 0.005) / zf;
-      cam.rotX = Math.max(-1.2, Math.min(1.2, cam.rotX));
-      cam.vy = (dx * 0.001) / zf;
     } else {
-      const { w: W, h: H } = sizeRef.current;
-      cam.panX += dx;
-      cam.panY += dy;
-      clampFlatPan(cam, W, H);
-    }
-    drag.lx = p.clientX;
-    drag.ly = p.clientY;
-  };
-
-  const onUp = () => {
-    if (drag.pinching) {
-      drag.pinching = false;
-      drag.pinchDist = 0;
-      return;
-    }
-    if (!drag.active) return;
-    if (drag.dist < 15) {
-      canvas.style.cursor = "default";
-
-      if (!drag.interactive) {
-        propsRef.current.onRawCanvasClick?.();
-        drag.active = false;
-        drag.interactive = false;
+      if (
+        Date.now() - lastTouchTime <
+        CAMERA_POLICY.syntheticMouseSuppressionMs
+      ) {
         return;
       }
-
-      const rect = canvas.getBoundingClientRect();
-      const mx = drag.sx - rect.left,
-        my = drag.sy - rect.top;
-      const { w: W, h: H } = sizeRef.current;
-      const cxc = W / 2,
-        cyc = H / 2;
-      const {
-        data: d,
-        layers: ly,
-        aircraftFilter: af,
-        flat: isFlat,
-        onSelect: sel,
-      } = propsRef.current;
-
-      // Check trail waypoints
-      const hitTargets: TrailHitTarget[] =
-        (canvas as any).__trailHitTargets ?? [];
-      let closestTrail: TrailHitTarget | null = null;
-      let ctd = 12;
-      for (const t of hitTargets) {
-        const dd = Math.hypot(t.x - mx, t.y - my);
-        if (dd < ctd) {
-          ctd = dd;
-          closestTrail = t;
-        }
-      }
-
-      // Check data points — spatial grid narrows candidates
-      let closest: DataPoint | null = null;
-      let cd = 14;
-      const candidates = getCandidates(mx, my);
-      const searchSet = candidates ?? d;
-      searchSet.forEach((item) => {
-        // If we got candidates from grid, filteredIds already applied.
-        // If fallback (candidates is null), apply filters manually.
-        if (!candidates) {
-          if (item.type === "aircraft") {
-            if (!matchesAircraftFilter(item, af)) return;
-          } else if (!ly[item.type]) return;
-        }
-
-        let lat = item.lat;
-        let lon = item.lon;
-        if (item.type === "aircraft" || item.type === "ships") {
-          const interp = getInterpolatedPosition(item.id);
-          if (interp) {
-            lat = interp.lat;
-            lon = interp.lon;
-          }
-        }
-
-        const flatMetrics = getFlatMetrics(
-          W,
-          H,
-          camRef.current.zoomFlat,
-          camRef.current.panX,
-          camRef.current.panY,
-        );
-        const p = isFlat
-          ? projFlat(
-              lat,
-              lon,
-              flatMetrics.cx,
-              flatMetrics.cy,
-              flatMetrics.mW,
-              flatMetrics.mH,
-            )
-          : projGlobe(
-              lat,
-              lon,
-              cxc,
-              cyc,
-              Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
-              camRef.current.rotY,
-              camRef.current.rotX,
-            );
-        if (p.z <= 0) return;
-        const dd = Math.hypot(p.x - mx, p.y - my);
-        if (dd < cd) {
-          cd = dd;
-          closest = item;
-        }
-      });
-
-      // ── Click / double-click detection ────────────────────────────
-      const now = Date.now();
-      const timeSinceLast = now - drag.lastClickTime;
-      const isDoubleClick = timeSinceLast < 800 && lastClickItem !== null;
-
-      if (isDoubleClick) {
-        // Double-click: zoom to max on the item from the first click
-        setTrailTooltip(null);
-        const target = lastClickItem!;
-        const camTarget = camTargetRef.current;
-        const interp = getInterpolatedPosition(target.id);
-        const tLat = interp ? interp.lat : target.lat;
-        const tLon = interp ? interp.lon : target.lon;
-
-        if (isFlat) {
-          // Progressive zoom: 8x current, min 80, max 500.
-          // Double-click again to zoom deeper.
-          const curZoom = camRef.current.zoomFlat;
-          const targetZoom = Math.min(500, Math.max(curZoom * 8, 80));
-          const { w: fw, h: fh } = sizeRef.current;
-          const mW = fw * 0.92 * targetZoom;
-          const mH = fh * 0.84 * targetZoom;
-          camTarget.panX = -(tLon / 180) * (mW / 2);
-          camTarget.panY = (tLat / 90) * (mH / 2);
-          camTarget.zoom = targetZoom;
-        } else {
-          const phi = ((90 - tLat) * Math.PI) / 180;
-          const theta = ((tLon + 180) * Math.PI) / 180;
-          camTarget.rotY = Math.PI / 2 - theta;
-          camTarget.rotX = -(phi - Math.PI / 2);
-          camTarget.zoom = 350;
-          // Snap rotation — only zoom lerps
-          camRef.current.rotY = camTarget.rotY;
-          camRef.current.rotX = camTarget.rotX;
-          camRef.current.vy = 0;
-        }
-        camTarget.active = true;
-        camTarget.lockedId = target.id;
-
-        // Reset
-        drag.lastClickTime = 0;
-        drag.lastClickId = null;
-        lastClickItem = null;
-      } else if (closest && !closestTrail) {
-        // Single click on data point
-        const hit: DataPoint = closest;
-        setTrailTooltip(null);
-        sel(hit);
-
-        // Lock camera at current zoom
-        const ct = camTargetRef.current;
-        // @ts-expect-error ct.lockedId stored as string; DataPoint.id is a union
-        ct.lockedId = hit.id;
-        ct.zoom = propsRef.current.flat
-          ? camRef.current.zoomFlat
-          : camRef.current.zoomGlobe;
-        ct.active = true;
-
-        // Store for double-click — the actual DataPoint, not React state
-        drag.lastClickTime = now;
-        // @ts-expect-error drag.lastClickId stored as string; DataPoint.id is a union
-        drag.lastClickId = hit.id;
-        lastClickItem = hit;
-      } else if (closestTrail) {
-        setTrailTooltip(closestTrail.point);
-        drag.lastClickTime = 0;
-        drag.lastClickId = null;
-        lastClickItem = null;
-      } else {
-        // No point/trail hit. Try a watch/warning polygon (a separate area
-        // layer); otherwise deselect — UNLESS the click landed on the selected
-        // flight's route, which should keep the flight selected.
-        setTrailTooltip(null);
-        const warning = findWarningAt(mx, my);
-        if (warning) {
-          sel(warning);
-        } else if (!isRouteHit(mx, my)) {
-          sel(null);
-        }
-        drag.lastClickTime = 0;
-        drag.lastClickId = null;
-        lastClickItem = null;
-      }
-    }
-    drag.active = false;
-    drag.interactive = false;
-    canvas.style.cursor = "default";
-  };
-
-  const onHover = (e: MouseEvent) => {
-    if (drag.active) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const { w: W, h: H } = sizeRef.current;
-    const isFlat = propsRef.current.flat;
-    let insideGlobe = false;
-    if (isFlat) {
-      const {
-        mW,
-        mH,
-        mx: ox,
-        my: oy,
-      } = getFlatMetrics(
-        W,
-        H,
-        camRef.current.zoomFlat,
-        camRef.current.panX,
-        camRef.current.panY,
-      );
-      insideGlobe = mx >= ox && mx <= ox + mW && my >= oy && my <= oy + mH;
-    } else {
-      insideGlobe =
-        Math.hypot(mx - W / 2, my - H / 2) <=
-        Math.min(W, H) * 0.4 * camRef.current.zoomGlobe;
-    }
-    if (!insideGlobe) {
-      canvas.style.cursor = "default";
-      return;
-    }
-
-    // Check trail waypoints first
-    const trailTargets: Array<{ x: number; y: number }> =
-      (canvas as any).__trailHitTargets ?? [];
-    for (const t of trailTargets) {
-      if (Math.hypot(t.x - mx, t.y - my) < 12) {
-        canvas.style.cursor = "pointer";
+      if (event.button === 1) {
+        event.preventDefault();
+        onMiddleClick();
         return;
       }
+      if (event.button !== 0) return;
     }
 
-    const { data: d, layers: ly, aircraftFilter: af } = propsRef.current;
-    const hoverCandidates = getCandidates(mx, my);
-    const hoverSet = hoverCandidates ?? d;
-    let hit = false;
-    hoverSet.forEach((item) => {
-      if (hit) return;
-      if (!hoverCandidates) {
-        if (item.type === "aircraft") {
-          if (!matchesAircraftFilter(item, af)) return;
-        } else if (!ly[item.type]) return;
-      }
-
-      let lat = item.lat;
-      let lon = item.lon;
-      if (item.type === "aircraft" || item.type === "ships") {
-        const interp = getInterpolatedPosition(item.id);
-        if (interp) {
-          lat = interp.lat;
-          lon = interp.lon;
-        }
-      }
-
-      const flatMetrics = getFlatMetrics(
-        W,
-        H,
-        camRef.current.zoomFlat,
-        camRef.current.panX,
-        camRef.current.panY,
-      );
-      const p = isFlat
-        ? projFlat(
-            lat,
-            lon,
-            flatMetrics.cx,
-            flatMetrics.cy,
-            flatMetrics.mW,
-            flatMetrics.mH,
-          )
-        : projGlobe(
-            lat,
-            lon,
-            W / 2,
-            H / 2,
-            Math.min(W, H) * 0.4 * camRef.current.zoomGlobe,
-            camRef.current.rotY,
-            camRef.current.rotX,
-          );
-      if (p.z <= 0) return;
-      if (Math.hypot(p.x - mx, p.y - my) < 14) hit = true;
+    const point =
+      "touches" in event ? firstTouch(event) : event;
+    if (!point) return;
+    const relative = relativePoint(canvas, point);
+    lastPoint = relative;
+    active = true;
+    flushPointer();
+    sendInput({
+      kind: "pointer",
+      phase: "start",
+      x: relative.x,
+      y: relative.y,
     });
-    canvas.style.cursor = hit || findWarningAt(mx, my) ? "pointer" : "grab";
   };
 
-  const onWheel = (e: WheelEvent) => {
-    e.preventDefault();
-    const camState = camRef.current;
-    const camTarget = camTargetRef.current;
-    const factor = Math.exp(-e.deltaY * 0.0015);
-
-    if (camTarget.lockedId) {
-      if (propsRef.current.flat) {
-        camTarget.zoom = Math.max(
-          0.85,
-          Math.min(500.0, camTarget.zoom * factor),
-        );
-      } else {
-        camTarget.zoom = Math.max(
-          0.55,
-          Math.min(350.0, camTarget.zoom * factor),
-        );
+  const onMove = (event: MouseEvent | TouchEvent): void => {
+    if ("touches" in event) {
+      const pinch = pinchPayload(canvas, event, "move");
+      if (pinch) {
+        if (!pinching) {
+          pinching = true;
+          active = false;
+          sendInput({ ...pinch, phase: "start" });
+        } else {
+          sendInput(pinch);
+        }
+        return;
       }
-      camTarget.active = true;
-    } else if (propsRef.current.flat) {
-      camTarget.active = false;
-      const { w: W, h: H } = sizeRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left - W / 2;
-      const my = e.clientY - rect.top - H / 2;
-      const oldZoom = camState.zoomFlat;
-      camState.zoomFlat = Math.max(0.85, Math.min(500.0, oldZoom * factor));
-      const actualFactor = camState.zoomFlat / oldZoom;
-      camState.panX = mx - actualFactor * (mx - camState.panX);
-      camState.panY = my - actualFactor * (my - camState.panY);
-      clampFlatPan(camState, W, H);
-    } else {
-      camTarget.active = false;
-      camState.zoomGlobe = Math.max(
-        0.55,
-        Math.min(350.0, camState.zoomGlobe * factor),
-      );
     }
+    if (!active) return;
+    const point =
+      "touches" in event ? firstTouch(event) : event;
+    if (!point) return;
+    const relative = relativePoint(canvas, point);
+    lastPoint = relative;
+    queuePointer({
+      kind: "pointer",
+      phase: "move",
+      x: relative.x,
+      y: relative.y,
+    });
   };
 
-  const onTouchMove = (e: TouchEvent) => {
-    if (e.touches.length >= 2 || drag.active) e.preventDefault();
-    (onMove as (e: TouchEvent) => void)(e);
-  };
-
-  const onContextMenu = () => {
-    drag.active = false;
-    drag.interactive = false;
-    canvas.style.cursor = "default";
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-    const cam = camRef.current;
-    switch (e.code) {
-      case "Space":
-        e.preventDefault();
-        propsRef.current.onMiddleClick?.();
-        break;
-      case "ArrowLeft":
-        e.preventDefault();
-        cam.rotY -= 0.05;
-        break;
-      case "ArrowRight":
-        e.preventDefault();
-        cam.rotY += 0.05;
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        cam.rotX = Math.max(-1.2, cam.rotX - 0.05);
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        cam.rotX = Math.min(1.2, cam.rotX + 0.05);
-        break;
-      case "Equal":
-      case "NumpadAdd":
-        e.preventDefault();
-        if (propsRef.current.flat) {
-          cam.zoomFlat = Math.min(500.0, cam.zoomFlat * 1.1);
-          const { w: W, h: H } = sizeRef.current;
-          clampFlatPan(cam, W, H);
-        } else {
-          cam.zoomGlobe = Math.min(350.0, cam.zoomGlobe * 1.1);
-        }
-        break;
-      case "Minus":
-      case "NumpadSubtract":
-        e.preventDefault();
-        if (propsRef.current.flat) {
-          cam.zoomFlat = Math.max(0.85, cam.zoomFlat / 1.1);
-          const { w: W, h: H } = sizeRef.current;
-          clampFlatPan(cam, W, H);
-        } else {
-          cam.zoomGlobe = Math.max(0.55, cam.zoomGlobe / 1.1);
-        }
-        break;
+  const onUp = (): void => {
+    flushPointer();
+    if (pinching) {
+      pinching = false;
+      sendInput({
+        kind: "pinch",
+        phase: "end",
+        centerX: lastPoint.x,
+        centerY: lastPoint.y,
+        distance: 0,
+      });
+      return;
     }
+    if (!active) return;
+    active = false;
+    sendInput({
+      kind: "pointer",
+      phase: "end",
+      x: lastPoint.x,
+      y: lastPoint.y,
+    });
+  };
+
+  const onHover = (event: MouseEvent): void => {
+    if (active || pinching) return;
+    const relative = relativePoint(canvas, event);
+    queuePointer({
+      kind: "pointer",
+      phase: "hover",
+      x: relative.x,
+      y: relative.y,
+    });
+  };
+
+  const onWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    const relative = relativePoint(canvas, event);
+    sendInput({
+      kind: "wheel",
+      x: relative.x,
+      y: relative.y,
+      deltaY: event.deltaY,
+    });
+  };
+
+  const onTouchMove = (event: TouchEvent): void => {
+    if (event.touches.length >= 2 || active) {
+      event.preventDefault();
+    }
+    onMove(event);
+  };
+
+  const onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+    active = false;
+    pinching = false;
+    flushPointer();
+    sendInput({
+      kind: "pointer",
+      phase: "cancel",
+      x: lastPoint.x,
+      y: lastPoint.y,
+    });
+  };
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT"
+      ) {
+        return;
+      }
+    }
+    if (event.code === "Space") {
+      event.preventDefault();
+      onMiddleClick();
+      return;
+    }
+    if (!CAMERA_KEYS.has(event.code)) return;
+    event.preventDefault();
+    sendInput({ kind: "key", code: event.code });
   };
 
   return {
@@ -758,13 +276,14 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     onTouchMove,
     onContextMenu,
     onKeyDown,
+    dispose: flushPointer,
   };
 }
 
 export function attachInputHandlers(
   canvas: HTMLCanvasElement,
   handlers: InputHandlers,
-) {
+): void {
   canvas.addEventListener("mousedown", handlers.onDown);
   window.addEventListener("mousemove", handlers.onMove);
   window.addEventListener("mouseup", handlers.onUp);
@@ -782,7 +301,8 @@ export function attachInputHandlers(
 export function detachInputHandlers(
   canvas: HTMLCanvasElement,
   handlers: InputHandlers,
-) {
+): void {
+  handlers.dispose();
   canvas.removeEventListener("mousedown", handlers.onDown);
   window.removeEventListener("mousemove", handlers.onMove);
   window.removeEventListener("mouseup", handlers.onUp);

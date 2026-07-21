@@ -2,7 +2,6 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
-import type { TrailPoint } from "@/lib/geo/trailService";
 import type { SpatialGrid } from "@/lib/geo/spatialIndex";
 
 export type Projected = {
@@ -94,10 +93,4 @@ export type GlobeVisualizationProps = {
   readonly filteredIds: Set<string>;
   /** Tropical watch/warning area polygons (NWS Alerts GeoJSON). */
   readonly cycloneWarnings?: CycloneWarning[];
-};
-
-export type TrailHitTarget = {
-  x: number;
-  y: number;
-  point: TrailPoint;
 };

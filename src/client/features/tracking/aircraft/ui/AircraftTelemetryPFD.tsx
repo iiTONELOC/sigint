@@ -78,7 +78,8 @@ export function AircraftTelemetryPFD({
   const oatText = oatVal != null ? `${oat == null ? "~" : ""}${Math.round(oatVal)}°C` : null;
   const qnhText = navQnh != null ? `${Math.round(navQnh)} hPa` : null;
 
-  const stats: { label: string; value: string }[] = [];
+  type TelemetryStat = { label: string; value: string };
+  const stats: TelemetryStat[] = [];
   if (wind) stats.push({ label: "WIND", value: wind });
   if (windCompText) stats.push({ label: "W-COMP", value: windCompText });
   if (driftText) stats.push({ label: "DRIFT", value: driftText });
@@ -87,9 +88,12 @@ export function AircraftTelemetryPFD({
   if (tatText) stats.push({ label: "TAT", value: tatText });
   if (qnhText) stats.push({ label: "QNH", value: qnhText });
   if (modes) stats.push({ label: "AUTOPILOT", value: modes });
-  const statRows = Array.from({ length: Math.ceil(stats.length / 2) }, (_, i) =>
-    stats.slice(i * 2, i * 2 + 2),
-  );
+  const statRows: Array<readonly [TelemetryStat, TelemetryStat?]> = [];
+  for (let index = 0; index < stats.length; index += 2) {
+    const first = stats[index];
+    if (!first) continue;
+    statRows.push([first, stats[index + 1]]);
+  }
 
   return (
     <div className="flex flex-col gap-2">

@@ -66,6 +66,8 @@ describe("cycloneFeature.matchesFilter", () => {
       minCategory: 0,
       showForecast: true,
       showCone: true,
+      showWindField: false,
+      showModels: false,
       showWarnings: true,
     };
     expect(cycloneFeature.matchesFilter(makeStorm(5), filter)).toBe(false);
@@ -78,6 +80,8 @@ describe("cycloneFeature.matchesFilter", () => {
       minCategory: 0,
       showForecast: true,
       showCone: true,
+      showWindField: false,
+      showModels: false,
       showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4, 5] as const) {
@@ -91,6 +95,8 @@ describe("cycloneFeature.matchesFilter", () => {
       minCategory: 1,
       showForecast: true,
       showCone: true,
+      showWindField: false,
+      showModels: false,
       showWarnings: true,
     };
     expect(cycloneFeature.matchesFilter(makeStorm(0), filter)).toBe(false);
@@ -104,6 +110,8 @@ describe("cycloneFeature.matchesFilter", () => {
       minCategory: 3,
       showForecast: true,
       showCone: true,
+      showWindField: false,
+      showModels: false,
       showWarnings: true,
     };
     expect(cycloneFeature.matchesFilter(makeStorm(0), filter)).toBe(false);
@@ -120,6 +128,8 @@ describe("cycloneFeature.matchesFilter", () => {
       minCategory: 5,
       showForecast: true,
       showCone: true,
+      showWindField: false,
+      showModels: false,
       showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4] as const) {

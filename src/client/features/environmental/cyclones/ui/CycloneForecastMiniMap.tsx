@@ -203,15 +203,19 @@ export function CycloneForecastMiniMap({
         ctx.lineWidth = 1.5;
         strokeLine([...pastTrack, { lat: current.lat, lon: current.lon }], []);
         ctx.globalAlpha = 1;
-        const g = pastTrack[0];
-        const gp = proj(g.lat, g.lon);
-        if (gp.z > 0) {
-          ctx.strokeStyle = accent;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(gp.x - 3, gp.y - 3); ctx.lineTo(gp.x + 3, gp.y + 3);
-          ctx.moveTo(gp.x - 3, gp.y + 3); ctx.lineTo(gp.x + 3, gp.y - 3);
-          ctx.stroke();
+        const genesis = pastTrack.at(0);
+        if (genesis) {
+          const genesisPoint = proj(genesis.lat, genesis.lon);
+          if (genesisPoint.z > 0) {
+            ctx.strokeStyle = accent;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(genesisPoint.x - 3, genesisPoint.y - 3);
+            ctx.lineTo(genesisPoint.x + 3, genesisPoint.y + 3);
+            ctx.moveTo(genesisPoint.x - 3, genesisPoint.y + 3);
+            ctx.lineTo(genesisPoint.x + 3, genesisPoint.y - 3);
+            ctx.stroke();
+          }
         }
       }
 

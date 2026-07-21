@@ -9,6 +9,12 @@
 
 import type { Ctx, Projected, ProjFn } from "@/features/environmental/cyclones/render/cycloneGeometry";
 
+import {
+  geometryPolygons,
+  parseGeoJsonPolygonGeometry,
+  type GeoRing,
+} from "@shared/geo";
+import type { RenderAreaFeature } from "./protocol";
 export type PolyPrims = {
   simpleDraw: (ctx: Ctx, pts: Projected[], fill: string, stroke: string, alpha: number) => void;
   drawClippedPoly: (
@@ -35,14 +41,10 @@ type WarningCtx = {
   prims: PolyPrims;
 };
 
-export type WarningFeature = {
-  id?: string;
-  kind?: string;
-  geometry?: { type?: string; coordinates?: unknown };
-};
+export type WarningFeature = RenderAreaFeature;
 
 /** Walk one GeoJSON ring ([[lon,lat],…]) into projected screen points. */
-function projectRing(ring: ReadonlyArray<ReadonlyArray<number>>, proj: ProjFn): Projected[] {
+function projectRing(ring: GeoRing, proj: ProjFn): Projected[] {
   const out: Projected[] = [];
   for (const c of ring) {
     const [lon, lat] = c;
@@ -64,18 +66,14 @@ function drawRing(rc: WarningCtx, pts: Projected[], fill: string, alpha: number)
 }
 
 /** Outer rings of a Polygon / each MultiPolygon (holes skipped — rare here). */
-function outerRings(geometry: WarningFeature["geometry"]): number[][][] {
-  if (!geometry || typeof geometry !== "object" || !geometry.coordinates) return [];
-  if (geometry.type === "Polygon") {
-    const ring = (geometry.coordinates as number[][][])[0];
-    return ring ? [ring] : [];
+function outerRings(geometry: unknown): GeoRing[] {
+  const parsed = parseGeoJsonPolygonGeometry(geometry);
+  if (!parsed) return [];
+  const rings: GeoRing[] = [];
+  for (const polygon of geometryPolygons(parsed)) {
+    if (polygon[0]) rings.push(polygon[0]);
   }
-  if (geometry.type === "MultiPolygon") {
-    return (geometry.coordinates as number[][][][])
-      .map((poly) => poly[0])
-      .filter((ring): ring is number[][] => Boolean(ring));
-  }
-  return [];
+  return rings;
 }
 
 /** Alpha for a feature — warnings read stronger than watches; the selected
