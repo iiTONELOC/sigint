@@ -2,12 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { mmiInk } from "../intensity";
 import { useWaveform } from "../hooks/useWaveform";
+import type { WaveformUnavailableReason } from "../data/waveform";
 import { playQuakeAudio } from "../lib/audify";
 
 const VBW = 320;
 const VBH = 92;
 const MID = VBH / 2;
 const PAD = 8;
+
+const UNAVAILABLE_LABEL: Readonly<Record<WaveformUnavailableReason, string>> = {
+  "invalid-event-time": "event time unavailable",
+  "station-service-unavailable": "station service unavailable",
+  "availability-service-unavailable": "station availability unavailable",
+  "no-active-station": "no station found near event",
+  "no-recorded-trace": "station trace unavailable for event time",
+};
 
 function tracePath(samples: number[]): string {
   let min = Infinity;
@@ -86,10 +95,10 @@ export function Seismogram({
       </div>
     );
   }
-  if (state.status === "empty") {
+  if (state.status === "unavailable") {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
-        no nearby station trace
+        {UNAVAILABLE_LABEL[state.reason]}
       </div>
     );
   }
@@ -119,7 +128,7 @@ export function Seismogram({
           {playing ? "STOP" : "LISTEN"}
         </button>
         <span>
-          {waveform.network}·{waveform.station} {waveform.channel} · {waveform.sampleRate} sps · IRIS
+          {waveform.network}·{waveform.station} {waveform.channel} · {waveform.sampleRate} sps · EarthScope
         </span>
       </div>
     </div>

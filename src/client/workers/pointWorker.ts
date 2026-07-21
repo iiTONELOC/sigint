@@ -41,8 +41,11 @@ import {
 } from "./render/protocol";
 
 import {
+  EARTHQUAKE_POSITION_COMPONENTS,
+  EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
   acceptRenderDataCommand,
   parseRenderDataCommand,
+  type PackedEarthquakeRenderData,
   type RenderDataProtocolState,
 } from "./render/dataChannel";
 
@@ -753,12 +756,12 @@ const _cameraTarget = createWorkerCameraTarget();
 const _pointer = createWorkerPointerState();
 let _lastFrameAt = performance.now();
 let _hasAnimatedPoints = false;
-let _projectedPoints: ProjPoint[] = [];
 let _hitGrid = new Map<string, ProjPoint[]>();
 let _trailHitTargets: TrailHitTarget[] = [];
 let _activeTrailPoint: TrailHitTarget["point"] | null = null;
 let _lastClickTime = 0;
 let _lastClickId: string | null = null;
+let _lastClickPosition: CameraPosition | null = null;
 let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
   kind: "cursor",
   cursor: "default",
@@ -767,6 +770,22 @@ let _lastSelectedSide: "left" | "right" = "right";
 let _lastCameraSummary: RenderCamera | null = null;
 let _lastCameraSummaryAt = 0;
 let _frameScheduled = false;
+
+type EarthquakeRenderState = PackedEarthquakeRenderData & {
+  projected: Float32Array;
+  hitHeads: Int32Array;
+  hitNext: Int32Array;
+  hitColumns: number;
+  hitRows: number;
+};
+
+const EARTHQUAKE_CULL_MARGIN_PX = 24;
+const EARTHQUAKE_PULSE_THRESHOLD = 3;
+let _earthquakes: EarthquakeRenderState | null = null;
+let _hasAnimatedEarthquakes = false;
+let _hasSelectedProjection = false;
+let _selectedProjectionX = 0;
+let _selectedProjectionDepth = -1;
 
 // Tropical watch/warning polygons + their fill colours, set by the "warnings"
 // message and drawn each frame under the showWarnings toggle.
@@ -806,13 +825,18 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
   port.onmessage = (event: MessageEvent<unknown>) => {
     const command = parseRenderDataCommand(event.data);
     if (!command || !acceptRenderDataCommand(state, command)) return;
-    const ready: RenderWorkerEvent = {
-      type: "dataChannelReady",
-      protocolVersion: RENDER_PROTOCOL_VERSION,
-      sessionId,
-      sequence: protocolState.sequence,
-    };
-    globalThis.postMessage(ready);
+    if (command.type === "bind") {
+      const ready: RenderWorkerEvent = {
+        type: "dataChannelReady",
+        protocolVersion: RENDER_PROTOCOL_VERSION,
+        sessionId,
+        sequence: protocolState.sequence,
+      };
+      globalThis.postMessage(ready);
+      return;
+    }
+    handleEarthquakeRebase(command);
+    scheduleRender();
   };
   port.start();
 }
@@ -910,7 +934,6 @@ function handleTrails(msg: Extract<RenderWorkerCommand, { type: "trails" }>): vo
 }
 function pointHasTimeAnimation(item: RenderPoint): boolean {
   if (item.type === "cyclones") return true;
-  if (item.type === "quakes") return (item.data.magnitude ?? 0) > 3;
   if (item.type === "events") return (item.data.severity ?? 1) >= 3;
   if (item.type === "fires") return (item.data.frp ?? 0) > 15;
   if (item.type === "weather") {
@@ -919,6 +942,46 @@ function pointHasTimeAnimation(item: RenderPoint): boolean {
   return false;
 }
 
+
+function rebuildGenericData(): void {
+  const nextData: RenderPoint[] = [];
+  if (_dataBySource) {
+    for (const bucket of Object.values(_dataBySource)) {
+      if (!bucket) continue;
+      for (const item of bucket) nextData.push(item);
+    }
+  }
+  _data = nextData;
+  _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
+  if (_revealCount > nextData.length) _revealCount = nextData.length;
+  if (_revealCount === 0 && nextData.length > 0) {
+    _revealCount = Math.min(REVEAL_CHUNK, nextData.length);
+  }
+}
+
+function handleEarthquakeRebase(
+  packed: PackedEarthquakeRenderData,
+): void {
+  const count = packed.ids.length;
+  _earthquakes = {
+    ...packed,
+    projected: new Float32Array(
+      count * EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
+    ),
+    hitHeads: new Int32Array(0),
+    hitNext: new Int32Array(count),
+    hitColumns: 0,
+    hitRows: 0,
+  };
+  _hasAnimatedEarthquakes = packed.magnitudes.some(
+    (magnitude) => magnitude > EARTHQUAKE_PULSE_THRESHOLD,
+  );
+  if (_dataBySource) {
+    _dataBySource.quakes = null;
+    if (_pendingBuckets) _pendingBuckets.quakes = null;
+  }
+  rebuildGenericData();
+}
 
 function handleData(
   payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"],
@@ -929,22 +992,14 @@ function handleData(
   const source = payload.source;
   if (payload.reset) _pendingBuckets[source] = [];
   const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
-  for (const item of payload.data) pending.push(item);
+  for (const item of payload.data) {
+    if (item.type !== "quakes") pending.push(item);
+  }
   if (!payload.done) return false;
 
   _dataBySource[source] = pending;
   _pendingBuckets[source] = null;
-  const nextData: RenderPoint[] = [];
-  for (const bucket of Object.values(_dataBySource)) {
-    if (!bucket) continue;
-    for (const item of bucket) nextData.push(item);
-  }
-  _data = nextData;
-  _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
-  if (_revealCount > nextData.length) _revealCount = nextData.length;
-  if (_revealCount === 0 && nextData.length > 0) {
-    _revealCount = Math.min(REVEAL_CHUNK, nextData.length);
-  }
+  rebuildGenericData();
   return true;
 }
 function selectedCameraPosition(): CameraPosition | null {
@@ -1276,24 +1331,258 @@ function hitCandidates(x: number, y: number): ProjPoint[] {
   return candidates;
 }
 
-function nearestPoint(
+type PointHit = CameraPosition & Readonly<{ distance: number }>;
+
+type EarthquakeProjectionFrame = Readonly<{
+  width: number;
+  height: number;
+  flatMetrics: ReturnType<typeof getFlatMetrics> | null;
+  globeMatrix: GlobeRotationMatrix;
+  centerX: number;
+  centerY: number;
+  globeRadius: number;
+  filters: FilterCfg;
+  selectedId: string | null;
+}>;
+
+function prepareEarthquakeHitGrid(
+  state: EarthquakeRenderState,
+  width: number,
+  height: number,
+): void {
+  const columns = Math.max(
+    1,
+    Math.ceil(width / CAMERA_POLICY.hitCellSizePx),
+  );
+  const rows = Math.max(
+    1,
+    Math.ceil(height / CAMERA_POLICY.hitCellSizePx),
+  );
+  const cellCount = columns * rows;
+  if (state.hitHeads.length !== cellCount) {
+    state.hitHeads = new Int32Array(cellCount);
+  }
+  state.hitHeads.fill(-1);
+  state.hitNext.fill(-1);
+  state.hitColumns = columns;
+  state.hitRows = rows;
+}
+
+function projectEarthquakes(
+  state: EarthquakeRenderState,
+  frame: EarthquakeProjectionFrame,
+): void {
+  prepareEarthquakeHitGrid(state, frame.width, frame.height);
+  const visible =
+    frame.filters.layers.quakes !== false &&
+    !(
+      frame.filters.isoMode === "focus" &&
+      frame.filters.isolatedType &&
+      frame.filters.isolatedType !== "quakes"
+    );
+  const count = state.ids.length;
+  for (let index = 0; index < count; index++) {
+    const projectedOffset =
+      index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+    state.projected[projectedOffset + 2] = -1;
+    if (!visible) continue;
+    const id = state.ids[index];
+    if (id === undefined) continue;
+    if (
+      frame.filters.searchSet &&
+      !frame.filters.searchSet.has(id)
+    ) {
+      continue;
+    }
+    if (
+      frame.filters.isoMode === "solo" &&
+      id !== frame.filters.isoId
+    ) {
+      continue;
+    }
+
+    let projectedX: number;
+    let projectedY: number;
+    let depth: number;
+    if (frame.flatMetrics) {
+      const positionOffset =
+        index * EARTHQUAKE_POSITION_COMPONENTS;
+      const longitude = state.positions[positionOffset];
+      const latitude = state.positions[positionOffset + 1];
+      if (longitude === undefined || latitude === undefined) continue;
+      projectedX =
+        frame.flatMetrics.cx +
+        (longitude / 180) * (frame.flatMetrics.mW / 2);
+      projectedY =
+        frame.flatMetrics.cy -
+        (latitude / 90) * (frame.flatMetrics.mH / 2);
+      depth = 1;
+    } else {
+      const vectorOffset =
+        index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+      const unitX = state.unitVectors[vectorOffset];
+      const unitY = state.unitVectors[vectorOffset + 1];
+      const unitZ = state.unitVectors[vectorOffset + 2];
+      if (
+        unitX === undefined ||
+        unitY === undefined ||
+        unitZ === undefined
+      ) {
+        continue;
+      }
+      const matrix = frame.globeMatrix;
+      const rotatedX =
+        matrix.m00 * unitX +
+        matrix.m01 * unitY +
+        matrix.m02 * unitZ;
+      const rotatedY =
+        matrix.m10 * unitX +
+        matrix.m11 * unitY +
+        matrix.m12 * unitZ;
+      depth =
+        matrix.m20 * unitX +
+        matrix.m21 * unitY +
+        matrix.m22 * unitZ;
+      if (depth <= 0) continue;
+      projectedX = frame.centerX + rotatedX * frame.globeRadius;
+      projectedY = frame.centerY - rotatedY * frame.globeRadius;
+    }
+    if (
+      projectedX < -EARTHQUAKE_CULL_MARGIN_PX ||
+      projectedY < -EARTHQUAKE_CULL_MARGIN_PX ||
+      projectedX >= frame.width + EARTHQUAKE_CULL_MARGIN_PX ||
+      projectedY >= frame.height + EARTHQUAKE_CULL_MARGIN_PX
+    ) {
+      continue;
+    }
+
+    state.projected[projectedOffset] = projectedX;
+    state.projected[projectedOffset + 1] = projectedY;
+    state.projected[projectedOffset + 2] = depth;
+    if (id === frame.selectedId) {
+      _hasSelectedProjection = true;
+      _selectedProjectionX = projectedX;
+      _selectedProjectionDepth = depth;
+    }
+
+    const column = Math.floor(
+      projectedX / CAMERA_POLICY.hitCellSizePx,
+    );
+    const row = Math.floor(
+      projectedY / CAMERA_POLICY.hitCellSizePx,
+    );
+    if (
+      column < 0 ||
+      row < 0 ||
+      column >= state.hitColumns ||
+      row >= state.hitRows
+    ) {
+      continue;
+    }
+    const cell = row * state.hitColumns + column;
+    state.hitNext[index] = state.hitHeads[cell] ?? -1;
+    state.hitHeads[cell] = index;
+  }
+}
+
+function nearestGenericPoint(
   x: number,
   y: number,
   radius: number,
-): RenderPoint | null {
-  let closest: RenderPoint | null = null;
+): PointHit | null {
+  let closest: PointHit | null = null;
   let distance = radius;
   for (const point of hitCandidates(x, y)) {
     const candidateDistance = Math.hypot(
       point.x - x,
       point.y - y,
     );
-    if (candidateDistance < distance) {
-      closest = point.item;
-      distance = candidateDistance;
+    if (candidateDistance >= distance) continue;
+    const position = positionForItem(point.item);
+    closest = { ...position, distance: candidateDistance };
+    distance = candidateDistance;
+  }
+  return closest;
+}
+
+function nearestEarthquakePoint(
+  x: number,
+  y: number,
+  radius: number,
+): PointHit | null {
+  const state = _earthquakes;
+  if (!state || state.hitHeads.length === 0) return null;
+  const centerColumn = Math.floor(
+    x / CAMERA_POLICY.hitCellSizePx,
+  );
+  const centerRow = Math.floor(
+    y / CAMERA_POLICY.hitCellSizePx,
+  );
+  let closest: PointHit | null = null;
+  let distance = radius;
+  let inspected = 0;
+  for (let row = centerRow - 1; row <= centerRow + 1; row++) {
+    if (row < 0 || row >= state.hitRows) continue;
+    for (
+      let column = centerColumn - 1;
+      column <= centerColumn + 1;
+      column++
+    ) {
+      if (column < 0 || column >= state.hitColumns) continue;
+      let index =
+        state.hitHeads[row * state.hitColumns + column] ?? -1;
+      while (index >= 0) {
+        const projectedOffset =
+          index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+        const projectedX = state.projected[projectedOffset];
+        const projectedY = state.projected[projectedOffset + 1];
+        const id = state.ids[index];
+        const positionOffset =
+          index * EARTHQUAKE_POSITION_COMPONENTS;
+        const longitude = state.positions[positionOffset];
+        const latitude = state.positions[positionOffset + 1];
+        if (
+          projectedX !== undefined &&
+          projectedY !== undefined &&
+          id !== undefined &&
+          longitude !== undefined &&
+          latitude !== undefined
+        ) {
+          const candidateDistance = Math.hypot(
+            projectedX - x,
+            projectedY - y,
+          );
+          if (candidateDistance < distance) {
+            closest = {
+              id,
+              latitude,
+              longitude,
+              distance: candidateDistance,
+            };
+            distance = candidateDistance;
+          }
+        }
+        inspected++;
+        if (inspected >= CAMERA_POLICY.maximumHitCandidates) {
+          return closest;
+        }
+        index = state.hitNext[index] ?? -1;
+      }
     }
   }
   return closest;
+}
+
+function nearestPoint(
+  x: number,
+  y: number,
+  radius: number,
+): PointHit | null {
+  const generic = nearestGenericPoint(x, y, radius);
+  const earthquake = nearestEarthquakePoint(x, y, radius);
+  if (!generic) return earthquake;
+  if (!earthquake) return generic;
+  return earthquake.distance < generic.distance ? earthquake : generic;
 }
 
 function nearestTrailTarget(
@@ -1500,6 +1789,7 @@ function positionForItem(item: RenderPoint): CameraPosition {
 function resetClickMemory(): void {
   _lastClickTime = 0;
   _lastClickId = null;
+  _lastClickPosition = null;
 }
 
 function handlePointerClick(click: CameraClick): void {
@@ -1522,14 +1812,12 @@ function handlePointerClick(click: CameraClick): void {
 
   if (isDoubleClick) {
     clearTrailTooltip();
-    const target = _data?.find(
-      (item) => item.id === _lastClickId,
-    );
+    const target = _lastClickPosition;
     if (target && _viewport && _presentation) {
       focusCamera(
         _camera,
         _cameraTarget,
-        positionForItem(target),
+        target,
         {
           width: _viewport.width,
           height: _viewport.height,
@@ -1555,6 +1843,11 @@ function handlePointerClick(click: CameraClick): void {
     }
     _lastClickTime = now;
     _lastClickId = point.id;
+    _lastClickPosition = {
+      id: point.id,
+      latitude: point.latitude,
+      longitude: point.longitude,
+    };
     return;
   }
 
@@ -1612,12 +1905,15 @@ function handlePointerHover(x: number, y: number): void {
 
 function updateSelectedSide(): void {
   const selectedId = _presentation?.selectedId;
-  if (!selectedId || !_viewport) return;
-  const point = _projectedPoints.find(
-    (candidate) => candidate.item.id === selectedId,
-  );
-  if (!point || point.z <= 0) return;
-  const ratio = point.x / _viewport.width;
+  if (
+    !selectedId ||
+    !_viewport ||
+    !_hasSelectedProjection ||
+    _selectedProjectionDepth <= 0
+  ) {
+    return;
+  }
+  const ratio = _selectedProjectionX / _viewport.width;
   let next = _lastSelectedSide;
   if (
     next === "right" &&
@@ -1671,6 +1967,79 @@ type PointDrawCtx = {
   reducedMotion: boolean;
 };
 
+function drawEarthquakeLayer(
+  pc: PointDrawCtx,
+  state: EarthquakeRenderState,
+): void {
+  const { ctx, colorMap, accent, selId, t, zoomLevel } = pc;
+  const baseColor = colorMap.quakes || accent;
+  const scale = zoomScale(zoomLevel);
+  const pulseIntensity = clamp01((zoomLevel - 1.3) / 2);
+  for (let index = 0; index < state.ids.length; index++) {
+    const projectedOffset =
+      index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+    const x = state.projected[projectedOffset];
+    const y = state.projected[projectedOffset + 1];
+    const depth = state.projected[projectedOffset + 2];
+    const id = state.ids[index];
+    const magnitude = state.magnitudes[index];
+    const timestamp = state.timestamps[index];
+    if (
+      x === undefined ||
+      y === undefined ||
+      depth === undefined ||
+      depth <= 0 ||
+      id === undefined ||
+      magnitude === undefined ||
+      timestamp === undefined
+    ) {
+      continue;
+    }
+
+    const age = quakeAgeFactor(timestamp);
+    const color = quakeColor(age, baseColor);
+    const selected = id === selId;
+    const size =
+      quakeSize(magnitude) * scale * (selected ? 2 : 1);
+    const fillAlpha = (0.4 + depth * 0.6) * age * 0.8;
+    if (
+      magnitude > EARTHQUAKE_PULSE_THRESHOLD &&
+      pulseIntensity > 0.01
+    ) {
+      const pulseIndex = Math.min(
+        1,
+        (magnitude - EARTHQUAKE_PULSE_THRESHOLD) / 4,
+      );
+      const phase =
+        (Number.parseInt(id.slice(1), 36) || 0) * 0.7;
+      const pulse =
+        1 +
+        Math.sin(t + phase) *
+          (0.1 + pulseIndex * 0.2);
+      const glowRadius =
+        size * (1.8 + pulseIndex * 1.5) * pulse;
+      drawGlow(
+        ctx,
+        color,
+        "40",
+        x,
+        y,
+        glowRadius,
+        fillAlpha * pulseIntensity * 0.5,
+      );
+    }
+    ctx.globalAlpha = fillAlpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fill();
+    if (selected) {
+      drawSelectionRing(ctx, x, y, size, color, t);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 /** Draw one projected point by its type. Each branch returns after drawing. */
 function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   const { ctx, projFn, colorMap, accent, selId, t, zoomLevel, milColor, reconColor } = pc;
@@ -1682,18 +2051,6 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   const ts = item.timestamp;
   const env: DotEnv = { ctx, t, zoomLevel };
   const circle = (s: number) => { ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); };
-
-  if (item.type === "quakes") {
-    const mag = item.data.magnitude ?? 0;
-    const af2 = quakeAgeFactor(ts);
-    const color = quakeColor(af2, baseColor);
-    const s = quakeSize(mag) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
-    drawPulsingDot(env, x, y, s, color, depthAlpha * af2 * 0.8, isSel,
-      mag > 3 ? { intensity: clamp01((zoomLevel - 1.3) / 2), pulseIndex: Math.min(1, (mag - 3) / 4), id, cfg: { idSliceFrom: 1, rate: 0.7, baseAmp: 0.1, ampGain: 0.2, radBase: 1.8, radGain: 1.5, alphaHex: "40", glowMul: 0.5 } } : null,
-      circle);
-    return;
-  }
-
   if (item.type === "events") {
     const sev = item.data.severity ?? 1;
     const af2 = eventAgeFactor(ts);
@@ -2023,12 +2380,39 @@ function renderFrame(): void {
 
   // ── Project + filter points ───────────────────────────────────
   const isolatedType =
-    isoId && selId ? (data.find((d) => d.id === isoId)?.type ?? null) : null;
+    isoId && selId
+      ? (
+          selectedItem?.type ??
+          data.find((candidate) => candidate.id === isoId)?.type ??
+          null
+        )
+      : null;
   const searchSet = searchIds ? new Set(searchIds) : null;
   const filterCfg: FilterCfg = { searchSet, isoMode, isoId, isolatedType, layers, af, showForecast: cyclonesShowForecast };
   const pts = projectAndFilter(data, projectPoint, filterCfg);
-  _projectedPoints = pts;
   rebuildHitGrid(pts);
+  _hasSelectedProjection = false;
+  const selectedPoint = pts.find(
+    (candidate) => candidate.item.id === selId,
+  );
+  if (selectedPoint) {
+    _hasSelectedProjection = true;
+    _selectedProjectionX = selectedPoint.x;
+    _selectedProjectionDepth = selectedPoint.z;
+  }
+  if (_earthquakes) {
+    projectEarthquakes(_earthquakes, {
+      width: W,
+      height: H,
+      flatMetrics: fm,
+      globeMatrix,
+      centerX: cx,
+      centerY: cy,
+      globeRadius: globeR,
+      filters: filterCfg,
+      selectedId: selId,
+    });
+  }
 
   // ── Draw trail (only if the selected item passes current filters) ──
   const selPassesFilters = (): boolean => {
@@ -2067,7 +2451,25 @@ function renderFrame(): void {
     showWindField: cyclonesShowWindField, showModels: cyclonesShowModels,
     hiddenModels: cyclonesHiddenModels, reducedMotion,
   };
-  for (const pt of pts) drawPoint(pointCtx, pt);
+  let earthquakeLayerDrawn = false;
+  for (const pt of pts) {
+    if (
+      !earthquakeLayerDrawn &&
+      _earthquakes &&
+      (
+        pt.item.type === "weather" ||
+        pt.item.type === "cyclones-forecast" ||
+        pt.item.type === "cyclones"
+      )
+    ) {
+      drawEarthquakeLayer(pointCtx, _earthquakes);
+      earthquakeLayerDrawn = true;
+    }
+    drawPoint(pointCtx, pt);
+  }
+  if (!earthquakeLayerDrawn && _earthquakes) {
+    drawEarthquakeLayer(pointCtx, _earthquakes);
+  }
   ctx.globalAlpha = 1;
 
   // ── Restore clip and draw rim/border ──────────────────────────
@@ -2105,7 +2507,11 @@ function renderFrame(): void {
   const hasMotion = trailMap.size > 0;
   const hasVisualAnimation =
     !p.prefersReducedMotion &&
-    (_hasAnimatedPoints || p.selectedId !== null);
+    (
+      _hasAnimatedPoints ||
+      _hasAnimatedEarthquakes ||
+      p.selectedId !== null
+    );
   if (
     (hasRevealWork || hasMotion || hasVisualAnimation || cameraActive) &&
     !_frameScheduled

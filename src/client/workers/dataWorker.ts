@@ -1,19 +1,23 @@
+import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
+import {
+  DATA_CACHE_POLICY,
+  createDataCacheStore,
+} from "@/workers/data/cacheStore";
+import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
+import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
 import {
   DATA_WORKER_PROTOCOL_VERSION,
   parseDataWorkerCommand,
   type DataWorkerCommand,
   type DataWorkerEvent,
+  type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
-import {
-  DATA_CACHE_POLICY,
-  createDataCacheStore,
-} from "@/workers/data/cacheStore";
-
 import { createRenderDataCommand } from "@/workers/render/dataChannel";
 
 const store = createDataCacheStore(indexedDB);
 let renderPort: MessagePort | null = null;
+let renderSessionId: string | null = null;
 let renderSequence = 0;
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
@@ -30,6 +34,45 @@ const coordinator = createDeferredWriteCoordinator<unknown>({
 function post(event: DataWorkerEvent): void {
   globalThis.postMessage(event);
 }
+
+function publishSource(snapshot: DataWorkerSourceSnapshot): void {
+  post({
+    type: "sourceSnapshot",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: null,
+    snapshot,
+  });
+}
+
+function rebaseEarthquakeRender(
+  points: ReturnType<typeof earthquakeOwner.read>,
+): void {
+  if (!renderPort || !renderSessionId) return;
+  const packed = packEarthquakeRenderData(points);
+  renderSequence++;
+  renderPort.postMessage(
+    createRenderDataCommand(
+      { type: "earthquakeRebase", ...packed },
+      renderSessionId,
+      renderSequence,
+    ),
+    [
+      packed.positions.buffer,
+      packed.unitVectors.buffer,
+      packed.magnitudes.buffer,
+      packed.timestamps.buffer,
+    ],
+  );
+}
+
+const earthquakeOwner = createEarthquakeSourceOwner({
+  readCache: () => store.get(EARTHQUAKE_SOURCE_POLICY.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(EARTHQUAKE_SOURCE_POLICY.cacheKey, snapshot);
+  },
+  publish: publishSource,
+  rebaseRender: rebaseEarthquakeRender,
+});
 
 function complete(requestId: number | null): void {
   if (requestId === null) return;
@@ -57,16 +100,18 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
     if (command.type === "connectRender") {
       renderPort?.close();
       renderPort = command.port;
+      renderSessionId = command.renderSessionId;
       renderSequence = 0;
       renderPort.start();
       renderSequence++;
       renderPort.postMessage(
         createRenderDataCommand(
           { type: "bind" },
-          command.renderSessionId,
+          renderSessionId,
           renderSequence,
         ),
       );
+      earthquakeOwner.rebase();
       complete(requestId);
       return;
     }
@@ -77,6 +122,24 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
         requestId,
         entries: await store.getAll(),
+      });
+      void earthquakeOwner.start();
+      return;
+    }
+    if (command.type === "refreshSource") {
+      await earthquakeOwner.refresh();
+      complete(requestId);
+      return;
+    }
+    if (command.type === "getSourceEntity") {
+      const snapshot = earthquakeOwner.snapshot();
+      post({
+        type: "sourceEntity",
+        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+        requestId,
+        source: "earthquake",
+        sourceVersion: snapshot.version,
+        value: earthquakeOwner.find(command.id),
       });
       return;
     }

@@ -1,10 +1,31 @@
+import {
+  parseEarthquakePoint,
+  type EarthquakePoint,
+} from "@/features/environmental/earthquake/data/source";
 import { isRecord } from "@shared/geo";
 
-export const DATA_WORKER_PROTOCOL_VERSION: 1 = 1;
+export const DATA_WORKER_PROTOCOL_VERSION: 3 = 3;
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
   value: unknown;
+}>;
+
+export type DataWorkerSourceStatus =
+  | "loading"
+  | "live"
+  | "cached"
+  | "error"
+  | "empty";
+
+export type DataWorkerSourceSnapshot = Readonly<{
+  source: "earthquake";
+  version: number;
+  status: DataWorkerSourceStatus;
+  loading: boolean;
+  count: number;
+  lastUpdatedAt: number | null;
+  error: string | null;
 }>;
 
 type DataWorkerEnvelope = Readonly<{
@@ -18,6 +39,15 @@ export type DataWorkerCommandBody =
       type: "connectRender";
       port: MessagePort;
       renderSessionId: string;
+    }>
+  | Readonly<{
+      type: "refreshSource";
+      source: "earthquake";
+    }>
+  | Readonly<{
+      type: "getSourceEntity";
+      source: "earthquake";
+      id: string;
     }>
   | Readonly<{ type: "get"; key: string }>
   | Readonly<{ type: "set"; key: string; value: unknown }>
@@ -42,6 +72,18 @@ export type DataWorkerEvent =
       Readonly<{ type: "value"; value: unknown | null }>)
   | (DataWorkerEnvelope & Readonly<{ type: "size"; bytes: number }>)
   | (DataWorkerEnvelope & Readonly<{ type: "complete" }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
+        type: "sourceSnapshot";
+        snapshot: DataWorkerSourceSnapshot;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
+        type: "sourceEntity";
+        source: "earthquake";
+        sourceVersion: number;
+        value: EarthquakePoint | null;
+      }>)
   | (DataWorkerEnvelope &
       Readonly<{ type: "error"; message: string }>);
 
@@ -83,6 +125,49 @@ function isMessagePort(value: unknown): value is MessagePort {
   );
 }
 
+function isSourceStatus(value: unknown): value is DataWorkerSourceStatus {
+  return (
+    value === "loading" ||
+    value === "live" ||
+    value === "cached" ||
+    value === "error" ||
+    value === "empty"
+  );
+}
+
+function parseSourceSnapshot(
+  value: unknown,
+): DataWorkerSourceSnapshot | null {
+  if (
+    !isRecord(value) ||
+    value.source !== "earthquake" ||
+    typeof value.version !== "number" ||
+    !Number.isSafeInteger(value.version) ||
+    value.version < 0 ||
+    !isSourceStatus(value.status) ||
+    typeof value.loading !== "boolean" ||
+    typeof value.count !== "number" ||
+    !Number.isSafeInteger(value.count) ||
+    value.count < 0 ||
+    (value.lastUpdatedAt !== null &&
+      (typeof value.lastUpdatedAt !== "number" ||
+        !Number.isFinite(value.lastUpdatedAt) ||
+        value.lastUpdatedAt < 0)) ||
+    (value.error !== null && typeof value.error !== "string")
+  ) {
+    return null;
+  }
+  return {
+    source: "earthquake",
+    version: value.version,
+    status: value.status,
+    loading: value.loading,
+    count: value.count,
+    lastUpdatedAt: value.lastUpdatedAt,
+    error: value.error,
+  };
+}
+
 export function parseDataWorkerCommand(
   value: unknown,
 ): DataWorkerCommand | null {
@@ -101,6 +186,27 @@ export function parseDataWorkerCommand(
       type: "connectRender",
       port: value.port,
       renderSessionId: value.renderSessionId,
+    };
+  }
+
+  if (
+    value.type === "refreshSource" &&
+    value.source === "earthquake"
+  ) {
+    return { ...envelope, type: "refreshSource", source: "earthquake" };
+  }
+
+  if (
+    value.type === "getSourceEntity" &&
+    value.source === "earthquake" &&
+    typeof value.id === "string" &&
+    value.id.length > 0
+  ) {
+    return {
+      ...envelope,
+      type: "getSourceEntity",
+      source: "earthquake",
+      id: value.id,
     };
   }
 
@@ -154,6 +260,41 @@ export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
   const envelope = parseEnvelope(value);
   if (!envelope) return null;
 
+  if (value.type === "sourceSnapshot") {
+    const snapshot = parseSourceSnapshot(value.snapshot);
+    if (!snapshot) return null;
+    return {
+      ...envelope,
+      type: "sourceSnapshot",
+      snapshot,
+    };
+  }
+  if (
+    value.type === "sourceEntity" &&
+    value.source === "earthquake" &&
+    typeof value.sourceVersion === "number" &&
+    Number.isSafeInteger(value.sourceVersion) &&
+    value.sourceVersion >= 0
+  ) {
+    if (value.value === null) {
+      return {
+        ...envelope,
+        type: "sourceEntity",
+        source: "earthquake",
+        sourceVersion: value.sourceVersion,
+        value: null,
+      };
+    }
+    const point = parseEarthquakePoint(value.value);
+    if (!point) return null;
+    return {
+      ...envelope,
+      type: "sourceEntity",
+      source: "earthquake",
+      sourceVersion: value.sourceVersion,
+      value: point,
+    };
+  }
   if (value.type === "complete") {
     return { ...envelope, type: "complete" };
   }

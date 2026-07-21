@@ -1,14 +1,25 @@
+import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import {
   createDataWorkerCommand,
   parseDataWorkerEvent,
   type DataWorkerCacheEntry,
   type DataWorkerCommandBody,
   type DataWorkerEvent,
+  type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 
 type PendingRequest = Readonly<{
   resolve: (event: DataWorkerEvent) => void;
   reject: (error: Error) => void;
+}>;
+
+export type DataWorkerSourceListener = (
+  snapshot: DataWorkerSourceSnapshot,
+) => void;
+
+export type DataWorkerSourceEntityResult = Readonly<{
+  sourceVersion: number;
+  value: EarthquakePoint | null;
 }>;
 
 export type DataWorkerTransport = {
@@ -24,6 +35,18 @@ export type DataWorkerTransport = {
 export type DataWorkerClient = Readonly<{
   init: () => Promise<readonly DataWorkerCacheEntry[]>;
   connectRender: (port: MessagePort, renderSessionId: string) => Promise<void>;
+  refreshSource: (source: "earthquake") => Promise<void>;
+  getSourceEntity: (
+    source: "earthquake",
+    id: string,
+  ) => Promise<DataWorkerSourceEntityResult>;
+  getSourceSnapshot: (
+    source: "earthquake",
+  ) => DataWorkerSourceSnapshot | null;
+  subscribeSource: (
+    source: "earthquake",
+    listener: DataWorkerSourceListener,
+  ) => () => void;
   get: (key: string) => Promise<unknown | null>;
   importJson: (key: string, json: string) => Promise<unknown | null>;
   set: (key: string, value: unknown) => Promise<void>;
@@ -44,7 +67,9 @@ export function createDataWorkerClient(
 ): DataWorkerClient {
   let nextRequestId = 0;
   let failed: Error | null = null;
+  let earthquakeSnapshot: DataWorkerSourceSnapshot | null = null;
   const pending = new Map<number, PendingRequest>();
+  const sourceListeners = new Set<DataWorkerSourceListener>();
 
   const rejectAll = (error: Error): void => {
     failed = error;
@@ -54,7 +79,15 @@ export function createDataWorkerClient(
 
   worker.onmessage = (message: MessageEvent<unknown>) => {
     const event = parseDataWorkerEvent(message.data);
-    if (!event || event.requestId === null) return;
+    if (!event) return;
+    if (event.type === "sourceSnapshot") {
+      earthquakeSnapshot = event.snapshot;
+      for (const listener of sourceListeners) {
+        listener(event.snapshot);
+      }
+      return;
+    }
+    if (event.requestId === null) return;
     const request = pending.get(event.requestId);
     if (!request) return;
     pending.delete(event.requestId);
@@ -119,6 +152,45 @@ export function createDataWorkerClient(
       );
     },
 
+    refreshSource(source: "earthquake"): Promise<void> {
+      return requireComplete({ type: "refreshSource", source });
+    },
+
+    async getSourceEntity(
+      source: "earthquake",
+      id: string,
+    ): Promise<DataWorkerSourceEntityResult> {
+      const event = await request({
+        type: "getSourceEntity",
+        source,
+        id,
+      });
+      if (event.type !== "sourceEntity") {
+        throw unexpectedEvent("source entity");
+      }
+      return {
+        sourceVersion: event.sourceVersion,
+        value: event.value,
+      };
+    },
+
+    getSourceSnapshot(
+      _source: "earthquake",
+    ): DataWorkerSourceSnapshot | null {
+      return earthquakeSnapshot;
+    },
+
+    subscribeSource(
+      _source: "earthquake",
+      listener: DataWorkerSourceListener,
+    ): () => void {
+      sourceListeners.add(listener);
+      if (earthquakeSnapshot) listener(earthquakeSnapshot);
+      return () => {
+        sourceListeners.delete(listener);
+      };
+    },
+
     async get(key: string): Promise<unknown | null> {
       const event = await request({ type: "get", key });
       if (event.type !== "value") throw unexpectedEvent("cache value");
@@ -171,6 +243,7 @@ export function createDataWorkerClient(
 
     terminate(): void {
       rejectAll(new Error("DataWorker terminated"));
+      sourceListeners.clear();
       worker.terminate();
     },
   };

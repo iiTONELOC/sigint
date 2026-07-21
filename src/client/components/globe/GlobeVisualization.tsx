@@ -73,9 +73,6 @@ function slimPoint(item: DataPoint): DataPoint {
   if (item.type === "ships") {
     return { ...item, data: { heading: item.data.heading } };
   }
-  if (item.type === "quakes") {
-    return { ...item, data: { magnitude: item.data.magnitude } };
-  }
   if (item.type === "fires") {
     return { ...item, data: { frp: item.data.frp } };
   }
@@ -268,6 +265,8 @@ export function GlobeVisualization({
       });
     };
 
+    let selectionRequest = 0;
+
     const handleMessage = (
       event: MessageEvent<RenderWorkerEvent>,
     ): void => {
@@ -298,15 +297,38 @@ export function GlobeVisualization({
         return;
       }
       if (interaction.kind === "selection") {
+        selectionRequest++;
+        const request = selectionRequest;
         const current = propsRef.current;
-        const item =
-          current.data.find((candidate) => candidate.id === interaction.id) ??
-          current.cycloneWarnings?.find(
-            (warning) => warning.id === interaction.id,
-          );
-        current.onSelect(
-          item && "event" in item ? warningToDataPoint(item) : item ?? null,
+        const item = current.data.find(
+          (candidate) => candidate.id === interaction.id,
         );
+        const warning = current.cycloneWarnings?.find(
+          (candidate) => candidate.id === interaction.id,
+        );
+        if (warning) {
+          current.onSelect(warningToDataPoint(warning));
+          return;
+        }
+        if (!interaction.id || (item && item.type !== "quakes")) {
+          current.onSelect(item ?? null);
+          return;
+        }
+        const dataClient = getDataWorkerClient();
+        if (!dataClient) {
+          current.onSelect(item ?? null);
+          return;
+        }
+        void dataClient
+          .getSourceEntity("earthquake", interaction.id)
+          .then(({ value }) => {
+            if (request !== selectionRequest) return;
+            propsRef.current.onSelect(value ?? item ?? null);
+          })
+          .catch(() => {
+            if (request !== selectionRequest) return;
+            propsRef.current.onSelect(item ?? null);
+          });
         return;
       }
       if (interaction.kind === "rawCanvasClick") {
@@ -419,6 +441,10 @@ export function GlobeVisualization({
     };
 
     const finishScan = (): void => {
+      if (forceAll) {
+        byType.set("quakes", []);
+        changed.add("quakes");
+      }
       for (const [source, previous] of previousByType) {
         const current = byType.get(source);
         if (current) {
@@ -450,7 +476,7 @@ export function GlobeVisualization({
       );
       for (; index < end; index++) {
         const item = data[index];
-        if (!item) continue;
+        if (!item || item.type === "quakes") continue;
         let bucket = byType.get(item.type);
         if (!bucket) {
           bucket = [];

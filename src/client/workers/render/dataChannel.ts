@@ -1,6 +1,9 @@
 import { isRecord } from "@shared/geo";
 
-export const RENDER_DATA_PROTOCOL_VERSION: 1 = 1;
+export const RENDER_DATA_PROTOCOL_VERSION: 2 = 2;
+
+export const EARTHQUAKE_POSITION_COMPONENTS = 2;
+export const EARTHQUAKE_UNIT_VECTOR_COMPONENTS = 3;
 
 type RenderDataEnvelope = Readonly<{
   protocolVersion: typeof RENDER_DATA_PROTOCOL_VERSION;
@@ -8,20 +11,33 @@ type RenderDataEnvelope = Readonly<{
   sequence: number;
 }>;
 
-export type RenderDataCommandBody = Readonly<{ type: "bind" }>;
+export type PackedEarthquakeRenderData = Readonly<{
+  ids: readonly string[];
+  positions: Float64Array;
+  unitVectors: Float32Array;
+  magnitudes: Float32Array;
+  timestamps: Float64Array;
+}>;
 
-export type RenderDataCommand = RenderDataCommandBody & RenderDataEnvelope;
+export type RenderDataCommandBody =
+  | Readonly<{ type: "bind" }>
+  | (Readonly<{ type: "earthquakeRebase" }> &
+      PackedEarthquakeRenderData);
+
+type WithEnvelope<T> = T extends object ? T & RenderDataEnvelope : never;
+
+export type RenderDataCommand = WithEnvelope<RenderDataCommandBody>;
 
 export type RenderDataProtocolState = {
   sessionId: string;
   sequence: number;
 };
 
-export function createRenderDataCommand(
-  body: RenderDataCommandBody,
+export function createRenderDataCommand<T extends RenderDataCommandBody>(
+  body: T,
   sessionId: string,
   sequence: number,
-): RenderDataCommand {
+): T & RenderDataEnvelope {
   return {
     ...body,
     protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
@@ -30,12 +46,10 @@ export function createRenderDataCommand(
   };
 }
 
-export function parseRenderDataCommand(
-  value: unknown,
-): RenderDataCommand | null {
+function parseEnvelope(
+  value: Readonly<Record<string, unknown>>,
+): RenderDataEnvelope | null {
   if (
-    !isRecord(value) ||
-    value.type !== "bind" ||
     value.protocolVersion !== RENDER_DATA_PROTOCOL_VERSION ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
@@ -46,10 +60,52 @@ export function parseRenderDataCommand(
     return null;
   }
   return {
-    type: "bind",
     protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
     sessionId: value.sessionId,
     sequence: value.sequence,
+  };
+}
+
+export function parseRenderDataCommand(
+  value: unknown,
+): RenderDataCommand | null {
+  if (!isRecord(value) || typeof value.type !== "string") return null;
+  const envelope = parseEnvelope(value);
+  if (!envelope) return null;
+  if (value.type === "bind") return { ...envelope, type: "bind" };
+  if (
+    value.type !== "earthquakeRebase" ||
+    !Array.isArray(value.ids) ||
+    !(value.positions instanceof Float64Array) ||
+    !(value.unitVectors instanceof Float32Array) ||
+    !(value.magnitudes instanceof Float32Array) ||
+    !(value.timestamps instanceof Float64Array)
+  ) {
+    return null;
+  }
+
+  const ids: string[] = [];
+  for (const id of value.ids) {
+    if (typeof id !== "string") return null;
+    ids.push(id);
+  }
+  const count = ids.length;
+  if (
+    value.positions.length !== count * EARTHQUAKE_POSITION_COMPONENTS ||
+    value.unitVectors.length !== count * EARTHQUAKE_UNIT_VECTOR_COMPONENTS ||
+    value.magnitudes.length !== count ||
+    value.timestamps.length !== count
+  ) {
+    return null;
+  }
+  return {
+    ...envelope,
+    type: "earthquakeRebase",
+    ids,
+    positions: value.positions,
+    unitVectors: value.unitVectors,
+    magnitudes: value.magnitudes,
+    timestamps: value.timestamps,
   };
 }
 

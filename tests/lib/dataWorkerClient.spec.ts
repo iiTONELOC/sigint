@@ -77,6 +77,41 @@ describe("DataWorker protocol", () => {
     ).toBeNull();
   });
 
+  test("validates source snapshots at the worker boundary", () => {
+    expect(
+      parseDataWorkerEvent(
+        event(null, {
+          type: "sourceSnapshot",
+          snapshot: {
+            source: "earthquake",
+            version: 3,
+            status: "live",
+            loading: false,
+            count: 24,
+            lastUpdatedAt: 2_000,
+            error: null,
+          },
+        }),
+      ),
+    ).not.toBeNull();
+    expect(
+      parseDataWorkerEvent(
+        event(null, {
+          type: "sourceSnapshot",
+          snapshot: {
+            source: "earthquake",
+            version: 3,
+            status: "live",
+            loading: false,
+            count: -1,
+            lastUpdatedAt: 2_000,
+            error: null,
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   test("validates ready entries instead of trusting worker payloads", () => {
     expect(
       parseDataWorkerEvent(
@@ -135,6 +170,86 @@ describe("createDataWorkerClient", () => {
     channel.port2.close();
   });
 
+
+  test("retains and publishes unsolicited source snapshots", () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const received: number[] = [];
+    const unsubscribe = client.subscribeSource(
+      "earthquake",
+      (snapshot) => received.push(snapshot.count),
+    );
+
+    harness.emit(
+      event(null, {
+        type: "sourceSnapshot",
+        snapshot: {
+          source: "earthquake",
+          version: 1,
+          status: "live",
+          loading: false,
+          count: 12,
+          lastUpdatedAt: 2_000,
+          error: null,
+        },
+      }),
+    );
+
+    expect(received).toEqual([12]);
+    expect(client.getSourceSnapshot("earthquake")?.count).toBe(12);
+    unsubscribe();
+  });
+
+  test("requests an explicit source refresh", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.refreshSource("earthquake");
+    const command = latestCommand(harness);
+    expect(command.type).toBe("refreshSource");
+
+    harness.emit(event(command.requestId, { type: "complete" }));
+
+    await pending;
+  });
+
+  test("returns one validated source entity with its dataset version", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.getSourceEntity("earthquake", "Qone");
+    const command = latestCommand(harness);
+    if (command.type !== "getSourceEntity") {
+      throw new Error("Expected getSourceEntity command");
+    }
+    expect(command.id).toBe("Qone");
+
+    harness.emit(
+      event(command.requestId, {
+        type: "sourceEntity",
+        source: "earthquake",
+        sourceVersion: 7,
+        value: {
+          id: "Qone",
+          type: "quakes",
+          lon: -80,
+          lat: 30,
+          timestamp: "2026-07-21T12:00:00.000Z",
+          data: { magnitude: 4 },
+        },
+      }),
+    );
+
+    expect(await pending).toEqual({
+      sourceVersion: 7,
+      value: {
+        id: "Qone",
+        type: "quakes",
+        lon: -80,
+        lat: 30,
+        timestamp: "2026-07-21T12:00:00.000Z",
+        data: { magnitude: 4 },
+      },
+    });
+  });
 
   test("waits for worker completion on durable writes", async () => {
     const harness = createWorkerHarness();
