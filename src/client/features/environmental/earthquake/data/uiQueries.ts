@@ -3,6 +3,7 @@ import {
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
 import { isRecord } from "@shared/geo";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 
 export type EarthquakeTableSortKey =
   | "type"
@@ -69,9 +70,8 @@ export type EarthquakeUiQueryPolicy = Readonly<{
   searchResultLimit: number;
 }>;
 
-export const EARTHQUAKE_UI_QUERY_POLICY: EarthquakeUiQueryPolicy = {
-  searchResultLimit: 15,
-};
+export const EARTHQUAKE_UI_QUERY_POLICY: EarthquakeUiQueryPolicy =
+  POINT_UI_QUERY_POLICY;
 
 function isTableSortKey(value: unknown): value is EarthquakeTableSortKey {
   return (

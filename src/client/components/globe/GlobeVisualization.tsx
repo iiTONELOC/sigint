@@ -73,9 +73,6 @@ function slimPoint(item: DataPoint): DataPoint {
   if (item.type === "ships") {
     return { ...item, data: { heading: item.data.heading } };
   }
-  if (item.type === "fires") {
-    return { ...item, data: { frp: item.data.frp } };
-  }
   if (item.type === "events") {
     return { ...item, data: { severity: item.data.severity } };
   }
@@ -91,6 +88,7 @@ export function GlobeVisualization({
   layers,
   aircraftFilter,
   earthquakeFilter,
+  fireFilter,
   cycloneFilter,
   selected,
   isolatedId,
@@ -151,7 +149,9 @@ export function GlobeVisualization({
       return;
     }
     if (zoomToId === lastZoomToIdRef.current) return;
-    const item = data.find((candidate) => candidate.id === zoomToId);
+    const item =
+      data.find((candidate) => candidate.id === zoomToId) ??
+      (selected?.id === zoomToId ? selected : null);
     if (!item) return;
     lastZoomToIdRef.current = zoomToId;
     sendCommandRef.current({
@@ -163,7 +163,7 @@ export function GlobeVisualization({
         kind: "focus",
       },
     });
-  }, [zoomToId, data]);
+  }, [zoomToId, data, selected]);
 
   // ── Reveal effect — gentle pan, ISS zoom, no lock-on ─────────────
   const lastRevealIdRef = useRef<string | null>(null);
@@ -173,7 +173,9 @@ export function GlobeVisualization({
       return;
     }
     if (revealId === lastRevealIdRef.current) return;
-    const item = data.find((candidate) => candidate.id === revealId);
+    const item =
+      data.find((candidate) => candidate.id === revealId) ??
+      (selected?.id === revealId ? selected : null);
     if (!item) return;
     lastRevealIdRef.current = revealId;
     sendCommandRef.current({
@@ -185,7 +187,7 @@ export function GlobeVisualization({
         kind: "reveal",
       },
     });
-  }, [revealId, data]);
+  }, [revealId, data, selected]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -311,7 +313,17 @@ export function GlobeVisualization({
           current.onSelect(warningToDataPoint(warning));
           return;
         }
-        if (!interaction.id || (item && item.type !== "quakes")) {
+        if (!interaction.id) {
+          current.onSelect(null);
+          return;
+        }
+        const source =
+          interaction.pointType === "quakes"
+            ? "earthquake"
+            : interaction.pointType === "fires"
+              ? "fire"
+              : null;
+        if (!source) {
           current.onSelect(item ?? null);
           return;
         }
@@ -321,10 +333,10 @@ export function GlobeVisualization({
           return;
         }
         void dataClient
-          .getSourceEntity("earthquake", interaction.id)
-          .then(({ value }) => {
+          .getSourceEntity(source, interaction.id)
+          .then((response) => {
             if (request !== selectionRequest) return;
-            propsRef.current.onSelect(value ?? item ?? null);
+            propsRef.current.onSelect(response.value ?? item ?? null);
           })
           .catch(() => {
             if (request !== selectionRequest) return;
@@ -444,7 +456,9 @@ export function GlobeVisualization({
     const finishScan = (): void => {
       if (forceAll) {
         byType.set("quakes", []);
+        byType.set("fires", []);
         changed.add("quakes");
+        changed.add("fires");
       }
       for (const [source, previous] of previousByType) {
         const current = byType.get(source);
@@ -477,7 +491,13 @@ export function GlobeVisualization({
       );
       for (; index < end; index++) {
         const item = data[index];
-        if (!item || item.type === "quakes") continue;
+        if (
+          !item ||
+          item.type === "quakes" ||
+          item.type === "fires"
+        ) {
+          continue;
+        }
         let bucket = byType.get(item.type);
         if (!bucket) {
           bucket = [];
@@ -542,6 +562,7 @@ export function GlobeVisualization({
           milFilter: aircraftFilter.milFilter ?? "all",
         },
         earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
+        fireMinConfidence: fireFilter.minConfidence,
         searchMatchIds: searchMatchIds
           ? Array.from(searchMatchIds)
           : null,
@@ -561,6 +582,7 @@ export function GlobeVisualization({
     cycloneFilter,
     data,
     earthquakeFilter,
+    fireFilter,
     flat,
     isolatedId,
     isolateMode,

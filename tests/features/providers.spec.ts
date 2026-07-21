@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { shipProvider } from "@/features/tracking/ships/data/provider";
-import { fireProvider } from "@/features/environmental/fires/data/provider";
 import { weatherProvider } from "@/features/environmental/weather/data/provider";
 import { gdeltProvider } from "@/features/intel/events/data/provider";
 
@@ -31,29 +30,6 @@ const MOCK_SHIPS = {
   ],
   vesselCount: 1,
   connected: true,
-};
-
-const MOCK_FIRES = {
-  data: [
-    {
-      lat: -15.5,
-      lon: 28.3,
-      brightness: 340,
-      scan: 0.5,
-      track: 0.4,
-      acqDate: "2025-01-15",
-      acqTime: "1430",
-      satellite: "N",
-      instrument: "VIIRS",
-      confidence: "nominal",
-      version: "2.0NRT",
-      brightT31: 290,
-      frp: 25.5,
-      daynight: "D",
-    },
-  ],
-  fetchedAt: Date.now(),
-  fireCount: 1,
 };
 
 const MOCK_WEATHER = {
@@ -212,38 +188,6 @@ describe("shipProvider", () => {
     // Verify the null island point was filtered (not added to result)
     const hasNullIsland = result.some((p) => p.lat === 0 && p.lon === 0);
     expect(hasNullIsland).toBe(false);
-  });
-});
-
-// ── Fires ───────────────────────────────────────────────────────────
-
-describe("fireProvider", () => {
-  test("fetches and transforms FIRMS data", async () => {
-    mockResponses.set("/api/fires/latest", { ok: true, body: MOCK_FIRES });
-    const result = await fireProvider.refresh();
-    expect(result.length).toBe(1);
-    expect(result[0]!.type).toBe("fires");
-    expect(result[0]!.id).toStartWith("FI");
-    expect(result[0]!.lat).toBe(-15.5);
-    expect(result[0]!.lon).toBe(28.3);
-  });
-
-  test("DataPoint shape", async () => {
-    mockResponses.set("/api/fires/latest", { ok: true, body: MOCK_FIRES });
-    const result = await fireProvider.refresh();
-    const d = result[0]!.data as any;
-    expect(d.frp).toBe(25.5);
-    expect(d.brightness).toBe(340);
-    expect(d.confidence).toBe("nominal");
-    expect(d.satellite).toBe("N");
-    expect(d.daynight).toBe("D");
-  });
-
-  test("parses acquisition timestamp", async () => {
-    mockResponses.set("/api/fires/latest", { ok: true, body: MOCK_FIRES });
-    const result = await fireProvider.refresh();
-    expect(result[0]!.timestamp).toContain("2025-01-15");
-    expect(result[0]!.timestamp).toContain("14:30");
   });
 });
 

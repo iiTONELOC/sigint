@@ -24,7 +24,12 @@ import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data
 import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
 import { useEventData } from "@/features/intel/events";
 import { useShipData } from "@/features/tracking/ships";
-import { useFireData } from "@/features/environmental/fires";
+import {
+  useFireSourceSnapshot,
+  useFireUiQuery,
+} from "@/features/environmental/fires";
+import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
+import type { FireFilter } from "@/features/environmental/fires/types";
 import { useWeatherData } from "@/features/environmental/weather";
 import {
   useCycloneData,
@@ -81,9 +86,11 @@ type DataContextValue = {
   setAircraftFilter: React.Dispatch<React.SetStateAction<AircraftFilter>>;
   filters: Record<string, unknown>;
   earthquakeFilter: EarthquakeFilter;
+  fireFilter: FireFilter;
   counts: Record<string, number>;
   activeCount: number;
   earthquakeCount: number;
+  fireCount: number;
   tickerItems: DataPoint[];
   availableCountries: string[];
   dataSources: SourceStatus[];
@@ -229,11 +236,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     dataSource: shipSource,
   } = useShipData();
   const {
-    data: fireData,
-    version: fireVersion,
-    dataSource: fireSource,
-  } = useFireData();
-  const {
     data: weatherData,
     version: weatherVersion,
     dataSource: weatherSource,
@@ -248,6 +250,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const cycloneWarnings = useCycloneWarnings();
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
   const earthquakeSource = useEarthquakeSourceSnapshot();
+  const fireSource = useFireSourceSnapshot();
   const earthquakeTickerQuery = useMemo<EarthquakeUiQuery>(
     () => ({ kind: "ticker", limit: TICKER_ITEM_LIMIT }),
     [],
@@ -258,6 +261,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const earthquakeTickerItems =
     earthquakeTickerResult?.kind === "ticker"
       ? earthquakeTickerResult.items
+      : EMPTY_QUERY_ITEMS;
+  const fireTickerQuery = useMemo<FireUiQuery>(
+    () => ({ kind: "ticker", limit: TICKER_ITEM_LIMIT }),
+    [],
+  );
+  const fireTickerResult = useFireUiQuery(fireTickerQuery);
+  const fireTickerItems =
+    fireTickerResult?.kind === "ticker"
+      ? fireTickerResult.items
       : EMPTY_QUERY_ITEMS;
   const earthquakeCorrelationSince = useMemo(
     () => Date.now() - CORRELATION_POLICY.recentWindowMs,
@@ -290,7 +302,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     aircraftData,
     shipData,
     eventData,
-    fireData,
     weatherData,
     cycloneData,
   });
@@ -298,7 +309,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     aircraftData,
     shipData,
     eventData,
-    fireData,
     weatherData,
     cycloneData,
   };
@@ -311,7 +321,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     ...aircraftData,
     ...shipData,
     ...eventData,
-    ...fireData,
     ...weatherData,
     ...cycloneData,
   ]);
@@ -329,7 +338,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       s.aircraftData !== prev?.aircraftData ||
       s.shipData !== prev?.shipData ||
       s.eventData !== prev?.eventData ||
-      s.fireData !== prev?.fireData ||
       s.weatherData !== prev?.weatherData ||
       s.cycloneData !== prev?.cycloneData;
 
@@ -338,7 +346,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ...s.aircraftData,
           ...s.shipData,
           ...s.eventData,
-          ...s.fireData,
           ...s.weatherData,
           ...s.cycloneData,
         ]
@@ -361,13 +368,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     aircraftData,
     shipData,
     eventData,
-    fireData,
     weatherData,
     cycloneData,
     aircraftVersion,
     shipVersion,
     eventVersion,
-    fireVersion,
     weatherVersion,
     cycloneVersion,
   ]);
@@ -402,7 +407,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       { id: "quakes", label: "SEISMIC", status: earthquakeSource?.status ?? "loading" },
       { id: "events", label: "GDELT", status: eventSource },
       { id: "ships", label: "SHIPS", status: shipSource },
-      { id: "fires", label: "FIRMS", status: fireSource },
+      { id: "fires", label: "FIRMS", status: fireSource?.status ?? "loading" },
       { id: "weather", label: "NOAA", status: weatherSource },
       { id: "cyclones", label: "NHC", status: cycloneSource },
       { id: "news", label: "NEWS", status: newsSource },
@@ -414,6 +419,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const earthquakeFilter = useMemo<EarthquakeFilter>(
     () => ({ enabled: layers.quakes ?? true, minMagnitude: 0 }),
     [layers.quakes],
+  );
+  const fireFilter = useMemo<FireFilter>(
+    () => ({ enabled: layers.fires ?? true, minConfidence: 0 }),
+    [layers.fires],
   );
   const cycloneFilter = useMemo<CycloneFilter>(
     () => ({
@@ -430,11 +439,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ships: layers.ships ?? true,
       events: { enabled: layers.events ?? true, minSeverity: 0 },
       quakes: earthquakeFilter,
-      fires: { enabled: layers.fires ?? true, minConfidence: 0 },
+      fires: fireFilter,
       weather: { enabled: layers.weather ?? true, minSeverity: 0 },
       cyclones: cycloneFilter,
     }),
-    [aircraftFilter, layers, earthquakeFilter, cycloneFilter],
+    [aircraftFilter, layers, earthquakeFilter, fireFilter, cycloneFilter],
   );
 
   // ── Derived state — OFF the render path ────────────────────────
@@ -465,20 +474,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     idMap,
     spatialGrid,
     filteredIds,
-    counts: nonEarthquakeCounts,
+    counts: localCounts,
     availableCountries,
   } = derived;
   const earthquakeCount = earthquakeSource?.count ?? 0;
+  const fireCount = fireSource?.count ?? 0;
   const counts = useMemo(
     () => ({
-      ...nonEarthquakeCounts,
+      ...localCounts,
       quakes: layers.quakes === false ? 0 : earthquakeCount,
+      fires: layers.fires === false ? 0 : fireCount,
     }),
-    [nonEarthquakeCounts, layers.quakes, earthquakeCount],
+    [localCounts, layers.quakes, layers.fires, earthquakeCount, fireCount],
   );
   const tickerItems = useMemo(
-    () => buildTickerItems([...allData, ...earthquakeTickerItems]),
-    [allData, earthquakeTickerItems],
+    () =>
+      buildTickerItems([
+        ...allData,
+        ...earthquakeTickerItems,
+        ...fireTickerItems,
+      ]),
+    [allData, earthquakeTickerItems, fireTickerItems],
   );
   const activeCount = useMemo(
     () => Object.values(counts).reduce((sum, count) => sum + count, 0),
@@ -544,7 +560,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       clearTimeout(id);
     };
-  }, [allData, earthquakeCorrelationItems, newsArticles]);
+  }, [
+    allData,
+    earthquakeCorrelationItems,
+    newsArticles,
+    fireSource?.version,
+  ]);
 
   // ── DataContext value ──────────────────────────────────────────
   const dataValue = useMemo<DataContextValue>(
@@ -560,9 +581,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setAircraftFilter,
       filters,
       earthquakeFilter,
+      fireFilter,
       counts,
       activeCount,
       earthquakeCount,
+      fireCount,
       tickerItems,
       availableCountries,
       dataSources,
@@ -577,8 +600,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }),
     [
       allData, allDataVersion, newsArticles, spatialGrid, filteredIds,
-      layers, toggleLayer, aircraftFilter, filters, earthquakeFilter,
-      counts, activeCount, earthquakeCount, tickerItems, availableCountries,
+      layers, toggleLayer, aircraftFilter, filters, earthquakeFilter, fireFilter,
+      counts, activeCount, earthquakeCount, fireCount, tickerItems, availableCountries,
       dataSources, correlation, cycloneWarnings, cycloneFilter,
       toggleCycloneLayer, hiddenModels, toggleModel, toggleAllModels, requestAircraftEnrichment,
     ],

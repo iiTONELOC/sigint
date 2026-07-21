@@ -50,11 +50,10 @@ describe("Boot sequence (frontend.tsx)", () => {
     expect(frontendSource).not.toContain("ensureMetadataDb");
   });
 
-  test("all 7 providers are in the providers array", () => {
+  test("all 6 providers are in the providers array", () => {
     for (const name of [
       "shipProvider",
       "gdeltProvider",
-      "fireProvider",
       "weatherProvider",
       "newsProvider",
       "aircraftProvider",

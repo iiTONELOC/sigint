@@ -1,4 +1,9 @@
 import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
+import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
+import {
+  findFireSearchIds,
+  runFireUiQuery,
+} from "@/features/environmental/fires/data/uiQueries";
 import {
   findEarthquakeSearchIds,
   runEarthquakeUiQuery,
@@ -10,6 +15,8 @@ import {
 } from "@/workers/data/cacheStore";
 import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
 import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
+import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
+import { packFireRenderData } from "@/workers/data/fireRenderData";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 import {
   DATA_WORKER_PROTOCOL_VERSION,
@@ -19,12 +26,17 @@ import {
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 import { createRenderDataCommand } from "@/workers/render/dataChannel";
+import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
 
 const store = createDataCacheStore(indexedDB);
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
+let correlationPort: MessagePort | null = null;
+let correlationSessionId: string | null = null;
+let correlationSequence = 0;
 let earthquakeSearchText: string | null = null;
+let fireSearchText: string | null = null;
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
   minWriteIntervalMs: DATA_CACHE_POLICY.minWriteIntervalMs,
@@ -65,6 +77,21 @@ function publishEarthquakeSearch(): void {
   );
 }
 
+function publishFireSearch(): void {
+  if (!renderPort || !renderSessionId) return;
+  const matchingIds = fireSearchText
+    ? findFireSearchIds(fireOwner.read(), fireSearchText)
+    : null;
+  renderSequence++;
+  renderPort.postMessage(
+    createRenderDataCommand(
+      { type: "fireSearch", matchingIds },
+      renderSessionId,
+      renderSequence,
+    ),
+  );
+}
+
 function rebaseEarthquakeRender(
   points: ReturnType<typeof earthquakeOwner.read>,
 ): void {
@@ -94,6 +121,59 @@ const earthquakeOwner = createEarthquakeSourceOwner({
   },
   publish: publishSource,
   rebaseRender: rebaseEarthquakeRender,
+});
+
+function rebaseFireRender(
+  points: ReturnType<typeof fireOwner.read>,
+): void {
+  if (!renderPort || !renderSessionId) return;
+  const packed = packFireRenderData(points);
+  renderSequence++;
+  renderPort.postMessage(
+    createRenderDataCommand(
+      { type: "fireRebase", ...packed },
+      renderSessionId,
+      renderSequence,
+    ),
+    [
+      packed.positions.buffer,
+      packed.unitVectors.buffer,
+      packed.frp.buffer,
+      packed.timestamps.buffer,
+      packed.confidences.buffer,
+    ],
+  );
+  publishFireSearch();
+}
+
+function rebaseFireCorrelation(
+  points: ReturnType<typeof fireOwner.read>,
+): void {
+  if (!correlationPort || !correlationSessionId) return;
+  correlationSequence++;
+  correlationPort.postMessage(
+    createCorrelationDataCommand(
+      { type: "fireRebase", points },
+      correlationSessionId,
+      correlationSequence,
+    ),
+  );
+}
+
+function rebaseFireConsumers(
+  points: ReturnType<typeof fireOwner.read>,
+): void {
+  rebaseFireRender(points);
+  rebaseFireCorrelation(points);
+}
+
+const fireOwner = createFireSourceOwner({
+  readCache: () => store.get(FIRE_SOURCE_POLICY.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(FIRE_SOURCE_POLICY.cacheKey, snapshot);
+  },
+  publish: publishSource,
+  rebaseRender: rebaseFireConsumers,
 });
 
 function complete(requestId: number | null): void {
@@ -134,6 +214,25 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         ),
       );
       earthquakeOwner.rebase();
+      rebaseFireRender(fireOwner.read());
+      complete(requestId);
+      return;
+    }
+    if (command.type === "connectCorrelation") {
+      correlationPort?.close();
+      correlationPort = command.port;
+      correlationSessionId = command.correlationSessionId;
+      correlationSequence = 0;
+      correlationPort.start();
+      correlationSequence++;
+      correlationPort.postMessage(
+        createCorrelationDataCommand(
+          { type: "bind" },
+          correlationSessionId,
+          correlationSequence,
+        ),
+      );
+      rebaseFireCorrelation(fireOwner.read());
       complete(requestId);
       return;
     }
@@ -146,44 +245,45 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         entries: mainThreadCacheEntries(await store.getAll()),
       });
       void earthquakeOwner.start();
+      void fireOwner.start();
       return;
     }
     if (command.type === "refreshSource") {
-      await earthquakeOwner.refresh();
+      await (command.source === "earthquake"
+        ? earthquakeOwner.refresh()
+        : fireOwner.refresh());
       complete(requestId);
       return;
     }
     if (command.type === "getSourceEntity") {
-      const snapshot = earthquakeOwner.snapshot();
-      post({
-        type: "sourceEntity",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
-        requestId,
-        source: "earthquake",
-        sourceVersion: snapshot.version,
-        value: earthquakeOwner.find(command.id),
-      });
+      if (command.source === "earthquake") {
+        const snapshot = earthquakeOwner.snapshot();
+        post({ type: "sourceEntity", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "earthquake", sourceVersion: snapshot.version, value: earthquakeOwner.find(command.id) });
+      } else {
+        const snapshot = fireOwner.snapshot();
+        post({ type: "sourceEntity", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "fire", sourceVersion: snapshot.version, value: fireOwner.find(command.id) });
+      }
       return;
     }
     if (command.type === "querySource") {
-      const snapshot = earthquakeOwner.snapshot();
-      post({
-        type: "sourceQuery",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
-        requestId,
-        source: "earthquake",
-        sourceVersion: snapshot.version,
-        result: runEarthquakeUiQuery(
-          earthquakeOwner.read(),
-          command.query,
-        ),
-      });
+      if (command.source === "earthquake") {
+        const snapshot = earthquakeOwner.snapshot();
+        post({ type: "sourceQuery", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "earthquake", sourceVersion: snapshot.version, result: runEarthquakeUiQuery(earthquakeOwner.read(), command.query) });
+      } else {
+        const snapshot = fireOwner.snapshot();
+        post({ type: "sourceQuery", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "fire", sourceVersion: snapshot.version, result: runFireUiQuery(fireOwner.read(), command.query) });
+      }
       return;
     }
     if (command.type === "setSourceSearch") {
       const normalized = command.text?.trim() ?? "";
-      earthquakeSearchText = normalized.length > 0 ? normalized : null;
-      publishEarthquakeSearch();
+      if (command.source === "earthquake") {
+        earthquakeSearchText = normalized.length > 0 ? normalized : null;
+        publishEarthquakeSearch();
+      } else {
+        fireSearchText = normalized.length > 0 ? normalized : null;
+        publishFireSearch();
+      }
       complete(requestId);
       return;
     }

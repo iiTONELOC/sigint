@@ -47,10 +47,14 @@ export {
 } from "./baseline";
 export type CorrelationPolicy = Readonly<{
   recentWindowMs: number;
+  sourcePreviewLimit: number;
+  alertGroupPreviewLimit: number;
 }>;
 
 export const CORRELATION_POLICY: CorrelationPolicy = {
   recentWindowMs: 24 * HOUR,
+  sourcePreviewLimit: 8,
+  alertGroupPreviewLimit: 8,
 };
 
 
@@ -69,9 +73,16 @@ function buildProducts(
   let idCounter = 0;
 
   // 0. Cyclone rules — highest specificity, attach first.
-  for (const p of cycloneProducts) {
-    products.push(p);
-    for (const item of p.sources) consumedIds.add(item.id);
+  for (const product of cycloneProducts) {
+    products.push({
+      ...product,
+      sourceCount: product.sources.length,
+      sources: product.sources.slice(
+        0,
+        CORRELATION_POLICY.sourcePreviewLimit,
+      ),
+    });
+    for (const item of product.sources) consumedIds.add(item.id);
   }
 
   // 1. Cross-source correlations — highest value intel
@@ -86,7 +97,8 @@ function buildProducts(
       title: cc.description,
       summary: `${cc.types.size} source types correlated in ${country}`,
       region: country,
-      sources: allItems,
+      sources: allItems.slice(0, CORRELATION_POLICY.sourcePreviewLimit),
+      sourceCount: allItems.length,
       newsLinks: news,
       timestamp: now,
     });
@@ -129,7 +141,8 @@ function buildProducts(
       title: `${remaining.length} ${typeLabel[cluster.type] ?? cluster.type} in ${cluster.country}`,
       summary: `Clustered activity within ${CLUSTER_TIME_WINDOW / HOUR}h window`,
       region: cluster.country,
-      sources: remaining,
+      sources: remaining.slice(0, CORRELATION_POLICY.sourcePreviewLimit),
+      sourceCount: remaining.length,
       newsLinks: news,
       timestamp: now,
     });
@@ -344,8 +357,13 @@ function scoreAlerts(
 
     if (current && key === currentKey && ts - currentTs < DEDUP_WINDOW) {
       current.groupedItems = current.groupedItems ?? [current.item];
-      current.groupedItems.push(alert.item);
-      current.count = current.groupedItems.length;
+      if (
+        current.groupedItems.length <
+        CORRELATION_POLICY.alertGroupPreviewLimit
+      ) {
+        current.groupedItems.push(alert.item);
+      }
+      current.count += alert.count;
 
       if (alert.score > current.score) {
         current.item = alert.item;

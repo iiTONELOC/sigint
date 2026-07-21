@@ -25,7 +25,9 @@ import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
 import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
-import { mergeSortedPrefix } from "@/lib/data/mergeSortedPrefix";
+import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
+import { useFireUiQuery } from "@/features/environmental/fires";
+import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -217,13 +219,14 @@ export function IntelFeedPane() {
     watchMode,
     watchProgress,
     earthquakeFilter,
+    fireFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [viewMode, setViewMode] = useState<ViewMode>("intel");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [earthquakePrefixLimit, setEarthquakePrefixLimit] =
+  const [sourcePrefixLimit, setSourcePrefixLimit] =
     useState(INITIAL_QUERY_LIMIT);
 
   // Is watch targeting intel products?
@@ -278,10 +281,10 @@ export function IntelFeedPane() {
             sortKey: "age",
             sortDirection: "asc",
             offset: 0,
-            limit: earthquakePrefixLimit,
+            limit: sourcePrefixLimit,
           }
         : null,
-    [earthquakeFilter, earthquakePrefixLimit],
+    [earthquakeFilter, sourcePrefixLimit],
   );
   const earthquakeRawResult = useEarthquakeUiQuery(earthquakeRawQuery);
   const earthquakeTotal =
@@ -292,14 +295,38 @@ export function IntelFeedPane() {
     includeEarthquakes && earthquakeRawResult?.kind === "table"
       ? earthquakeRawResult.items
       : [];
+  const fireRawQuery = useMemo<FireUiQuery | null>(
+    () =>
+      fireFilter.enabled
+        ? {
+            kind: "table",
+            minConfidence: fireFilter.minConfidence,
+            sortKey: "age",
+            sortDirection: "asc",
+            offset: 0,
+            limit: sourcePrefixLimit,
+          }
+        : null,
+    [fireFilter, sourcePrefixLimit],
+  );
+  const fireRawResult = useFireUiQuery(fireRawQuery);
+  const fireTotal =
+    fireRawResult?.kind === "table" ? fireRawResult.total : 0;
+  const includeFires = feedFilter === "all" || feedFilter === "fires";
+  const fireItems =
+    includeFires && fireRawResult?.kind === "table"
+      ? fireRawResult.items
+      : [];
   const rawItemCount =
-    rawLocalItems.length + (includeEarthquakes ? earthquakeTotal : 0);
+    rawLocalItems.length +
+    (includeEarthquakes ? earthquakeTotal : 0) +
+    (includeFires ? fireTotal : 0);
 
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {
       events: 0,
       quakes: earthquakeTotal,
-      fires: 0,
+      fires: fireTotal,
       weather: 0,
     };
     for (const item of allData) {
@@ -308,7 +335,7 @@ export function IntelFeedPane() {
       }
     }
     return counts;
-  }, [allData, feedTypes, earthquakeTotal]);
+  }, [allData, feedTypes, earthquakeTotal, fireTotal]);
 
   // ── Virtual scroll (raw mode) ───────────────────────────────────
 
@@ -320,18 +347,17 @@ export function IntelFeedPane() {
     });
 
   useEffect(() => {
-    if (endIdx > earthquakePrefixLimit) setEarthquakePrefixLimit(endIdx);
-  }, [endIdx, earthquakePrefixLimit]);
+    if (endIdx > sourcePrefixLimit) setSourcePrefixLimit(endIdx);
+  }, [endIdx, sourcePrefixLimit]);
 
   const visibleRaw = useMemo(
     () =>
-      mergeSortedPrefix(
-        rawLocalItems,
-        earthquakeItems,
+      mergeSortedPrefixes(
+        [rawLocalItems, earthquakeItems, fireItems],
         compareNewestFirst,
         endIdx,
       ).slice(startIdx, endIdx),
-    [rawLocalItems, earthquakeItems, startIdx, endIdx],
+    [rawLocalItems, earthquakeItems, fireItems, startIdx, endIdx],
   );
 
   // ── Handlers ────────────────────────────────────────────────────
@@ -598,9 +624,11 @@ export function IntelFeedPane() {
                             </div>
                           );
                         })}
-                        {product.sources.length > 8 && (
+                        {(product.sourceCount ?? product.sources.length) >
+                          product.sources.length && (
                           <div className="text-(length:--sig-text-sm) text-sig-dim px-1">
-                            +{product.sources.length - 8} more
+                            +{(product.sourceCount ?? product.sources.length) -
+                              product.sources.length} more
                           </div>
                         )}
                       </div>

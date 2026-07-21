@@ -32,6 +32,7 @@ export function LiveTrafficPane() {
     layers,
     aircraftFilter,
     earthquakeFilter,
+    fireFilter,
     cycloneFilter,
     flat,
     setFlat,
@@ -183,6 +184,7 @@ export function LiveTrafficPane() {
         layers={layers}
         aircraftFilter={aircraftFilter}
         earthquakeFilter={earthquakeFilter}
+        fireFilter={fireFilter}
         cycloneFilter={cycloneFilter}
         flat={flat}
         autoRotate={autoRotate}

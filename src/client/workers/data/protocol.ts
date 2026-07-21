@@ -1,3 +1,5 @@
+import { parseFirePoint, type FirePoint } from "@/features/environmental/fires/data/source";
+import { parseFireUiQuery, parseFireUiQueryResult, type FireUiQuery, type FireUiQueryResult } from "@/features/environmental/fires/data/uiQueries";
 import {
   parseEarthquakePoint,
   type EarthquakePoint,
@@ -10,22 +12,25 @@ import {
 } from "@/features/environmental/earthquake/data/uiQueries";
 import { isRecord } from "@shared/geo";
 
-export const DATA_WORKER_PROTOCOL_VERSION: 5 = 5;
+export const DATA_WORKER_PROTOCOL_VERSION: 7 = 7;
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
   value: unknown;
 }>;
 
+export type DataWorkerPointSource = "earthquake" | "fire";
+
 export type DataWorkerSourceStatus =
   | "loading"
   | "live"
   | "cached"
   | "error"
-  | "empty";
+  | "empty"
+  | "unavailable";
 
 export type DataWorkerSourceSnapshot = Readonly<{
-  source: "earthquake";
+  source: DataWorkerPointSource;
   version: number;
   status: DataWorkerSourceStatus;
   loading: boolean;
@@ -47,12 +52,17 @@ export type DataWorkerCommandBody =
       renderSessionId: string;
     }>
   | Readonly<{
+      type: "connectCorrelation";
+      port: MessagePort;
+      correlationSessionId: string;
+    }>
+  | Readonly<{
       type: "refreshSource";
-      source: "earthquake";
+      source: DataWorkerPointSource;
     }>
   | Readonly<{
       type: "getSourceEntity";
-      source: "earthquake";
+      source: DataWorkerPointSource;
       id: string;
     }>
   | Readonly<{
@@ -61,8 +71,13 @@ export type DataWorkerCommandBody =
       query: EarthquakeUiQuery;
     }>
   | Readonly<{
+      type: "querySource";
+      source: "fire";
+      query: FireUiQuery;
+    }>
+  | Readonly<{
       type: "setSourceSearch";
-      source: "earthquake";
+      source: DataWorkerPointSource;
       text: string | null;
     }>
   | Readonly<{ type: "get"; key: string }>
@@ -102,10 +117,24 @@ export type DataWorkerEvent =
       }>)
   | (DataWorkerEnvelope &
       Readonly<{
+        type: "sourceEntity";
+        source: "fire";
+        sourceVersion: number;
+        value: FirePoint | null;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
         type: "sourceQuery";
         source: "earthquake";
         sourceVersion: number;
         result: EarthquakeUiQueryResult;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
+        type: "sourceQuery";
+        source: "fire";
+        sourceVersion: number;
+        result: FireUiQueryResult;
       }>)
   | (DataWorkerEnvelope &
       Readonly<{ type: "error"; message: string }>);
@@ -154,7 +183,8 @@ function isSourceStatus(value: unknown): value is DataWorkerSourceStatus {
     value === "live" ||
     value === "cached" ||
     value === "error" ||
-    value === "empty"
+    value === "empty" ||
+    value === "unavailable"
   );
 }
 
@@ -163,7 +193,7 @@ function parseSourceSnapshot(
 ): DataWorkerSourceSnapshot | null {
   if (
     !isRecord(value) ||
-    value.source !== "earthquake" ||
+    (value.source !== "earthquake" && value.source !== "fire") ||
     typeof value.version !== "number" ||
     !Number.isSafeInteger(value.version) ||
     value.version < 0 ||
@@ -181,7 +211,7 @@ function parseSourceSnapshot(
     return null;
   }
   return {
-    source: "earthquake",
+    source: value.source,
     version: value.version,
     status: value.status,
     loading: value.loading,
@@ -213,22 +243,36 @@ export function parseDataWorkerCommand(
   }
 
   if (
-    value.type === "refreshSource" &&
-    value.source === "earthquake"
+    value.type === "connectCorrelation" &&
+    isMessagePort(value.port) &&
+    typeof value.correlationSessionId === "string" &&
+    value.correlationSessionId.length > 0
   ) {
-    return { ...envelope, type: "refreshSource", source: "earthquake" };
+    return {
+      ...envelope,
+      type: "connectCorrelation",
+      port: value.port,
+      correlationSessionId: value.correlationSessionId,
+    };
+  }
+
+  if (
+    value.type === "refreshSource" &&
+    (value.source === "earthquake" || value.source === "fire")
+  ) {
+    return { ...envelope, type: "refreshSource", source: value.source };
   }
 
   if (
     value.type === "getSourceEntity" &&
-    value.source === "earthquake" &&
+(value.source === "earthquake" || value.source === "fire") &&
     typeof value.id === "string" &&
     value.id.length > 0
   ) {
     return {
       ...envelope,
       type: "getSourceEntity",
-      source: "earthquake",
+      source: value.source,
       id: value.id,
     };
   }
@@ -236,23 +280,23 @@ export function parseDataWorkerCommand(
   if (value.type === "querySource" && value.source === "earthquake") {
     const query = parseEarthquakeUiQuery(value.query);
     if (!query) return null;
-    return {
-      ...envelope,
-      type: "querySource",
-      source: "earthquake",
-      query,
-    };
+    return { ...envelope, type: "querySource", source: "earthquake", query };
+  }
+  if (value.type === "querySource" && value.source === "fire") {
+    const query = parseFireUiQuery(value.query);
+    if (!query) return null;
+    return { ...envelope, type: "querySource", source: "fire", query };
   }
 
   if (
     value.type === "setSourceSearch" &&
-    value.source === "earthquake" &&
+(value.source === "earthquake" || value.source === "fire") &&
     (value.text === null || typeof value.text === "string")
   ) {
     return {
       ...envelope,
       type: "setSourceSearch",
-      source: "earthquake",
+      source: value.source,
       text: value.text,
     };
   }
@@ -318,7 +362,7 @@ export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
   }
   if (
     value.type === "sourceEntity" &&
-    value.source === "earthquake" &&
+    (value.source === "earthquake" || value.source === "fire") &&
     typeof value.sourceVersion === "number" &&
     Number.isSafeInteger(value.sourceVersion) &&
     value.sourceVersion >= 0
@@ -327,37 +371,39 @@ export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
       return {
         ...envelope,
         type: "sourceEntity",
-        source: "earthquake",
+        source: value.source,
         sourceVersion: value.sourceVersion,
         value: null,
       };
     }
-    const point = parseEarthquakePoint(value.value);
-    if (!point) return null;
-    return {
-      ...envelope,
-      type: "sourceEntity",
-      source: "earthquake",
-      sourceVersion: value.sourceVersion,
-      value: point,
-    };
+    if (value.source === "earthquake") {
+      const point = parseEarthquakePoint(value.value);
+      return point
+        ? { ...envelope, type: "sourceEntity", source: "earthquake", sourceVersion: value.sourceVersion, value: point }
+        : null;
+    }
+    const point = parseFirePoint(value.value);
+    return point
+      ? { ...envelope, type: "sourceEntity", source: "fire", sourceVersion: value.sourceVersion, value: point }
+      : null;
   }
   if (
     value.type === "sourceQuery" &&
-    value.source === "earthquake" &&
+    (value.source === "earthquake" || value.source === "fire") &&
     typeof value.sourceVersion === "number" &&
     Number.isSafeInteger(value.sourceVersion) &&
     value.sourceVersion >= 0
   ) {
-    const result = parseEarthquakeUiQueryResult(value.result);
-    if (!result) return null;
-    return {
-      ...envelope,
-      type: "sourceQuery",
-      source: "earthquake",
-      sourceVersion: value.sourceVersion,
-      result,
-    };
+    if (value.source === "earthquake") {
+      const result = parseEarthquakeUiQueryResult(value.result);
+      return result
+        ? { ...envelope, type: "sourceQuery", source: "earthquake", sourceVersion: value.sourceVersion, result }
+        : null;
+    }
+    const result = parseFireUiQueryResult(value.result);
+    return result
+      ? { ...envelope, type: "sourceQuery", source: "fire", sourceVersion: value.sourceVersion, result }
+      : null;
   }
   if (value.type === "complete") {
     return { ...envelope, type: "complete" };

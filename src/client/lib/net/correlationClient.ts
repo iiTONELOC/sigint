@@ -2,6 +2,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
 import type { CorrelationResult, RegionBaseline } from "../correlation";
 import { computeCorrelations } from "../correlation";
+import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 
 type Job = {
   requestId: number;
@@ -59,6 +60,23 @@ export function createCorrelationClient(): CorrelationClient {
     worker = new Worker(WORKER_URL, { type: "module" });
   } catch {
     return inlineFallback();
+  }
+
+  const dataClient = getDataWorkerClient();
+  if (dataClient && typeof MessageChannel !== "undefined") {
+    const channel = new MessageChannel();
+    const correlationSessionId = globalThis.crypto.randomUUID();
+    worker.postMessage(
+      {
+        type: "bindData",
+        port: channel.port2,
+        correlationSessionId,
+      },
+      [channel.port2],
+    );
+    void dataClient
+      .connectCorrelation(channel.port1, correlationSessionId)
+      .catch(() => undefined);
   }
 
   const pending = new Map<number, Job>();

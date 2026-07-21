@@ -59,6 +59,39 @@ describe("render data channel", () => {
     ).toBeNull();
   });
 
+  test("validates a complete packed fire rebase", () => {
+    const command = createRenderDataCommand(
+      {
+        type: "fireRebase",
+        ids: ["Fone", "Ftwo"],
+        positions: new Float64Array([-122, 47, 10, -20]),
+        unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
+        frp: new Float32Array([12, 35]),
+        timestamps: new Float64Array([1_000, 2_000]),
+        confidences: new Uint8Array([1, 2]),
+      },
+      "session-a",
+      4,
+    );
+
+    expect(parseRenderDataCommand(command)).toEqual(command);
+    expect(
+      parseRenderDataCommand({
+        ...command,
+        confidences: new Uint8Array([2]),
+      }),
+    ).toBeNull();
+  });
+
+  test("validates a worker-owned fire search filter", () => {
+    const command = createRenderDataCommand(
+      { type: "fireSearch", matchingIds: ["Fone", "Ftwo"] },
+      "session-a",
+      5,
+    );
+    expect(parseRenderDataCommand(command)).toEqual(command);
+  });
+
   test("rejects malformed envelopes", () => {
     expect(
       parseRenderDataCommand({

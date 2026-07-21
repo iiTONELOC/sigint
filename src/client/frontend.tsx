@@ -20,7 +20,6 @@ import { ensureAuthCookie } from "./lib/net/authService";
 // Singleton providers
 import { shipProvider } from "./features/tracking/ships/data/provider";
 import { gdeltProvider } from "./features/intel/events/data/provider";
-import { fireProvider } from "./features/environmental/fires/data/provider";
 import { weatherProvider } from "./features/environmental/weather/data/provider";
 import { newsProvider } from "./features/news";
 import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
@@ -73,7 +72,6 @@ if (import.meta.hot) {
 const providers = [
   shipProvider,
   gdeltProvider,
-  fireProvider,
   weatherProvider,
   newsProvider,
   aircraftProvider,

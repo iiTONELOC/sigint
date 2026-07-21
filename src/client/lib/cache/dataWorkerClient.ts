@@ -1,3 +1,5 @@
+import type { FirePoint } from "@/features/environmental/fires/data/source";
+import type { FireUiQuery, FireUiQueryResult } from "@/features/environmental/fires/data/uiQueries";
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import type {
   EarthquakeUiQuery,
@@ -11,6 +13,7 @@ import {
   type DataWorkerCacheEntry,
   type DataWorkerCommandBody,
   type DataWorkerEvent,
+  type DataWorkerPointSource,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 export type DataWorkerClientPolicy = Readonly<{
@@ -35,15 +38,17 @@ export type DataWorkerSourceListener = (
   snapshot: DataWorkerSourceSnapshot,
 ) => void;
 
-export type DataWorkerSourceEntityResult = Readonly<{
-  sourceVersion: number;
-  value: EarthquakePoint | null;
-}>;
+export type DataWorkerSourceEntityResult =
+  | Readonly<{ source: "earthquake"; sourceVersion: number; value: EarthquakePoint | null }>
+  | Readonly<{ source: "fire"; sourceVersion: number; value: FirePoint | null }>;
 
-export type DataWorkerSourceQueryResult = Readonly<{
-  sourceVersion: number;
-  result: EarthquakeUiQueryResult;
-}>;
+export type DataWorkerSourceQueryResult =
+  | Readonly<{ source: "earthquake"; sourceVersion: number; result: EarthquakeUiQueryResult }>
+  | Readonly<{ source: "fire"; sourceVersion: number; result: FireUiQueryResult }>;
+
+export type DataWorkerSourceQueryRequest =
+  | Readonly<{ source: "earthquake"; query: EarthquakeUiQuery }>
+  | Readonly<{ source: "fire"; query: FireUiQuery }>;
 
 export type DataWorkerTransport = {
   onmessage: ((message: MessageEvent<unknown>) => void) | null;
@@ -58,24 +63,27 @@ export type DataWorkerTransport = {
 export type DataWorkerClient = Readonly<{
   init: () => Promise<readonly DataWorkerCacheEntry[]>;
   connectRender: (port: MessagePort, renderSessionId: string) => Promise<void>;
-  refreshSource: (source: "earthquake") => Promise<void>;
+  connectCorrelation: (
+    port: MessagePort,
+    correlationSessionId: string,
+  ) => Promise<void>;
+  refreshSource: (source: DataWorkerPointSource) => Promise<void>;
   getSourceEntity: (
-    source: "earthquake",
+    source: DataWorkerPointSource,
     id: string,
   ) => Promise<DataWorkerSourceEntityResult>;
   querySource: (
-    source: "earthquake",
-    query: EarthquakeUiQuery,
+    request: DataWorkerSourceQueryRequest,
   ) => Promise<DataWorkerSourceQueryResult>;
   setSourceSearch: (
-    source: "earthquake",
+    source: DataWorkerPointSource,
     text: string | null,
   ) => Promise<void>;
   getSourceSnapshot: (
-    source: "earthquake",
+    source: DataWorkerPointSource,
   ) => DataWorkerSourceSnapshot | null;
   subscribeSource: (
-    source: "earthquake",
+    source: DataWorkerPointSource,
     listener: DataWorkerSourceListener,
   ) => () => void;
   get: (key: string) => Promise<unknown | null>;
@@ -101,9 +109,12 @@ export function createDataWorkerClient(
     options.requestTimeoutMs ?? DATA_WORKER_CLIENT_POLICY.requestTimeoutMs;
   let nextRequestId = 0;
   let failed: Error | null = null;
-  let earthquakeSnapshot: DataWorkerSourceSnapshot | null = null;
+  const sourceSnapshots = new Map<DataWorkerPointSource, DataWorkerSourceSnapshot>();
   const pending = new Map<number, PendingRequest>();
-  const sourceListeners = new Set<DataWorkerSourceListener>();
+  const sourceListeners = new Set<Readonly<{
+    source: DataWorkerPointSource;
+    listener: DataWorkerSourceListener;
+  }>>();
 
   const rejectAll = (error: Error): void => {
     failed = error;
@@ -126,9 +137,11 @@ export function createDataWorkerClient(
     const event = parseDataWorkerEvent(message.data);
     if (!event) return;
     if (event.type === "sourceSnapshot") {
-      earthquakeSnapshot = event.snapshot;
-      for (const listener of sourceListeners) {
-        listener(event.snapshot);
+      sourceSnapshots.set(event.snapshot.source, event.snapshot);
+      for (const registration of sourceListeners) {
+        if (registration.source === event.snapshot.source) {
+          registration.listener(event.snapshot);
+        }
       }
       return;
     }
@@ -206,12 +219,22 @@ export function createDataWorkerClient(
       );
     },
 
-    refreshSource(source: "earthquake"): Promise<void> {
+    connectCorrelation(
+      port: MessagePort,
+      correlationSessionId: string,
+    ): Promise<void> {
+      return requireComplete(
+        { type: "connectCorrelation", port, correlationSessionId },
+        [port],
+      );
+    },
+
+    refreshSource(source: DataWorkerPointSource): Promise<void> {
       return requireComplete({ type: "refreshSource", source });
     },
 
     async getSourceEntity(
-      source: "earthquake",
+      source: DataWorkerPointSource,
       id: string,
     ): Promise<DataWorkerSourceEntityResult> {
       const event = await request({
@@ -222,51 +245,51 @@ export function createDataWorkerClient(
       if (event.type !== "sourceEntity") {
         throw unexpectedEvent("source entity");
       }
-      return {
-        sourceVersion: event.sourceVersion,
-        value: event.value,
-      };
+      if (event.source === "earthquake") {
+        return { source: "earthquake", sourceVersion: event.sourceVersion, value: event.value };
+      }
+      return { source: "fire", sourceVersion: event.sourceVersion, value: event.value };
     },
 
     async querySource(
-      source: "earthquake",
-      query: EarthquakeUiQuery,
+      queryRequest: DataWorkerSourceQueryRequest,
     ): Promise<DataWorkerSourceQueryResult> {
       const event = await request({
         type: "querySource",
-        source,
-        query,
+        ...queryRequest,
       });
       if (event.type !== "sourceQuery") {
         throw unexpectedEvent("source query");
       }
-      return {
-        sourceVersion: event.sourceVersion,
-        result: event.result,
-      };
+      if (event.source === "earthquake") {
+        return { source: "earthquake", sourceVersion: event.sourceVersion, result: event.result };
+      }
+      return { source: "fire", sourceVersion: event.sourceVersion, result: event.result };
     },
 
     setSourceSearch(
-      source: "earthquake",
+      source: DataWorkerPointSource,
       text: string | null,
     ): Promise<void> {
       return requireComplete({ type: "setSourceSearch", source, text });
     },
 
     getSourceSnapshot(
-      _source: "earthquake",
+      source: DataWorkerPointSource,
     ): DataWorkerSourceSnapshot | null {
-      return earthquakeSnapshot;
+      return sourceSnapshots.get(source) ?? null;
     },
 
     subscribeSource(
-      _source: "earthquake",
+      source: DataWorkerPointSource,
       listener: DataWorkerSourceListener,
     ): () => void {
-      sourceListeners.add(listener);
-      if (earthquakeSnapshot) listener(earthquakeSnapshot);
+      const registration = { source, listener };
+      sourceListeners.add(registration);
+      const snapshot = sourceSnapshots.get(source);
+      if (snapshot) listener(snapshot);
       return () => {
-        sourceListeners.delete(listener);
+        sourceListeners.delete(registration);
       };
     },
 

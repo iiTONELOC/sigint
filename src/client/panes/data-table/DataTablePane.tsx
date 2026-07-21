@@ -12,7 +12,9 @@ import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 import { isMobileWidth } from "@/config/breakpoints";
 import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
 import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
-import { mergeSortedPrefix } from "@/lib/data/mergeSortedPrefix";
+import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
+import { useFireUiQuery } from "@/features/environmental/fires";
+import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -244,13 +246,14 @@ export function DataTablePane() {
     setRevealId,
     colorMap,
     earthquakeFilter,
+    fireFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [sortKey, setSortKey] = useState<SortKey>("type");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
-  const [earthquakePrefixLimit, setEarthquakePrefixLimit] =
+  const [sourcePrefixLimit, setSourcePrefixLimit] =
     useState(INITIAL_QUERY_LIMIT);
 
   // ── Filter ──────────────────────────────────────────────────────
@@ -286,10 +289,10 @@ export function DataTablePane() {
             sortKey,
             sortDirection: sortDir,
             offset: 0,
-            limit: earthquakePrefixLimit,
+            limit: sourcePrefixLimit,
           }
         : null,
-    [earthquakeFilter, sortKey, sortDir, earthquakePrefixLimit],
+    [earthquakeFilter, sortKey, sortDir, sourcePrefixLimit],
   );
   const earthquakeTableResult = useEarthquakeUiQuery(earthquakeTableQuery);
   const earthquakeTotal =
@@ -302,8 +305,32 @@ export function DataTablePane() {
     includeEarthquakes && earthquakeTableResult?.kind === "table"
       ? earthquakeTableResult.items
       : [];
+  const fireTableQuery = useMemo<FireUiQuery | null>(
+    () =>
+      fireFilter.enabled
+        ? {
+            kind: "table",
+            minConfidence: fireFilter.minConfidence,
+            sortKey,
+            sortDirection: sortDir,
+            offset: 0,
+            limit: sourcePrefixLimit,
+          }
+        : null,
+    [fireFilter, sortKey, sortDir, sourcePrefixLimit],
+  );
+  const fireTableResult = useFireUiQuery(fireTableQuery);
+  const fireTotal =
+    fireTableResult?.kind === "table" ? fireTableResult.total : 0;
+  const includeFires = typeFilter === null || typeFilter === "fires";
+  const fireItems =
+    includeFires && fireTableResult?.kind === "table"
+      ? fireTableResult.items
+      : [];
   const itemCount =
-    sortedData.length + (includeEarthquakes ? earthquakeTotal : 0);
+    sortedData.length +
+    (includeEarthquakes ? earthquakeTotal : 0) +
+    (includeFires ? fireTotal : 0);
 
   // ── Virtual scroll ──────────────────────────────────────────────
 
@@ -322,29 +349,35 @@ export function DataTablePane() {
   });
 
   useEffect(() => {
-    if (endIdx > earthquakePrefixLimit) setEarthquakePrefixLimit(endIdx);
-  }, [endIdx, earthquakePrefixLimit]);
+    if (endIdx > sourcePrefixLimit) setSourcePrefixLimit(endIdx);
+  }, [endIdx, sourcePrefixLimit]);
 
   const visibleItems = useMemo(
     () =>
-      mergeSortedPrefix(
-        sortedData,
-        earthquakeItems,
+      mergeSortedPrefixes(
+        [sortedData, earthquakeItems, fireItems],
         (left, right) => compareDataPoints(left, right, sortKey, sortDir),
         endIdx,
       ).slice(startIdx, endIdx),
-    [sortedData, earthquakeItems, sortKey, sortDir, startIdx, endIdx],
+    [
+      sortedData,
+      earthquakeItems,
+      fireItems,
+      sortKey,
+      sortDir,
+      startIdx,
+      endIdx,
+    ],
   );
 
   // ── Auto-scroll to selected item ─────────────────────────────────
 
   useEffect(() => {
     if (!selectedCurrent) return;
-    const prefix = mergeSortedPrefix(
-      sortedData,
-      earthquakeItems,
+    const prefix = mergeSortedPrefixes(
+      [sortedData, earthquakeItems, fireItems],
       (left, right) => compareDataPoints(left, right, sortKey, sortDir),
-      earthquakePrefixLimit,
+      sourcePrefixLimit,
     );
     const index = prefix.findIndex((item) => item.id === selectedCurrent.id);
     if (index >= 0) scrollToIndex(index);
@@ -352,9 +385,10 @@ export function DataTablePane() {
     selectedCurrent?.id,
     sortedData,
     earthquakeItems,
+    fireItems,
     sortKey,
     sortDir,
-    earthquakePrefixLimit,
+    sourcePrefixLimit,
     scrollToIndex,
   ]);
 
@@ -371,8 +405,9 @@ export function DataTablePane() {
       counts[item.type] = (counts[item.type] ?? 0) + 1;
     }
     counts.quakes = earthquakeTotal;
+    counts.fires = fireTotal;
     return counts;
-  }, [allData, filters, earthquakeTotal]);
+  }, [allData, filters, earthquakeTotal, fireTotal]);
 
   // ── Handlers ────────────────────────────────────────────────────
 

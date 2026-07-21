@@ -171,6 +171,28 @@ describe("createDataWorkerClient", () => {
   });
 
 
+  test("transfers the direct correlation port", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const channel = new MessageChannel();
+    const pending = client.connectCorrelation(
+      channel.port1,
+      "correlation-session",
+    );
+    const command = latestCommand(harness);
+    if (command.type !== "connectCorrelation") {
+      throw new Error("Expected connectCorrelation command");
+    }
+
+    expect(command.correlationSessionId).toBe("correlation-session");
+    expect(harness.transfers.at(-1)).toEqual([channel.port1]);
+
+    harness.emit(event(command.requestId, { type: "complete" }));
+    await pending;
+    channel.port1.close();
+    channel.port2.close();
+  });
+
   test("retains and publishes unsolicited source snapshots", () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
@@ -239,6 +261,7 @@ describe("createDataWorkerClient", () => {
     );
 
     expect(await pending).toEqual({
+      source: "earthquake",
       sourceVersion: 7,
       value: {
         id: "Qone",
@@ -254,13 +277,16 @@ describe("createDataWorkerClient", () => {
   test("returns a validated versioned source query", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
-    const pending = client.querySource("earthquake", {
-      kind: "table",
+    const pending = client.querySource({
+      source: "earthquake",
+      query: {
+        kind: "table",
       minMagnitude: 3,
       sortKey: "value1",
       sortDirection: "desc",
       offset: 0,
-      limit: 20,
+        limit: 20,
+      },
     });
     const command = latestCommand(harness);
     if (command.type !== "querySource") {
@@ -291,6 +317,7 @@ describe("createDataWorkerClient", () => {
     );
 
     const result = await pending;
+    expect(result.source).toBe("earthquake");
     expect(result.sourceVersion).toBe(8);
     expect(result.result).toEqual({
       kind: "table",

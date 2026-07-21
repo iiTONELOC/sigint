@@ -12,7 +12,8 @@ export type IntelProduct = {
   title: string;
   summary: string;
   region: string; // country or region name
-  sources: DataPoint[]; // the underlying data points
+  sources: DataPoint[]; // bounded source preview
+  sourceCount?: number;
   newsLinks?: NewsArticle[]; // related news articles
   timestamp: number; // when this product was generated
 };
@@ -25,7 +26,7 @@ export type ScoredAlert = {
   factors: string[]; // human-readable score factors
   /** Number of similar events collapsed into this alert (1 = single) */
   count: number;
-  /** All items in the group (for watch mode cycling) */
+  /** Bounded group preview for watch mode cycling. */
   groupedItems?: DataPoint[];
 };
 

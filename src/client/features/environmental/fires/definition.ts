@@ -1,16 +1,9 @@
 import { Flame } from "lucide-react";
 import type { FeatureDefinition, BasePoint } from "@/features/base/types";
 import type { FireData, FireFilter } from "./types";
+import { fireConfidenceLevel } from "./data/source";
 import { buildFireDetailRows } from "./detailRows";
 import { FireTickerContent } from "./ui/FireTickerContent";
-
-function confidenceLevel(conf?: string): number {
-  if (!conf) return 0;
-  const c = conf.toLowerCase();
-  if (c === "high" || c === "h") return 2;
-  if (c === "nominal" || c === "n") return 1;
-  return 0; // low
-}
 
 export const firesFeature: FeatureDefinition<FireData, FireFilter> = {
   id: "fires",
@@ -24,7 +17,7 @@ export const firesFeature: FeatureDefinition<FireData, FireFilter> = {
   ) => {
     if (!filter.enabled) return false;
     if (filter.minConfidence > 0) {
-      const level = confidenceLevel(_item.data?.confidence);
+      const level = fireConfidenceLevel(_item.data?.confidence);
       if (level < filter.minConfidence) return false;
     }
     return true;

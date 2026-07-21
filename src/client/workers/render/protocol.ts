@@ -74,6 +74,7 @@ export type RenderPresentationPayload = Readonly<{
   layers: Readonly<Record<string, boolean | undefined>>;
   aircraftFilter: RenderAircraftFilter;
   earthquakeMinMagnitude: number;
+  fireMinConfidence: number;
   searchMatchIds: readonly string[] | null;
   selectedItem: SelectedRenderItem | null;
   cyclonesShowForecast: boolean;
@@ -121,7 +122,11 @@ export type RenderCursor = "default" | "grab" | "grabbing" | "pointer";
 
 export type RenderInteractionPayload =
   | Readonly<{ kind: "cursor"; cursor: RenderCursor }>
-  | Readonly<{ kind: "selection"; id: string | null }>
+  | Readonly<{
+      kind: "selection";
+      id: string | null;
+      pointType: DataPoint["type"] | null;
+    }>
   | Readonly<{ kind: "rawCanvasClick" }>
   | Readonly<{
       kind: "trailTooltip";

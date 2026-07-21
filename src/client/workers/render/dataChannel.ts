@@ -1,9 +1,12 @@
 import { isRecord } from "@shared/geo";
 
-export const RENDER_DATA_PROTOCOL_VERSION: 3 = 3;
+export const RENDER_DATA_PROTOCOL_VERSION: 4 = 4;
 
-export const EARTHQUAKE_POSITION_COMPONENTS = 2;
-export const EARTHQUAKE_UNIT_VECTOR_COMPONENTS = 3;
+export const PACKED_POSITION_COMPONENTS = 2;
+export const PACKED_UNIT_VECTOR_COMPONENTS = 3;
+export const EARTHQUAKE_POSITION_COMPONENTS = PACKED_POSITION_COMPONENTS;
+export const EARTHQUAKE_UNIT_VECTOR_COMPONENTS =
+  PACKED_UNIT_VECTOR_COMPONENTS;
 
 type RenderDataEnvelope = Readonly<{
   protocolVersion: typeof RENDER_DATA_PROTOCOL_VERSION;
@@ -19,14 +22,24 @@ export type PackedEarthquakeRenderData = Readonly<{
   timestamps: Float64Array;
 }>;
 
+export type PackedFireRenderData = Readonly<{
+  ids: readonly string[];
+  positions: Float64Array;
+  unitVectors: Float32Array;
+  frp: Float32Array;
+  timestamps: Float64Array;
+  confidences: Uint8Array;
+}>;
+
 export type RenderDataCommandBody =
   | Readonly<{ type: "bind" }>
   | Readonly<{
-      type: "earthquakeSearch";
+      type: "earthquakeSearch" | "fireSearch";
       matchingIds: readonly string[] | null;
     }>
   | (Readonly<{ type: "earthquakeRebase" }> &
-      PackedEarthquakeRenderData);
+      PackedEarthquakeRenderData)
+  | (Readonly<{ type: "fireRebase" }> & PackedFireRenderData);
 
 type WithEnvelope<T> = T extends object ? T & RenderDataEnvelope : never;
 
@@ -77,9 +90,12 @@ export function parseRenderDataCommand(
   const envelope = parseEnvelope(value);
   if (!envelope) return null;
   if (value.type === "bind") return { ...envelope, type: "bind" };
-  if (value.type === "earthquakeSearch") {
+  if (
+    value.type === "earthquakeSearch" ||
+    value.type === "fireSearch"
+  ) {
     if (value.matchingIds === null) {
-      return { ...envelope, type: "earthquakeSearch", matchingIds: null };
+      return { ...envelope, type: value.type, matchingIds: null };
     }
     if (!Array.isArray(value.matchingIds)) return null;
     const matchingIds: string[] = [];
@@ -87,7 +103,44 @@ export function parseRenderDataCommand(
       if (typeof id !== "string") return null;
       matchingIds.push(id);
     }
-    return { ...envelope, type: "earthquakeSearch", matchingIds };
+    return { ...envelope, type: value.type, matchingIds };
+  }
+  if (value.type === "fireRebase") {
+    if (
+      !Array.isArray(value.ids) ||
+      !(value.positions instanceof Float64Array) ||
+      !(value.unitVectors instanceof Float32Array) ||
+      !(value.frp instanceof Float32Array) ||
+      !(value.timestamps instanceof Float64Array) ||
+      !(value.confidences instanceof Uint8Array)
+    ) {
+      return null;
+    }
+    const ids: string[] = [];
+    for (const id of value.ids) {
+      if (typeof id !== "string") return null;
+      ids.push(id);
+    }
+    const count = ids.length;
+    if (
+      value.positions.length !== count * PACKED_POSITION_COMPONENTS ||
+      value.unitVectors.length !== count * PACKED_UNIT_VECTOR_COMPONENTS ||
+      value.frp.length !== count ||
+      value.timestamps.length !== count ||
+      value.confidences.length !== count
+    ) {
+      return null;
+    }
+    return {
+      ...envelope,
+      type: "fireRebase",
+      ids,
+      positions: value.positions,
+      unitVectors: value.unitVectors,
+      frp: value.frp,
+      timestamps: value.timestamps,
+      confidences: value.confidences,
+    };
   }
   if (
     value.type !== "earthquakeRebase" ||

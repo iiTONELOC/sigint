@@ -202,12 +202,17 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("allData excludes worker-owned earthquakes", async () => {
+  test("allData excludes worker-owned point sources", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
     await waitFor(() => ref.current !== null);
 
-    expect(ref.current.allData.some((item: DataPoint) => item.type === "quakes")).toBe(false);
+    const workerOwnedTypes = new Set(["quakes", "fires"]);
+    expect(
+      ref.current.allData.some((item: DataPoint) =>
+        workerOwnedTypes.has(item.type),
+      ),
+    ).toBe(false);
 
     unmount();
   });

@@ -8,6 +8,9 @@ import { featureRegistry } from "@/features/registry";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
 import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
+import { useFireUiQuery } from "@/features/environmental/fires";
+import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 
 // ── Search engine ────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ function scoreMatch(
 
 function searchData(
   query: string,
-  data: DataPoint[],
+  data: readonly DataPoint[],
 ): { allMatches: SearchResult[]; topResults: SearchResult[] } {
   if (!query.trim()) return { allMatches: [], topResults: [] };
   const allMatches: SearchResult[] = [];
@@ -105,7 +108,10 @@ function searchData(
       });
   }
   allMatches.sort((a, b) => b.score - a.score);
-  return { allMatches, topResults: allMatches.slice(0, 15) };
+  return {
+    allMatches,
+    topResults: allMatches.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit),
+  };
 }
 
 // ── Component ────────────────────────────────────────────────────────
@@ -145,6 +151,13 @@ export function Search({
         : null,
     [normalizedQuery],
   );
+  const fireSearchQuery = useMemo<FireUiQuery | null>(
+    () =>
+      normalizedQuery.length > 0
+        ? { kind: "search", text: normalizedQuery }
+        : null,
+    [normalizedQuery],
+  );
   const committedEarthquakeSearchQuery = useMemo<EarthquakeUiQuery | null>(
     () =>
       committedQuery
@@ -152,32 +165,52 @@ export function Search({
         : null,
     [committedQuery],
   );
+  const committedFireSearchQuery = useMemo<FireUiQuery | null>(
+    () =>
+      committedQuery
+        ? { kind: "search", text: committedQuery }
+        : null,
+    [committedQuery],
+  );
   const earthquakeSearchResult = useEarthquakeUiQuery(earthquakeSearchQuery);
+  const fireSearchResult = useFireUiQuery(fireSearchQuery);
   const committedEarthquakeSearchResult = useEarthquakeUiQuery(
     committedEarthquakeSearchQuery,
+  );
+  const committedFireSearchResult = useFireUiQuery(
+    committedFireSearchQuery,
   );
   const { allMatches: localMatches } = useMemo(
     () => searchData(normalizedQuery, data),
     [normalizedQuery, data],
   );
-  const earthquakeMatches = useMemo<SearchResult[]>(() => {
-    if (earthquakeSearchResult?.kind !== "search") return [];
-    return earthquakeSearchResult.items.map((item) => {
-      const primary = getPrimaryLabel(item);
-      return {
-        item,
-        score: scoreMatch(normalizedQuery, primary, primary),
-        primary,
-        secondary: getSecondaryLabel(item),
-      };
-    });
-  }, [earthquakeSearchResult, normalizedQuery]);
+  const earthquakeMatches = useMemo(
+    () =>
+      earthquakeSearchResult?.kind === "search"
+        ? searchData(normalizedQuery, earthquakeSearchResult.items).allMatches
+        : [],
+    [earthquakeSearchResult, normalizedQuery],
+  );
+  const fireMatches = useMemo(
+    () =>
+      fireSearchResult?.kind === "search"
+        ? searchData(normalizedQuery, fireSearchResult.items).allMatches
+        : [],
+    [fireSearchResult, normalizedQuery],
+  );
   const topResults = useMemo(
     () =>
-      [...localMatches.slice(0, 15), ...earthquakeMatches]
+      [
+        ...localMatches.slice(
+          0,
+          POINT_UI_QUERY_POLICY.searchResultLimit,
+        ),
+        ...earthquakeMatches,
+        ...fireMatches,
+      ]
         .sort((left, right) => right.score - left.score)
-        .slice(0, 15),
-    [localMatches, earthquakeMatches],
+        .slice(0, POINT_UI_QUERY_POLICY.searchResultLimit),
+    [localMatches, earthquakeMatches, fireMatches],
   );
   const localMatchingIds = useMemo(
     () => new Set(localMatches.map((result) => result.item.id)),
@@ -187,13 +220,19 @@ export function Search({
     earthquakeSearchResult?.kind === "search"
       ? earthquakeSearchResult.total
       : 0;
-  const matchingCount = localMatchingIds.size + earthquakeMatchCount;
-  const searchReady = earthquakeSearchResult?.kind === "search";
+  const fireMatchCount =
+    fireSearchResult?.kind === "search" ? fireSearchResult.total : 0;
+  const matchingCount =
+    localMatchingIds.size + earthquakeMatchCount + fireMatchCount;
+  const searchReady =
+    earthquakeSearchResult?.kind === "search" &&
+    fireSearchResult?.kind === "search";
 
   useEffect(() => {
     if (
       committedQuery === null ||
-      committedEarthquakeSearchResult?.kind !== "search"
+      committedEarthquakeSearchResult?.kind !== "search" ||
+      committedFireSearchResult?.kind !== "search"
     ) {
       return;
     }
@@ -201,19 +240,27 @@ export function Search({
     const ids = new Set(refreshed.map((result) => result.item.id));
     onMatchingIdsChange(ids);
     setCommittedCount(
-      ids.size + committedEarthquakeSearchResult.total,
+      ids.size +
+        committedEarthquakeSearchResult.total +
+        committedFireSearchResult.total,
     );
   }, [
     data,
     committedQuery,
     committedEarthquakeSearchResult,
+    committedFireSearchResult,
     onMatchingIdsChange,
   ]);
 
   const commitFilter = useCallback(() => {
     if (!normalizedQuery || !searchReady || matchingCount === 0) return;
     onMatchingIdsChange(new Set(localMatchingIds));
-    void dataWorkerClient?.setSourceSearch("earthquake", normalizedQuery);
+    void dataWorkerClient
+      ?.setSourceSearch("earthquake", normalizedQuery)
+      .catch(() => undefined);
+    void dataWorkerClient
+      ?.setSourceSearch("fire", normalizedQuery)
+      .catch(() => undefined);
     setCommittedQuery(normalizedQuery);
     setCommittedCount(matchingCount);
     setOpen(false);
@@ -234,7 +281,12 @@ export function Search({
     setCommittedCount(0);
     setActiveIndex(-1);
     onMatchingIdsChange(null);
-    void dataWorkerClient?.setSourceSearch("earthquake", null);
+    void dataWorkerClient
+      ?.setSourceSearch("earthquake", null)
+      .catch(() => undefined);
+    void dataWorkerClient
+      ?.setSourceSearch("fire", null)
+      .catch(() => undefined);
   }, [dataWorkerClient, onMatchingIdsChange]);
 
   // Ref to focus input immediately when transitioning from button to input.
