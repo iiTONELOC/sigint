@@ -11,6 +11,7 @@ import {
   type EarthquakeUiQueryResult,
 } from "@/features/environmental/earthquake/data/uiQueries";
 import { isRecord } from "@shared/geo";
+import { isDataSourceId, type DataSourceId } from "@/workers/data/sourceIds";
 
 export const DATA_WORKER_PROTOCOL_VERSION: 7 = 7;
 
@@ -19,7 +20,8 @@ export type DataWorkerCacheEntry = Readonly<{
   value: unknown;
 }>;
 
-export type DataWorkerPointSource = "earthquake" | "fire";
+export type DataWorkerPointSource = DataSourceId;
+export type DataWorkerQueryableSource = "earthquake" | "fire";
 
 export type DataWorkerSourceStatus =
   | "loading"
@@ -62,7 +64,7 @@ export type DataWorkerCommandBody =
     }>
   | Readonly<{
       type: "getSourceEntity";
-      source: DataWorkerPointSource;
+      source: DataWorkerQueryableSource;
       id: string;
     }>
   | Readonly<{
@@ -77,7 +79,7 @@ export type DataWorkerCommandBody =
     }>
   | Readonly<{
       type: "setSourceSearch";
-      source: DataWorkerPointSource;
+      source: DataWorkerQueryableSource;
       text: string | null;
     }>
   | Readonly<{ type: "get"; key: string }>
@@ -193,7 +195,7 @@ function parseSourceSnapshot(
 ): DataWorkerSourceSnapshot | null {
   if (
     !isRecord(value) ||
-    (value.source !== "earthquake" && value.source !== "fire") ||
+    !isDataSourceId(value.source) ||
     typeof value.version !== "number" ||
     !Number.isSafeInteger(value.version) ||
     value.version < 0 ||
@@ -258,7 +260,7 @@ export function parseDataWorkerCommand(
 
   if (
     value.type === "refreshSource" &&
-    (value.source === "earthquake" || value.source === "fire")
+    isDataSourceId(value.source)
   ) {
     return { ...envelope, type: "refreshSource", source: value.source };
   }

@@ -1,0 +1,99 @@
+import type { DataPoint, DataType } from "@/features/base/dataPoints";
+import {
+  EARTHQUAKE_SOURCE_POLICY,
+} from "@/features/environmental/earthquake/data/source";
+import {
+  FIRE_SOURCE_POLICY,
+} from "@/features/environmental/fires/data/source";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import {
+  RENDER_SOURCE_IDS,
+  type RenderSourceId,
+} from "@/workers/data/sourceIds";
+
+export type SourceCompletenessPolicy = "complete" | "partial" | "dynamic";
+
+export type PointSourcePolicy = Readonly<{
+  pointType: DataType;
+  cacheKey: string;
+  pollIntervalMs: number;
+  completeness: SourceCompletenessPolicy;
+  emptyResultIsComplete: boolean;
+}>;
+
+export type PointSourceDefinition = PointSourcePolicy & Readonly<{
+  id: RenderSourceId;
+}>;
+
+const POINT_SOURCE_POLICIES = {
+  aircraft: {
+    pointType: "aircraft",
+    cacheKey: CACHE_KEYS.aircraft,
+    pollIntervalMs: POLL_INTERVALS.aircraft,
+    completeness: "dynamic",
+    emptyResultIsComplete: true,
+  },
+  ships: {
+    pointType: "ships",
+    cacheKey: CACHE_KEYS.ships,
+    pollIntervalMs: POLL_INTERVALS.ships,
+    completeness: "complete",
+    emptyResultIsComplete: false,
+  },
+  events: {
+    pointType: "events",
+    cacheKey: CACHE_KEYS.events,
+    pollIntervalMs: POLL_INTERVALS.events,
+    completeness: "partial",
+    emptyResultIsComplete: false,
+  },
+  weather: {
+    pointType: "weather",
+    cacheKey: CACHE_KEYS.weather,
+    pollIntervalMs: POLL_INTERVALS.weather,
+    completeness: "complete",
+    emptyResultIsComplete: true,
+  },
+  cyclones: {
+    pointType: "cyclones",
+    cacheKey: CACHE_KEYS.cyclones,
+    pollIntervalMs: POLL_INTERVALS.cyclones,
+    completeness: "complete",
+    emptyResultIsComplete: true,
+  },
+  earthquake: {
+    pointType: "quakes",
+    cacheKey: EARTHQUAKE_SOURCE_POLICY.cacheKey,
+    pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
+    completeness: "complete",
+    emptyResultIsComplete: true,
+  },
+  fire: {
+    pointType: "fires",
+    cacheKey: FIRE_SOURCE_POLICY.cacheKey,
+    pollIntervalMs: FIRE_SOURCE_POLICY.pollIntervalMs,
+    completeness: "complete",
+    emptyResultIsComplete: true,
+  },
+} as const satisfies Readonly<Record<RenderSourceId, PointSourcePolicy>>;
+
+export const POINT_SOURCE_DEFINITIONS = RENDER_SOURCE_IDS.map((id) => ({
+  id,
+  ...POINT_SOURCE_POLICIES[id],
+})) satisfies readonly PointSourceDefinition[];
+
+export function getPointSourceDefinition(
+  id: RenderSourceId,
+): PointSourceDefinition {
+  const definition = POINT_SOURCE_DEFINITIONS.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!definition) throw new Error(`No point source has the id ${id}`);
+  return definition;
+}
+
+export type PointSourceEntity = Extract<
+  DataPoint,
+  { type: (typeof POINT_SOURCE_DEFINITIONS)[number]["pointType"] }
+>;

@@ -14,6 +14,7 @@ import {
   type DataWorkerCommandBody,
   type DataWorkerEvent,
   type DataWorkerPointSource,
+  type DataWorkerQueryableSource,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 export type DataWorkerClientPolicy = Readonly<{
@@ -69,14 +70,14 @@ export type DataWorkerClient = Readonly<{
   ) => Promise<void>;
   refreshSource: (source: DataWorkerPointSource) => Promise<void>;
   getSourceEntity: (
-    source: DataWorkerPointSource,
+    source: DataWorkerQueryableSource,
     id: string,
   ) => Promise<DataWorkerSourceEntityResult>;
   querySource: (
     request: DataWorkerSourceQueryRequest,
   ) => Promise<DataWorkerSourceQueryResult>;
   setSourceSearch: (
-    source: DataWorkerPointSource,
+    source: DataWorkerQueryableSource,
     text: string | null,
   ) => Promise<void>;
   getSourceSnapshot: (
@@ -234,7 +235,7 @@ export function createDataWorkerClient(
     },
 
     async getSourceEntity(
-      source: DataWorkerPointSource,
+      source: DataWorkerQueryableSource,
       id: string,
     ): Promise<DataWorkerSourceEntityResult> {
       const event = await request({
@@ -268,7 +269,7 @@ export function createDataWorkerClient(
     },
 
     setSourceSearch(
-      source: DataWorkerPointSource,
+      source: DataWorkerQueryableSource,
       text: string | null,
     ): Promise<void> {
       return requireComplete({ type: "setSourceSearch", source, text });

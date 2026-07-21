@@ -1,5 +1,8 @@
 import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { createAircraftSourceRuntime } from "@/workers/data/sources/aircraft";
+import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   findFireSearchIds,
   runFireUiQuery,
@@ -29,6 +32,7 @@ import { createRenderDataCommand } from "@/workers/render/dataChannel";
 import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
 
 const store = createDataCacheStore(indexedDB);
+const scenePublisher = createScenePublisher();
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
@@ -61,6 +65,17 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
     snapshot,
   });
 }
+
+const aircraftOwner = createAircraftSourceRuntime({
+  readCache: () => store.get(CACHE_KEYS.aircraft),
+  persistCache: async (snapshot) => {
+    coordinator.setDeferred(CACHE_KEYS.aircraft, snapshot);
+  },
+  publishStatus: publishSource,
+  publishScene: (patch) => {
+    scenePublisher.publish(patch);
+  },
+});
 
 function publishEarthquakeSearch(): void {
   if (!renderPort || !renderSessionId) return;
@@ -213,6 +228,8 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
           renderSequence,
         ),
       );
+      scenePublisher.connect(renderPort, renderSessionId);
+      aircraftOwner.publishRebase();
       earthquakeOwner.rebase();
       rebaseFireRender(fireOwner.read());
       complete(requestId);
@@ -244,14 +261,21 @@ async function handleCommand(command: DataWorkerCommand): Promise<void> {
         requestId,
         entries: mainThreadCacheEntries(await store.getAll()),
       });
+      void aircraftOwner.start();
       void earthquakeOwner.start();
       void fireOwner.start();
       return;
     }
     if (command.type === "refreshSource") {
-      await (command.source === "earthquake"
-        ? earthquakeOwner.refresh()
-        : fireOwner.refresh());
+      if (command.source === "aircraft") {
+        await aircraftOwner.refresh();
+      } else if (command.source === "earthquake") {
+        await earthquakeOwner.refresh();
+      } else if (command.source === "fire") {
+        await fireOwner.refresh();
+      } else {
+        throw new Error(`The ${command.source} source is not active`);
+      }
       complete(requestId);
       return;
     }

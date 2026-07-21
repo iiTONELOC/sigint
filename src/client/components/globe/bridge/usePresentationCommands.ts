@@ -1,0 +1,140 @@
+import { useEffect } from "react";
+import type { GlobeVisualizationProps } from "@/components/globe/types";
+import { getTrail } from "@/lib/geo/trailService";
+import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
+import { sendRenderSurfaceCommand } from "@/render-surface/element";
+import type { SelectedRenderItem } from "@/workers/render/protocol";
+
+type PresentationCommandOptions = Readonly<{
+  host: HTMLElement | null;
+  props: Readonly<GlobeVisualizationProps>;
+}>;
+
+function findTarget(
+  id: string,
+  props: Readonly<GlobeVisualizationProps>,
+) {
+  return (
+    props.data.find((candidate) => candidate.id === id) ??
+    (props.selected?.id === id ? props.selected : null)
+  );
+}
+
+export function usePresentationCommands({
+  host,
+  props,
+}: PresentationCommandOptions): void {
+  const {
+    aircraftFilter,
+    autoRotate = true,
+    cycloneFilter,
+    data,
+    earthquakeFilter,
+    fireFilter,
+    flat = false,
+    isolatedId,
+    isolateMode,
+    layers,
+    rotationSpeed = 1,
+    searchMatchIds,
+    selected,
+    zoomToId,
+    revealId,
+  } = props;
+
+  useEffect(() => {
+    if (!host) return;
+    const cyclone = cycloneFilter;
+    const selectedItem: SelectedRenderItem | null = selected
+      ? {
+          id: selected.id,
+          type: selected.type,
+          lat: selected.lat,
+          lon: selected.lon,
+          trail: getTrail(selected.id),
+          route: getSelectedRoute(selected.id),
+        }
+      : null;
+    const prefersReducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    sendRenderSurfaceCommand(host, {
+      type: "presentation",
+      payload: {
+        flat,
+        autoRotate,
+        rotationSpeed,
+        selectedId: selected?.id ?? null,
+        isolatedId,
+        isolateMode,
+        layers,
+        aircraftFilter: {
+          enabled: aircraftFilter.enabled,
+          showAirborne: aircraftFilter.showAirborne,
+          showGround: aircraftFilter.showGround,
+          squawks: Array.from(aircraftFilter.squawks),
+          countries: Array.from(aircraftFilter.countries),
+          milFilter: aircraftFilter.milFilter ?? "all",
+        },
+        earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
+        fireMinConfidence: fireFilter.minConfidence,
+        searchMatchIds: searchMatchIds
+          ? Array.from(searchMatchIds)
+          : null,
+        selectedItem,
+        cyclonesShowForecast: cyclone?.showForecast ?? true,
+        cyclonesShowCone: cyclone?.showCone ?? true,
+        cyclonesShowWindField: cyclone?.showWindField ?? false,
+        cyclonesShowWarnings: cyclone?.showWarnings ?? true,
+        cyclonesShowModels: cyclone?.showModels ?? false,
+        cyclonesHiddenModels: cyclone?.hiddenModels ?? [],
+        prefersReducedMotion,
+      },
+    });
+  }, [
+    aircraftFilter,
+    autoRotate,
+    cycloneFilter,
+    data,
+    earthquakeFilter,
+    fireFilter,
+    flat,
+    host,
+    isolatedId,
+    isolateMode,
+    layers,
+    rotationSpeed,
+    searchMatchIds,
+    selected,
+  ]);
+
+  useEffect(() => {
+    if (!host || !zoomToId) return;
+    const item = findTarget(zoomToId, props);
+    if (!item) return;
+    sendRenderSurfaceCommand(host, {
+      type: "focus",
+      payload: {
+        id: item.id,
+        latitude: item.lat,
+        longitude: item.lon,
+        kind: "focus",
+      },
+    });
+  }, [host, props, zoomToId]);
+
+  useEffect(() => {
+    if (!host || !revealId) return;
+    const item = findTarget(revealId, props);
+    if (!item) return;
+    sendRenderSurfaceCommand(host, {
+      type: "focus",
+      payload: {
+        id: item.id,
+        latitude: item.lat,
+        longitude: item.lon,
+        kind: "reveal",
+      },
+    });
+  }, [host, props, revealId]);
+}

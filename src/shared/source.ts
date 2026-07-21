@@ -3,11 +3,11 @@ import { isRecord } from "./geo";
 export const SOURCE_IDS = [
   "aircraft",
   "ships",
-  "quakes",
   "events",
-  "fires",
   "weather",
   "cyclones",
+  "earthquake",
+  "fire",
   "news",
 ] as const;
 

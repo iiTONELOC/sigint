@@ -53,7 +53,21 @@ import {
 } from "./render/dataChannel";
 
 import { orderPointsByLayer } from "./render/layerOrder";
+import { createRenderSceneStore } from "./render/sceneStore";
+import {
+  aircraftSceneIncludes,
+  drawAircraftScene,
+  type AircraftSceneFilter,
+} from "./render/scene/aircraftLayer";
+import { createProjectedSceneLayer } from "./render/scene/projectedLayer";
+import { drawSelectionRing } from "./render/primitives/selectionRing";
+import { RENDER_SOURCE_IDS } from "./data/sourceIds";
 import { drawWarnings, type WarningFeature } from "./render/warnings";
+import {
+  acceptSceneDataCommand,
+  parseSceneDataCommand,
+  type SceneDataProtocolState,
+} from "./render/sceneProtocol";
 import { zoomScale } from "./render/workerMath";
 import { weatherSeverityRank } from "@/features/environmental/weather/severity";
 import { pointInPolygon } from "@/lib/geo/pointInPolygon";
@@ -835,6 +849,17 @@ const protocolState: RenderProtocolState = {
 
 let dataPort: MessagePort | null = null;
 
+const aircraftSceneStore = createRenderSceneStore("aircraft");
+const aircraftProjection = createProjectedSceneLayer();
+const typedScenes = new Map(
+  RENDER_SOURCE_IDS.map((source) => [
+    source,
+    source === "aircraft"
+      ? aircraftSceneStore
+      : createRenderSceneStore(source),
+  ] as const),
+);
+
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
@@ -842,31 +867,55 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
     sessionId,
     sequence: 0,
   };
+  const sceneState: SceneDataProtocolState = {
+    sessionId,
+    sequence: 0,
+  };
   port.onmessage = (event: MessageEvent<unknown>) => {
     const command = parseRenderDataCommand(event.data);
-    if (!command || !acceptRenderDataCommand(state, command)) return;
-    if (command.type === "bind") {
-      const ready: RenderWorkerEvent = {
-        type: "dataChannelReady",
-        protocolVersion: RENDER_PROTOCOL_VERSION,
-        sessionId,
-        sequence: protocolState.sequence,
-      };
-      globalThis.postMessage(ready);
+    if (command && acceptRenderDataCommand(state, command)) {
+      if (command.type === "bind") {
+        const ready: RenderWorkerEvent = {
+          type: "dataChannelReady",
+          protocolVersion: RENDER_PROTOCOL_VERSION,
+          sessionId,
+          sequence: protocolState.sequence,
+        };
+        globalThis.postMessage(ready);
+        return;
+      }
+      if (command.type === "earthquakeSearch") {
+        _earthquakeSearchIds = command.matchingIds
+          ? new Set(command.matchingIds)
+          : null;
+      } else if (command.type === "fireSearch") {
+        _fireSearchIds = command.matchingIds
+          ? new Set(command.matchingIds)
+          : null;
+      } else if (command.type === "earthquakeRebase") {
+        handleEarthquakeRebase(command);
+      } else if (command.type === "fireRebase") {
+        handleFireRebase(command);
+      }
+      scheduleRender();
       return;
     }
-    if (command.type === "earthquakeSearch") {
-      _earthquakeSearchIds = command.matchingIds
-        ? new Set(command.matchingIds)
-        : null;
-    } else if (command.type === "fireSearch") {
-      _fireSearchIds = command.matchingIds
-        ? new Set(command.matchingIds)
-        : null;
-    } else if (command.type === "earthquakeRebase") {
-      handleEarthquakeRebase(command);
-    } else if (command.type === "fireRebase") {
-      handleFireRebase(command);
+
+    const sceneCommand = parseSceneDataCommand(event.data);
+    if (
+      !sceneCommand ||
+      !acceptSceneDataCommand(sceneState, sceneCommand) ||
+      sceneCommand.type === "bind"
+    ) {
+      return;
+    }
+    const sceneStore = typedScenes.get(sceneCommand.source);
+    if (!sceneStore) return;
+    sceneStore.apply(sceneCommand);
+    if (sceneCommand.source === "aircraft" && _dataBySource) {
+      _dataBySource.aircraft = null;
+      if (_pendingBuckets) _pendingBuckets.aircraft = null;
+      rebuildGenericData();
     }
     scheduleRender();
   };
@@ -1042,7 +1091,14 @@ function handleData(
   if (payload.reset) _pendingBuckets[source] = [];
   const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
   for (const item of payload.data) {
-    if (item.type !== "quakes" && item.type !== "fires") {
+    const usesTypedAircraft =
+      item.type === "aircraft" &&
+      aircraftSceneStore.version() > 0;
+    if (
+      item.type !== "quakes" &&
+      item.type !== "fires" &&
+      !usesTypedAircraft
+    ) {
       pending.push(item);
     }
   }
@@ -1250,16 +1306,6 @@ globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
 // ── Per-type point drawing (extracted from the render loop) ─────────
 
 type DotEnv = { ctx: Ctx; t: number; zoomLevel: number };
-
-/** Selection ring shared by every point type. */
-function drawSelectionRing(ctx: Ctx, x: number, y: number, s: number, color: string, t: number): void {
-  ctx.globalAlpha = 0.85;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
-  ctx.stroke();
-}
 
 type PulseGlow = { idSliceFrom: number; rate: number; baseAmp: number; ampGain: number; radBase: number; radGain: number; alphaHex: string; glowMul: number };
 
@@ -1650,17 +1696,39 @@ function nearestPackedPoint(
   return closest;
 }
 
+function nearestAircraftPoint(
+  x: number,
+  y: number,
+  radius: number,
+): PointHit | null {
+  const hit = aircraftProjection.nearest(
+    x,
+    y,
+    radius,
+    CAMERA_POLICY.maximumHitCandidates,
+  );
+  if (!hit) return null;
+  return {
+    id: hit.id,
+    latitude: hit.latitude,
+    longitude: hit.longitude,
+    distance: hit.distance,
+    pointType: "aircraft",
+  };
+}
+
 function nearestPoint(
   x: number,
   y: number,
   radius: number,
 ): PointHit | null {
   let closest = nearestGenericPoint(x, y, radius);
-  const packed = [
+  const specialized = [
+    nearestAircraftPoint(x, y, radius),
     nearestPackedPoint(_earthquakes, "quakes", x, y, radius),
     nearestPackedPoint(_fires, "fires", x, y, radius),
   ];
-  for (const candidate of packed) {
+  for (const candidate of specialized) {
     if (candidate && (!closest || candidate.distance < closest.distance)) {
       closest = candidate;
     }
@@ -2544,6 +2612,42 @@ function renderFrame(): void {
   };
   const pts = projectAndFilter(data, projectPoint, filterCfg);
   rebuildHitGrid(pts);
+  const aircraftView = aircraftSceneStore.view();
+  const aircraftSceneFilter: AircraftSceneFilter = {
+    filter: af,
+    searchIds: searchSet,
+    isolateMode: isoMode,
+    isolatedId: isoId,
+    isolatedType,
+  };
+  aircraftProjection.project(aircraftView, {
+    width: W,
+    height: H,
+    hitCellSize: CAMERA_POLICY.hitCellSizePx,
+    cullMargin: PACKED_CULL_MARGIN_PX,
+    flat: fm
+      ? {
+          centerX: fm.cx,
+          centerY: fm.cy,
+          mapWidth: fm.mW,
+          mapHeight: fm.mH,
+        }
+      : null,
+    globe: fm
+      ? null
+      : {
+          matrix: globeMatrix,
+          centerX: cx,
+          centerY: cy,
+          radius: globeR,
+        },
+    includes: (index) =>
+      aircraftSceneIncludes(
+        aircraftView,
+        index,
+        aircraftSceneFilter,
+      ),
+  });
   _hasSelectedProjection = false;
   const selectedPoint = pts.find(
     (candidate) => candidate.item.id === selId,
@@ -2552,6 +2656,20 @@ function renderFrame(): void {
     _hasSelectedProjection = true;
     _selectedProjectionX = selectedPoint.x;
     _selectedProjectionDepth = selectedPoint.z;
+  }
+  const selectedAircraftHandle = selId
+    ? aircraftSceneStore.handleForId(selId)
+    : null;
+  const selectedAircraftProjection =
+    selectedAircraftHandle === null
+      ? null
+      : aircraftProjection.projection(
+          selectedAircraftHandle - 1,
+        );
+  if (selectedAircraftProjection) {
+    _hasSelectedProjection = true;
+    _selectedProjectionX = selectedAircraftProjection.x;
+    _selectedProjectionDepth = selectedAircraftProjection.depth;
   }
   const packedFrame: PackedProjectionFrame = {
     width: W,
@@ -2574,9 +2692,15 @@ function renderFrame(): void {
     if (isoMode === "solo" && selectedItem.id !== isoId) return false;
     if (isoMode === "focus" && isolatedType && selectedItem.type !== isolatedType) return false;
     if (selectedItem.type === "aircraft") {
-      const fullItem = data.find((d) => d.id === selectedItem.id);
-      if (!fullItem || fullItem.type !== "aircraft") return false;
-      return matchesAF(fullItem.data, af);
+      const handle = aircraftSceneStore.handleForId(selectedItem.id);
+      return (
+        handle !== null &&
+        aircraftSceneIncludes(
+          aircraftView,
+          handle - 1,
+          aircraftSceneFilter,
+        )
+      );
     }
     return layers[selectedItem.type] !== false;
   };
@@ -2604,6 +2728,15 @@ function renderFrame(): void {
     showWindField: cyclonesShowWindField, showModels: cyclonesShowModels,
     hiddenModels: cyclonesHiddenModels, reducedMotion,
   };
+  drawAircraftScene(aircraftView, aircraftProjection, {
+    context: ctx,
+    baseColor: colors.aircraft,
+    militaryColor: milColor,
+    reconColor,
+    selectedId: selId,
+    time: t,
+    zoomLevel,
+  });
   let fireLayerDrawn = false;
   let earthquakeLayerDrawn = false;
   for (const pt of pts) {

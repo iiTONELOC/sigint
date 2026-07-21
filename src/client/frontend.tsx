@@ -16,6 +16,9 @@ import { initLand } from "./lib/geo/landService";
 import { initAirports } from "./lib/geo/airportService";
 import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
 import { ensureAuthCookie } from "./lib/net/authService";
+import { registerRenderSurfaceElement } from "./render-surface/registration";
+
+registerRenderSurfaceElement();
 
 // Singleton providers
 import { shipProvider } from "./features/tracking/ships/data/provider";

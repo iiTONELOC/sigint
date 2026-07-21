@@ -89,31 +89,31 @@ describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
 
 // ── src/client/components/globe/GlobeVisualization.tsx ─────────────
 
-describe("GlobeVisualization frame payload — cyclone wiring", () => {
+describe("render presentation bridge — cyclone wiring", () => {
   test("frame payload posts cyclonesShowForecast", async () => {
     const src = await readSource(
-      "src/client/components/globe/GlobeVisualization.tsx",
+      "src/client/components/globe/bridge/usePresentationCommands.ts",
     );
     expect(src).toContain("cyclonesShowForecast");
   });
 
   test("frame payload posts cyclonesShowCone", async () => {
     const src = await readSource(
-      "src/client/components/globe/GlobeVisualization.tsx",
+      "src/client/components/globe/bridge/usePresentationCommands.ts",
     );
     expect(src).toContain("cyclonesShowCone");
   });
 
   test("frame payload posts prefersReducedMotion (motion-reduce signal)", async () => {
     const src = await readSource(
-      "src/client/components/globe/GlobeVisualization.tsx",
+      "src/client/components/globe/bridge/usePresentationCommands.ts",
     );
     expect(src).toContain("prefersReducedMotion");
   });
 
   test("prefersReducedMotion reads window.matchMedia", async () => {
     const src = await readSource(
-      "src/client/components/globe/GlobeVisualization.tsx",
+      "src/client/components/globe/bridge/usePresentationCommands.ts",
     );
     expect(src).toContain("prefers-reduced-motion: reduce");
   });
