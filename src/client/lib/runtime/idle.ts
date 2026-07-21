@@ -1,11 +1,12 @@
-// Run a callback during browser idle time, falling back to a macrotask where
-// requestIdleCallback is unavailable (older Safari, jsdom/test env). Keeps
-// heavy-but-deferrable work (IndexedDB writes, trail recording, correlation
-// marshalling) off the data-poll tick so it never blocks an active drag/zoom.
-export function scheduleIdle(cb: () => void, timeout = 2_000): void {
+/** Schedule deferrable work and return a cancellation function. */
+export function scheduleIdle(
+  callback: () => void,
+  timeout = 2_000,
+): () => void {
   if (typeof requestIdleCallback === "function") {
-    requestIdleCallback(() => cb(), { timeout });
-  } else {
-    setTimeout(cb, 0);
+    const handle = requestIdleCallback(callback, { timeout });
+    return () => cancelIdleCallback(handle);
   }
+  const handle = setTimeout(callback, 0);
+  return () => clearTimeout(handle);
 }

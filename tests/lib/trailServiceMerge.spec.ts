@@ -17,11 +17,14 @@ function mkPoint(ts: number, lat = 0, lon = 0) {
   return { lat, lon, ts };
 }
 
-function mkEntry(points: Array<{ lat: number; lon: number; ts: number }>): TrailEntry {
+function mkEntry(
+  points: Array<{ lat: number; lon: number; ts: number }>,
+  type: TrailEntry["type"] = "aircraft",
+): TrailEntry {
   return {
+    type,
     points,
     lastSeen: points[points.length - 1]?.ts ?? 0,
-    missedRefreshes: 0,
     heading: 0,
     speedMps: 0,
   };
@@ -32,7 +35,7 @@ describe("mergeCachedTrails", () => {
     const live = new Map<string, TrailEntry>();
     const cached = new Map<string, TrailEntry>([
       ["A1", mkEntry([mkPoint(100), mkPoint(200)])],
-      ["S2", mkEntry([mkPoint(150)])],
+      ["S2", mkEntry([mkPoint(150)], "ships")],
     ]);
 
     mergeCachedTrails(live, cached);
@@ -90,35 +93,33 @@ describe("mergeCachedTrails", () => {
     expect(merged.map((p) => p.ts)).toEqual([100, 200]);
   });
 
-  test("aircraft trail respects 50-point cap after merge", () => {
-    // 49 cached + 1 live = 50 — exactly at cap, no slice.
-    // Then 80 cached + 1 live = 81 → cap to last 50.
+  test("aircraft trail respects the production cap after merge", () => {
     const live = new Map<string, TrailEntry>([
-      ["A1", mkEntry([mkPoint(10_000)])],
+      ["A1", mkEntry([mkPoint(1_000_000)])],
     ]);
-    const cachedPoints = Array.from({ length: 80 }, (_, i) =>
-      mkPoint(i * 100),
+    const cachedPoints = Array.from({ length: 180 }, (_, index) =>
+      mkPoint(index * 100),
     );
     const cached = new Map<string, TrailEntry>([["A1", mkEntry(cachedPoints)]]);
 
     mergeCachedTrails(live, cached);
 
     const merged = live.get("A1")!.points;
-    expect(merged.length).toBe(50);
-    // Last point is the live one
-    expect(merged[merged.length - 1]?.ts).toBe(10_000);
-    // First retained cached point is the most recent 49 from cached
-    expect(merged[0]?.ts).toBe(31 * 100); // dropped first 31 (80 - 49)
+    expect(merged.length).toBe(120);
+    expect(merged.at(-1)?.ts).toBe(1_000_000);
+    expect(merged[0]?.ts).toBe(61 * 100);
   });
 
   test("ships trail respects 500-point cap after merge", () => {
     const live = new Map<string, TrailEntry>([
-      ["S1", mkEntry([mkPoint(1_000_000)])],
+      ["S1", mkEntry([mkPoint(1_000_000)], "ships")],
     ]);
     const cachedPoints = Array.from({ length: 600 }, (_, i) =>
       mkPoint(i * 100),
     );
-    const cached = new Map<string, TrailEntry>([["S1", mkEntry(cachedPoints)]]);
+    const cached = new Map<string, TrailEntry>([
+      ["S1", mkEntry(cachedPoints, "ships")],
+    ]);
 
     mergeCachedTrails(live, cached);
 

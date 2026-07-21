@@ -28,6 +28,7 @@ import {
 export function LiveTrafficPane() {
   const {
     allData,
+    dataVersion,
     layers,
     aircraftFilter,
     filters,
@@ -177,6 +178,7 @@ export function LiveTrafficPane() {
     <>
       <GlobeVisualization
         data={allData}
+        dataVersion={dataVersion}
         layers={layers}
         aircraftFilter={aircraftFilter}
         cycloneFilter={filters.cyclones as never}

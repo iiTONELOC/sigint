@@ -182,6 +182,7 @@ export function createApiRoutes(deps: ApiDeps) {
         fetchedAt: cache.fetchedAt,
         aircraftCount: cache.aircraftCount,
         error: cache.error,
+        source: cache.source,
       });
     }),
 

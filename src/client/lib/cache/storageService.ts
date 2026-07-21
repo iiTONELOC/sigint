@@ -1,483 +1,130 @@
-// ── IndexedDB-backed cache service ───────────────────────────────────
-// Replaces all localStorage usage in the app.
-//
-// Usage:
-//   await cacheInit();              // call once at boot before anything reads
-//   await cacheSet("key", value)    // async write to IndexedDB + memory
-//   await cacheDelete("key")        // async delete from IndexedDB + memory
-//
-// All reads await dbReady so they never return null just because
-// IndexedDB hasn't opened yet. The dbReady promise resolves once
-// cacheInit finishes (or immediately if init was already done/skipped).
-
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { scheduleIdle } from "@/lib/runtime/idle";
+import {
+  getDataWorkerClient,
+  type DataWorkerClient,
+} from "@/lib/cache/dataWorkerClient";
 
-const DB_NAME = "sigint-cache";
-const DB_VERSION = 1;
-const STORE_NAME = "cache";
-
-let db: IDBDatabase | null = null;
 const memoryCache = new Map<string, unknown>();
 
-// ── dbReady gate ─────────────────────────────────────────────────────
-// Resolves when cacheInit() completes (success or failure).
-// If cacheInit was never called (e.g. test env), public functions
-// skip the gate and use the in-memory cache directly.
-let _resolveReady: () => void;
-let _initCalled = false;
-const _dbReadyPromise: Promise<void> = new Promise((resolve) => {
-  _resolveReady = resolve;
-});
+let activeClient: DataWorkerClient | null = null;
+let initialization: Promise<void> | null = null;
 
-/** Await only if cacheInit has been called; otherwise proceed immediately. */
-function dbReady(): Promise<void> {
-  return _initCalled ? _dbReadyPromise : Promise.resolve();
+function ready(): Promise<void> {
+  return initialization ?? Promise.resolve();
 }
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const database = req.result;
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        database.createObjectStore(STORE_NAME);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-// ── Transparent gzip for large cached values ─────────────────────────
-// IndexedDB structured-clones values as-is, so a ~22 MB fire array sits raw.
-// Large values are JSON+gzip'd to a Uint8Array before storage (~8-10x) and
-// decoded on read. The compress runs in the idle write-behind queue and the
-// decode at boot, so neither lands on the data-poll tick. Small values and
-// pre-existing (plain-object) entries are stored/returned as-is — distinguished
-// on read by `instanceof Uint8Array`, so this is backward-compatible.
-const COMPRESS_THRESHOLD = 16_384; // JSON bytes; below this, not worth gzipping
-const hasCompression =
-  typeof CompressionStream !== "undefined" &&
-  typeof DecompressionStream !== "undefined";
-
-async function gzip(str: string): Promise<Uint8Array> {
-  const stream = new Blob([str])
-    .stream()
-    .pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function gunzip(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  const stream = new Blob([copy.buffer])
-    .stream()
-    .pipeThrough(new DecompressionStream("gzip"));
-  return new Response(stream).text();
-}
-
-async function encodeForStore(value: unknown): Promise<unknown> {
-  if (!hasCompression) return value;
-  let json: string;
-  try {
-    json = JSON.stringify(value);
-  } catch {
-    return value; // non-serializable — store as-is
-  }
-  if (json.length < COMPRESS_THRESHOLD) return value;
-  try {
-    return await gzip(json);
-  } catch {
-    return value; // compression unavailable/failed — fall back to raw
-  }
-}
-
-async function decodeStored(stored: unknown): Promise<unknown> {
-  if (stored instanceof Uint8Array) {
-    try {
-      return JSON.parse(await gunzip(stored));
-    } catch {
-      return null; // corrupt entry — treat as a miss
-    }
-  }
-  return stored; // legacy plain object / small value
-}
-
-async function idbGet(key: string): Promise<unknown> {
-  const raw = await new Promise<unknown>((resolve, reject) => {
-    if (!db) {
-      resolve(null);
-      return;
-    }
-    const req = db
-      .transaction(STORE_NAME, "readonly")
-      .objectStore(STORE_NAME)
-      .get(key);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror = () => reject(req.error);
-  });
-  return decodeStored(raw);
-}
-
-async function idbSet(key: string, value: unknown): Promise<void> {
-  const stored = await encodeForStore(value);
-  return new Promise((resolve, reject) => {
-    if (!db) {
-      resolve();
-      return;
-    }
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.put(stored, key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbDelete(key: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) {
-      resolve();
-      return;
-    }
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.delete(key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function idbGetAll(): Promise<Array<{ key: string; value: unknown }>> {
-  return new Promise((resolve, reject) => {
-    if (!db) {
-      resolve([]);
-      return;
-    }
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const store = tx.objectStore(STORE_NAME);
-    const raws: Array<{ key: string; value: unknown }> = [];
-    const req = store.openCursor();
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (cursor) {
-        raws.push({ key: cursor.key as string, value: cursor.value });
-        cursor.continue();
-      } else {
-        // Decode (decompress + parse) each entry off the IDB callback.
-        Promise.all(
-          raws.map(async (e) => ({
-            key: e.key,
-            value: await decodeStored(e.value),
-          })),
-        ).then(resolve, reject);
-      }
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-// ── Migrate from localStorage ────────────────────────────────────────
-// On first run, move existing localStorage data to IndexedDB so users
-// don't lose their cached aircraft/trail/land data.
-
-async function migrateFromLocalStorage(): Promise<void> {
+async function migrateLocalStorage(
+  client: DataWorkerClient,
+): Promise<void> {
   const keys = [CACHE_KEYS.aircraft, CACHE_KEYS.trails, CACHE_KEYS.land];
-
   for (const key of keys) {
     try {
-      const raw = localStorage.getItem(key);
-      if (raw === null) continue;
-      const parsed = JSON.parse(raw);
-      await idbSet(key, parsed);
-      memoryCache.set(key, parsed);
+      const json = localStorage.getItem(key);
+      if (json === null) continue;
+      const value = await client.importJson(key, json);
+      memoryCache.set(key, value);
       localStorage.removeItem(key);
     } catch {}
   }
 }
 
-// ── Staleness cleanup ────────────────────────────────────────────────
-
-const TRAILS_CACHE_KEY = CACHE_KEYS.trails;
-const MAX_TRAIL_POINTS = 50; // ~3.3 hours at 4-min intervals
-const TRAIL_MAX_AGE = 24 * 60 * 60_000; // 24 hours
-
-async function pruneTrailData(): Promise<void> {
-  const trails = memoryCache.get(TRAILS_CACHE_KEY) as
-    | Record<string, { points?: unknown[]; lastSeen?: number }>
-    | null
-    | undefined;
-  if (trails && typeof trails === "object") {
-    let changed = false;
-    const now = Date.now();
-    for (const id of Object.keys(trails)) {
-      const entry = trails[id];
-      if (!entry) continue;
-
-      // Remove entries older than 24 hours
-      if (
-        typeof entry.lastSeen === "number" &&
-        now - entry.lastSeen > TRAIL_MAX_AGE
-      ) {
-        delete trails[id];
-        changed = true;
-        continue;
-      }
-
-      // Cap points per entity
-      if (
-        entry.points &&
-        Array.isArray(entry.points) &&
-        entry.points.length > MAX_TRAIL_POINTS
-      ) {
-        entry.points = entry.points.slice(-MAX_TRAIL_POINTS);
-        changed = true;
-      }
-    }
-    if (changed) {
-      memoryCache.set(TRAILS_CACHE_KEY, trails);
-      idbSet(TRAILS_CACHE_KEY, trails).catch(() => {});
-    }
-  }
-}
-
-// ── Public API ───────────────────────────────────────────────────────
-
-/**
- * Initialize the cache service. Must be called once at boot.
- * Loads all IndexedDB entries into memory, then resolves dbReady
- * so all subsequent reads/writes proceed.
- */
-export async function cacheInit(): Promise<void> {
-  _initCalled = true;
-
-  if (typeof window === "undefined") {
-    _resolveReady();
-    return;
-  }
+async function initialize(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const client = getDataWorkerClient();
+  if (!client) return;
+  activeClient = client;
 
   try {
-    db = await openDB();
+    const entries = await client.init();
+    for (const entry of entries) {
+      if (!memoryCache.has(entry.key)) {
+        memoryCache.set(entry.key, entry.value);
+      }
+    }
+    await migrateLocalStorage(client);
   } catch {
-    _resolveReady();
-    return;
+    activeClient = null;
   }
+}
 
-  // Migrate any existing localStorage data first
-  await migrateFromLocalStorage();
+export function cacheInit(): Promise<void> {
+  initialization ??= initialize();
+  return initialization;
+}
 
-  // Load all entries into memory. The 51 MB aircraft metadata DB used
-  // to live here under aircraftMetadataDb but it's now server-side only
-  // — see src/server/api/aircraftEnrichment.ts.
+export function cacheGet<T = unknown>(key: string): Promise<T | null>;
+export async function cacheGet(key: string): Promise<unknown | null> {
+  const memoryValue = memoryCache.get(key);
+  if (memoryValue !== undefined) return memoryValue;
+
+  await ready();
+
+  const initializedValue = memoryCache.get(key);
+  if (initializedValue !== undefined) return initializedValue;
+  if (!activeClient) return null;
+
   try {
-    const entries = await idbGetAll();
-    for (const { key, value } of entries) {
-      memoryCache.set(key, value);
-    }
-  } catch {}
-
-  // Purge poisoned data caches — if a provider's cache has { data: [] }
-  // from a previous empty upstream response, nuke it so hydration falls
-  // through and the next poll fetches fresh data from the server.
-  // MUST run before _resolveReady so providers don't hydrate poisoned entries.
-  const dataCacheKeys = [
-    CACHE_KEYS.aircraft,
-    CACHE_KEYS.earthquake,
-    CACHE_KEYS.events,
-    CACHE_KEYS.ships,
-    CACHE_KEYS.fires,
-    CACHE_KEYS.weather,
-    CACHE_KEYS.news,
-  ];
-  for (const key of dataCacheKeys) {
-    const entry = memoryCache.get(key) as
-      | { data?: unknown[]; timestamp?: number }
-      | null
-      | undefined;
-    if (
-      entry &&
-      typeof entry === "object" &&
-      Array.isArray(entry.data) &&
-      entry.data.length === 0
-    ) {
-      memoryCache.delete(key);
-      idbDelete(key).catch(() => {});
-    }
+    const stored = await activeClient.get(key);
+    if (stored !== null) memoryCache.set(key, stored);
+    return stored;
+  } catch {
+    return null;
   }
-
-  // Signal that the database is ready — readers unblock NOW.
-  _resolveReady();
-
-  // Clean up stale data (non-blocking — readers already unblocked)
-  await pruneTrailData();
 }
 
-/**
- * Async read — checks memory first (instant, no await). Only gates
- * on dbReady for the IDB fallback so providers aren't blocked during init.
- */
-export async function cacheGet<T = unknown>(key: string): Promise<T | null> {
-  // Fast path — memory hit returns immediately, no waiting on init
-  const mem = memoryCache.get(key);
-  if (mem !== undefined) return mem as T;
-
-  // Slow path — wait for init to finish, then try IDB
-  await dbReady();
-
-  // Re-check memory — cacheInit may have populated it while we waited
-  const mem2 = memoryCache.get(key);
-  if (mem2 !== undefined) return mem2 as T;
-
-  const idb = await idbGet(key);
-  if (idb !== undefined && idb !== null) {
-    memoryCache.set(key, idb);
-    return idb as T;
-  }
-  return null;
-}
-
-/**
- * Write to memory (immediate) + IndexedDB (after dbReady).
- * Memory write is instant so subsequent cacheGet hits immediately.
- */
-export async function cacheSet(key: string, value: unknown): Promise<void> {
+export async function cacheSet(
+  key: string,
+  value: unknown,
+): Promise<void> {
   memoryCache.set(key, value);
-  await dbReady();
-  idbSet(key, value).catch(() => {});
+  await ready();
+  await activeClient?.set(key, value).catch(() => undefined);
 }
 
-// ── Write-behind persistence queue ───────────────────────────────────
-// The synchronous structured clone inside IDBObjectStore.put() used to ride
-// every data-poll tick (provider.persistCache / trailService.writeCache),
-// stacking onto the same frame as the React re-render and freezing drag/zoom.
-// This queue coalesces writes per key (only the latest value survives), runs
-// at most one IDB write per key at a time (mutual exclusion — no clobbering),
-// and flushes during idle time so the clone never lands during interaction.
-
-const MIN_WRITE_INTERVAL_MS = 5_000;
-const pendingWrites = new Map<string, unknown>();
-const lastWriteAt = new Map<string, number>();
-const inflightKeys = new Set<string>();
-let flushScheduled = false;
-
-function scheduleFlush(delayMs = 0): void {
-  if (flushScheduled) return;
-  flushScheduled = true;
-  const run = () => {
-    flushScheduled = false;
-    void flushPendingWrites();
-  };
-  if (delayMs > 0) setTimeout(run, delayMs);
-  else scheduleIdle(run);
-}
-
-async function flushPendingWrites(): Promise<void> {
-  await dbReady();
-  const now = Date.now();
-  let nextDelay = Infinity;
-  for (const [key, value] of pendingWrites) {
-    // A write already in flight for this key — its finally() reschedules.
-    if (inflightKeys.has(key)) continue;
-    const wait = MIN_WRITE_INTERVAL_MS - (now - (lastWriteAt.get(key) ?? 0));
-    if (wait > 0) {
-      nextDelay = Math.min(nextDelay, wait);
-      continue;
-    }
-    pendingWrites.delete(key);
-    lastWriteAt.set(key, now);
-    inflightKeys.add(key);
-    idbSet(key, value)
-      .catch(() => {})
-      .finally(() => {
-        inflightKeys.delete(key);
-        if (pendingWrites.has(key)) scheduleFlush();
-      });
-  }
-  if (nextDelay !== Infinity) scheduleFlush(nextDelay);
-}
-
-/**
- * Write to memory immediately (so subsequent cacheGet hits) but defer the
- * IndexedDB structured clone to idle time, coalesced + mutually exclusive.
- * Use for large datasets written on a hot path (provider/trail persistence).
- */
 export function cacheSetDeferred(key: string, value: unknown): void {
   memoryCache.set(key, value);
-  pendingWrites.set(key, value);
-  scheduleFlush();
+  if (activeClient) {
+    activeClient.setDeferred(key, value);
+    return;
+  }
+  void ready().then(() => {
+    if (memoryCache.get(key) === value) {
+      activeClient?.setDeferred(key, value);
+    }
+  });
 }
 
-/** Force-flush all pending deferred writes (e.g. before the tab is hidden). */
 export async function cacheFlushPending(): Promise<void> {
-  await dbReady();
-  const entries = [...pendingWrites];
-  pendingWrites.clear();
-  const now = Date.now();
-  await Promise.all(
-    entries.map(([key, value]) => {
-      lastWriteAt.set(key, now);
-      return idbSet(key, value).catch(() => {});
-    }),
-  );
+  await ready();
+  await activeClient?.flush().catch(() => undefined);
 }
 
 if (typeof document !== "undefined") {
-  // Persistence can sit in the queue for several seconds; make sure a tab
-  // switch or close doesn't drop it.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void cacheFlushPending();
   });
   globalThis.addEventListener("pagehide", () => void cacheFlushPending());
 }
 
-/**
- * Delete from memory (immediate) + IndexedDB (awaited).
- */
 export async function cacheDelete(key: string): Promise<void> {
   memoryCache.delete(key);
-  await dbReady();
-  await idbDelete(key);
+  await ready();
+  await activeClient?.delete(key).catch(() => undefined);
 }
 
-/**
- * List all cache keys currently in memory.
- * Awaits dbReady so the full set is available.
- */
 export async function cacheListKeys(): Promise<string[]> {
-  await dbReady();
+  await ready();
   return Array.from(memoryCache.keys()).sort();
 }
 
-/**
- * Estimate the on-disk byte size of a cached value — the gzipped size for
- * entries large enough to be compressed, otherwise the JSON length. Awaits
- * dbReady so the value is available.
- */
 export async function cacheEstimateSize(key: string): Promise<number> {
-  await dbReady();
-  const value = memoryCache.get(key);
-  if (value == null) return 0;
-  try {
-    const json = JSON.stringify(value);
-    if (hasCompression && json.length >= COMPRESS_THRESHOLD) {
-      return (await gzip(json)).byteLength;
-    }
-    return json.length;
-  } catch {
-    return 0;
-  }
+  await ready();
+  if (!activeClient) return 0;
+  return activeClient.estimate(key).catch(() => 0);
 }
 
-/**
- * Clear all cache entries from memory and IndexedDB.
- * Awaits all IDB deletes so callers can safely reload after.
- */
 export async function cacheClearAll(): Promise<void> {
-  const keys = Array.from(memoryCache.keys());
-  for (const key of keys) {
-    memoryCache.delete(key);
-  }
-  await dbReady();
-  await Promise.all(keys.map((key) => idbDelete(key)));
+  memoryCache.clear();
+  await ready();
+  await activeClient?.clear().catch(() => undefined);
 }

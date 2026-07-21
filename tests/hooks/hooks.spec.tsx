@@ -69,6 +69,7 @@ function makeMockProvider(opts?: {
     getSnapshot(): ProviderSnapshot<DataPoint> {
       return {
         entities: hydrated ? data : [],
+        source: null,
         version: 0,
         lastUpdatedAt: hydrated ? Date.now() : null,
         loading: !hydrated && !lastError,
@@ -150,6 +151,7 @@ describe("useProviderData", () => {
     // Override getSnapshot to return data with error
     provider.getSnapshot = () => ({
       entities: [makePoint("cached")],
+      source: null,
       version: 0,
       lastUpdatedAt: Date.now(),
       loading: false,
@@ -206,7 +208,23 @@ describe("useAircraftData", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ ac: mockAircraft }),
+          json: async () => ({
+            ac: mockAircraft,
+            source: {
+              source: "aircraft",
+              phase: "ready",
+              freshness: "fresh",
+              completeness: "complete",
+              sequence: 1,
+              observedAt: 1_700_000_000_000,
+              receivedAt: 1_700_000_000_000,
+              expiresAt: 1_700_000_900_000,
+              successfulScopes: 108,
+              failedScopes: 0,
+              totalScopes: 108,
+              error: null,
+            },
+          }),
         } as unknown as Response;
       }
       if (url.includes("/api/")) {
@@ -226,29 +244,32 @@ describe("useAircraftData", () => {
 
     // Simulate boot: refresh + notify
     await aircraftProvider.refresh().catch(() => {});
-    (aircraftProvider as any)._onChange?.();
 
     await waitFor(() => result.current.dataSource === "live", 3000);
     expect(
-      result.current.data.some((d: any) => (d.data as any).icao24 === "abc123"),
+      result.current.data.some(
+        (point: DataPoint) =>
+          point.type === "aircraft" && point.data.icao24 === "abc123",
+      ),
     ).toBe(true);
     expect(result.current.error).toBeNull();
   });
 
   test("exposes requestAircraftEnrichment function", async () => {
-    // @ts-ignore
-    globalThis.fetch = async () => {
-      throw new Error("down");
-    };
+    globalThis.fetch = Object.assign(
+      async () => {
+        throw new Error("down");
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    );
 
     const { useAircraftData, aircraftProvider } =
       //@ts-ignore
       await import("@/features/tracking/aircraft/hooks/useAircraftData?t=enrich");
     const { result, waitFor } = renderHook(() => useAircraftData(60_000));
 
-    // Simulate boot with failure — provider falls back to mock data
+    // A prior snapshot may remain cached across the module singleton.
     await aircraftProvider.refresh().catch(() => {});
-    (aircraftProvider as any)._onChange?.();
 
     await waitFor(() => result.current.loading === false);
     expect(typeof result.current.requestAircraftEnrichment).toBe("function");

@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { AircraftProvider } from "@/features/tracking/aircraft/data/provider";
+import type { SourceState } from "@shared/source";
 
 // ── Mock /api/aircraft/states response (adsb.fi v3 shape) ─────────
 // Provider now reads from the same-origin server proxy populated by
@@ -36,12 +37,30 @@ const MOCK_AIRCRAFT = [
   },
 ];
 
-function mockAircraftResponse(ac: unknown[] = MOCK_AIRCRAFT, ok = true) {
-  return {
-    ok,
+const AIRCRAFT_SOURCE_STATE: SourceState = {
+  source: "aircraft",
+  phase: "ready",
+  freshness: "fresh",
+  completeness: "complete",
+  sequence: 1,
+  observedAt: 1_700_000_000_000,
+  receivedAt: 1_700_000_000_000,
+  expiresAt: 1_700_000_900_000,
+  successfulScopes: 108,
+  failedScopes: 0,
+  totalScopes: 108,
+  error: null,
+};
+
+function mockAircraftResponse(
+  ac: unknown[] = MOCK_AIRCRAFT,
+  ok = true,
+  source: SourceState = AIRCRAFT_SOURCE_STATE,
+): Response {
+  return new Response(JSON.stringify({ ac, source }), {
     status: ok ? 200 : 503,
-    json: async () => ({ ac }),
-  } as unknown as Response;
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function installFetchMock(handler: (url: string) => Response | Promise<Response>) {
@@ -149,7 +168,7 @@ describe("AircraftProvider.getData()", () => {
 // ── refresh ─────────────────────────────────────────────────────────
 
 describe("AircraftProvider.refresh()", () => {
-  test("falls back to mock aircraft on fetch error", async () => {
+  test("does not invent aircraft on a cold fetch error", async () => {
     installFetchMock(() => {
       throw new Error("Network down");
     });
@@ -159,12 +178,11 @@ describe("AircraftProvider.refresh()", () => {
     });
     const result = await provider.refresh();
 
-    expect(result.length).toBe(40);
-    expect(result[0]!.type).toBe("aircraft");
+    expect(result).toEqual([]);
 
     const snap = provider.getSnapshot();
     expect(snap.error).not.toBeNull();
-    expect(snap.error!.message).toBe("Network down");
+    expect(snap.error?.message).toBe("Network down");
   });
 
   test("falls back to cached data on subsequent fetch error", async () => {
@@ -194,11 +212,31 @@ describe("AircraftProvider.refresh()", () => {
     });
     const result = await provider.refresh();
 
-    expect(result.length).toBe(40);
+    expect(result).toEqual([]);
     const snap = provider.getSnapshot();
     expect(snap.error).not.toBeNull();
   });
+  test("clears cached aircraft on a complete empty snapshot", async () => {
+    let calls = 0;
+    installFetchMock(() => {
+      calls++;
+      return calls === 1
+        ? mockAircraftResponse()
+        : mockAircraftResponse([]);
+    });
+
+    const provider = new AircraftProvider({
+      cacheKey: `ac-complete-empty-${Math.random()}`,
+    });
+    await provider.refresh();
+    const result = await provider.refresh();
+
+    expect(result).toEqual([]);
+    expect(provider.getSnapshot().entities).toEqual([]);
+    expect(provider.getSnapshot().source?.completeness).toBe("complete");
+  });
 });
+
 
 // ── getSnapshot ─────────────────────────────────────────────────────
 
@@ -210,6 +248,7 @@ describe("AircraftProvider.getSnapshot()", () => {
     const snap = provider.getSnapshot();
     expect(snap.entities).toEqual([]);
     expect(snap.error).toBeNull();
+    expect(snap.source).toBeNull();
     expect(snap.loading).toBe(false);
   });
 

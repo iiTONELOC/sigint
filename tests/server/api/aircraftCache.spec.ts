@@ -23,8 +23,11 @@ import {
   createSweepState,
   ingestTile,
   finalizeSweep,
+  runSweep,
+  __resetAircraftCacheForTests,
   type SweepState,
 } from "../../../src/server/api/aircraftCache";
+import { isRecord } from "../../../src/shared/geo";
 
 // ── Tile coverage ──────────────────────────────────────────────────
 
@@ -289,6 +292,7 @@ describe("fetchTileWithRetry", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    __resetAircraftCacheForTests();
   });
 
   test("retries once on 429 with default 5s delay when Retry-After absent", async () => {
@@ -314,10 +318,12 @@ describe("fetchTileWithRetry", () => {
 
     expect(calls).toBe(2);
     expect(sleeps).toEqual([30_000]);
-    expect(result.length).toBe(1);
+    expect(result.kind).toBe("complete");
+    if (result.kind !== "complete") throw new Error("Expected tile data");
+    expect(result.records).toHaveLength(1);
   });
 
-  test("honors Retry-After header (in seconds)", async () => {
+  test("honors Retry-After header in seconds", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {
       calls++;
@@ -334,14 +340,15 @@ describe("fetchTileWithRetry", () => {
     }) as unknown as typeof globalThis.fetch;
 
     const sleeps: number[] = [];
-    await fetchTileWithRetry(40, -100, async (ms) => {
+    const result = await fetchTileWithRetry(40, -100, async (ms) => {
       sleeps.push(ms);
     });
 
     expect(sleeps).toEqual([10_000]);
+    expect(result).toEqual({ kind: "complete", records: [] });
   });
 
-  test("two 429s in a row → return [] without throwing (skip this tile)", async () => {
+  test("reports retry exhaustion without pretending the tile was empty", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {
       calls++;
@@ -350,10 +357,12 @@ describe("fetchTileWithRetry", () => {
 
     const result = await fetchTileWithRetry(40, -100, async () => {});
     expect(calls).toBe(2);
-    expect(result).toEqual([]);
+    expect(result.kind).toBe("failed");
+    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.error.code).toBe("rate_limited");
   });
 
-  test("non-429 error response → return [] without retry", async () => {
+  test("reports an HTTP failure without retrying", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {
       calls++;
@@ -366,16 +375,34 @@ describe("fetchTileWithRetry", () => {
     });
     expect(calls).toBe(1);
     expect(sleeps).toEqual([]);
-    expect(result).toEqual([]);
+    expect(result.kind).toBe("failed");
+    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.error.code).toBe("http_error");
+  });
+
+  test("reports malformed success payloads as failures", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ aircraft: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof globalThis.fetch;
+
+    const result = await fetchTileWithRetry(40, -100);
+    expect(result.kind).toBe("failed");
+    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.error.code).toBe("invalid_payload");
   });
 });
 
 // ── sweepTiles ───────────────────────────────────────────────────
 
 describe("sweepTiles", () => {
-  test("uses RATE_LIMIT_DELAY_MS (3000ms) between successful tiles, none after the last", async () => {
+  test("spaces tile attempts without a trailing delay", async () => {
     const sleeps: number[] = [];
-    const fetchFn = async () => [{ hex: "x" }];
+    const fetchFn = async () => ({
+      kind: "complete" as const,
+      records: [{ hex: "x" }],
+    });
     await sweepTiles(
       [
         [1, 1],
@@ -387,13 +414,24 @@ describe("sweepTiles", () => {
         sleeps.push(ms);
       },
     );
-    // 3 tiles → 2 inter-tile delays, no trailing sleep
     expect(sleeps).toEqual([3_000, 3_000]);
   });
 
-  test("merges aircraft from each tile in order called", async () => {
-    const fetchFn = async (lat: number) => [{ hex: `tile-${lat}` }];
-    const merged = await sweepTiles(
+  test("keeps records and completeness counts distinct", async () => {
+    const fetchFn = async (latitude: number) =>
+      latitude === 1
+        ? {
+            kind: "complete" as const,
+            records: [{ hex: "tile-1" }],
+          }
+        : {
+            kind: "failed" as const,
+            error: {
+              code: "network_error" as const,
+              message: "offline",
+            },
+          };
+    const result = await sweepTiles(
       [
         [1, 1],
         [2, 2],
@@ -401,7 +439,10 @@ describe("sweepTiles", () => {
       fetchFn,
       async () => {},
     );
-    expect(merged).toEqual([{ hex: "tile-1" }, { hex: "tile-2" }]);
+    expect(result.records).toEqual([{ hex: "tile-1" }]);
+    expect(result.successfulScopes).toBe(1);
+    expect(result.failedScopes).toBe(1);
+    expect(result.error?.code).toBe("network_error");
   });
 });
 
@@ -424,13 +465,43 @@ describe("ingestTile", () => {
     expect(state.completed.get("def456")).toBeDefined();
   });
 
-  test("later records win (case-insensitive on hex)", () => {
+  test("equal-time later records win case-insensitively", () => {
     const state = createSweepState();
-    ingestTile(state, [{ hex: "abc", v: "first" }]);
-    ingestTile(state, [{ hex: "ABC", v: "second" }]);
+    const receivedAt = 1_700_000_000_000;
+    ingestTile(state, [{ hex: "abc", value: "first" }], receivedAt);
+    ingestTile(state, [{ hex: "ABC", value: "second" }], receivedAt);
+
+    const merged = state.completed.get("abc");
     expect(state.completed.size).toBe(1);
-    const merged = state.completed.get("abc") as { v?: string } | undefined;
-    expect(merged?.v).toBe("second");
+    expect(isRecord(merged)).toBe(true);
+    if (!isRecord(merged)) throw new Error("Expected cached record");
+    expect(merged.value).toBe("second");
+  });
+
+  test("an older overlapping tile cannot replace a fresher position", () => {
+    const state = createSweepState();
+    const receivedAt = 1_700_000_000_000;
+    ingestTile(
+      state,
+      [{ hex: "abc", seen_pos: 20, value: "older" }],
+      receivedAt,
+    );
+    ingestTile(
+      state,
+      [{ hex: "ABC", seen_pos: 2, value: "newer" }],
+      receivedAt,
+    );
+    ingestTile(
+      state,
+      [{ hex: "abc", seen_pos: 30, value: "oldest" }],
+      receivedAt,
+    );
+
+    const merged = state.completed.get("abc");
+    expect(isRecord(merged)).toBe(true);
+    if (!isRecord(merged)) throw new Error("Expected cached record");
+    expect(merged.value).toBe("newer");
+    expect(merged.observedAt).toBe(receivedAt - 2_000);
   });
 
   test("drops records without a usable hex string", () => {
@@ -483,7 +554,7 @@ describe("finalizeSweep", () => {
 
     // This sweep only saw the third one
     ingestTile(state, [{ hex: "seen-this-sweep" }, { hex: "new-1" }]);
-    finalizeSweep(state);
+    finalizeSweep(state, "complete");
 
     expect(state.completed.has("stale-1")).toBe(false);
     expect(state.completed.has("stale-2")).toBe(false);
@@ -495,25 +566,125 @@ describe("finalizeSweep", () => {
     const state = createSweepState();
     state.completed.set("warm-1", { hex: "warm-1" });
     state.completed.set("warm-2", { hex: "warm-2" });
-    // No ingestTile calls — sweep produced nothing (e.g. all 429s)
-    finalizeSweep(state);
+    finalizeSweep(state, "unknown");
     expect(state.completed.size).toBe(2);
   });
 
   test("resets current for the next sweep so prior tiles do not pollute prune", () => {
     const state = createSweepState();
     ingestTile(state, [{ hex: "a" }, { hex: "b" }]);
-    finalizeSweep(state);
+    finalizeSweep(state, "complete");
     expect(state.current.size).toBe(0);
-    // Next sweep: only sees "a", b should be pruned
     ingestTile(state, [{ hex: "a" }]);
-    finalizeSweep(state);
+    finalizeSweep(state, "complete");
     expect(state.completed.has("a")).toBe(true);
     expect(state.completed.has("b")).toBe(false);
   });
 });
 
 // ── Initial cache state ──────────────────────────────────────────
+describe("runSweep source state", () => {
+  const noSleep = async (): Promise<void> => {};
+  const preserveOrder = <T>(items: ReadonlyArray<T>): T[] => [...items];
+
+  afterEach(() => {
+    __resetAircraftCacheForTests();
+  });
+
+  test("a complete empty sweep authoritatively clears the prior snapshot", async () => {
+    await runSweep(
+      async () => ({
+        kind: "complete",
+        records: [{ hex: "warm-aircraft" }],
+      }),
+      noSleep,
+      preserveOrder,
+    );
+    expect(getAircraftCache().aircraftCount).toBe(1);
+
+    await runSweep(
+      async () => ({ kind: "complete", records: [] }),
+      noSleep,
+      preserveOrder,
+    );
+
+    const cache = getAircraftCache();
+    expect(cache.body).toEqual({ ac: [] });
+    expect(cache.aircraftCount).toBe(0);
+    expect(cache.source.phase).toBe("ready");
+    expect(cache.source.completeness).toBe("complete");
+    expect(cache.source.successfulScopes).toBe(AIRCRAFT_TILES.length);
+    expect(cache.source.failedScopes).toBe(0);
+  });
+
+  test("a partial sweep retains aircraft absent from failed tiles", async () => {
+    await runSweep(
+      async () => ({
+        kind: "complete",
+        records: [{ hex: "warm-aircraft" }],
+      }),
+      noSleep,
+      preserveOrder,
+    );
+
+    let calls = 0;
+    await runSweep(
+      async () => {
+        calls++;
+        return calls === 1
+          ? { kind: "complete", records: [] }
+          : {
+              kind: "failed",
+              error: {
+                code: "network_error",
+                message: "offline",
+              },
+            };
+      },
+      noSleep,
+      preserveOrder,
+    );
+
+    const cache = getAircraftCache();
+    expect(cache.aircraftCount).toBe(1);
+    expect(cache.source.phase).toBe("degraded");
+    expect(cache.source.completeness).toBe("partial");
+    expect(cache.source.successfulScopes).toBe(1);
+    expect(cache.source.failedScopes).toBe(AIRCRAFT_TILES.length - 1);
+    expect(cache.source.error?.code).toBe("network_error");
+  });
+
+  test("an unavailable sweep retains the warm snapshot without inferring absence", async () => {
+    await runSweep(
+      async () => ({
+        kind: "complete",
+        records: [{ hex: "warm-aircraft" }],
+      }),
+      noSleep,
+      preserveOrder,
+    );
+
+    await runSweep(
+      async () => ({
+        kind: "failed",
+        error: {
+          code: "rate_limited",
+          message: "limited",
+        },
+      }),
+      noSleep,
+      preserveOrder,
+    );
+
+    const cache = getAircraftCache();
+    expect(cache.aircraftCount).toBe(1);
+    expect(cache.source.phase).toBe("unavailable");
+    expect(cache.source.completeness).toBe("unknown");
+    expect(cache.source.successfulScopes).toBe(0);
+    expect(cache.source.failedScopes).toBe(AIRCRAFT_TILES.length);
+  });
+});
+
 
 describe("getAircraftCache", () => {
   test("returns the initial empty shape before any fetch", () => {
@@ -522,5 +693,8 @@ describe("getAircraftCache", () => {
     expect(c.fetchedAt).toBe(0);
     expect(c.aircraftCount).toBe(0);
     expect(c.error).toBeNull();
+    expect(c.source.phase).toBe("cold");
+    expect(c.source.freshness).toBe("expired");
+    expect(c.source.completeness).toBe("unknown");
   });
 });

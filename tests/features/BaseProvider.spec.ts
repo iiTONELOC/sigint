@@ -1,23 +1,42 @@
 import { describe, test, expect } from "bun:test";
 import { BaseProvider } from "@/features/base/BaseProvider";
 import type { DataPoint } from "@/features/base/dataPoints";
+import type { ProviderFetchResult } from "@/features/base/types";
+import type { SourceState } from "@shared/source";
 
 // ── Mock data ───────────────────────────────────────────────────────
 
-function makePoint(id: string, type: string = "events"): DataPoint {
+function makePoint(id: string): DataPoint {
   return {
     id,
-    type: type as any,
-    lat: 40.0,
-    lon: -74.0,
+    type: "events",
+    lat: 40,
+    lon: -74,
     timestamp: new Date().toISOString(),
-    data: {} as any,
+    data: {},
   };
 }
 
+const COMPLETE_SOURCE: SourceState = {
+  source: "events",
+  phase: "ready",
+  freshness: "fresh",
+  completeness: "complete",
+  sequence: 1,
+  observedAt: 1_700_000_000_000,
+  receivedAt: 1_700_000_000_000,
+  expiresAt: 1_700_000_900_000,
+  successfulScopes: 1,
+  failedScopes: 0,
+  totalScopes: 1,
+  error: null,
+};
+
 function makeProvider(
   overrides: {
-    fetchFn?: () => Promise<DataPoint[]>;
+    fetchFn?: () => Promise<
+      DataPoint[] | ProviderFetchResult<DataPoint>
+    >;
     mergeFn?: (existing: DataPoint[], incoming: DataPoint[]) => DataPoint[];
     maxCacheAgeMs?: number;
     allowEmptyResult?: boolean;
@@ -240,6 +259,54 @@ describe("BaseProvider with allowEmptyResult", () => {
     const second = await provider.refresh();
     expect(second).toHaveLength(2);
     expect(second[0]!.id).toBe("p1");
+  });
+
+  test("a typed complete result makes empty authoritative", async () => {
+    let calls = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        calls++;
+        if (calls === 1) return [makePoint("p1")];
+        return { data: [], source: COMPLETE_SOURCE };
+      },
+    });
+
+    await provider.refresh();
+    const result = await provider.refresh();
+
+    expect(result).toEqual([]);
+    expect(provider.getSnapshot().entities).toEqual([]);
+    expect(provider.getSnapshot().source).toBe(COMPLETE_SOURCE);
+  });
+
+  test("a typed partial result cannot erase the prior cache", async () => {
+    const partialSource: SourceState = {
+      ...COMPLETE_SOURCE,
+      phase: "degraded",
+      completeness: "partial",
+      successfulScopes: 1,
+      failedScopes: 1,
+      totalScopes: 2,
+      error: {
+        code: "network_error",
+        message: "offline",
+      },
+    };
+    let calls = 0;
+    const provider = makeProvider({
+      fetchFn: async () => {
+        calls++;
+        if (calls === 1) return [makePoint("p1")];
+        return { data: [], source: partialSource };
+      },
+    });
+
+    await provider.refresh();
+    const result = await provider.refresh();
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe("p1");
+    expect(provider.getSnapshot().source).toBe(partialSource);
   });
 
   test("allowEmptyResult: true still respects fetch errors (falls back to cache)", async () => {

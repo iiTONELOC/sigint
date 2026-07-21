@@ -16,11 +16,12 @@ export type GlobeRotationMatrix = Readonly<{
   m22: number;
 }>;
 
-export type ProjectedUnitVector = Readonly<{
+export type ProjectedUnitVectorBuffer = {
   x: number;
   y: number;
   z: number;
-}>;
+};
+export type ProjectedUnitVector = Readonly<ProjectedUnitVectorBuffer>;
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 
@@ -147,6 +148,25 @@ export function createGlobeRotationMatrix(
   };
 }
 
+export function projectUnitVectorInto(
+  unit: UnitVector,
+  matrix: GlobeRotationMatrix,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  output: ProjectedUnitVectorBuffer,
+): void {
+  const rotatedX =
+    matrix.m00 * unit.x + matrix.m01 * unit.y + matrix.m02 * unit.z;
+  const rotatedY =
+    matrix.m10 * unit.x + matrix.m11 * unit.y + matrix.m12 * unit.z;
+  const depth =
+    matrix.m20 * unit.x + matrix.m21 * unit.y + matrix.m22 * unit.z;
+  output.x = centerX + rotatedX * radius;
+  output.y = centerY - rotatedY * radius;
+  output.z = depth;
+}
+
 export function projectUnitVector(
   unit: UnitVector,
   matrix: GlobeRotationMatrix,
@@ -154,17 +174,16 @@ export function projectUnitVector(
   centerY: number,
   radius: number,
 ): ProjectedUnitVector {
-  const rotatedX =
-    matrix.m00 * unit.x + matrix.m01 * unit.y + matrix.m02 * unit.z;
-  const rotatedY =
-    matrix.m10 * unit.x + matrix.m11 * unit.y + matrix.m12 * unit.z;
-  const depth =
-    matrix.m20 * unit.x + matrix.m21 * unit.y + matrix.m22 * unit.z;
-  return {
-    x: centerX + rotatedX * radius,
-    y: centerY - rotatedY * radius,
-    z: depth,
-  };
+  const output: ProjectedUnitVectorBuffer = { x: 0, y: 0, z: 0 };
+  projectUnitVectorInto(
+    unit,
+    matrix,
+    centerX,
+    centerY,
+    radius,
+    output,
+  );
+  return output;
 }
 
 export function projectGeographicPoint(

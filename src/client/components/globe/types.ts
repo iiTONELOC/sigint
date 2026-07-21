@@ -75,6 +75,7 @@ export type GlobeVisualizationProps = {
   readonly autoRotate?: boolean;
   readonly rotationSpeed?: number;
   readonly data: DataPoint[];
+  readonly dataVersion: number;
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
   readonly cycloneFilter?: CycloneFilter;

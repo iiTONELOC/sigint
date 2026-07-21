@@ -6,6 +6,7 @@ export type SourceStatus = {
     | "live"
     | "cached"
     | "mock"
+    | "degraded"
     | "error"
     | "empty"
     | "unavailable";

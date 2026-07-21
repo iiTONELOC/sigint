@@ -7,6 +7,7 @@ import {
   geographicToUnitVector,
   projectGeographicPoint,
   projectUnitVector,
+  projectUnitVectorInto,
 } from "@/lib/geo/unitSphere";
 
 describe("unit sphere projection", () => {
@@ -34,6 +35,9 @@ describe("unit sphere projection", () => {
     const unit = geographicToUnitVector(28.6, -86);
     const matrix = createGlobeRotationMatrix(0.7, -0.25);
     const projected = projectUnitVector(unit, matrix, 400, 300, 240);
+    const output = { x: 0, y: 0, z: 0 };
+    projectUnitVectorInto(unit, matrix, 400, 300, 240, output);
+    expect(output).toEqual(projected);
     const direct = projectGeographicPoint(
       28.6,
       -86,

@@ -1,5 +1,9 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { DataProvider, ProviderSnapshot } from "@/features/base/types";
+import type {
+  DataProvider,
+  ProviderFetchResult,
+  ProviderSnapshot,
+} from "@/features/base/types";
 import { cacheGet, cacheSetDeferred } from "@/lib/cache/storageService";
 import { diffAndApply } from "@/features/base/diffEntities";
 
@@ -19,7 +23,7 @@ export type BaseProviderConfig = {
    * Fetch + parse remote data into DataPoint[].
    * The base class handles caching, snapshots, and error fallback.
    */
-  fetchFn: () => Promise<DataPoint[]>;
+  fetchFn: () => Promise<DataPoint[] | ProviderFetchResult<DataPoint>>;
 
   /**
    * Optional: merge incoming data with existing cache.
@@ -40,11 +44,7 @@ export type BaseProviderConfig = {
    */
   allowEmptyResult?: boolean;
 
-  /**
-   * Optional last-resort data when a fetch throws and there is no memory or
-   * persisted cache to fall back on. Defaults to an empty array. Aircraft
-   * supplies mock data so a cold-start network failure still paints a globe.
-   */
+  /** Optional fallback when fetch and cache are both unavailable. */
   errorFallbackFn?: () => DataPoint[];
 };
 
@@ -55,7 +55,9 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   private readonly cacheKey: string;
   private readonly maxCacheAgeMs: number;
-  private readonly fetchFn: () => Promise<DataPoint[]>;
+  private readonly fetchFn: () => Promise<
+    DataPoint[] | ProviderFetchResult<DataPoint>
+  >;
   private readonly mergeFn?: (
     existing: DataPoint[],
     incoming: DataPoint[],
@@ -68,6 +70,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   private snapshot: ProviderSnapshot<DataPoint> = {
     entities: [],
+    source: null,
     version: 0,
     error: null,
     loading: false,
@@ -132,6 +135,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
     this.cache = { data, timestamp: persisted.timestamp };
     this.snapshot = {
       entities: data,
+      source: null,
       version: this.snapshot.version + 1,
       lastUpdatedAt: persisted.timestamp,
       loading: true,
@@ -160,7 +164,9 @@ export class BaseProvider implements DataProvider<DataPoint> {
 
   private async doRefresh(): Promise<DataPoint[]> {
     try {
-      const incoming = await this.fetchFn();
+      const fetched = await this.fetchFn();
+      const incoming = Array.isArray(fetched) ? fetched : fetched.data;
+      const source = Array.isArray(fetched) ? null : fetched.source;
 
       const merged = this.mergeFn
         ? this.mergeFn(this.cache?.data ?? [], incoming)
@@ -171,13 +177,19 @@ export class BaseProvider implements DataProvider<DataPoint> {
       // treat it as a soft error. Skipped when allowEmptyResult is true
       // — for sources where empty is the legitimate truth (e.g. cyclones
       // out of season).
-      if (merged.length === 0 && !this.allowEmptyResult) {
+      const authoritativeEmpty = source?.completeness === "complete";
+      if (
+        merged.length === 0 &&
+        !this.allowEmptyResult &&
+        !authoritativeEmpty
+      ) {
         const fallback = this.cache?.data ?? [];
-        if (fallback.length > 0) {
-          this.cache = { ...this.cache!, timestamp: Date.now() };
+        if (this.cache && fallback.length > 0) {
+          this.cache = { ...this.cache, timestamp: Date.now() };
         }
         this.snapshot = {
           entities: fallback,
+          source,
           version: this.snapshot.version + 1,
           lastUpdatedAt: Date.now(),
           loading: false,
@@ -197,6 +209,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
       this.persistCache(entities);
       this.snapshot = {
         entities,
+        source,
         version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,
@@ -216,6 +229,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
       }
       this.snapshot = {
         entities: fallback,
+        source: this.snapshot.source,
         version: this.snapshot.version + 1,
         lastUpdatedAt: Date.now(),
         loading: false,

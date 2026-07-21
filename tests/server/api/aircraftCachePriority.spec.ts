@@ -11,6 +11,7 @@ import {
   runSweep,
   __resetFirstSweepForTests,
   __resetAircraftCacheForTests,
+  type AircraftTileResult,
 } from "../../../src/server/api/aircraftCache";
 
 // runSweep mutates module-level state (`sweepState`, `lastFetchedAt`,
@@ -126,9 +127,9 @@ describe("runSweep priority ordering", () => {
     const fetchFn = async (
       lat: number,
       lon: number,
-    ): Promise<unknown[]> => {
+    ): Promise<AircraftTileResult> => {
       visited.push([lat, lon]);
-      return [];
+      return { kind: "complete", records: [] };
     };
     const sleep = async (): Promise<void> => {};
 
@@ -153,7 +154,10 @@ describe("runSweep priority ordering", () => {
     // the second call's order. With identity shuffle the second
     // invocation must visit AIRCRAFT_TILES verbatim (not priority-first).
     __resetFirstSweepForTests();
-    const noopFetch = async (): Promise<unknown[]> => [];
+    const noopFetch = async (): Promise<AircraftTileResult> => ({
+      kind: "complete",
+      records: [],
+    });
     const sleep = async (): Promise<void> => {};
 
     await runSweep(noopFetch, sleep, identityShuffle); // flips firstSweepDone
@@ -162,9 +166,9 @@ describe("runSweep priority ordering", () => {
     const recordingFetch = async (
       lat: number,
       lon: number,
-    ): Promise<unknown[]> => {
+    ): Promise<AircraftTileResult> => {
       visited.push([lat, lon]);
-      return [];
+      return { kind: "complete", records: [] };
     };
 
     await runSweep(recordingFetch, sleep, identityShuffle);

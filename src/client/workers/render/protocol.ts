@@ -58,34 +58,6 @@ export type SelectedRenderItem = Readonly<{
   route: readonly (readonly [number, number])[] | null;
 }>;
 
-export type RenderFramePayload = Readonly<{
-  width: number;
-  height: number;
-  devicePixelRatio: number;
-  flat: boolean;
-  camera: RenderCamera;
-  animationTime: number;
-  selectedId: string | null;
-  isolatedId: string | null;
-  isolateMode: "solo" | "focus" | null;
-  layers: Readonly<Record<string, boolean | undefined>>;
-  aircraftFilter: RenderAircraftFilter;
-  searchMatchIds: readonly string[] | null;
-  selectedItem: SelectedRenderItem | null;
-  cyclonesShowForecast: boolean;
-  cyclonesShowCone: boolean;
-  cyclonesShowWindField: boolean;
-  cyclonesShowWarnings: boolean;
-  cyclonesShowModels: boolean;
-  cyclonesHiddenModels: readonly string[];
-  prefersReducedMotion: boolean;
-}>;
-
-export type RenderTrailHitTarget = Readonly<{
-  x: number;
-  y: number;
-  point: TrailPoint;
-}>;
 export type RenderViewportPayload = Readonly<{
   width: number;
   height: number;
@@ -167,7 +139,11 @@ type RenderProtocolEnvelope = Readonly<{
 }>;
 
 export type RenderWorkerCommandBody =
-  | Readonly<{ type: "init"; canvas: OffscreenCanvas }>
+  | Readonly<{
+      type: "init";
+      canvas: OffscreenCanvas;
+      dataPort?: MessagePort;
+    }>
   | Readonly<{
       type: "data";
       payload: Readonly<{
@@ -199,7 +175,6 @@ export type RenderWorkerCommandBody =
     }>
   | Readonly<{ type: "input"; payload: RenderInputPayload }>
   | Readonly<{ type: "focus"; payload: RenderFocusPayload }>
-  | Readonly<{ type: "frame"; payload: RenderFramePayload }>
   | Readonly<{ type: "dispose" }>;
 
 type WithEnvelope<T> = T extends object ? T & RenderProtocolEnvelope : never;
@@ -208,10 +183,7 @@ export type RenderWorkerCommand = WithEnvelope<RenderWorkerCommandBody>;
 
 type RenderWorkerEventBody =
   | Readonly<{ type: "ready" }>
-  | Readonly<{
-      type: "trailTargets";
-      payload: Readonly<{ targets: readonly RenderTrailHitTarget[] }>;
-    }>
+  | Readonly<{ type: "dataChannelReady" }>
   | Readonly<{
       type: "interaction";
       payload: RenderInteractionPayload;

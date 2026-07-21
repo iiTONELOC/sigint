@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { generateMockAircraft } from "@/data/mockData";
+
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { AircraftProvider } from "../data/provider";
 
 export const aircraftProvider = new AircraftProvider();
 
-export type AircraftDataSource = "loading" | "live" | "cached" | "mock";
+export type AircraftDataSource =
+  | "loading"
+  | "live"
+  | "cached"
+  | "degraded"
+  | "unavailable";
 
 type UseAircraftDataResult = {
   data: DataPoint[];
@@ -32,7 +37,7 @@ type UseAircraftDataResult = {
 export function useAircraftData(
   pollInterval: number = POLL_INTERVALS.aircraft,
 ): UseAircraftDataResult {
-  const [data, setData] = useState<DataPoint[]>(() => generateMockAircraft());
+  const [data, setData] = useState<DataPoint[]>([]);
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -45,22 +50,31 @@ export function useAircraftData(
     const applySnapshot = () => {
       const snapshot = aircraftProvider.getSnapshot();
       const result = snapshot.entities;
-      // Pass the provider's array reference straight through — the
-      // provider preserves identity across same-id-set polls (see
-      // provider.ts diffAndApply). Mock data swaps in only when the
-      // provider has nothing real, so its identity boundary is fine.
-      setData(result.length > 0 ? result : generateMockAircraft());
+      const source = snapshot.source;
+      setData(result);
       setVersion(snapshot.version);
       setLoading(false);
+
       if (snapshot.error) {
         setError(snapshot.error);
-        const hasRealCache =
-          result.length > 0 &&
-          result.some((d) => d.type === "aircraft" && (d.data as any)?.icao24);
-        setDataSource(hasRealCache ? "cached" : "mock");
+        setDataSource(result.length > 0 ? "cached" : "unavailable");
+        return;
+      }
+
+      setError(source?.error ? new Error(source.error.message) : null);
+      if (source?.phase === "unavailable" || source?.freshness === "expired") {
+        setDataSource("unavailable");
+      } else if (
+        source?.phase === "degraded" ||
+        source?.freshness === "stale"
+      ) {
+        setDataSource("degraded");
+      } else if (source?.phase === "loading" || source?.phase === "cold") {
+        setDataSource(result.length > 0 ? "cached" : "loading");
+      } else if (source?.phase === "ready") {
+        setDataSource("live");
       } else {
-        setError(null);
-        setDataSource(result.length > 0 ? "live" : "mock");
+        setDataSource(result.length > 0 ? "cached" : "loading");
       }
     };
 
@@ -89,7 +103,7 @@ export function useAircraftData(
           err instanceof Error ? err : new Error("Unknown error occurred"),
         );
         setLoading(false);
-        setDataSource("mock");
+        setDataSource("unavailable");
       }
     };
 

@@ -26,14 +26,13 @@ import {
 import {
   RENDER_PROTOCOL_VERSION,
   acceptRenderCommand,
+  type RenderAircraftFilter,
   type RenderCamera,
-  type RenderFramePayload,
   type RenderInputPayload,
   type RenderInteractionPayload,
   type RenderPresentationPayload,
   type RenderViewportPayload,
   type RenderProtocolState,
-  type RenderTrailHitTarget,
   type RenderPoint,
   type RenderWorkerCommand,
   type RenderWorkerColors,
@@ -41,6 +40,13 @@ import {
   type SelectedRenderItem,
 } from "./render/protocol";
 
+import {
+  acceptRenderDataCommand,
+  parseRenderDataCommand,
+  type RenderDataProtocolState,
+} from "./render/dataChannel";
+
+import { orderPointsByLayer } from "./render/layerOrder";
 import { drawWarnings, type WarningFeature } from "./render/warnings";
 import { zoomScale } from "./render/workerMath";
 import { weatherSeverityRank } from "@/features/environmental/weather/severity";
@@ -58,6 +64,7 @@ import {
   geographicToUnitVector,
   projectGeographicPoint as projGlobe,
   projectUnitVector,
+  projectUnitVectorInto,
   type GeographicMotion,
   type GlobeRotationMatrix,
   type UnitVector,
@@ -262,7 +269,7 @@ type AircraftData = Extract<
   RenderPoint,
   { type: "aircraft" }
 >["data"];
-type AircraftFilter = RenderFramePayload["aircraftFilter"];
+type AircraftFilter = RenderAircraftFilter;
 
 function matchesAF(d: AircraftData, f: AircraftFilter): boolean {
   if (!f.enabled) return false;
@@ -289,6 +296,7 @@ function matchesAF(d: AircraftData, f: AircraftFilter): boolean {
 type LandRing = Readonly<{
   coordinates: GeoRing;
   unitVectors: readonly UnitVector[];
+  projected: Projected[];
 }>;
 
 let landRings: LandRing[] = [];
@@ -297,11 +305,13 @@ function parseLandGeoJSON(value: unknown): LandRing[] {
   const rings: LandRing[] = [];
   for (const polygon of parseLandGeoJson(value)) {
     for (const coordinates of polygon) {
+      const unitVectors = coordinates.map(([longitude, latitude]) =>
+        geographicToUnitVector(latitude, longitude),
+      );
       rings.push({
         coordinates,
-        unitVectors: coordinates.map(([longitude, latitude]) =>
-          geographicToUnitVector(latitude, longitude),
-        ),
+        unitVectors,
+        projected: unitVectors.map(() => ({ x: 0, y: 0, z: 0 })),
       });
     }
   }
@@ -466,9 +476,19 @@ function drawLand(
       drawLandFlatRing(ctx, projFn, ring, colors, landAlpha);
       continue;
     }
-    const points = ring.unitVectors.map((unit) =>
-      projectUnitVector(unit, matrix, centerX, centerY, radius),
-    );
+    const points = ring.projected;
+    for (const [index, unit] of ring.unitVectors.entries()) {
+      const point = points[index];
+      if (!point) continue;
+      projectUnitVectorInto(
+        unit,
+        matrix,
+        centerX,
+        centerY,
+        radius,
+        point,
+      );
+    }
     if (points.length < 3 || !points.some((point) => point.z > 0)) continue;
     if (points.every((point) => point.z > 0)) {
       simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
@@ -560,6 +580,11 @@ function drawGrid(ctx: Ctx, projFn: ProjFn, cfg: GridCfg): void {
 
 type WorkerTrailPoint = SelectedRenderItem["trail"][number];
 type ProjTrail = { x: number; y: number; z: number; point: WorkerTrailPoint };
+type TrailHitTarget = Readonly<{
+  x: number;
+  y: number;
+  point: WorkerTrailPoint;
+}>;
 
 function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: number, span: number, color: string): void {
   ctx.lineWidth = width;
@@ -581,7 +606,7 @@ function drawTrail(
   projFn: ProjFn,
   selectedItem: SelectedRenderItem | null,
   colors: { accent: string },
-): RenderTrailHitTarget[] {
+): TrailHitTarget[] {
   const trail = selectedItem?.trail;
   if (!selectedItem || !trail || trail.length < 1) return [];
   const coords: WorkerTrailPoint[] = trail.map((p) => ({
@@ -608,7 +633,7 @@ function drawTrail(
   strokeTrailPass(ctx, projected, 6, 0.05, 0.15, colors.accent); // glow pass
   strokeTrailPass(ctx, projected, 2.5, 0.3, 0.7, colors.accent); // main line
 
-  const hitTargets: RenderTrailHitTarget[] = [];
+  const hitTargets: TrailHitTarget[] = [];
   ctx.fillStyle = "#ffffff";
   projected.slice(0, -1).forEach((p, i) => {
     ctx.globalAlpha = 0.4 + (i / projected.length) * 0.6;
@@ -721,7 +746,6 @@ let _data: RenderPoint[] | null = null;
 let _colors: RenderWorkerColors | null = null;
 let _dataBySource: Record<string, RenderPoint[] | null> | null = null;
 let _pendingBuckets: Record<string, RenderPoint[] | null> | null = null;
-let _pendingFrame: RenderFramePayload | null = null;
 let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
@@ -731,8 +755,8 @@ let _lastFrameAt = performance.now();
 let _hasAnimatedPoints = false;
 let _projectedPoints: ProjPoint[] = [];
 let _hitGrid = new Map<string, ProjPoint[]>();
-let _trailHitTargets: RenderTrailHitTarget[] = [];
-let _activeTrailPoint: RenderTrailHitTarget["point"] | null = null;
+let _trailHitTargets: TrailHitTarget[] = [];
+let _activeTrailPoint: TrailHitTarget["point"] | null = null;
 let _lastClickTime = 0;
 let _lastClickId: string | null = null;
 let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
@@ -769,6 +793,30 @@ const protocolState: RenderProtocolState = {
   sessionId: null,
   sequence: 0,
 };
+
+let dataPort: MessagePort | null = null;
+
+function bindDataPort(port: MessagePort, sessionId: string): void {
+  dataPort?.close();
+  dataPort = port;
+  const state: RenderDataProtocolState = {
+    sessionId,
+    sequence: 0,
+  };
+  port.onmessage = (event: MessageEvent<unknown>) => {
+    const command = parseRenderDataCommand(event.data);
+    if (!command || !acceptRenderDataCommand(state, command)) return;
+    const ready: RenderWorkerEvent = {
+      type: "dataChannelReady",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
+      sessionId,
+      sequence: protocolState.sequence,
+    };
+    globalThis.postMessage(ready);
+  };
+  port.start();
+}
+
 function postInteraction(payload: RenderInteractionPayload): void {
   if (!protocolState.sessionId) return;
   const event: RenderWorkerEvent = {
@@ -823,7 +871,7 @@ function postCameraSummary(now: number): void {
 
 function scheduleRender(): void {
   const hasState = _presentation !== null && _viewport !== null;
-  if (_frameScheduled || (!hasState && !_pendingFrame)) return;
+  if (_frameScheduled || !hasState) return;
   _frameScheduled = true;
   requestAnimationFrame(renderFrame);
 }
@@ -872,67 +920,33 @@ function pointHasTimeAnimation(item: RenderPoint): boolean {
 }
 
 
-function handleData(payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"]): boolean {
+function handleData(
+  payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"],
+): boolean {
   _colors = payload.colors;
   _dataBySource ??= {};
   _pendingBuckets ??= {};
   const source = payload.source;
   if (payload.reset) _pendingBuckets[source] = [];
   const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
-  for (const item of payload.data) {
-    pending.push(item);
-  }
+  for (const item of payload.data) pending.push(item);
   if (!payload.done) return false;
+
   _dataBySource[source] = pending;
   _pendingBuckets[source] = null;
   const nextData: RenderPoint[] = [];
   for (const bucket of Object.values(_dataBySource)) {
     if (!bucket) continue;
-    for (const item of bucket) {
-      nextData.push(item);
-    }
-  _data = nextData;
+    for (const item of bucket) nextData.push(item);
   }
+  _data = nextData;
   _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
-  const len = nextData.length;
-  if (_revealCount > len) _revealCount = len;
-  if (_revealCount === 0 && len > 0) _revealCount = Math.min(REVEAL_CHUNK, len);
+  if (_revealCount > nextData.length) _revealCount = nextData.length;
+  if (_revealCount === 0 && nextData.length > 0) {
+    _revealCount = Math.min(REVEAL_CHUNK, nextData.length);
+  }
   return true;
 }
-function handleLegacyFrame(payload: RenderFramePayload): void {
-  _pendingFrame = payload;
-  _viewport = {
-    width: payload.width,
-    height: payload.height,
-    devicePixelRatio: payload.devicePixelRatio,
-  };
-  _presentation = {
-    flat: payload.flat,
-    autoRotate: false,
-    rotationSpeed: 0,
-    selectedId: payload.selectedId,
-    isolatedId: payload.isolatedId,
-    isolateMode: payload.isolateMode,
-    layers: payload.layers,
-    aircraftFilter: payload.aircraftFilter,
-    searchMatchIds: payload.searchMatchIds,
-    selectedItem: payload.selectedItem,
-    cyclonesShowForecast: payload.cyclonesShowForecast,
-    cyclonesShowCone: payload.cyclonesShowCone,
-    cyclonesShowWindField: payload.cyclonesShowWindField,
-    cyclonesShowWarnings: payload.cyclonesShowWarnings,
-    cyclonesShowModels: payload.cyclonesShowModels,
-    cyclonesHiddenModels: payload.cyclonesHiddenModels,
-    prefersReducedMotion: payload.prefersReducedMotion,
-  };
-  _camera.rotY = payload.camera.rotY;
-  _camera.rotX = payload.camera.rotX;
-  _camera.zoomGlobe = payload.camera.zoomGlobe;
-  _camera.zoomFlat = payload.camera.zoomFlat;
-  _camera.panX = payload.camera.panX;
-  _camera.panY = payload.camera.panY;
-}
-
 function selectedCameraPosition(): CameraPosition | null {
   const selected = _presentation?.selectedItem;
   if (!selected) return null;
@@ -1043,7 +1057,7 @@ globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
   if (msg.type === "init") {
     canvas = msg.canvas;
     ctx = canvas.getContext("2d");
-    _pendingFrame = null;
+    if (msg.dataPort) bindDataPort(msg.dataPort, msg.sessionId);
     const ready: RenderWorkerEvent = {
       type: "ready",
       protocolVersion: RENDER_PROTOCOL_VERSION,
@@ -1109,9 +1123,10 @@ globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
     return;
   }
   if (msg.type === "dispose") {
+    dataPort?.close();
+    dataPort = null;
     canvas = null;
     ctx = null;
-    _pendingFrame = null;
     _presentation = null;
     _viewport = null;
     _frameScheduled = false;
@@ -1119,11 +1134,6 @@ globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
   }
   if (msg.type === "data") {
     if (handleData(msg.payload)) scheduleRender();
-    return;
-  }
-  if (msg.type === "frame") {
-    handleLegacyFrame(msg.payload);
-    scheduleRender();
     return;
   }
 };
@@ -1191,13 +1201,9 @@ function unitVectorForPoint(item: RenderPoint): UnitVector {
   return unit;
 }
 
-const POINT_LAYER_ORDER: Record<string, number> = {
-  aircraft: 0, ships: 1, fires: 2, events: 3, quakes: 4, weather: 5, "cyclones-forecast": 6, cyclones: 7,
-};
-
 type FilterCfg = {
   searchSet: Set<string> | null;
-  isoMode: RenderFramePayload["isolateMode"];
+  isoMode: RenderPresentationPayload["isolateMode"];
   isoId: string | null;
   isolatedType: string | null;
   layers: Readonly<Record<string, boolean | undefined>>;
@@ -1215,8 +1221,7 @@ function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
   return c.layers[item.type] !== false;
 }
 
-/** Project every visible item to screen space, drop back-facing points, and
- *  sort by layer order so markers stack correctly. */
+/** Projects visible front-facing items in stable layer order. */
 function projectAndFilter(data: ReadonlyArray<RenderPoint>, projectPoint: PointProjector, c: FilterCfg): ProjPoint[] {
   const pts: ProjPoint[] = [];
   for (const item of data) {
@@ -1225,10 +1230,7 @@ function projectAndFilter(data: ReadonlyArray<RenderPoint>, projectPoint: PointP
     if (pt.z <= 0) continue;
     pts.push({ x: pt.x, y: pt.y, z: pt.z, item });
   }
-  if (pts.length > 1) {
-    pts.sort((a, b) => (POINT_LAYER_ORDER[a.item.type] ?? 0) - (POINT_LAYER_ORDER[b.item.type] ?? 0));
-  }
-  return pts;
+  return orderPointsByLayer(pts);
 }
 function hitGridKey(x: number, y: number): string {
   const cellX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
@@ -1297,8 +1299,8 @@ function nearestPoint(
 function nearestTrailTarget(
   x: number,
   y: number,
-): RenderTrailHitTarget | null {
-  let closest: RenderTrailHitTarget | null = null;
+): TrailHitTarget | null {
+  let closest: TrailHitTarget | null = null;
   let distance = CAMERA_POLICY.trailHitRadiusPx;
   for (const target of _trailHitTargets) {
     const candidateDistance = Math.hypot(
@@ -2098,17 +2100,6 @@ function renderFrame(): void {
   updateSelectedSide();
   updateTrailTooltip();
   postCameraSummary(now);
-
-  if (protocolState.sessionId) {
-    const event: RenderWorkerEvent = {
-      type: "trailTargets",
-      protocolVersion: RENDER_PROTOCOL_VERSION,
-      sessionId: protocolState.sessionId,
-      sequence: protocolState.sequence,
-      payload: { targets: hitTargets },
-    };
-    globalThis.postMessage(event);
-  }
 
   const hasRevealWork = _revealCount < fullData.length;
   const hasMotion = trailMap.size > 0;

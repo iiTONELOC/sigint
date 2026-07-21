@@ -38,14 +38,18 @@
 // Annex 10 table doesn't yet cover.
 
 import type { DataPoint } from "@/features/base/dataPoints";
+import type { ProviderFetchResult } from "@/features/base/types";
 import type { AircraftData } from "../types";
 import { authenticatedFetch } from "@/lib/net/authService";
 import { getSquawkStatus, normalizeIcao24 } from "../lib/utils";
 import { ktToMps } from "@/lib/format/units";
+import { isRecord } from "@shared/geo";
+import { parseSourceState } from "@shared/source";
 
 export const AIRCRAFT_STATES_URL = "/api/aircraft/states";
 
 const FT_PER_MIN_TO_MPS = 196.85;
+const MS_PER_SECOND = 1_000;
 
 // ── adsb.fi response shapes ──────────────────────────────────────
 
@@ -79,6 +83,9 @@ type AdsbAircraft = {
   nac_p?: number;
   type?: string;
   squawk?: string;
+  seen?: number;
+  seen_pos?: number;
+  observedAt?: number;
   // ── Server-attached enrichment (post-aircraftEnrichment.ts) ─────
   // Previously computed in the browser via the local NDJSON DB.
   // The server now does this lookup once per sweep and attaches
@@ -95,7 +102,9 @@ type AdsbAircraft = {
   originCountry?: string;
 };
 
-type AdsbResponse = { ac?: AdsbAircraft[] };
+function isAdsbAircraft(value: unknown): value is AdsbAircraft {
+  return isRecord(value);
+}
 
 // ── Pure transforms ──────────────────────────────────────────────
 
@@ -174,36 +183,91 @@ export function toAircraftData(a: AdsbAircraft): AircraftData {
   };
 }
 
-function toDataPoint(a: AdsbAircraft): DataPoint | null {
-  if (!a.hex) return null;
-  if (typeof a.lat !== "number" || typeof a.lon !== "number") return null;
-  return {
-    id: `A${a.hex}`,
-    type: "aircraft" as const,
-    lat: a.lat,
-    lon: a.lon,
-    timestamp: new Date().toISOString(),
-    data: toAircraftData(a),
-  } as DataPoint;
+function observationTime(
+  aircraft: AdsbAircraft,
+  receivedAt: number,
+): number {
+  if (
+    typeof aircraft.observedAt === "number" &&
+    Number.isFinite(aircraft.observedAt)
+  ) {
+    return Math.min(aircraft.observedAt, receivedAt);
+  }
+  const positionAge =
+    typeof aircraft.seen_pos === "number"
+      ? aircraft.seen_pos
+      : typeof aircraft.seen === "number"
+        ? aircraft.seen
+        : 0;
+  return receivedAt - Math.max(0, positionAge) * MS_PER_SECOND;
 }
 
-export function parseAdsbResponse(json: unknown): DataPoint[] {
-  if (!json || typeof json !== "object" || Array.isArray(json)) return [];
-  const ac = (json as AdsbResponse).ac;
-  if (!Array.isArray(ac)) return [];
+function toDataPoint(
+  aircraft: AdsbAircraft,
+  receivedAt: number,
+): DataPoint | null {
+  if (!aircraft.hex) return null;
+  if (
+    typeof aircraft.lat !== "number" ||
+    typeof aircraft.lon !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: `A${aircraft.hex}`,
+    type: "aircraft",
+    lat: aircraft.lat,
+    lon: aircraft.lon,
+    timestamp: new Date(
+      observationTime(aircraft, receivedAt),
+    ).toISOString(),
+    data: toAircraftData(aircraft),
+  };
+}
+
+export function parseAdsbResponse(
+  json: unknown,
+  receivedAt = Date.now(),
+): DataPoint[] {
+  if (!isRecord(json) || !Array.isArray(json.ac)) return [];
   const out: DataPoint[] = [];
-  for (const a of ac) {
-    const pt = toDataPoint(a);
-    if (pt) out.push(pt);
+  for (const value of json.ac) {
+    if (!isAdsbAircraft(value)) continue;
+    const point = toDataPoint(value, receivedAt);
+    if (point) out.push(point);
   }
   return out;
 }
 
 // ── Fetch path ──────────────────────────────────────────────────
 
+export function parseAircraftFetchResult(
+  value: unknown,
+  receivedAt = Date.now(),
+): ProviderFetchResult<DataPoint> | null {
+  if (!isRecord(value) || !Array.isArray(value.ac)) return null;
+  const source = parseSourceState(value.source);
+  if (!source || source.source !== "aircraft") return null;
+  return {
+    data: parseAdsbResponse(value, receivedAt),
+    source,
+  };
+}
+
+export async function fetchAircraftSnapshot(): Promise<
+  ProviderFetchResult<DataPoint>
+> {
+  const response = await authenticatedFetch(AIRCRAFT_STATES_URL);
+  if (!response.ok) {
+    throw new Error(`${AIRCRAFT_STATES_URL}: ${response.status}`);
+  }
+  const result = parseAircraftFetchResult(await response.json());
+  if (!result) {
+    throw new Error(`${AIRCRAFT_STATES_URL}: invalid source envelope`);
+  }
+  return result;
+}
+
 export async function fetchAircraftStates(): Promise<DataPoint[]> {
-  const res = await authenticatedFetch(AIRCRAFT_STATES_URL);
-  if (!res.ok) throw new Error(`${AIRCRAFT_STATES_URL}: ${res.status}`);
-  const json = (await res.json()) as unknown;
-  return parseAdsbResponse(json);
+  return (await fetchAircraftSnapshot()).data;
 }

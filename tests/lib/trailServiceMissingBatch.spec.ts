@@ -1,51 +1,44 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  recordPositions,
-  getTrail,
+  recordTrailPositions,
+  type TrailEntry,
+  type TrailObservation,
 } from "../../src/client/lib/geo/trailService";
 
-type Item = {
-  id: string;
-  type: "aircraft" | "ships";
-  lat: number;
-  lon: number;
-  heading?: number;
-  speedMps?: number;
-};
+const NOW = 1_000_000;
 
-function aircraft(id: string, lat: number, lon: number): Item {
-  return { id, type: "aircraft", lat, lon, heading: 90, speedMps: 250 };
-}
-
-function ship(i: number): Item {
+function ship(index: number): TrailObservation {
   return {
-    id: `S${i}`,
-    type: "ships",
-    lat: (i % 90) - 45,
-    lon: (i % 180) - 90,
+    id: `S${index}`,
+    lat: (index % 90) - 45,
+    lon: (index % 180) - 90,
+    observedAt: NOW,
     heading: 0,
     speedMps: 5,
   };
 }
 
-describe("trailService — aircraft survives one missing batch even with many ships", () => {
-  test("aircraft trail persists when omitted from a single batch alongside 10k+ ships", () => {
-    const PLANE_ID = `A${Math.random().toString(36).slice(2, 8)}`;
+describe("trail source ownership", () => {
+  test("a ship batch cannot refresh or prune an aircraft trail", () => {
+    const trails = new Map<string, TrailEntry>();
+    recordTrailPositions(
+      trails,
+      "aircraft",
+      [{
+        id: "Aplane",
+        lat: 40,
+        lon: -74,
+        observedAt: NOW,
+        heading: 90,
+        speedMps: 250,
+      }],
+      NOW,
+    );
 
-    // Batch 1: plane + 10,050 ships. trails.size = 10,051 > any 10k cap.
-    const batch1: Item[] = [aircraft(PLANE_ID, 40, -74)];
-    for (let i = 0; i < 10_050; i++) batch1.push(ship(i));
-    recordPositions(batch1);
+    const ships = Array.from({ length: 10_050 }, (_, index) => ship(index));
+    recordTrailPositions(trails, "ships", ships, NOW + 1);
 
-    expect(getTrail(PLANE_ID).length).toBeGreaterThan(0);
-
-    // Batch 2: same ships (each refreshed → newest lastSeen), plane omitted.
-    const batch2: Item[] = [];
-    for (let i = 0; i < 10_050; i++) batch2.push(ship(i));
-    recordPositions(batch2);
-
-    // The plane is well within its 8-miss / 32-min tolerance after one
-    // omission. Its trail MUST still exist.
-    expect(getTrail(PLANE_ID).length).toBeGreaterThan(0);
+    expect(trails.get("Aplane")?.lastSeen).toBe(NOW);
+    expect(trails.get("Aplane")?.points).toHaveLength(1);
   });
 });

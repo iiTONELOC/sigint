@@ -1,7 +1,15 @@
+import type { SourceState } from "@shared/source";
+
 // ── Provider type ────────────────────────────────────────────────
+
+export type ProviderFetchResult<TEntity> = Readonly<{
+  data: TEntity[];
+  source: SourceState;
+}>;
 
 export type ProviderSnapshot<TEntity> = {
   entities: TEntity[];
+  source: SourceState | null;
   /**
    * Monotonic counter bumped on every refresh that produces a usable
    * snapshot (success path or stale-cache fallback). Subscribers gate

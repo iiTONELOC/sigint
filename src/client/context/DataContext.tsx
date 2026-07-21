@@ -27,7 +27,10 @@ import type { CycloneWarning } from "@/features/environmental/cyclones/data/warn
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import { buildTickerItems } from "@/lib/ui/tickerFeed";
-import { recordPositions } from "@/lib/geo/trailService";
+import {
+  recordPositions,
+  type TrailObservation,
+} from "@/lib/geo/trailService";
 import { scheduleIdle } from "@/lib/runtime/idle";
 import { ktToMps } from "@/lib/format/units";
 import { type SpatialGrid } from "@/lib/geo/spatialIndex";
@@ -56,6 +59,7 @@ export type { WatchSource } from "@/context/WatchContext";
 
 type DataContextValue = {
   allData: DataPoint[];
+  dataVersion: number;
   newsArticles: NewsArticle[];
   spatialGrid: SpatialGrid;
   filteredIds: Set<string>;
@@ -88,6 +92,61 @@ type DataContextValue = {
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
+
+function observedAt(timestamp: string | undefined): number | null {
+  if (!timestamp) return null;
+  const value = Date.parse(timestamp);
+  return Number.isFinite(value) ? value : null;
+}
+
+function aircraftTrailObservations(
+  data: readonly DataPoint[],
+): TrailObservation[] {
+  const observations: TrailObservation[] = [];
+  for (const point of data) {
+    if (point.type !== "aircraft") continue;
+    const timestamp = observedAt(point.timestamp);
+    if (timestamp === null) continue;
+    const speed = point.data.speed;
+    observations.push({
+      id: point.id,
+      lat: point.lat,
+      lon: point.lon,
+      observedAt: timestamp,
+      heading: point.data.heading,
+      speedMps:
+        point.data.speedMps ??
+        (speed === undefined ? undefined : ktToMps(speed)),
+      altitude: point.data.altitude,
+      speed,
+    });
+  }
+  return observations;
+}
+
+function shipTrailObservations(
+  data: readonly DataPoint[],
+): TrailObservation[] {
+  const observations: TrailObservation[] = [];
+  for (const point of data) {
+    if (point.type !== "ships") continue;
+    const timestamp = observedAt(point.timestamp);
+    if (timestamp === null) continue;
+    const speed = point.data.speed;
+    observations.push({
+      id: point.id,
+      lat: point.lat,
+      lon: point.lon,
+      observedAt: timestamp,
+      heading: point.data.cog ?? point.data.heading,
+      speedMps:
+        point.data.speedMps ??
+        (speed === undefined ? undefined : ktToMps(speed)),
+      speed,
+    });
+  }
+  return observations;
+}
 
 // ── Provider ────────────────────────────────────────────────────────
 // Single component that owns all data hooks, builds idMap for UIProvider,
@@ -284,38 +343,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
   ]);
 
   // ── Trail recording ────────────────────────────────────────────
-  // Captures a fresh snapshot of positions per poll into trail history.
-  // Effect's `.map` extracts plain values immediately, so in-place
-  // mutation under the array does not corrupt prior trail points.
-  useEffect(() => {
-    // Trail history feeds future frames, not the current one — run the O(n)
-    // scan + record in idle time so it never blocks the commit/poll tick.
-    scheduleIdle(() => {
-      const movingItems = allData
-        .filter((d) => d.type === "aircraft" || d.type === "ships")
-        .map((d) => ({
-          id: d.id,
-          type: d.type as "aircraft" | "ships",
-          lat: d.lat,
-          lon: d.lon,
-          // Ships dead-reckon along COG (ground track); their `heading` is the
-          // bow and is 0/missing when not transmitted. Aircraft `heading` is
-          // already the track.
-          heading:
-            d.type === "ships"
-              ? ((d.data as any)?.cog ?? (d.data as any)?.heading)
-              : (d.data as any)?.heading,
-          speedMps:
-            (d.data as any)?.speedMps ??
-            ((d.data as any)?.speed
-              ? ktToMps((d.data as any).speed)
-              : undefined),
-          altitude: (d.data as any)?.altitude,
-          speed: (d.data as any)?.speed,
-        }));
-      if (movingItems.length > 0) recordPositions(movingItems);
-    });
-  }, [allData, allDataVersion]);
+  useEffect(
+    () =>
+      scheduleIdle(() => {
+        recordPositions(
+          "aircraft",
+          aircraftTrailObservations(aircraftData),
+        );
+      }),
+    [aircraftData, aircraftVersion],
+  );
+
+  useEffect(
+    () =>
+      scheduleIdle(() => {
+        recordPositions(
+          "ships",
+          shipTrailObservations(shipData),
+        );
+      }),
+    [shipData, shipVersion],
+  );
 
   // ── Data source status ─────────────────────────────────────────
   const dataSources = useMemo<SourceStatus[]>(
@@ -377,7 +425,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [allData, filters]);
+  }, [allData, allDataVersion, filters]);
 
   const { idMap, spatialGrid, filteredIds, counts, availableCountries } = derived;
 
@@ -450,6 +498,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const dataValue = useMemo<DataContextValue>(
     () => ({
       allData,
+      dataVersion: allDataVersion,
       newsArticles,
       spatialGrid,
       filteredIds,
@@ -473,7 +522,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       requestAircraftEnrichment,
     }),
     [
-      allData, newsArticles, spatialGrid, filteredIds,
+      allData, allDataVersion, newsArticles, spatialGrid, filteredIds,
       layers, toggleLayer, aircraftFilter, filters,
       counts, activeCount, tickerItems, availableCountries,
       dataSources, correlation, cycloneWarnings, cycloneFilter,

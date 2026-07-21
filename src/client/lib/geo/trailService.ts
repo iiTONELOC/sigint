@@ -1,46 +1,40 @@
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { cacheGet, cacheSetDeferred } from "@/lib/cache/storageService";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 
 const CACHE_KEY = CACHE_KEYS.trails;
 const PERSIST_INTERVAL_MS = 10_000;
 
-// ── Type-aware settings ──────────────────────────────────────────────
+export type TrackType = "aircraft" | "ships";
 
-type TrackType = "aircraft" | "ships";
+type TrailPolicy = Readonly<{
+  minMoveDeg: number;
+  maxTrailPoints: number;
+  staleMs: number;
+  maxExtrapolationMs: number;
+}>;
 
-const SETTINGS: Record<
+export const TRAIL_POLICY: Readonly<Record<
   TrackType,
-  {
-    minMoveDeg: number;
-    maxTrailPoints: number;
-    maxMissedRefreshes: number;
-    missThresholdMs: number;
-    staleMs: number;
-  }
-> = {
+  TrailPolicy
+>> = {
   aircraft: {
-    minMoveDeg: 0.001, // ~100m
-    maxTrailPoints: 120, // ~30 min of history at the 15s aircraft poll
-    maxMissedRefreshes: 8, // legacy — prune is now time-based (see staleMs)
-    missThresholdMs: 180_000, // 3 min
-    staleMs: 900_000, // 15 min unseen (landed/left coverage) — drop the trail
+    minMoveDeg: 0.001,
+    maxTrailPoints: 120,
+    staleMs: 900_000,
+    maxExtrapolationMs: 600_000,
   },
   ships: {
-    minMoveDeg: 0.0002, // ~22m — ships move slowly
-    maxTrailPoints: 500, // days of history at slow poll rates
-    maxMissedRefreshes: 60, // ~1 hour at ~1-min AIS intervals
-    missThresholdMs: 300_000, // 5 min — AIS can be bursty
-    staleMs: 3_600_000, // 1 hour unseen — drop the trail
+    minMoveDeg: 0.0002,
+    maxTrailPoints: 500,
+    staleMs: 3_600_000,
+    maxExtrapolationMs: 1_800_000,
   },
 };
 
-function getSettings(id: string) {
-  // IDs: aircraft = A{icao24}, ships = S{mmsi}
-  if (id.startsWith("S")) return SETTINGS.ships;
-  return SETTINGS.aircraft;
+function legacyTrackType(id: string): TrackType {
+  // Old cache entries lacked an owner discriminator.
+  return id.startsWith("S") ? "ships" : "aircraft";
 }
-
-// ── Types ────────────────────────────────────────────────────────────
 
 export type TrailPoint = {
   lat: number;
@@ -52,34 +46,48 @@ export type TrailPoint = {
 };
 
 export type TrailEntry = {
+  type: TrackType;
   points: TrailPoint[];
   lastSeen: number;
-  missedRefreshes: number;
   heading: number;
   speedMps: number;
+};
+
+export type TrailObservation = {
+  id: string;
+  lat: number;
+  lon: number;
+  observedAt: number;
+  heading?: number;
+  speedMps?: number;
+  altitude?: number;
+  speed?: number;
 };
 
 let trails = new Map<string, TrailEntry>();
 let lastPersist = 0;
 let loaded = false;
-// Bumped whenever positions are recorded. The globe syncs trail state to the
-// render worker only when this changes — between polls it's stable, so the
-// per-frame loop skips the (heavy) re-clone of every track.
-let trailsRev = 0;
-
-export function getTrailsRev(): number {
-  return trailsRev;
-}
 
 // ── Cache ────────────────────────────────────────────────────────────
 
+type CachedTrailEntry = Omit<TrailEntry, "type"> & {
+  type?: TrackType;
+  missedRefreshes?: number;
+};
+
 async function readCache(): Promise<Map<string, TrailEntry>> {
-  const cached = await cacheGet<Record<string, TrailEntry>>(CACHE_KEY);
+  const cached = await cacheGet<Record<string, CachedTrailEntry>>(CACHE_KEY);
   if (!cached) return new Map();
   const map = new Map<string, TrailEntry>();
   for (const [id, entry] of Object.entries(cached)) {
     if (Array.isArray(entry.points) && entry.points.length > 0) {
-      map.set(id, entry);
+      map.set(id, {
+        type: entry.type ?? legacyTrackType(id),
+        points: entry.points,
+        lastSeen: entry.lastSeen,
+        heading: entry.heading,
+        speedMps: entry.speedMps,
+      });
     }
   }
   return map;
@@ -96,32 +104,16 @@ function writeCache(): void {
   for (const [id, entry] of trails) {
     obj[id] = entry;
   }
-  cacheSet(CACHE_KEY, obj);
+  cacheSetDeferred(CACHE_KEY, obj);
 }
 
-function maybePersist(): void {
-  if (!loaded) return;
-  const now = Date.now();
-  if (now - lastPersist > PERSIST_INTERVAL_MS) {
-    writeCache();
-    lastPersist = now;
-  }
+function maybePersist(now: number): void {
+  if (!loaded || now - lastPersist <= PERSIST_INTERVAL_MS) return;
+  writeCache();
+  lastPersist = now;
 }
 
-/** Merge cached trail history into the live trails Map.
- *
- *  This fixes a boot race: `recordPositions` runs from the DataContext
- *  useEffect as soon as providers hydrate, but `initTrails()` is fired
- *  non-blocking from frontend.tsx. If recordPositions had already
- *  populated entries in the live Map by the time initTrails finished
- *  reading IDB, the old behavior (`trails = cached`) silently dropped
- *  those just-recorded points.
- *
- *  New contract: for each cached entry, prepend the cached points that
- *  are older than the earliest live point, then re-apply the per-type
- *  maxTrailPoints cap. Entries unique to cached are installed wholesale
- *  (their aircraft may reappear in a later poll). Pure — no module
- *  state access, no I/O. Testable as a Map → Map transformation. */
+/** Preserve live boot observations while restoring older cached history. */
 export function mergeCachedTrails(
   live: Map<string, TrailEntry>,
   cached: Map<string, TrailEntry>,
@@ -132,33 +124,31 @@ export function mergeCachedTrails(
       live.set(id, cachedEntry);
       continue;
     }
+    if (liveEntry.type !== cachedEntry.type) continue;
     const earliestLiveTs = liveEntry.points[0]!.ts;
     const history: TrailPoint[] = [];
-    for (const p of cachedEntry.points) {
-      if (p.ts < earliestLiveTs) history.push(p);
+    for (const point of cachedEntry.points) {
+      if (point.ts < earliestLiveTs) history.push(point);
     }
     if (history.length === 0) continue;
-    const cfg = getSettings(id);
+    const maxPoints = TRAIL_POLICY[liveEntry.type].maxTrailPoints;
     const combined = [...history, ...liveEntry.points];
     liveEntry.points =
-      combined.length > cfg.maxTrailPoints
-        ? combined.slice(-cfg.maxTrailPoints)
+      combined.length > maxPoints
+        ? combined.slice(-maxPoints)
         : combined;
   }
 }
 
-/** Call once at boot to load trails from IndexedDB.
- *
- *  Merges into the live `trails` Map rather than replacing it — see
- *  `mergeCachedTrails` for the rationale. */
+/** Restore non-stale cached trails once at boot. */
 export async function initTrails(): Promise<void> {
   if (loaded) return;
   const cached = await readCache();
-  // Drop trails that were already stale when last persisted (e.g. a flight that
-  // landed before the previous session ended) so they don't reappear.
   const now = Date.now();
   for (const [id, entry] of cached) {
-    if (now - entry.lastSeen > getSettings(id).staleMs) cached.delete(id);
+    if (now - entry.lastSeen > TRAIL_POLICY[entry.type].staleMs) {
+      cached.delete(id);
+    }
   }
   mergeCachedTrails(trails, cached);
   loaded = true;
@@ -168,6 +158,8 @@ export async function initTrails(): Promise<void> {
 
 const DEG = Math.PI / 180;
 const EARTH_R = 6_371_000;
+const MS_PER_SECOND = 1_000;
+const MIN_EXTRAPOLATION_MS = MS_PER_SECOND;
 
 function movePoint(
   lat: number,
@@ -184,84 +176,103 @@ function movePoint(
 
 // ── Public API ───────────────────────────────────────────────────────
 
-/**
- * Record positions for all moving items after a data refresh.
- */
-export function recordPositions(
-  items: Array<{
-    id: string;
-    type?: "aircraft" | "ships";
-    lat: number;
-    lon: number;
-    heading?: number;
-    speedMps?: number;
-    altitude?: number;
-    speed?: number;
-  }>,
-): void {
-  const now = Date.now();
-  const seenIds = new Set<string>();
+function finiteOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) ? value : fallback;
+}
+
+function isUsableObservation(item: TrailObservation): boolean {
+  return (
+    item.id.length > 0 &&
+    Number.isFinite(item.lat) &&
+    Number.isFinite(item.lon) &&
+    Number.isFinite(item.observedAt)
+  );
+}
+
+export function recordTrailPositions(
+  target: Map<string, TrailEntry>,
+  source: TrackType,
+  items: readonly TrailObservation[],
+  now: number,
+): boolean {
+  const policy = TRAIL_POLICY[source];
+  let changed = false;
 
   for (const item of items) {
-    seenIds.add(item.id);
-    const cfg = getSettings(item.id);
-    const entry = trails.get(item.id);
+    if (!isUsableObservation(item)) continue;
+    const observedAt = Math.min(item.observedAt, now);
+    if (now - observedAt > policy.staleMs) continue;
 
-    if (entry) {
-      const last = entry.points[entry.points.length - 1];
-      if (
-        !last ||
-        Math.abs(last.lat - item.lat) >= cfg.minMoveDeg ||
-        Math.abs(last.lon - item.lon) >= cfg.minMoveDeg
-      ) {
-        entry.points.push({
+    const existing = target.get(item.id);
+    const entry =
+      existing?.type === source
+        ? existing
+        : undefined;
+    if (entry && observedAt <= entry.lastSeen) continue;
+
+    if (!entry) {
+      target.set(item.id, {
+        type: source,
+        points: [{
           lat: item.lat,
           lon: item.lon,
-          ts: now,
+          ts: observedAt,
           altitude: item.altitude,
           speed: item.speed,
           heading: item.heading,
-        });
-        if (entry.points.length > cfg.maxTrailPoints) {
-          entry.points = entry.points.slice(-cfg.maxTrailPoints);
-        }
-      }
-      entry.lastSeen = now;
-      entry.missedRefreshes = 0;
-      entry.heading = item.heading ?? entry.heading;
-      entry.speedMps = item.speedMps ?? entry.speedMps;
-    } else {
-      trails.set(item.id, {
-        points: [
-          {
-            lat: item.lat,
-            lon: item.lon,
-            ts: now,
-            altitude: item.altitude,
-            speed: item.speed,
-            heading: item.heading,
-          },
-        ],
-        lastSeen: now,
-        missedRefreshes: 0,
-        heading: item.heading ?? 0,
-        speedMps: item.speedMps ?? 0,
+        }],
+        lastSeen: observedAt,
+        heading: finiteOr(item.heading, 0),
+        speedMps: finiteOr(item.speedMps, 0),
       });
+      changed = true;
+      continue;
+    }
+
+    const last = entry.points.at(-1);
+    if (
+      !last ||
+      Math.abs(last.lat - item.lat) >= policy.minMoveDeg ||
+      Math.abs(last.lon - item.lon) >= policy.minMoveDeg
+    ) {
+      entry.points.push({
+        lat: item.lat,
+        lon: item.lon,
+        ts: observedAt,
+        altitude: item.altitude,
+        speed: item.speed,
+        heading: item.heading,
+      });
+      if (entry.points.length > policy.maxTrailPoints) {
+        entry.points = entry.points.slice(-policy.maxTrailPoints);
+      }
+    }
+    entry.lastSeen = observedAt;
+    entry.heading = finiteOr(item.heading, entry.heading);
+    entry.speedMps = finiteOr(item.speedMps, entry.speedMps);
+    changed = true;
+  }
+
+  for (const [id, entry] of target) {
+    if (
+      entry.type === source &&
+      now - entry.lastSeen > policy.staleMs
+    ) {
+      target.delete(id);
+      changed = true;
     }
   }
 
-  // Prune only tracks gone long enough to have landed / left coverage. Purely
-  // time-based on staleMs so it's independent of poll cadence — a brief feed gap
-  // must NOT erase a watched plane's trail. (The old missed-refresh counter
-  // deleted ~16x too early once the aircraft poll dropped to 15s, which wiped
-  // trails mid-flight and restarted them.)
-  for (const [id, entry] of trails) {
-    if (seenIds.has(id)) continue;
-    if (now - entry.lastSeen > getSettings(id).staleMs) trails.delete(id);
-  }
+  return changed;
+}
 
-  trailsRev++;
-  maybePersist();
+export function recordPositions(
+  source: TrackType,
+  items: readonly TrailObservation[],
+  now = Date.now(),
+): void {
+  if (!recordTrailPositions(trails, source, items, now)) return;
+  maybePersist(now);
 }
 
 /**
@@ -283,15 +294,16 @@ export function getInterpolatedPosition(
   if (entry.speedMps <= 0) return null;
 
   const last = entry.points[entry.points.length - 1]!;
-  const elapsed = (Date.now() - last.ts) / 1000;
+  const elapsedMs = Date.now() - last.ts;
+  if (elapsedMs > TRAIL_POLICY[entry.type].maxExtrapolationMs) return null;
+  if (elapsedMs < MIN_EXTRAPOLATION_MS) return null;
 
-  // Ships: extrapolate up to 30 min (they move slowly, AIS gaps are common)
-  // Aircraft: extrapolate up to 10 min
-  const maxExtrapolate = id.startsWith("S") ? 1800 : 600;
-  if (elapsed > maxExtrapolate) return null;
-  if (elapsed < 1) return null;
-
-  return movePoint(last.lat, last.lon, entry.heading, entry.speedMps * elapsed);
+  return movePoint(
+    last.lat,
+    last.lon,
+    entry.heading,
+    entry.speedMps * (elapsedMs / MS_PER_SECOND),
+  );
 }
 
 /**
