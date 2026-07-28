@@ -277,7 +277,7 @@ export function IntelFeedPane() {
       earthquakeFilter.enabled
         ? {
             kind: "table",
-            minMagnitude: earthquakeFilter.minMagnitude,
+            minValue: earthquakeFilter.minMagnitude,
             sortKey: "age",
             sortDirection: "asc",
             offset: 0,
@@ -300,7 +300,7 @@ export function IntelFeedPane() {
       fireFilter.enabled
         ? {
             kind: "table",
-            minConfidence: fireFilter.minConfidence,
+            minValue: fireFilter.minConfidence,
             sortKey: "age",
             sortDirection: "asc",
             offset: 0,

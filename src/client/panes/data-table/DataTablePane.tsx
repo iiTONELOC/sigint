@@ -285,7 +285,7 @@ export function DataTablePane() {
       earthquakeFilter.enabled
         ? {
             kind: "table",
-            minMagnitude: earthquakeFilter.minMagnitude,
+            minValue: earthquakeFilter.minMagnitude,
             sortKey,
             sortDirection: sortDir,
             offset: 0,
@@ -310,7 +310,7 @@ export function DataTablePane() {
       fireFilter.enabled
         ? {
             kind: "table",
-            minConfidence: fireFilter.minConfidence,
+            minValue: fireFilter.minConfidence,
             sortKey,
             sortDirection: sortDir,
             offset: 0,

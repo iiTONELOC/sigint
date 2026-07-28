@@ -2,6 +2,8 @@ import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/da
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { createAircraftSourceRuntime } from "@/workers/data/sources/aircraft";
+import { createShipSourceRuntime } from "@/workers/data/sources/ships";
+import { runShipUiQuery } from "@/features/tracking/ships/data/uiQueries";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   findFireSearchIds,
@@ -180,10 +182,22 @@ const fireOwner = createFireSourceOwner({
   publishRebase: rebaseFireConsumers,
 });
 
+const shipOwner = createShipSourceRuntime({
+  readCache: () => store.get(CACHE_KEYS.ships),
+  persistCache: async (snapshot) => {
+    coordinator.setDeferred(CACHE_KEYS.ships, snapshot);
+  },
+  publishStatus: publishSource,
+  publishScene: (patch) => {
+    scenePublisher.publish(patch);
+  },
+});
+
 const sourceOwners = {
   aircraft: aircraftOwner,
   earthquake: earthquakeOwner,
   fire: fireOwner,
+  ships: shipOwner,
 } as const;
 
 type OwnedSourceId = keyof typeof sourceOwners;
@@ -249,6 +263,7 @@ function handleConnectRender(command: CommandOf<"connectRender">): void {
   postRenderData({ type: "bind" });
   scenePublisher.connect(renderPort, renderSessionId);
   aircraftOwner.publishRebase();
+  shipOwner.publishRebase();
   rebaseEarthquakeRender(earthquakeOwner.values());
   rebaseFireRender(fireOwner.values());
   complete(command.requestId);
@@ -286,10 +301,11 @@ async function handleRefreshSource(
 
 function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
   const requestId = command.requestId;
+  const protocolVersion = DATA_WORKER_PROTOCOL_VERSION;
   if (command.source === "earthquake") {
     post({
       type: "sourceEntity",
-      protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+      protocolVersion,
       requestId,
       source: "earthquake",
       sourceVersion: earthquakeOwner.snapshot().version,
@@ -297,9 +313,20 @@ function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
     });
     return;
   }
+  if (command.source === "ships") {
+    post({
+      type: "sourceEntity",
+      protocolVersion,
+      requestId,
+      source: "ships",
+      sourceVersion: shipOwner.snapshot().version,
+      value: shipOwner.get(command.id),
+    });
+    return;
+  }
   post({
     type: "sourceEntity",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    protocolVersion,
     requestId,
     source: "fire",
     sourceVersion: fireOwner.snapshot().version,
@@ -309,10 +336,11 @@ function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
 
 function handleQuerySource(command: CommandOf<"querySource">): void {
   const requestId = command.requestId;
+  const protocolVersion = DATA_WORKER_PROTOCOL_VERSION;
   if (command.source === "earthquake") {
     post({
       type: "sourceQuery",
-      protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+      protocolVersion,
       requestId,
       source: "earthquake",
       sourceVersion: earthquakeOwner.snapshot().version,
@@ -320,9 +348,20 @@ function handleQuerySource(command: CommandOf<"querySource">): void {
     });
     return;
   }
+  if (command.source === "ships") {
+    post({
+      type: "sourceQuery",
+      protocolVersion,
+      requestId,
+      source: "ships",
+      sourceVersion: shipOwner.snapshot().version,
+      result: runShipUiQuery(shipOwner.values(), command.query),
+    });
+    return;
+  }
   post({
     type: "sourceQuery",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    protocolVersion,
     requestId,
     source: "fire",
     sourceVersion: fireOwner.snapshot().version,
@@ -338,7 +377,7 @@ function handleSetSourceSearch(
   if (command.source === "earthquake") {
     earthquakeSearchText = text;
     publishEarthquakeSearch();
-  } else {
+  } else if (command.source === "fire") {
     fireSearchText = text;
     publishFireSearch();
   }

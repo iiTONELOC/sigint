@@ -1,11 +1,8 @@
-import type { FirePoint } from "@/features/environmental/fires/data/source";
-import type { FireUiQuery, FireUiQueryResult } from "@/features/environmental/fires/data/uiQueries";
-import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
-import type {
-  EarthquakeUiQuery,
-  EarthquakeUiQueryResult,
-} from "@/features/environmental/earthquake/data/uiQueries";
 import { isRecord } from "@shared/geo";
+import type {
+  QueryableSourceId,
+  QueryableSourceShapes,
+} from "@/workers/data/queryableSources";
 import {
   createDataWorkerCommand,
   parseDataWorkerEvent,
@@ -39,17 +36,28 @@ export type DataWorkerSourceListener = (
   snapshot: DataWorkerSourceSnapshot,
 ) => void;
 
-export type DataWorkerSourceEntityResult =
-  | Readonly<{ source: "earthquake"; sourceVersion: number; value: EarthquakePoint | null }>
-  | Readonly<{ source: "fire"; sourceVersion: number; value: FirePoint | null }>;
+export type DataWorkerSourceEntityResult = {
+  [TId in QueryableSourceId]: Readonly<{
+    source: TId;
+    sourceVersion: number;
+    value: QueryableSourceShapes[TId]["entity"] | null;
+  }>;
+}[QueryableSourceId];
 
-export type DataWorkerSourceQueryResult =
-  | Readonly<{ source: "earthquake"; sourceVersion: number; result: EarthquakeUiQueryResult }>
-  | Readonly<{ source: "fire"; sourceVersion: number; result: FireUiQueryResult }>;
+export type DataWorkerSourceQueryResult = {
+  [TId in QueryableSourceId]: Readonly<{
+    source: TId;
+    sourceVersion: number;
+    result: QueryableSourceShapes[TId]["result"];
+  }>;
+}[QueryableSourceId];
 
-export type DataWorkerSourceQueryRequest =
-  | Readonly<{ source: "earthquake"; query: EarthquakeUiQuery }>
-  | Readonly<{ source: "fire"; query: FireUiQuery }>;
+export type DataWorkerSourceQueryRequest = {
+  [TId in QueryableSourceId]: Readonly<{
+    source: TId;
+    query: QueryableSourceShapes[TId]["query"];
+  }>;
+}[QueryableSourceId];
 
 export type DataWorkerTransport = {
   onmessage: ((message: MessageEvent<unknown>) => void) | null;
@@ -87,8 +95,8 @@ export type DataWorkerClient = Readonly<{
     source: DataWorkerPointSource,
     listener: DataWorkerSourceListener,
   ) => () => void;
-  get: (key: string) => Promise<unknown | null>;
-  importJson: (key: string, json: string) => Promise<unknown | null>;
+  get: (key: string) => Promise<unknown>;
+  importJson: (key: string, json: string) => Promise<unknown>;
   set: (key: string, value: unknown) => Promise<void>;
   setDeferred: (key: string, value: unknown) => void;
   delete: (key: string) => Promise<void>;
@@ -294,7 +302,7 @@ export function createDataWorkerClient(
       };
     },
 
-    async get(key: string): Promise<unknown | null> {
+    async get(key: string): Promise<unknown> {
       const event = await request({ type: "get", key });
       if (event.type !== "value") throw unexpectedEvent("cache value");
       return event.value;
@@ -303,7 +311,7 @@ export function createDataWorkerClient(
     async importJson(
       key: string,
       json: string,
-    ): Promise<unknown | null> {
+    ): Promise<unknown> {
       const event = await request({ type: "importJson", key, json });
       if (event.type !== "value") throw unexpectedEvent("imported value");
       return event.value;

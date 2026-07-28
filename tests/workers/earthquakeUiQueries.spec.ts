@@ -63,7 +63,7 @@ describe("earthquake UI queries", () => {
 
     const result = runEarthquakeUiQuery(points, {
       kind: "table",
-      minMagnitude: 3,
+      minValue: 3,
       sortKey: "value1",
       sortDirection: "desc",
       offset: 1,
@@ -105,7 +105,7 @@ describe("earthquake UI queries", () => {
     expect(
       parseEarthquakeUiQuery({
         kind: "table",
-        minMagnitude: 0,
+        minValue: 0,
         sortKey: "mystery",
         sortDirection: "asc",
         offset: 0,

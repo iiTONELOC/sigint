@@ -67,7 +67,7 @@ describe("fire UI queries", () => {
 
     const result = runFireUiQuery(points, {
       kind: "table",
-      minConfidence: 1,
+      minValue: 1,
       sortKey: "value1",
       sortDirection: "desc",
       offset: 1,
@@ -109,7 +109,7 @@ describe("fire UI queries", () => {
     expect(
       parseFireUiQuery({
         kind: "table",
-        minConfidence: 4,
+        minValue: 4,
         sortKey: "age",
         sortDirection: "asc",
         offset: 0,

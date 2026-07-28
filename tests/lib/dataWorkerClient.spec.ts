@@ -281,7 +281,7 @@ describe("createDataWorkerClient", () => {
       source: "earthquake",
       query: {
         kind: "table",
-      minMagnitude: 3,
+      minValue: 3,
       sortKey: "value1",
       sortDirection: "desc",
       offset: 0,
