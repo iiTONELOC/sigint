@@ -84,20 +84,23 @@ function needsRefresh(result: HydrateResult): boolean {
 // NOT gate hydrate/first paint (hydrate is local IDB, no auth).
 const authReady = ensureAuthCookie().catch(() => {});
 
-// Non-blocking background work — independent of the data feeds.
-// Trails are hydrated and recorded by the DataWorker.
-Promise.all([initBaseline(), initLand(), initAirports()]).catch(() => {});
+// Started here and awaited at the end of the module, so the three run
+// concurrently and nothing downstream waits on them. Trails are hydrated and
+// recorded by the DataWorker.
+const backgroundReady = Promise.allSettled([
+  initBaseline(),
+  initLand(),
+  initAirports(),
+]);
 
-void cacheReady.then(() => {
-  for (const p of providers) {
-    void (async () => {
-      const hydrated = await p.hydrate().catch(() => null);
-      if (!needsRefresh(hydrated)) return; // fresh cache — already notified
-      await authReady;
-      await p.refresh().catch(() => {});
-    })();
-  }
-});
+async function streamProvider(
+  provider: (typeof providers)[number],
+): Promise<void> {
+  const hydrated = await provider.hydrate().catch(() => null);
+  if (!needsRefresh(hydrated)) return;
+  await authReady;
+  await provider.refresh().catch(() => {});
+}
 
 // Register SW
 registerSW({
@@ -128,3 +131,9 @@ registerSW({
     });
   },
 });
+
+// Last in the module, so nothing above waits on them. providers.map starts
+// every feed at once: no batch barrier, so a slow feed cannot hold a fast one.
+await cacheReady;
+await Promise.allSettled(providers.map(streamProvider));
+await backgroundReady;

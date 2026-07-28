@@ -1,7 +1,3 @@
-// The list panes (alert-log, intel-feed, data-table) each wrote the same two
-// row handlers: click → select + gentle reveal; zoom button → stop-propagation
-// + select-and-zoom. This is the one owner so the interaction stays identical.
-
 import { useCallback } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -19,10 +15,8 @@ function isRowActivationKey(key: string): boolean {
 }
 
 export type ItemSelectHandlers = {
-  /** Row click: select the item and pulse a gentle reveal on the globe. */
   handleClick: (item: DataPoint) => void;
   handleKeyDown: (item: DataPoint, e: KeyboardEvent) => void;
-  /** Zoom button: don't bubble to the row, then select-and-zoom. */
   handleZoom: (item: DataPoint, e: MouseEvent) => void;
 };
 

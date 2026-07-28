@@ -10,7 +10,7 @@ describe("Boot sequence (frontend.tsx)", () => {
   // Render the shell before any data work — globe interactive from frame zero.
   test("createRoot().render() runs before cacheReady is consumed", () => {
     const renderIdx = frontendSource.indexOf("createRoot(elem).render(app)");
-    const cacheReadyUse = frontendSource.indexOf("cacheReady.then");
+    const cacheReadyUse = frontendSource.indexOf("await cacheReady");
     expect(renderIdx).toBeGreaterThan(-1);
     expect(cacheReadyUse).toBeGreaterThan(-1);
     expect(renderIdx).toBeLessThan(cacheReadyUse);
@@ -32,11 +32,12 @@ describe("Boot sequence (frontend.tsx)", () => {
     expect(frontendSource).not.toContain("staleProviders.map((p) => p.refresh()");
   });
 
-  // Per-provider streaming: each provider hydrates then refreshes on its own.
-  test("boot iterates providers and hydrates + refreshes each independently", () => {
-    expect(frontendSource).toContain("for (const p of providers)");
-    expect(frontendSource).toContain("p.hydrate()");
-    expect(frontendSource).toContain("p.refresh()");
+  // Per-provider streaming: each hydrates then refreshes on its own, and they
+  // all start together rather than one waiting on the last.
+  test("boot streams every provider concurrently, hydrate then refresh", () => {
+    expect(frontendSource).toContain("providers.map(streamProvider)");
+    expect(frontendSource).toContain("provider.hydrate()");
+    expect(frontendSource).toContain("provider.refresh()");
   });
 
   // Auth is fetched once up front but does not gate first paint.

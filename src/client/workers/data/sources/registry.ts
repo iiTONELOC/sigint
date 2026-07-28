@@ -99,3 +99,21 @@ export type PointSourceEntity = Extract<
   DataPoint,
   { type: (typeof POINT_SOURCE_DEFINITIONS)[number]["pointType"] }
 >;
+
+const SOURCE_BY_POINT_TYPE: ReadonlyMap<DataType, RenderSourceId> = new Map(
+  POINT_SOURCE_DEFINITIONS.map((definition) => [
+    definition.pointType,
+    definition.id,
+  ]),
+);
+
+/**
+ * Which source answers for a rendered point type. The inverse of pointType,
+ * derived from the same table, so the hit-test path cannot drift from it.
+ */
+export function sourceForPointType(
+  pointType: string | null,
+): RenderSourceId | null {
+  if (pointType === null) return null;
+  return SOURCE_BY_POINT_TYPE.get(pointType as DataType) ?? null;
+}

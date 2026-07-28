@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
 import type { RenderInteractionPayload } from "@/workers/render/protocol";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
+import { sourceForPointType } from "@/workers/data/sources/registry";
 import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
 import {
   RENDER_SURFACE_INTERACTION_EVENT,
@@ -18,14 +19,6 @@ type SurfaceEventOptions = Readonly<{
   host: HTMLElement | null;
   props: Readonly<GlobeVisualizationProps>;
 }>;
-
-function workerSource(
-  pointType: string | null,
-): "earthquake" | "fire" | null {
-  if (pointType === "quakes") return "earthquake";
-  if (pointType === "fires") return "fire";
-  return null;
-}
 
 export function useSurfaceEvents({
   host,
@@ -58,7 +51,7 @@ export function useSurfaceEvents({
           current.onSelect(null);
           return;
         }
-        const source = workerSource(interaction.pointType);
+        const source = sourceForPointType(interaction.pointType);
         const dataClient = getDataWorkerClient();
         if (!source || !dataClient) {
           current.onSelect(null);

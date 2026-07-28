@@ -9,7 +9,7 @@ import {
 
 describe("walkthroughSteps — essential", () => {
   test("has exactly 13 essential steps", () => {
-    expect(ESSENTIAL_STEPS.length).toBe(13);
+    expect(ESSENTIAL_STEPS).toHaveLength(13);
     expect(ESSENTIAL_COUNT).toBe(13);
   });
 
@@ -321,7 +321,7 @@ describe("walkthroughSteps — essential", () => {
 
 describe("walkthroughSteps — advanced", () => {
   test("has exactly 5 advanced steps", () => {
-    expect(ADVANCED_STEPS.length).toBe(5);
+    expect(ADVANCED_STEPS).toHaveLength(5);
     expect(ADVANCED_COUNT).toBe(5);
   });
 

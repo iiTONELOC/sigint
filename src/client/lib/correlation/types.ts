@@ -2,12 +2,13 @@
 // Shared shape definitions used by every correlation module.
 
 import type { DataPoint } from "@/features/base/dataPoints";
+import type { IntelProductType } from "@shared/domain/correlation";
 import type { NewsArticle } from "@/features/news";
 
 /** A correlated intelligence product — not raw data, derived insight */
 export type IntelProduct = {
   id: string;
-  type: "cluster" | "cross-source" | "anomaly" | "trend" | "news-link";
+  type: IntelProductType;
   priority: number; // 1-10
   title: string;
   summary: string;

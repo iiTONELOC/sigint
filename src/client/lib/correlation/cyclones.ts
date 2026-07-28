@@ -8,6 +8,7 @@
 //     point at fcstHour ≤ 72; deduped by event id
 
 import type { DataPoint } from "@/features/base/dataPoints";
+import { IntelProductType } from "@shared/domain/correlation";
 import type { CycloneData } from "@/features/environmental/cyclones/types";
 import type { IntelProduct } from "./types";
 import { haversineKm } from "./shared";
@@ -85,7 +86,7 @@ function detectHurricaneHunter(
     if (dist > HURRICANE_HUNTER_RADIUS_KM) continue;
     out.push({
       id: `hh-${cyc.data.stormId}-${item.id}`,
-      type: "cross-source",
+      type: IntelProductType.CrossSource,
       priority: 8,
       title: `Hurricane Hunter — ${(ac.acType as string) ?? "aircraft"} near ${cyc.data.name}`,
       summary: `${callsignRaw || (ac.icao24 as string)} at ${dist.toFixed(0)} km from eye of ${cyc.data.name} (${cyc.data.classification}, ${cyc.data.maxWindKt} kn)`,
@@ -113,7 +114,7 @@ function detectShipsSheltering(
   if (sheltering.length < SHELTERING_THRESHOLD) return null;
   return {
     id: `shelter-${cyc.data.stormId}`,
-    type: "cluster",
+    type: IntelProductType.Cluster,
     priority: 6,
     title: `Ships sheltering — ${sheltering.length} vessels lee of ${cyc.data.name}`,
     summary: `${sheltering.length} vessels clustered in lee quadrant of ${cyc.data.name}`,
@@ -142,7 +143,7 @@ function detectPathEvents(
   );
   return {
     id: `path-${cyc.data.stormId}`,
-    type: "cross-source",
+    type: IntelProductType.CrossSource,
     priority: 7,
     title: `Path activity — ${unique.length} events in ${cyc.data.name} forecast track`,
     summary: `${unique.length} GDELT events in projected ${cyc.data.name} track (≤72h)`,
