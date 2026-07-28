@@ -1,5 +1,9 @@
 import { isRecord } from "@shared/geo";
 import {
+  parseTrailEntry,
+  type TrailEntry,
+} from "@/lib/geo/trails/trailStore";
+import {
   QUERYABLE_SOURCE_CODECS,
   isQueryableSourceId,
   type QueryableSourceId,
@@ -7,7 +11,7 @@ import {
 } from "@/workers/data/queryableSources";
 import { isDataSourceId, type DataSourceId } from "@/workers/data/sourceIds";
 
-export const DATA_WORKER_PROTOCOL_VERSION = 7 as const;
+export const DATA_WORKER_PROTOCOL_VERSION = 8 as const;
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
@@ -83,6 +87,10 @@ export type DataWorkerCommandBody =
       source: DataWorkerPointSource;
     }>
   | Readonly<{
+      type: "listSourceEntities";
+      source: DataWorkerPointSource;
+    }>
+  | Readonly<{
       type: "getSourceEntity";
       source: DataWorkerQueryableSource;
       id: string;
@@ -93,6 +101,7 @@ export type DataWorkerCommandBody =
       source: DataWorkerQueryableSource;
       text: string | null;
     }>
+  | Readonly<{ type: "getTrail"; id: string }>
   | Readonly<{ type: "get"; key: string }>
   | Readonly<{ type: "set"; key: string; value: unknown }>
   | Readonly<{ type: "setDeferred"; key: string; value: unknown }>
@@ -123,6 +132,8 @@ export type DataWorkerEvent =
       }>)
   | (DataWorkerEnvelope & SourceEntityBody)
   | (DataWorkerEnvelope & SourceQueryBody)
+  | (DataWorkerEnvelope &
+      Readonly<{ type: "trail"; id: string; entry: TrailEntry | null }>)
   | (DataWorkerEnvelope &
       Readonly<{ type: "error"; message: string }>);
 
@@ -212,8 +223,11 @@ function parseSourceCommand(
   envelope: DataWorkerEnvelope,
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerCommand | null {
-  if (value.type === "refreshSource" && isDataSourceId(value.source)) {
-    return { ...envelope, type: "refreshSource", source: value.source };
+  if (
+    (value.type === "refreshSource" || value.type === "listSourceEntities") &&
+    isDataSourceId(value.source)
+  ) {
+    return { ...envelope, type: value.type, source: value.source };
   }
 
   if (!isQueryableSourceId(value.source)) return null;
@@ -272,6 +286,14 @@ function parseCacheCommand(
     typeof value.key === "string"
   ) {
     return { ...envelope, type: value.type, key: value.key };
+  }
+
+  if (
+    value.type === "getTrail" &&
+    typeof value.id === "string" &&
+    value.id.length > 0
+  ) {
+    return { ...envelope, type: "getTrail", id: value.id };
   }
 
   return null;
@@ -372,6 +394,17 @@ function parseCacheEvent(
   }
   if (value.type === "value") {
     return { ...envelope, type: "value", value: value.value ?? null };
+  }
+  if (value.type === "trail" && typeof value.id === "string") {
+    return {
+      ...envelope,
+      type: "trail",
+      id: value.id,
+      entry:
+        value.entry === null
+          ? null
+          : parseTrailEntry(value.id, value.entry),
+    };
   }
   if (value.type !== "ready" || !Array.isArray(value.entries)) return null;
 

@@ -43,12 +43,8 @@ import {
   buildTickerItems,
   TICKER_ITEM_LIMIT,
 } from "@/lib/ui/tickerFeed";
-import {
-  recordPositions,
-  type TrailObservation,
-} from "@/lib/geo/trailService";
+import { watchTrail } from "@/lib/geo/trailService";
 import { scheduleIdle } from "@/lib/runtime/idle";
-import { ktToMps } from "@/lib/format/units";
 import { type SpatialGrid } from "@/lib/geo/spatialIndex";
 import {
   buildDerivedSync,
@@ -58,7 +54,6 @@ import {
 import type { SourceStatus } from "@/lib/net/sourceHealth";
 import {
   CORRELATION_POLICY,
-  emptyBaseline,
   loadBaseline,
   persistBaseline,
   type CorrelationResult,
@@ -109,66 +104,13 @@ type DataContextValue = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 const EMPTY_QUERY_ITEMS: readonly DataPoint[] = [];
 
-function observedAt(timestamp: string | undefined): number | null {
-  if (!timestamp) return null;
-  const value = Date.parse(timestamp);
-  return Number.isFinite(value) ? value : null;
-}
-
-function aircraftTrailObservations(
-  data: readonly DataPoint[],
-): TrailObservation[] {
-  const observations: TrailObservation[] = [];
-  for (const point of data) {
-    if (point.type !== "aircraft") continue;
-    const timestamp = observedAt(point.timestamp);
-    if (timestamp === null) continue;
-    const speed = point.data.speed;
-    observations.push({
-      id: point.id,
-      lat: point.lat,
-      lon: point.lon,
-      observedAt: timestamp,
-      heading: point.data.heading,
-      speedMps:
-        point.data.speedMps ??
-        (speed === undefined ? undefined : ktToMps(speed)),
-      altitude: point.data.altitude,
-      speed,
-    });
-  }
-  return observations;
-}
-
-function shipTrailObservations(
-  data: readonly DataPoint[],
-): TrailObservation[] {
-  const observations: TrailObservation[] = [];
-  for (const point of data) {
-    if (point.type !== "ships") continue;
-    const timestamp = observedAt(point.timestamp);
-    if (timestamp === null) continue;
-    const speed = point.data.speed;
-    observations.push({
-      id: point.id,
-      lat: point.lat,
-      lon: point.lon,
-      observedAt: timestamp,
-      heading: point.data.cog ?? point.data.heading,
-      speedMps:
-        point.data.speedMps ??
-        (speed === undefined ? undefined : ktToMps(speed)),
-      speed,
-    });
-  }
-  return observations;
-}
-
 // ── Provider ────────────────────────────────────────────────────────
 // Single component that owns all data hooks, builds idMap for UIProvider,
 // and nests UIProvider → WatchProvider → DataContext.Provider.
 
-export function DataProvider({ children }: { children: ReactNode }) {
+export function DataProvider({
+  children,
+}: Readonly<{ children: ReactNode }>) {
   const lastEnrichmentKeyRef = useRef("");
 
   // ── Layers & filters ───────────────────────────────────────────
@@ -376,29 +318,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
     weatherVersion,
     cycloneVersion,
   ]);
-
-  // ── Trail recording ────────────────────────────────────────────
-  useEffect(
-    () =>
-      scheduleIdle(() => {
-        recordPositions(
-          "aircraft",
-          aircraftTrailObservations(aircraftData),
-        );
-      }),
-    [aircraftData, aircraftVersion],
-  );
-
-  useEffect(
-    () =>
-      scheduleIdle(() => {
-        recordPositions(
-          "ships",
-          shipTrailObservations(shipData),
-        );
-      }),
-    [shipData, shipVersion],
-  );
 
   // ── Data source status ─────────────────────────────────────────
   const dataSources = useMemo<SourceStatus[]>(
@@ -611,12 +530,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
     <UIProvider idMap={idMap}>
       <DataContext.Provider value={dataValue}>
         <EnrichmentBridge requestAircraftEnrichment={requestAircraftEnrichment} lastEnrichmentKeyRef={lastEnrichmentKeyRef} />
+        <TrailWatchBridge version={allDataVersion} />
         <WatchProvider correlation={correlation}>
           {children}
         </WatchProvider>
       </DataContext.Provider>
     </UIProvider>
   );
+}
+
+/**
+ * The DataWorker records every track's history; the main thread mirrors only
+ * the selected one. Re-pulls on each merged update so the dossier polyline
+ * keeps extending while an item stays selected.
+ */
+function TrailWatchBridge({ version }: Readonly<{ version: number }>) {
+  const { selectedCurrent } = useUI();
+  const id = selectedCurrent?.id ?? null;
+
+  useEffect(() => {
+    watchTrail(id);
+  }, [id, version]);
+
+  return null;
 }
 
 /**
@@ -627,10 +563,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 function EnrichmentBridge({
   requestAircraftEnrichment,
   lastEnrichmentKeyRef,
-}: {
+}: Readonly<{
   requestAircraftEnrichment: (icao24List: string[]) => Promise<void>;
-  lastEnrichmentKeyRef: React.MutableRefObject<string>;
-}) {
+  lastEnrichmentKeyRef: React.RefObject<string>;
+}>) {
   const { selectedCurrent } = useUI();
 
   useEffect(() => {

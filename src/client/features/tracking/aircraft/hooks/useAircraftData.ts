@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import { AircraftProvider } from "../data/provider";
+
+const AIRCRAFT_SOURCE = getPointSourceDefinition("aircraft");
 
 export const aircraftProvider = new AircraftProvider();
 
@@ -35,7 +37,7 @@ type UseAircraftDataResult = {
 // catches each batch within one poll. The previous 240 s left users
 // staring at a stale snapshot through an entire sweep cycle.
 export function useAircraftData(
-  pollInterval: number = POLL_INTERVALS.aircraft,
+  pollInterval: number = AIRCRAFT_SOURCE.pollIntervalMs,
 ): UseAircraftDataResult {
   const [data, setData] = useState<DataPoint[]>([]);
   const [version, setVersion] = useState(0);

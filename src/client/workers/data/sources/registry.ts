@@ -83,14 +83,16 @@ export const POINT_SOURCE_DEFINITIONS = RENDER_SOURCE_IDS.map((id) => ({
   ...POINT_SOURCE_POLICIES[id],
 })) satisfies readonly PointSourceDefinition[];
 
-export function getPointSourceDefinition(
-  id: RenderSourceId,
-): PointSourceDefinition {
-  const definition = POINT_SOURCE_DEFINITIONS.find(
-    (candidate) => candidate.id === id,
-  );
-  if (!definition) throw new Error(`No point source has the id ${id}`);
-  return definition;
+/**
+ * The one owner of a source's id, cache key and poll cadence. The DataWorker
+ * runtime, the React provider and the poll hook all read it from here so a
+ * source is never spelled out twice.
+ */
+export function getPointSourceDefinition<TId extends RenderSourceId>(
+  id: TId,
+): PointSourcePolicy & Readonly<{ id: TId }> {
+  const policy: PointSourcePolicy = POINT_SOURCE_POLICIES[id];
+  return { ...policy, id };
 }
 
 export type PointSourceEntity = Extract<

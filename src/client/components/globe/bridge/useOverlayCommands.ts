@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
-import { getTrail } from "@/lib/geo/trailService";
 import { severityMeta, weatherSeverityRank } from "@/features/environmental/weather/severity";
 import { RENDER_POLICY } from "@/workers/render/policy";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
@@ -124,20 +123,23 @@ export function useOverlayCommands({
           }
         }
         if (item.type !== "aircraft" && item.type !== "ships") continue;
-        const last = getTrail(item.id).at(-1);
-        if (!last) continue;
+        // The point's own fix, not its recorded trail: trails only append
+        // once a track has moved past minMoveDeg, so the last trail point
+        // lags the current position for anything slow or stationary.
+        const observedAt = Date.parse(item.timestamp ?? "");
+        if (!Number.isFinite(observedAt)) continue;
         ids.push(item.id);
         const course =
           item.type === "ships"
             ? item.data.cog ?? item.data.heading ?? 0
             : item.data.heading ?? 0;
         values.push(
-          last.lat,
-          last.lon,
+          item.lat,
+          item.lon,
           course,
           item.data.speedMps ?? 0,
         );
-        timestamps.push(last.ts);
+        timestamps.push(observedAt);
       }
       offset = end;
       if (offset < data.length) {

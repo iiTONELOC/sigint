@@ -11,7 +11,6 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
 import { cacheInit } from "./lib/cache/storageService";
 import { initBaseline } from "./lib/correlation";
-import { initTrails } from "./lib/geo/trailService";
 import { initLand } from "./lib/geo/landService";
 import { initAirports } from "./lib/geo/airportService";
 import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
@@ -96,9 +95,8 @@ function needsRefresh(result: HydrateResult): boolean {
 const authReady = ensureAuthCookie().catch(() => {});
 
 // Non-blocking background work — independent of the data feeds.
-Promise.all([initBaseline(), initTrails(), initLand(), initAirports()]).catch(
-  () => {},
-);
+// Trails are hydrated and recorded by the DataWorker.
+Promise.all([initBaseline(), initLand(), initAirports()]).catch(() => {});
 
 void cacheReady.then(() => {
   for (const p of providers) {

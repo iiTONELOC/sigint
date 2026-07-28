@@ -1,10 +1,24 @@
 import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { createAircraftSourceRuntime } from "@/workers/data/sources/aircraft";
-import { createShipSourceRuntime } from "@/workers/data/sources/ships";
+import {
+  AIRCRAFT_SOURCE,
+  createAircraftSourceRuntime,
+} from "@/workers/data/sources/aircraft";
+import {
+  SHIP_SOURCE,
+  createShipSourceRuntime,
+} from "@/workers/data/sources/ships";
+import {
+  EVENT_SOURCE,
+  createEventSourceRuntime,
+} from "@/workers/data/sources/events";
 import { runShipUiQuery } from "@/features/tracking/ships/data/uiQueries";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
+import {
+  TRAIL_RECORDER_POLICY,
+  createTrailRecorder,
+} from "@/workers/data/trails/trailRecorder";
+import { trailObservations } from "@/lib/geo/trails/observations";
 import {
   findFireSearchIds,
   runFireUiQuery,
@@ -73,14 +87,24 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
   });
 }
 
+const trailRecorder = createTrailRecorder({
+  readCache: () => store.get(TRAIL_RECORDER_POLICY.cacheKey),
+  persistCache: (value) => {
+    coordinator.setDeferred(TRAIL_RECORDER_POLICY.cacheKey, value);
+  },
+});
+
 const aircraftOwner = createAircraftSourceRuntime({
-  readCache: () => store.get(CACHE_KEYS.aircraft),
+  readCache: () => store.get(AIRCRAFT_SOURCE.cacheKey),
   persistCache: async (snapshot) => {
-    coordinator.setDeferred(CACHE_KEYS.aircraft, snapshot);
+    coordinator.setDeferred(AIRCRAFT_SOURCE.cacheKey, snapshot);
   },
   publishStatus: publishSource,
   publishScene: (patch) => {
     scenePublisher.publish(patch);
+  },
+  observe: (points) => {
+    trailRecorder.observe("aircraft", trailObservations(points));
   },
 });
 
@@ -183,19 +207,31 @@ const fireOwner = createFireSourceOwner({
 });
 
 const shipOwner = createShipSourceRuntime({
-  readCache: () => store.get(CACHE_KEYS.ships),
+  readCache: () => store.get(SHIP_SOURCE.cacheKey),
   persistCache: async (snapshot) => {
-    coordinator.setDeferred(CACHE_KEYS.ships, snapshot);
+    coordinator.setDeferred(SHIP_SOURCE.cacheKey, snapshot);
   },
   publishStatus: publishSource,
   publishScene: (patch) => {
     scenePublisher.publish(patch);
   },
+  observe: (points) => {
+    trailRecorder.observe("ships", trailObservations(points));
+  },
+});
+
+const eventOwner = createEventSourceRuntime({
+  readCache: () => store.get(EVENT_SOURCE.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(EVENT_SOURCE.cacheKey, snapshot);
+  },
+  publishStatus: publishSource,
 });
 
 const sourceOwners = {
   aircraft: aircraftOwner,
   earthquake: earthquakeOwner,
+  events: eventOwner,
   fire: fireOwner,
   ships: shipOwner,
 } as const;
@@ -235,6 +271,9 @@ function fail(requestId: number | null, error: unknown): void {
 }
 
 async function startOwners(): Promise<void> {
+  // Before any source patch lands, so cached history is merged under the
+  // live points rather than written over by the first poll.
+  await trailRecorder.hydrate();
   await Promise.all(
     Object.values(sourceOwners).map(async (owner) => {
       await owner.hydrate();
@@ -297,6 +336,20 @@ async function handleRefreshSource(
   }
   await sourceOwners[command.source].refresh();
   complete(command.requestId);
+}
+
+function handleListSourceEntities(
+  command: CommandOf<"listSourceEntities">,
+): void {
+  if (!isOwnedSource(command.source)) {
+    throw inactiveSourceError(command.source);
+  }
+  post({
+    type: "value",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    value: sourceOwners[command.source].values(),
+  });
 }
 
 function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
@@ -384,6 +437,16 @@ function handleSetSourceSearch(
   complete(command.requestId);
 }
 
+function handleGetTrail(command: CommandOf<"getTrail">): void {
+  post({
+    type: "trail",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    id: command.id,
+    entry: trailRecorder.get(command.id),
+  });
+}
+
 async function handleGet(command: CommandOf<"get">): Promise<void> {
   post({
     type: "value",
@@ -427,12 +490,16 @@ async function dispatch(command: DataWorkerCommand): Promise<void> {
       return handleConnectCorrelation(command);
     case "refreshSource":
       return handleRefreshSource(command);
+    case "listSourceEntities":
+      return handleListSourceEntities(command);
     case "getSourceEntity":
       return handleGetSourceEntity(command);
     case "querySource":
       return handleQuerySource(command);
     case "setSourceSearch":
       return handleSetSourceSearch(command);
+    case "getTrail":
+      return handleGetTrail(command);
     case "get":
       return handleGet(command);
     case "importJson":

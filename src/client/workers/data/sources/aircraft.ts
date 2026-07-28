@@ -1,8 +1,14 @@
-import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
+import {
+  AIRCRAFT_BOOLEAN_FIELDS as BOOLEAN_FIELDS,
+  AIRCRAFT_NUMBER_FIELDS as NUMBER_FIELDS,
+  AIRCRAFT_STRING_FIELDS as STRING_FIELDS,
+  isAircraftPoint,
+  parseAircraftCache,
+  type AircraftPoint,
+} from "@/features/tracking/aircraft/data/codec";
 import { fetchAircraftSnapshot } from "@/features/tracking/aircraft/data/parseAdsbV2";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
@@ -14,9 +20,10 @@ import {
 } from "@/workers/data/sourceRuntime";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import { AIRCRAFT_SCENE } from "@/workers/render/scene/aircraftSchema";
-import { isRecord } from "@shared/geo";
 
-export type AircraftPoint = Extract<DataPoint, { type: "aircraft" }>;
+export { isAircraftPoint, parseAircraftCache, type AircraftPoint };
+
+export const AIRCRAFT_SOURCE = getPointSourceDefinition("aircraft");
 
 export type AircraftSourceRuntime = PointSourceRuntime<AircraftPoint> &
   Readonly<{ publishRebase: () => void }>;
@@ -29,131 +36,9 @@ export type AircraftSourceRuntimeOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<AircraftPoint>>;
   publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishScene: (patch: SceneSourcePatch) => void;
+  /** Every entity this poll added or moved, for the trail recorder. */
+  observe?: (points: readonly AircraftPoint[]) => void;
 }>;
-
-const STRING_FIELDS = [
-  "model",
-  "acType",
-  "icao24",
-  "airport",
-  "frequency",
-  "callsign",
-  "operator",
-  "audioStream",
-  "registration",
-  "operatorIcao",
-  "originCountry",
-  "manufacturerName",
-  "categoryDescription",
-  "squawk",
-  "squawkStatus",
-  "adsbType",
-] as const;
-
-const NUMBER_FIELDS = [
-  "speed",
-  "heading",
-  "altitude",
-  "speedMps",
-  "tas",
-  "mach",
-  "ias",
-  "windDir",
-  "windSpd",
-  "oat",
-  "tat",
-  "roll",
-  "trackRate",
-  "magHeading",
-  "trueHeading",
-  "geomRate",
-  "navHeading",
-  "navAltitudeMcp",
-  "navAltitudeFms",
-  "navQnh",
-  "rssi",
-  "nacP",
-  "verticalRate",
-] as const;
-
-const BOOLEAN_FIELDS = ["onGround", "military", "recon"] as const;
-
-function hasOptionalFields(
-  value: Readonly<Record<string, unknown>>,
-  keys: readonly string[],
-  matches: (candidate: unknown) => boolean,
-): boolean {
-  return keys.every((key) => {
-    const candidate = value[key];
-    return candidate === undefined || matches(candidate);
-  });
-}
-
-function isAircraftData(value: unknown): value is AircraftData {
-  if (!isRecord(value)) return false;
-  if (
-    !hasOptionalFields(
-      value,
-      STRING_FIELDS,
-      (item) => typeof item === "string",
-    )
-  ) {
-    return false;
-  }
-  if (
-    !hasOptionalFields(
-      value,
-      NUMBER_FIELDS,
-      (item) => typeof item === "number" && Number.isFinite(item),
-    )
-  ) {
-    return false;
-  }
-  if (
-    !hasOptionalFields(
-      value,
-      BOOLEAN_FIELDS,
-      (item) => typeof item === "boolean",
-    )
-  ) {
-    return false;
-  }
-  return (
-    value.navModes === undefined ||
-    (
-      Array.isArray(value.navModes) &&
-      value.navModes.every((mode) => typeof mode === "string")
-    )
-  );
-}
-
-export function isAircraftPoint(value: unknown): value is AircraftPoint {
-  return (
-    isRecord(value) &&
-    value.type === "aircraft" &&
-    typeof value.id === "string" &&
-    value.id.length > 0 &&
-    typeof value.lat === "number" &&
-    Number.isFinite(value.lat) &&
-    typeof value.lon === "number" &&
-    Number.isFinite(value.lon) &&
-    (value.timestamp === undefined ||
-      typeof value.timestamp === "string") &&
-    isAircraftData(value.data)
-  );
-}
-
-export function parseAircraftCache(
-  value: unknown,
-): readonly AircraftPoint[] | null {
-  if (!Array.isArray(value)) return null;
-  const points: AircraftPoint[] = [];
-  for (const candidate of value) {
-    if (!isAircraftPoint(candidate)) return null;
-    points.push(candidate);
-  }
-  return points;
-}
 
 function arraysEqual(
   left: readonly string[] | undefined,
@@ -229,7 +114,7 @@ export function createAircraftSourceRuntime(
   options: AircraftSourceRuntimeOptions,
 ): AircraftSourceRuntime {
   const codec = createScenePatchCodec<AircraftPoint>({
-    source: "aircraft",
+    source: AIRCRAFT_SOURCE.id,
     attributeStride: AIRCRAFT_SCENE.attributeStride,
     stringAttributeStride: AIRCRAFT_SCENE.stringAttributeStride,
     writeAttributes: (point, target, offset) => {
@@ -247,9 +132,9 @@ export function createAircraftSourceRuntime(
   });
 
   const runtime = createPointSourceRuntime<AircraftPoint>({
-    id: "aircraft",
-    cacheKey: CACHE_KEYS.aircraft,
-    pollIntervalMs: POLL_INTERVALS.aircraft,
+    id: AIRCRAFT_SOURCE.id,
+    cacheKey: AIRCRAFT_SOURCE.cacheKey,
+    pollIntervalMs: AIRCRAFT_SOURCE.pollIntervalMs,
     maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
     hasChanged: aircraftChanged,
     readCache: options.readCache,
@@ -258,6 +143,7 @@ export function createAircraftSourceRuntime(
     fetchSnapshot: options.fetchSnapshot ?? fetchLiveAircraft,
     publishStatus: options.publishStatus,
     publishPatch: (patch) => {
+      options.observe?.(patch.upserts);
       options.publishScene(codec.encode(patch));
     },
   });

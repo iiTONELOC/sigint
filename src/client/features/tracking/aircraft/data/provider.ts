@@ -1,11 +1,12 @@
 import { type DataPoint } from "@/features/base/dataPoints";
 import { BaseProvider } from "@/features/base/BaseProvider";
+import { createWorkerSourceFeed } from "@/features/base/workerSourceFeed";
+import { isAircraftPoint } from "@/features/tracking/aircraft/data/codec";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { fetchAircraftSnapshot } from "./parseAdsbV2";
 
-const DEFAULT_CACHE_DURATION = 30 * 60_000;
-const DEFAULT_CACHE_KEY = CACHE_KEYS.aircraft;
+const AIRCRAFT_SOURCE = getPointSourceDefinition("aircraft");
 
 export type AircraftProviderConfig = {
   cacheDurationMs?: number;
@@ -15,11 +16,25 @@ export type AircraftProviderConfig = {
 /** Server enrichment and source state are authoritative. */
 export class AircraftProvider extends BaseProvider {
   constructor(config: AircraftProviderConfig = {}) {
+    // The DataWorker polls ADS-B and owns AIRCRAFT_SOURCE.cacheKey. This
+    // provider reads the list the worker already holds instead of fetching
+    // it a second time.
+    const feed = createWorkerSourceFeed({
+      source: AIRCRAFT_SOURCE.id,
+      isPoint: isAircraftPoint,
+      fallbackFetch: fetchAircraftSnapshot,
+    });
     super({
-      id: "aircraft",
-      cacheKey: config.cacheKey ?? DEFAULT_CACHE_KEY,
-      maxCacheAgeMs: config.cacheDurationMs ?? DEFAULT_CACHE_DURATION,
-      fetchFn: fetchAircraftSnapshot,
+      id: AIRCRAFT_SOURCE.id,
+      cacheKey: config.cacheKey ?? AIRCRAFT_SOURCE.cacheKey,
+      ...(config.cacheDurationMs === undefined
+        ? {}
+        : { maxCacheAgeMs: config.cacheDurationMs }),
+      ownsCache: false,
+      fetchFn: feed.fetch,
+    });
+    feed.watch(() => {
+      void this.refresh();
     });
   }
 

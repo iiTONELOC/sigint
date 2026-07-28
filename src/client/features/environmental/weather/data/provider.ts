@@ -153,6 +153,5 @@ async function fetchWeather(): Promise<DataPoint[]> {
 export const weatherProvider = new BaseProvider({
   id: "noaa-weather",
   cacheKey: CACHE_KEYS.weather,
-  maxCacheAgeMs: 30 * 60_000,
   fetchFn: fetchWeather,
 });

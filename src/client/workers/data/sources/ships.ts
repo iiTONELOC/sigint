@@ -6,8 +6,8 @@ import {
   isShipPoint,
   type ShipPoint,
 } from "@/features/tracking/ships/data/codec";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
+import { parsePointList } from "@/features/base/pointCodec";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
@@ -20,6 +20,8 @@ import {
 import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 
+export const SHIP_SOURCE = getPointSourceDefinition("ships");
+
 export type ShipSourceRuntime = PointSourceRuntime<ShipPoint> &
   Readonly<{ publishRebase: () => void }>;
 
@@ -31,6 +33,8 @@ export type ShipSourceRuntimeOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<ShipPoint>>;
   publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishScene: (patch: SceneSourcePatch) => void;
+  /** Every entity this poll added or moved, for the trail recorder. */
+  observe?: (points: readonly ShipPoint[]) => void;
 }>;
 
 const STRING_FIELDS = [
@@ -66,13 +70,7 @@ const NUMBER_FIELDS = [
 export function parseShipCache(
   value: unknown,
 ): readonly ShipPoint[] | null {
-  if (!Array.isArray(value)) return null;
-  const points: ShipPoint[] = [];
-  for (const candidate of value) {
-    if (!isShipPoint(candidate)) return null;
-    points.push(candidate);
-  }
-  return points;
+  return parsePointList(value, isShipPoint);
 }
 
 function shipChanged(
@@ -102,7 +100,7 @@ export function createShipSourceRuntime(
   options: ShipSourceRuntimeOptions,
 ): ShipSourceRuntime {
   const codec = createScenePatchCodec<ShipPoint>({
-    source: "ships",
+    source: SHIP_SOURCE.id,
     attributeStride: SHIP_SCENE.attributeStride,
     writeAttributes: (point, target, offset) => {
       target[offset + SHIP_SCENE.attributes.heading] =
@@ -110,9 +108,9 @@ export function createShipSourceRuntime(
     },
   });
   const runtime = createPointSourceRuntime<ShipPoint>({
-    id: "ships",
-    cacheKey: CACHE_KEYS.ships,
-    pollIntervalMs: POLL_INTERVALS.ships,
+    id: SHIP_SOURCE.id,
+    cacheKey: SHIP_SOURCE.cacheKey,
+    pollIntervalMs: SHIP_SOURCE.pollIntervalMs,
     maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
     hasChanged: shipChanged,
     readCache: options.readCache,
@@ -123,6 +121,7 @@ export function createShipSourceRuntime(
       (async () => normalizeSnapshot(await fetchShipSnapshot())),
     publishStatus: options.publishStatus,
     publishPatch: (patch) => {
+      options.observe?.(patch.upserts);
       options.publishScene(codec.encode(patch));
     },
   });

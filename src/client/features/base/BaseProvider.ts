@@ -7,6 +7,11 @@ import type {
 import { cacheGet, cacheSetDeferred } from "@/lib/cache/storageService";
 import { diffAndApply } from "@/features/base/diffEntities";
 
+export const BASE_PROVIDER_POLICY = {
+  /** Default staleness bound for a persisted snapshot. */
+  maxCacheAgeMs: 30 * 60_000,
+} as const;
+
 // ── Config each concrete provider supplies ───────────────────────────
 
 export type BaseProviderConfig = {
@@ -17,7 +22,7 @@ export type BaseProviderConfig = {
   cacheKey: string;
 
   /** Max age (ms) before hydrate rejects stale persisted data */
-  maxCacheAgeMs: number;
+  maxCacheAgeMs?: number;
 
   /**
    * Fetch + parse remote data into DataPoint[].
@@ -46,6 +51,13 @@ export type BaseProviderConfig = {
 
   /** Optional fallback when fetch and cache are both unavailable. */
   errorFallbackFn?: () => DataPoint[];
+
+  /**
+   * False when the DataWorker owns `cacheKey`. The provider then reads the
+   * key at boot but never writes it, so the two threads cannot clobber each
+   * other's snapshot of the same source.
+   */
+  ownsCache?: boolean;
 };
 
 // ── Base class ───────────────────────────────────────────────────────
@@ -64,6 +76,7 @@ export class BaseProvider implements DataProvider<DataPoint> {
   ) => DataPoint[];
   private readonly allowEmptyResult: boolean;
   private readonly errorFallbackFn?: () => DataPoint[];
+  private readonly ownsCache: boolean;
 
   protected cache: { data: DataPoint[]; timestamp: number } | null = null;
   private fetchInProgress: Promise<DataPoint[]> | null = null;
@@ -80,16 +93,19 @@ export class BaseProvider implements DataProvider<DataPoint> {
   constructor(config: BaseProviderConfig) {
     this.id = config.id;
     this.cacheKey = config.cacheKey;
-    this.maxCacheAgeMs = config.maxCacheAgeMs;
+    this.maxCacheAgeMs =
+      config.maxCacheAgeMs ?? BASE_PROVIDER_POLICY.maxCacheAgeMs;
     this.fetchFn = config.fetchFn;
     this.mergeFn = config.mergeFn;
     this.allowEmptyResult = config.allowEmptyResult ?? false;
     this.errorFallbackFn = config.errorFallbackFn;
+    this.ownsCache = config.ownsCache ?? true;
   }
 
   // ── Persistence ───────────────────────────────────────────────────
 
   private persistCache(data: DataPoint[]): void {
+    if (!this.ownsCache) return;
     // Deferred: the IDB structured clone runs in idle time, off the poll tick.
     cacheSetDeferred(this.cacheKey, { timestamp: Date.now(), data });
   }
@@ -98,12 +114,16 @@ export class BaseProvider implements DataProvider<DataPoint> {
     data: DataPoint[];
     timestamp: number;
   } | null> {
-    const cached = await cacheGet<{ data?: DataPoint[]; timestamp?: number }>(
-      this.cacheKey,
-    );
-    if (!cached || !Array.isArray(cached.data)) return null;
+    const cached = await cacheGet<{
+      data?: DataPoint[];
+      entities?: DataPoint[];
+      timestamp?: number;
+    }>(this.cacheKey);
+    // `entities` is the DataWorker envelope shape; `data` is this provider's.
+    const records = cached?.data ?? cached?.entities;
+    if (!cached || !Array.isArray(records)) return null;
     return {
-      data: cached.data,
+      data: records,
       timestamp:
         typeof cached.timestamp === "number" &&
         Number.isFinite(cached.timestamp)
@@ -272,11 +292,9 @@ export class BaseProvider implements DataProvider<DataPoint> {
     // 1. Memory cache hit — return immediately, maybe background refresh
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        if (!this.fetchInProgress) {
-          this.fetchInProgress = this.refresh().finally(() => {
-            this.fetchInProgress = null;
-          });
-        }
+        this.fetchInProgress ??= this.refresh().finally(() => {
+          this.fetchInProgress = null;
+        });
       }
       return this.cache.data;
     }

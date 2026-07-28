@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { RENDER_POLICY } from "@/workers/render/policy";
+import { isWorkerOwnedPointType } from "@/workers/render/workerOwnedTypes";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import type { RenderWorkerColors } from "@/workers/render/protocol";
 
@@ -17,24 +18,6 @@ type SourceJob = Readonly<{
 }>;
 
 function slimPoint(item: DataPoint): DataPoint {
-  if (item.type === "aircraft") {
-    const details = item.data;
-    return {
-      ...item,
-      data: {
-        military: details.military,
-        recon: details.recon,
-        squawkStatus: details.squawkStatus,
-        squawk: details.squawk,
-        onGround: details.onGround,
-        originCountry: details.originCountry,
-        heading: details.heading,
-      },
-    };
-  }
-  if (item.type === "ships") {
-    return { ...item, data: { heading: item.data.heading } };
-  }
   if (item.type === "events") {
     return { ...item, data: { severity: item.data.severity } };
   }
@@ -104,12 +87,6 @@ export function usePointCommands({
     };
 
     const finishScan = (): void => {
-      if (forceAll) {
-        byType.set("quakes", []);
-        byType.set("fires", []);
-        changed.add("quakes");
-        changed.add("fires");
-      }
       for (const [source, previous] of previousByType.current) {
         const current = byType.get(source);
         if (current) {
@@ -140,7 +117,10 @@ export function usePointCommands({
       );
       const batch = data.slice(offset, end);
       for (const item of batch) {
-        if (item.type === "quakes" || item.type === "fires") continue;
+        // The DataWorker feeds these straight to the renderer. Bucketing and
+        // cloning them here only to have the renderer discard them was the
+        // largest per-poll allocation on the main thread.
+        if (isWorkerOwnedPointType(item.type)) continue;
         const bucket = byType.get(item.type) ?? [];
         if (!byType.has(item.type)) byType.set(item.type, bucket);
         const sourceIndex = bucket.length;

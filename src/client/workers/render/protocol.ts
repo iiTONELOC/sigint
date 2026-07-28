@@ -1,7 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { TrailPoint } from "@/lib/geo/trailService";
+import type { TrailPoint } from "@/lib/geo/trails/trailStore";
 
-export const RENDER_PROTOCOL_VERSION: 2 = 2;
+export const RENDER_PROTOCOL_VERSION = 2 as const;
 
 export type RenderPoint = DataPoint;
 

@@ -1,4 +1,5 @@
 import { isRecord } from "@shared/geo";
+import type { TrailEntry } from "@/lib/geo/trails/trailStore";
 import type {
   QueryableSourceId,
   QueryableSourceShapes,
@@ -77,6 +78,8 @@ export type DataWorkerClient = Readonly<{
     correlationSessionId: string,
   ) => Promise<void>;
   refreshSource: (source: DataWorkerPointSource) => Promise<void>;
+  listSourceEntities: (source: DataWorkerPointSource) => Promise<unknown>;
+  getTrail: (id: string) => Promise<TrailEntry | null>;
   getSourceEntity: (
     source: DataWorkerQueryableSource,
     id: string,
@@ -242,6 +245,20 @@ export function createDataWorkerClient(
       return requireComplete({ type: "refreshSource", source });
     },
 
+    async listSourceEntities(
+      source: DataWorkerPointSource,
+    ): Promise<unknown> {
+      const event = await request({ type: "listSourceEntities", source });
+      if (event.type !== "value") throw unexpectedEvent("source entities");
+      return event.value;
+    },
+
+    async getTrail(id: string): Promise<TrailEntry | null> {
+      const event = await request({ type: "getTrail", id });
+      if (event.type !== "trail") throw unexpectedEvent("a trail");
+      return event.entry;
+    },
+
     async getSourceEntity(
       source: DataWorkerQueryableSource,
       id: string,
@@ -254,10 +271,7 @@ export function createDataWorkerClient(
       if (event.type !== "sourceEntity") {
         throw unexpectedEvent("source entity");
       }
-      if (event.source === "earthquake") {
-        return { source: "earthquake", sourceVersion: event.sourceVersion, value: event.value };
-      }
-      return { source: "fire", sourceVersion: event.sourceVersion, value: event.value };
+      return event;
     },
 
     async querySource(
@@ -270,10 +284,7 @@ export function createDataWorkerClient(
       if (event.type !== "sourceQuery") {
         throw unexpectedEvent("source query");
       }
-      if (event.source === "earthquake") {
-        return { source: "earthquake", sourceVersion: event.sourceVersion, result: event.result };
-      }
-      return { source: "fire", sourceVersion: event.sourceVersion, result: event.result };
+      return event;
     },
 
     setSourceSearch(
@@ -362,14 +373,22 @@ export function createDataWorkerClient(
 
 let sharedClient: DataWorkerClient | null | undefined;
 
+export const DATA_WORKER_URL = "/workers/dataWorker.js";
+
 export function getDataWorkerClient(): DataWorkerClient | null {
   if (sharedClient !== undefined) return sharedClient;
-  if (typeof Worker === "undefined") {
+  if (typeof Worker === "undefined" || typeof window === "undefined") {
     sharedClient = null;
     return sharedClient;
   }
-  sharedClient = createDataWorkerClient(
-    new Worker("/workers/dataWorker.js", { type: "module" }),
-  );
+  try {
+    sharedClient = createDataWorkerClient(
+      new Worker(DATA_WORKER_URL, { type: "module" }),
+    );
+  } catch {
+    // No worker available (test runtime, blocked script). Callers fall back
+    // to their own fetch path rather than losing the feed entirely.
+    sharedClient = null;
+  }
   return sharedClient;
 }

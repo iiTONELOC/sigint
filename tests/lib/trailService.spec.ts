@@ -5,7 +5,7 @@ import {
   type TrailEntry,
   type TrailObservation,
   type TrackType,
-} from "../../src/client/lib/geo/trailService";
+} from "../../src/client/lib/geo/trails/trailStore";
 
 const NOW = 1_000_000;
 

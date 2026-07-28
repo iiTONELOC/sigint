@@ -11,7 +11,7 @@ import { describe, test, expect } from "bun:test";
 import {
   mergeCachedTrails,
   type TrailEntry,
-} from "../../src/client/lib/geo/trailService";
+} from "../../src/client/lib/geo/trails/trailStore";
 
 function mkPoint(ts: number, lat = 0, lon = 0) {
   return { lat, lon, ts };
