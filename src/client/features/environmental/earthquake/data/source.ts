@@ -6,11 +6,6 @@ import { createGeoPoint, isRecord } from "@shared/geo";
 
 export type EarthquakePoint = Extract<DataPoint, { type: "quakes" }>;
 
-export type EarthquakeCacheSnapshot = Readonly<{
-  timestamp: number;
-  data: EarthquakePoint[];
-}>;
-
 export type EarthquakeSourcePolicy = Readonly<{
   id: "earthquake";
   renderSource: "quakes";
@@ -156,26 +151,6 @@ export function parseEarthquakeFeed(value: unknown): EarthquakePoint[] {
     if (point) points.push(point);
   }
   return points;
-}
-
-export function parseEarthquakeCacheSnapshot(
-  value: unknown,
-): EarthquakeCacheSnapshot | null {
-  if (
-    !isRecord(value) ||
-    typeof value.timestamp !== "number" ||
-    !Number.isFinite(value.timestamp) ||
-    !Array.isArray(value.data)
-  ) {
-    return null;
-  }
-  const data: EarthquakePoint[] = [];
-  for (const candidate of value.data) {
-    const point = parseEarthquakePoint(candidate);
-    if (!point) return null;
-    data.push(point);
-  }
-  return { timestamp: value.timestamp, data };
 }
 
 export async function fetchEarthquakes(

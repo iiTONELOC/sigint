@@ -14,15 +14,14 @@ import {
   parseGeoJsonPolygonGeometry,
   type GeoRing,
 } from "@shared/geo";
+import type { HorizonCircle } from "@/lib/geo/render/types";
 import type { RenderAreaFeature } from "./protocol";
 export type PolyPrims = {
   simpleDraw: (ctx: Ctx, pts: Projected[], fill: string, stroke: string, alpha: number) => void;
   drawClippedPoly: (
     ctx: Ctx,
     pts: Projected[],
-    gcx: number,
-    gcy: number,
-    gr: number,
+    horizon: HorizonCircle,
     fill: string,
     stroke: string,
     alpha: number,
@@ -62,7 +61,7 @@ function drawRing(rc: WarningCtx, pts: Projected[], fill: string, alpha: number)
   }
   if (!pts.some((p) => p.z > 0)) return;
   if (pts.every((p) => p.z > 0)) rc.prims.simpleDraw(rc.ctx, pts, fill, fill, alpha);
-  else rc.prims.drawClippedPoly(rc.ctx, pts, rc.gcx, rc.gcy, rc.gr, fill, fill, alpha);
+  else rc.prims.drawClippedPoly(rc.ctx, pts, { gcx: rc.gcx, gcy: rc.gcy, gr: rc.gr }, fill, fill, alpha);
 }
 
 /** Outer rings of a Polygon / each MultiPolygon (holes skipped — rare here). */

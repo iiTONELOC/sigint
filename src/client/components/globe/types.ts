@@ -6,38 +6,6 @@ import type { FireFilter } from "@/features/environmental/fires/types";
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import type { SpatialGrid } from "@/lib/geo/spatialIndex";
 
-export type Projected = {
-  x: number;
-  y: number;
-  z: number;
-};
-
-export type ProjFn = (lat: number, lon: number) => Projected;
-
-export type FlatGridConfig = {
-  isFlat: true;
-  accentColor?: string;
-  cx: number;
-  cy: number;
-  mW: number;
-  mH: number;
-  mx: number;
-  my: number;
-};
-
-type GlobeGridConfig = {
-  isFlat: false;
-  accentColor?: string;
-};
-
-export type GridConfig = FlatGridConfig | GlobeGridConfig;
-
-export type HorizonCircle = {
-  gcx: number;
-  gcy: number;
-  gr: number;
-};
-
 export type CamState = {
   rotY: number;
   rotX: number;

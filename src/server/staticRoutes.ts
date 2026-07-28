@@ -1,4 +1,4 @@
-import { basename, normalize, relative, resolve } from "path";
+import { basename, normalize, relative, resolve } from "node:path";
 import type { SecurityHeaders } from "./api/securityHeaders";
 
 const WORKER_SRC_DIR = resolve(import.meta.dir, "../client/workers");
@@ -13,24 +13,36 @@ type StaticRouteOptions = {
 type StaticFileServer = (pathname: string) => Promise<Response>;
 type StaticRouteHandler = (request: Request) => Promise<Response>;
 
+const WORKER_BUILD_FAILED_STATUS = 500;
+
+function workerScriptResponse(code: string): Response {
+  return new Response(code, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-cache, must-revalidate",
+    },
+  });
+}
+
 async function buildWorkerFromTs(pathname: string): Promise<Response | null> {
   if (!pathname.endsWith(".js")) return null;
   const name = basename(pathname, ".js");
   const entry = resolve(WORKER_SRC_DIR, `${name}.ts`);
   if (!(await Bun.file(entry).exists())) return null;
+
   const built = await Bun.build({
     entrypoints: [entry],
     target: "browser",
     format: "esm",
   });
   const [output] = built.outputs;
-  if (!built.success || !output) return null;
-  const code = await output.text();
-  return new Response(code, {
-    headers: {
-      "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "no-cache, must-revalidate",
-    },
+  if (built.success && output) return workerScriptResponse(await output.text());
+
+  const logs = built.logs.map((log) => log.message).join("\n");
+  console.error(`Worker build failed for ${name}.ts\n${logs}`);
+  return new Response(logs, {
+    status: WORKER_BUILD_FAILED_STATUS,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
 
@@ -84,10 +96,8 @@ export function createStaticRoutes(
 
     "/workers/*": async (request) => {
       const { pathname } = new URL(request.url);
-      const built = options.buildWorkersFromSource
-        ? await buildWorkerFromTs(pathname)
-        : null;
-      return built ?? serveStaticFile(pathname);
+      if (!options.buildWorkersFromSource) return serveStaticFile(pathname);
+      return (await buildWorkerFromTs(pathname)) ?? serveStaticFile(pathname);
     },
 
     "/sw.js": async () => {

@@ -31,6 +31,11 @@ import {
 import { createRenderDataCommand } from "@/workers/render/dataChannel";
 import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
 
+type CommandOf<TType extends DataWorkerCommand["type"]> = Extract<
+  DataWorkerCommand,
+  { type: TType }
+>;
+
 const store = createDataCacheStore(indexedDB);
 const scenePublisher = createScenePublisher();
 let renderPort: MessagePort | null = null;
@@ -77,55 +82,47 @@ const aircraftOwner = createAircraftSourceRuntime({
   },
 });
 
-function publishEarthquakeSearch(): void {
+function postRenderData(
+  body: Parameters<typeof createRenderDataCommand>[0],
+  transfer: readonly Transferable[] = [],
+): void {
   if (!renderPort || !renderSessionId) return;
-  const matchingIds = earthquakeSearchText
-    ? findEarthquakeSearchIds(earthquakeOwner.read(), earthquakeSearchText)
-    : null;
   renderSequence++;
   renderPort.postMessage(
-    createRenderDataCommand(
-      { type: "earthquakeSearch", matchingIds },
-      renderSessionId,
-      renderSequence,
-    ),
+    createRenderDataCommand(body, renderSessionId, renderSequence),
+    Array.from(transfer),
   );
+}
+
+function publishEarthquakeSearch(): void {
+  postRenderData({
+    type: "earthquakeSearch",
+    matchingIds: earthquakeSearchText
+      ? findEarthquakeSearchIds(earthquakeOwner.values(), earthquakeSearchText)
+      : null,
+  });
 }
 
 function publishFireSearch(): void {
-  if (!renderPort || !renderSessionId) return;
-  const matchingIds = fireSearchText
-    ? findFireSearchIds(fireOwner.read(), fireSearchText)
-    : null;
-  renderSequence++;
-  renderPort.postMessage(
-    createRenderDataCommand(
-      { type: "fireSearch", matchingIds },
-      renderSessionId,
-      renderSequence,
-    ),
-  );
+  postRenderData({
+    type: "fireSearch",
+    matchingIds: fireSearchText
+      ? findFireSearchIds(fireOwner.values(), fireSearchText)
+      : null,
+  });
 }
 
 function rebaseEarthquakeRender(
-  points: ReturnType<typeof earthquakeOwner.read>,
+  points: ReturnType<typeof earthquakeOwner.values>,
 ): void {
   if (!renderPort || !renderSessionId) return;
   const packed = packEarthquakeRenderData(points);
-  renderSequence++;
-  renderPort.postMessage(
-    createRenderDataCommand(
-      { type: "earthquakeRebase", ...packed },
-      renderSessionId,
-      renderSequence,
-    ),
-    [
-      packed.positions.buffer,
-      packed.unitVectors.buffer,
-      packed.magnitudes.buffer,
-      packed.timestamps.buffer,
-    ],
-  );
+  postRenderData({ type: "earthquakeRebase", ...packed }, [
+    packed.positions.buffer,
+    packed.unitVectors.buffer,
+    packed.magnitudes.buffer,
+    packed.timestamps.buffer,
+  ]);
   publishEarthquakeSearch();
 }
 
@@ -134,35 +131,27 @@ const earthquakeOwner = createEarthquakeSourceOwner({
   persistCache: (snapshot) => {
     coordinator.setDeferred(EARTHQUAKE_SOURCE_POLICY.cacheKey, snapshot);
   },
-  publish: publishSource,
-  rebaseRender: rebaseEarthquakeRender,
+  publishStatus: publishSource,
+  publishRebase: rebaseEarthquakeRender,
 });
 
 function rebaseFireRender(
-  points: ReturnType<typeof fireOwner.read>,
+  points: ReturnType<typeof fireOwner.values>,
 ): void {
   if (!renderPort || !renderSessionId) return;
   const packed = packFireRenderData(points);
-  renderSequence++;
-  renderPort.postMessage(
-    createRenderDataCommand(
-      { type: "fireRebase", ...packed },
-      renderSessionId,
-      renderSequence,
-    ),
-    [
-      packed.positions.buffer,
-      packed.unitVectors.buffer,
-      packed.frp.buffer,
-      packed.timestamps.buffer,
-      packed.confidences.buffer,
-    ],
-  );
+  postRenderData({ type: "fireRebase", ...packed }, [
+    packed.positions.buffer,
+    packed.unitVectors.buffer,
+    packed.frp.buffer,
+    packed.timestamps.buffer,
+    packed.confidences.buffer,
+  ]);
   publishFireSearch();
 }
 
 function rebaseFireCorrelation(
-  points: ReturnType<typeof fireOwner.read>,
+  points: ReturnType<typeof fireOwner.values>,
 ): void {
   if (!correlationPort || !correlationSessionId) return;
   correlationSequence++;
@@ -176,7 +165,7 @@ function rebaseFireCorrelation(
 }
 
 function rebaseFireConsumers(
-  points: ReturnType<typeof fireOwner.read>,
+  points: ReturnType<typeof fireOwner.values>,
 ): void {
   rebaseFireRender(points);
   rebaseFireCorrelation(points);
@@ -187,9 +176,29 @@ const fireOwner = createFireSourceOwner({
   persistCache: (snapshot) => {
     coordinator.setDeferred(FIRE_SOURCE_POLICY.cacheKey, snapshot);
   },
-  publish: publishSource,
-  rebaseRender: rebaseFireConsumers,
+  publishStatus: publishSource,
+  publishRebase: rebaseFireConsumers,
 });
+
+const sourceOwners = {
+  aircraft: aircraftOwner,
+  earthquake: earthquakeOwner,
+  fire: fireOwner,
+} as const;
+
+type OwnedSourceId = keyof typeof sourceOwners;
+
+const INACTIVE_SOURCE_MESSAGE = "The requested source is not active";
+
+type InactiveSourceError = Error & Readonly<{ source: string }>;
+
+function inactiveSourceError(source: string): InactiveSourceError {
+  return Object.assign(new Error(INACTIVE_SOURCE_MESSAGE), { source });
+}
+
+function isOwnedSource(value: string): value is OwnedSourceId {
+  return value in sourceOwners;
+}
 
 function complete(requestId: number | null): void {
   if (requestId === null) return;
@@ -211,163 +220,209 @@ function fail(requestId: number | null, error: unknown): void {
   });
 }
 
-async function handleCommand(command: DataWorkerCommand): Promise<void> {
-  const { requestId } = command;
-  try {
-    if (command.type === "connectRender") {
-      renderPort?.close();
-      renderPort = command.port;
-      renderSessionId = command.renderSessionId;
-      renderSequence = 0;
-      renderPort.start();
-      renderSequence++;
-      renderPort.postMessage(
-        createRenderDataCommand(
-          { type: "bind" },
-          renderSessionId,
-          renderSequence,
-        ),
-      );
-      scenePublisher.connect(renderPort, renderSessionId);
-      aircraftOwner.publishRebase();
-      earthquakeOwner.rebase();
-      rebaseFireRender(fireOwner.read());
-      complete(requestId);
-      return;
-    }
-    if (command.type === "connectCorrelation") {
-      correlationPort?.close();
-      correlationPort = command.port;
-      correlationSessionId = command.correlationSessionId;
-      correlationSequence = 0;
-      correlationPort.start();
-      correlationSequence++;
-      correlationPort.postMessage(
-        createCorrelationDataCommand(
-          { type: "bind" },
-          correlationSessionId,
-          correlationSequence,
-        ),
-      );
-      rebaseFireCorrelation(fireOwner.read());
-      complete(requestId);
-      return;
-    }
-    if (command.type === "init") {
-      await store.open();
-      post({
-        type: "ready",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
-        requestId,
-        entries: mainThreadCacheEntries(await store.getAll()),
-      });
-      void aircraftOwner.start();
-      void earthquakeOwner.start();
-      void fireOwner.start();
-      return;
-    }
-    if (command.type === "refreshSource") {
-      if (command.source === "aircraft") {
-        await aircraftOwner.refresh();
-      } else if (command.source === "earthquake") {
-        await earthquakeOwner.refresh();
-      } else if (command.source === "fire") {
-        await fireOwner.refresh();
-      } else {
-        throw new Error(`The ${command.source} source is not active`);
-      }
-      complete(requestId);
-      return;
-    }
-    if (command.type === "getSourceEntity") {
-      if (command.source === "earthquake") {
-        const snapshot = earthquakeOwner.snapshot();
-        post({ type: "sourceEntity", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "earthquake", sourceVersion: snapshot.version, value: earthquakeOwner.find(command.id) });
-      } else {
-        const snapshot = fireOwner.snapshot();
-        post({ type: "sourceEntity", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "fire", sourceVersion: snapshot.version, value: fireOwner.find(command.id) });
-      }
-      return;
-    }
-    if (command.type === "querySource") {
-      if (command.source === "earthquake") {
-        const snapshot = earthquakeOwner.snapshot();
-        post({ type: "sourceQuery", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "earthquake", sourceVersion: snapshot.version, result: runEarthquakeUiQuery(earthquakeOwner.read(), command.query) });
-      } else {
-        const snapshot = fireOwner.snapshot();
-        post({ type: "sourceQuery", protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId, source: "fire", sourceVersion: snapshot.version, result: runFireUiQuery(fireOwner.read(), command.query) });
-      }
-      return;
-    }
-    if (command.type === "setSourceSearch") {
-      const normalized = command.text?.trim() ?? "";
-      if (command.source === "earthquake") {
-        earthquakeSearchText = normalized.length > 0 ? normalized : null;
-        publishEarthquakeSearch();
-      } else {
-        fireSearchText = normalized.length > 0 ? normalized : null;
-        publishFireSearch();
-      }
-      complete(requestId);
-      return;
-    }
-    if (command.type === "get") {
-      post({
-        type: "value",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
-        requestId,
-        value: await store.get(command.key),
-      });
-      return;
-    }
-    if (command.type === "importJson") {
-      const value: unknown = JSON.parse(command.json);
-      await coordinator.set(command.key, value);
-      post({
-        type: "value",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
-        requestId,
-        value,
-      });
-      return;
-    }
-    if (command.type === "set") {
-      await coordinator.set(command.key, command.value);
-      complete(requestId);
-      return;
-    }
-    if (command.type === "setDeferred") {
-      coordinator.setDeferred(command.key, command.value);
-      complete(requestId);
-      return;
-    }
-    if (command.type === "delete") {
-      await coordinator.delete(
-        command.key,
-        () => store.delete(command.key),
-      );
-      complete(requestId);
-      return;
-    }
-    if (command.type === "clear") {
-      await coordinator.clear(store.clear);
-      complete(requestId);
-      return;
-    }
-    if (command.type === "flush") {
-      await coordinator.flush();
-      complete(requestId);
-      return;
-    }
+async function startOwners(): Promise<void> {
+  await Promise.all(
+    Object.values(sourceOwners).map(async (owner) => {
+      await owner.hydrate();
+      await owner.start();
+    }),
+  );
+}
 
+async function handleInit(command: CommandOf<"init">): Promise<void> {
+  await store.open();
+  post({
+    type: "ready",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    entries: mainThreadCacheEntries(await store.getAll()),
+  });
+  void startOwners();
+}
+
+function handleConnectRender(command: CommandOf<"connectRender">): void {
+  renderPort?.close();
+  renderPort = command.port;
+  renderSessionId = command.renderSessionId;
+  renderSequence = 0;
+  renderPort.start();
+  postRenderData({ type: "bind" });
+  scenePublisher.connect(renderPort, renderSessionId);
+  aircraftOwner.publishRebase();
+  rebaseEarthquakeRender(earthquakeOwner.values());
+  rebaseFireRender(fireOwner.values());
+  complete(command.requestId);
+}
+
+function handleConnectCorrelation(
+  command: CommandOf<"connectCorrelation">,
+): void {
+  correlationPort?.close();
+  correlationPort = command.port;
+  correlationSessionId = command.correlationSessionId;
+  correlationSequence = 0;
+  correlationPort.start();
+  correlationSequence++;
+  correlationPort.postMessage(
+    createCorrelationDataCommand(
+      { type: "bind" },
+      correlationSessionId,
+      correlationSequence,
+    ),
+  );
+  rebaseFireCorrelation(fireOwner.values());
+  complete(command.requestId);
+}
+
+async function handleRefreshSource(
+  command: CommandOf<"refreshSource">,
+): Promise<void> {
+  if (!isOwnedSource(command.source)) {
+    throw inactiveSourceError(command.source);
+  }
+  await sourceOwners[command.source].refresh();
+  complete(command.requestId);
+}
+
+function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
+  const requestId = command.requestId;
+  if (command.source === "earthquake") {
     post({
-      type: "size",
+      type: "sourceEntity",
       protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
       requestId,
-      bytes: await store.estimate(command.key),
+      source: "earthquake",
+      sourceVersion: earthquakeOwner.snapshot().version,
+      value: earthquakeOwner.get(command.id),
     });
+    return;
+  }
+  post({
+    type: "sourceEntity",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId,
+    source: "fire",
+    sourceVersion: fireOwner.snapshot().version,
+    value: fireOwner.get(command.id),
+  });
+}
+
+function handleQuerySource(command: CommandOf<"querySource">): void {
+  const requestId = command.requestId;
+  if (command.source === "earthquake") {
+    post({
+      type: "sourceQuery",
+      protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+      requestId,
+      source: "earthquake",
+      sourceVersion: earthquakeOwner.snapshot().version,
+      result: runEarthquakeUiQuery(earthquakeOwner.values(), command.query),
+    });
+    return;
+  }
+  post({
+    type: "sourceQuery",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId,
+    source: "fire",
+    sourceVersion: fireOwner.snapshot().version,
+    result: runFireUiQuery(fireOwner.values(), command.query),
+  });
+}
+
+function handleSetSourceSearch(
+  command: CommandOf<"setSourceSearch">,
+): void {
+  const normalized = command.text?.trim() ?? "";
+  const text = normalized.length > 0 ? normalized : null;
+  if (command.source === "earthquake") {
+    earthquakeSearchText = text;
+    publishEarthquakeSearch();
+  } else {
+    fireSearchText = text;
+    publishFireSearch();
+  }
+  complete(command.requestId);
+}
+
+async function handleGet(command: CommandOf<"get">): Promise<void> {
+  post({
+    type: "value",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    value: await store.get(command.key),
+  });
+}
+
+async function handleImportJson(
+  command: CommandOf<"importJson">,
+): Promise<void> {
+  const value: unknown = JSON.parse(command.json);
+  await coordinator.set(command.key, value);
+  post({
+    type: "value",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    value,
+  });
+}
+
+async function handleEstimate(
+  command: CommandOf<"estimate">,
+): Promise<void> {
+  post({
+    type: "size",
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    requestId: command.requestId,
+    bytes: await store.estimate(command.key),
+  });
+}
+
+async function dispatch(command: DataWorkerCommand): Promise<void> {
+  switch (command.type) {
+    case "init":
+      return handleInit(command);
+    case "connectRender":
+      return handleConnectRender(command);
+    case "connectCorrelation":
+      return handleConnectCorrelation(command);
+    case "refreshSource":
+      return handleRefreshSource(command);
+    case "getSourceEntity":
+      return handleGetSourceEntity(command);
+    case "querySource":
+      return handleQuerySource(command);
+    case "setSourceSearch":
+      return handleSetSourceSearch(command);
+    case "get":
+      return handleGet(command);
+    case "importJson":
+      return handleImportJson(command);
+    case "set":
+      await coordinator.set(command.key, command.value);
+      return complete(command.requestId);
+    case "setDeferred":
+      coordinator.setDeferred(command.key, command.value);
+      return complete(command.requestId);
+    case "delete":
+      await coordinator.delete(command.key, () => store.delete(command.key));
+      return complete(command.requestId);
+    case "clear":
+      await coordinator.clear(store.clear);
+      return complete(command.requestId);
+    case "flush":
+      await coordinator.flush();
+      return complete(command.requestId);
+    case "estimate":
+      return handleEstimate(command);
+  }
+}
+
+async function handleCommand(command: DataWorkerCommand): Promise<void> {
+  try {
+    await dispatch(command);
   } catch (error) {
-    fail(requestId, error);
+    fail(command.requestId, error);
   }
 }
 

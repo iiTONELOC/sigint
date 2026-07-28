@@ -3,13 +3,14 @@ import type { AircraftData } from "@/features/tracking/aircraft/types";
 import { fetchAircraftSnapshot } from "@/features/tracking/aircraft/data/parseAdsbV2";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
 import {
   createPointSourceRuntime,
   type PointSourceCacheSnapshot,
   type PointSourceFetchSnapshot,
   type PointSourceRuntime,
-  type PointSourceStatusSnapshot,
 } from "@/workers/data/sourceRuntime";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import { AIRCRAFT_SCENE } from "@/workers/render/scene/aircraftSchema";
@@ -21,12 +22,12 @@ export type AircraftSourceRuntime = PointSourceRuntime<AircraftPoint> &
   Readonly<{ publishRebase: () => void }>;
 
 export type AircraftSourceRuntimeOptions = Readonly<{
-  readCache: () => Promise<unknown | null>;
+  readCache: () => Promise<unknown>;
   persistCache: (
     snapshot: PointSourceCacheSnapshot<AircraftPoint>,
   ) => Promise<void>;
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<AircraftPoint>>;
-  publishStatus: (status: PointSourceStatusSnapshot) => void;
+  publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishScene: (patch: SceneSourcePatch) => void;
 }>;
 
@@ -249,7 +250,7 @@ export function createAircraftSourceRuntime(
     id: "aircraft",
     cacheKey: CACHE_KEYS.aircraft,
     pollIntervalMs: POLL_INTERVALS.aircraft,
-    maxQueryItems: 200,
+    maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
     hasChanged: aircraftChanged,
     readCache: options.readCache,
     parseCache: parseAircraftCache,

@@ -7,11 +7,6 @@ import { createGeoPoint, isRecord } from "@shared/geo";
 
 export type FirePoint = Extract<DataPoint, { type: "fires" }>;
 
-export type FireCacheSnapshot = Readonly<{
-  timestamp: number;
-  data: FirePoint[];
-}>;
-
 export type FireSourcePolicy = Readonly<{
   id: "fire";
   renderSource: "fires";
@@ -178,26 +173,6 @@ export function parseFireFeed(value: unknown): FirePoint[] {
     if (point) points.push(point);
   }
   return points;
-}
-
-export function parseFireCacheSnapshot(
-  value: unknown,
-): FireCacheSnapshot | null {
-  if (
-    !isRecord(value) ||
-    typeof value.timestamp !== "number" ||
-    !Number.isFinite(value.timestamp) ||
-    !Array.isArray(value.data)
-  ) {
-    return null;
-  }
-  const data: FirePoint[] = [];
-  for (const candidate of value.data) {
-    const point = parseFirePoint(candidate);
-    if (!point) return null;
-    data.push(point);
-  }
-  return { timestamp: value.timestamp, data };
 }
 
 export async function fetchFires(): Promise<FirePoint[]> {

@@ -1,41 +1,37 @@
 import {
   EARTHQUAKE_SOURCE_POLICY,
   fetchEarthquakes,
-  parseEarthquakeCacheSnapshot,
-  type EarthquakeCacheSnapshot,
+  parseEarthquakePoint,
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
 import {
-  createPointSourceOwner,
-  type PointSourceOwner,
-  type PointSourceOwnerDependencies,
-} from "@/workers/data/pointSourceOwner";
+  createPackedPointSource,
+  type PackedPointSource,
+  type PackedPointSourceOptions,
+} from "@/workers/data/packedPointSource";
 
-export type EarthquakeSourceOwnerDependencies = Omit<
-  PointSourceOwnerDependencies<EarthquakePoint>,
-  "parseCache" | "fetchPoints"
+export type EarthquakeSourceOwnerOptions = Omit<
+  PackedPointSourceOptions<EarthquakePoint>,
+  "parseEntity" | "fetchPoints"
 > &
-  Readonly<{
-    fetchPoints?: () => Promise<EarthquakePoint[]>;
-    persistCache: (snapshot: EarthquakeCacheSnapshot) => void;
-  }>;
+  Readonly<{ fetchPoints?: () => Promise<EarthquakePoint[]> }>;
 
-export type EarthquakeSourceOwner = PointSourceOwner<EarthquakePoint>;
+export type EarthquakeSourceOwner = PackedPointSource<EarthquakePoint>;
 
 export function createEarthquakeSourceOwner(
-  dependencies: EarthquakeSourceOwnerDependencies,
+  options: EarthquakeSourceOwnerOptions,
 ): EarthquakeSourceOwner {
-  return createPointSourceOwner(
+  return createPackedPointSource<EarthquakePoint>(
     {
-      source: "earthquake",
+      id: "earthquake",
+      cacheKey: EARTHQUAKE_SOURCE_POLICY.cacheKey,
       pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
       retryIntervalMs: EARTHQUAKE_SOURCE_POLICY.retryIntervalMs,
-      failureMessage: "USGS refresh failed",
     },
     {
-      ...dependencies,
-      parseCache: parseEarthquakeCacheSnapshot,
-      fetchPoints: dependencies.fetchPoints ?? fetchEarthquakes,
+      ...options,
+      parseEntity: parseEarthquakePoint,
+      fetchPoints: options.fetchPoints ?? fetchEarthquakes,
     },
   );
 }

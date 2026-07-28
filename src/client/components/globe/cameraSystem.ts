@@ -2,7 +2,7 @@ import { getInterpolatedPosition } from "@/lib/geo/trailService";
 import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CamState, CamTarget } from "./types";
-import { clampFlatPan } from "./projection";
+import { clampFlatPan } from "@/lib/geo/render/flatMap";
 
 /**
  * Update camera state for one frame. Handles lock-on follow,

@@ -5,25 +5,12 @@ import {
   type DatasetQuery,
   type DatasetQueryResult,
 } from "@/workers/data/datasetStore";
+import type {
+  DataWorkerSourceSnapshot,
+  DataWorkerSourceStatus,
+} from "@/workers/data/protocol";
 import type { DataSourceId } from "@/workers/data/sourceIds";
 import { isRecord } from "@shared/geo";
-
-export type PointSourceStatus =
-  | "loading"
-  | "cached"
-  | "live"
-  | "empty"
-  | "error";
-
-export type PointSourceStatusSnapshot = Readonly<{
-  source: DataSourceId;
-  version: number;
-  status: PointSourceStatus;
-  loading: boolean;
-  count: number;
-  lastUpdatedAt: number | null;
-  error: string | null;
-}>;
 
 export type PointSourceCacheSnapshot<TEntity extends DatasetEntity> = Readonly<{
   timestamp: number;
@@ -37,29 +24,39 @@ export type PointSourceFetchSnapshot<TEntity extends DatasetEntity> = Readonly<{
   observedAt: number;
 }>;
 
+export type PointSourceSchedule = (
+  callback: () => void,
+  delayMs: number,
+) => () => void;
+
 export type PointSourceRuntimeOptions<TEntity extends DatasetEntity> = Readonly<{
   id: DataSourceId;
   cacheKey: string;
   pollIntervalMs: number;
+  retryIntervalMs?: number;
   maxQueryItems: number;
   hasChanged?: (previous: TEntity, next: TEntity) => boolean;
-  readCache: () => Promise<unknown | null>;
+  readCache: () => Promise<unknown>;
   parseCache: (value: unknown) => readonly TEntity[] | null;
   persistCache: (
     snapshot: PointSourceCacheSnapshot<TEntity>,
-  ) => Promise<void>;
+  ) => Promise<void> | void;
   fetchSnapshot: () => Promise<PointSourceFetchSnapshot<TEntity>>;
-  publishStatus: (status: PointSourceStatusSnapshot) => void;
+  publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishPatch: (patch: DatasetPatch<TEntity>) => void;
+  failureStatus?: (error: unknown) => DataWorkerSourceStatus;
+  schedule?: PointSourceSchedule;
 }>;
 
 export type PointSourceRuntime<TEntity extends DatasetEntity> = Readonly<{
   hydrate: () => Promise<void>;
   refresh: () => Promise<void>;
-  start: () => void;
+  start: () => Promise<void>;
   stop: () => void;
   rebase: () => DatasetPatch<TEntity> | null;
   get: (id: string) => TEntity | null;
+  values: () => readonly TEntity[];
+  snapshot: () => DataWorkerSourceSnapshot;
   query: (
     query: DatasetQuery<TEntity>,
   ) => Promise<DatasetQueryResult<TEntity>>;
@@ -71,29 +68,32 @@ type CacheEnvelope = Readonly<{
   entities: unknown;
 }>;
 
+const DEFAULT_CACHE_VERSION = 1;
+
 function parseCacheEnvelope(value: unknown): CacheEnvelope | null {
   if (!isRecord(value)) return null;
   if (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp)) {
     return null;
   }
-  const version = value.version ?? 1;
+  const version = value.version ?? DEFAULT_CACHE_VERSION;
   if (
     typeof version !== "number" ||
     !Number.isSafeInteger(version) ||
-    version < 1
+    version < DEFAULT_CACHE_VERSION
   ) {
     return null;
   }
   const entities = value.entities ?? value.data;
-  return {
-    timestamp: value.timestamp,
-    version,
-    entities,
-  };
+  return { timestamp: value.timestamp, version, entities };
 }
 
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "The source update failed";
+}
+
+function defaultSchedule(callback: () => void, delayMs: number): () => void {
+  const handle = setTimeout(callback, delayMs);
+  return () => clearTimeout(handle);
 }
 
 export function createPointSourceRuntime<TEntity extends DatasetEntity>(
@@ -103,19 +103,35 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
     maxQueryItems: options.maxQueryItems,
     ...(options.hasChanged ? { hasChanged: options.hasChanged } : {}),
   });
+  const schedule = options.schedule ?? defaultSchedule;
+  const retryIntervalMs = options.retryIntervalMs ?? options.pollIntervalMs;
+
   let lastUpdatedAt: number | null = null;
-  let currentStatus: PointSourceStatus = "loading";
-  let refreshTask: Promise<void> | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let published: DataWorkerSourceSnapshot = {
+    source: options.id,
+    version: 0,
+    status: "loading",
+    loading: true,
+    count: 0,
+    lastUpdatedAt: null,
+    error: null,
+  };
+  let cachedValues: readonly TEntity[] | null = null;
+  let refreshTask: Promise<boolean> | null = null;
+  let cancelScheduled: (() => void) | null = null;
   let active = false;
 
+  const values = (): readonly TEntity[] => {
+    cachedValues ??= Array.from(store.values());
+    return cachedValues;
+  };
+
   const publishStatus = (
-    status: PointSourceStatus,
+    status: DataWorkerSourceStatus,
     loading: boolean,
     error: string | null,
   ): void => {
-    currentStatus = status;
-    options.publishStatus({
+    published = {
       source: options.id,
       version: store.version(),
       status,
@@ -123,7 +139,8 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       count: store.size(),
       lastUpdatedAt,
       error,
-    });
+    };
+    options.publishStatus(published);
   };
 
   const applySnapshot = async (
@@ -135,42 +152,60 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       completeness: snapshot.completeness,
       entities: snapshot.entities,
     });
+    cachedValues = null;
     lastUpdatedAt = snapshot.observedAt;
     options.publishPatch(patch);
   };
 
-  const performRefresh = async (): Promise<void> => {
-    publishStatus(currentStatus, true, null);
+  const retainAfterFailure = (error: unknown): void => {
+    const message = errorMessage(error);
+    if (store.size() > 0) {
+      publishStatus("cached", false, message);
+      return;
+    }
+    publishStatus(
+      options.failureStatus?.(error) ?? "error",
+      false,
+      message,
+    );
+  };
+
+  const performRefresh = async (): Promise<boolean> => {
+    publishStatus(published.status, true, null);
     try {
       const snapshot = await options.fetchSnapshot();
       await applySnapshot(snapshot, store.version() + 1);
       await options.persistCache({
         timestamp: snapshot.observedAt,
         version: store.version(),
-        entities: Array.from(store.values()),
+        entities: values(),
       });
       publishStatus(store.size() === 0 ? "empty" : "live", false, null);
+      return true;
     } catch (error) {
-      publishStatus("error", false, errorMessage(error));
+      retainAfterFailure(error);
+      return false;
     }
   };
 
-  const refresh = async (): Promise<void> => {
+  const runRefresh = async (): Promise<boolean> => {
     if (refreshTask) return refreshTask;
     const task = performRefresh();
     refreshTask = task;
     try {
-      await task;
+      return await task;
     } finally {
       if (refreshTask === task) refreshTask = null;
     }
   };
 
-  const scheduleRefresh = (): void => {
+  const scheduleNext = (succeeded: boolean): void => {
     if (!active) return;
-    timer = setTimeout(() => {
-      void refresh().then(scheduleRefresh);
-    }, options.pollIntervalMs);
+    cancelScheduled?.();
+    cancelScheduled = schedule(() => {
+      cancelScheduled = null;
+      void runRefresh().then(scheduleNext);
+    }, succeeded ? options.pollIntervalMs : retryIntervalMs);
   };
 
   return {
@@ -190,18 +225,20 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       publishStatus("cached", false, null);
     },
 
-    refresh,
+    async refresh(): Promise<void> {
+      await runRefresh();
+    },
 
-    start(): void {
+    async start(): Promise<void> {
       if (active) return;
       active = true;
-      void refresh().then(scheduleRefresh);
+      scheduleNext(await runRefresh());
     },
 
     stop(): void {
       active = false;
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      cancelScheduled?.();
+      cancelScheduled = null;
     },
 
     rebase(): DatasetPatch<TEntity> | null {
@@ -210,13 +247,19 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       return {
         kind: "rebase",
         version,
-        upserts: Array.from(store.values()),
+        upserts: values(),
         deletedIds: [],
       };
     },
 
     get(id: string): TEntity | null {
       return store.get(id);
+    },
+
+    values,
+
+    snapshot(): DataWorkerSourceSnapshot {
+      return published;
     },
 
     query(

@@ -2,9 +2,9 @@ import { describe, test, expect } from "bun:test";
 import {
   getFlatMetrics,
   clampFlatPan,
-  projGlobe,
   projFlat,
-} from "@/components/globe/projection";
+} from "@/lib/geo/render/flatMap";
+import { projectGeographicPoint } from "@/lib/geo/unitSphere";
 
 describe("getFlatMetrics", () => {
   test("correct dimensions at zoom 1", () => {
@@ -47,17 +47,25 @@ describe("clampFlatPan", () => {
   });
 });
 
-describe("projGlobe", () => {
+describe("clampFlatPan and getFlatMetrics agree", () => {
+  test("pan is clamped to the overflow the metrics produce", () => {
+    const zoomFlat = 3;
+    const metrics = getFlatMetrics(800, 600, zoomFlat);
+    const cam = { zoomFlat, panX: 9999, panY: 9999 };
+    clampFlatPan(cam, 800, 600);
+    expect(cam.panX).toBeCloseTo((metrics.mW - 800) / 2, 0);
+    expect(cam.panY).toBeCloseTo((metrics.mH - 600) / 2, 0);
+  });
+});
+
+describe("projectGeographicPoint", () => {
   test("point facing camera projects near center x", () => {
-    // x = cx + (-sin(phi)*cos(theta))*r, theta=(lon+180)*PI/180+rotY
-    // lon=0,lat=0: phi=PI/2, x=cx-cos(PI+rotY)*r=cx+cos(rotY)*r
-    // For x≈cx need cos(rotY)≈0 → rotY=PI/2
-    const p = projGlobe(0, 0, 400, 300, 250, Math.PI / 2, 0);
+    const p = projectGeographicPoint(0, 0, 400, 300, 250, Math.PI / 2, 0);
     expect(p.x).toBeCloseTo(400, 0);
   });
   test("front and back have different z", () => {
-    const front = projGlobe(0, 0, 400, 300, 250, Math.PI / 2, 0);
-    const back = projGlobe(0, 180, 400, 300, 250, Math.PI / 2, 0);
+    const front = projectGeographicPoint(0, 0, 400, 300, 250, Math.PI / 2, 0);
+    const back = projectGeographicPoint(0, 180, 400, 300, 250, Math.PI / 2, 0);
     expect(front.z).not.toBeCloseTo(back.z, 0);
   });
 });

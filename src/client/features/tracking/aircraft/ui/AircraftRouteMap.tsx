@@ -9,9 +9,9 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getLand, enrichLand } from "@/lib/geo/landService";
 import { getAirport, enrichAirports } from "@/lib/geo/airportService";
-import { projGlobe } from "@/components/globe/projection";
-import { drawLand } from "@/components/globe/landRenderer";
-import { drawGrid } from "@/components/globe/gridRenderer";
+import { projectGeographicPoint as projGlobe } from "@/lib/geo/unitSphere";
+import { drawLand } from "@/lib/geo/render/land";
+import { drawGrid } from "@/lib/geo/render/grid";
 
 const H = 200;
 const PAD = 8;
@@ -143,7 +143,11 @@ export function AircraftRouteMap({
       ctx.clip();
 
       drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
-      drawLand(ctx, proj, colors, false, cx, cy, r);
+      drawLand(ctx, proj, {
+        colors,
+        isFlat: false,
+        horizon: { gcx: cx, gcy: cy, gr: r },
+      });
 
       // Route: real waypoints if present, else a great circle. Split flown
       // (solid, aircraft color) from remaining (dashed, dim) at the nearest

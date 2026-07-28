@@ -8,13 +8,14 @@ import {
 } from "@/features/tracking/ships/data/codec";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
 import {
   createPointSourceRuntime,
   type PointSourceCacheSnapshot,
   type PointSourceFetchSnapshot,
   type PointSourceRuntime,
-  type PointSourceStatusSnapshot,
 } from "@/workers/data/sourceRuntime";
 import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
@@ -23,12 +24,12 @@ export type ShipSourceRuntime = PointSourceRuntime<ShipPoint> &
   Readonly<{ publishRebase: () => void }>;
 
 export type ShipSourceRuntimeOptions = Readonly<{
-  readCache: () => Promise<unknown | null>;
+  readCache: () => Promise<unknown>;
   persistCache: (
     snapshot: PointSourceCacheSnapshot<ShipPoint>,
   ) => Promise<void>;
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<ShipPoint>>;
-  publishStatus: (status: PointSourceStatusSnapshot) => void;
+  publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishScene: (patch: SceneSourcePatch) => void;
 }>;
 
@@ -112,7 +113,7 @@ export function createShipSourceRuntime(
     id: "ships",
     cacheKey: CACHE_KEYS.ships,
     pollIntervalMs: POLL_INTERVALS.ships,
-    maxQueryItems: 200,
+    maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
     hasChanged: shipChanged,
     readCache: options.readCache,
     parseCache: parseShipCache,

@@ -41,7 +41,6 @@ import {
 } from "./render/protocol";
 
 import {
-  EARTHQUAKE_POSITION_COMPONENTS,
   EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
   PACKED_POSITION_COMPONENTS,
   PACKED_UNIT_VECTOR_COMPONENTS,
@@ -91,33 +90,11 @@ import {
 } from "@/lib/geo/unitSphere";
 import type { GeoRing } from "@shared/geo";
 import { parseLandGeoJson } from "@shared/land";
-
-// ── Projection ──────────────────────────────────────────────────────
-
-
-function projFlat(
-  lat: number,
-  lon: number,
-  cx: number,
-  cy: number,
-  w: number,
-  h: number,
-): Projected {
-  return { x: cx + (lon / 180) * (w / 2), y: cy - (lat / 90) * (h / 2), z: 1 };
-}
-
-function getFlatMetrics(W: number, H: number, zoom: number, panX: number, panY: number) {
-  const mW = W * 0.92 * zoom;
-  const mH = H * 0.84 * zoom;
-  return {
-    mW,
-    mH,
-    mx: (W - mW) / 2 + panX,
-    my: (H - mH) / 2 + panY,
-    cx: W / 2 + panX,
-    cy: H / 2 + panY,
-  };
-}
+import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
+import { drawGrid } from "@/lib/geo/render/grid";
+import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
+import { drawClippedPoly, simpleDraw } from "@/lib/geo/render/polygon";
+import type { HorizonCircle, LandColors } from "@/lib/geo/render/types";
 
 // ── Interpolation ───────────────────────────────────────────────────
 
@@ -351,149 +328,29 @@ function fetchLandData(): void {
     .catch(() => undefined);
 }
 
-// ── Land renderer (inlined from landRenderer.ts) ────────────────────
-
-type Pt = { x: number; y: number };
-
-function edgeLerp(a: Projected, b: Projected): Pt {
-  const t = a.z / (a.z - b.z);
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-}
-
-function arcPts(cx: number, cy: number, r: number, a1: number, a2: number, n = 12): Pt[] {
-  let diff = a2 - a1;
-  if (diff > Math.PI) diff -= 2 * Math.PI;
-  if (diff < -Math.PI) diff += 2 * Math.PI;
-  return Array.from({ length: n }, (_, i) => {
-    const a = a1 + (diff * (i + 1)) / n;
-    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
-  });
-}
-
-function findReentryPoint(pts: Projected[], startIndex: number): Pt | null {
-  const n = pts.length;
-  for (let j = 1; j < n; j++) {
-    const prev = pts[(startIndex + j) % n];
-    const next = pts[(startIndex + j + 1) % n];
-    if (prev && next && prev.z <= 0 && next.z > 0) return edgeLerp(prev, next);
-  }
-  return null;
-}
-
-function fillStrokePath(
-  ctx: Ctx,
-  path: ReadonlyArray<Pt>,
-  fillColor: string,
-  strokeColor: string,
-  landAlpha: number,
-): void {
-  if (path.length < 3) return;
-  ctx.beginPath();
-  path.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-  ctx.closePath();
-  ctx.fillStyle = fillColor;
-  ctx.globalAlpha = landAlpha;
-  ctx.fill();
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 0.7;
-  ctx.globalAlpha = landAlpha + 0.1;
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-}
-
-function drawClippedPoly(
-  ctx: Ctx,
-  pts: Projected[],
-  gcx: number,
-  gcy: number,
-  gr: number,
-  fillColor: string,
-  strokeColor: string,
-  landAlpha: number,
-): void {
-  const n = pts.length;
-  const path: Pt[] = [];
-  for (let i = 0; i < n; i++) {
-    const curr = pts[i];
-    const next = pts[(i + 1) % n];
-    if (!curr || !next) continue;
-    const cVis = curr.z > 0;
-    const nVis = next.z > 0;
-    if (cVis) path.push({ x: curr.x, y: curr.y });
-    if (cVis === nVis) continue;
-    if (cVis) {
-      const exit = edgeLerp(curr, next);
-      path.push(exit);
-      const reentry = findReentryPoint(pts, i);
-      if (reentry) {
-        const ea = Math.atan2(exit.y - gcy, exit.x - gcx);
-        const ra = Math.atan2(reentry.y - gcy, reentry.x - gcx);
-        path.push(...arcPts(gcx, gcy, gr, ea, ra), reentry);
-      }
-    } else {
-      const re = edgeLerp(curr, next);
-      const last = path.at(-1) ?? null;
-      if (!last || Math.abs(last.x - re.x) > 1 || Math.abs(last.y - re.y) > 1) {
-        path.push(re);
-      }
-    }
-  }
-  fillStrokePath(ctx, path, fillColor, strokeColor, landAlpha);
-}
-
-function simpleDraw(
-  ctx: Ctx,
-  pts: ReadonlyArray<Pt>,
-  fillColor: string,
-  strokeColor: string,
-  landAlpha: number,
-): void {
-  fillStrokePath(ctx, pts, fillColor, strokeColor, landAlpha);
-}
-
-type LandColors = { coastFill: string; coast: string };
-
-function drawLandFlatRing(
-  ctx: Ctx,
-  projFn: ProjFn,
-  ring: LandRing,
-  colors: LandColors,
-  landAlpha: number,
-): void {
-  const segments: Projected[][] = [];
-  let segment: Projected[] = [];
-  let previousLongitude: number | null = null;
-  for (const [longitude, latitude] of ring.coordinates) {
-    if (
-      previousLongitude !== null &&
-      Math.abs(longitude - previousLongitude) > 120
-    ) {
-      if (segment.length >= 3) segments.push(segment);
-      segment = [];
-    }
-    segment.push(projFn(latitude, longitude));
-    previousLongitude = longitude;
-  }
-  if (segment.length >= 3) segments.push(segment);
-  for (const points of segments) {
-    simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
-  }
-}
+type WorkerLandOptions = Readonly<{
+  matrix: GlobeRotationMatrix;
+  colors: LandColors;
+  isFlat: boolean;
+  horizon: HorizonCircle;
+  alpha: number;
+}>;
 
 function drawLand(
   ctx: Ctx,
   projFn: ProjFn,
-  matrix: GlobeRotationMatrix,
-  colors: LandColors,
-  isFlat: boolean,
-  centerX: number,
-  centerY: number,
-  radius: number,
-  landAlpha: number,
+  options: WorkerLandOptions,
 ): void {
+  const { horizon } = options;
   for (const ring of landRings) {
-    if (isFlat) {
-      drawLandFlatRing(ctx, projFn, ring, colors, landAlpha);
+    if (options.isFlat) {
+      drawFlatLandRing(
+        ctx,
+        ring.coordinates,
+        projFn,
+        options.colors,
+        options.alpha,
+      );
       continue;
     }
     const points = ring.projected;
@@ -502,99 +359,17 @@ function drawLand(
       if (!point) continue;
       projectUnitVectorInto(
         unit,
-        matrix,
-        centerX,
-        centerY,
-        radius,
+        options.matrix,
+        horizon.gcx,
+        horizon.gcy,
+        horizon.gr,
         point,
       );
     }
-    if (points.length < 3 || !points.some((point) => point.z > 0)) continue;
-    if (points.every((point) => point.z > 0)) {
-      simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
-    } else {
-      drawClippedPoly(
-        ctx,
-        points,
-        centerX,
-        centerY,
-        radius,
-        colors.coastFill,
-        colors.coast,
-        landAlpha,
-      );
-    }
+    drawProjectedLandRing(ctx, points, options.colors, options.alpha, horizon);
   }
 }
 
-// ── Grid renderer (inlined from gridRenderer.ts) ────────────────────
-
-type GridCfg = {
-  accentColor?: string;
-  gridAlpha?: number;
-  isFlat?: boolean;
-  cx?: number;
-  cy?: number;
-  mW?: number;
-  mH?: number;
-  mx?: number;
-  my?: number;
-};
-
-/** Stroke a globe meridian/parallel, breaking the path where it dips behind. */
-function strokeGlobeLine(ctx: Ctx, projFn: ProjFn, sample: (v: number) => Projected): void {
-  ctx.beginPath();
-  let on = false;
-  for (let v = -180; v <= 180; v += 3) {
-    const p = sample(v);
-    if (p.z > 0) {
-      if (on) ctx.lineTo(p.x, p.y);
-      else { ctx.moveTo(p.x, p.y); on = true; }
-    } else on = false;
-  }
-  ctx.stroke();
-}
-
-function drawGrid(ctx: Ctx, projFn: ProjFn, cfg: GridCfg): void {
-  ctx.strokeStyle = cfg.accentColor || "#000";
-  ctx.globalAlpha = cfg.gridAlpha || 0.11;
-  ctx.lineWidth = 0.4;
-  if (cfg.isFlat) {
-    const { cx = 0, cy = 0, mW = 0, mH = 0, mx = 0, my = 0 } = cfg;
-    for (let lat = -80; lat <= 80; lat += 20) {
-      const y = cy - (lat / 90) * (mH / 2);
-      ctx.beginPath();
-      ctx.moveTo(mx, y);
-      ctx.lineTo(mx + mW, y);
-      ctx.stroke();
-    }
-    for (let lon = -180; lon < 180; lon += 30) {
-      const x = cx + (lon / 180) * (mW / 2);
-      ctx.beginPath();
-      ctx.moveTo(x, my);
-      ctx.lineTo(x, my + mH);
-      ctx.stroke();
-    }
-  } else {
-    for (let lat = -80; lat <= 80; lat += 20) {
-      strokeGlobeLine(ctx, projFn, (lon) => projFn(lat, lon));
-    }
-    for (let lon = -180; lon < 180; lon += 30) {
-      // Sample range is lat −90..90; reuse the −180..180 stepper by remapping.
-      ctx.beginPath();
-      let on = false;
-      for (let lat = -90; lat <= 90; lat += 3) {
-        const p = projFn(lat, lon);
-        if (p.z > 0) {
-          if (on) ctx.lineTo(p.x, p.y);
-          else { ctx.moveTo(p.x, p.y); on = true; }
-        } else on = false;
-      }
-      ctx.stroke();
-    }
-  }
-  ctx.globalAlpha = 1;
-}
 
 // ── Trail drawing ───────────────────────────────────────────────────
 
@@ -2416,7 +2191,13 @@ function drawStaticLayer(s: StaticLayerCtx): void {
     ctx.beginPath();
     ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
     ctx.clip();
-    drawLand(ctx, projFn, s.globeMatrix, colors, false, cx, cy, r - 0.5, landAlpha);
+    drawLand(ctx, projFn, {
+      matrix: s.globeMatrix,
+      colors,
+      isFlat: false,
+      horizon: { gcx: cx, gcy: cy, gr: r - 0.5 },
+      alpha: landAlpha,
+    });
     drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.grid || colors.accent, gridAlpha });
     return;
   }
@@ -2428,7 +2209,13 @@ function drawStaticLayer(s: StaticLayerCtx): void {
   ctx.beginPath();
   ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
   ctx.clip();
-  drawLand(ctx, projFn, s.globeMatrix, colors, true, 0, 0, 0, landAlpha);
+  drawLand(ctx, projFn, {
+    matrix: s.globeMatrix,
+    colors,
+    isFlat: true,
+    horizon: { gcx: 0, gcy: 0, gr: 0 },
+    alpha: landAlpha,
+  });
   drawGrid(ctx, projFn, {
     isFlat: true, cx, cy, mW: fm.mW, mH: fm.mH, mx: fm.mx, my: fm.my,
     accentColor: colors.grid || colors.accent, gridAlpha,

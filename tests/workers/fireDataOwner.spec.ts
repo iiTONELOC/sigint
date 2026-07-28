@@ -7,6 +7,7 @@ import {
 import { packFireRenderData } from "@/workers/data/fireRenderData";
 import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
+import type { PointSourceCacheSnapshot } from "@/workers/data/sourceRuntime";
 
 function point(
   id: string,
@@ -88,7 +89,7 @@ describe("fire worker dataset", () => {
     const live = point("FI-live", -81, 31, 40);
     const snapshots: DataWorkerSourceSnapshot[] = [];
     const rebases: Array<readonly FirePoint[]> = [];
-    const persisted: Array<{ timestamp: number; data: FirePoint[] }> = [];
+    const persisted: Array<PointSourceCacheSnapshot<FirePoint>> = [];
     let fetchCount = 0;
     let currentTime = 2_000;
     const owner = createFireSourceOwner({
@@ -98,27 +99,28 @@ describe("fire worker dataset", () => {
         fetchCount++;
         return fetchCount === 1 ? [live] : [];
       },
-      publish: (snapshot) => snapshots.push(snapshot),
-      rebaseRender: (points) => rebases.push(points),
+      publishStatus: (snapshot) => snapshots.push(snapshot),
+      publishRebase: (points) => rebases.push(points),
       now: () => currentTime,
       schedule: () => () => undefined,
     });
 
+    await owner.hydrate();
     await owner.start();
 
     expect(rebases[0]).toEqual([cached]);
-    expect(owner.read()).toEqual([live]);
-    expect(owner.find("FI-live")).toEqual(live);
+    expect(owner.values()).toEqual([live]);
+    expect(owner.get("FI-live")).toEqual(live);
     expect(snapshots.at(-1)?.status).toBe("live");
 
     currentTime += FIRE_SOURCE_POLICY.pollIntervalMs;
     await owner.refresh();
 
-    expect(owner.read()).toEqual([]);
-    expect(owner.find("FI-live")).toBeNull();
+    expect(owner.values()).toEqual([]);
+    expect(owner.get("FI-live")).toBeNull();
     expect(rebases.at(-1)).toEqual([]);
     expect(snapshots.at(-1)?.status).toBe("empty");
-    expect(persisted.at(-1)?.data).toEqual([]);
+    expect(persisted.at(-1)?.entities).toEqual([]);
   });
 
   test("retains cached data and exposes upstream unavailability", async () => {
@@ -130,15 +132,16 @@ describe("fire worker dataset", () => {
       fetchPoints: async () => {
         throw new Error("Fires API error: 503");
       },
-      publish: (snapshot) => snapshots.push(snapshot),
-      rebaseRender: () => undefined,
+      publishStatus: (snapshot) => snapshots.push(snapshot),
+      publishRebase: () => undefined,
       now: () => 2_000,
       schedule: () => () => undefined,
     });
 
+    await owner.hydrate();
     await owner.start();
 
-    expect(owner.read()).toEqual([cached]);
+    expect(owner.values()).toEqual([cached]);
     expect(snapshots.at(-1)?.status).toBe("cached");
   });
 
@@ -150,14 +153,15 @@ describe("fire worker dataset", () => {
       fetchPoints: async () => {
         throw new Error("Fires API error: 503");
       },
-      publish: (snapshot) => snapshots.push(snapshot),
-      rebaseRender: () => undefined,
+      publishStatus: (snapshot) => snapshots.push(snapshot),
+      publishRebase: () => undefined,
       schedule: () => () => undefined,
     });
 
+    await owner.hydrate();
     await owner.start();
 
-    expect(owner.read()).toEqual([]);
+    expect(owner.values()).toEqual([]);
     expect(snapshots.at(-1)?.status).toBe("unavailable");
   });
 });

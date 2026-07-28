@@ -7,6 +7,7 @@ import {
 import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
 import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
+import type { PointSourceCacheSnapshot } from "@/workers/data/sourceRuntime";
 
 const OLD_CACHE_AGE_MS = 8 * 24 * 60 * 60 * 1000;
 
@@ -85,10 +86,7 @@ describe("earthquake worker dataset", () => {
     const live = point("Qlive", -81, 31, 4);
     const snapshots: DataWorkerSourceSnapshot[] = [];
     const rebases: Array<readonly EarthquakePoint[]> = [];
-    const persisted: Array<{
-      timestamp: number;
-      data: EarthquakePoint[];
-    }> = [];
+    const persisted: Array<PointSourceCacheSnapshot<EarthquakePoint>> = [];
     let fetchCount = 0;
     let currentTime = 2_000;
     const owner = createEarthquakeSourceOwner({
@@ -103,27 +101,28 @@ describe("earthquake worker dataset", () => {
         fetchCount++;
         return fetchCount === 1 ? [live] : [];
       },
-      publish: (snapshot) => snapshots.push(snapshot),
-      rebaseRender: (points) => rebases.push(points),
+      publishStatus: (snapshot) => snapshots.push(snapshot),
+      publishRebase: (points) => rebases.push(points),
       now: () => currentTime,
       schedule: () => () => undefined,
     });
 
+    await owner.hydrate();
     await owner.start();
 
     expect(rebases[0]).toEqual([cached]);
-    expect(owner.read()).toEqual([live]);
-    expect(owner.find("Qlive")).toEqual(live);
+    expect(owner.values()).toEqual([live]);
+    expect(owner.get("Qlive")).toEqual(live);
     expect(snapshots.at(-1)?.status).toBe("live");
 
     currentTime += EARTHQUAKE_SOURCE_POLICY.pollIntervalMs;
     await owner.refresh();
 
-    expect(owner.read()).toEqual([]);
-    expect(owner.find("Qlive")).toBeNull();
+    expect(owner.values()).toEqual([]);
+    expect(owner.get("Qlive")).toBeNull();
     expect(rebases.at(-1)).toEqual([]);
     expect(snapshots.at(-1)?.status).toBe("empty");
-    expect(persisted.at(-1)?.data).toEqual([]);
+    expect(persisted.at(-1)?.entities).toEqual([]);
   });
 });
 
@@ -137,15 +136,16 @@ test("retains an old cached snapshot when refresh is unavailable", async () => {
     fetchPoints: async () => {
       throw new Error("offline");
     },
-    publish: (snapshot) => snapshots.push(snapshot),
-    rebaseRender: (points) => rebases.push(points),
+    publishStatus: (snapshot) => snapshots.push(snapshot),
+    publishRebase: (points) => rebases.push(points),
     now: () => OLD_CACHE_AGE_MS,
     schedule: () => () => undefined,
   });
 
+  await owner.hydrate();
   await owner.start();
 
-  expect(owner.read()).toEqual([cached]);
+  expect(owner.values()).toEqual([cached]);
   expect(rebases.at(-1)).toEqual([cached]);
   expect(snapshots.at(-1)?.status).toBe("cached");
   expect(snapshots.at(-1)?.error).toBe("offline");

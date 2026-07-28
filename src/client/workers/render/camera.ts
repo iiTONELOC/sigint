@@ -1,5 +1,5 @@
 import { isMobileWidth } from "@/config/breakpoints";
-import { clampFlatPan, getFlatMetrics } from "@/components/globe/projection";
+import { clampFlatPan, getFlatMetrics } from "@/lib/geo/render/flatMap";
 import type { RenderCamera } from "./protocol";
 import { CAMERA_POLICY } from "./policy";
 
