@@ -52,7 +52,6 @@ import {
 } from "./render/dataChannel";
 
 import { orderPointsByLayer } from "./render/layerOrder";
-import { isWorkerOwnedPointType } from "./render/workerOwnedTypes";
 import type { DataType } from "@/features/base/dataPoints";
 import { createRenderSceneStore } from "./render/sceneStore";
 import {
@@ -78,7 +77,10 @@ import {
   type SceneDataProtocolState,
 } from "./render/sceneProtocol";
 import { zoomScale } from "./render/workerMath";
-import { weatherSeverityRank } from "@/features/environmental/weather/severity";
+import {
+  severityMeta,
+  weatherSeverityRank,
+} from "@/features/environmental/weather/severity";
 import { pointInPolygon } from "@/lib/geo/pointInPolygon";
 import {
   screenToLatLonFlat,
@@ -577,7 +579,6 @@ let ctx: Ctx | null = null;
 let _data: RenderPoint[] | null = null;
 let _colors: RenderWorkerColors | null = null;
 let _dataBySource: Record<string, RenderPoint[] | null> | null = null;
-let _pendingBuckets: Record<string, RenderPoint[] | null> | null = null;
 let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
@@ -781,37 +782,32 @@ function scheduleRender(): void {
   requestAnimationFrame(renderFrame);
 }
 
-function handleTrails(msg: Extract<RenderWorkerCommand, { type: "trails" }>): void {
-  const { ids, values, timestamps } = msg;
-  const nextTrails = new Map<string, TrailEntry>();
-  for (const [index, id] of ids.entries()) {
-    const offset = index * 4;
-    const latitude = values[offset];
-    const longitude = values[offset + 1];
-    const heading = values[offset + 2];
-    const speedMetersPerSecond = values[offset + 3];
-    const timestamp = timestamps[index];
-    if (
-      latitude === undefined ||
-      longitude === undefined ||
-      heading === undefined ||
-      speedMetersPerSecond === undefined ||
-      timestamp === undefined
-    ) {
-      continue;
-    }
-    nextTrails.set(id, {
-      timestamp,
-      speedMetersPerSecond,
-      motion: createGeographicMotion(
-        latitude,
-        longitude,
-        heading,
-        speedMetersPerSecond,
-      ),
-    });
+/**
+ * Only the selected track is ever dead-reckoned, so its motion rides the
+ * presentation command. This used to be a per-poll broadcast of every
+ * aircraft and ship, packed on the main thread and almost entirely unread.
+ */
+function setSelectedMotion(item: SelectedRenderItem | null): void {
+  const motion = item?.motion;
+  if (!item || !motion) {
+    if (trailMap.size > 0) trailMap = new Map();
+    return;
   }
-  trailMap = nextTrails;
+  trailMap = new Map([
+    [
+      item.id,
+      {
+        timestamp: motion.ts,
+        speedMetersPerSecond: motion.speedMps,
+        motion: createGeographicMotion(
+          motion.lat,
+          motion.lon,
+          motion.headingDeg,
+          motion.speedMps,
+        ),
+      },
+    ],
+  ]);
 }
 function pointHasTimeAnimation(item: RenderPoint): boolean {
   if (item.type === "cyclones") return true;
@@ -877,6 +873,32 @@ type RenderDataCommand = NonNullable<
   ReturnType<typeof parseRenderDataCommand>
 >;
 
+const WEATHER_WARNING_RANK = 3;
+
+/**
+ * Alert polygons are derived from the weather points themselves rather than
+ * shipped separately: the renderer already has every alert, geometry included.
+ */
+function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
+  const features: WarningFeature[] = [];
+  for (const item of points) {
+    if (item.type !== "weather") continue;
+    const geometry = item.data.geometry;
+    if (!geometry) continue;
+    features.push({
+      id: item.id,
+      kind:
+        weatherSeverityRank(item.data.severity) >= WEATHER_WARNING_RANK
+          ? "warning"
+          : "watch",
+      geometry,
+    });
+  }
+  _wxAlerts = features;
+  _wxWarnColor = severityMeta("Extreme").ink;
+  _wxWatchColor = severityMeta("Moderate").ink;
+}
+
 /** Packed source updates from the DataWorker, past the bind handshake. */
 function applyRenderDataCommand(command: RenderDataCommand): void {
   switch (command.type) {
@@ -896,33 +918,17 @@ function applyRenderDataCommand(command: RenderDataCommand): void {
     case "fireRebase":
       handleFireRebase(command);
       return;
+    case "pointsRebase":
+      _dataBySource ??= {};
+      _dataBySource[command.source] = [...command.points];
+      if (command.source === "weather") rebuildWeatherAreas(command.points);
+      rebuildGenericData();
+      return;
     default:
       return;
   }
 }
 
-function handleData(
-  payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"],
-): boolean {
-  _colors = payload.colors;
-  _dataBySource ??= {};
-  _pendingBuckets ??= {};
-  const source = payload.source;
-  if (payload.reset) _pendingBuckets[source] = [];
-  const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
-  for (const item of payload.data) {
-    // These arrive from the DataWorker as typed scenes or packed buffers. An
-    // older bundle may still send them; drop them rather than draw twice.
-    if (isWorkerOwnedPointType(item.type)) continue;
-    pending.push(item);
-  }
-  if (!payload.done) return false;
-
-  _dataBySource[source] = pending;
-  _pendingBuckets[source] = null;
-  rebuildGenericData();
-  return true;
-}
 function selectedCameraPosition(): CameraPosition | null {
   const selected = _presentation?.selectedItem;
   if (!selected) return null;
@@ -1088,24 +1094,20 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
     case "init":
       handleInit(msg);
       return;
-    case "trails":
-      handleTrails(msg);
-      break;
     case "warnings":
       _warnings = [...msg.payload.features];
       _warnColor = msg.payload.warningColor;
       _watchColor = msg.payload.watchColor;
       break;
-    case "weatherAlerts":
-      _wxAlerts = [...msg.payload.features];
-      _wxWarnColor = msg.payload.warningColor;
-      _wxWatchColor = msg.payload.watchColor;
-      break;
     case "viewport":
       _viewport = msg.payload;
       break;
+    case "colors":
+      _colors = msg.payload;
+      break;
     case "presentation":
       _presentation = msg.payload;
+      setSelectedMotion(msg.payload.selectedItem);
       break;
     case "focus":
       handleFocus(msg);
@@ -1116,9 +1118,6 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
     case "dispose":
       handleDispose();
       return;
-    case "data":
-      if (!handleData(msg.payload)) return;
-      break;
     default:
       return;
   }

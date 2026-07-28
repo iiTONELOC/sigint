@@ -36,12 +36,35 @@ export type PointUiQuery =
       limit: number;
     }>
   | Readonly<{ kind: "ticker"; limit: number }>
+  | Readonly<{
+      kind: "bbox";
+      minLat: number;
+      maxLat: number;
+      minLon: number;
+      maxLon: number;
+      limit: number;
+    }>
+  | Readonly<{ kind: "count"; filter: unknown }>
+  | Readonly<{ kind: "facet"; limit: number }>
   | Readonly<{ kind: "correlation"; since: number }>;
 
 export type PointUiQueryResult<TPoint> =
   | Readonly<{ kind: "search"; total: number; items: readonly TPoint[] }>
   | Readonly<{ kind: "table"; total: number; items: readonly TPoint[] }>
-  | Readonly<{ kind: "ticker"; items: readonly TPoint[] }>
+  | Readonly<{
+      kind: "ticker";
+      /** Leading items that must stay ahead of the rest of the feed. */
+      priorityCount: number;
+      items: readonly TPoint[];
+    }>
+  | Readonly<{ kind: "bbox"; total: number; items: readonly TPoint[] }>
+  | Readonly<{ kind: "count"; total: number; items: readonly TPoint[] }>
+  | Readonly<{
+      kind: "facet";
+      /** Distinct facet values, most frequent first. */
+      values: readonly string[];
+      items: readonly TPoint[];
+    }>
   | Readonly<{ kind: "correlation"; items: readonly TPoint[] }>;
 
 export type TimestampedPoint = Readonly<{
@@ -60,8 +83,49 @@ export type PointUiQueryDescriptor<TPoint extends TimestampedPoint> = Readonly<{
   value1Label: (point: TPoint) => string;
   value2: (point: TPoint) => number;
   includeInTable: (point: TPoint, minValue: number) => boolean;
+  /** Whether a point is live enough to belong in the ticker feed. */
+  includeInTicker: (point: TPoint) => boolean;
+  /** Whether a point must lead the feed, ahead of every other source. */
+  tickerPriority: (point: TPoint) => boolean;
+  /** Whether a point survives this source's UI filter. The filter crosses a
+   *  worker boundary as unknown, so each source narrows its own shape. */
+  matchesFilter: (point: TPoint, filter: unknown) => boolean;
+  /** The value a filter control offers as a choice, for sources whose filter
+   *  needs the set actually present in the data. */
+  filterFacet: (point: TPoint) => string | null;
   supportsCorrelation: boolean;
 }>;
+
+/** Sources whose filter controls offer no data-derived choices. */
+export function noFilterFacet(): string | null {
+  return null;
+}
+
+/**
+ * The shape every threshold filter shares: an enabled switch plus one minimum
+ * the source ranks its points against. Narrowed here so five sources do not
+ * each hand-roll the same guard.
+ */
+export function matchesThresholdFilter(
+  filter: unknown,
+  minimumKey: string,
+  rank: number | null,
+): boolean {
+  if (!isRecord(filter) || filter.enabled !== true) return false;
+  const minimum = filter[minimumKey];
+  if (typeof minimum !== "number" || minimum <= 0) return true;
+  return rank === null || rank >= minimum;
+}
+
+/** Sources with no liveness notion: every point is ticker eligible. */
+export function alwaysInTicker(): boolean {
+  return true;
+}
+
+/** Sources with no escalation notion: no point outranks the feed order. */
+export function neverTickerPriority(): boolean {
+  return false;
+}
 
 const TABLE_SORT_KEY_SET: ReadonlySet<string> = new Set(TABLE_SORT_KEYS);
 
@@ -81,51 +145,98 @@ function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseSearchQuery(value: Record<string, unknown>): PointUiQuery | null {
+  if (typeof value.text !== "string" || value.text.trim().length === 0) {
+    return null;
+  }
+  return { kind: "search", text: value.text };
+}
+
+function parseTableQuery(value: Record<string, unknown>): PointUiQuery | null {
+  if (
+    !isNonNegativeNumber(value.minValue) ||
+    !isTableSortKey(value.sortKey) ||
+    (value.sortDirection !== "asc" && value.sortDirection !== "desc") ||
+    !isNonNegativeInteger(value.offset) ||
+    !isPositiveInteger(value.limit)
+  ) {
+    return null;
+  }
+  return {
+    kind: "table",
+    minValue: value.minValue,
+    sortKey: value.sortKey,
+    sortDirection: value.sortDirection,
+    offset: value.offset,
+    limit: value.limit,
+  };
+}
+
+function parseTickerQuery(value: Record<string, unknown>): PointUiQuery | null {
+  return isPositiveInteger(value.limit)
+    ? { kind: "ticker", limit: value.limit }
+    : null;
+}
+
+function parseBboxQuery(value: Record<string, unknown>): PointUiQuery | null {
+  const { minLat, maxLat, minLon, maxLon, limit } = value;
+  if (
+    !isFiniteNumber(minLat) ||
+    !isFiniteNumber(maxLat) ||
+    !isFiniteNumber(minLon) ||
+    !isFiniteNumber(maxLon) ||
+    !isPositiveInteger(limit) ||
+    minLat > maxLat ||
+    minLon > maxLon
+  ) {
+    return null;
+  }
+  return { kind: "bbox", minLat, maxLat, minLon, maxLon, limit };
+}
+
+function parseCountQuery(value: Record<string, unknown>): PointUiQuery | null {
+  // The filter stays unknown here: only the source's own descriptor knows
+  // which shape it should be, and it narrows before reading a field.
+  return "filter" in value ? { kind: "count", filter: value.filter } : null;
+}
+
+function parseFacetQuery(value: Record<string, unknown>): PointUiQuery | null {
+  return isPositiveInteger(value.limit)
+    ? { kind: "facet", limit: value.limit }
+    : null;
+}
+
+function parseCorrelationQuery(
+  value: Record<string, unknown>,
+): PointUiQuery | null {
+  return isNonNegativeNumber(value.since)
+    ? { kind: "correlation", since: value.since }
+    : null;
+}
+
+const QUERY_PARSERS: Readonly<
+  Record<string, (value: Record<string, unknown>) => PointUiQuery | null>
+> = {
+  search: parseSearchQuery,
+  table: parseTableQuery,
+  ticker: parseTickerQuery,
+  bbox: parseBboxQuery,
+  count: parseCountQuery,
+  facet: parseFacetQuery,
+  correlation: parseCorrelationQuery,
+};
+
 export function parsePointUiQuery(
   value: unknown,
   supportsCorrelation: boolean,
 ): PointUiQuery | null {
-  if (!isRecord(value)) return null;
-
-  if (
-    value.kind === "search" &&
-    typeof value.text === "string" &&
-    value.text.trim().length > 0
-  ) {
-    return { kind: "search", text: value.text };
-  }
-
-  if (
-    value.kind === "table" &&
-    isNonNegativeNumber(value.minValue) &&
-    isTableSortKey(value.sortKey) &&
-    (value.sortDirection === "asc" || value.sortDirection === "desc") &&
-    isNonNegativeInteger(value.offset) &&
-    isPositiveInteger(value.limit)
-  ) {
-    return {
-      kind: "table",
-      minValue: value.minValue,
-      sortKey: value.sortKey,
-      sortDirection: value.sortDirection,
-      offset: value.offset,
-      limit: value.limit,
-    };
-  }
-
-  if (value.kind === "ticker" && isPositiveInteger(value.limit)) {
-    return { kind: "ticker", limit: value.limit };
-  }
-
-  if (
-    supportsCorrelation &&
-    value.kind === "correlation" &&
-    isNonNegativeNumber(value.since)
-  ) {
-    return { kind: "correlation", since: value.since };
-  }
-
-  return null;
+  if (!isRecord(value) || typeof value.kind !== "string") return null;
+  if (value.kind === "correlation" && !supportsCorrelation) return null;
+  return QUERY_PARSERS[value.kind]?.(value) ?? null;
 }
 
 export function parsePointUiQueryResult<TPoint extends TimestampedPoint>(
@@ -142,12 +253,24 @@ export function parsePointUiQueryResult<TPoint extends TimestampedPoint>(
   }
 
   if (
-    (value.kind === "search" || value.kind === "table") &&
+    (value.kind === "search" ||
+      value.kind === "table" ||
+      value.kind === "bbox" ||
+      value.kind === "count") &&
     isNonNegativeInteger(value.total)
   ) {
     return { kind: value.kind, total: value.total, items };
   }
-  if (value.kind === "ticker") return { kind: "ticker", items };
+  if (
+    value.kind === "facet" &&
+    Array.isArray(value.values) &&
+    value.values.every((entry: unknown) => typeof entry === "string")
+  ) {
+    return { kind: "facet", values: value.values, items };
+  }
+  if (value.kind === "ticker" && isNonNegativeInteger(value.priorityCount)) {
+    return { kind: "ticker", priorityCount: value.priorityCount, items };
+  }
   if (value.kind === "correlation") return { kind: "correlation", items };
   return null;
 }
@@ -251,12 +374,81 @@ function compareTable<TPoint extends TimestampedPoint>(
   return pointAge(left, now) - pointAge(right, now);
 }
 
+/**
+ * The newest eligible points, escalated ones first. priorityCount lets the
+ * caller merge pages from several sources without re-testing each point.
+ */
+function runTickerQuery<TPoint extends TimestampedPoint>(
+  points: readonly TPoint[],
+  query: Extract<PointUiQuery, { kind: "ticker" }>,
+  descriptor: PointUiQueryDescriptor<TPoint>,
+): PointUiQueryResult<TPoint> {
+  const eligible = points.filter(descriptor.includeInTicker);
+  eligible.sort((left, right) => {
+    const byPriority =
+      Number(descriptor.tickerPriority(right)) -
+      Number(descriptor.tickerPriority(left));
+    return byPriority || pointTimestamp(right) - pointTimestamp(left);
+  });
+  const items = eligible.slice(0, query.limit);
+  return {
+    kind: "ticker",
+    priorityCount: items.filter(descriptor.tickerPriority).length,
+    items,
+  };
+}
+
+/** Distinct facet values ranked by how many points carry them. */
+function runFacetQuery<TPoint extends TimestampedPoint>(
+  points: readonly TPoint[],
+  query: Extract<PointUiQuery, { kind: "facet" }>,
+  descriptor: PointUiQueryDescriptor<TPoint>,
+): PointUiQueryResult<TPoint> {
+  const tally = new Map<string, number>();
+  for (const point of points) {
+    const value = descriptor.filterFacet(point);
+    if (value) tally.set(value, (tally.get(value) ?? 0) + 1);
+  }
+  const values = Array.from(tally.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, query.limit)
+    .map(([value]) => value);
+  return { kind: "facet", values, items: [] };
+}
+
+function runBboxQuery<TPoint extends TimestampedPoint>(
+  points: readonly TPoint[],
+  query: Extract<PointUiQuery, { kind: "bbox" }>,
+): PointUiQueryResult<TPoint> {
+  const inside = points.filter(
+    (point) =>
+      point.lat >= query.minLat &&
+      point.lat <= query.maxLat &&
+      point.lon >= query.minLon &&
+      point.lon <= query.maxLon,
+  );
+  return { kind: "bbox", total: inside.length, items: inside.slice(0, query.limit) };
+}
+
 export function runPointUiQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
   query: PointUiQuery,
   descriptor: PointUiQueryDescriptor<TPoint>,
   now: number = Date.now(),
 ): PointUiQueryResult<TPoint> {
+  if (query.kind === "bbox") return runBboxQuery(points, query);
+  if (query.kind === "facet") return runFacetQuery(points, query, descriptor);
+
+  if (query.kind === "count") {
+    // Count only: the caller wants a number, so no page is carried back.
+    return {
+      kind: "count",
+      total: points.filter((point) => descriptor.matchesFilter(point, query.filter))
+        .length,
+      items: [],
+    };
+  }
+
   if (query.kind === "search") {
     const matched = searchMatches(points, query.text, descriptor);
     return {
@@ -283,12 +475,7 @@ export function runPointUiQuery<TPoint extends TimestampedPoint>(
   }
 
   if (query.kind === "ticker") {
-    return {
-      kind: "ticker",
-      items: [...points]
-        .sort((left, right) => pointTimestamp(right) - pointTimestamp(left))
-        .slice(0, query.limit),
-    };
+    return runTickerQuery(points, query, descriptor);
   }
 
   return {
@@ -296,5 +483,36 @@ export function runPointUiQuery<TPoint extends TimestampedPoint>(
     items: points.filter(
       (point) => (pointTimestamp(point) || now) > query.since,
     ),
+  };
+}
+
+// ── Per-source bindings ─────────────────────────────────────────────
+
+export type PointUiQueries<TPoint extends TimestampedPoint> = Readonly<{
+  descriptor: PointUiQueryDescriptor<TPoint>;
+  parseQuery: (value: unknown) => PointUiQuery | null;
+  parseResult: (value: unknown) => PointUiQueryResult<TPoint> | null;
+  findSearchIds: (points: readonly TPoint[], text: string) => string[];
+  run: (
+    points: readonly TPoint[],
+    query: PointUiQuery,
+    now?: number,
+  ) => PointUiQueryResult<TPoint>;
+}>;
+
+/** One call binds a descriptor to the whole query surface for its source. */
+export function createPointUiQueries<TPoint extends TimestampedPoint>(
+  descriptor: PointUiQueryDescriptor<TPoint>,
+): PointUiQueries<TPoint> {
+  return {
+    descriptor,
+    parseQuery: (value) =>
+      parsePointUiQuery(value, descriptor.supportsCorrelation),
+    parseResult: (value) =>
+      parsePointUiQueryResult(value, descriptor.parseEntity),
+    findSearchIds: (points, text) =>
+      findPointSearchIds(points, text, descriptor),
+    run: (points, query, now = Date.now()) =>
+      runPointUiQuery(points, query, descriptor, now),
   };
 }

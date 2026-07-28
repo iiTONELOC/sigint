@@ -8,7 +8,7 @@ import type { BasePoint } from "@/features/base/types";
 function makeStorm(
   saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5,
   maxWindKt = 100,
-): BasePoint & { data: CycloneData } {
+): BasePoint & { type: "cyclones"; data: CycloneData } {
   return {
     id: `CYAL05${saffirSimpson}2026`,
     type: "cyclones",

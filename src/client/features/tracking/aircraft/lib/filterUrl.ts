@@ -1,4 +1,6 @@
 import type { AircraftFilter } from "../types";
+import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
+import { isEnumValue } from "@shared/types/enum";
 
 export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   enabled: true,
@@ -6,7 +8,7 @@ export const DEFAULT_AIRCRAFT_FILTER: AircraftFilter = {
   showGround: true,
   squawks: new Set(),
   countries: new Set(),
-  milFilter: "all",
+  milFilter: MilFilter.All,
 };
 
 function parseBoolParam(
@@ -26,15 +28,11 @@ export function getInitialAircraftFilter(): AircraftFilter {
   const params = new URLSearchParams(window.location.search);
 
   const squawksRaw = params.get("squawks") ?? "";
-  const squawks = new Set<"7700" | "7600" | "7500" | "other">();
-  squawksRaw
-    .split(",")
-    .map((v) => v.trim())
-    .forEach((v) => {
-      if (v === "7700" || v === "7600" || v === "7500" || v === "other") {
-        squawks.add(v);
-      }
-    });
+  const squawks = new Set<SquawkBucket>();
+  for (const raw of squawksRaw.split(",")) {
+    const candidate = raw.trim();
+    if (isEnumValue(candidate, SquawkBucket)) squawks.add(candidate);
+  }
 
   let countries: Set<string>;
   if (!params.has("countries")) {
@@ -49,14 +47,7 @@ export function getInitialAircraftFilter(): AircraftFilter {
   }
 
   const milRaw = (params.get("mil") ?? "").trim().toLowerCase();
-  const milFilter: AircraftFilter["milFilter"] =
-    milRaw === "military"
-      ? "military"
-      : milRaw === "civilian"
-        ? "civilian"
-        : milRaw === "recon"
-          ? "recon"
-          : "all";
+  const milFilter = isEnumValue(milRaw, MilFilter) ? milRaw : MilFilter.All;
 
   return {
     enabled: parseBoolParam(params, "ac", DEFAULT_AIRCRAFT_FILTER.enabled),
@@ -83,16 +74,20 @@ export function syncAircraftFilterToUrl(aircraftFilter: AircraftFilter): void {
   params.set("air", aircraftFilter.showAirborne ? "1" : "0");
   params.set("gnd", aircraftFilter.showGround ? "1" : "0");
 
-  const squawkValues = Array.from(aircraftFilter.squawks).sort();
+  const squawkValues = Array.from(aircraftFilter.squawks).sort((left, right) =>
+    left.localeCompare(right),
+  );
   if (squawkValues.length > 0) params.set("squawks", squawkValues.join(","));
   else params.delete("squawks");
 
-  const countryValues = Array.from(aircraftFilter.countries).sort();
+  const countryValues = Array.from(aircraftFilter.countries).sort(
+    (left, right) => left.localeCompare(right),
+  );
   if (countryValues.length > 0)
     params.set("countries", countryValues.join(","));
   else params.delete("countries");
 
-  if (aircraftFilter.milFilter !== "all")
+  if (aircraftFilter.milFilter !== MilFilter.All)
     params.set("mil", aircraftFilter.milFilter);
   else params.delete("mil");
 

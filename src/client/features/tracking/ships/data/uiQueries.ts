@@ -1,20 +1,17 @@
 import { isShipPoint, type ShipPoint } from "@/features/tracking/ships/data/codec";
 import {
-  findPointSearchIds,
-  parsePointUiQuery,
-  parsePointUiQueryResult,
-  runPointUiQuery,
+  createPointUiQueries,
+  neverTickerPriority,
+  noFilterFacet,
   type PointUiQuery,
-  type PointUiQueryDescriptor,
   type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
 
 export type ShipUiQuery = PointUiQuery;
 export type ShipUiQueryResult = PointUiQueryResult<ShipPoint>;
 
-function parseShipEntity(value: unknown): ShipPoint | null {
-  return isShipPoint(value) ? value : null;
-}
+/** Below this a vessel is moored or drifting, not traffic worth reporting. */
+const MINIMUM_MOVING_SPEED_KNOTS = 0.5;
 
 function vesselName(point: ShipPoint): string {
   return point.data.name || point.id;
@@ -24,8 +21,8 @@ function speedKnots(point: ShipPoint): number {
   return point.data.sog ?? point.data.speed ?? 0;
 }
 
-export const SHIP_UI_QUERY: PointUiQueryDescriptor<ShipPoint> = {
-  parseEntity: parseShipEntity,
+export const SHIP_UI_QUERIES = createPointUiQueries<ShipPoint>({
+  parseEntity: (value) => (isShipPoint(value) ? value : null),
   searchText: (point) =>
     [
       point.data.name,
@@ -42,30 +39,10 @@ export const SHIP_UI_QUERY: PointUiQueryDescriptor<ShipPoint> = {
   value1Label: (point) => point.data.vesselType ?? "",
   value2: (point) => point.data.length ?? 0,
   includeInTable: (point, minValue) => speedKnots(point) >= minValue,
+  // Ships have no threshold control; the layer switch is the whole filter.
+  matchesFilter: (_point, filter) => filter === true,
+  includeInTicker: (point) => speedKnots(point) >= MINIMUM_MOVING_SPEED_KNOTS,
+  tickerPriority: neverTickerPriority,
+  filterFacet: noFilterFacet,
   supportsCorrelation: false,
-};
-
-export function parseShipUiQuery(value: unknown): ShipUiQuery | null {
-  return parsePointUiQuery(value, SHIP_UI_QUERY.supportsCorrelation);
-}
-
-export function parseShipUiQueryResult(
-  value: unknown,
-): ShipUiQueryResult | null {
-  return parsePointUiQueryResult(value, SHIP_UI_QUERY.parseEntity);
-}
-
-export function findShipSearchIds(
-  points: readonly ShipPoint[],
-  text: string,
-): string[] {
-  return findPointSearchIds(points, text, SHIP_UI_QUERY);
-}
-
-export function runShipUiQuery(
-  points: readonly ShipPoint[],
-  query: ShipUiQuery,
-  now: number = Date.now(),
-): ShipUiQueryResult {
-  return runPointUiQuery(points, query, SHIP_UI_QUERY, now);
-}
+});

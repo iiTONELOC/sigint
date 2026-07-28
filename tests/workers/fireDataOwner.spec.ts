@@ -94,7 +94,9 @@ describe("fire worker dataset", () => {
     let currentTime = 2_000;
     const owner = createFireSourceOwner({
       readCache: async () => ({ timestamp: 1_000, data: [cached] }),
-      persistCache: (snapshot) => persisted.push(snapshot),
+      persistCache: (snapshot) => {
+        persisted.push(snapshot);
+      },
       fetchPoints: async () => {
         fetchCount++;
         return fetchCount === 1 ? [live] : [];

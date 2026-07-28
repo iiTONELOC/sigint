@@ -260,17 +260,16 @@ describe("createDataWorkerClient", () => {
       }),
     );
 
-    expect(await pending).toEqual({
-      source: "earthquake",
-      sourceVersion: 7,
-      value: {
-        id: "Qone",
-        type: "quakes",
-        lon: -80,
-        lat: 30,
-        timestamp: "2026-07-21T12:00:00.000Z",
-        data: { magnitude: 4 },
-      },
+    const entity = await pending;
+    expect(entity.source).toBe("earthquake");
+    expect(entity.sourceVersion).toBe(7);
+    expect(entity.value).toEqual({
+      id: "Qone",
+      type: "quakes",
+      lon: -80,
+      lat: 30,
+      timestamp: "2026-07-21T12:00:00.000Z",
+      data: { magnitude: 4 },
     });
   });
 

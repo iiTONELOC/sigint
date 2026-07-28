@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -175,9 +176,9 @@ describe("Header", () => {
           enabled: true,
           showAirborne: true,
           showGround: true,
-          squawks: new Set<string>(),
+          squawks: new Set<SquawkBucket>(),
           countries: new Set<string>(),
-          milFilter: "all" as const,
+          milFilter: MilFilter.All,
         },
         setAircraftFilter: () => {},
         availableCountries: [],
@@ -197,7 +198,6 @@ describe("Search", () => {
     const { Search } = await import("@/components/Search");
     const { container, unmount } = renderWithTheme(
       React.createElement(Search, {
-        data: [pt("a1", "aircraft", 35, 139, { callsign: "UAL123" })],
         onSelect: () => {},
         onZoomTo: () => {},
         onMatchingIdsChange: () => {},
@@ -207,19 +207,6 @@ describe("Search", () => {
     unmount();
   });
 
-  test("renders with empty data", async () => {
-    const { Search } = await import("@/components/Search");
-    const { container, unmount } = renderWithTheme(
-      React.createElement(Search, {
-        data: [],
-        onSelect: () => {},
-        onZoomTo: () => {},
-        onMatchingIdsChange: () => {},
-      }),
-    );
-    expect(container.innerHTML.length).toBeGreaterThan(0);
-    unmount();
-  });
 });
 
 // ── DetailPanel ─────────────────────────────────────────────────────

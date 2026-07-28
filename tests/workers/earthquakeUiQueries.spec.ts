@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
-import {
-  EARTHQUAKE_UI_QUERY_POLICY,
-  parseEarthquakeUiQuery,
-  parseEarthquakeUiQueryResult,
-  runEarthquakeUiQuery,
-} from "@/features/environmental/earthquake/data/uiQueries";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/uiQueries";
 
 function point(
   id: string,
@@ -27,7 +23,7 @@ function point(
 describe("earthquake UI queries", () => {
   test("returns a count while bounding displayed results", () => {
     const points = Array.from(
-      { length: EARTHQUAKE_UI_QUERY_POLICY.searchResultLimit + 5 },
+      { length: POINT_UI_QUERY_POLICY.searchResultLimit + 5 },
       (_, index) =>
         point(
           `Q${index}`,
@@ -38,7 +34,7 @@ describe("earthquake UI queries", () => {
         ),
     );
 
-    const result = runEarthquakeUiQuery(points, {
+    const result = EARTHQUAKE_UI_QUERIES.run(points, {
       kind: "search",
       text: "Mexico earthquake",
     });
@@ -47,7 +43,7 @@ describe("earthquake UI queries", () => {
     if (result.kind !== "search") return;
     expect(result.total).toBe(points.length);
     expect(result.items).toHaveLength(
-      EARTHQUAKE_UI_QUERY_POLICY.searchResultLimit,
+      POINT_UI_QUERY_POLICY.searchResultLimit,
     );
   });
 
@@ -61,7 +57,7 @@ describe("earthquake UI queries", () => {
       expected,
     ];
 
-    const result = runEarthquakeUiQuery(points, {
+    const result = EARTHQUAKE_UI_QUERIES.run(points, {
       kind: "table",
       minValue: 3,
       sortKey: "value1",
@@ -91,10 +87,10 @@ describe("earthquake UI queries", () => {
     ];
 
     expect(
-      runEarthquakeUiQuery(points, { kind: "ticker", limit: 2 }),
-    ).toEqual({ kind: "ticker", items: [newest, middle] });
+      EARTHQUAKE_UI_QUERIES.run(points, { kind: "ticker", limit: 2 }),
+    ).toEqual({ kind: "ticker", priorityCount: 0, items: [newest, middle] });
     expect(
-      runEarthquakeUiQuery(points, {
+      EARTHQUAKE_UI_QUERIES.run(points, {
         kind: "correlation",
         since: Date.parse("2026-07-21T10:30:00.000Z"),
       }),
@@ -103,7 +99,7 @@ describe("earthquake UI queries", () => {
 
   test("validates query and result payloads at worker boundaries", () => {
     expect(
-      parseEarthquakeUiQuery({
+      EARTHQUAKE_UI_QUERIES.parseQuery({
         kind: "table",
         minValue: 0,
         sortKey: "mystery",
@@ -113,7 +109,7 @@ describe("earthquake UI queries", () => {
       }),
     ).toBeNull();
     expect(
-      parseEarthquakeUiQueryResult({
+      EARTHQUAKE_UI_QUERIES.parseResult({
         kind: "ticker",
         items: [{ id: "bad" }],
       }),

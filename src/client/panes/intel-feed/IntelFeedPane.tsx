@@ -23,11 +23,8 @@ import {
 } from "lucide-react";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
-import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
-import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
 import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
-import { useFireUiQuery } from "@/features/environmental/fires";
-import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
+import { useSourceTables } from "@/features/base/useSourceTables";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -207,7 +204,6 @@ function compareNewestFirst(left: DataPoint, right: DataPoint): number {
 
 export function IntelFeedPane() {
   const {
-    allData,
     newsArticles,
     selectedCurrent,
     setSelected,
@@ -259,83 +255,36 @@ export function IntelFeedPane() {
 
   // ── Raw feed (for raw view) ─────────────────────────────────────
 
-  const feedTypes = useMemo(
-    () => new Set(["events", "quakes", "fires", "weather"]),
-    [],
+  const minValues = useMemo(
+    () => ({
+      earthquake: earthquakeFilter.minMagnitude,
+      fire: fireFilter.minConfidence,
+    }),
+    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
   );
-
-  const rawLocalItems = useMemo(() => {
-    let items = allData.filter((item) => feedTypes.has(item.type));
-    if (feedFilter !== "all") {
-      items = items.filter((item) => item.type === feedFilter);
-    }
-    items.sort(compareNewestFirst);
-    return items;
-  }, [allData, feedFilter, feedTypes]);
-  const earthquakeRawQuery = useMemo<EarthquakeUiQuery | null>(
-    () =>
-      earthquakeFilter.enabled
-        ? {
-            kind: "table",
-            minValue: earthquakeFilter.minMagnitude,
-            sortKey: "age",
-            sortDirection: "asc",
-            offset: 0,
-            limit: sourcePrefixLimit,
-          }
-        : null,
-    [earthquakeFilter, sourcePrefixLimit],
+  const disabled = useMemo(
+    () => ({
+      earthquake: !earthquakeFilter.enabled,
+      fire: !fireFilter.enabled,
+      // The raw feed is environmental and intel only.
+      aircraft: true,
+      ships: true,
+      cyclones: true,
+    }),
+    [earthquakeFilter.enabled, fireFilter.enabled],
   );
-  const earthquakeRawResult = useEarthquakeUiQuery(earthquakeRawQuery);
-  const earthquakeTotal =
-    earthquakeRawResult?.kind === "table" ? earthquakeRawResult.total : 0;
-  const includeEarthquakes =
-    feedFilter === "all" || feedFilter === "quakes";
-  const earthquakeItems =
-    includeEarthquakes && earthquakeRawResult?.kind === "table"
-      ? earthquakeRawResult.items
-      : [];
-  const fireRawQuery = useMemo<FireUiQuery | null>(
-    () =>
-      fireFilter.enabled
-        ? {
-            kind: "table",
-            minValue: fireFilter.minConfidence,
-            sortKey: "age",
-            sortDirection: "asc",
-            offset: 0,
-            limit: sourcePrefixLimit,
-          }
-        : null,
-    [fireFilter, sourcePrefixLimit],
-  );
-  const fireRawResult = useFireUiQuery(fireRawQuery);
-  const fireTotal =
-    fireRawResult?.kind === "table" ? fireRawResult.total : 0;
-  const includeFires = feedFilter === "all" || feedFilter === "fires";
-  const fireItems =
-    includeFires && fireRawResult?.kind === "table"
-      ? fireRawResult.items
-      : [];
-  const rawItemCount =
-    rawLocalItems.length +
-    (includeEarthquakes ? earthquakeTotal : 0) +
-    (includeFires ? fireTotal : 0);
-
-  const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      events: 0,
-      quakes: earthquakeTotal,
-      fires: fireTotal,
-      weather: 0,
-    };
-    for (const item of allData) {
-      if (feedTypes.has(item.type)) {
-        counts[item.type] = (counts[item.type] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [allData, feedTypes, earthquakeTotal, fireTotal]);
+  const {
+    prefixes: rawPrefixes,
+    totals: typeCounts,
+    itemCount: rawItemCount,
+  } = useSourceTables({
+    sortKey: "age",
+    sortDirection: "asc",
+    limit: sourcePrefixLimit,
+    pointType: feedFilter === "all" ? null : feedFilter,
+    minValues,
+    disabled,
+  });
 
   // ── Virtual scroll (raw mode) ───────────────────────────────────
 
@@ -352,12 +301,11 @@ export function IntelFeedPane() {
 
   const visibleRaw = useMemo(
     () =>
-      mergeSortedPrefixes(
-        [rawLocalItems, earthquakeItems, fireItems],
-        compareNewestFirst,
+      mergeSortedPrefixes(rawPrefixes, compareNewestFirst, endIdx).slice(
+        startIdx,
         endIdx,
-      ).slice(startIdx, endIdx),
-    [rawLocalItems, earthquakeItems, fireItems, startIdx, endIdx],
+      ),
+    [rawPrefixes, startIdx, endIdx],
   );
 
   // ── Handlers ────────────────────────────────────────────────────

@@ -1,10 +1,12 @@
+import type { DataPoint } from "@/features/base/dataPoints";
 import {
-  parseFirePoint,
-  type FirePoint,
-} from "@/features/environmental/fires/data/source";
+  isQueryableSourceId,
+  parseQueryableSourceList,
+  type QueryableSourceId,
+} from "@/workers/data/queryableSources";
 import { isRecord } from "@shared/geo";
 
-export const CORRELATION_DATA_PROTOCOL_VERSION: 1 = 1;
+export const CORRELATION_DATA_PROTOCOL_VERSION = 2 as const;
 
 type CorrelationDataEnvelope = Readonly<{
   protocolVersion: typeof CORRELATION_DATA_PROTOCOL_VERSION;
@@ -14,7 +16,11 @@ type CorrelationDataEnvelope = Readonly<{
 
 export type CorrelationDataCommandBody =
   | Readonly<{ type: "bind" }>
-  | Readonly<{ type: "fireRebase"; points: readonly FirePoint[] }>;
+  | Readonly<{
+      type: "sourceRebase";
+      source: QueryableSourceId;
+      points: readonly DataPoint[];
+    }>;
 
 type WithEnvelope<T> = T extends object
   ? T & CorrelationDataEnvelope
@@ -43,11 +49,10 @@ export function createCorrelationDataCommand<
   };
 }
 
-export function parseCorrelationDataCommand(
-  value: unknown,
-): CorrelationDataCommand | null {
+function parseEnvelope(
+  value: Record<string, unknown>,
+): CorrelationDataEnvelope | null {
   if (
-    !isRecord(value) ||
     value.protocolVersion !== CORRELATION_DATA_PROTOCOL_VERSION ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
@@ -57,22 +62,28 @@ export function parseCorrelationDataCommand(
   ) {
     return null;
   }
-  const envelope: CorrelationDataEnvelope = {
+  return {
     protocolVersion: CORRELATION_DATA_PROTOCOL_VERSION,
     sessionId: value.sessionId,
     sequence: value.sequence,
   };
+}
+
+export function parseCorrelationDataCommand(
+  value: unknown,
+): CorrelationDataCommand | null {
+  if (!isRecord(value)) return null;
+  const envelope = parseEnvelope(value);
+  if (!envelope) return null;
+
   if (value.type === "bind") return { ...envelope, type: "bind" };
-  if (value.type !== "fireRebase" || !Array.isArray(value.points)) {
+  if (value.type !== "sourceRebase" || !isQueryableSourceId(value.source)) {
     return null;
   }
-  const points: FirePoint[] = [];
-  for (const candidate of value.points) {
-    const point = parseFirePoint(candidate);
-    if (!point) return null;
-    points.push(point);
-  }
-  return { ...envelope, type: "fireRebase", points };
+  const points = parseQueryableSourceList(value.source, value.points);
+  return points
+    ? { ...envelope, type: "sourceRebase", source: value.source, points }
+    : null;
 }
 
 export function acceptCorrelationDataCommand(

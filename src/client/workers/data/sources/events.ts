@@ -18,7 +18,8 @@ export const EVENT_SOURCE = getPointSourceDefinition("events");
 /** GDELT keeps a rolling window rather than a live snapshot. */
 export const EVENT_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
-export type EventSourceRuntime = PointSourceRuntime<EventPoint>;
+export type EventSourceRuntime = PointSourceRuntime<EventPoint> &
+  Readonly<{ publishRebase: () => void }>;
 
 export type EventSourceRuntimeOptions = Readonly<{
   readCache: () => Promise<unknown>;
@@ -27,6 +28,7 @@ export type EventSourceRuntimeOptions = Readonly<{
   ) => Promise<void> | void;
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<EventPoint>>;
   publishStatus: (status: DataWorkerSourceSnapshot) => void;
+  publishPoints: (points: readonly EventPoint[]) => void;
   now?: () => number;
 }>;
 
@@ -101,8 +103,15 @@ export function createEventSourceRuntime(
     persistCache: options.persistCache,
     fetchSnapshot: fetchWindow,
     publishStatus: options.publishStatus,
-    publishPatch: () => {},
+    publishPatch: () => {
+      options.publishPoints(runtime.values());
+    },
   });
   retained.values = runtime.values;
-  return runtime;
+  return {
+    ...runtime,
+    publishRebase(): void {
+      options.publishPoints(runtime.values());
+    },
+  };
 }

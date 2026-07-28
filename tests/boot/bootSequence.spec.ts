@@ -41,25 +41,28 @@ describe("Boot sequence (frontend.tsx)", () => {
 
   // Auth is fetched once up front but does not gate first paint.
   test("auth token is fetched once, not per provider", () => {
-    const matches = frontendSource.match(/ensureAuthCookie\(\)/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBe(1);
+    const matches = frontendSource.match(/ensureAuthCookie\(\)/g) ?? [];
+    expect(matches).toHaveLength(1);
   });
 
   test("ensureMetadataDb is not referenced from frontend.tsx", () => {
     expect(frontendSource).not.toContain("ensureMetadataDb");
   });
 
-  test("all 6 providers are in the providers array", () => {
+  test("news is the only provider React boots", () => {
+    expect(frontendSource).toContain("newsProvider");
+    expect(frontendSource).toContain("const providers = [newsProvider]");
+  });
+
+  test("no point source is booted from React", () => {
     for (const name of [
       "shipProvider",
       "gdeltProvider",
       "weatherProvider",
-      "newsProvider",
       "aircraftProvider",
       "cycloneProvider",
     ]) {
-      expect(frontendSource).toContain(name);
+      expect(frontendSource).not.toContain(name);
     }
   });
 

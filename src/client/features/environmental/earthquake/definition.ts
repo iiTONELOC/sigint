@@ -1,30 +1,22 @@
 import { Activity } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { EarthquakeData, EarthquakeFilter } from "./types";
-import type { BasePoint } from "@/features/base/types";
 import { buildEarthquakeDetailRows } from "./detailRows";
 import { EarthquakeTickerContent } from "./ui/EarthquakeTickerContent";
+import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/uiQueries";
 
 export const earthquakeFeature: FeatureDefinition<
   EarthquakeData,
-  EarthquakeFilter
+  EarthquakeFilter,
+  "quakes"
 > = {
   id: "quakes",
   label: "SEISMIC",
   icon: Activity,
   iconProps: { strokeWidth: 2.5 },
 
-  matchesFilter: (
-    _item: BasePoint & { data: EarthquakeData },
-    filter: EarthquakeFilter,
-  ) => {
-    if (!filter.enabled) return false;
-    const mag = _item.data?.magnitude;
-    if (mag != null && filter.minMagnitude > 0 && mag < filter.minMagnitude) {
-      return false;
-    }
-    return true;
-  },
+  matchesFilter: (item, filter) =>
+    EARTHQUAKE_UI_QUERIES.descriptor.matchesFilter(item, filter),
 
   defaultFilter: { enabled: true, minMagnitude: 0 },
 

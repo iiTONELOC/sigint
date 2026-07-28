@@ -115,50 +115,13 @@ describe("sourceHealth", () => {
 // ── spatialIndex ────────────────────────────────────────────────────
 
 describe("spatialIndex", () => {
-  let buildSpatialGrid: typeof import("@/lib/geo/spatialIndex").buildSpatialGrid;
-  let queryNearest: typeof import("@/lib/geo/spatialIndex").queryNearest;
   let screenToLatLonFlat: typeof import("@/lib/geo/spatialIndex").screenToLatLonFlat;
   let screenToLatLonGlobe: typeof import("@/lib/geo/spatialIndex").screenToLatLonGlobe;
 
   beforeEach(async () => {
     const mod = await import("@/lib/geo/spatialIndex");
-    buildSpatialGrid = mod.buildSpatialGrid;
-    queryNearest = mod.queryNearest;
     screenToLatLonFlat = mod.screenToLatLonFlat;
     screenToLatLonGlobe = mod.screenToLatLonGlobe;
-  });
-
-  test("buildSpatialGrid indexes all points", () => {
-    const data = [pt("a", "quakes", 35, 139), pt("b", "quakes", -33, 151)];
-    const grid = buildSpatialGrid(data);
-    expect(grid.size).toBe(2);
-  });
-
-  test("queryNearest finds nearby points", () => {
-    const data = [
-      pt("a", "quakes", 35, 139),
-      pt("b", "quakes", 35.5, 139.5),
-      pt("c", "quakes", -33, 151),
-    ];
-    const grid = buildSpatialGrid(data);
-    const results = queryNearest(grid, 35.2, 139.2, 2);
-    expect(results.length).toBe(2);
-    expect(results.some((r) => r.id === "a")).toBe(true);
-    expect(results.some((r) => r.id === "b")).toBe(true);
-  });
-
-  test("queryNearest excludes distant points", () => {
-    const data = [pt("a", "quakes", 35, 139), pt("b", "quakes", -33, 151)];
-    const grid = buildSpatialGrid(data);
-    const results = queryNearest(grid, 35, 139, 1);
-    expect(results.length).toBe(1);
-    expect(results[0]!.id).toBe("a");
-  });
-
-  test("empty grid returns empty results", () => {
-    const grid = buildSpatialGrid([]);
-    expect(grid.size).toBe(0);
-    expect(queryNearest(grid, 0, 0, 10).length).toBe(0);
   });
 
   test("screenToLatLonFlat returns center at center", () => {
@@ -182,153 +145,72 @@ describe("spatialIndex", () => {
 
 // ── tickerFeed ──────────────────────────────────────────────────────
 
-describe("buildTickerItems", () => {
-  let buildTickerItems: typeof import("@/lib/ui/tickerFeed").buildTickerItems;
+describe("mergeTickerPages", () => {
+  let mergeTickerPages: typeof import("@/lib/ui/tickerFeed").mergeTickerPages;
 
   beforeEach(async () => {
-    buildTickerItems = (await import("@/lib/ui/tickerFeed")).buildTickerItems;
+    mergeTickerPages = (await import("@/lib/ui/tickerFeed")).mergeTickerPages;
   });
 
-  test("returns empty for empty data", () => {
-    const result = buildTickerItems([]);
-    expect(result).toHaveLength(0);
+  function page(items: DataPoint[], priorityCount = 0) {
+    return { items, priorityCount };
+  }
+
+  test("returns empty for no pages", () => {
+    expect(mergeTickerPages([])).toHaveLength(0);
   });
 
-  test("includes airborne aircraft", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false, callsign: "UAL123" }),
-    ];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(1);
+  test("returns empty when every page is empty", () => {
+    expect(mergeTickerPages([page([]), page([])])).toHaveLength(0);
   });
 
-  test("excludes grounded aircraft", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: true, callsign: "UAL123" }),
-    ];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(0);
-  });
-
-  test("excludes moored ships (sog < 0.5)", () => {
-    const data = [pt("s1", "ships", 51, -0.1, { sog: 0.1, name: "TEST" })];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(0);
-  });
-
-  test("includes moving ships", () => {
-    const data = [pt("s1", "ships", 51, -0.1, { sog: 5.0, name: "TEST" })];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(1);
-  });
-
-  test("emergency aircraft appear first", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false, squawk: "1200" }),
-      pt("a2", "aircraft", 36, 140, { onGround: false, squawk: "7700" }),
-      pt("q1", "quakes", 10, 20, { magnitude: 5.0 }),
-    ];
-    const result = buildTickerItems(data);
+  test("escalated items lead, whatever page they came from", () => {
+    const emergency = pt("a2", "aircraft", 36, 140, { squawk: "7700" });
+    const result = mergeTickerPages([
+      page([pt("q1", "quakes", 10, 20, { magnitude: 5 })]),
+      page([emergency, pt("a1", "aircraft", 35, 139, { squawk: "1200" })], 1),
+    ]);
     expect(result[0]!.id).toBe("a2");
   });
 
   test("caps at 80 items", () => {
-    const data: DataPoint[] = [];
+    const items: DataPoint[] = [];
     for (let i = 0; i < 200; i++) {
-      data.push(pt(`q${i}`, "quakes", i % 90, i % 180, { magnitude: 3 }));
+      items.push(pt(`q${i}`, "quakes", i % 90, i % 180, { magnitude: 3 }));
     }
-    const result = buildTickerItems(data);
-    expect(result.length).toBeLessThanOrEqual(80);
+    expect(mergeTickerPages([page(items)])).toHaveLength(80);
   });
 
-  test("interleaves across types", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false }),
-      pt("a2", "aircraft", 36, 140, { onGround: false }),
-      pt("s1", "ships", 51, -0.1, { sog: 5 }),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const result = buildTickerItems(data);
-    const types = result.map((r) => r.type);
-    // Not all same type in a row
-    expect(new Set(types).size).toBeGreaterThan(1);
-  });
-});
-
-// ── uiSelectors ─────────────────────────────────────────────────────
-
-describe("uiSelectors", () => {
-  let selectLayerCounts: typeof import("@/lib/runtime/uiSelectors").selectLayerCounts;
-  let selectActiveCount: typeof import("@/lib/runtime/uiSelectors").selectActiveCount;
-  let selectAvailableAircraftCountries: typeof import("@/lib/runtime/uiSelectors").selectAvailableAircraftCountries;
-
-  beforeEach(async () => {
-    const mod = await import("@/lib/runtime/uiSelectors");
-    selectLayerCounts = mod.selectLayerCounts;
-    selectActiveCount = mod.selectActiveCount;
-    selectAvailableAircraftCountries = mod.selectAvailableAircraftCountries;
+  test("round-robins across pages so one source cannot flood", () => {
+    const result = mergeTickerPages([
+      page([
+        pt("a1", "aircraft", 35, 139, {}),
+        pt("a2", "aircraft", 36, 140, {}),
+      ]),
+      page([pt("s1", "ships", 51, -0.1, { sog: 5 })]),
+    ]);
+    expect(result).toHaveLength(3);
+    expect(new Set(result.map((item) => item.type)).size).toBe(2);
   });
 
-  test("selectLayerCounts counts per type with filter", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false }),
-      pt("a2", "aircraft", 36, 140, { onGround: false }),
-      pt("q1", "quakes", 10, 20, { magnitude: 5 }),
-    ];
-    const filters = {
-      aircraft: {
-        enabled: true,
-        showAirborne: true,
-        showGround: true,
-        squawks: new Set(),
-        countries: new Set(),
-        milFilter: "all",
-      },
-      quakes: { enabled: true, minMagnitude: 0 },
-    };
-    const counts = selectLayerCounts(data, filters);
-    expect(counts.aircraft).toBe(2);
-    expect(counts.quakes).toBe(1);
-  });
-
-  test("selectActiveCount totals all visible", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, {}),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const filters = {
-      aircraft: {
-        enabled: true,
-        showAirborne: true,
-        showGround: true,
-        squawks: new Set(),
-        countries: new Set(),
-        milFilter: "all",
-      },
-      quakes: { enabled: true, minMagnitude: 0 },
-    };
-    const count = selectActiveCount(data, filters);
-    expect(count).toBe(2);
-  });
-
-  test("selectAvailableAircraftCountries sorted by frequency", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { originCountry: "United States" }),
-      pt("a2", "aircraft", 36, 140, { originCountry: "United States" }),
-      pt("a3", "aircraft", 37, 141, { originCountry: "Japan" }),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const countries = selectAvailableAircraftCountries(data);
-    expect(countries[0]).toBe("United States");
-    expect(countries[1]).toBe("Japan");
-    expect(countries.length).toBe(2);
-  });
-
-  test("ignores non-aircraft for countries", () => {
-    const data = [pt("q1", "quakes", 10, 20, { originCountry: "Chile" })];
-    expect(selectAvailableAircraftCountries(data)).toHaveLength(0);
+  test("drains a longer page once the shorter ones run out", () => {
+    const result = mergeTickerPages([
+      page([
+        pt("a1", "aircraft", 35, 139, {}),
+        pt("a2", "aircraft", 36, 140, {}),
+        pt("a3", "aircraft", 37, 141, {}),
+      ]),
+      page([pt("s1", "ships", 51, -0.1, { sog: 5 })]),
+    ]);
+    expect(result.map((item) => item.id).toSorted()).toEqual([
+      "a1",
+      "a2",
+      "a3",
+      "s1",
+    ]);
   });
 });
+
 
 // ── authService (client) ────────────────────────────────────────────
 

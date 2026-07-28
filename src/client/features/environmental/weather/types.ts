@@ -1,4 +1,14 @@
+/**
+ * The alert's own polygon, kept so the renderer can draw the affected AREA
+ * rather than just the centroid marker. Only storm-based alerts carry one.
+ */
+export type WeatherGeometry = Readonly<{
+  type: string;
+  coordinates: number[] | number[][] | number[][][];
+}>;
+
 export type WeatherData = {
+  geometry?: WeatherGeometry;
   event?: string;
   severity?: string;
   certainty?: string;

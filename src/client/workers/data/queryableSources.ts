@@ -1,59 +1,71 @@
-import {
-  parseEarthquakePoint,
-  type EarthquakePoint,
-} from "@/features/environmental/earthquake/data/source";
-import {
-  parseEarthquakeUiQuery,
-  parseEarthquakeUiQueryResult,
-  type EarthquakeUiQuery,
-  type EarthquakeUiQueryResult,
-} from "@/features/environmental/earthquake/data/uiQueries";
-import {
-  parseFirePoint,
-  type FirePoint,
-} from "@/features/environmental/fires/data/source";
-import {
-  parseFireUiQuery,
-  parseFireUiQueryResult,
-  type FireUiQuery,
-  type FireUiQueryResult,
-} from "@/features/environmental/fires/data/uiQueries";
+import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/uiQueries";
+import { FIRE_UI_QUERIES } from "@/features/environmental/fires/data/uiQueries";
+import { WEATHER_UI_QUERIES } from "@/features/environmental/weather/data/uiQueries";
+import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
+import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
+import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
+import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
+import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
+import type { FirePoint } from "@/features/environmental/fires/data/source";
+import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
+import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
+import type { EventPoint } from "@/features/intel/events/data/codec";
+import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";
-import {
-  SHIP_UI_QUERY,
-  parseShipUiQuery,
-  parseShipUiQueryResult,
-  type ShipUiQuery,
-  type ShipUiQueryResult,
-} from "@/features/tracking/ships/data/uiQueries";
+import type { DataPoint } from "@/features/base/dataPoints";
+import type {
+  PointUiQueries,
+  PointUiQuery,
+  PointUiQueryResult,
+} from "@/workers/data/uiQuery";
 import type {
   DataWorkerCommand,
   DataWorkerEnvelope,
   DataWorkerEvent,
 } from "@/workers/data/protocol";
 
+/**
+ * The one place a source becomes queryable. Adding a source is an entry here
+ * plus a descriptor; every command, event and client union is generated from
+ * this map.
+ */
+export type QueryableSourceEntities = {
+  aircraft: AircraftPoint;
+  cyclones: CyclonePoint;
+  earthquake: EarthquakePoint;
+  events: EventPoint;
+  fire: FirePoint;
+  ships: ShipPoint;
+  weather: WeatherPoint;
+};
+
+export type QueryableSourceId = keyof QueryableSourceEntities;
+
 export type QueryableSourceShapes = {
-  earthquake: {
-    query: EarthquakeUiQuery;
-    result: EarthquakeUiQueryResult;
-    entity: EarthquakePoint;
-  };
-  fire: {
-    query: FireUiQuery;
-    result: FireUiQueryResult;
-    entity: FirePoint;
-  };
-  ships: {
-    query: ShipUiQuery;
-    result: ShipUiQueryResult;
-    entity: ShipPoint;
+  [TId in QueryableSourceId]: {
+    query: PointUiQuery;
+    result: PointUiQueryResult<QueryableSourceEntities[TId]>;
+    entity: QueryableSourceEntities[TId];
   };
 };
 
-export type QueryableSourceId = keyof QueryableSourceShapes;
+const QUERIES: {
+  [TId in QueryableSourceId]: PointUiQueries<QueryableSourceEntities[TId]>;
+} = {
+  aircraft: AIRCRAFT_UI_QUERIES,
+  cyclones: CYCLONE_UI_QUERIES,
+  earthquake: EARTHQUAKE_UI_QUERIES,
+  events: EVENT_UI_QUERIES,
+  fire: FIRE_UI_QUERIES,
+  ships: SHIP_UI_QUERIES,
+  weather: WEATHER_UI_QUERIES,
+};
 
 export type QueryableSourceCodec<TId extends QueryableSourceId> = Readonly<{
-  parseEntity: (value: unknown) => QueryableSourceShapes[TId]["entity"] | null;
+  parseEntity: (value: unknown) => QueryableSourceEntities[TId] | null;
+  parseResult: (
+    value: unknown,
+  ) => PointUiQueryResult<QueryableSourceEntities[TId]> | null;
   buildQueryCommand: (
     envelope: DataWorkerEnvelope,
     rawQuery: unknown,
@@ -74,135 +86,56 @@ type QueryableSourceCodecs = {
   [TId in QueryableSourceId]: QueryableSourceCodec<TId>;
 };
 
+/**
+ * Binds one source's queries to its command and event shapes. The reply names
+ * the source beside the payload rather than correlating the two, so this stays
+ * generic and no source needs a builder of its own.
+ */
+function codecFor<TId extends QueryableSourceId>(
+  source: TId,
+  queries: PointUiQueries<QueryableSourceEntities[TId]>,
+): QueryableSourceCodec<TId> {
+  return {
+    parseEntity: queries.descriptor.parseEntity,
+    parseResult: queries.parseResult,
+    buildQueryCommand: (envelope, rawQuery) => {
+      const query = queries.parseQuery(rawQuery);
+      return query
+        ? { ...envelope, type: "querySource", source, query }
+        : null;
+    },
+    buildEntityEvent: (envelope, sourceVersion, rawValue) => {
+      if (rawValue === null) {
+        return {
+          ...envelope,
+          type: "sourceEntity",
+          source,
+          sourceVersion,
+          value: null,
+        };
+      }
+      const value = queries.descriptor.parseEntity(rawValue);
+      return value
+        ? { ...envelope, type: "sourceEntity", source, sourceVersion, value }
+        : null;
+    },
+    buildQueryEvent: (envelope, sourceVersion, rawResult) => {
+      const result = queries.parseResult(rawResult);
+      return result
+        ? { ...envelope, type: "sourceQuery", source, sourceVersion, result }
+        : null;
+    },
+  };
+}
+
 export const QUERYABLE_SOURCE_CODECS: QueryableSourceCodecs = {
-  earthquake: {
-    parseEntity: parseEarthquakePoint,
-    buildQueryCommand: (envelope, rawQuery) => {
-      const query = parseEarthquakeUiQuery(rawQuery);
-      return query
-        ? { ...envelope, type: "querySource", source: "earthquake", query }
-        : null;
-    },
-    buildEntityEvent: (envelope, sourceVersion, rawValue) => {
-      if (rawValue === null) {
-        return {
-          ...envelope,
-          type: "sourceEntity",
-          source: "earthquake",
-          sourceVersion,
-          value: null,
-        };
-      }
-      const value = parseEarthquakePoint(rawValue);
-      return value
-        ? {
-            ...envelope,
-            type: "sourceEntity",
-            source: "earthquake",
-            sourceVersion,
-            value,
-          }
-        : null;
-    },
-    buildQueryEvent: (envelope, sourceVersion, rawResult) => {
-      const result = parseEarthquakeUiQueryResult(rawResult);
-      return result
-        ? {
-            ...envelope,
-            type: "sourceQuery",
-            source: "earthquake",
-            sourceVersion,
-            result,
-          }
-        : null;
-    },
-  },
-
-  fire: {
-    parseEntity: parseFirePoint,
-    buildQueryCommand: (envelope, rawQuery) => {
-      const query = parseFireUiQuery(rawQuery);
-      return query
-        ? { ...envelope, type: "querySource", source: "fire", query }
-        : null;
-    },
-    buildEntityEvent: (envelope, sourceVersion, rawValue) => {
-      if (rawValue === null) {
-        return {
-          ...envelope,
-          type: "sourceEntity",
-          source: "fire",
-          sourceVersion,
-          value: null,
-        };
-      }
-      const value = parseFirePoint(rawValue);
-      return value
-        ? {
-            ...envelope,
-            type: "sourceEntity",
-            source: "fire",
-            sourceVersion,
-            value,
-          }
-        : null;
-    },
-    buildQueryEvent: (envelope, sourceVersion, rawResult) => {
-      const result = parseFireUiQueryResult(rawResult);
-      return result
-        ? {
-            ...envelope,
-            type: "sourceQuery",
-            source: "fire",
-            sourceVersion,
-            result,
-          }
-        : null;
-    },
-  },
-
-  ships: {
-    parseEntity: SHIP_UI_QUERY.parseEntity,
-    buildQueryCommand: (envelope, rawQuery) => {
-      const query = parseShipUiQuery(rawQuery);
-      return query
-        ? { ...envelope, type: "querySource", source: "ships", query }
-        : null;
-    },
-    buildEntityEvent: (envelope, sourceVersion, rawValue) => {
-      if (rawValue === null) {
-        return {
-          ...envelope,
-          type: "sourceEntity",
-          source: "ships",
-          sourceVersion,
-          value: null,
-        };
-      }
-      const value = SHIP_UI_QUERY.parseEntity(rawValue);
-      return value
-        ? {
-            ...envelope,
-            type: "sourceEntity",
-            source: "ships",
-            sourceVersion,
-            value,
-          }
-        : null;
-    },
-    buildQueryEvent: (envelope, sourceVersion, rawResult) => {
-      const result = parseShipUiQueryResult(rawResult);
-      return result
-        ? {
-            ...envelope,
-            type: "sourceQuery",
-            source: "ships",
-            sourceVersion,
-            result,
-          }
-        : null;
-    },
-  },
+  aircraft: codecFor("aircraft", QUERIES.aircraft),
+  cyclones: codecFor("cyclones", QUERIES.cyclones),
+  earthquake: codecFor("earthquake", QUERIES.earthquake),
+  events: codecFor("events", QUERIES.events),
+  fire: codecFor("fire", QUERIES.fire),
+  ships: codecFor("ships", QUERIES.ships),
+  weather: codecFor("weather", QUERIES.weather),
 };
 
 export const QUERYABLE_SOURCE_IDS = Object.keys(
@@ -216,4 +149,74 @@ export function isQueryableSourceId(
     typeof value === "string" &&
     Object.hasOwn(QUERYABLE_SOURCE_CODECS, value)
   );
+}
+
+/**
+ * Validates a whole source list at a worker boundary. The codec is picked at
+ * run time, so the result widens to DataPoint; every entity type is one.
+ */
+export function parseQueryableSourceList(
+  source: QueryableSourceId,
+  value: unknown,
+): readonly DataPoint[] | null {
+  if (!Array.isArray(value)) return null;
+  const { parseEntity } = QUERYABLE_SOURCE_CODECS[source];
+  const points: DataPoint[] = [];
+  for (const candidate of value) {
+    const point = parseEntity(candidate);
+    if (!point) return null;
+    points.push(point);
+  }
+  return points;
+}
+
+export function findQueryableSearchIds<TId extends QueryableSourceId>(
+  source: TId,
+  points: readonly QueryableSourceEntities[TId][],
+  text: string,
+): string[] {
+  return QUERIES[source].findSearchIds(points, text);
+}
+
+/** The part of a source runtime the query handlers need. */
+export type QueryableOwner<TEntity> = Readonly<{
+  get: (id: string) => TEntity | null;
+  values: () => readonly TEntity[];
+  snapshot: () => Readonly<{ version: number }>;
+}>;
+
+export type SourceAnswers = Readonly<{
+  entity: (
+    envelope: DataWorkerEnvelope,
+    id: string,
+  ) => DataWorkerEvent | null;
+  query: (
+    envelope: DataWorkerEnvelope,
+    query: PointUiQuery,
+  ) => DataWorkerEvent | null;
+}>;
+
+/**
+ * Binds a source's codec to its owner once, so the worker's handlers can
+ * answer any source without knowing which one they are holding.
+ */
+export function createSourceAnswers<TId extends QueryableSourceId>(
+  source: TId,
+  owner: QueryableOwner<QueryableSourceEntities[TId]>,
+): SourceAnswers {
+  const codec = QUERYABLE_SOURCE_CODECS[source];
+  return {
+    entity: (envelope, id) =>
+      codec.buildEntityEvent(
+        envelope,
+        owner.snapshot().version,
+        owner.get(id),
+      ),
+    query: (envelope, query) =>
+      codec.buildQueryEvent(
+        envelope,
+        owner.snapshot().version,
+        QUERIES[source].run(owner.values(), query),
+      ),
+  };
 }

@@ -10,7 +10,8 @@ import { buildWarningDetailRows } from "./data/warningPoint";
 // against the polygon geometry (see inputHandlers.ts).
 export const cycloneWarningFeature: FeatureDefinition<
   CycloneWarning,
-  Record<string, never>
+  Record<string, never>,
+  "cyclones-warning"
 > = {
   id: "cyclones-warning",
   label: "TROPICAL ALERT",

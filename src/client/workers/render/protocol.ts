@@ -1,5 +1,8 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { TrailPoint } from "@/lib/geo/trails/trailStore";
+import type {
+  TrackMotion,
+  TrailPoint,
+} from "@/lib/geo/trails/trailStore";
 
 export const RENDER_PROTOCOL_VERSION = 2 as const;
 
@@ -56,6 +59,8 @@ export type SelectedRenderItem = Readonly<{
   lon: number;
   trail: readonly TrailPoint[];
   route: readonly (readonly [number, number])[] | null;
+  /** Present when the track is moving; drives dead reckoning between polls. */
+  motion: TrackMotion | null;
 }>;
 
 export type RenderViewportPayload = Readonly<{
@@ -150,24 +155,11 @@ export type RenderWorkerCommandBody =
       canvas: OffscreenCanvas;
       dataPort?: MessagePort;
     }>
+  // Points arrive from the DataWorker over the data port. React only still
+  // owns the theme, so that is all it sends about what gets drawn.
+  | Readonly<{ type: "colors"; payload: RenderWorkerColors }>
   | Readonly<{
-      type: "data";
-      payload: Readonly<{
-        colors: RenderWorkerColors;
-        source: string;
-        reset: boolean;
-        data: readonly DataPoint[];
-        done: boolean;
-      }>;
-    }>
-  | Readonly<{
-      type: "trails";
-      ids: readonly string[];
-      values: Float32Array;
-      timestamps: Float64Array;
-    }>
-  | Readonly<{
-      type: "warnings" | "weatherAlerts";
+      type: "warnings";
       payload: Readonly<{
         features: readonly RenderAreaFeature[];
         warningColor: string;

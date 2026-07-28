@@ -1,21 +1,24 @@
 import { computeCorrelations } from "@/lib/correlation";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { FirePoint } from "@/features/environmental/fires/data/source";
 import type { NewsArticle } from "@/features/news";
 import type {
   CorrelationResult,
   RegionBaseline,
 } from "@/lib/correlation";
+import type { QueryableSourceId } from "@/workers/data/queryableSources";
 import {
   acceptCorrelationDataCommand,
   parseCorrelationDataCommand,
   type CorrelationDataProtocolState,
 } from "@/workers/correlation/dataChannel";
 
+/**
+ * Records reach this worker from the DataWorker, never from React. The main
+ * thread only sends news, which is not a DataWorker source, and the baseline.
+ */
 type ComputeRequest = Readonly<{
   type: "compute";
   requestId: number;
-  allData: DataPoint[];
   news: NewsArticle[];
   baseline: RegionBaseline;
 }>;
@@ -34,7 +37,7 @@ type ComputeResponse = Readonly<{
   result: CorrelationResult;
 }>;
 
-let firePoints: readonly FirePoint[] = [];
+const pointsBySource = new Map<QueryableSourceId, readonly DataPoint[]>();
 let dataPort: MessagePort | null = null;
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
@@ -47,9 +50,19 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
   port.onmessage = (event: MessageEvent<unknown>) => {
     const command = parseCorrelationDataCommand(event.data);
     if (!command || !acceptCorrelationDataCommand(state, command)) return;
-    if (command.type === "fireRebase") firePoints = command.points;
+    if (command.type === "sourceRebase") {
+      pointsBySource.set(command.source, command.points);
+    }
   };
   port.start();
+}
+
+function allPoints(): DataPoint[] {
+  const points: DataPoint[] = [];
+  for (const sourcePoints of pointsBySource.values()) {
+    points.push(...sourcePoints);
+  }
+  return points;
 }
 
 globalThis.onmessage = (event: MessageEvent<WorkerRequest>) => {
@@ -58,12 +71,11 @@ globalThis.onmessage = (event: MessageEvent<WorkerRequest>) => {
     bindDataPort(message.port, message.correlationSessionId);
     return;
   }
-  const allData = [...message.allData, ...firePoints];
   const response: ComputeResponse = {
     type: "result",
     requestId: message.requestId,
     result: computeCorrelations(
-      allData,
+      allPoints(),
       message.news,
       message.baseline,
     ),

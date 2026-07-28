@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { FirePoint } from "@/features/environmental/fires/data/source";
-import {
-  parseFireUiQuery,
-  parseFireUiQueryResult,
-  runFireUiQuery,
-} from "@/features/environmental/fires/data/uiQueries";
+import { FIRE_UI_QUERIES } from "@/features/environmental/fires/data/uiQueries";
 
 function point(
   id: string,
@@ -38,7 +34,7 @@ describe("fire UI queries", () => {
         ),
     );
 
-    const result = runFireUiQuery(points, {
+    const result = FIRE_UI_QUERIES.run(points, {
       kind: "search",
       text: "VIIRS",
     });
@@ -65,7 +61,7 @@ describe("fire UI queries", () => {
       expected,
     ];
 
-    const result = runFireUiQuery(points, {
+    const result = FIRE_UI_QUERIES.run(points, {
       kind: "table",
       minValue: 1,
       sortKey: "value1",
@@ -101,23 +97,23 @@ describe("fire UI queries", () => {
     );
 
     expect(
-      runFireUiQuery([oldest, newest, middle], { kind: "ticker", limit: 2 }),
-    ).toEqual({ kind: "ticker", items: [newest, middle] });
+      FIRE_UI_QUERIES.run([oldest, newest, middle], { kind: "ticker", limit: 2 }),
+    ).toEqual({ kind: "ticker", priorityCount: 0, items: [newest, middle] });
   });
 
   test("validates query and result payloads at worker boundaries", () => {
     expect(
-      parseFireUiQuery({
+      FIRE_UI_QUERIES.parseQuery({
         kind: "table",
         minValue: 4,
-        sortKey: "age",
+        sortKey: "mystery",
         sortDirection: "asc",
         offset: 0,
         limit: 20,
       }),
     ).toBeNull();
     expect(
-      parseFireUiQueryResult({ kind: "ticker", items: [{ id: "bad" }] }),
+      FIRE_UI_QUERIES.parseResult({ kind: "ticker", items: [{ id: "bad" }] }),
     ).toBeNull();
   });
 });

@@ -65,12 +65,9 @@ describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
     expect(cyclonesOrder).toBeGreaterThan(forecastOrder);
   });
 
-  test("colorMap exposes the cyclones color from the theme", async () => {
+  test("the cyclone draw path takes its color from the theme colorMap", async () => {
     const src = await readSource("src/client/workers/pointWorker.ts");
-    const idx = src.indexOf("const colorMap");
-    expect(idx).toBeGreaterThan(-1);
-    const block = src.slice(idx, idx + 600);
-    expect(block).toContain("cyclones:");
+    expect(src).toContain("colorMap.cyclones");
   });
 
   test("dispatches to drawCyclone in the points loop", async () => {

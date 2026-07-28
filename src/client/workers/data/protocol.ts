@@ -10,8 +10,9 @@ import {
   type QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
 import { isDataSourceId, type DataSourceId } from "@/workers/data/sourceIds";
+import type { PointUiQueryResult } from "@/workers/data/uiQuery";
 
-export const DATA_WORKER_PROTOCOL_VERSION = 8 as const;
+export const DATA_WORKER_PROTOCOL_VERSION = 9 as const;
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
@@ -21,23 +22,24 @@ export type DataWorkerCacheEntry = Readonly<{
 export type DataWorkerPointSource = DataSourceId;
 export type DataWorkerQueryableSource = QueryableSourceId;
 
-type SourceEntityBody = {
-  [TId in QueryableSourceId]: Readonly<{
-    type: "sourceEntity";
-    source: TId;
-    sourceVersion: number;
-    value: QueryableSourceShapes[TId]["entity"] | null;
-  }>;
-}[QueryableSourceId];
+export type AnySourceEntity =
+  QueryableSourceShapes[QueryableSourceId]["entity"];
 
-type SourceQueryBody = {
-  [TId in QueryableSourceId]: Readonly<{
-    type: "sourceQuery";
-    source: TId;
-    sourceVersion: number;
-    result: QueryableSourceShapes[TId]["result"];
-  }>;
-}[QueryableSourceId];
+export type AnySourceQueryResult = PointUiQueryResult<AnySourceEntity>;
+
+type SourceEntityBody = Readonly<{
+  type: "sourceEntity";
+  source: QueryableSourceId;
+  sourceVersion: number;
+  value: AnySourceEntity | null;
+}>;
+
+type SourceQueryBody = Readonly<{
+  type: "sourceQuery";
+  source: QueryableSourceId;
+  sourceVersion: number;
+  result: AnySourceQueryResult;
+}>;
 
 type QuerySourceCommandBody = {
   [TId in QueryableSourceId]: Readonly<{
@@ -65,7 +67,7 @@ export type DataWorkerSourceSnapshot = Readonly<{
   error: string | null;
 }>;
 
-type DataWorkerEnvelope = Readonly<{
+export type DataWorkerEnvelope = Readonly<{
   protocolVersion: typeof DATA_WORKER_PROTOCOL_VERSION;
   requestId: number | null;
 }>;

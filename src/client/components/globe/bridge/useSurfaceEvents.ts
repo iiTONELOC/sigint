@@ -58,23 +58,20 @@ export function useSurfaceEvents({
           current.onSelect(null);
           return;
         }
-        const local = current.data.find(
-          (candidate) => candidate.id === interaction.id,
-        );
         const source = workerSource(interaction.pointType);
         const dataClient = getDataWorkerClient();
         if (!source || !dataClient) {
-          current.onSelect(local ?? null);
+          current.onSelect(null);
           return;
         }
         void dataClient.getSourceEntity(source, interaction.id).then(
           (response) => {
             if (request !== selectionRequest.current) return;
-            propsRef.current.onSelect(response.value ?? local ?? null);
+            propsRef.current.onSelect(response.value ?? null);
           },
           () => {
             if (request !== selectionRequest.current) return;
-            propsRef.current.onSelect(local ?? null);
+            propsRef.current.onSelect(null);
           },
         );
         return;

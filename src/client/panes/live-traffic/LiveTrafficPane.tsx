@@ -25,10 +25,16 @@ import {
   Radio,
 } from "lucide-react";
 
+const WATCH_ICON_PX = 11;
+
+const WATCH_SOURCES = [
+  { id: "alerts", Icon: Zap, label: "ALERTS" },
+  { id: "intel", Icon: Link2, label: "INTEL" },
+  { id: "all", Icon: Radio, label: "ALL" },
+] as const;
+
 export function LiveTrafficPane() {
   const {
-    allData,
-    dataVersion,
     layers,
     aircraftFilter,
     earthquakeFilter,
@@ -50,8 +56,6 @@ export function LiveTrafficPane() {
     setZoomToId,
     revealId,
     searchMatchIds,
-    spatialGrid,
-    filteredIds,
     cycloneWarnings,
     watchActive,
     watchPaused,
@@ -179,8 +183,6 @@ export function LiveTrafficPane() {
   return (
     <>
       <GlobeVisualization
-        data={allData}
-        dataVersion={dataVersion}
         layers={layers}
         aircraftFilter={aircraftFilter}
         earthquakeFilter={earthquakeFilter}
@@ -199,8 +201,6 @@ export function LiveTrafficPane() {
         revealId={revealId}
         searchMatchIds={searchMatchIds}
         onSelectedSide={setPanelSide}
-        spatialGrid={spatialGrid}
-        filteredIds={filteredIds}
         cycloneWarnings={cycloneWarnings}
       />
 
@@ -302,28 +302,16 @@ export function LiveTrafficPane() {
             )}
             {watchMenuOpen && !watchActive && (
               <div className="absolute top-full left-0 mt-1 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-24 z-30">
-                {(["alerts", "intel", "all"] as const).map((src) => (
+                {WATCH_SOURCES.map(({ id, Icon, label }) => (
                   <button
-                    key={src}
+                    key={id}
                     onClick={() => {
-                      startWatch(src);
+                      startWatch(id);
                       setWatchMenuOpen(false);
                     }}
                     className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider flex items-center gap-1.5"
                   >
-                    {src === "alerts" ? (
-                      <>
-                        <Zap size={11} strokeWidth={2.5} /> ALERTS
-                      </>
-                    ) : src === "intel" ? (
-                      <>
-                        <Link2 size={11} strokeWidth={2.5} /> INTEL
-                      </>
-                    ) : (
-                      <>
-                        <Radio size={11} strokeWidth={2.5} /> ALL
-                      </>
-                    )}
+                    <Icon size={WATCH_ICON_PX} strokeWidth={2.5} /> {label}
                   </button>
                 ))}
               </div>

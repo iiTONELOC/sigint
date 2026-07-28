@@ -20,12 +20,7 @@ import { registerRenderSurfaceElement } from "./render-surface/registration";
 registerRenderSurfaceElement();
 
 // Singleton providers
-import { shipProvider } from "./features/tracking/ships/data/provider";
-import { gdeltProvider } from "./features/intel/events/data/provider";
-import { weatherProvider } from "./features/environmental/weather/data/provider";
 import { newsProvider } from "./features/news";
-import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
-import { cycloneProvider } from "./features/environmental/cyclones";
 
 // Fire cacheInit NOW — runs while the rest of the module parses.
 // By the time we await it below, IDB is likely already open.
@@ -70,15 +65,10 @@ if (import.meta.hot) {
   createRoot(elem).render(app);
 }
 
-// Provider list — typed via the shared DataProvider contract, no cast needed.
-const providers = [
-  shipProvider,
-  gdeltProvider,
-  weatherProvider,
-  newsProvider,
-  aircraftProvider,
-  cycloneProvider,
-] as const;
+// News is the last feed React still fetches: it is articles, not points, so
+// it has no DataWorker source. Every point source hydrates and polls in the
+// worker and never appears here.
+const providers = [newsProvider] as const;
 
 type HydrateResult = Awaited<ReturnType<(typeof providers)[number]["hydrate"]>>;
 

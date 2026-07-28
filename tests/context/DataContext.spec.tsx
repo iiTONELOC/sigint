@@ -186,12 +186,9 @@ describe("DataContext", () => {
     await waitFor(() => ref.current !== null);
 
     const ctx = ref.current;
-    expect(Array.isArray(ctx.allData)).toBe(true);
     expect(Array.isArray(ctx.newsArticles)).toBe(true);
     expect(Array.isArray(ctx.tickerItems)).toBe(true);
     expect(Array.isArray(ctx.dataSources)).toBe(true);
-    expect(ctx.spatialGrid).toBeDefined();
-    expect(ctx.filteredIds).toBeInstanceOf(Set);
     expect(typeof ctx.activeCount).toBe("number");
     expect(typeof ctx.flat).toBe("boolean");
     expect(typeof ctx.autoRotate).toBe("boolean");
@@ -202,17 +199,12 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("allData excludes worker-owned point sources", async () => {
+  test("exposes no record collection", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
     await waitFor(() => ref.current !== null);
 
-    const workerOwnedTypes = new Set(["quakes", "fires"]);
-    expect(
-      ref.current.allData.some((item: DataPoint) =>
-        workerOwnedTypes.has(item.type),
-      ),
-    ).toBe(false);
+    expect(ref.current.allData).toBeUndefined();
 
     unmount();
   });

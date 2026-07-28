@@ -166,23 +166,21 @@ describe("Speed slider touch", () => {
 // ── Ticker independence from filters ─────────────────────────────────
 
 describe("Ticker filter independence", () => {
-  test("buildTickerItems takes only allData param", async () => {
+  test("mergeTickerPages takes only worker pages", async () => {
     const src = await Bun.file("src/client/lib/ui/tickerFeed.ts").text();
     expect(src).toContain(
-      "export function buildTickerItems(allData: readonly DataPoint[])",
+      "export function mergeTickerPages(pages: readonly TickerPage[])",
     );
-    expect(src).not.toContain("_filters");
-    expect(src).not.toContain("_layers");
+    expect(src).not.toContain("filters");
+    expect(src).not.toContain("layers");
   });
 
-  test("tickerItems memo does not depend on filters or layers", async () => {
-    const src = await Bun.file("src/client/context/DataContext.tsx").text();
-    const index = src.indexOf("const tickerItems = useMemo(");
-    expect(index).toBeGreaterThan(-1);
-    const block = src.slice(index, index + 260);
-    expect(block).toContain("allData");
-    expect(block).toContain("earthquakeTickerItems");
-    expect(block).not.toContain("filters");
-    expect(block).not.toContain("layers");
+  test("the ticker query carries no filter or layer state", async () => {
+    const src = await Bun.file(
+      "src/client/features/base/useSourceTicker.ts",
+    ).text();
+    expect(src).toContain('kind: "ticker"');
+    expect(src).not.toContain("filter");
+    expect(src).not.toContain("layers");
   });
 });

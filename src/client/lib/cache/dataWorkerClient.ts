@@ -14,6 +14,8 @@ import {
   type DataWorkerPointSource,
   type DataWorkerQueryableSource,
   type DataWorkerSourceSnapshot,
+  type AnySourceEntity,
+  type AnySourceQueryResult,
 } from "@/workers/data/protocol";
 export type DataWorkerClientPolicy = Readonly<{
   requestTimeoutMs: number;
@@ -37,21 +39,17 @@ export type DataWorkerSourceListener = (
   snapshot: DataWorkerSourceSnapshot,
 ) => void;
 
-export type DataWorkerSourceEntityResult = {
-  [TId in QueryableSourceId]: Readonly<{
-    source: TId;
-    sourceVersion: number;
-    value: QueryableSourceShapes[TId]["entity"] | null;
-  }>;
-}[QueryableSourceId];
+export type DataWorkerSourceEntityResult = Readonly<{
+  source: QueryableSourceId;
+  sourceVersion: number;
+  value: AnySourceEntity | null;
+}>;
 
-export type DataWorkerSourceQueryResult = {
-  [TId in QueryableSourceId]: Readonly<{
-    source: TId;
-    sourceVersion: number;
-    result: QueryableSourceShapes[TId]["result"];
-  }>;
-}[QueryableSourceId];
+export type DataWorkerSourceQueryResult = Readonly<{
+  source: QueryableSourceId;
+  sourceVersion: number;
+  result: AnySourceQueryResult;
+}>;
 
 export type DataWorkerSourceQueryRequest = {
   [TId in QueryableSourceId]: Readonly<{

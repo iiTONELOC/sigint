@@ -1,20 +1,18 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import type { AriaAttributes } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import type { DataPoint } from "@/features/base/dataPoints";
+import type { DataPoint, DataType } from "@/features/base/dataPoints";
 import { featureRegistry, featureList } from "@/features/registry";
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown, Locate } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 import { isMobileWidth } from "@/config/breakpoints";
-import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
-import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
 import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
-import { useFireUiQuery } from "@/features/environmental/fires";
-import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
+import { useSourceTables } from "@/features/base/useSourceTables";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -28,6 +26,14 @@ const OVERSCAN = 8;
 const INITIAL_QUERY_LIMIT = OVERSCAN * 2;
 
 // ── Helpers ─────────────────────────────────────────────────────────
+
+type AriaSort = NonNullable<AriaAttributes["aria-sort"]>;
+
+/** Screen readers announce the sort state of the column they land on. */
+function sortDirectionLabel(active: boolean, ascending: boolean): AriaSort {
+  if (!active) return "none";
+  return ascending ? "ascending" : "descending";
+}
 
 function getName(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
@@ -61,7 +67,7 @@ function getValue1(item: DataPoint): string {
     case "events":
       return (d.category as string) || "";
     case "quakes":
-      return d.magnitude != null ? `M${d.magnitude}` : "";
+      return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
     case "fires":
       return (d.confidence as string)?.toUpperCase() || "";
     case "weather":
@@ -238,8 +244,6 @@ const COLUMNS: {
 
 export function DataTablePane() {
   const {
-    allData,
-    filters,
     selectedCurrent,
     setSelected,
     selectAndZoom,
@@ -252,85 +256,34 @@ export function DataTablePane() {
 
   const [sortKey, setSortKey] = useState<SortKey>("type");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<DataType | null>(null);
   const [sourcePrefixLimit, setSourcePrefixLimit] =
     useState(INITIAL_QUERY_LIMIT);
 
-  // ── Filter ──────────────────────────────────────────────────────
+  // ── Bounded pages, one per source, computed in the DataWorker ────
 
-  const filteredData = useMemo(() => {
-    let items = allData.filter((item) => {
-      const feature = featureRegistry.get(item.type);
-      if (!feature) return false;
-      const filter = filters[item.type];
-      if (filter == null) return false;
-      return feature.matchesFilter(item as any, filter);
-    });
-    if (typeFilter) items = items.filter((item) => item.type === typeFilter);
-    return items;
-  }, [allData, filters, typeFilter]);
-
-  // ── Sort ────────────────────────────────────────────────────────
-
-  const sortedData = useMemo(() => {
-    const sorted = [...filteredData];
-    sorted.sort((left, right) =>
-      compareDataPoints(left, right, sortKey, sortDir),
-    );
-    return sorted;
-  }, [filteredData, sortKey, sortDir]);
-
-  const earthquakeTableQuery = useMemo<EarthquakeUiQuery | null>(
-    () =>
-      earthquakeFilter.enabled
-        ? {
-            kind: "table",
-            minValue: earthquakeFilter.minMagnitude,
-            sortKey,
-            sortDirection: sortDir,
-            offset: 0,
-            limit: sourcePrefixLimit,
-          }
-        : null,
-    [earthquakeFilter, sortKey, sortDir, sourcePrefixLimit],
+  const minValues = useMemo(
+    () => ({
+      earthquake: earthquakeFilter.minMagnitude,
+      fire: fireFilter.minConfidence,
+    }),
+    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
   );
-  const earthquakeTableResult = useEarthquakeUiQuery(earthquakeTableQuery);
-  const earthquakeTotal =
-    earthquakeTableResult?.kind === "table"
-      ? earthquakeTableResult.total
-      : 0;
-  const includeEarthquakes =
-    typeFilter === null || typeFilter === "quakes";
-  const earthquakeItems =
-    includeEarthquakes && earthquakeTableResult?.kind === "table"
-      ? earthquakeTableResult.items
-      : [];
-  const fireTableQuery = useMemo<FireUiQuery | null>(
-    () =>
-      fireFilter.enabled
-        ? {
-            kind: "table",
-            minValue: fireFilter.minConfidence,
-            sortKey,
-            sortDirection: sortDir,
-            offset: 0,
-            limit: sourcePrefixLimit,
-          }
-        : null,
-    [fireFilter, sortKey, sortDir, sourcePrefixLimit],
+  const disabled = useMemo(
+    () => ({
+      earthquake: !earthquakeFilter.enabled,
+      fire: !fireFilter.enabled,
+    }),
+    [earthquakeFilter.enabled, fireFilter.enabled],
   );
-  const fireTableResult = useFireUiQuery(fireTableQuery);
-  const fireTotal =
-    fireTableResult?.kind === "table" ? fireTableResult.total : 0;
-  const includeFires = typeFilter === null || typeFilter === "fires";
-  const fireItems =
-    includeFires && fireTableResult?.kind === "table"
-      ? fireTableResult.items
-      : [];
-  const itemCount =
-    sortedData.length +
-    (includeEarthquakes ? earthquakeTotal : 0) +
-    (includeFires ? fireTotal : 0);
+  const { prefixes, totals, itemCount } = useSourceTables({
+    sortKey,
+    sortDirection: sortDir,
+    limit: sourcePrefixLimit,
+    pointType: typeFilter,
+    minValues,
+    disabled,
+  });
 
   // ── Virtual scroll ──────────────────────────────────────────────
 
@@ -355,19 +308,11 @@ export function DataTablePane() {
   const visibleItems = useMemo(
     () =>
       mergeSortedPrefixes(
-        [sortedData, earthquakeItems, fireItems],
+        prefixes,
         (left, right) => compareDataPoints(left, right, sortKey, sortDir),
         endIdx,
       ).slice(startIdx, endIdx),
-    [
-      sortedData,
-      earthquakeItems,
-      fireItems,
-      sortKey,
-      sortDir,
-      startIdx,
-      endIdx,
-    ],
+    [prefixes, sortKey, sortDir, startIdx, endIdx],
   );
 
   // ── Auto-scroll to selected item ─────────────────────────────────
@@ -375,7 +320,7 @@ export function DataTablePane() {
   useEffect(() => {
     if (!selectedCurrent) return;
     const prefix = mergeSortedPrefixes(
-      [sortedData, earthquakeItems, fireItems],
+      prefixes,
       (left, right) => compareDataPoints(left, right, sortKey, sortDir),
       sourcePrefixLimit,
     );
@@ -383,31 +328,14 @@ export function DataTablePane() {
     if (index >= 0) scrollToIndex(index);
   }, [
     selectedCurrent?.id,
-    sortedData,
-    earthquakeItems,
-    fireItems,
+    prefixes,
     sortKey,
     sortDir,
     sourcePrefixLimit,
     scrollToIndex,
   ]);
 
-  // ── Feature counts ──────────────────────────────────────────────
-
-  const featureCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const item of allData) {
-      const feature = featureRegistry.get(item.type);
-      if (!feature) continue;
-      const filter = filters[item.type];
-      if (filter == null) continue;
-      if (!feature.matchesFilter(item as any, filter)) continue;
-      counts[item.type] = (counts[item.type] ?? 0) + 1;
-    }
-    counts.quakes = earthquakeTotal;
-    counts.fires = fireTotal;
-    return counts;
-  }, [allData, filters, earthquakeTotal, fireTotal]);
+  const featureCounts = totals;
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -422,8 +350,11 @@ export function DataTablePane() {
     });
   }, []);
 
-  const { handleClick: handleRowClick, handleZoom: handleZoomTo } =
-    useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
+  const {
+    handleClick: handleRowClick,
+    handleZoom: handleZoomTo,
+    handleKeyDown: handleRowKeyDown,
+  } = useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
 
   const isMobileTable =
     typeof window !== "undefined" && isMobileWidth(window.innerWidth);
@@ -490,41 +421,52 @@ export function DataTablePane() {
         </span>
       </div>
 
-      {/* Column headers */}
-      <div
-        className="shrink-0 grid items-center px-2 py-1 border-b border-sig-border/40 bg-sig-panel/40 select-none"
-        style={{ gridTemplateColumns: gridTemplate }}
-      >
-        {visibleColumns.map((col) => {
-          const active = sortKey === col.key;
-          return (
-            <Tooltip key={col.key} content={col.tooltip} placement="bottom">
-              <button
-                onClick={() => handleSort(col.key)}
-                className={`flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
-                  active ? "text-sig-accent" : "text-sig-dim"
-                } ${col.align === "right" ? "justify-end" : "justify-start"}`}
-              >
-                {col.shortLabel}
-                {active ? (
-                  sortDir === "asc" ? (
-                    <ArrowUp size={10} strokeWidth={2.5} />
-                  ) : (
-                    <ArrowDown size={10} strokeWidth={2.5} />
-                  )
-                ) : (
-                  <ArrowUpDown
-                    size={9}
-                    strokeWidth={2}
-                    className="opacity-30"
-                  />
-                )}
-              </button>
-            </Tooltip>
-          );
-        })}
-        {!isMobileTable && <div />}
-      </div>
+      <table className="shrink-0 w-full border-b border-sig-border/40 bg-sig-panel/40 select-none">
+        <thead>
+          <tr
+            className="grid items-center px-2 py-1"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
+            {visibleColumns.map((col) => {
+              const active = sortKey === col.key;
+              const ascending = active && sortDir === "asc";
+              return (
+                <th
+                  key={col.key}
+                  scope="col"
+                  aria-sort={sortDirectionLabel(active, ascending)}
+                  className={
+                    col.align === "right" ? "text-right" : "text-left"
+                  }
+                >
+                  <Tooltip content={col.tooltip} placement="bottom">
+                    <button
+                      onClick={() => handleSort(col.key)}
+                      className={`w-full flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
+                        active ? "text-sig-accent" : "text-sig-dim"
+                      } ${col.align === "right" ? "justify-end" : "justify-start"}`}
+                    >
+                      {col.shortLabel}
+                      {!active && (
+                        <ArrowUpDown
+                          size={9}
+                          strokeWidth={2}
+                          className="opacity-30"
+                        />
+                      )}
+                      {ascending && <ArrowUp size={10} strokeWidth={2.5} />}
+                      {active && !ascending && (
+                        <ArrowDown size={10} strokeWidth={2.5} />
+                      )}
+                    </button>
+                  </Tooltip>
+                </th>
+              );
+            })}
+            {!isMobileTable && <th scope="col" aria-label="Actions" />}
+          </tr>
+        </thead>
+      </table>
 
       {/* Virtual scrolling rows */}
       <div
@@ -532,11 +474,15 @@ export function DataTablePane() {
         onScroll={onScroll}
         className="flex-1 overflow-y-auto sigint-scroll"
       >
-        <div style={{ height: totalHeight, position: "relative" }}>
-          <div
-            style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
+        <table className="w-full">
+          <tbody
+            style={{
+              display: "block",
+              height: totalHeight,
+              position: "relative",
+            }}
           >
-            {visibleItems.map((item) => {
+            {visibleItems.map((item, index) => {
               const color = colorMap[item.type] ?? theme.colors.dim;
               const isSelected = selectedCurrent?.id === item.id;
               const feature = featureRegistry.get(item.type);
@@ -544,9 +490,11 @@ export function DataTablePane() {
               const Icon = feature.icon;
 
               return (
-                <div
+                <tr
                   key={item.id}
+                  tabIndex={0}
                   onClick={() => handleRowClick(item)}
+                  onKeyDown={(e) => handleRowKeyDown(item, e)}
                   className={`grid items-center px-2 border-b border-sig-border/20 cursor-pointer transition-colors ${
                     isSelected
                       ? "bg-sig-accent/15 border-l-2 border-l-sig-accent"
@@ -555,9 +503,13 @@ export function DataTablePane() {
                   style={{
                     gridTemplateColumns: gridTemplate,
                     height: ROW_HEIGHT,
+                    position: "absolute",
+                    top: offsetY + index * ROW_HEIGHT,
+                    left: 0,
+                    right: 0,
                   }}
                 >
-                  <div className="flex items-center gap-1 overflow-hidden">
+                  <td className="flex items-center gap-1 overflow-hidden">
                     <Icon
                       size={11}
                       strokeWidth={2.5}
@@ -570,31 +522,31 @@ export function DataTablePane() {
                     >
                       {typeAbbr[item.type] ?? item.type}
                     </span>
-                  </div>
-                  <div className="truncate text-sig-bright text-(length:--sig-text-md)">
+                  </td>
+                  <td className="truncate text-sig-bright text-(length:--sig-text-md)">
                     {getName(item)}
-                  </div>
+                  </td>
                   {!isMobileTable && (
-                    <div className="truncate text-sig-text text-(length:--sig-text-sm)">
+                    <td className="truncate text-sig-text text-(length:--sig-text-sm)">
                       {getValue1(item)}
-                    </div>
+                    </td>
                   )}
-                  <div className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
+                  <td className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
                     {getValue2(item)}
-                  </div>
-                  <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
+                  </td>
+                  <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
                     {item.lat.toFixed(2)}
-                  </div>
+                  </td>
                   {!isMobileTable && (
-                    <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
+                    <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
                       {item.lon.toFixed(2)}
-                    </div>
+                    </td>
                   )}
-                  <div className="text-right text-sig-dim text-(length:--sig-text-sm)">
+                  <td className="text-right text-sig-dim text-(length:--sig-text-sm)">
                     {relativeAge(item.timestamp)}
-                  </div>
+                  </td>
                   {!isMobileTable && (
-                    <div className="flex justify-center">
+                    <td className="flex justify-center">
                       <button
                         onClick={(e) => handleZoomTo(item, e)}
                         className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
@@ -602,13 +554,13 @@ export function DataTablePane() {
                       >
                         <Locate size={11} strokeWidth={2.5} />
                       </button>
-                    </div>
+                    </td>
                   )}
-                </div>
+                </tr>
               );
             })}
-          </div>
-        </div>
+          </tbody>
+        </table>
         {itemCount === 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
             No data matching filters

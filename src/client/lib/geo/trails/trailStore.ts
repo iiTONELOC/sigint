@@ -270,6 +270,30 @@ function movePoint(
 }
 
 /**
+ * The last fix plus the motion that carries it forward. Everything the
+ * renderer needs to dead-reckon one track between polls.
+ */
+export type TrackMotion = Readonly<{
+  lat: number;
+  lon: number;
+  ts: number;
+  headingDeg: number;
+  speedMps: number;
+}>;
+
+export function trackMotion(entry: TrailEntry): TrackMotion | null {
+  const last = entry.points.at(-1);
+  if (!last || entry.speedMps <= 0) return null;
+  return {
+    lat: last.lat,
+    lon: last.lon,
+    ts: last.ts,
+    headingDeg: entry.heading,
+    speedMps: entry.speedMps,
+  };
+}
+
+/**
  * Extrapolate from the last known position along its heading. Null when the
  * track is stationary, too fresh to have drifted, or too old to trust.
  */

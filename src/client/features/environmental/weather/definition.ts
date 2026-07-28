@@ -1,27 +1,18 @@
 import { CloudAlert } from "lucide-react";
-import type { FeatureDefinition, BasePoint } from "@/features/base/types";
+import type { FeatureDefinition } from "@/features/base/types";
 import type { WeatherData, WeatherFilter } from "./types";
 import { buildWeatherDetailRows } from "./detailRows";
 import { WeatherTickerContent } from "./ui/WeatherTickerContent";
-import { weatherSeverityRank } from "./severity";
+import { WEATHER_UI_QUERIES } from "@/features/environmental/weather/data/uiQueries";
 
-export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter> = {
+export const weatherFeature: FeatureDefinition<WeatherData, WeatherFilter, "weather"> = {
   id: "weather",
   label: "WEATHER",
   icon: CloudAlert,
   iconProps: { strokeWidth: 2.5 },
 
-  matchesFilter: (
-    _item: BasePoint & { data: WeatherData },
-    filter: WeatherFilter,
-  ) => {
-    if (!filter.enabled) return false;
-    if (filter.minSeverity > 0) {
-      const rank = weatherSeverityRank(_item.data?.severity);
-      if (rank < filter.minSeverity) return false;
-    }
-    return true;
-  },
+  matchesFilter: (item, filter) =>
+    WEATHER_UI_QUERIES.descriptor.matchesFilter(item, filter),
 
   defaultFilter: { enabled: true, minSeverity: 0 },
 

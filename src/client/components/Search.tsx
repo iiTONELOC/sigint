@@ -6,10 +6,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureRegistry } from "@/features/registry";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { useEarthquakeUiQuery } from "@/features/environmental/earthquake";
-import type { EarthquakeUiQuery } from "@/features/environmental/earthquake/data/uiQueries";
-import { useFireUiQuery } from "@/features/environmental/fires";
-import type { FireUiQuery } from "@/features/environmental/fires/data/uiQueries";
+import { useSourceSearch } from "@/features/base/useSourceSearch";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 
@@ -53,7 +50,7 @@ function getSecondaryLabel(item: DataPoint): string {
     case "events":
       return [d.category, d.source].filter(Boolean).join(" · ") || "";
     case "quakes":
-      return d.magnitude != null ? `M${d.magnitude}` : "";
+      return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
     default:
       return "";
   }
@@ -86,11 +83,11 @@ function scoreMatch(
   return score;
 }
 
-function searchData(
+function rankMatches(
   query: string,
   data: readonly DataPoint[],
-): { allMatches: SearchResult[]; topResults: SearchResult[] } {
-  if (!query.trim()) return { allMatches: [], topResults: [] };
+): SearchResult[] {
+  if (!query.trim()) return [];
   const allMatches: SearchResult[] = [];
   for (const item of data) {
     const feature = featureRegistry.get(item.type);
@@ -107,28 +104,19 @@ function searchData(
         secondary: getSecondaryLabel(item),
       });
   }
-  allMatches.sort((a, b) => b.score - a.score);
-  return {
-    allMatches,
-    topResults: allMatches.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit),
-  };
+  allMatches.sort((left, right) => right.score - left.score);
+  return allMatches.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit);
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
 type SearchProps = {
-  readonly data: DataPoint[];
   readonly onSelect: (item: DataPoint) => void;
   readonly onZoomTo: (item: DataPoint) => void;
   readonly onMatchingIdsChange: (ids: Set<string> | null) => void;
 };
 
-export function Search({
-  data,
-  onSelect,
-  onZoomTo,
-  onMatchingIdsChange,
-}: SearchProps) {
+export function Search({ onSelect, onZoomTo, onMatchingIdsChange }: SearchProps) {
   const { theme } = useTheme();
   const dataWorkerClient = useMemo(getDataWorkerClient, []);
   const C = theme.colors;
@@ -139,118 +127,29 @@ export function Search({
   const [committedQuery, setCommittedQuery] = useState<string | null>(null);
   const [committedCount, setCommittedCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = query.trim();
-  const earthquakeSearchQuery = useMemo<EarthquakeUiQuery | null>(
-    () =>
-      normalizedQuery.length > 0
-        ? { kind: "search", text: normalizedQuery }
-        : null,
-    [normalizedQuery],
-  );
-  const fireSearchQuery = useMemo<FireUiQuery | null>(
-    () =>
-      normalizedQuery.length > 0
-        ? { kind: "search", text: normalizedQuery }
-        : null,
-    [normalizedQuery],
-  );
-  const committedEarthquakeSearchQuery = useMemo<EarthquakeUiQuery | null>(
-    () =>
-      committedQuery
-        ? { kind: "search", text: committedQuery }
-        : null,
-    [committedQuery],
-  );
-  const committedFireSearchQuery = useMemo<FireUiQuery | null>(
-    () =>
-      committedQuery
-        ? { kind: "search", text: committedQuery }
-        : null,
-    [committedQuery],
-  );
-  const earthquakeSearchResult = useEarthquakeUiQuery(earthquakeSearchQuery);
-  const fireSearchResult = useFireUiQuery(fireSearchQuery);
-  const committedEarthquakeSearchResult = useEarthquakeUiQuery(
-    committedEarthquakeSearchQuery,
-  );
-  const committedFireSearchResult = useFireUiQuery(
-    committedFireSearchQuery,
-  );
-  const { allMatches: localMatches } = useMemo(
-    () => searchData(normalizedQuery, data),
-    [normalizedQuery, data],
-  );
-  const earthquakeMatches = useMemo(
-    () =>
-      earthquakeSearchResult?.kind === "search"
-        ? searchData(normalizedQuery, earthquakeSearchResult.items).allMatches
-        : [],
-    [earthquakeSearchResult, normalizedQuery],
-  );
-  const fireMatches = useMemo(
-    () =>
-      fireSearchResult?.kind === "search"
-        ? searchData(normalizedQuery, fireSearchResult.items).allMatches
-        : [],
-    [fireSearchResult, normalizedQuery],
-  );
+  const live = useSourceSearch(normalizedQuery || null);
+  const committed = useSourceSearch(committedQuery);
+
   const topResults = useMemo(
-    () =>
-      [
-        ...localMatches.slice(
-          0,
-          POINT_UI_QUERY_POLICY.searchResultLimit,
-        ),
-        ...earthquakeMatches,
-        ...fireMatches,
-      ]
-        .sort((left, right) => right.score - left.score)
-        .slice(0, POINT_UI_QUERY_POLICY.searchResultLimit),
-    [localMatches, earthquakeMatches, fireMatches],
+    () => rankMatches(normalizedQuery, live.items),
+    [live.items, normalizedQuery],
   );
   const localMatchingIds = useMemo(
-    () => new Set(localMatches.map((result) => result.item.id)),
-    [localMatches],
+    () => new Set(live.items.map((item) => item.id)),
+    [live.items],
   );
-  const earthquakeMatchCount =
-    earthquakeSearchResult?.kind === "search"
-      ? earthquakeSearchResult.total
-      : 0;
-  const fireMatchCount =
-    fireSearchResult?.kind === "search" ? fireSearchResult.total : 0;
-  const matchingCount =
-    localMatchingIds.size + earthquakeMatchCount + fireMatchCount;
-  const searchReady =
-    earthquakeSearchResult?.kind === "search" &&
-    fireSearchResult?.kind === "search";
+  const matchingCount = live.total;
+  const searchReady = live.ready;
 
   useEffect(() => {
-    if (
-      committedQuery === null ||
-      committedEarthquakeSearchResult?.kind !== "search" ||
-      committedFireSearchResult?.kind !== "search"
-    ) {
-      return;
-    }
-    const { allMatches: refreshed } = searchData(committedQuery, data);
-    const ids = new Set(refreshed.map((result) => result.item.id));
-    onMatchingIdsChange(ids);
-    setCommittedCount(
-      ids.size +
-        committedEarthquakeSearchResult.total +
-        committedFireSearchResult.total,
-    );
-  }, [
-    data,
-    committedQuery,
-    committedEarthquakeSearchResult,
-    committedFireSearchResult,
-    onMatchingIdsChange,
-  ]);
+    if (committedQuery === null || !committed.ready) return;
+    onMatchingIdsChange(new Set(committed.items.map((item) => item.id)));
+    setCommittedCount(committed.total);
+  }, [committedQuery, committed, onMatchingIdsChange]);
 
   const commitFilter = useCallback(() => {
     if (!normalizedQuery || !searchReady || matchingCount === 0) return;
@@ -356,7 +255,6 @@ export function Search({
   // Focus via ref callback — fires the instant the input mounts into the DOM,
   // which is still within the same user gesture microtask on iOS Safari.
   const inputRefCallback = useCallback((el: HTMLInputElement | null) => {
-    (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
     if (el && pendingFocusRef.current) {
       pendingFocusRef.current = false;
       el.focus();
@@ -370,7 +268,7 @@ export function Search({
       if (
         containerRef.current &&
         !containerRef.current.contains(target) &&
-        (!dropdownRef.current || !dropdownRef.current.contains(target))
+        !dropdownRef.current?.contains(target)
       )
         closeDropdown();
     };

@@ -4,21 +4,26 @@ import {
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
 import {
-  findPointSearchIds,
-  parsePointUiQuery,
-  parsePointUiQueryResult,
-  runPointUiQuery,
+  alwaysInTicker,
+  createPointUiQueries,
+  matchesThresholdFilter,
+  neverTickerPriority,
+  noFilterFacet,
   type PointUiQuery,
-  type PointUiQueryDescriptor,
   type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
+import { FireDayNight } from "@shared/domain/fireDayNight";
+import { isEnumValue } from "@shared/types/enum";
 
 export type { TableSortDirection, TableSortKey } from "@/workers/data/uiQuery";
 
 export type FireUiQuery = PointUiQuery;
 export type FireUiQueryResult = PointUiQueryResult<FirePoint>;
 
-const DAY_NIGHT_LABELS = { D: "day", N: "night" } as const;
+const DAY_NIGHT_LABELS: Readonly<Record<FireDayNight, string>> = {
+  [FireDayNight.Day]: "day",
+  [FireDayNight.Night]: "night",
+};
 
 function radiativePowerLabel(point: FirePoint): string {
   return point.data.frp === undefined ? "" : `FRP${point.data.frp}`;
@@ -30,14 +35,15 @@ function hotspotName(point: FirePoint): string {
     : `FRP ${point.data.frp.toFixed(1)} MW`;
 }
 
-function dayNightLabel(point: FirePoint): string {
-  const value = point.data.daynight;
-  if (value === "D") return DAY_NIGHT_LABELS.D;
-  if (value === "N") return DAY_NIGHT_LABELS.N;
-  return "";
+export function fireDayNightSearchTerm(value: string | undefined): string {
+  return isEnumValue(value, FireDayNight) ? DAY_NIGHT_LABELS[value] : "";
 }
 
-export const FIRE_UI_QUERY: PointUiQueryDescriptor<FirePoint> = {
+function dayNightLabel(point: FirePoint): string {
+  return fireDayNightSearchTerm(point.data.daynight);
+}
+
+export const FIRE_UI_QUERIES = createPointUiQueries<FirePoint>({
   parseEntity: parseFirePoint,
   searchText: (point) =>
     [
@@ -55,30 +61,14 @@ export const FIRE_UI_QUERY: PointUiQueryDescriptor<FirePoint> = {
   value2: (point) => point.data.brightness ?? 0,
   includeInTable: (point, minValue) =>
     fireConfidenceLevel(point.data.confidence) >= minValue,
+  matchesFilter: (point, filter) =>
+    matchesThresholdFilter(
+      filter,
+      "minConfidence",
+      fireConfidenceLevel(point.data.confidence),
+    ),
+  includeInTicker: alwaysInTicker,
+  tickerPriority: neverTickerPriority,
+  filterFacet: noFilterFacet,
   supportsCorrelation: false,
-};
-
-export function parseFireUiQuery(value: unknown): FireUiQuery | null {
-  return parsePointUiQuery(value, FIRE_UI_QUERY.supportsCorrelation);
-}
-
-export function parseFireUiQueryResult(
-  value: unknown,
-): FireUiQueryResult | null {
-  return parsePointUiQueryResult(value, FIRE_UI_QUERY.parseEntity);
-}
-
-export function findFireSearchIds(
-  points: readonly FirePoint[],
-  text: string,
-): string[] {
-  return findPointSearchIds(points, text, FIRE_UI_QUERY);
-}
-
-export function runFireUiQuery(
-  points: readonly FirePoint[],
-  query: FireUiQuery,
-  now: number = Date.now(),
-): FireUiQueryResult {
-  return runPointUiQuery(points, query, FIRE_UI_QUERY, now);
-}
+});

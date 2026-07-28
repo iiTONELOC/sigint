@@ -1,26 +1,18 @@
 import { Zap } from "lucide-react";
-import type { FeatureDefinition, BasePoint } from "@/features/base/types";
+import type { FeatureDefinition } from "@/features/base/types";
 import type { EventData, EventFilter } from "./types";
 import { buildEventDetailRows } from "./detailRows";
 import { EventTickerContent } from "./ui/EventTickerContent";
+import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
 
-export const eventsFeature: FeatureDefinition<EventData, EventFilter> = {
+export const eventsFeature: FeatureDefinition<EventData, EventFilter, "events"> = {
   id: "events",
   label: "GDELT EVENTS",
   icon: Zap,
   iconProps: { fill: "currentColor", strokeWidth: 0 },
 
-  matchesFilter: (
-    _item: BasePoint & { data: EventData },
-    filter: EventFilter,
-  ) => {
-    if (!filter.enabled) return false;
-    const sev = _item.data?.severity;
-    if (sev != null && filter.minSeverity > 0 && sev < filter.minSeverity) {
-      return false;
-    }
-    return true;
-  },
+  matchesFilter: (item, filter) =>
+    EVENT_UI_QUERIES.descriptor.matchesFilter(item, filter),
 
   defaultFilter: { enabled: true, minSeverity: 0 },
 

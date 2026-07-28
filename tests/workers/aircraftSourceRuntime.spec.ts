@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SquawkStatus } from "@shared/domain/aircraft";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
   createAircraftSourceRuntime,
@@ -17,7 +18,7 @@ function aircraft(heading: number): AircraftPoint {
       military: true,
       recon: false,
       onGround: false,
-      squawkStatus: "normal",
+      squawkStatus: SquawkStatus.Normal,
       originCountry: "United States",
     },
   };

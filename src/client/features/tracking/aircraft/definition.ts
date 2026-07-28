@@ -1,12 +1,11 @@
 import { Plane } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { AircraftData, AircraftFilter } from "./types";
-import type { BasePoint } from "@/features/base/types";
-import { matchesAircraftFilter } from "./lib/utils";
 import { buildAircraftDetailRows } from "./detailRows";
 import { AircraftTickerContent } from "./ui/AircraftTickerContent";
 import { AircraftFilterControl } from "./ui/AircraftFilterControl";
 import { DEFAULT_AIRCRAFT_FILTER } from "./lib/filterUrl";
+import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
 
 // NOAA WP-3D / G-IV recon aircraft have well-known nicknames; surface them
 // as search terms so "kermit" / "miss piggy" / "gonzo" find the right bird.
@@ -27,17 +26,15 @@ function reconNicknames(data: AircraftData): string {
   return RECON_NICKNAMES[reg] ?? RECON_NICKNAMES[hex] ?? "";
 }
 
-export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter> =
+export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter, "aircraft"> =
   {
     id: "aircraft",
     label: "AIRCRAFT",
     icon: Plane,
     iconProps: { fill: "currentColor", strokeWidth: 0 },
 
-    matchesFilter: (
-      item: BasePoint & { data: AircraftData },
-      filter: AircraftFilter,
-    ) => matchesAircraftFilter(item, filter),
+    matchesFilter: (item, filter) =>
+      AIRCRAFT_UI_QUERIES.descriptor.matchesFilter(item, filter),
 
     defaultFilter: DEFAULT_AIRCRAFT_FILTER,
 

@@ -7,7 +7,10 @@
 // projGlobe and the mini-map's local projection alike. No canvas calls here —
 // these return point arrays the caller strokes/fills.
 
-export type { Projected, ProjFn } from "@/lib/geo/render/types";
+import type { ProjFn } from "@/lib/geo/render/types";
+
+export type { Projected } from "@/lib/geo/render/types";
+export type { ProjFn };
 
 export type Ctx = OffscreenCanvasRenderingContext2D;
 export type LatLon = { lat: number; lon: number };

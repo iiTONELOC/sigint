@@ -4,7 +4,6 @@ import type { CycloneFilter } from "@/features/environmental/cyclones";
 import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
 import type { FireFilter } from "@/features/environmental/fires/types";
 import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
-import type { SpatialGrid } from "@/lib/geo/spatialIndex";
 
 export type CamState = {
   rotY: number;
@@ -44,8 +43,6 @@ export type GlobeVisualizationProps = {
   readonly flat?: boolean;
   readonly autoRotate?: boolean;
   readonly rotationSpeed?: number;
-  readonly data: DataPoint[];
-  readonly dataVersion: number;
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
   readonly earthquakeFilter: EarthquakeFilter;
@@ -62,8 +59,6 @@ export type GlobeVisualizationProps = {
   /** Gentle reveal — rotate to show point at ISS-level zoom, no lock-on */
   readonly revealId?: string | null;
   readonly searchMatchIds?: Set<string> | null;
-  readonly spatialGrid: SpatialGrid;
-  readonly filteredIds: Set<string>;
   /** Tropical watch/warning area polygons (NWS Alerts GeoJSON). */
   readonly cycloneWarnings?: CycloneWarning[];
 };

@@ -421,11 +421,10 @@ describe("walkthroughSteps — complete step text", () => {
   });
 });
 
-describe("walkthroughSteps — ticker independence", () => {
-  test("buildTickerItems accepts only allData param", () => {
-    // Verify the function signature — should work with 1 arg
-    const { buildTickerItems } = require("@/lib/ui/tickerFeed");
-    const result = buildTickerItems([]);
+describe("walkthroughSteps ticker independence", () => {
+  test("mergeTickerPages accepts only worker pages", () => {
+    const { mergeTickerPages } = require("@/lib/ui/tickerFeed");
+    const result = mergeTickerPages([]);
     expect(Array.isArray(result)).toBe(true);
   });
 });

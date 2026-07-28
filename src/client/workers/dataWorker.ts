@@ -12,7 +12,14 @@ import {
   EVENT_SOURCE,
   createEventSourceRuntime,
 } from "@/workers/data/sources/events";
-import { runShipUiQuery } from "@/features/tracking/ships/data/uiQueries";
+import {
+  WEATHER_SOURCE,
+  createWeatherSourceRuntime,
+} from "@/workers/data/sources/weather";
+import {
+  CYCLONE_SOURCE,
+  createCycloneSourceRuntime,
+} from "@/workers/data/sources/cyclones";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   TRAIL_RECORDER_POLICY,
@@ -20,13 +27,10 @@ import {
 } from "@/workers/data/trails/trailRecorder";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
-  findFireSearchIds,
-  runFireUiQuery,
-} from "@/features/environmental/fires/data/uiQueries";
-import {
-  findEarthquakeSearchIds,
-  runEarthquakeUiQuery,
-} from "@/features/environmental/earthquake/data/uiQueries";
+  createSourceAnswers,
+  findQueryableSearchIds,
+  QUERYABLE_SOURCE_IDS,
+} from "@/workers/data/queryableSources";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
@@ -41,10 +45,12 @@ import {
   DATA_WORKER_PROTOCOL_VERSION,
   parseDataWorkerCommand,
   type DataWorkerCommand,
+  type DataWorkerEnvelope,
   type DataWorkerEvent,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 import { createRenderDataCommand } from "@/workers/render/dataChannel";
+import type { DataPoint } from "@/features/base/dataPoints";
 import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
 
 type CommandOf<TType extends DataWorkerCommand["type"]> = Extract<
@@ -85,6 +91,25 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
     requestId: null,
     snapshot,
   });
+  rebaseCorrelation(snapshot.source);
+}
+
+/**
+ * Every source rebases to the correlation worker on its own status publish, so
+ * correlation input never travels through React. The port guard also keeps
+ * this inert while the owners are still being constructed.
+ */
+function rebaseCorrelation(source: string): void {
+  if (!correlationPort || !correlationSessionId) return;
+  if (!isOwnedSource(source)) return;
+  correlationSequence++;
+  correlationPort.postMessage(
+    createCorrelationDataCommand(
+      { type: "sourceRebase", source, points: sourceOwners[source].values() },
+      correlationSessionId,
+      correlationSequence,
+    ),
+  );
 }
 
 const trailRecorder = createTrailRecorder({
@@ -124,7 +149,11 @@ function publishEarthquakeSearch(): void {
   postRenderData({
     type: "earthquakeSearch",
     matchingIds: earthquakeSearchText
-      ? findEarthquakeSearchIds(earthquakeOwner.values(), earthquakeSearchText)
+      ? findQueryableSearchIds(
+          "earthquake",
+          earthquakeOwner.values(),
+          earthquakeSearchText,
+        )
       : null,
   });
 }
@@ -133,7 +162,7 @@ function publishFireSearch(): void {
   postRenderData({
     type: "fireSearch",
     matchingIds: fireSearchText
-      ? findFireSearchIds(fireOwner.values(), fireSearchText)
+      ? findQueryableSearchIds("fire", fireOwner.values(), fireSearchText)
       : null,
   });
 }
@@ -176,34 +205,13 @@ function rebaseFireRender(
   publishFireSearch();
 }
 
-function rebaseFireCorrelation(
-  points: ReturnType<typeof fireOwner.values>,
-): void {
-  if (!correlationPort || !correlationSessionId) return;
-  correlationSequence++;
-  correlationPort.postMessage(
-    createCorrelationDataCommand(
-      { type: "fireRebase", points },
-      correlationSessionId,
-      correlationSequence,
-    ),
-  );
-}
-
-function rebaseFireConsumers(
-  points: ReturnType<typeof fireOwner.values>,
-): void {
-  rebaseFireRender(points);
-  rebaseFireCorrelation(points);
-}
-
 const fireOwner = createFireSourceOwner({
   readCache: () => store.get(FIRE_SOURCE_POLICY.cacheKey),
   persistCache: (snapshot) => {
     coordinator.setDeferred(FIRE_SOURCE_POLICY.cacheKey, snapshot);
   },
   publishStatus: publishSource,
-  publishRebase: rebaseFireConsumers,
+  publishRebase: rebaseFireRender,
 });
 
 const shipOwner = createShipSourceRuntime({
@@ -226,14 +234,65 @@ const eventOwner = createEventSourceRuntime({
     coordinator.setDeferred(EVENT_SOURCE.cacheKey, snapshot);
   },
   publishStatus: publishSource,
+  publishPoints: (points) => {
+    rebasePoints(EVENT_SOURCE.id, points);
+  },
+});
+
+/**
+ * Events, weather and cyclones carry geometry and number in the hundreds, so
+ * they ride to the renderer as objects rather than packed lanes. React is not
+ * on this path at all.
+ */
+function rebasePoints(
+  source: "events" | "weather" | "cyclones",
+  points: readonly DataPoint[],
+): void {
+  postRenderData({ type: "pointsRebase", source, points });
+}
+
+const weatherOwner = createWeatherSourceRuntime({
+  readCache: () => store.get(WEATHER_SOURCE.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(WEATHER_SOURCE.cacheKey, snapshot);
+  },
+  publishStatus: publishSource,
+  publishPoints: (points) => {
+    rebasePoints(WEATHER_SOURCE.id, points);
+  },
+});
+
+const cycloneOwner = createCycloneSourceRuntime({
+  readCache: () => store.get(CYCLONE_SOURCE.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(CYCLONE_SOURCE.cacheKey, snapshot);
+  },
+  publishStatus: publishSource,
+  publishPoints: (points) => {
+    rebasePoints(CYCLONE_SOURCE.id, points);
+  },
 });
 
 const sourceOwners = {
   aircraft: aircraftOwner,
+  cyclones: cycloneOwner,
   earthquake: earthquakeOwner,
   events: eventOwner,
   fire: fireOwner,
   ships: shipOwner,
+  weather: weatherOwner,
+} as const;
+
+// One line per source; each binds its codec to its owner where both types
+// are concrete, which is what keeps the handlers branch-free.
+const sourceAnswers = {
+  aircraft: createSourceAnswers("aircraft", aircraftOwner),
+  cyclones: createSourceAnswers("cyclones", cycloneOwner),
+  earthquake: createSourceAnswers("earthquake", earthquakeOwner),
+  events: createSourceAnswers("events", eventOwner),
+  fire: createSourceAnswers("fire", fireOwner),
+  ships: createSourceAnswers("ships", shipOwner),
+  weather: createSourceAnswers("weather", weatherOwner),
 } as const;
 
 type OwnedSourceId = keyof typeof sourceOwners;
@@ -303,6 +362,9 @@ function handleConnectRender(command: CommandOf<"connectRender">): void {
   scenePublisher.connect(renderPort, renderSessionId);
   aircraftOwner.publishRebase();
   shipOwner.publishRebase();
+  eventOwner.publishRebase();
+  weatherOwner.publishRebase();
+  cycloneOwner.publishRebase();
   rebaseEarthquakeRender(earthquakeOwner.values());
   rebaseFireRender(fireOwner.values());
   complete(command.requestId);
@@ -324,7 +386,10 @@ function handleConnectCorrelation(
       correlationSequence,
     ),
   );
-  rebaseFireCorrelation(fireOwner.values());
+  // Seed the whole record set: the correlation worker connects long after the
+  // sources have started publishing, so it would otherwise stay empty until
+  // each one next polls.
+  for (const source of QUERYABLE_SOURCE_IDS) rebaseCorrelation(source);
   complete(command.requestId);
 }
 
@@ -352,74 +417,28 @@ function handleListSourceEntities(
   });
 }
 
+function envelopeFor(requestId: number | null): DataWorkerEnvelope {
+  return { protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId };
+}
+
+/**
+ * Every queryable source answers through its own bound codec, so these
+ * handlers carry no per-source branching.
+ */
 function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
-  const requestId = command.requestId;
-  const protocolVersion = DATA_WORKER_PROTOCOL_VERSION;
-  if (command.source === "earthquake") {
-    post({
-      type: "sourceEntity",
-      protocolVersion,
-      requestId,
-      source: "earthquake",
-      sourceVersion: earthquakeOwner.snapshot().version,
-      value: earthquakeOwner.get(command.id),
-    });
-    return;
-  }
-  if (command.source === "ships") {
-    post({
-      type: "sourceEntity",
-      protocolVersion,
-      requestId,
-      source: "ships",
-      sourceVersion: shipOwner.snapshot().version,
-      value: shipOwner.get(command.id),
-    });
-    return;
-  }
-  post({
-    type: "sourceEntity",
-    protocolVersion,
-    requestId,
-    source: "fire",
-    sourceVersion: fireOwner.snapshot().version,
-    value: fireOwner.get(command.id),
-  });
+  const event = sourceAnswers[command.source].entity(
+    envelopeFor(command.requestId),
+    command.id,
+  );
+  if (event) post(event);
 }
 
 function handleQuerySource(command: CommandOf<"querySource">): void {
-  const requestId = command.requestId;
-  const protocolVersion = DATA_WORKER_PROTOCOL_VERSION;
-  if (command.source === "earthquake") {
-    post({
-      type: "sourceQuery",
-      protocolVersion,
-      requestId,
-      source: "earthquake",
-      sourceVersion: earthquakeOwner.snapshot().version,
-      result: runEarthquakeUiQuery(earthquakeOwner.values(), command.query),
-    });
-    return;
-  }
-  if (command.source === "ships") {
-    post({
-      type: "sourceQuery",
-      protocolVersion,
-      requestId,
-      source: "ships",
-      sourceVersion: shipOwner.snapshot().version,
-      result: runShipUiQuery(shipOwner.values(), command.query),
-    });
-    return;
-  }
-  post({
-    type: "sourceQuery",
-    protocolVersion,
-    requestId,
-    source: "fire",
-    sourceVersion: fireOwner.snapshot().version,
-    result: runFireUiQuery(fireOwner.values(), command.query),
-  });
+  const event = sourceAnswers[command.source].query(
+    envelopeFor(command.requestId),
+    command.query,
+  );
+  if (event) post(event);
 }
 
 function handleSetSourceSearch(

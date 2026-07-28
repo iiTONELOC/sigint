@@ -13,7 +13,7 @@ import {
 
 // ── Registry ─────────────────────────────────────────────────────────
 
-const features: FeatureDefinition<any, any>[] = [
+const features: FeatureDefinition<any, any, any>[] = [
   aircraftFeature,
   shipsFeature,
   eventsFeature,
@@ -28,7 +28,7 @@ const features: FeatureDefinition<any, any>[] = [
   cycloneWarningFeature,
 ];
 
-export const featureRegistry = new Map<string, FeatureDefinition<any, any>>(
+export const featureRegistry = new Map<string, FeatureDefinition<any, any, any>>(
   features.map((f) => [f.id, f]),
 );
 

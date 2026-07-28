@@ -59,9 +59,13 @@ export type TickerRendererProps = {
   dimColor: string;
 };
 
-export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
+export type FeatureDefinition<
+  TData = unknown,
+  TFilter = unknown,
+  TType extends string = string,
+> = {
   /** Unique key matching the DataPoint type discriminator */
-  id: string;
+  id: TType;
 
   /** Display metadata */
   label: string;
@@ -72,7 +76,7 @@ export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
 
   /** Does this item match the given filter? */
   matchesFilter: (
-    item: BasePoint & { data: TData },
+    item: BasePoint & { type: TType; data: TData },
     filter: TFilter,
   ) => boolean;
 

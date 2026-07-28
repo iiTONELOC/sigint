@@ -1,4 +1,7 @@
-import type { DataPoint } from "@/features/base/dataPoints";
+// The worker holds the records: the DataWorker rebases every source to it over
+// a direct port. A request carries only news, which is not a DataWorker source,
+// and the baseline. Nothing here structured-clones a record set.
+
 import type { NewsArticle } from "@/features/news";
 import type { CorrelationResult, RegionBaseline } from "../correlation";
 import { computeCorrelations } from "../correlation";
@@ -7,7 +10,6 @@ import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 type Job = {
   requestId: number;
   resolve: (r: CorrelationResult) => void;
-  allData: DataPoint[];
   news: NewsArticle[];
   baseline: RegionBaseline;
 };
@@ -20,19 +22,21 @@ type WorkerResponse = {
 
 export type CorrelationClient = Readonly<{
   request(
-    allData: DataPoint[],
     news: NewsArticle[],
     baseline: RegionBaseline,
   ): Promise<CorrelationResult>;
   terminate(): void;
 }>;
 
+/**
+ * Without the worker there is no data port either, so this correlates news
+ * against an empty record set rather than silently reporting a stale one.
+ */
 function inlineCompute(
-  allData: DataPoint[],
   news: NewsArticle[],
   baseline: RegionBaseline,
 ): Promise<CorrelationResult> {
-  return Promise.resolve(computeCorrelations(allData, news, baseline));
+  return Promise.resolve(computeCorrelations([], news, baseline));
 }
 
 function inlineFallback(): CorrelationClient {
@@ -87,9 +91,7 @@ export function createCorrelationClient(): CorrelationClient {
   function fallback(): void {
     workerFailed = true;
     for (const job of pending.values()) {
-      void inlineCompute(job.allData, job.news, job.baseline).then(
-        job.resolve,
-      );
+      void inlineCompute(job.news, job.baseline).then(job.resolve);
     }
     pending.clear();
   }
@@ -108,30 +110,23 @@ export function createCorrelationClient(): CorrelationClient {
   worker.onmessageerror = fallback;
 
   return Object.freeze({
-    request(allData, news, baseline) {
-      if (workerFailed) return inlineCompute(allData, news, baseline);
+    request(news, baseline) {
+      if (workerFailed) return inlineCompute(news, baseline);
       const requestId = nextId++;
       latestRequestId = requestId;
       return new Promise<CorrelationResult>((resolve) => {
-        pending.set(requestId, {
-          requestId,
-          resolve,
-          allData,
-          news,
-          baseline,
-        });
+        pending.set(requestId, { requestId, resolve, news, baseline });
         try {
           worker.postMessage({
             type: "compute",
             requestId,
-            allData,
             news,
             baseline,
           });
         } catch {
           pending.delete(requestId);
           fallback();
-          void inlineCompute(allData, news, baseline).then(resolve);
+          void inlineCompute(news, baseline).then(resolve);
         }
       });
     },

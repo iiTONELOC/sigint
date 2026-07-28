@@ -3,12 +3,12 @@ import {
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
 import {
-  findPointSearchIds,
-  parsePointUiQuery,
-  parsePointUiQueryResult,
-  runPointUiQuery,
+  alwaysInTicker,
+  createPointUiQueries,
+  matchesThresholdFilter,
+  neverTickerPriority,
+  noFilterFacet,
   type PointUiQuery,
-  type PointUiQueryDescriptor,
   type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
 
@@ -17,7 +17,6 @@ export type { TableSortDirection, TableSortKey } from "@/workers/data/uiQuery";
 export type EarthquakeUiQuery = PointUiQuery;
 export type EarthquakeUiQueryResult = PointUiQueryResult<EarthquakePoint>;
 
-export { POINT_UI_QUERY_POLICY as EARTHQUAKE_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 
 function magnitudeLabel(point: EarthquakePoint): string {
   return point.data.magnitude === undefined
@@ -25,7 +24,7 @@ function magnitudeLabel(point: EarthquakePoint): string {
     : `M${point.data.magnitude}`;
 }
 
-export const EARTHQUAKE_UI_QUERY: PointUiQueryDescriptor<EarthquakePoint> = {
+export const EARTHQUAKE_UI_QUERIES = createPointUiQueries<EarthquakePoint>({
   parseEntity: parseEarthquakePoint,
   searchText: (point) =>
     [
@@ -45,35 +44,10 @@ export const EARTHQUAKE_UI_QUERY: PointUiQueryDescriptor<EarthquakePoint> = {
     const magnitude = point.data.magnitude;
     return !(magnitude !== undefined && minValue > 0 && magnitude < minValue);
   },
+  matchesFilter: (point, filter) =>
+    matchesThresholdFilter(filter, "minMagnitude", point.data.magnitude ?? null),
+  includeInTicker: alwaysInTicker,
+  tickerPriority: neverTickerPriority,
+  filterFacet: noFilterFacet,
   supportsCorrelation: true,
-};
-
-export function parseEarthquakeUiQuery(
-  value: unknown,
-): EarthquakeUiQuery | null {
-  return parsePointUiQuery(
-    value,
-    EARTHQUAKE_UI_QUERY.supportsCorrelation,
-  );
-}
-
-export function parseEarthquakeUiQueryResult(
-  value: unknown,
-): EarthquakeUiQueryResult | null {
-  return parsePointUiQueryResult(value, EARTHQUAKE_UI_QUERY.parseEntity);
-}
-
-export function findEarthquakeSearchIds(
-  points: readonly EarthquakePoint[],
-  text: string,
-): string[] {
-  return findPointSearchIds(points, text, EARTHQUAKE_UI_QUERY);
-}
-
-export function runEarthquakeUiQuery(
-  points: readonly EarthquakePoint[],
-  query: EarthquakeUiQuery,
-  now: number = Date.now(),
-): EarthquakeUiQueryResult {
-  return runPointUiQuery(points, query, EARTHQUAKE_UI_QUERY, now);
-}
+});

@@ -1,27 +1,21 @@
 import { Flame } from "lucide-react";
-import type { FeatureDefinition, BasePoint } from "@/features/base/types";
+import type { FeatureDefinition } from "@/features/base/types";
 import type { FireData, FireFilter } from "./types";
-import { fireConfidenceLevel } from "./data/source";
 import { buildFireDetailRows } from "./detailRows";
 import { FireTickerContent } from "./ui/FireTickerContent";
+import {
+  fireDayNightSearchTerm,
+  FIRE_UI_QUERIES,
+} from "@/features/environmental/fires/data/uiQueries";
 
-export const firesFeature: FeatureDefinition<FireData, FireFilter> = {
+export const firesFeature: FeatureDefinition<FireData, FireFilter, "fires"> = {
   id: "fires",
   label: "FIRES",
   icon: Flame,
   iconProps: { strokeWidth: 2.5 },
 
-  matchesFilter: (
-    _item: BasePoint & { data: FireData },
-    filter: FireFilter,
-  ) => {
-    if (!filter.enabled) return false;
-    if (filter.minConfidence > 0) {
-      const level = fireConfidenceLevel(_item.data?.confidence);
-      if (level < filter.minConfidence) return false;
-    }
-    return true;
-  },
+  matchesFilter: (item, filter) =>
+    FIRE_UI_QUERIES.descriptor.matchesFilter(item, filter),
 
   defaultFilter: { enabled: true, minConfidence: 0 },
 
@@ -35,7 +29,7 @@ export const firesFeature: FeatureDefinition<FireData, FireFilter> = {
       data.satellite,
       data.confidence,
       data.frp != null ? `FRP${data.frp}` : "",
-      data.daynight === "D" ? "day" : data.daynight === "N" ? "night" : "",
+      fireDayNightSearchTerm(data.daynight),
     ]
       .filter(Boolean)
       .join(" "),

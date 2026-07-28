@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
-import { getTrail } from "@/lib/geo/trailService";
+import { getTrail, getTrackMotion } from "@/lib/geo/trailService";
 import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import type { SelectedRenderItem } from "@/workers/render/protocol";
@@ -10,14 +10,8 @@ type PresentationCommandOptions = Readonly<{
   props: Readonly<GlobeVisualizationProps>;
 }>;
 
-function findTarget(
-  id: string,
-  props: Readonly<GlobeVisualizationProps>,
-) {
-  return (
-    props.data.find((candidate) => candidate.id === id) ??
-    (props.selected?.id === id ? props.selected : null)
-  );
+function findTarget(id: string, props: Readonly<GlobeVisualizationProps>) {
+  return props.selected?.id === id ? props.selected : null;
 }
 
 export function usePresentationCommands({
@@ -28,7 +22,6 @@ export function usePresentationCommands({
     aircraftFilter,
     autoRotate = true,
     cycloneFilter,
-    data,
     earthquakeFilter,
     fireFilter,
     flat = false,
@@ -53,6 +46,7 @@ export function usePresentationCommands({
           lon: selected.lon,
           trail: getTrail(selected.id),
           route: getSelectedRoute(selected.id),
+          motion: getTrackMotion(selected.id),
         }
       : null;
     const prefersReducedMotion =
@@ -95,7 +89,6 @@ export function usePresentationCommands({
     aircraftFilter,
     autoRotate,
     cycloneFilter,
-    data,
     earthquakeFilter,
     fireFilter,
     flat,

@@ -1,11 +1,14 @@
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 import {
   interpolatePosition,
+  trackMotion,
+  type TrackMotion,
   type TrailEntry,
   type TrailPoint,
 } from "@/lib/geo/trails/trailStore";
 
 export type {
+  TrackMotion,
   TrackType,
   TrailEntry,
   TrailObservation,
@@ -68,4 +71,13 @@ export function getInterpolatedPosition(
 ): { lat: number; lon: number } | null {
   const entry = entryFor(id);
   return entry ? interpolatePosition(entry, Date.now()) : null;
+}
+
+/**
+ * The renderer dead-reckons only the selected track, so its motion rides the
+ * presentation command rather than a per-poll broadcast of every track.
+ */
+export function getTrackMotion(id: string): TrackMotion | null {
+  const entry = entryFor(id);
+  return entry ? trackMotion(entry) : null;
 }

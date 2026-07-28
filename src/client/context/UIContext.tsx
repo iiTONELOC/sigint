@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { useFreshEntity } from "@/features/base/useFreshEntity";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { getColorMap } from "@/config/theme";
 import { useTheme } from "@/context/ThemeContext";
@@ -63,11 +64,8 @@ const UIContext = createContext<UIContextValue | undefined>(undefined);
 
 export function UIProvider({
   children,
-  idMap,
 }: {
-  children: ReactNode;
-  /** ID map from DataContext — used to resolve selectedCurrent */
-  idMap: Map<string, DataPoint>;
+  readonly children: ReactNode;
 }) {
   const { theme } = useTheme();
   const stashedSelectionRef = useRef<DataPoint | null>(null);
@@ -90,11 +88,8 @@ export function UIProvider({
     null,
   );
 
-  // ── Derived: selectedCurrent (refreshed from latest data) ──────
-  const selectedCurrent = useMemo(() => {
-    if (!selected) return null;
-    return idMap.get(selected.id) ?? selected;
-  }, [idMap, selected]);
+  // ── Derived: selectedCurrent (refreshed from the DataWorker) ───
+  const selectedCurrent = useFreshEntity(selected);
 
   // ── Handlers ───────────────────────────────────────────────────
 
@@ -124,13 +119,11 @@ export function UIProvider({
           }
           return prev;
         });
-      } else {
-        if (stashedSelectionRef.current) {
-          setSelected(stashedSelectionRef.current);
-          setIsolateMode(stashedIsolateModeRef.current);
-          stashedSelectionRef.current = null;
-          stashedIsolateModeRef.current = null;
-        }
+      } else if (stashedSelectionRef.current) {
+        setSelected(stashedSelectionRef.current);
+        setIsolateMode(stashedIsolateModeRef.current);
+        stashedSelectionRef.current = null;
+        stashedIsolateModeRef.current = null;
       }
     },
     [isolateMode],
