@@ -1,3 +1,5 @@
+import { type SourceId } from "@shared/source";
+import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
 
@@ -11,7 +13,7 @@ type TestPoint = Readonly<{
 describe("scene patch codec", () => {
   test("keeps stable handles and encodes only patch records", () => {
     const codec = createScenePatchCodec<TestPoint>({
-      source: "aircraft",
+      source: Domain.Aircraft,
       attributeStride: 1,
       writeAttributes: (point, target, offset) => {
         target[offset] = point.value;

@@ -1,4 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
 
@@ -23,7 +25,7 @@ let _idCounter = 0;
 function makeEvent(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `evt-${++_idCounter}`,
-    type: "events",
+    type: Domain.Events,
     lat: overrides.lat ?? 35.0,
     lon: overrides.lon ?? 45.0,
     timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
@@ -39,7 +41,7 @@ function makeEvent(overrides: Record<string, any> = {}): DataPoint {
 function makeQuake(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `eq-${++_idCounter}`,
-    type: "quakes",
+    type: Domain.Quakes,
     lat: overrides.lat ?? 35.7,
     lon: overrides.lon ?? 139.7,
     timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
@@ -55,7 +57,7 @@ function makeQuake(overrides: Record<string, any> = {}): DataPoint {
 function makeFire(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `fire-${++_idCounter}`,
-    type: "fires",
+    type: Domain.Fires,
     lat: overrides.lat ?? 35.1,
     lon: overrides.lon ?? 45.1,
     timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
@@ -69,7 +71,7 @@ function makeFire(overrides: Record<string, any> = {}): DataPoint {
 function makeAircraft(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ac-${++_idCounter}`,
-    type: "aircraft",
+    type: Domain.Aircraft,
     lat: overrides.lat ?? 40.0,
     lon: overrides.lon ?? -74.0,
     timestamp:
@@ -87,7 +89,7 @@ function makeAircraft(overrides: Record<string, any> = {}): DataPoint {
 function makeWeather(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `wx-${++_idCounter}`,
-    type: "weather",
+    type: Domain.Weather,
     lat: overrides.lat ?? 30.0,
     lon: overrides.lon ?? -90.0,
     timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
@@ -102,7 +104,7 @@ function makeWeather(overrides: Record<string, any> = {}): DataPoint {
 function makeShip(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ship-${++_idCounter}`,
-    type: "ships",
+    type: Domain.Ships,
     lat: overrides.lat ?? 30.0,
     lon: overrides.lon ?? -90.0,
     timestamp:
@@ -343,7 +345,7 @@ describe("alert scoring", () => {
       timestamp: new Date(Date.now() - 25 * HOUR).toISOString(),
     });
     const result = computeCorrelations([old], []);
-    expect(result.alerts.length).toBe(0);
+    expect(result.alerts).toHaveLength(0);
   });
 });
 
@@ -385,7 +387,7 @@ describe("alert deduplication", () => {
     });
     const result = computeCorrelations([e1, e2], []);
     // Each should be its own alert
-    expect(result.alerts.length).toBe(2);
+    expect(result.alerts).toHaveLength(2);
   });
 });
 
@@ -406,7 +408,7 @@ describe("cross-source correlation", () => {
     const fire = makeFire({ lat: 10.0, lon: 10.0 }); // thousands of km away
     const result = computeCorrelations([evt, fire], []);
     const xsrc = result.products.filter((p) => p.type === "cross-source");
-    expect(xsrc.length).toBe(0);
+    expect(xsrc).toHaveLength(0);
   });
 
   test("large earthquake near fire produces cross-source product", () => {
@@ -509,6 +511,6 @@ describe("baseline tracking", () => {
     const result = computeCorrelations([evt], []);
     const win = result.baseline.countries["TestCountry"];
     expect(win).toBeDefined();
-    expect(win!.buckets.length).toBe(168);
+    expect(win!.buckets).toHaveLength(168);
   });
 });

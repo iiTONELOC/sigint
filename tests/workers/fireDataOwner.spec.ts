@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import {
   FIRE_SOURCE_POLICY,
   parseFireFeed,
@@ -19,7 +21,7 @@ function point(
 ): FirePoint {
   return {
     id,
-    type: "fires",
+    type: Domain.Fires,
     lon: longitude,
     lat: latitude,
     timestamp,

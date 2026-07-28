@@ -1,11 +1,13 @@
 import { describe, test, expect } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import { diffAndApply } from "@/features/base/diffEntities";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 function pt(id: string, lat = 40, lon = -74, data: object = {}): DataPoint {
   return {
     id,
-    type: "events" as any,
+    type: Domain.Events as any,
     lat,
     lon,
     timestamp: new Date(0).toISOString(),

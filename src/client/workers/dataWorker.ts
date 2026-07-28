@@ -1,4 +1,5 @@
 import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
+import { Domain } from "@shared/domain/identity";
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import {
   AIRCRAFT_SOURCE,
@@ -20,6 +21,10 @@ import {
   CYCLONE_SOURCE,
   createCycloneSourceRuntime,
 } from "@/workers/data/sources/cyclones";
+import {
+  createCycloneWarningSourceRuntime,
+  CYCLONE_WARNING_SOURCE,
+} from "@/workers/data/sources/cycloneWarnings";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   TRAIL_RECORDER_POLICY,
@@ -150,7 +155,7 @@ function publishEarthquakeSearch(): void {
     type: "earthquakeSearch",
     matchingIds: earthquakeSearchText
       ? findQueryableSearchIds(
-          "earthquake",
+          Domain.Earthquake,
           earthquakeOwner.values(),
           earthquakeSearchText,
         )
@@ -162,7 +167,7 @@ function publishFireSearch(): void {
   postRenderData({
     type: "fireSearch",
     matchingIds: fireSearchText
-      ? findQueryableSearchIds("fire", fireOwner.values(), fireSearchText)
+      ? findQueryableSearchIds(Domain.Fire, fireOwner.values(), fireSearchText)
       : null,
   });
 }
@@ -245,7 +250,11 @@ const eventOwner = createEventSourceRuntime({
  * on this path at all.
  */
 function rebasePoints(
-  source: "events" | "weather" | "cyclones",
+  source:
+    | Domain.Events
+    | Domain.Weather
+    | Domain.Cyclones
+    | Domain.CycloneWarnings,
   points: readonly DataPoint[],
 ): void {
   postRenderData({ type: "pointsRebase", source, points });
@@ -273,26 +282,45 @@ const cycloneOwner = createCycloneSourceRuntime({
   },
 });
 
+const cycloneWarningOwner = createCycloneWarningSourceRuntime({
+  readCache: () => store.get(CYCLONE_WARNING_SOURCE.cacheKey),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(CYCLONE_WARNING_SOURCE.cacheKey, snapshot);
+  },
+  publishStatus: publishSource,
+  publishPoints: (points) => {
+    rebasePoints(CYCLONE_WARNING_SOURCE.id, points);
+  },
+});
+
 const sourceOwners = {
-  aircraft: aircraftOwner,
-  cyclones: cycloneOwner,
-  earthquake: earthquakeOwner,
-  events: eventOwner,
-  fire: fireOwner,
-  ships: shipOwner,
-  weather: weatherOwner,
+  [Domain.Aircraft]: aircraftOwner,
+  [Domain.CycloneWarnings]: cycloneWarningOwner,
+  [Domain.Cyclones]: cycloneOwner,
+  [Domain.Earthquake]: earthquakeOwner,
+  [Domain.Events]: eventOwner,
+  [Domain.Fire]: fireOwner,
+  [Domain.Ships]: shipOwner,
+  [Domain.Weather]: weatherOwner,
 } as const;
 
 // One line per source; each binds its codec to its owner where both types
 // are concrete, which is what keeps the handlers branch-free.
 const sourceAnswers = {
-  aircraft: createSourceAnswers("aircraft", aircraftOwner),
-  cyclones: createSourceAnswers("cyclones", cycloneOwner),
-  earthquake: createSourceAnswers("earthquake", earthquakeOwner),
-  events: createSourceAnswers("events", eventOwner),
-  fire: createSourceAnswers("fire", fireOwner),
-  ships: createSourceAnswers("ships", shipOwner),
-  weather: createSourceAnswers("weather", weatherOwner),
+  [Domain.Aircraft]: createSourceAnswers(Domain.Aircraft, aircraftOwner),
+  [Domain.Cyclones]: createSourceAnswers(Domain.Cyclones, cycloneOwner),
+  [Domain.CycloneWarnings]: createSourceAnswers(
+    Domain.CycloneWarnings,
+    cycloneWarningOwner,
+  ),
+  [Domain.Earthquake]: createSourceAnswers(
+    Domain.Earthquake,
+    earthquakeOwner,
+  ),
+  [Domain.Events]: createSourceAnswers(Domain.Events, eventOwner),
+  [Domain.Fire]: createSourceAnswers(Domain.Fire, fireOwner),
+  [Domain.Ships]: createSourceAnswers(Domain.Ships, shipOwner),
+  [Domain.Weather]: createSourceAnswers(Domain.Weather, weatherOwner),
 } as const;
 
 type OwnedSourceId = keyof typeof sourceOwners;

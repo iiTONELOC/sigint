@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { Activity } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { EarthquakeData, EarthquakeFilter } from "./types";
@@ -8,9 +9,9 @@ import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/
 export const earthquakeFeature: FeatureDefinition<
   EarthquakeData,
   EarthquakeFilter,
-  "quakes"
+  Domain.Quakes
 > = {
-  id: "quakes",
+  id: Domain.Quakes,
   label: "SEISMIC",
   icon: Activity,
   iconProps: { strokeWidth: 2.5 },

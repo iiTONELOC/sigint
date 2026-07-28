@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   parseEventCache,
   type EventPoint,
@@ -13,7 +14,7 @@ import {
   type PointSourceRuntime,
 } from "@/workers/data/sourceRuntime";
 
-export const EVENT_SOURCE = getPointSourceDefinition("events");
+export const EVENT_SOURCE = getPointSourceDefinition(Domain.Events);
 
 /** GDELT keeps a rolling window rather than a live snapshot. */
 export const EVENT_WINDOW_MS = 7 * 24 * 60 * 60_000;

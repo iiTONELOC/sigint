@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   FIRE_SOURCE_POLICY,
   fetchFires,
@@ -25,7 +26,7 @@ export function createFireSourceOwner(
 ): FireSourceOwner {
   return createPackedPointSource<FirePoint>(
     {
-      id: "fire",
+      id: Domain.Fire,
       cacheKey: FIRE_SOURCE_POLICY.cacheKey,
       pollIntervalMs: FIRE_SOURCE_POLICY.pollIntervalMs,
       retryIntervalMs: FIRE_SOURCE_POLICY.retryIntervalMs,

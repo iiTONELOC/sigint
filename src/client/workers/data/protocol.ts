@@ -1,4 +1,5 @@
 import { isRecord } from "@shared/geo";
+import type { SourceId } from "@shared/source";
 import {
   parseTrailEntry,
   type TrailEntry,
@@ -9,7 +10,7 @@ import {
   type QueryableSourceId,
   type QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
-import { isDataSourceId, type DataSourceId } from "@/workers/data/sourceIds";
+import { isSourceId } from "@/workers/data/sourceIds";
 import type { PointUiQueryResult } from "@/workers/data/uiQuery";
 
 export const DATA_WORKER_PROTOCOL_VERSION = 9 as const;
@@ -19,7 +20,7 @@ export type DataWorkerCacheEntry = Readonly<{
   value: unknown;
 }>;
 
-export type DataWorkerPointSource = DataSourceId;
+export type DataWorkerPointSource = SourceId;
 export type DataWorkerQueryableSource = QueryableSourceId;
 
 export type AnySourceEntity =
@@ -193,7 +194,7 @@ function parseSourceSnapshot(
 ): DataWorkerSourceSnapshot | null {
   if (
     !isRecord(value) ||
-    !isDataSourceId(value.source) ||
+    !isSourceId(value.source) ||
     typeof value.version !== "number" ||
     !Number.isSafeInteger(value.version) ||
     value.version < 0 ||
@@ -227,7 +228,7 @@ function parseSourceCommand(
 ): DataWorkerCommand | null {
   if (
     (value.type === "refreshSource" || value.type === "listSourceEntities") &&
-    isDataSourceId(value.source)
+    isSourceId(value.source)
   ) {
     return { ...envelope, type: value.type, source: value.source };
   }

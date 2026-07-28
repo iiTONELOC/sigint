@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 /// <reference lib="webworker" />
 // Owns the transferred canvas and all Canvas2D drawing.
 import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
@@ -271,7 +272,7 @@ function weatherMarker(sev: string): { size: number; alpha: number } {
 
 type AircraftData = Extract<
   RenderPoint,
-  { type: "aircraft" }
+  { type: Domain.Aircraft }
 >["data"];
 type AircraftFilter = RenderAircraftFilter;
 
@@ -637,8 +638,6 @@ let _selectedProjectionDepth = -1;
 // Tropical watch/warning polygons + their fill colours, set by the "warnings"
 // message and drawn each frame under the showWarnings toggle.
 let _warnings: WarningFeature[] | null = null;
-let _warnColor = "#ff1a6e";
-let _watchColor = "#ffb300";
 
 // NWS weather-alert polygons + severity fill colours, set by the "wxAlerts"
 // message and drawn each frame under the weather layer toggle. Defaults are the
@@ -662,18 +661,18 @@ const protocolState: RenderProtocolState = {
 
 let dataPort: MessagePort | null = null;
 
-const aircraftSceneStore = createRenderSceneStore("aircraft");
+const aircraftSceneStore = createRenderSceneStore(Domain.Aircraft);
 const aircraftProjection = createProjectedSceneLayer();
-const shipSceneStore = createRenderSceneStore("ships");
+const shipSceneStore = createRenderSceneStore(Domain.Ships);
 const shipProjection = createProjectedSceneLayer();
 const TYPED_SCENE_STORES = {
-  aircraft: aircraftSceneStore,
-  ships: shipSceneStore,
+  [Domain.Aircraft]: aircraftSceneStore,
+  [Domain.Ships]: shipSceneStore,
 } as const;
 const typedScenes = new Map(
   RENDER_SOURCE_IDS.map((source) => [
     source,
-    source === "aircraft" || source === "ships"
+    source === Domain.Aircraft || source === Domain.Ships
       ? TYPED_SCENE_STORES[source]
       : createRenderSceneStore(source),
   ] as const),
@@ -810,9 +809,9 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
   ]);
 }
 function pointHasTimeAnimation(item: RenderPoint): boolean {
-  if (item.type === "cyclones") return true;
-  if (item.type === "events") return (item.data.severity ?? 1) >= 3;
-  if (item.type === "weather") {
+  if (item.type === Domain.Cyclones) return true;
+  if (item.type === Domain.Events) return (item.data.severity ?? 1) >= 3;
+  if (item.type === Domain.Weather) {
     return weatherSeverityRank(item.data.severity || "Unknown") >= 3;
   }
   return false;
@@ -879,10 +878,21 @@ const WEATHER_WARNING_RANK = 3;
  * Alert polygons are derived from the weather points themselves rather than
  * shipped separately: the renderer already has every alert, geometry included.
  */
+function rebuildCycloneWarningAreas(points: readonly RenderPoint[]): void {
+  const features: WarningFeature[] = [];
+  for (const item of points) {
+    if (item.type !== Domain.CyclonesWarning) continue;
+    const geometry = item.data.geometry;
+    if (!geometry) continue;
+    features.push({ id: item.id, kind: item.data.kind, geometry });
+  }
+  _warnings = features;
+}
+
 function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
   const features: WarningFeature[] = [];
   for (const item of points) {
-    if (item.type !== "weather") continue;
+    if (item.type !== Domain.Weather) continue;
     const geometry = item.data.geometry;
     if (!geometry) continue;
     features.push({
@@ -921,7 +931,12 @@ function applyRenderDataCommand(command: RenderDataCommand): void {
     case "pointsRebase":
       _dataBySource ??= {};
       _dataBySource[command.source] = [...command.points];
-      if (command.source === "weather") rebuildWeatherAreas(command.points);
+      if (command.source === Domain.Weather) {
+        rebuildWeatherAreas(command.points);
+      }
+      if (command.source === Domain.CycloneWarnings) {
+        rebuildCycloneWarningAreas(command.points);
+      }
       rebuildGenericData();
       return;
     default:
@@ -1089,25 +1104,27 @@ function handleDispose(): void {
   _frameScheduled = false;
 }
 
+function handleViewport(payload: RenderViewportPayload): void {
+  _viewport = payload;
+}
+
+function handlePresentation(payload: RenderPresentationPayload): void {
+  _presentation = payload;
+}
+
 function dispatchRenderCommand(msg: RenderWorkerCommand): void {
   switch (msg.type) {
     case "init":
       handleInit(msg);
       return;
-    case "warnings":
-      _warnings = [...msg.payload.features];
-      _warnColor = msg.payload.warningColor;
-      _watchColor = msg.payload.watchColor;
-      break;
-    case "viewport":
-      _viewport = msg.payload;
-      break;
     case "colors":
       _colors = msg.payload;
       break;
+    case "viewport":
+      handleViewport(msg.payload);
+      break;
     case "presentation":
-      _presentation = msg.payload;
-      setSelectedMotion(msg.payload.selectedItem);
+      handlePresentation(msg.payload);
       break;
     case "focus":
       handleFocus(msg);
@@ -1219,8 +1236,8 @@ function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
   if (c.searchSet && !c.searchSet.has(item.id)) return false;
   if (c.isoMode === "solo" && item.id !== c.isoId) return false;
   if (c.isoMode === "focus" && c.isolatedType && item.type !== c.isolatedType) return false;
-  if (item.type === "aircraft") return matchesAF(item.data, c.af);
-  if (item.type === "cyclones-forecast") return c.layers.cyclones !== false && c.showForecast !== false;
+  if (item.type === Domain.Aircraft) return matchesAF(item.data, c.af);
+  if (item.type === Domain.CyclonesForecast) return c.layers.cyclones !== false && c.showForecast !== false;
   return c.layers[item.type] !== false;
 }
 
@@ -1319,7 +1336,7 @@ function preparePackedHitGrid(
 
 function packedLayerVisible(
   filters: FilterCfg,
-  pointType: "quakes" | "fires",
+  pointType: Domain.Quakes | Domain.Fires,
 ): boolean {
   if (filters.layers[pointType] === false) return false;
   return !(
@@ -1341,7 +1358,7 @@ function packedIdPasses(
 function projectPackedSource(
   state: PackedProjectionState,
   frame: PackedProjectionFrame,
-  pointType: "quakes" | "fires",
+  pointType: Domain.Quakes | Domain.Fires,
   searchIds: ReadonlySet<string> | null,
   passesSourceFilter: (index: number) => boolean,
 ): void {
@@ -1454,7 +1471,7 @@ function projectEarthquakes(
   projectPackedSource(
     state,
     frame,
-    "quakes",
+    Domain.Quakes,
     _earthquakeSearchIds,
     (index) =>
       (state.magnitudes[index] ?? 0) >=
@@ -1469,7 +1486,7 @@ function projectFires(
   projectPackedSource(
     state,
     frame,
-    "fires",
+    Domain.Fires,
     _fireSearchIds,
     (index) =>
       (state.confidences[index] ?? 0) >=
@@ -1503,7 +1520,7 @@ function nearestGenericPoint(
 
 function nearestPackedPoint(
   state: PackedProjectionState | null,
-  pointType: "quakes" | "fires",
+  pointType: Domain.Quakes | Domain.Fires,
   x: number,
   y: number,
   radius: number,
@@ -1547,7 +1564,7 @@ type PackedHitSearch = {
 function scanPackedCell(
   state: PackedProjectionState,
   cell: number,
-  pointType: "quakes" | "fires",
+  pointType: Domain.Quakes | Domain.Fires,
   at: Readonly<{ x: number; y: number }>,
   search: PackedHitSearch,
 ): boolean {
@@ -1569,7 +1586,7 @@ function scanPackedCell(
 function packedHitCandidate(
   state: PackedProjectionState,
   index: number,
-  pointType: "quakes" | "fires",
+  pointType: Domain.Quakes | Domain.Fires,
   x: number,
   y: number,
 ): PointHit | null {
@@ -1626,7 +1643,7 @@ function nearestAircraftPoint(
   y: number,
   radius: number,
 ): PointHit | null {
-  return nearestScenePoint(aircraftProjection, "aircraft", x, y, radius);
+  return nearestScenePoint(aircraftProjection, Domain.Aircraft, x, y, radius);
 }
 
 function nearestShipPoint(
@@ -1634,7 +1651,7 @@ function nearestShipPoint(
   y: number,
   radius: number,
 ): PointHit | null {
-  return nearestScenePoint(shipProjection, "ships", x, y, radius);
+  return nearestScenePoint(shipProjection, Domain.Ships, x, y, radius);
 }
 
 function nearestPoint(
@@ -1646,8 +1663,8 @@ function nearestPoint(
   const specialized = [
     nearestAircraftPoint(x, y, radius),
     nearestShipPoint(x, y, radius),
-    nearestPackedPoint(_earthquakes, "quakes", x, y, radius),
-    nearestPackedPoint(_fires, "fires", x, y, radius),
+    nearestPackedPoint(_earthquakes, Domain.Quakes, x, y, radius),
+    nearestPackedPoint(_fires, Domain.Fires, x, y, radius),
   ];
   for (const candidate of specialized) {
     if (candidate && (!closest || candidate.distance < closest.distance)) {
@@ -1848,7 +1865,7 @@ function clearTrailTooltip(): void {
 
 function positionForItem(item: RenderPoint): CameraPosition {
   const interpolated =
-    item.type === "aircraft" || item.type === "ships"
+    item.type === Domain.Aircraft || item.type === "ships"
       ? getInterp(item.id)
       : null;
   return {
@@ -1946,7 +1963,7 @@ function handlePointerClick(click: CameraClick): void {
     postInteraction({
       kind: "selection",
       id: warningId,
-      pointType: "cyclones-warning",
+      pointType: Domain.CyclonesWarning,
     });
   } else if (!selectedRouteContains(click.x, click.y)) {
     postInteraction({ kind: "selection", id: null, pointType: null });
@@ -2199,7 +2216,7 @@ function pulseIntensity(zoomLevel: number): number {
 }
 
 function drawEventPoint(
-  item: Extract<RenderPoint, { type: "events" }>,
+  item: Extract<RenderPoint, { type: Domain.Events }>,
   d: PointDraw,
   zoomLevel: number,
 ): void {
@@ -2230,7 +2247,7 @@ function drawEventPoint(
 }
 
 function drawWeatherPoint(
-  item: Extract<RenderPoint, { type: "weather" }>,
+  item: Extract<RenderPoint, { type: Domain.Weather }>,
   d: PointDraw,
   zoomLevel: number,
 ): void {
@@ -2437,16 +2454,16 @@ function sceneProjectionBase(geometry: SceneGeometry) {
 }
 
 const FIRE_LAYER_PRECEDES: ReadonlySet<string> = new Set([
-  "events",
-  "weather",
-  "cyclones-forecast",
-  "cyclones",
+  Domain.Events,
+  Domain.Weather,
+  Domain.CyclonesForecast,
+  Domain.Cyclones,
 ]);
 
 const EARTHQUAKE_LAYER_PRECEDES: ReadonlySet<string> = new Set([
-  "weather",
-  "cyclones-forecast",
-  "cyclones",
+  Domain.Weather,
+  Domain.CyclonesForecast,
+  Domain.Cyclones,
 ]);
 
 /**
@@ -2492,6 +2509,8 @@ type AreaOverlayOptions = Readonly<{
   time: number;
   showWarnings: boolean;
   showWeather: boolean;
+  warnColor: string;
+  watchColor: string;
 }>;
 
 /** Tropical watch/warning and NWS alert polygons, under every marker. */
@@ -2510,7 +2529,7 @@ function drawAreaOverlays(options: AreaOverlayOptions): void {
     drawWarnings(
       env,
       _warnings,
-      { warn: _warnColor, watch: _watchColor },
+      { warn: options.warnColor, watch: options.watchColor },
       options.selectedId,
       options.time,
     );
@@ -2698,7 +2717,7 @@ function selectionPassesFilters(v: SelectionVisibility): boolean {
   ) {
     return false;
   }
-  if (item.type !== "aircraft") return v.layers[item.type] !== false;
+  if (item.type !== Domain.Aircraft) return v.layers[item.type] !== false;
 
   const handle = aircraftSceneStore.handleForId(item.id);
   return (
@@ -3004,6 +3023,8 @@ function renderFrame(): void {
     time: t,
     showWarnings: cyclones.showWarnings,
     showWeather: layers.weather !== false,
+    warnColor: colors.cycWarning,
+    watchColor: colors.cycWatch,
   });
 
   // ── Project + filter points ───────────────────────────────────

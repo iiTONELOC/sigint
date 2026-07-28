@@ -1,4 +1,8 @@
 import type { DataPoint, DataType } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
+
+export { SourceCompletenessPolicy };
 import {
   EARTHQUAKE_SOURCE_POLICY,
 } from "@/features/environmental/earthquake/data/source";
@@ -11,8 +15,6 @@ import {
   RENDER_SOURCE_IDS,
   type RenderSourceId,
 } from "@/workers/data/sourceIds";
-
-export type SourceCompletenessPolicy = "complete" | "partial" | "dynamic";
 
 export type PointSourcePolicy = Readonly<{
   pointType: DataType;
@@ -27,53 +29,60 @@ export type PointSourceDefinition = PointSourcePolicy & Readonly<{
 }>;
 
 const POINT_SOURCE_POLICIES = {
-  aircraft: {
-    pointType: "aircraft",
+  [Domain.Aircraft]: {
+    pointType: Domain.Aircraft,
     cacheKey: CACHE_KEYS.aircraft,
     pollIntervalMs: POLL_INTERVALS.aircraft,
-    completeness: "dynamic",
+    completeness: SourceCompletenessPolicy.Dynamic,
     emptyResultIsComplete: true,
   },
-  ships: {
-    pointType: "ships",
+  [Domain.Ships]: {
+    pointType: Domain.Ships,
     cacheKey: CACHE_KEYS.ships,
     pollIntervalMs: POLL_INTERVALS.ships,
-    completeness: "complete",
+    completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: false,
   },
-  events: {
-    pointType: "events",
+  [Domain.Events]: {
+    pointType: Domain.Events,
     cacheKey: CACHE_KEYS.events,
     pollIntervalMs: POLL_INTERVALS.events,
-    completeness: "partial",
+    completeness: SourceCompletenessPolicy.Partial,
     emptyResultIsComplete: false,
   },
-  weather: {
-    pointType: "weather",
+  [Domain.Weather]: {
+    pointType: Domain.Weather,
     cacheKey: CACHE_KEYS.weather,
     pollIntervalMs: POLL_INTERVALS.weather,
-    completeness: "complete",
+    completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
-  cyclones: {
-    pointType: "cyclones",
+  [Domain.Cyclones]: {
+    pointType: Domain.Cyclones,
     cacheKey: CACHE_KEYS.cyclones,
     pollIntervalMs: POLL_INTERVALS.cyclones,
-    completeness: "complete",
+    completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
-  earthquake: {
-    pointType: "quakes",
+  [Domain.CycloneWarnings]: {
+    pointType: Domain.CyclonesWarning,
+    cacheKey: CACHE_KEYS.cycloneWarnings,
+    pollIntervalMs: POLL_INTERVALS.cycloneWarnings,
+    completeness: SourceCompletenessPolicy.Complete,
+    emptyResultIsComplete: true,
+  },
+  [Domain.Earthquake]: {
+    pointType: Domain.Quakes,
     cacheKey: EARTHQUAKE_SOURCE_POLICY.cacheKey,
     pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
-    completeness: "complete",
+    completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
-  fire: {
-    pointType: "fires",
+  [Domain.Fire]: {
+    pointType: Domain.Fires,
     cacheKey: FIRE_SOURCE_POLICY.cacheKey,
     pollIntervalMs: FIRE_SOURCE_POLICY.pollIntervalMs,
-    completeness: "complete",
+    completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
 } as const satisfies Readonly<Record<RenderSourceId, PointSourcePolicy>>;
@@ -99,6 +108,18 @@ export type PointSourceEntity = Extract<
   DataPoint,
   { type: (typeof POINT_SOURCE_DEFINITIONS)[number]["pointType"] }
 >;
+
+const POINT_TYPE_BY_SOURCE: ReadonlyMap<RenderSourceId, DataType> = new Map(
+  POINT_SOURCE_DEFINITIONS.map((definition) => [
+    definition.id,
+    definition.pointType,
+  ]),
+);
+
+/** The point type a source publishes. */
+export function pointTypeForSource(source: RenderSourceId): DataType {
+  return POINT_TYPE_BY_SOURCE.get(source) ?? Domain.Aircraft;
+}
 
 const SOURCE_BY_POINT_TYPE: ReadonlyMap<DataType, RenderSourceId> = new Map(
   POINT_SOURCE_DEFINITIONS.map((definition) => [

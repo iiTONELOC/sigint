@@ -1,3 +1,6 @@
+import { type PointType } from "@shared/domain/pointType";
+import { Domain } from "@shared/domain/identity";
+import { type SourceId } from "@shared/source";
 import { describe, expect, test } from "bun:test";
 import {
   acceptCorrelationDataCommand,
@@ -11,11 +14,11 @@ describe("correlation data channel", () => {
     const command = createCorrelationDataCommand(
       {
         type: "sourceRebase",
-        source: "fire",
+        source: Domain.Fire,
         points: [
           {
             id: "FI:test",
-            type: "fires",
+            type: Domain.Fires,
             lat: 30,
             lon: -80,
             timestamp: "2026-07-21T12:00:00.000Z",
@@ -33,11 +36,11 @@ describe("correlation data channel", () => {
     const command = createCorrelationDataCommand(
       {
         type: "sourceRebase",
-        source: "ships",
+        source: Domain.Ships,
         points: [
           {
             id: "FI:test",
-            type: "fires",
+            type: Domain.Fires,
             lat: 30,
             lon: -80,
             timestamp: "2026-07-21T12:00:00.000Z",

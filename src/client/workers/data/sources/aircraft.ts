@@ -1,4 +1,5 @@
 import type { AircraftData } from "@/features/tracking/aircraft/types";
+import { Domain } from "@shared/domain/identity";
 import {
   AIRCRAFT_BOOLEAN_FIELDS as BOOLEAN_FIELDS,
   AIRCRAFT_NUMBER_FIELDS as NUMBER_FIELDS,
@@ -23,7 +24,7 @@ import { AIRCRAFT_SCENE } from "@/workers/render/scene/aircraftSchema";
 
 export { isAircraftPoint, parseAircraftCache, type AircraftPoint };
 
-export const AIRCRAFT_SOURCE = getPointSourceDefinition("aircraft");
+export const AIRCRAFT_SOURCE = getPointSourceDefinition(Domain.Aircraft);
 
 export type AircraftSourceRuntime = PointSourceRuntime<AircraftPoint> &
   Readonly<{ publishRebase: () => void }>;

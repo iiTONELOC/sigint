@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // ── Cyclone correlation rules ───────────────────────────────────────
 // Three rules added by the cyclones feature:
 //  1. Hurricane Hunter — military/NOAA42-49/56 + TEAL71-76 aircraft
@@ -33,7 +34,7 @@ const HURRICANE_HUNTER_TAILS = new Set([
   "TEAL76",
 ]);
 
-type CycloneItem = DataPoint & { type: "cyclones"; data: CycloneData };
+type CycloneItem = DataPoint & { type: Domain.Cyclones; data: CycloneData };
 
 function activeCyclones(allData: DataPoint[]): CycloneItem[] {
   return allData.filter(

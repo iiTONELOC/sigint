@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import type { DataType } from "@/features/base/dataPoints";
 
 /**
@@ -9,10 +10,10 @@ import type { DataType } from "@/features/base/dataPoints";
  * lands, and the legacy `RenderPoint[]` path shrinks by exactly that much.
  */
 export const WORKER_OWNED_POINT_TYPES: ReadonlySet<DataType> = new Set<DataType>([
-  "aircraft",
-  "ships",
-  "quakes",
-  "fires",
+  Domain.Aircraft,
+  Domain.Ships,
+  Domain.Quakes,
+  Domain.Fires,
 ]);
 
 export function isWorkerOwnedPointType(type: DataType): boolean {

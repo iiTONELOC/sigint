@@ -1,4 +1,5 @@
 import { authenticatedFetch } from "@/lib/net/authService";
+import { Domain } from "@shared/domain/identity";
 import { rampBand, type Band } from "@/lib/format/rampLookup";
 import type { EventPoint } from "@/features/intel/events/data/codec";
 
@@ -105,7 +106,7 @@ function toEventPoint(
 
   return {
     id: props.url ? `GE${hashString(props.url)}` : `GE${index}-${now}`,
-    type: "events",
+    type: Domain.Events,
     lat,
     lon,
     timestamp: props.urlpubtimedate

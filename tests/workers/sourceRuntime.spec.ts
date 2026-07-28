@@ -1,3 +1,5 @@
+import { type SourceId } from "@shared/source";
+import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { createPointSourceRuntime } from "@/workers/data/sourceRuntime";
 
@@ -29,7 +31,7 @@ describe("point source runtime", () => {
     const statuses: unknown[] = [];
     const patches: unknown[] = [];
     const runtime = createPointSourceRuntime<TestEntity>({
-      id: "events",
+      id: Domain.Events,
       cacheKey: "events",
       pollIntervalMs: 1_000,
       maxQueryItems: 20,
@@ -53,7 +55,7 @@ describe("point source runtime", () => {
 
     expect(runtime.get("cached")).toEqual({ id: "cached", value: 1 });
     expect(statuses.at(-1)).toEqual({
-      source: "events",
+      source: Domain.Events,
       version: 4,
       status: "cached",
       loading: false,
@@ -82,7 +84,7 @@ describe("point source runtime", () => {
       },
     ];
     const runtime = createPointSourceRuntime<TestEntity>({
-      id: "events",
+      id: Domain.Events,
       cacheKey: "events",
       pollIntervalMs: 1_000,
       maxQueryItems: 1,

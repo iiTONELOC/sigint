@@ -1,3 +1,5 @@
+import { firstNumber } from "@shared/types/numbers";
+import { Domain } from "@shared/domain/identity";
 // ── adsb.fi v3 → AircraftData parser ─────────────────────────────────
 // Replaces the inline OpenSky parsing in provider.ts. Pure transform
 // from adsb.fi's `{ ac: [...] }` response shape into the existing
@@ -110,21 +112,12 @@ function isAdsbAircraft(value: unknown): value is AdsbAircraft {
 
 export function toAircraftData(a: AdsbAircraft): AircraftData {
   const onGround = a.alt_baro === "ground";
-  const altitude = onGround
-    ? 0
-    : typeof a.alt_baro === "number"
-      ? a.alt_baro
-      : 0;
+  const altitude = onGround ? 0 : firstNumber(a.alt_baro);
 
   const speed = typeof a.gs === "number" ? a.gs : 0;
   const speedMps = ktToMps(speed);
 
-  const heading =
-    typeof a.track === "number"
-      ? a.track
-      : typeof a.true_heading === "number"
-        ? a.true_heading
-        : 0;
+  const heading = firstNumber(a.track, a.true_heading);
 
   const verticalRate =
     typeof a.baro_rate === "number"
@@ -193,12 +186,7 @@ function observationTime(
   ) {
     return Math.min(aircraft.observedAt, receivedAt);
   }
-  const positionAge =
-    typeof aircraft.seen_pos === "number"
-      ? aircraft.seen_pos
-      : typeof aircraft.seen === "number"
-        ? aircraft.seen
-        : 0;
+  const positionAge = firstNumber(aircraft.seen_pos, aircraft.seen);
   return receivedAt - Math.max(0, positionAge) * MS_PER_SECOND;
 }
 
@@ -215,7 +203,7 @@ function toDataPoint(
   }
   return {
     id: `A${aircraft.hex}`,
-    type: "aircraft",
+    type: Domain.Aircraft,
     lat: aircraft.lat,
     lon: aircraft.lon,
     timestamp: new Date(
@@ -247,7 +235,7 @@ export function parseAircraftFetchResult(
 ): ProviderFetchResult<DataPoint> | null {
   if (!isRecord(value) || !Array.isArray(value.ac)) return null;
   const source = parseSourceState(value.source);
-  if (!source || source.source !== "aircraft") return null;
+  if (source?.source !== Domain.Aircraft) return null;
   return {
     data: parseAdsbResponse(value, receivedAt),
     source,

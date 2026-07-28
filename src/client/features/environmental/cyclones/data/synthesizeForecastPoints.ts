@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // Explodes each storm's forecast track into clickable "cyclones-forecast"
 // pseudo-DataPoints so they flow through the normal hit-test/selection
 // pipeline. Derived state — not persisted.
@@ -10,7 +11,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import type { CycloneData, CycloneForecastPointData } from "../types";
 
 type ForecastDataPoint = DataPoint & {
-  type: "cyclones-forecast";
+  type: Domain.CyclonesForecast;
   data: CycloneForecastPointData;
 };
 
@@ -34,7 +35,7 @@ function getOrBuildPoint(
   if (cached?.key === key) return cached.point;
   const point: ForecastDataPoint = {
     id,
-    type: "cyclones-forecast",
+    type: Domain.CyclonesForecast,
     lat: fp.lat,
     lon: fp.lon,
     timestamp: fp.validTime,

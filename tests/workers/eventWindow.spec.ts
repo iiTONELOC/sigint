@@ -1,3 +1,5 @@
+import { type PointType } from "@shared/domain/pointType";
+import { Domain } from "@shared/domain/identity";
 // ── Event rolling window ────────────────────────────────────────────
 // GDELT publishes only the newest export every fifteen minutes, so the
 // seven-day view is rebuilt on each poll: retained entries still inside the
@@ -15,7 +17,7 @@ const NOW = 1_800_000_000_000;
 function event(id: string, agedMs: number): EventPoint {
   return {
     id,
-    type: "events",
+    type: Domain.Events,
     lat: 1,
     lon: 2,
     timestamp: new Date(NOW - agedMs).toISOString(),
@@ -66,7 +68,7 @@ describe("mergeEventWindow", () => {
   test("treats a missing timestamp as outside the window", () => {
     const undated: EventPoint = {
       id: "NO_TS",
-      type: "events",
+      type: Domain.Events,
       lat: 0,
       lon: 0,
       data: {},

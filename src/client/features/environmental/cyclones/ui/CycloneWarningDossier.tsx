@@ -1,4 +1,5 @@
 import { TriangleAlert } from "lucide-react";
+import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CycloneWarning } from "../data/warnings";
 import { buildWarningDetailRows } from "../data/warningPoint";
@@ -13,7 +14,7 @@ import {
 // the title/badge, so the detail rows drop those to avoid repeating them.
 
 type Props = {
-  readonly item: DataPoint & { type: "cyclones-warning"; data: CycloneWarning };
+  readonly item: DataPoint & { type: Domain.CyclonesWarning; data: CycloneWarning };
   readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;

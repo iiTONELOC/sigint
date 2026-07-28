@@ -1,4 +1,5 @@
 import type { GeoJsonPolygon } from "@shared/geo";
+import type { NhcBasin } from "@shared/cyclonesSeason";
 
 // ── Cyclone feature types ────────────────────────────────────────────
 // Shape of NHC tropical-cyclone data once parseNhc.ts has normalized it
@@ -39,7 +40,7 @@ export type CycloneData = {
   /** Storm name — "ELENA" */
   name: string;
   /** Basin: AL=Atlantic, EP=East Pacific, CP=Central Pacific */
-  basin: "AL" | "EP" | "CP";
+  basin: NhcBasin;
   /** Current classification at advisory time */
   classification: Category;
   /** Saffir-Simpson 1-5 (HU only), 0 for non-HU */
@@ -108,7 +109,7 @@ export type WindRadii = {
 export type CycloneForecastPointData = {
   parentStormId: string;
   parentName: string;
-  parentBasin: "AL" | "EP" | "CP";
+  parentBasin: NhcBasin;
   fcstHour: number;
   validTime: string;
   maxWindKt: number;

@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { Flame } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { FireData, FireFilter } from "./types";
@@ -8,8 +9,8 @@ import {
   FIRE_UI_QUERIES,
 } from "@/features/environmental/fires/data/uiQueries";
 
-export const firesFeature: FeatureDefinition<FireData, FireFilter, "fires"> = {
-  id: "fires",
+export const firesFeature: FeatureDefinition<FireData, FireFilter, Domain.Fires> = {
+  id: Domain.Fires,
   label: "FIRES",
   icon: Flame,
   iconProps: { strokeWidth: 2.5 },

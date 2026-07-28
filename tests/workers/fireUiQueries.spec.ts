@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { FirePoint } from "@/features/environmental/fires/data/source";
 import { FIRE_UI_QUERIES } from "@/features/environmental/fires/data/uiQueries";
@@ -12,7 +14,7 @@ function point(
 ): FirePoint {
   return {
     id,
-    type: "fires",
+    type: Domain.Fires,
     lon: frp,
     lat: frp / 2,
     timestamp,

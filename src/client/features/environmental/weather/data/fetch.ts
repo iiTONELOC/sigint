@@ -1,4 +1,5 @@
 import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
+import { Domain } from "@shared/domain/identity";
 import type { WeatherGeometry } from "@/features/environmental/weather/types";
 
 const ALERTS_URL =
@@ -117,7 +118,7 @@ function toWeatherPoint(
   const props = feature.properties;
   return {
     id: `${ID_PREFIX}${props.id.replace(ID_ALLOWED, "").slice(-ID_TAIL_LENGTH)}`,
-    type: "weather",
+    type: Domain.Weather,
     lat: centroid.lat,
     lon: centroid.lon,
     timestamp:

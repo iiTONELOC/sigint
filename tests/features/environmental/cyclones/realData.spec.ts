@@ -1,3 +1,5 @@
+import { type PointType } from "@shared/domain/pointType";
+import { Domain } from "@shared/domain/identity";
 import {
   describe,
   test,
@@ -55,7 +57,7 @@ describe("parseTrackKml — real TRACK.kmz", () => {
     const pts = parseTrackKml(kml);
     // Amanda adv 8: 12/24/36/48/60/72/96/120h forecast points (8 total;
     // the initial eye position is excluded — it is not a forecast).
-    expect(pts.length).toBe(8);
+    expect(pts).toHaveLength(8);
     expect(pts[0]!.fcstHour).toBe(12);
     expect(pts[pts.length - 1]!.fcstHour).toBe(120);
     // strictly increasing forecast hours
@@ -122,7 +124,7 @@ describe("fetchCyclones — server enriches forecast + cone before cache write",
     const body = getCyclonesCache().body as { activeStorms: any[] } | null;
     const s = body?.activeStorms?.[0];
     expect(s).toBeDefined();
-    expect(s.forecast.length).toBe(8);
+    expect(s.forecast).toHaveLength(8);
     expect(s.forecast[0].fcstHour).toBe(12);
     expect(s.officialCone.type).toBe("Polygon");
     expect(s.officialCone.coordinates[0].length).toBeGreaterThan(300);
@@ -148,7 +150,7 @@ describe("enrichStorms — degrades gracefully", () => {
     const storms: any[] = [{ id: "ep012026" }];
     await enrichStorms(storms);
     expect(Array.isArray(storms[0].forecast)).toBe(true);
-    expect(storms[0].forecast.length).toBe(0);
+    expect(storms[0].forecast).toHaveLength(0);
   });
 });
 
@@ -227,7 +229,7 @@ describe("synthesizeForecastPoints — identity stability", () => {
   function storm(advNum: string) {
     return {
       id: "CYEP012026",
-      type: "cyclones" as const,
+      type: Domain.Cyclones as const,
       lat: 12.5,
       lon: -130.5,
       timestamp: "t",
@@ -252,7 +254,7 @@ describe("synthesizeForecastPoints — identity stability", () => {
     const b = synthesizeForecastPoints([storm("008") as any]);
     expect(a).toBe(b);
     expect(a[0]).toBe(b[0]);
-    expect(a.length).toBe(1);
+    expect(a).toHaveLength(1);
   });
 
   test("a new advisory produces fresh references (so the render updates)", () => {
@@ -264,7 +266,7 @@ describe("synthesizeForecastPoints — identity stability", () => {
 
   test("forecast points carry parentStormId so they resolve to their storm", () => {
     const a = synthesizeForecastPoints([storm("008") as any]);
-    expect(a[0]!.type).toBe("cyclones-forecast");
+    expect(a[0]!.type).toBe(Domain.CyclonesForecast);
     expect((a[0]!.data as { parentStormId: string }).parentStormId).toBe("EP012026");
     // resolver key alignment: `CY${parentStormId}` === storm DataPoint id
     expect(`CY${(a[0]!.data as { parentStormId: string }).parentStormId}`).toBe(

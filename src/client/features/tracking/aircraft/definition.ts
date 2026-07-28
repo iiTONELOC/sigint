@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { Plane } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { AircraftData, AircraftFilter } from "./types";
@@ -26,9 +27,9 @@ function reconNicknames(data: AircraftData): string {
   return RECON_NICKNAMES[reg] ?? RECON_NICKNAMES[hex] ?? "";
 }
 
-export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter, "aircraft"> =
+export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter, Domain.Aircraft> =
   {
-    id: "aircraft",
+    id: Domain.Aircraft,
     label: "AIRCRAFT",
     icon: Plane,
     iconProps: { fill: "currentColor", strokeWidth: 0 },

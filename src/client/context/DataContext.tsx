@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   createContext,
   useContext,
@@ -19,8 +20,6 @@ import type { EarthquakeFilter } from "@/features/environmental/earthquake/types
 import { useFireSourceSnapshot } from "@/features/environmental/fires";
 import type { FireFilter } from "@/features/environmental/fires/types";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
-import { useCycloneWarnings } from "@/features/environmental/cyclones/hooks/useCycloneWarnings";
-import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import {
@@ -65,7 +64,6 @@ type DataContextValue = {
   availableCountries: string[];
   dataSources: SourceStatus[];
   correlation: CorrelationResult;
-  cycloneWarnings: CycloneWarning[];
   cycloneFilter: CycloneFilter;
   toggleCycloneLayer: (
     key: "showForecast" | "showCone" | "showWindField" | "showModels" | "showWarnings",
@@ -139,13 +137,12 @@ export function DataProvider({
   // it for status, counts and bounded pages; it never holds a record set.
   // Tropical watch/warning polygons: region geometry, fetched separately from
   // the DataPoint path and rendered as their own globe layer.
-  const cycloneWarnings = useCycloneWarnings();
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
-  const aircraftSource = useSourceSnapshot("aircraft");
-  const shipSource = useSourceSnapshot("ships");
-  const eventSource = useSourceSnapshot("events");
-  const weatherSource = useSourceSnapshot("weather");
-  const cycloneSource = useSourceSnapshot("cyclones");
+  const aircraftSource = useSourceSnapshot(Domain.Aircraft);
+  const shipSource = useSourceSnapshot(Domain.Ships);
+  const eventSource = useSourceSnapshot(Domain.Events);
+  const weatherSource = useSourceSnapshot(Domain.Weather);
+  const cycloneSource = useSourceSnapshot(Domain.Cyclones);
   const earthquakeSource = useEarthquakeSourceSnapshot();
   const fireSource = useFireSourceSnapshot();
   const correlationInputVersion = useSourceVersions();
@@ -290,7 +287,6 @@ export function DataProvider({
       availableCountries,
       dataSources,
       correlation,
-      cycloneWarnings,
       cycloneFilter,
       toggleCycloneLayer,
       hiddenModels,
@@ -301,7 +297,7 @@ export function DataProvider({
       newsArticles,
       layers, toggleLayer, aircraftFilter, filters, earthquakeFilter, fireFilter,
       counts, activeCount, earthquakeCount, fireCount, tickerItems, availableCountries,
-      dataSources, correlation, cycloneWarnings, cycloneFilter,
+      dataSources, correlation, cycloneFilter,
       toggleCycloneLayer, hiddenModels, toggleModel, toggleAllModels,
     ],
   );

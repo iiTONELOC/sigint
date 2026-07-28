@@ -1,4 +1,5 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import {
   hasOptionalFields,
   hasPointShape,
@@ -9,7 +10,7 @@ import {
 import type { EventData } from "@/features/intel/events/types";
 import { isRecord } from "@shared/geo";
 
-export type EventPoint = Extract<DataPoint, { type: "events" }>;
+export type EventPoint = Extract<DataPoint, { type: Domain.Events }>;
 
 const STRING_FIELDS = [
   "headline",
@@ -44,7 +45,7 @@ function isEventData(value: unknown): value is EventData {
 }
 
 export function isEventPoint(value: unknown): value is EventPoint {
-  return hasPointShape(value, "events") && isEventData(value.data);
+  return hasPointShape(value, Domain.Events) && isEventData(value.data);
 }
 
 export function parseEventCache(

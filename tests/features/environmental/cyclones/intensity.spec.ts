@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { CycloneBasin } from "@shared/cyclonesSeason";
 import {
   analyzeIntensity,
   buildIntensitySeries,
@@ -27,7 +28,7 @@ function storm(maxWindKt: number, forecast: ForecastPoint[]): CycloneData {
   return {
     stormId: "EP012026",
     name: "Amanda",
-    basin: "EP",
+    basin: CycloneBasin.EasternPacific,
     classification: "TS",
     saffirSimpson: 0,
     maxWindKt,
@@ -102,7 +103,7 @@ describe("peakForecastWindKt", () => {
 describe("analyzeIntensity", () => {
   it("returns both the series and the RI verdict", () => {
     const { series, ri } = analyzeIntensity(storm(35, [fp(12, 55), fp(24, 70)]));
-    expect(series.length).toBe(3);
+    expect(series).toHaveLength(3);
     expect(ri.isRapid).toBe(true);
   });
 });

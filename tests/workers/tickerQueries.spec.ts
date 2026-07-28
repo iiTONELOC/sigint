@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";
 import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
@@ -13,13 +15,13 @@ function aircraft(
   data: AircraftPoint["data"],
   timestamp = TIMESTAMP,
 ): AircraftPoint {
-  return { id, type: "aircraft", lat: 35, lon: 139, timestamp, data };
+  return { id, type: Domain.Aircraft, lat: 35, lon: 139, timestamp, data };
 }
 
 function ship(id: string, sog: number): ShipPoint {
   return {
     id,
-    type: "ships",
+    type: Domain.Ships,
     lat: 51,
     lon: -0.1,
     timestamp: TIMESTAMP,

@@ -16,6 +16,7 @@ export const POLL_INTERVALS = {
   /** NASA FIRMS bulk fire file. */
   fires: 600_000,
   cyclones: 1_500_000,
+  cycloneWarnings: 300_000,
   /** RSS news feeds. */
   news: 600_000,
 } as const;

@@ -1,4 +1,7 @@
+import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
+import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
+import { type SourceId } from "@shared/source";
 import {
   POINT_SOURCE_DEFINITIONS,
   getPointSourceDefinition,
@@ -18,11 +21,11 @@ describe("point source registry", () => {
   });
 
   test("keeps source policy in the registry", () => {
-    const aircraft = getPointSourceDefinition("aircraft");
+    const aircraft = getPointSourceDefinition(Domain.Aircraft);
     expect(aircraft.pollIntervalMs).toBeGreaterThan(0);
     expect(aircraft.emptyResultIsComplete).toBe(true);
 
-    const events = getPointSourceDefinition("events");
-    expect(events.completeness).toBe("partial");
+    const events = getPointSourceDefinition(Domain.Events);
+    expect(events.completeness).toBe(SourceCompletenessPolicy.Partial);
   });
 });

@@ -1,4 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { isNhcBasin } from "@shared/cyclonesSeason";
 import {
   hasPointShape,
   parsePointList,
@@ -9,7 +11,7 @@ import type {
 } from "@/features/environmental/cyclones/types";
 import { isRecord } from "@shared/geo";
 
-export type CyclonePoint = Extract<DataPoint, { type: "cyclones" }>;
+export type CyclonePoint = Extract<DataPoint, { type: Domain.Cyclones }>;
 
 const CATEGORIES: ReadonlySet<string> = new Set<Category>([
   "TD",
@@ -23,8 +25,6 @@ const CATEGORIES: ReadonlySet<string> = new Set<Category>([
   "STS",
   "PT",
 ]);
-
-const BASINS: ReadonlySet<string> = new Set(["AL", "EP", "CP"]);
 
 const MAX_SAFFIR_SIMPSON = 5;
 
@@ -56,8 +56,7 @@ function isCycloneData(value: unknown): value is CycloneData {
     isRecord(value) &&
     typeof value.stormId === "string" &&
     typeof value.name === "string" &&
-    typeof value.basin === "string" &&
-    BASINS.has(value.basin) &&
+    isNhcBasin(value.basin) &&
     isCategory(value.classification) &&
     isSaffirSimpson(value.saffirSimpson) &&
     typeof value.maxWindKt === "number" &&
@@ -70,7 +69,7 @@ function isCycloneData(value: unknown): value is CycloneData {
 }
 
 export function isCyclonePoint(value: unknown): value is CyclonePoint {
-  return hasPointShape(value, "cyclones") && isCycloneData(value.data);
+  return hasPointShape(value, Domain.Cyclones) && isCycloneData(value.data);
 }
 
 export function parseCycloneCache(

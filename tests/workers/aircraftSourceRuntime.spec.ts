@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import { SquawkStatus } from "@shared/domain/aircraft";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
@@ -9,7 +11,7 @@ import {
 function aircraft(heading: number): AircraftPoint {
   return {
     id: "Aabc123",
-    type: "aircraft",
+    type: Domain.Aircraft,
     lat: 10,
     lon: 20,
     timestamp: "2026-07-21T00:00:00.000Z",

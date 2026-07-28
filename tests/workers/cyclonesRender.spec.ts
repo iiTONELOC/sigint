@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { Domain } from "@shared/domain/identity";
 import { resolve } from "path";
 import { POINT_LAYER_ORDER } from "@/workers/render/layerOrder";
 
@@ -72,7 +73,7 @@ describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
 
   test("dispatches to drawCyclone in the points loop", async () => {
     const src = await readSource("src/client/workers/pointWorker.ts");
-    expect(src).toContain('item.type === "cyclones"');
+    expect(src).toContain("item.type === Domain.Cyclones");
     expect(src).toContain("drawCyclone(");
   });
 

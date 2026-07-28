@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   EARTHQUAKE_SOURCE_POLICY,
   fetchEarthquakes,
@@ -23,7 +24,7 @@ export function createEarthquakeSourceOwner(
 ): EarthquakeSourceOwner {
   return createPackedPointSource<EarthquakePoint>(
     {
-      id: "earthquake",
+      id: Domain.Earthquake,
       cacheKey: EARTHQUAKE_SOURCE_POLICY.cacheKey,
       pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
       retryIntervalMs: EARTHQUAKE_SOURCE_POLICY.retryIntervalMs,

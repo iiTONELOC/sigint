@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { bandValue, type Band } from "@shared/types/bands";
 import { IntelProductType } from "@shared/domain/correlation";
@@ -31,7 +32,7 @@ import { useSourceTables } from "@/features/base/useSourceTables";
 // ── Types ────────────────────────────────────────────────────────────
 
 type ViewMode = "intel" | "raw";
-type FeedFilter = "all" | "events" | "quakes" | "fires" | "weather";
+type FeedFilter = "all" | Domain.Events | Domain.Quakes | Domain.Fires | Domain.Weather;
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -212,26 +213,26 @@ function rawSeverity(item: DataPoint): number {
 
 function rawCategory(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
-  if (item.type === "events") return (d.category as string) || "";
-  if (item.type === "quakes")
+  if (item.type === Domain.Events) return (d.category as string) || "";
+  if (item.type === Domain.Quakes)
     return `M${((d.magnitude as number) ?? 0).toFixed(1)}`;
-  if (item.type === "fires")
+  if (item.type === Domain.Fires)
     return (d.confidence as string)?.toUpperCase() || "";
-  if (item.type === "weather") return (d.severity as string) || "";
+  if (item.type === Domain.Weather) return (d.severity as string) || "";
   return "";
 }
 
 function rawLocation(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
-  if (item.type === "events") return (d.locationName as string) || "";
-  if (item.type === "weather")
+  if (item.type === Domain.Events) return (d.locationName as string) || "";
+  if (item.type === Domain.Weather)
     return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
   return "";
 }
 
 function rawUrl(item: DataPoint): string | null {
   const d = item.data as Record<string, unknown>;
-  if (item.type === "events" || item.type === "quakes")
+  if (item.type === Domain.Events || item.type === Domain.Quakes)
     return (d.url as string) || null;
   return null;
 }
@@ -422,7 +423,7 @@ export function IntelFeedPane() {
             >
               ALL
             </button>
-            {(["events", "quakes", "fires", "weather"] as const).map((type) => {
+            {([Domain.Events, Domain.Quakes, Domain.Fires, Domain.Weather] as const).map((type) => {
               const Icon = TYPE_ICONS[type] ?? Zap;
               const color = colorMap[type];
               const active = feedFilter === type;

@@ -56,7 +56,6 @@ export function LiveTrafficPane() {
     setZoomToId,
     revealId,
     searchMatchIds,
-    cycloneWarnings,
     watchActive,
     watchPaused,
     watchMode,
@@ -201,7 +200,6 @@ export function LiveTrafficPane() {
         revealId={revealId}
         searchMatchIds={searchMatchIds}
         onSelectedSide={setPanelSide}
-        cycloneWarnings={cycloneWarnings}
       />
 
       {/* ── View controls — top-left overlay on globe ─────────────── */}

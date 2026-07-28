@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // ── Correlation engine entry ────────────────────────────────────────
 // Derives intelligence products from raw DataPoint[] + NewsArticle[].
 //
@@ -336,7 +337,7 @@ function addCorrelated(
 }
 
 function scoreAircraft(
-  item: Extract<DataPoint, { type: "aircraft" }>,
+  item: Extract<DataPoint, { type: Domain.Aircraft }>,
   context: ScoreContext,
 ): ScoredAlert | null {
   const squawk = item.data.squawk ?? "";
@@ -382,7 +383,7 @@ function regionElevated(
 }
 
 function scoreEvent(
-  item: Extract<DataPoint, { type: "events" }>,
+  item: Extract<DataPoint, { type: Domain.Events }>,
   context: ScoreContext,
 ): ScoredAlert | null {
   const severity = item.data.severity ?? 0;
@@ -414,7 +415,7 @@ function scoreEvent(
 }
 
 function scoreQuake(
-  item: Extract<DataPoint, { type: "quakes" }>,
+  item: Extract<DataPoint, { type: Domain.Quakes }>,
   context: ScoreContext,
 ): ScoredAlert | null {
   const magnitude = item.data.magnitude ?? 0;
@@ -457,7 +458,7 @@ function scoreQuake(
 }
 
 function scoreFire(
-  item: Extract<DataPoint, { type: "fires" }>,
+  item: Extract<DataPoint, { type: Domain.Fires }>,
   context: ScoreContext,
 ): ScoredAlert | null {
   const power = item.data.frp ?? 0;
@@ -483,7 +484,7 @@ function scoreFire(
 }
 
 function scoreWeather(
-  item: Extract<DataPoint, { type: "weather" }>,
+  item: Extract<DataPoint, { type: Domain.Weather }>,
   context: ScoreContext,
 ): ScoredAlert | null {
   const severity = item.data.severity ?? "";

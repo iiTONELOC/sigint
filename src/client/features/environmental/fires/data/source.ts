@@ -1,15 +1,15 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import type { FireData } from "@/features/environmental/fires/types";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { authenticatedFetch } from "@/lib/net/authService";
 import { createGeoPoint, isRecord } from "@shared/geo";
 
-export type FirePoint = Extract<DataPoint, { type: "fires" }>;
+export type FirePoint = Extract<DataPoint, { type: Domain.Fires }>;
 
 export type FireSourcePolicy = Readonly<{
-  id: "fire";
-  renderSource: "fires";
+  id: Domain.Fire;
   cacheKey: string;
   feedUrl: string;
   pollIntervalMs: number;
@@ -25,8 +25,7 @@ export type FireSourcePolicy = Readonly<{
 const MINUTE_MS = 60_000;
 
 export const FIRE_SOURCE_POLICY: FireSourcePolicy = {
-  id: "fire",
-  renderSource: "fires",
+  id: Domain.Fire,
   cacheKey: CACHE_KEYS.fires,
   feedUrl: "/api/fires/latest",
   pollIntervalMs: POLL_INTERVALS.fires,
@@ -78,7 +77,7 @@ function parseFireData(value: unknown): FireData | null {
 export function parseFirePoint(value: unknown): FirePoint | null {
   if (
     !isRecord(value) ||
-    value.type !== "fires" ||
+    value.type !== Domain.Fires ||
     typeof value.id !== "string" ||
     typeof value.lat !== "number" ||
     typeof value.lon !== "number"
@@ -92,7 +91,7 @@ export function parseFirePoint(value: unknown): FirePoint | null {
     typeof value.timestamp === "string" ? value.timestamp : undefined;
   return {
     id: value.id,
-    type: "fires",
+    type: Domain.Fires,
     lat: coordinate[1],
     lon: coordinate[0],
     ...(timestamp ? { timestamp } : {}),
@@ -141,7 +140,7 @@ function parseServerFire(value: unknown): FirePoint | null {
   ].join(":");
   return {
     id,
-    type: "fires",
+    type: Domain.Fires,
     lat: coordinate[1],
     lon: coordinate[0],
     timestamp,

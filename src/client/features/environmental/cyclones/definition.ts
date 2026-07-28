@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { Wind } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { CycloneData, CycloneFilter } from "./types";
@@ -5,8 +6,8 @@ import { buildCycloneDetailRows } from "./detailRows";
 import { CycloneTickerContent } from "./ui/CycloneTickerContent";
 import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
 
-export const cycloneFeature: FeatureDefinition<CycloneData, CycloneFilter, "cyclones"> = {
-  id: "cyclones",
+export const cycloneFeature: FeatureDefinition<CycloneData, CycloneFilter, Domain.Cyclones> = {
+  id: Domain.Cyclones,
   label: "CYCLONES",
   icon: Wind,
   iconProps: { strokeWidth: 2.5 },

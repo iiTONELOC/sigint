@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // ── useAssetsInCone ──────────────────────────────────────────────────
 // Which tracked ships/aircraft currently sit inside a storm's official NHC
 // forecast cone, meaning what sits in the threat area. Candidate narrowing runs in
@@ -71,8 +72,8 @@ export function useAssetsInCone(
   // stormKey (advisory number) changes with the cone, so a refreshed advisory
   // re-runs the query even when the ring object is reused.
   const query = useMemo(() => coneBboxQuery(cone), [cone, stormKey]);
-  const aircraft = useSourceQuery("aircraft", query);
-  const ships = useSourceQuery("ships", query);
+  const aircraft = useSourceQuery(Domain.Aircraft, query);
+  const ships = useSourceQuery(Domain.Ships, query);
 
   return useMemo(() => {
     if (!cone || !aircraft || !ships) return null;

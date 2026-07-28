@@ -1,14 +1,14 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import type { EarthquakeData } from "@/features/environmental/earthquake/types";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { createGeoPoint, isRecord } from "@shared/geo";
 
-export type EarthquakePoint = Extract<DataPoint, { type: "quakes" }>;
+export type EarthquakePoint = Extract<DataPoint, { type: Domain.Quakes }>;
 
 export type EarthquakeSourcePolicy = Readonly<{
-  id: "earthquake";
-  renderSource: "quakes";
+  id: Domain.Earthquake;
   cacheKey: string;
   feedUrl: string;
   pollIntervalMs: number;
@@ -24,8 +24,7 @@ export type EarthquakeSourcePolicy = Readonly<{
 const MINUTE_MS = 60_000;
 
 export const EARTHQUAKE_SOURCE_POLICY: EarthquakeSourcePolicy = {
-  id: "earthquake",
-  renderSource: "quakes",
+  id: Domain.Earthquake,
   cacheKey: CACHE_KEYS.earthquake,
   feedUrl:
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson",
@@ -77,7 +76,7 @@ export function parseEarthquakePoint(
 ): EarthquakePoint | null {
   if (
     !isRecord(value) ||
-    value.type !== "quakes" ||
+    value.type !== Domain.Quakes ||
     typeof value.id !== "string" ||
     typeof value.lat !== "number" ||
     typeof value.lon !== "number"
@@ -91,7 +90,7 @@ export function parseEarthquakePoint(
     typeof value.timestamp === "string" ? value.timestamp : undefined;
   return {
     id: value.id,
-    type: "quakes",
+    type: Domain.Quakes,
     lat: coordinate[1],
     lon: coordinate[0],
     ...(timestamp ? { timestamp } : {}),
@@ -121,7 +120,7 @@ function parseFeedFeature(value: unknown): EarthquakePoint | null {
   const depth = optionalFiniteNumber(coordinates[2]);
   return {
     id: `Q${value.id}`,
-    type: "quakes",
+    type: Domain.Quakes,
     lat: coordinate[1],
     lon: coordinate[0],
     timestamp: new Date(originTime).toISOString(),

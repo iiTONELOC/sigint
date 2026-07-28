@@ -1,4 +1,5 @@
 import type { BasePoint } from "./types";
+import { Domain } from "@shared/domain/identity";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import type { EarthquakeData } from "@/features/environmental/earthquake/types";
 import type { ShipData } from "@/features/tracking/ships/types";
@@ -14,17 +15,22 @@ import type { CycloneWarning } from "@/features/environmental/cyclones/data/warn
 // ── DataPoint union ──────────────────────────────────────────────────
 
 export type DataPoint =
-  | (BasePoint & { type: "ships"; data: ShipData })
-  | (BasePoint & { type: "aircraft"; data: AircraftData })
-  | (BasePoint & { type: "events"; data: EventData })
-  | (BasePoint & { type: "quakes"; data: EarthquakeData })
-  | (BasePoint & { type: "fires"; data: FireData })
-  | (BasePoint & { type: "weather"; data: WeatherData })
-  | (BasePoint & { type: "cyclones"; data: CycloneData })
-  | (BasePoint & { type: "cyclones-forecast"; data: CycloneForecastPointData })
-  | (BasePoint & { type: "cyclones-warning"; data: CycloneWarning });
+  | (BasePoint & { type: Domain.Ships; data: ShipData })
+  | (BasePoint & { type: Domain.Aircraft; data: AircraftData })
+  | (BasePoint & { type: Domain.Events; data: EventData })
+  | (BasePoint & { type: Domain.Quakes; data: EarthquakeData })
+  | (BasePoint & { type: Domain.Fires; data: FireData })
+  | (BasePoint & { type: Domain.Weather; data: WeatherData })
+  | (BasePoint & {
+      type: Domain.CyclonesForecast;
+      data: CycloneForecastPointData;
+    })
+  | (BasePoint & { type: Domain.Cyclones; data: CycloneData })
+  | (BasePoint & { type: Domain.CyclonesWarning; data: CycloneWarning });
 
 export type DataType = DataPoint["type"];
+
+export type { PointType } from "@shared/domain/pointType";
 
 // Re-export so existing consumers from this path don't break
 export type { ShipData } from "@/features/tracking/ships/types";

@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type SourceId } from "@shared/source";
 import { createRenderSceneStore } from "@/workers/render/sceneStore";
 import { createSceneDataCommand } from "@/workers/render/sceneProtocol";
 
 describe("render scene store", () => {
   test("applies changed handles without rebuilding retained records", () => {
-    const store = createRenderSceneStore("aircraft");
+    const store = createRenderSceneStore(Domain.Aircraft);
     store.apply(createSceneDataCommand({
       type: "sourcePatch",
-      source: "aircraft",
+      source: Domain.Aircraft,
       sourceVersion: 1,
       kind: "rebase",
       handles: new Uint32Array([1, 2]),
@@ -25,7 +27,7 @@ describe("render scene store", () => {
 
     store.apply(createSceneDataCommand({
       type: "sourcePatch",
-      source: "aircraft",
+      source: Domain.Aircraft,
       sourceVersion: 2,
       kind: "patch",
       handles: new Uint32Array([1]),

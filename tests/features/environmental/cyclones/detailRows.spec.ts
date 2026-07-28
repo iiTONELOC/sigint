@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { CycloneBasin } from "@shared/cyclonesSeason";
 import { buildCycloneDetailRows } from "@/features/environmental/cyclones/detailRows";
 import type { CycloneData } from "@/features/environmental/cyclones/types";
 
@@ -6,7 +7,7 @@ function makeData(overrides: Partial<CycloneData> = {}): CycloneData {
   return {
     stormId: "AL052026",
     name: "STORM_TEST_C5",
-    basin: "AL",
+    basin: CycloneBasin.Atlantic,
     classification: "HU5",
     saffirSimpson: 5,
     maxWindKt: 145,

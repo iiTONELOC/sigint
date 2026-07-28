@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   useSourceQuery,
   useSourceSnapshot,
@@ -9,11 +10,11 @@ import type {
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 
 export function useFireSourceSnapshot(): DataWorkerSourceSnapshot | null {
-  return useSourceSnapshot("fire");
+  return useSourceSnapshot(Domain.Fire);
 }
 
 export function useFireUiQuery(
   query: FireUiQuery | null,
 ): FireUiQueryResult | null {
-  return useSourceQuery("fire", query);
+  return useSourceQuery(Domain.Fire, query);
 }

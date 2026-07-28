@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Domain } from "@shared/domain/identity";
 import { createPortal } from "react-dom";
 import { Search as SearchIcon, X } from "lucide-react";
 import { isMobileWidth } from "@/config/breakpoints";
@@ -155,10 +156,10 @@ export function Search({ onSelect, onZoomTo, onMatchingIdsChange }: SearchProps)
     if (!normalizedQuery || !searchReady || matchingCount === 0) return;
     onMatchingIdsChange(new Set(localMatchingIds));
     void dataWorkerClient
-      ?.setSourceSearch("earthquake", normalizedQuery)
+      ?.setSourceSearch(Domain.Earthquake, normalizedQuery)
       .catch(() => undefined);
     void dataWorkerClient
-      ?.setSourceSearch("fire", normalizedQuery)
+      ?.setSourceSearch(Domain.Fire, normalizedQuery)
       .catch(() => undefined);
     setCommittedQuery(normalizedQuery);
     setCommittedCount(matchingCount);
@@ -181,10 +182,10 @@ export function Search({ onSelect, onZoomTo, onMatchingIdsChange }: SearchProps)
     setActiveIndex(-1);
     onMatchingIdsChange(null);
     void dataWorkerClient
-      ?.setSourceSearch("earthquake", null)
+      ?.setSourceSearch(Domain.Earthquake, null)
       .catch(() => undefined);
     void dataWorkerClient
-      ?.setSourceSearch("fire", null)
+      ?.setSourceSearch(Domain.Fire, null)
       .catch(() => undefined);
   }, [dataWorkerClient, onMatchingIdsChange]);
 

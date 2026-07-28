@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
+import { type SourceId } from "@shared/source";
 import {
   createDataWorkerClient,
   type DataWorkerTransport,
@@ -83,7 +86,7 @@ describe("DataWorker protocol", () => {
         event(null, {
           type: "sourceSnapshot",
           snapshot: {
-            source: "earthquake",
+            source: Domain.Earthquake,
             version: 3,
             status: "live",
             loading: false,
@@ -99,7 +102,7 @@ describe("DataWorker protocol", () => {
         event(null, {
           type: "sourceSnapshot",
           snapshot: {
-            source: "earthquake",
+            source: Domain.Earthquake,
             version: 3,
             status: "live",
             loading: false,
@@ -198,7 +201,7 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const received: number[] = [];
     const unsubscribe = client.subscribeSource(
-      "earthquake",
+      Domain.Earthquake,
       (snapshot) => received.push(snapshot.count),
     );
 
@@ -206,7 +209,7 @@ describe("createDataWorkerClient", () => {
       event(null, {
         type: "sourceSnapshot",
         snapshot: {
-          source: "earthquake",
+          source: Domain.Earthquake,
           version: 1,
           status: "live",
           loading: false,
@@ -218,14 +221,14 @@ describe("createDataWorkerClient", () => {
     );
 
     expect(received).toEqual([12]);
-    expect(client.getSourceSnapshot("earthquake")?.count).toBe(12);
+    expect(client.getSourceSnapshot(Domain.Earthquake)?.count).toBe(12);
     unsubscribe();
   });
 
   test("requests an explicit source refresh", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
-    const pending = client.refreshSource("earthquake");
+    const pending = client.refreshSource(Domain.Earthquake);
     const command = latestCommand(harness);
     expect(command.type).toBe("refreshSource");
 
@@ -237,7 +240,7 @@ describe("createDataWorkerClient", () => {
   test("returns one validated source entity with its dataset version", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
-    const pending = client.getSourceEntity("earthquake", "Qone");
+    const pending = client.getSourceEntity(Domain.Earthquake, "Qone");
     const command = latestCommand(harness);
     if (command.type !== "getSourceEntity") {
       throw new Error("Expected getSourceEntity command");
@@ -247,11 +250,11 @@ describe("createDataWorkerClient", () => {
     harness.emit(
       event(command.requestId, {
         type: "sourceEntity",
-        source: "earthquake",
+        source: Domain.Earthquake,
         sourceVersion: 7,
         value: {
           id: "Qone",
-          type: "quakes",
+          type: Domain.Quakes,
           lon: -80,
           lat: 30,
           timestamp: "2026-07-21T12:00:00.000Z",
@@ -261,11 +264,11 @@ describe("createDataWorkerClient", () => {
     );
 
     const entity = await pending;
-    expect(entity.source).toBe("earthquake");
+    expect(entity.source).toBe(Domain.Earthquake);
     expect(entity.sourceVersion).toBe(7);
     expect(entity.value).toEqual({
       id: "Qone",
-      type: "quakes",
+      type: Domain.Quakes,
       lon: -80,
       lat: 30,
       timestamp: "2026-07-21T12:00:00.000Z",
@@ -277,7 +280,7 @@ describe("createDataWorkerClient", () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
     const pending = client.querySource({
-      source: "earthquake",
+      source: Domain.Earthquake,
       query: {
         kind: "table",
       minValue: 3,
@@ -296,7 +299,7 @@ describe("createDataWorkerClient", () => {
     harness.emit(
       event(command.requestId, {
         type: "sourceQuery",
-        source: "earthquake",
+        source: Domain.Earthquake,
         sourceVersion: 8,
         result: {
           kind: "table",
@@ -304,7 +307,7 @@ describe("createDataWorkerClient", () => {
           items: [
             {
               id: "Qone",
-              type: "quakes",
+              type: Domain.Quakes,
               lon: -80,
               lat: 30,
               timestamp: "2026-07-21T12:00:00.000Z",
@@ -316,7 +319,7 @@ describe("createDataWorkerClient", () => {
     );
 
     const result = await pending;
-    expect(result.source).toBe("earthquake");
+    expect(result.source).toBe(Domain.Earthquake);
     expect(result.sourceVersion).toBe(8);
     expect(result.result).toEqual({
       kind: "table",
@@ -324,7 +327,7 @@ describe("createDataWorkerClient", () => {
       items: [
         {
           id: "Qone",
-          type: "quakes",
+          type: Domain.Quakes,
           lon: -80,
           lat: 30,
           timestamp: "2026-07-21T12:00:00.000Z",
@@ -337,7 +340,7 @@ describe("createDataWorkerClient", () => {
   test("sets the worker-owned source search filter", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);
-    const pending = client.setSourceSearch("earthquake", "Mexico");
+    const pending = client.setSourceSearch(Domain.Earthquake, "Mexico");
     const command = latestCommand(harness);
     expect(command.type).toBe("setSourceSearch");
     harness.emit(event(command.requestId, { type: "complete" }));

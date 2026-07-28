@@ -1,3 +1,4 @@
+import { type PointType } from "@shared/domain/pointType";
 import type { SourceState } from "@shared/source";
 
 // ── Provider type ────────────────────────────────────────────────
@@ -45,7 +46,7 @@ export type DataProvider<TEntity> = {
 
 export type BasePoint = {
   id: string;
-  type: string;
+  type: PointType;
   lat: number;
   lon: number;
   timestamp?: string;
@@ -62,7 +63,7 @@ export type TickerRendererProps = {
 export type FeatureDefinition<
   TData = unknown,
   TFilter = unknown,
-  TType extends string = string,
+  TType extends PointType = PointType,
 > = {
   /** Unique key matching the DataPoint type discriminator */
   id: TType;

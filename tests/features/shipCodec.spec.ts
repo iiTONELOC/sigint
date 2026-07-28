@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import {
   decodeShipPoints,
   parseShipServerPayload,
@@ -30,7 +32,7 @@ describe("ship response codec", () => {
       connected: false,
     })[0]).toMatchObject({
       id: "S123456789",
-      type: "ships",
+      type: Domain.Ships,
       lat: 51.5,
       lon: -0.1,
     });

@@ -1,15 +1,20 @@
+export enum GeoJsonGeometryType {
+  Polygon = "Polygon",
+  MultiPolygon = "MultiPolygon",
+}
+
 export type GeoPoint = readonly [longitude: number, latitude: number];
 export type GeoRing = readonly GeoPoint[];
 export type GeoPolygon = readonly GeoRing[];
 export type GeoMultiPolygon = readonly GeoPolygon[];
 
 export type GeoJsonPolygon = Readonly<{
-  type: "Polygon";
+  type: GeoJsonGeometryType.Polygon;
   coordinates: GeoPolygon;
 }>;
 
 export type GeoJsonMultiPolygon = Readonly<{
-  type: "MultiPolygon";
+  type: GeoJsonGeometryType.MultiPolygon;
   coordinates: GeoMultiPolygon;
 }>;
 
@@ -93,13 +98,17 @@ export function parseGeoJsonPolygonGeometry(
   value: unknown,
 ): GeoJsonPolygonGeometry | null {
   if (!isRecord(value)) return null;
-  if (value.type === "Polygon") {
+  if (value.type === GeoJsonGeometryType.Polygon) {
     const coordinates = parseGeoPolygonCoordinates(value.coordinates);
-    return coordinates ? { type: "Polygon", coordinates } : null;
+    return coordinates
+      ? { type: GeoJsonGeometryType.Polygon, coordinates }
+      : null;
   }
-  if (value.type === "MultiPolygon") {
+  if (value.type === GeoJsonGeometryType.MultiPolygon) {
     const coordinates = parseGeoMultiPolygonCoordinates(value.coordinates);
-    return coordinates ? { type: "MultiPolygon", coordinates } : null;
+    return coordinates
+      ? { type: GeoJsonGeometryType.MultiPolygon, coordinates }
+      : null;
   }
   return null;
 }
@@ -107,7 +116,7 @@ export function parseGeoJsonPolygonGeometry(
 export function geometryPolygons(
   geometry: GeoJsonPolygonGeometry,
 ): GeoMultiPolygon {
-  return geometry.type === "Polygon"
+  return geometry.type === GeoJsonGeometryType.Polygon
     ? [geometry.coordinates]
     : geometry.coordinates;
 }

@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   useSourceQuery,
   useSourceSnapshot,
@@ -9,11 +10,11 @@ import type {
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 
 export function useEarthquakeSourceSnapshot(): DataWorkerSourceSnapshot | null {
-  return useSourceSnapshot("earthquake");
+  return useSourceSnapshot(Domain.Earthquake);
 }
 
 export function useEarthquakeUiQuery(
   query: EarthquakeUiQuery | null,
 ): EarthquakeUiQueryResult | null {
-  return useSourceQuery("earthquake", query);
+  return useSourceQuery(Domain.Earthquake, query);
 }

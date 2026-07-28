@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
   createShipSourceRuntime,
@@ -9,7 +11,7 @@ import type { ShipPoint } from "@/features/tracking/ships/data/codec";
 function ship(heading: number): ShipPoint {
   return {
     id: "S123456789",
-    type: "ships",
+    type: Domain.Ships,
     lat: 10,
     lon: 20,
     timestamp: "2026-07-21T00:00:00.000Z",

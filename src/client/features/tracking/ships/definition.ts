@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import { Anchor } from "lucide-react";
 import type { FeatureDefinition } from "@/features/base/types";
 import type { ShipData } from "./types";
@@ -5,8 +6,8 @@ import { buildShipDetailRows } from "./detailRows";
 import { ShipTickerContent } from "./ui/ShipTickerContent";
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
 
-export const shipsFeature: FeatureDefinition<ShipData, boolean, "ships"> = {
-  id: "ships",
+export const shipsFeature: FeatureDefinition<ShipData, boolean, Domain.Ships> = {
+  id: Domain.Ships,
   label: "AIS VESSELS",
   icon: Anchor,
   iconProps: { strokeWidth: 2.5 },

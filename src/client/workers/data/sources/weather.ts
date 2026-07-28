@@ -1,4 +1,5 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import { Domain } from "@shared/domain/identity";
 import {
   parseWeatherCache,
   type WeatherPoint,
@@ -13,7 +14,7 @@ import {
   type PointSourceRuntime,
 } from "@/workers/data/sourceRuntime";
 
-export const WEATHER_SOURCE = getPointSourceDefinition("weather");
+export const WEATHER_SOURCE = getPointSourceDefinition(Domain.Weather);
 
 export type WeatherSourceRuntime = PointSourceRuntime<WeatherPoint> &
   Readonly<{ publishRebase: () => void }>;

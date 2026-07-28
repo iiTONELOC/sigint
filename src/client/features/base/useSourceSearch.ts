@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
@@ -22,13 +23,13 @@ export function useSourceSearch(text: string | null): SourceSearch {
   );
 
   const results = {
-    aircraft: useSourceQuery("aircraft", query),
-    cyclones: useSourceQuery("cyclones", query),
-    earthquake: useSourceQuery("earthquake", query),
-    events: useSourceQuery("events", query),
-    fire: useSourceQuery("fire", query),
-    ships: useSourceQuery("ships", query),
-    weather: useSourceQuery("weather", query),
+    aircraft: useSourceQuery(Domain.Aircraft, query),
+    cyclones: useSourceQuery(Domain.Cyclones, query),
+    earthquake: useSourceQuery(Domain.Earthquake, query),
+    events: useSourceQuery(Domain.Events, query),
+    fire: useSourceQuery(Domain.Fire, query),
+    ships: useSourceQuery(Domain.Ships, query),
+    weather: useSourceQuery(Domain.Weather, query),
   };
 
   return useMemo(() => {

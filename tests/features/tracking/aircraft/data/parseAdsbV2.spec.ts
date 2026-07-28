@@ -1,3 +1,6 @@
+import { type PointType } from "@shared/domain/pointType";
+import { Domain } from "@shared/domain/identity";
+import { SourcePhase, SourceFreshness, SourceCompleteness, type SourceId } from "@shared/source";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   parseAdsbResponse,
@@ -40,10 +43,10 @@ const GROUND_AIRCRAFT = {
 };
 
 const AIRCRAFT_SOURCE_STATE: SourceState = {
-  source: "aircraft",
-  phase: "ready",
-  freshness: "fresh",
-  completeness: "complete",
+  source: Domain.Aircraft,
+  phase: SourcePhase.Ready,
+  freshness: SourceFreshness.Fresh,
+  completeness: SourceCompleteness.Complete,
   sequence: 1,
   observedAt: 1_700_000_000_000,
   receivedAt: 1_700_000_000_000,
@@ -156,9 +159,9 @@ describe("toAircraftData — field mapping", () => {
 describe("parseAdsbResponse", () => {
   test("walks { ac: [...] } → DataPoint[]", () => {
     const result = parseAdsbResponse({ ac: [SAMPLE_AIRCRAFT] });
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("Aabe7c5");
-    expect(result[0]!.type).toBe("aircraft");
+    expect(result[0]!.type).toBe(Domain.Aircraft);
     expect(result[0]!.lat).toBeCloseTo(40.476334, 5);
     expect(result[0]!.lon).toBeCloseTo(-105.227234, 5);
   });
@@ -185,12 +188,12 @@ describe("parseAdsbResponse", () => {
         { ...SAMPLE_AIRCRAFT, lon: undefined },
       ],
     });
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
   });
 
   test("ground aircraft preserved with onGround true", () => {
     const point = parseAdsbResponse({ ac: [GROUND_AIRCRAFT] })[0];
-    expect(point?.type).toBe("aircraft");
+    expect(point?.type).toBe(Domain.Aircraft);
     if (point?.type !== "aircraft") throw new Error("Expected aircraft");
     expect(point.data.onGround).toBe(true);
   });
@@ -325,7 +328,7 @@ describe("fetchAircraftStates", () => {
       body: aircraftEnvelope([SAMPLE_AIRCRAFT, GROUND_AIRCRAFT]),
     });
     const result = await fetchAircraftStates();
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
   });
 
   test("throws on non-OK response", async () => {

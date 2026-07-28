@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 import {
   fetchShipSnapshot,
   type ShipFetchSnapshot,
@@ -20,7 +21,7 @@ import {
 import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 
-export const SHIP_SOURCE = getPointSourceDefinition("ships");
+export const SHIP_SOURCE = getPointSourceDefinition(Domain.Ships);
 
 export type ShipSourceRuntime = PointSourceRuntime<ShipPoint> &
   Readonly<{ publishRebase: () => void }>;

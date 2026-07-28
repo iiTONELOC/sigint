@@ -1,25 +1,16 @@
-import { SOURCE_IDS, type SourceId } from "@shared/source";
+import { SOURCE_IDS, isSourceIdValue, type SourceId } from "@shared/source";
+import { Domain } from "@shared/domain/identity";
 
-export const DATA_SOURCE_IDS = SOURCE_IDS;
+export type RenderSourceId = Exclude<SourceId, Domain.News>;
 
-export type DataSourceId = SourceId;
-export type RenderSourceId = Exclude<DataSourceId, "news">;
+export const RENDER_SOURCE_IDS: readonly RenderSourceId[] = SOURCE_IDS.filter(
+  (source): source is RenderSourceId => source !== Domain.News,
+);
 
-export const RENDER_SOURCE_IDS: readonly RenderSourceId[] =
-  DATA_SOURCE_IDS.filter(
-    (source): source is RenderSourceId => source !== "news",
-  );
-
-export function isDataSourceId(value: unknown): value is DataSourceId {
-  return (
-    typeof value === "string" &&
-    DATA_SOURCE_IDS.some((source) => source === value)
-  );
+export function isSourceId(value: unknown): value is SourceId {
+  return isSourceIdValue(value);
 }
 
 export function isRenderSourceId(value: unknown): value is RenderSourceId {
-  return (
-    typeof value === "string" &&
-    RENDER_SOURCE_IDS.some((source) => source === value)
-  );
+  return isSourceIdValue(value) && value !== Domain.News;
 }

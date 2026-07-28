@@ -1,10 +1,11 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import { ktToMps } from "@/lib/format/units";
 import type { TrailObservation } from "@/lib/geo/trails/trailStore";
 
 export type TrackedPoint = Extract<
   DataPoint,
-  { type: "aircraft" | "ships" }
+  { type: Domain.Aircraft | "ships" }
 >;
 
 function observedAt(timestamp: string | undefined): number | null {

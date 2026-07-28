@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/uiQueries";
@@ -12,7 +14,7 @@ function point(
 ): EarthquakePoint {
   return {
     id,
-    type: "quakes",
+    type: Domain.Quakes,
     lon: magnitude,
     lat: depth,
     timestamp,

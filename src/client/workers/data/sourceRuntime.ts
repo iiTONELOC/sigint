@@ -9,7 +9,7 @@ import type {
   DataWorkerSourceSnapshot,
   DataWorkerSourceStatus,
 } from "@/workers/data/protocol";
-import type { DataSourceId } from "@/workers/data/sourceIds";
+import type { SourceId } from "@shared/source";
 import { isRecord } from "@shared/geo";
 
 export type PointSourceCacheSnapshot<TEntity extends DatasetEntity> = Readonly<{
@@ -30,7 +30,7 @@ export type PointSourceSchedule = (
 ) => () => void;
 
 export type PointSourceRuntimeOptions<TEntity extends DatasetEntity> = Readonly<{
-  id: DataSourceId;
+  id: SourceId;
   cacheKey: string;
   pollIntervalMs: number;
   retryIntervalMs?: number;

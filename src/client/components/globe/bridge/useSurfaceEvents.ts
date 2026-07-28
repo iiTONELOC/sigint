@@ -3,7 +3,6 @@ import type { GlobeVisualizationProps } from "@/components/globe/types";
 import type { RenderInteractionPayload } from "@/workers/render/protocol";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 import { sourceForPointType } from "@/workers/data/sources/registry";
-import { warningToDataPoint } from "@/features/environmental/cyclones/data/warningPoint";
 import {
   RENDER_SURFACE_INTERACTION_EVENT,
   RENDER_SURFACE_MIDDLE_CLICK_EVENT,
@@ -40,13 +39,6 @@ export function useSurfaceEvents({
       if (interaction.kind === "selection") {
         selectionRequest.current += 1;
         const request = selectionRequest.current;
-        const warning = current.cycloneWarnings?.find(
-          (candidate) => candidate.id === interaction.id,
-        );
-        if (warning) {
-          current.onSelect(warningToDataPoint(warning));
-          return;
-        }
         if (!interaction.id) {
           current.onSelect(null);
           return;

@@ -1,50 +1,17 @@
 import { useMemo } from "react";
+import { Domain } from "@shared/domain/identity";
 import type { DataPoint, DataType } from "@/features/base/dataPoints";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
-import type { QueryableSourceId } from "@/workers/data/queryableSources";
+import { pointTypeForSource } from "@/workers/data/sources/registry";
+import {
+  QUERYABLE_SOURCE_IDS,
+  type QueryableSourceId,
+} from "@/workers/data/queryableSources";
 import type {
   PointUiQuery,
   TableSortDirection,
   TableSortKey,
 } from "@/workers/data/uiQuery";
-
-const TABLE_SOURCES = [
-  "aircraft",
-  "cyclones",
-  "earthquake",
-  "events",
-  "fire",
-  "ships",
-  "weather",
-] as const satisfies readonly QueryableSourceId[];
-
-/** Point type each source contributes, so callers can filter and count. */
-export const SOURCE_POINT_TYPES: Readonly<Record<QueryableSourceId, DataType>> =
-  {
-    aircraft: getPointSourceDefinition("aircraft").pointType,
-    cyclones: getPointSourceDefinition("cyclones").pointType,
-    earthquake: getPointSourceDefinition("earthquake").pointType,
-    events: getPointSourceDefinition("events").pointType,
-    fire: getPointSourceDefinition("fire").pointType,
-    ships: getPointSourceDefinition("ships").pointType,
-    weather: getPointSourceDefinition("weather").pointType,
-  };
-
-const POINT_TYPE_SOURCES = new Map<DataType, QueryableSourceId>(
-  Object.entries(SOURCE_POINT_TYPES).map(([source, pointType]) => [
-    pointType,
-    source as QueryableSourceId,
-  ]),
-);
-
-/** Which source owns a point type, for callers holding a point rather than
- *  a source id. Null for a type no source publishes. */
-export function sourceForPointType(
-  pointType: DataType,
-): QueryableSourceId | null {
-  return POINT_TYPE_SOURCES.get(pointType) ?? null;
-}
 
 export type SourceTableOptions = Readonly<{
   sortKey: TableSortKey;
@@ -87,13 +54,15 @@ function tableQuery(
 export function useSourceTables(options: SourceTableOptions): SourceTable {
   const queries = useMemo(
     (): Readonly<Record<QueryableSourceId, PointUiQuery | null>> => ({
-      aircraft: tableQuery(options, "aircraft"),
-      cyclones: tableQuery(options, "cyclones"),
-      earthquake: tableQuery(options, "earthquake"),
-      events: tableQuery(options, "events"),
-      fire: tableQuery(options, "fire"),
-      ships: tableQuery(options, "ships"),
-      weather: tableQuery(options, "weather"),
+      aircraft: tableQuery(options, Domain.Aircraft),
+      // Watch and warning areas are a render layer, not a table row.
+      cycloneWarnings: null,
+      cyclones: tableQuery(options, Domain.Cyclones),
+      earthquake: tableQuery(options, Domain.Earthquake),
+      events: tableQuery(options, Domain.Events),
+      fire: tableQuery(options, Domain.Fire),
+      ships: tableQuery(options, Domain.Ships),
+      weather: tableQuery(options, Domain.Weather),
     }),
     [
       options.sortKey,
@@ -105,13 +74,17 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
   );
 
   const results = {
-    aircraft: useSourceQuery("aircraft", queries.aircraft),
-    cyclones: useSourceQuery("cyclones", queries.cyclones),
-    earthquake: useSourceQuery("earthquake", queries.earthquake),
-    events: useSourceQuery("events", queries.events),
-    fire: useSourceQuery("fire", queries.fire),
-    ships: useSourceQuery("ships", queries.ships),
-    weather: useSourceQuery("weather", queries.weather),
+    aircraft: useSourceQuery(Domain.Aircraft, queries.aircraft),
+    cycloneWarnings: useSourceQuery(
+      Domain.CycloneWarnings,
+      queries.cycloneWarnings,
+    ),
+    cyclones: useSourceQuery(Domain.Cyclones, queries.cyclones),
+    earthquake: useSourceQuery(Domain.Earthquake, queries.earthquake),
+    events: useSourceQuery(Domain.Events, queries.events),
+    fire: useSourceQuery(Domain.Fire, queries.fire),
+    ships: useSourceQuery(Domain.Ships, queries.ships),
+    weather: useSourceQuery(Domain.Weather, queries.weather),
   };
 
   return useMemo(() => {
@@ -119,10 +92,10 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
     const totals: Record<string, number> = {};
     let itemCount = 0;
 
-    for (const id of TABLE_SOURCES) {
+    for (const id of QUERYABLE_SOURCE_IDS) {
       const result = results[id];
       if (result?.kind !== "table") continue;
-      const pointType = SOURCE_POINT_TYPES[id];
+      const pointType = pointTypeForSource(id);
       totals[pointType] = result.total;
       if (options.pointType !== null && options.pointType !== pointType) {
         continue;

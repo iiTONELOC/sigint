@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import {
   EARTHQUAKE_SOURCE_POLICY,
   parseEarthquakeFeed,
@@ -20,7 +22,7 @@ function point(
 ): EarthquakePoint {
   return {
     id,
-    type: "quakes",
+    type: Domain.Quakes,
     lon: longitude,
     lat: latitude,
     timestamp,

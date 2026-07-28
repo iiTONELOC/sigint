@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type SourceId } from "@shared/source";
 import {
   POINT_SOURCE_DEFINITIONS,
   sourceForPointType,
@@ -16,15 +18,20 @@ describe("sourceForPointType", () => {
   });
 
   test("aircraft and ships resolve, not just the packed sources", () => {
-    expect(sourceForPointType("aircraft")).toBe("aircraft");
-    expect(sourceForPointType("ships")).toBe("ships");
-    expect(sourceForPointType("quakes")).toBe("earthquake");
-    expect(sourceForPointType("fires")).toBe("fire");
+    expect(sourceForPointType("aircraft")).toBe(Domain.Aircraft);
+    expect(sourceForPointType("ships")).toBe(Domain.Ships);
+    expect(sourceForPointType("quakes")).toBe(Domain.Earthquake);
+    expect(sourceForPointType("fires")).toBe(Domain.Fire);
+    expect(sourceForPointType("cyclones-warning")).toBe(
+      Domain.CycloneWarnings,
+    );
   });
 
   test("an unowned or absent point type resolves to null", () => {
     expect(sourceForPointType(null)).toBeNull();
-    expect(sourceForPointType("cyclones-warning")).toBeNull();
     expect(sourceForPointType("not-a-layer")).toBeNull();
+    // cyclones-forecast is synthesized for hit testing, not published by a
+    // source, so it stays unowned.
+    expect(sourceForPointType("cyclones-forecast")).toBeNull();
   });
 });

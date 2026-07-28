@@ -3,7 +3,6 @@ import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
 import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
 import type { FireFilter } from "@/features/environmental/fires/types";
-import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 
 export type CamState = {
   rotY: number;
@@ -60,5 +59,4 @@ export type GlobeVisualizationProps = {
   readonly revealId?: string | null;
   readonly searchMatchIds?: Set<string> | null;
   /** Tropical watch/warning area polygons (NWS Alerts GeoJSON). */
-  readonly cycloneWarnings?: CycloneWarning[];
 };

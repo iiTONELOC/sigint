@@ -1,4 +1,5 @@
 import { useSourceSnapshot } from "@/features/base/useSourceQuery";
+import { Domain } from "@shared/domain/identity";
 
 /**
  * One number that advances whenever any source in the DataWorker does. Use it
@@ -6,13 +7,13 @@ import { useSourceSnapshot } from "@/features/base/useSourceQuery";
  */
 export function useSourceVersions(): number {
   const versions = [
-    useSourceSnapshot("aircraft")?.version ?? 0,
-    useSourceSnapshot("ships")?.version ?? 0,
-    useSourceSnapshot("events")?.version ?? 0,
-    useSourceSnapshot("earthquake")?.version ?? 0,
-    useSourceSnapshot("fire")?.version ?? 0,
-    useSourceSnapshot("weather")?.version ?? 0,
-    useSourceSnapshot("cyclones")?.version ?? 0,
+    useSourceSnapshot(Domain.Aircraft)?.version ?? 0,
+    useSourceSnapshot(Domain.Ships)?.version ?? 0,
+    useSourceSnapshot(Domain.Events)?.version ?? 0,
+    useSourceSnapshot(Domain.Earthquake)?.version ?? 0,
+    useSourceSnapshot(Domain.Fire)?.version ?? 0,
+    useSourceSnapshot(Domain.Weather)?.version ?? 0,
+    useSourceSnapshot(Domain.Cyclones)?.version ?? 0,
   ];
   return versions.reduce((sum, version) => sum + version, 0);
 }

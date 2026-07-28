@@ -1,3 +1,5 @@
+import { type SourceId } from "@shared/source";
+import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 
@@ -15,7 +17,7 @@ describe("scene publisher", () => {
 
     publisher.publish({
       type: "sourcePatch",
-      source: "aircraft",
+      source: Domain.Aircraft,
       sourceVersion: 1,
       kind: "rebase",
       handles: new Uint32Array([1]),
@@ -39,7 +41,7 @@ describe("scene publisher", () => {
     });
     expect(messages[1]).toMatchObject({
       type: "sourcePatch",
-      source: "aircraft",
+      source: Domain.Aircraft,
       sequence: 2,
       sessionId: "session-a",
     });

@@ -1,19 +1,13 @@
 import { useMemo } from "react";
+import { Domain } from "@shared/domain/identity";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
-import { SOURCE_POINT_TYPES } from "@/features/base/useSourceTables";
+import { pointTypeForSource } from "@/workers/data/sources/registry";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import type { QueryableSourceId } from "@/workers/data/queryableSources";
+import {
+  QUERYABLE_SOURCE_IDS,
+  type QueryableSourceId,
+} from "@/workers/data/queryableSources";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
-
-const COUNT_SOURCES = [
-  "aircraft",
-  "cyclones",
-  "earthquake",
-  "events",
-  "fire",
-  "ships",
-  "weather",
-] as const satisfies readonly QueryableSourceId[];
 
 const FACET_QUERY: PointUiQuery = {
   kind: "facet",
@@ -24,7 +18,7 @@ function countQuery(
   filters: Readonly<Record<string, unknown>>,
   source: QueryableSourceId,
 ): PointUiQuery | null {
-  const filter = filters[SOURCE_POINT_TYPES[source]];
+  const filter = filters[pointTypeForSource(source)];
   return filter == null ? null : { kind: "count", filter };
 }
 
@@ -39,32 +33,37 @@ export function useSourceCounts(
 ): Record<string, number> {
   const queries = useMemo(
     (): Readonly<Record<QueryableSourceId, PointUiQuery | null>> => ({
-      aircraft: countQuery(filters, "aircraft"),
-      cyclones: countQuery(filters, "cyclones"),
-      earthquake: countQuery(filters, "earthquake"),
-      events: countQuery(filters, "events"),
-      fire: countQuery(filters, "fire"),
-      ships: countQuery(filters, "ships"),
-      weather: countQuery(filters, "weather"),
+      aircraft: countQuery(filters, Domain.Aircraft),
+      cycloneWarnings: null,
+      cyclones: countQuery(filters, Domain.Cyclones),
+      earthquake: countQuery(filters, Domain.Earthquake),
+      events: countQuery(filters, Domain.Events),
+      fire: countQuery(filters, Domain.Fire),
+      ships: countQuery(filters, Domain.Ships),
+      weather: countQuery(filters, Domain.Weather),
     }),
     [filters],
   );
 
   const results = {
-    aircraft: useSourceQuery("aircraft", queries.aircraft),
-    cyclones: useSourceQuery("cyclones", queries.cyclones),
-    earthquake: useSourceQuery("earthquake", queries.earthquake),
-    events: useSourceQuery("events", queries.events),
-    fire: useSourceQuery("fire", queries.fire),
-    ships: useSourceQuery("ships", queries.ships),
-    weather: useSourceQuery("weather", queries.weather),
+    aircraft: useSourceQuery(Domain.Aircraft, queries.aircraft),
+    cycloneWarnings: useSourceQuery(
+      Domain.CycloneWarnings,
+      queries.cycloneWarnings,
+    ),
+    cyclones: useSourceQuery(Domain.Cyclones, queries.cyclones),
+    earthquake: useSourceQuery(Domain.Earthquake, queries.earthquake),
+    events: useSourceQuery(Domain.Events, queries.events),
+    fire: useSourceQuery(Domain.Fire, queries.fire),
+    ships: useSourceQuery(Domain.Ships, queries.ships),
+    weather: useSourceQuery(Domain.Weather, queries.weather),
   };
 
   return useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const source of COUNT_SOURCES) {
+    for (const source of QUERYABLE_SOURCE_IDS) {
       const result = results[source];
-      counts[SOURCE_POINT_TYPES[source]] =
+      counts[pointTypeForSource(source)] =
         result?.kind === "count" ? result.total : 0;
     }
     return counts;
@@ -81,7 +80,7 @@ export function useSourceCounts(
 
 /** Origin countries present in the current aircraft set, most common first. */
 export function useAvailableCountries(): string[] {
-  const result = useSourceQuery("aircraft", FACET_QUERY);
+  const result = useSourceQuery(Domain.Aircraft, FACET_QUERY);
   return useMemo(
     () => (result?.kind === "facet" ? [...result.values] : []),
     [result],

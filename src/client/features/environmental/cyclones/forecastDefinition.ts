@@ -1,19 +1,20 @@
+import { Domain } from "@shared/domain/identity";
 import { Wind } from "lucide-react";
 import type { FeatureDefinition, BasePoint } from "@/features/base/types";
 import { formatKtMph, nmToKm } from "@/lib/format/units";
 import type { CycloneForecastPointData } from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 
-// Feature entry for the synthetic "cyclones-forecast" points. Needed so
+// Feature entry for the synthetic Domain.CyclonesForecast points. Needed so
 // featureRegistry.get(type) resolves for the hit-test/detail pipeline.
 // Minimal: forecast points piggyback on the cyclones layer toggle.
 
 export const cycloneForecastFeature: FeatureDefinition<
   CycloneForecastPointData,
   Record<string, never>,
-  "cyclones-forecast"
+  Domain.CyclonesForecast
 > = {
-  id: "cyclones-forecast",
+  id: Domain.CyclonesForecast,
   label: "CYCLONE FORECAST",
   icon: Wind,
   iconProps: { strokeWidth: 2.5 },
@@ -22,7 +23,7 @@ export const cycloneForecastFeature: FeatureDefinition<
   // No standalone filter. Forecast points follow their parent storm, and the
   // renderer applies that in its own filter pass. The derive walk calls
   // matchesFilter only when filters[type] != null, and no filter is ever set
-  // for "cyclones-forecast", so this never runs in practice.
+  // for Domain.CyclonesForecast, so this never runs in practice.
   matchesFilter: () => true,
   defaultFilter: {} as Record<string, never>,
 

@@ -15,6 +15,8 @@ export type RenderWorkerColors = Readonly<{
   bright: string;
   coast: string;
   coastFill: string;
+  cycWarning: string;
+  cycWatch: string;
   cyclones: string;
   dim: string;
   events: string;
@@ -158,14 +160,6 @@ export type RenderWorkerCommandBody =
   // Points arrive from the DataWorker over the data port. React only still
   // owns the theme, so that is all it sends about what gets drawn.
   | Readonly<{ type: "colors"; payload: RenderWorkerColors }>
-  | Readonly<{
-      type: "warnings";
-      payload: Readonly<{
-        features: readonly RenderAreaFeature[];
-        warningColor: string;
-        watchColor: string;
-      }>;
-    }>
   | Readonly<{ type: "viewport"; payload: RenderViewportPayload }>
   | Readonly<{
       type: "presentation";

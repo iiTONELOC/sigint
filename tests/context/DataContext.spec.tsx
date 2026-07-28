@@ -1,4 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -111,7 +113,7 @@ function mockAllFetch() {
 
 const TEST_POINT: DataPoint = {
   id: "test-aircraft",
-  type: "aircraft",
+  type: Domain.Aircraft,
   lat: 40.7,
   lon: -73.9,
   timestamp: new Date().toISOString(),

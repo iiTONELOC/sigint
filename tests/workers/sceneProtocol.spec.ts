@@ -1,3 +1,5 @@
+import { type SourceId } from "@shared/source";
+import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import {
   createSceneDataCommand,
@@ -9,7 +11,7 @@ describe("scene data protocol", () => {
     const command = createSceneDataCommand(
       {
         type: "sourcePatch",
-        source: "aircraft",
+        source: Domain.Aircraft,
         sourceVersion: 1,
         kind: "rebase",
         handles: new Uint32Array([1]),
@@ -35,7 +37,7 @@ describe("scene data protocol", () => {
     const malformed = createSceneDataCommand(
       {
         type: "sourcePatch",
-        source: "aircraft",
+        source: Domain.Aircraft,
         sourceVersion: 1,
         kind: "rebase",
         handles: new Uint32Array([1]),

@@ -1,3 +1,5 @@
+import { type PointType } from "@shared/domain/pointType";
+import { Domain } from "@shared/domain/identity";
 // ── Trail filter visibility tests ────────────────────────────────────
 // Validates that the trail drawing gate in pointWorker.js correctly
 // hides trails when the selected item doesn't pass active filters.
@@ -137,7 +139,7 @@ function makeAircraft(
 ): { id: string; type: string; data: Record<string, unknown> } {
   return {
     id,
-    type: "aircraft",
+    type: Domain.Aircraft,
     data: {
       squawk: "1200",
       onGround: false,
@@ -153,7 +155,7 @@ function makeShip(id: string): {
   type: string;
   data: Record<string, unknown>;
 } {
-  return { id, type: "ships", data: { heading: 90 } };
+  return { id, type: Domain.Ships, data: { heading: 90 } };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -163,7 +165,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -179,7 +181,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { squawk: "1200" });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -195,7 +197,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { squawk: "2562" });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -211,7 +213,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { squawk: "7500" });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -227,7 +229,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { military: false });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -243,7 +245,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { military: true });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -259,7 +261,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { originCountry: "United States" });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -275,7 +277,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -291,7 +293,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { onGround: false });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -307,7 +309,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1", { onGround: true });
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -323,7 +325,7 @@ describe("trail visibility gate", () => {
     const ship = makeShip("S1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "S1", type: "ships" },
+        selectedItem: { id: "S1", type: Domain.Ships },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -339,7 +341,7 @@ describe("trail visibility gate", () => {
     const ship = makeShip("S1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "S1", type: "ships" },
+        selectedItem: { id: "S1", type: Domain.Ships },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -355,7 +357,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: new Set(["AC99"]),
         isoMode: null,
         isoId: null,
@@ -371,7 +373,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: new Set(["AC1", "AC2"]),
         isoMode: null,
         isoId: null,
@@ -387,7 +389,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: "solo",
         isoId: "AC99",
@@ -403,7 +405,7 @@ describe("trail visibility gate", () => {
     const ac = makeAircraft("AC1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: "solo",
         isoId: "AC1",
@@ -419,7 +421,7 @@ describe("trail visibility gate", () => {
     const ship = makeShip("S1");
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "S1", type: "ships" },
+        selectedItem: { id: "S1", type: Domain.Ships },
         searchSet: null,
         isoMode: "focus",
         isoId: "AC1",
@@ -450,7 +452,7 @@ describe("trail visibility gate", () => {
     // selectedItem exists but data array doesn't contain it
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,
@@ -470,7 +472,7 @@ describe("trail visibility gate", () => {
     // Filter requires 7700 squawk AND United States — Canada should fail
     expect(
       shouldDrawTrail({
-        selectedItem: { id: "AC1", type: "aircraft" },
+        selectedItem: { id: "AC1", type: Domain.Aircraft },
         searchSet: null,
         isoMode: null,
         isoId: null,

@@ -1,4 +1,7 @@
 import { describe, test, expect } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
+import { CycloneBasin } from "@shared/cyclonesSeason";
 import { cycloneFeature } from "@/features/environmental/cyclones/definition";
 import type { CycloneData, CycloneFilter } from "@/features/environmental/cyclones/types";
 import type { BasePoint } from "@/features/base/types";
@@ -8,17 +11,17 @@ import type { BasePoint } from "@/features/base/types";
 function makeStorm(
   saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5,
   maxWindKt = 100,
-): BasePoint & { type: "cyclones"; data: CycloneData } {
+): BasePoint & { type: Domain.Cyclones; data: CycloneData } {
   return {
     id: `CYAL05${saffirSimpson}2026`,
-    type: "cyclones",
+    type: Domain.Cyclones,
     lat: 25,
     lon: -75,
     timestamp: "2026-09-18T00:00:00Z",
     data: {
       stormId: `AL05${saffirSimpson}2026`,
       name: `STORM_TEST_${saffirSimpson === 0 ? "TS" : "C" + saffirSimpson}`,
-      basin: "AL",
+      basin: CycloneBasin.Atlantic,
       classification: saffirSimpson === 0 ? "TS" : (`HU${saffirSimpson}` as CycloneData["classification"]),
       saffirSimpson,
       maxWindKt,
@@ -33,7 +36,7 @@ function makeStorm(
 
 describe("cycloneFeature identity", () => {
   test("id matches the DataPoint discriminator", () => {
-    expect(cycloneFeature.id).toBe("cyclones");
+    expect(cycloneFeature.id).toBe(Domain.Cyclones);
   });
 
   test("has a non-empty display label", () => {

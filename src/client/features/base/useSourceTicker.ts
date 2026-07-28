@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Domain } from "@shared/domain/identity";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
@@ -12,13 +13,13 @@ import type { PointUiQuery } from "@/workers/data/uiQuery";
 // Feed order across sources. Aircraft and ships lead because they change every
 // poll; the slower sources trail so they still surface once per pass.
 const TICKER_SOURCES = [
-  "aircraft",
-  "ships",
-  "events",
-  "earthquake",
-  "fire",
-  "weather",
-  "cyclones",
+  Domain.Aircraft,
+  Domain.Ships,
+  Domain.Events,
+  Domain.Earthquake,
+  Domain.Fire,
+  Domain.Weather,
+  Domain.Cyclones,
 ] as const satisfies readonly QueryableSourceId[];
 
 const TICKER_QUERY: PointUiQuery = {
@@ -35,13 +36,13 @@ const EMPTY_PAGE: TickerPage = { items: [], priorityCount: 0 };
  */
 export function useSourceTicker(): DataPoint[] {
   const results = {
-    aircraft: useSourceQuery("aircraft", TICKER_QUERY),
-    ships: useSourceQuery("ships", TICKER_QUERY),
-    events: useSourceQuery("events", TICKER_QUERY),
-    earthquake: useSourceQuery("earthquake", TICKER_QUERY),
-    fire: useSourceQuery("fire", TICKER_QUERY),
-    weather: useSourceQuery("weather", TICKER_QUERY),
-    cyclones: useSourceQuery("cyclones", TICKER_QUERY),
+    aircraft: useSourceQuery(Domain.Aircraft, TICKER_QUERY),
+    ships: useSourceQuery(Domain.Ships, TICKER_QUERY),
+    events: useSourceQuery(Domain.Events, TICKER_QUERY),
+    earthquake: useSourceQuery(Domain.Earthquake, TICKER_QUERY),
+    fire: useSourceQuery(Domain.Fire, TICKER_QUERY),
+    weather: useSourceQuery(Domain.Weather, TICKER_QUERY),
+    cyclones: useSourceQuery(Domain.Cyclones, TICKER_QUERY),
   };
 
   return useMemo(

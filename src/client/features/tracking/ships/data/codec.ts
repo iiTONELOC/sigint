@@ -1,8 +1,9 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import { ktToMps } from "@/lib/format/units";
 import { isRecord } from "@shared/geo";
 
-export type ShipPoint = Extract<DataPoint, { type: "ships" }>;
+export type ShipPoint = Extract<DataPoint, { type: Domain.Ships }>;
 
 type ServerVessel = Readonly<{
   mmsi: number;
@@ -206,7 +207,7 @@ function toShipPoint(vessel: ServerVessel): ShipPoint | null {
   const speedMps = ktToMps(vessel.sog);
   return {
     id: `S${vessel.mmsi}`,
-    type: "ships",
+    type: Domain.Ships,
     lat: vessel.lat,
     lon: vessel.lon,
     timestamp: new Date(vessel.lastSeen).toISOString(),

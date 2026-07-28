@@ -1,7 +1,9 @@
 import { EARTHQUAKE_UI_QUERIES } from "@/features/environmental/earthquake/data/uiQueries";
+import { Domain } from "@shared/domain/identity";
 import { FIRE_UI_QUERIES } from "@/features/environmental/fires/data/uiQueries";
 import { WEATHER_UI_QUERIES } from "@/features/environmental/weather/data/uiQueries";
 import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
+import { CYCLONE_WARNING_UI_QUERIES } from "@/features/environmental/cyclones/data/warningUiQueries";
 import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
 import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
@@ -9,6 +11,7 @@ import type { EarthquakePoint } from "@/features/environmental/earthquake/data/s
 import type { FirePoint } from "@/features/environmental/fires/data/source";
 import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
+import type { CycloneWarningPoint } from "@/features/environmental/cyclones/data/warningCodec";
 import type { EventPoint } from "@/features/intel/events/data/codec";
 import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";
@@ -30,13 +33,14 @@ import type {
  * this map.
  */
 export type QueryableSourceEntities = {
-  aircraft: AircraftPoint;
-  cyclones: CyclonePoint;
-  earthquake: EarthquakePoint;
-  events: EventPoint;
-  fire: FirePoint;
-  ships: ShipPoint;
-  weather: WeatherPoint;
+  [Domain.Aircraft]: AircraftPoint;
+  [Domain.Cyclones]: CyclonePoint;
+  [Domain.CycloneWarnings]: CycloneWarningPoint;
+  [Domain.Earthquake]: EarthquakePoint;
+  [Domain.Events]: EventPoint;
+  [Domain.Fire]: FirePoint;
+  [Domain.Ships]: ShipPoint;
+  [Domain.Weather]: WeatherPoint;
 };
 
 export type QueryableSourceId = keyof QueryableSourceEntities;
@@ -52,13 +56,14 @@ export type QueryableSourceShapes = {
 const QUERIES: {
   [TId in QueryableSourceId]: PointUiQueries<QueryableSourceEntities[TId]>;
 } = {
-  aircraft: AIRCRAFT_UI_QUERIES,
-  cyclones: CYCLONE_UI_QUERIES,
-  earthquake: EARTHQUAKE_UI_QUERIES,
-  events: EVENT_UI_QUERIES,
-  fire: FIRE_UI_QUERIES,
-  ships: SHIP_UI_QUERIES,
-  weather: WEATHER_UI_QUERIES,
+  [Domain.Aircraft]: AIRCRAFT_UI_QUERIES,
+  [Domain.Cyclones]: CYCLONE_UI_QUERIES,
+  [Domain.CycloneWarnings]: CYCLONE_WARNING_UI_QUERIES,
+  [Domain.Earthquake]: EARTHQUAKE_UI_QUERIES,
+  [Domain.Events]: EVENT_UI_QUERIES,
+  [Domain.Fire]: FIRE_UI_QUERIES,
+  [Domain.Ships]: SHIP_UI_QUERIES,
+  [Domain.Weather]: WEATHER_UI_QUERIES,
 };
 
 export type QueryableSourceCodec<TId extends QueryableSourceId> = Readonly<{
@@ -129,13 +134,17 @@ function codecFor<TId extends QueryableSourceId>(
 }
 
 export const QUERYABLE_SOURCE_CODECS: QueryableSourceCodecs = {
-  aircraft: codecFor("aircraft", QUERIES.aircraft),
-  cyclones: codecFor("cyclones", QUERIES.cyclones),
-  earthquake: codecFor("earthquake", QUERIES.earthquake),
-  events: codecFor("events", QUERIES.events),
-  fire: codecFor("fire", QUERIES.fire),
-  ships: codecFor("ships", QUERIES.ships),
-  weather: codecFor("weather", QUERIES.weather),
+  [Domain.Aircraft]: codecFor(Domain.Aircraft, QUERIES.aircraft),
+  [Domain.Cyclones]: codecFor(Domain.Cyclones, QUERIES.cyclones),
+  [Domain.CycloneWarnings]: codecFor(
+    Domain.CycloneWarnings,
+    QUERIES.cycloneWarnings,
+  ),
+  [Domain.Earthquake]: codecFor(Domain.Earthquake, QUERIES.earthquake),
+  [Domain.Events]: codecFor(Domain.Events, QUERIES.events),
+  [Domain.Fire]: codecFor(Domain.Fire, QUERIES.fire),
+  [Domain.Ships]: codecFor(Domain.Ships, QUERIES.ships),
+  [Domain.Weather]: codecFor(Domain.Weather, QUERIES.weather),
 };
 
 export const QUERYABLE_SOURCE_IDS = Object.keys(

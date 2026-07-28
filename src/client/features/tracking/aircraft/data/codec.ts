@@ -1,4 +1,5 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import {
   hasOptionalFields,
   hasPointShape,
@@ -10,7 +11,7 @@ import {
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import { isRecord } from "@shared/geo";
 
-export type AircraftPoint = Extract<DataPoint, { type: "aircraft" }>;
+export type AircraftPoint = Extract<DataPoint, { type: Domain.Aircraft }>;
 
 export const AIRCRAFT_STRING_FIELDS = [
   "model",
@@ -76,7 +77,7 @@ function isAircraftData(value: unknown): value is AircraftData {
 }
 
 export function isAircraftPoint(value: unknown): value is AircraftPoint {
-  return hasPointShape(value, "aircraft") && isAircraftData(value.data);
+  return hasPointShape(value, Domain.Aircraft) && isAircraftData(value.data);
 }
 
 export function parseAircraftCache(

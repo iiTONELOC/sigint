@@ -1,4 +1,5 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import { Domain } from "@shared/domain/identity";
 import {
   isCyclonePoint,
   parseCycloneCache,
@@ -14,7 +15,7 @@ import {
   type PointSourceRuntime,
 } from "@/workers/data/sourceRuntime";
 
-export const CYCLONE_SOURCE = getPointSourceDefinition("cyclones");
+export const CYCLONE_SOURCE = getPointSourceDefinition(Domain.Cyclones);
 
 export type CycloneSourceRuntime = PointSourceRuntime<CyclonePoint> &
   Readonly<{ publishRebase: () => void }>;

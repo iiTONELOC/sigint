@@ -1,4 +1,5 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import {
   hasOptionalFields,
   hasPointShape,
@@ -11,7 +12,7 @@ import type {
 } from "@/features/environmental/weather/types";
 import { isRecord } from "@shared/geo";
 
-export type WeatherPoint = Extract<DataPoint, { type: "weather" }>;
+export type WeatherPoint = Extract<DataPoint, { type: Domain.Weather }>;
 
 const STRING_FIELDS = [
   "event",
@@ -50,7 +51,7 @@ function isWeatherData(value: unknown): value is WeatherData {
 }
 
 export function isWeatherPoint(value: unknown): value is WeatherPoint {
-  return hasPointShape(value, "weather") && isWeatherData(value.data);
+  return hasPointShape(value, Domain.Weather) && isWeatherData(value.data);
 }
 
 export function parseWeatherCache(

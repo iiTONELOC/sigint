@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // ── NHC CurrentStorms.json parser ────────────────────────────────────
 // Fetches from the same-origin server proxy (/api/cyclones/latest), never
 // from nhc.noaa.gov directly — the NHC endpoint sends no CORS headers.
@@ -5,6 +6,11 @@
 // guard: no client input flows into any outbound URL).
 
 import type { DataPoint } from "@/features/base/dataPoints";
+import {
+  ACTIVE_BASINS,
+  CycloneBasin,
+  type NhcBasin,
+} from "@shared/cyclonesSeason";
 import type {
   CycloneData,
   ForecastPoint,
@@ -91,11 +97,10 @@ export function classify(
   return { category: sub ? "STD" : "TD", saffirSimpson: 0 };
 }
 
-export function basinFromId(id: string): "AL" | "EP" | "CP" {
+export function basinFromId(id: string): NhcBasin {
   const prefix = id.slice(0, 2).toUpperCase();
-  if (prefix === "AL") return "AL";
-  if (prefix === "EP") return "EP";
-  return "CP";
+  const basin = ACTIVE_BASINS.find((candidate) => candidate === prefix);
+  return basin ?? CycloneBasin.CentralPacific;
 }
 
 function toForecastPoint(p: NhcForecastPoint): ForecastPoint {
@@ -123,7 +128,7 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
   const maxWindKt = Number.parseFloat(s.intensity);
   if (!Number.isFinite(maxWindKt)) return null;
 
-  const minPressureRaw = s.pressure ? Number.parseFloat(s.pressure) : NaN;
+  const minPressureRaw = s.pressure ? Number.parseFloat(s.pressure) : Number.NaN;
   const minPressureMb = Number.isFinite(minPressureRaw)
     ? minPressureRaw
     : undefined;
@@ -159,7 +164,7 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
 
   return {
     id: `CY${s.id.toUpperCase()}`,
-    type: "cyclones" as const,
+    type: Domain.Cyclones as const,
     lat: s.latitudeNumeric,
     lon: s.longitudeNumeric,
     timestamp: s.lastUpdate,

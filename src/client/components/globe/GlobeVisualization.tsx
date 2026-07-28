@@ -3,7 +3,6 @@ import { useTheme } from "@/context/ThemeContext";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
 import { RenderSurfaceHost } from "@/render-surface/RenderSurfaceHost";
 import { useColorCommands } from "@/components/globe/bridge/useColorCommands";
-import { useOverlayCommands } from "@/components/globe/bridge/useOverlayCommands";
 import { usePresentationCommands } from "@/components/globe/bridge/usePresentationCommands";
 import { useSurfaceEvents } from "@/components/globe/bridge/useSurfaceEvents";
 import { TrailTooltip } from "@/components/globe/TrailTooltip";
@@ -17,13 +16,6 @@ export function GlobeVisualization(
 
   useColorCommands(host, theme.colors);
   usePresentationCommands({ host, props });
-  useOverlayCommands({
-    host,
-    warnings: props.cycloneWarnings,
-    warningColor: theme.colors.cycWarning,
-    watchColor: theme.colors.cycWatch,
-  });
-
   return (
     <div className="relative w-full h-full">
       <RenderSurfaceHost

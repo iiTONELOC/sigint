@@ -1,4 +1,7 @@
 import { describe, test, expect } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
+import { CycloneBasin } from "@shared/cyclonesSeason";
 import type {
   Category,
   ForecastPoint,
@@ -62,7 +65,7 @@ describe("cyclones types", () => {
     const d: CycloneData = {
       stormId: "AL052026",
       name: "STORM_TEST_C5",
-      basin: "AL",
+      basin: CycloneBasin.Atlantic,
       classification: "HU5",
       saffirSimpson: 5,
       maxWindKt: 145,
@@ -73,7 +76,7 @@ describe("cyclones types", () => {
       lastUpdate: "2026-10-08T21:00:00Z",
       forecast: [],
     };
-    expect(d.basin).toBe("AL");
+    expect(d.basin).toBe(CycloneBasin.Atlantic);
     expect(d.saffirSimpson).toBe(5);
     expect(d.classification).toBe("HU5");
   });
@@ -82,7 +85,7 @@ describe("cyclones types", () => {
     const d: CycloneData = {
       stormId: "AL012026",
       name: "STORM_TEST_TD",
-      basin: "AL",
+      basin: CycloneBasin.Atlantic,
       classification: "TD",
       saffirSimpson: 0,
       maxWindKt: 30,
@@ -119,14 +122,14 @@ describe("cyclones types", () => {
   test("DataPoint discriminates the cyclones type via the union", () => {
     const item: DataPoint = {
       id: "CYAL052026",
-      type: "cyclones",
+      type: Domain.Cyclones,
       lat: 21.2,
       lon: -82.4,
       timestamp: "2026-10-08T21:00:00Z",
       data: {
         stormId: "AL052026",
         name: "STORM_TEST_C5",
-        basin: "AL",
+        basin: CycloneBasin.Atlantic,
         classification: "HU5",
         saffirSimpson: 5,
         maxWindKt: 145,
@@ -138,7 +141,7 @@ describe("cyclones types", () => {
         forecast: [],
       },
     };
-    expect(item.type).toBe("cyclones");
+    expect(item.type).toBe(Domain.Cyclones);
     if (item.type === "cyclones") {
       expect(item.data.name).toBe("STORM_TEST_C5");
       expect(item.data.saffirSimpson).toBe(5);

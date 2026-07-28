@@ -1,4 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CamState, CamTarget } from "@/components/globe/types";
 
@@ -39,7 +41,7 @@ function makeTarget(overrides: Partial<CamTarget> = {}): CamTarget {
 function makePoint(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: overrides.id ?? "pt-1",
-    type: "aircraft",
+    type: Domain.Aircraft,
     lat: overrides.lat ?? 40.0,
     lon: overrides.lon ?? -74.0,
     timestamp: new Date().toISOString(),
