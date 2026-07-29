@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Zap, ArrowRight } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -37,7 +38,7 @@ function Metric({ label, value }: { readonly label: string; readonly value: stri
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

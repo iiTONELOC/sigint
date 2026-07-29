@@ -1,8 +1,9 @@
+import { IsolateMode, type SelectedIsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 
 export type SceneVisibilitySettings = Readonly<{
   searchIds: ReadonlySet<string> | null;
-  isolateMode: "solo" | "focus" | null;
+  isolateMode: SelectedIsolateMode;
   isolatedId: string | null;
   isolatedType: string | null;
 }>;
@@ -19,13 +20,13 @@ export function sceneRecordIsVisible(
   if (!id) return false;
   if (settings.searchIds && !settings.searchIds.has(id)) return false;
   if (
-    settings.isolateMode === "solo" &&
+    settings.isolateMode === IsolateMode.Solo &&
     id !== settings.isolatedId
   ) {
     return false;
   }
   return !(
-    settings.isolateMode === "focus" &&
+    settings.isolateMode === IsolateMode.Focus &&
     settings.isolatedType &&
     settings.isolatedType !== pointType
   );

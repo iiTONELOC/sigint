@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Wind } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -19,7 +20,7 @@ type Props = {
     type: Domain.CyclonesForecast;
     data: CycloneForecastPointData;
   };
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

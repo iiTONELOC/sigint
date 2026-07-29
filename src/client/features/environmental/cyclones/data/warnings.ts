@@ -1,86 +1,86 @@
-// ── Tropical Cyclone warnings (client fetch) ─────────────────────────
-// Watches/warnings are region polygons (NWS Alerts GeoJSON), not point
-// DataPoints, so they don't flow through the BaseProvider/DataPoint path —
-// they have their own thin fetch + hook and are sent to the render worker as
-// a dedicated polygon layer (see GlobeVisualization "warnings" message).
-//
-// Fetched CLIENT-SIDE, like the NOAA weather layer: api.weather.gov throttles
-// /403s cloud-provider IPs, so a server-side proxy (Heroku) gets blocked while
-// the browser's own IP gets through. NWS allows CORS + no key, so the browser
-// can hit it directly. We pull all active alerts and keep just the six
-// tropical watch/warning events with geometry.
-
-export type WarningSeverity = "warning" | "watch";
+import { AreaKind } from "@/workers/render/protocol";
+import {
+  isRecord,
+  parseGeoJsonPolygonGeometry,
+  type GeoJsonPolygonGeometry,
+} from "@shared/geo";
+import { BLANK_SEPARATOR, textOrEmpty } from "@shared/text";
 
 export type CycloneWarning = {
   id: string;
   event: string;
-  kind: WarningSeverity;
+  kind: AreaKind;
   headline: string;
   areaDesc: string;
   effective: string;
   expires: string;
-  /** GeoJSON Polygon / MultiPolygon geometry in [lon, lat]. */
-  geometry: unknown;
+  geometry: GeoJsonPolygonGeometry;
 };
 
 const ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
 
-const TROPICAL_EVENTS = new Set([
-  "hurricane warning",
-  "hurricane watch",
-  "tropical storm warning",
-  "tropical storm watch",
-  "storm surge warning",
-  "storm surge watch",
-]);
+const REQUEST_HEADERS: Readonly<Record<string, string>> = {
+  "User-Agent": "(sigint-dashboard, osint-tool)",
+  Accept: "application/geo+json",
+};
 
-function kindOf(eventLower: string): WarningSeverity {
-  return eventLower.includes("warning") ? "warning" : "watch";
+enum TropicalHazard {
+  Hurricane = "hurricane",
+  TropicalStorm = "tropical storm",
+  StormSurge = "storm surge",
 }
 
-/** Keep only tropical watch/warning features that carry a geometry, slimmed. */
-function toCycloneWarnings(json: unknown): CycloneWarning[] {
-  if (!json || typeof json !== "object") return [];
-  const features = (json as { features?: unknown }).features;
-  if (!Array.isArray(features)) return [];
+const TROPICAL_EVENTS: ReadonlySet<string> = new Set(
+  Object.values(TropicalHazard).flatMap((hazard) =>
+    Object.values(AreaKind).map((kind) => `${hazard}${BLANK_SEPARATOR}${kind}`),
+  ),
+);
 
-  const out: CycloneWarning[] = [];
-  for (const f of features) {
-    if (!f || typeof f !== "object") continue;
-    const feat = f as Record<string, unknown>;
-    const geometry = feat.geometry;
-    if (!geometry) continue; // no polygon — can't render
-    const props = (feat.properties ?? {}) as Record<string, unknown>;
-    const event = typeof props.event === "string" ? props.event : "";
-    if (!TROPICAL_EVENTS.has(event.toLowerCase())) continue;
+function kindOf(eventLower: string): AreaKind {
+  return eventLower.includes(AreaKind.Warning)
+    ? AreaKind.Warning
+    : AreaKind.Watch;
+}
 
-    out.push({
-      id: typeof feat.id === "string" ? feat.id : event,
-      event,
-      kind: kindOf(event.toLowerCase()),
-      headline: typeof props.headline === "string" ? props.headline : "",
-      areaDesc: typeof props.areaDesc === "string" ? props.areaDesc : "",
-      effective: typeof props.effective === "string" ? props.effective : "",
-      expires: typeof props.expires === "string" ? props.expires : "",
-      geometry,
-    });
+function toCycloneWarning(feature: unknown): CycloneWarning | null {
+  if (!isRecord(feature)) return null;
+
+  const geometry = parseGeoJsonPolygonGeometry(feature.geometry);
+  if (!geometry) return null;
+
+  const properties = isRecord(feature.properties) ? feature.properties : {};
+  const event = textOrEmpty(properties.event);
+  const eventLower = event.toLowerCase();
+  if (!TROPICAL_EVENTS.has(eventLower)) return null;
+
+  return {
+    id: textOrEmpty(feature.id) || event,
+    event,
+    kind: kindOf(eventLower),
+    headline: textOrEmpty(properties.headline),
+    areaDesc: textOrEmpty(properties.areaDesc),
+    effective: textOrEmpty(properties.effective),
+    expires: textOrEmpty(properties.expires),
+    geometry,
+  };
+}
+
+function toCycloneWarnings(payload: unknown): CycloneWarning[] {
+  if (!isRecord(payload) || !Array.isArray(payload.features)) return [];
+  const warnings: CycloneWarning[] = [];
+  for (const feature of payload.features) {
+    const warning = toCycloneWarning(feature);
+    if (warning) warnings.push(warning);
   }
-  return out;
+  return warnings;
 }
 
-/** Fetch the current tropical watch/warning polygons directly from NWS. */
 export async function fetchCycloneWarnings(): Promise<CycloneWarning[]> {
   try {
-    const res = await fetch(ALERTS_URL, {
-      headers: {
-        "User-Agent": "(sigint-dashboard, osint-tool)",
-        Accept: "application/geo+json",
-      },
-    });
-    if (!res.ok) return [];
-    return toCycloneWarnings(await res.json());
+    const response = await fetch(ALERTS_URL, { headers: REQUEST_HEADERS });
+    if (!response.ok) return [];
+    return toCycloneWarnings(await response.json());
   } catch {
     return [];
   }

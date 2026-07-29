@@ -6,10 +6,12 @@ import {
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
+import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import {
   WEATHER_TEXT_FIELDS,
   type WeatherData,
 } from "@/features/environmental/weather/types";
+import { isEnumValue } from "@shared/types/enum";
 import {
   isRecord,
   parseGeoJsonPolygonGeometry,
@@ -17,10 +19,6 @@ import {
 } from "@shared/geo";
 
 export type WeatherPoint = Extract<DataPoint, { type: Domain.Weather }>;
-
-const SEVERITY_KEY: keyof WeatherData = "severity";
-
-const TEXT_KEYS: readonly string[] = [...WEATHER_TEXT_FIELDS, SEVERITY_KEY];
 
 function isWeatherGeometry(
   value: unknown,
@@ -31,7 +29,8 @@ function isWeatherGeometry(
 function isWeatherData(value: unknown): value is WeatherData {
   return (
     isRecord(value) &&
-    hasOptionalFields(value, TEXT_KEYS, isOptionalString) &&
+    isEnumValue(value.severity, WeatherSeverity) &&
+    hasOptionalFields(value, WEATHER_TEXT_FIELDS, isOptionalString) &&
     (value.geometry === undefined || isWeatherGeometry(value.geometry))
   );
 }

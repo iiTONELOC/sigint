@@ -49,7 +49,7 @@ function rowValue(
   timestamp: string | undefined,
 ): string | undefined {
   if (row === WeatherDerivedRow.Severity) {
-    return data.severity ? weatherSeverityLabel(data.severity) : undefined;
+    return weatherSeverityLabel(data.severity);
   }
   if (row === WeatherDerivedRow.Issued) {
     return timestamp ? issuedText(timestamp) : undefined;

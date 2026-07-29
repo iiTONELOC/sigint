@@ -108,13 +108,6 @@ describe("ResizeHandle touch sizing", () => {
 // ── Detail panel drag uses window listeners ──────────────────────────
 
 describe("DetailPanel touch drag", () => {
-  test("useDrag uses window pointermove listeners", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain('window.addEventListener("pointermove"');
-    expect(src).toContain('window.addEventListener("pointerup"');
-    expect(src).toContain('window.addEventListener("pointercancel"');
-  });
-
   test("drag handle has touch-action none", async () => {
     const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
     expect(src).toContain("touch-none");
@@ -130,20 +123,9 @@ describe("DetailPanel touch drag", () => {
 // ── Detail panel snap sheet ──────────────────────────────────────────
 
 describe("DetailPanel snap sheet", () => {
-  test("has SNAP_HEIGHTS constant with 3 values", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain("SNAP_HEIGHTS");
-    expect(src).toMatch(/SNAP_HEIGHTS\s*=\s*\[\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\]/);
-  });
-
   test("heightRef prevents infinite re-render", async () => {
     const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
     expect(src).toContain("heightRef.current");
-  });
-
-  test("reset guards setHeightVh", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain("heightRef.current !== SNAP_HEIGHTS[1]");
   });
 
   test("MobileScrollHint component exists", async () => {

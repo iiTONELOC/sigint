@@ -1,6 +1,6 @@
-import { Domain } from "@shared/domain/identity";
 /// <reference lib="webworker" />
 // Owns the transferred canvas and all Canvas2D drawing.
+import { Domain } from "@shared/domain/identity";
 import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
 import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
 import {
@@ -39,6 +39,9 @@ import {
   type RenderWorkerColors,
   type RenderWorkerEvent,
   type SelectedRenderItem,
+  AreaKind,
+  IsolateMode,
+  PanelSide,
 } from "./render/protocol";
 
 import {
@@ -79,9 +82,12 @@ import {
 } from "./render/sceneProtocol";
 import { zoomScale } from "./render/workerMath";
 import {
-  severityMeta,
-  weatherSeverityRank,
-} from "@/features/environmental/weather/severity";
+  WEATHER_AREA_FILL,
+  weatherAreaKind,
+  weatherMarker,
+  weatherPulse,
+} from "@/features/environmental/weather/render";
+import type { MarkerGlow } from "./render/primitives/markerStyle";
 import { pointInPolygon } from "@/lib/geo/pointInPolygon";
 import {
   screenToLatLonFlat,
@@ -250,22 +256,6 @@ function drawGlow(
 ): void {
   ctx.globalAlpha = alpha;
   ctx.drawImage(getGlowSprite(color, alphaHex), x - gr, y - gr, gr * 2, gr * 2);
-}
-
-// ── Weather severity helpers ────────────────────────────────────
-
-const WEATHER_MARKER_BY_RANK = [
-  { size: 1.5, alpha: 0.6 },
-  { size: 2, alpha: 0.6 },
-  { size: 3, alpha: 0.75 },
-  { size: 4.5, alpha: 0.9 },
-  { size: 6, alpha: 1 },
-] as const;
-
-function weatherMarker(sev: string): { size: number; alpha: number } {
-  const top = WEATHER_MARKER_BY_RANK.length - 1;
-  const rank = Math.min(Math.max(weatherSeverityRank(sev), 0), top);
-  return WEATHER_MARKER_BY_RANK[rank] ?? WEATHER_MARKER_BY_RANK[0];
 }
 
 // ── Aircraft filter ─────────────────────────────────────────────────
@@ -597,7 +587,7 @@ let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
   kind: "cursor",
   cursor: "default",
 };
-let _lastSelectedSide: "left" | "right" = "right";
+let _lastSelectedSide: PanelSide = PanelSide.Right;
 let _lastCameraSummary: RenderCamera | null = null;
 let _lastCameraSummaryAt = 0;
 let _frameScheduled = false;
@@ -812,7 +802,7 @@ function pointHasTimeAnimation(item: RenderPoint): boolean {
   if (item.type === Domain.Cyclones) return true;
   if (item.type === Domain.Events) return (item.data.severity ?? 1) >= 3;
   if (item.type === Domain.Weather) {
-    return weatherSeverityRank(item.data.severity || "Unknown") >= 3;
+    return weatherPulse(item.data.severity) !== null;
   }
   return false;
 }
@@ -872,8 +862,6 @@ type RenderDataCommand = NonNullable<
   ReturnType<typeof parseRenderDataCommand>
 >;
 
-const WEATHER_WARNING_RANK = 3;
-
 /**
  * Alert polygons are derived from the weather points themselves rather than
  * shipped separately: the renderer already has every alert, geometry included.
@@ -897,16 +885,13 @@ function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
     if (!geometry) continue;
     features.push({
       id: item.id,
-      kind:
-        weatherSeverityRank(item.data.severity) >= WEATHER_WARNING_RANK
-          ? "warning"
-          : "watch",
+      kind: weatherAreaKind(item.data.severity),
       geometry,
     });
   }
   _wxAlerts = features;
-  _wxWarnColor = severityMeta("Extreme").ink;
-  _wxWatchColor = severityMeta("Moderate").ink;
+  _wxWarnColor = WEATHER_AREA_FILL[AreaKind.Warning];
+  _wxWatchColor = WEATHER_AREA_FILL[AreaKind.Watch];
 }
 
 /** Packed source updates from the DataWorker, past the bind handshake. */
@@ -1148,7 +1133,7 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
 
 type DotEnv = { ctx: Ctx; t: number; zoomLevel: number };
 
-type PulseGlow = { idSliceFrom: number; rate: number; baseAmp: number; ampGain: number; radBase: number; radGain: number; alphaHex: string; glowMul: number };
+type PulseGlow = MarkerGlow;
 
 /** Shared pulsing-dot renderer for quakes / events / fires / weather. `shape`
  *  draws the marker (circle vs diamond). Returns nothing; mutates the canvas. */
@@ -1179,11 +1164,6 @@ const EVENT_PULSE_GLOW: PulseGlow = {
   radGain: 1.2,
   alphaHex: "30",
   glowMul: 0.4,
-};
-
-const WEATHER_PULSE_GLOW: PulseGlow = {
-  ...EVENT_PULSE_GLOW,
-  radGain: 1.5,
 };
 
 function drawPulsingDot(env: DotEnv, dot: PulsingDot): void {
@@ -1234,8 +1214,8 @@ type FilterCfg = {
 /** Does one item survive the search / isolation / layer filters? */
 function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
   if (c.searchSet && !c.searchSet.has(item.id)) return false;
-  if (c.isoMode === "solo" && item.id !== c.isoId) return false;
-  if (c.isoMode === "focus" && c.isolatedType && item.type !== c.isolatedType) return false;
+  if (c.isoMode === IsolateMode.Solo && item.id !== c.isoId) return false;
+  if (c.isoMode === IsolateMode.Focus && c.isolatedType && item.type !== c.isolatedType) return false;
   if (item.type === Domain.Aircraft) return matchesAF(item.data, c.af);
   if (item.type === Domain.CyclonesForecast) return c.layers.cyclones !== false && c.showForecast !== false;
   return c.layers[item.type] !== false;
@@ -1340,7 +1320,7 @@ function packedLayerVisible(
 ): boolean {
   if (filters.layers[pointType] === false) return false;
   return !(
-    filters.isoMode === "focus" &&
+    filters.isoMode === IsolateMode.Focus &&
     filters.isolatedType &&
     filters.isolatedType !== pointType
   );
@@ -1352,7 +1332,7 @@ function packedIdPasses(
   searchIds: ReadonlySet<string> | null,
 ): boolean {
   if (searchIds && !searchIds.has(id)) return false;
-  return filters.isoMode !== "solo" || id === filters.isoId;
+  return filters.isoMode !== IsolateMode.Solo || id === filters.isoId;
 }
 
 function projectPackedSource(
@@ -2013,15 +1993,15 @@ function updateSelectedSide(): void {
   const ratio = _selectedProjectionX / _viewport.width;
   let next = _lastSelectedSide;
   if (
-    next === "right" &&
+    next === PanelSide.Right &&
     ratio > CAMERA_POLICY.selectedSideRightRatio
   ) {
-    next = "left";
+    next = PanelSide.Left;
   } else if (
-    next === "left" &&
+    next === PanelSide.Left &&
     ratio < CAMERA_POLICY.selectedSideLeftRatio
   ) {
-    next = "right";
+    next = PanelSide.Right;
   }
   if (next === _lastSelectedSide) return;
   _lastSelectedSide = next;
@@ -2251,9 +2231,9 @@ function drawWeatherPoint(
   d: PointDraw,
   zoomLevel: number,
 ): void {
-  const severity = item.data.severity || "Unknown";
-  const rank = weatherSeverityRank(severity);
+  const severity = item.data.severity;
   const marker = weatherMarker(severity);
+  const pulse = weatherPulse(severity);
   drawPulsingDot(d.env, {
     x: d.x,
     y: d.y,
@@ -2261,15 +2241,14 @@ function drawWeatherPoint(
     color: d.baseColor,
     fillAlpha: d.depthAlpha * marker.alpha * 0.8,
     isSel: d.isSel,
-    glow:
-      rank >= 3
-        ? {
-            intensity: pulseIntensity(zoomLevel),
-            pulseIndex: Math.min(1, (rank - 2) / 2),
-            id: item.id,
-            cfg: WEATHER_PULSE_GLOW,
-          }
-        : null,
+    glow: pulse
+      ? {
+          intensity: pulseIntensity(zoomLevel),
+          pulseIndex: pulse.index,
+          id: item.id,
+          cfg: pulse.glow,
+        }
+      : null,
     shape: (size) => {
       const { ctx } = d.env;
       ctx.beginPath();
@@ -2709,9 +2688,9 @@ function selectionPassesFilters(v: SelectionVisibility): boolean {
   const item = v.selectedItem;
   if (!item) return false;
   if (v.searchSet && !v.searchSet.has(item.id)) return false;
-  if (v.isoMode === "solo" && item.id !== v.isoId) return false;
+  if (v.isoMode === IsolateMode.Solo && item.id !== v.isoId) return false;
   if (
-    v.isoMode === "focus" &&
+    v.isoMode === IsolateMode.Focus &&
     v.isolatedType &&
     item.type !== v.isolatedType
   ) {

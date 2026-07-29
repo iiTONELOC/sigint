@@ -107,6 +107,11 @@ export const themes: Record<"dark" | "light", Theme> = {
 };
 
 /** The 7 layer color keys that users can customize */
+export enum ThemeCssVar {
+  Accent = "var(--sigint-accent)",
+  Danger = "var(--sigint-danger)",
+}
+
 export const LAYER_COLOR_KEYS = [
   "aircraft",
   "ships",

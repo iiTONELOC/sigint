@@ -25,30 +25,18 @@ const SEVERITY_INK: Readonly<Record<WeatherSeverity, string>> = {
   [WeatherSeverity.Extreme]: INK_EXTREME,
 };
 
-export type SeverityMeta = Readonly<{
-  label: string;
-  ink: string;
-}>;
-
 export function parseWeatherSeverity(value: unknown): WeatherSeverity {
   return isEnumValue(value, WeatherSeverity) ? value : WeatherSeverity.Unknown;
 }
 
-export function weatherSeverityRank(severity: string | undefined): number {
-  return SEVERITY_ORDER.indexOf(parseWeatherSeverity(severity));
+export function weatherSeverityRank(severity: WeatherSeverity): number {
+  return SEVERITY_ORDER.indexOf(severity);
 }
 
-export function weatherSeverityLabel(severity: string | undefined): string {
-  return parseWeatherSeverity(severity).toUpperCase();
+export function weatherSeverityLabel(severity: WeatherSeverity): string {
+  return severity.toUpperCase();
 }
 
-export function weatherSeverityInk(severity: string | undefined): string {
-  return SEVERITY_INK[parseWeatherSeverity(severity)];
-}
-
-export function severityMeta(severity: string | undefined): SeverityMeta {
-  return {
-    label: weatherSeverityLabel(severity),
-    ink: weatherSeverityInk(severity),
-  };
+export function weatherSeverityInk(severity: WeatherSeverity): string {
+  return SEVERITY_INK[severity];
 }

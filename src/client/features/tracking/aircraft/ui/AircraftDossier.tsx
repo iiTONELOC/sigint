@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Plane, ExternalLink, LocateFixed } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -34,7 +35,7 @@ import {
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

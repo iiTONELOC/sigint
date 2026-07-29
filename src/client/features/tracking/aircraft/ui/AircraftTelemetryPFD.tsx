@@ -1,3 +1,4 @@
+import { PanelSide } from "@/workers/render/protocol";
 import { Tape } from "./instruments/Tape";
 import { HeadingHSI } from "./instruments/HeadingHSI";
 import { VerticalSpeed } from "./instruments/VerticalSpeed";
@@ -104,7 +105,7 @@ export function AircraftTelemetryPFD({
             step={10}
             labelEvery={20}
             pxPer={1.6}
-            side="right"
+            side={PanelSide.Right}
             header="KT"
             footer={speedFooter}
             format={String}
@@ -122,7 +123,7 @@ export function AircraftTelemetryPFD({
             step={100}
             labelEvery={500}
             pxPer={0.12}
-            side="left"
+            side={PanelSide.Left}
             header="FT"
             footer="x1000"
             selected={selectedAlt}

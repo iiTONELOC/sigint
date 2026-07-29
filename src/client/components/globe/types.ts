@@ -1,3 +1,7 @@
+import type {
+  PanelSide,
+  SelectedIsolateMode,
+} from "@/workers/render/protocol";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
 import type { CycloneFilter } from "@/features/environmental/cyclones";
@@ -49,11 +53,11 @@ export type GlobeVisualizationProps = {
   readonly cycloneFilter?: CycloneFilter;
   readonly selected: DataPoint | null;
   readonly isolatedId: string | null;
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onSelect: (item: DataPoint | null) => void;
   readonly onRawCanvasClick?: () => void;
   readonly onMiddleClick?: () => void;
-  readonly onSelectedSide?: (side: "left" | "right") => void;
+  readonly onSelectedSide?: (side: PanelSide) => void;
   readonly zoomToId?: string | null;
   /** Gentle reveal — rotate to show point at ISS-level zoom, no lock-on */
   readonly revealId?: string | null;

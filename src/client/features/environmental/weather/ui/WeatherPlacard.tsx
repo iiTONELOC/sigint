@@ -1,6 +1,11 @@
 import type { CSSProperties } from "react";
 import { relativeAge } from "@/lib/format/timeFormat";
-import { severityMeta } from "../severity";
+import {
+  weatherSeverityInk,
+  weatherSeverityLabel,
+  type WeatherSeverity,
+} from "../severity";
+import { weatherAreas } from "../text";
 
 function Fact({ label, value }: { readonly label: string; readonly value: string }) {
   return (
@@ -23,7 +28,7 @@ export function WeatherPlacard({
   timestamp,
 }: {
   readonly event?: string;
-  readonly severity?: string;
+  readonly severity: WeatherSeverity;
   readonly urgency?: string;
   readonly certainty?: string;
   readonly response?: string;
@@ -32,14 +37,14 @@ export function WeatherPlacard({
   readonly areaDesc?: string;
   readonly timestamp?: string;
 }) {
-  const meta = severityMeta(severity);
+  const ink = weatherSeverityInk(severity);
   const age = timestamp ? relativeAge(new Date(timestamp).getTime(), "verbose") : null;
-  const areaCount = areaDesc ? areaDesc.split(";").filter((s) => s.trim()).length : 0;
+  const areaCount = weatherAreas(areaDesc).length;
 
   return (
     <div
       className="relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel"
-      style={{ "--dossier-accent": meta.ink } as CSSProperties}
+      style={{ "--dossier-accent": ink } as CSSProperties}
     >
       <div className="absolute inset-0 bg-(--dossier-accent)/6 pointer-events-none" />
       <div className="relative h-1 bg-(--dossier-accent)" />
@@ -57,7 +62,7 @@ export function WeatherPlacard({
             )}
           </div>
           <div className="shrink-0 flex flex-col items-center justify-center min-w-16 h-14 px-2.5 rounded-[12px] border-2 border-(--dossier-accent) text-(--dossier-accent)">
-            <span className="text-(length:--sig-text-sm) font-bold leading-none whitespace-nowrap">{meta.label}</span>
+            <span className="text-(length:--sig-text-sm) font-bold leading-none whitespace-nowrap">{weatherSeverityLabel(severity)}</span>
             <span className="text-(length:--sig-text-xs) tracking-widest mt-0.5">SEV</span>
           </div>
         </div>

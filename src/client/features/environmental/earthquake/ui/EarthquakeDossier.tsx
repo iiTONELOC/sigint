@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Activity } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -13,7 +14,7 @@ import { TsunamiPhysics } from "./TsunamiPhysics";
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

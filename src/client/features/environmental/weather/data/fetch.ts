@@ -1,4 +1,4 @@
-import { isOptionalString } from "@/features/base/pointCodec";
+import { parseWeatherSeverity } from "@/features/environmental/weather/severity";
 import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
 import {
   WEATHER_TEXT_FIELDS,
@@ -16,6 +16,7 @@ import {
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
+import { EMPTY_TEXT, nonEmptyText } from "@shared/text";
 import {
   geometryPolygons,
   isRecord,
@@ -49,10 +50,6 @@ const NULL_ISLAND_DEGREES = 0;
 
 type Centroid = Readonly<{ lat: number; lon: number }>;
 
-function optionalText(value: unknown): string | undefined {
-  return isOptionalString(value) && value.length > 0 ? value : undefined;
-}
-
 function ringCentroid(ring: GeoRing): Centroid | null {
   if (ring.length === 0) return null;
   let lonSum = 0;
@@ -78,9 +75,11 @@ function isNullIsland(centroid: Centroid): boolean {
 }
 
 function alertId(value: unknown): string | null {
-  const source = optionalText(value);
+  const source = nonEmptyText(value);
   if (!source) return null;
-  const tail = source.replace(ID_DISALLOWED, "").slice(-ID_TAIL_LENGTH);
+  const tail = source
+    .replace(ID_DISALLOWED, EMPTY_TEXT)
+    .slice(-ID_TAIL_LENGTH);
   return tail.length > 0 ? `${ID_PREFIX}${tail}` : null;
 }
 
@@ -89,7 +88,7 @@ function alertText(
 ): Partial<Record<WeatherTextField, string>> {
   const text: Partial<Record<WeatherTextField, string>> = {};
   for (const field of WEATHER_TEXT_FIELDS) {
-    const value = optionalText(properties[field]);
+    const value = nonEmptyText(properties[field]);
     if (value !== undefined) text[field] = value;
   }
   return text;
@@ -138,13 +137,15 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
       lat: centroid.lat,
       lon: centroid.lon,
       timestamp:
-        optionalText(properties[WeatherPayloadField.Sent]) ??
-        optionalText(properties[WeatherPayloadField.Effective]) ??
+        nonEmptyText(properties[WeatherPayloadField.Sent]) ??
+        nonEmptyText(properties[WeatherPayloadField.Effective]) ??
         new Date(observedAt).toISOString(),
       data: {
         ...alertText(properties),
         geometry,
-        severity: optionalText(properties[WeatherPayloadField.Severity]),
+        severity: parseWeatherSeverity(
+          properties[WeatherPayloadField.Severity],
+        ),
       },
     };
   }

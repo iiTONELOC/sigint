@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import {
   createContext,
   useContext,
@@ -22,8 +23,8 @@ type UIContextValue = {
   setSelected: React.Dispatch<React.SetStateAction<DataPoint | null>>;
 
   // Isolation
-  isolateMode: null | "solo" | "focus";
-  setIsolateMode: React.Dispatch<React.SetStateAction<null | "solo" | "focus">>;
+  isolateMode: SelectedIsolateMode;
+  setIsolateMode: React.Dispatch<React.SetStateAction<SelectedIsolateMode>>;
 
   // Chrome visibility
   chromeHidden: boolean;
@@ -62,14 +63,10 @@ const UIContext = createContext<UIContextValue | undefined>(undefined);
 
 // ── Provider ────────────────────────────────────────────────────────
 
-export function UIProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
+export function UIProvider({ children }: { readonly children: ReactNode }) {
   const { theme } = useTheme();
   const stashedSelectionRef = useRef<DataPoint | null>(null);
-  const stashedIsolateModeRef = useRef<null | "solo" | "focus">(null);
+  const stashedIsolateModeRef = useRef<SelectedIsolateMode>(null);
 
   // ── View controls ───────────────────────────────────────────────
   const [flat, setFlat] = useState(false);
@@ -79,7 +76,7 @@ export function UIProvider({
 
   // ── Selection & isolation ───────────────────────────────────────
   const [selected, setSelected] = useState<DataPoint | null>(null);
-  const [isolateMode, setIsolateMode] = useState<null | "solo" | "focus">(null);
+  const [isolateMode, setIsolateMode] = useState<SelectedIsolateMode>(null);
 
   // ── Search & zoom ──────────────────────────────────────────────
   const [zoomToId, setZoomToId] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { TriangleAlert } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -15,7 +16,7 @@ import {
 
 type Props = {
   readonly item: DataPoint & { type: Domain.CyclonesWarning; data: CycloneWarning };
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

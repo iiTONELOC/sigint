@@ -16,12 +16,12 @@ import {
   type PointUiQuery,
   type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
+import { BLANK_SEPARATOR } from "@shared/text";
 
 export type WeatherUiQuery = PointUiQuery;
 export type WeatherUiQueryResult = PointUiQueryResult<WeatherPoint>;
 
 const MIN_SEVERITY_KEY: keyof WeatherFilter = "minSeverity";
-const SEARCH_SEPARATOR = " ";
 
 export function weatherSearchText(data: WeatherData): string {
   return [
@@ -32,7 +32,7 @@ export function weatherSearchText(data: WeatherData): string {
     data.senderName,
   ]
     .filter((segment): segment is string => Boolean(segment))
-    .join(SEARCH_SEPARATOR);
+    .join(BLANK_SEPARATOR);
 }
 
 function alertName(point: WeatherPoint): string {
@@ -45,7 +45,7 @@ export const WEATHER_UI_QUERIES = createPointUiQueries<WeatherPoint>({
   primaryLabel: alertName,
   nameLabel: (point) => point.data.areaDesc ?? alertName(point),
   value1: (point) => weatherSeverityRank(point.data.severity),
-  value1Label: (point) => point.data.severity ?? "",
+  value1Label: (point) => point.data.severity,
   value2: () => 0,
   includeInTable: (point, minValue) =>
     weatherSeverityRank(point.data.severity) >= minValue,

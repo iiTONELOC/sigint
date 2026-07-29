@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { Domain } from "@shared/domain/identity";
+import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
@@ -94,7 +95,7 @@ function makeWeather(overrides: Record<string, any> = {}): DataPoint {
     lon: overrides.lon ?? -90.0,
     timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
     data: {
-      severity: overrides.severity ?? "Severe",
+      severity: overrides.severity ?? WeatherSeverity.Severe,
       event: overrides.event ?? "Tornado Warning",
       ...(overrides.data ?? {}),
     },

@@ -1,5 +1,5 @@
 // One owner for the "27.500°N" coordinate display every dossier hand-built.
-// Returns the lat/lon parts separately so each caller keeps its own separator
+// Returns the lat/lon parts separately so each caller keeps its own BLANK_SEPARATOR
 // (some join with ", ", some with " · ").
 
 const COORD_DECIMALS = 3;

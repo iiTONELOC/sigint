@@ -30,9 +30,26 @@ export type RenderWorkerColors = Readonly<{
   weather: string;
 }>;
 
+export enum AreaKind {
+  Warning = "warning",
+  Watch = "watch",
+}
+
+export enum PanelSide {
+  Left = "left",
+  Right = "right",
+}
+
+export enum IsolateMode {
+  Solo = "solo",
+  Focus = "focus",
+}
+
+export type SelectedIsolateMode = IsolateMode | null;
+
 export type RenderAreaFeature = Readonly<{
   id?: string;
-  kind?: string;
+  kind?: AreaKind;
   geometry?: unknown;
 }>;
 
@@ -77,7 +94,7 @@ export type RenderPresentationPayload = Readonly<{
   rotationSpeed: number;
   selectedId: string | null;
   isolatedId: string | null;
-  isolateMode: "solo" | "focus" | null;
+  isolateMode: SelectedIsolateMode;
   layers: Readonly<Record<string, boolean | undefined>>;
   aircraftFilter: RenderAircraftFilter;
   earthquakeMinMagnitude: number;
@@ -142,7 +159,7 @@ export type RenderInteractionPayload =
       y: number;
       visible: boolean;
     }>
-  | Readonly<{ kind: "selectedSide"; side: "left" | "right" }>;
+  | Readonly<{ kind: "selectedSide"; side: PanelSide }>;
 
 
 type RenderProtocolEnvelope = Readonly<{

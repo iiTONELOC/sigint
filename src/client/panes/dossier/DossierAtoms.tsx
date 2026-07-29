@@ -1,3 +1,4 @@
+import { IsolateMode, type SelectedIsolateMode } from "@/workers/render/protocol";
 import { useEffect, useId, useRef } from "react";
 import { airportCode } from "./dossierTypes";
 
@@ -189,7 +190,7 @@ type DossierToolbarProps = {
   readonly subtitle?: string;
   /** Optional badge — e.g. "CAT 5" for cyclones, "MIL" for aircraft. */
   readonly badge?: React.ReactNode;
-  readonly isolateMode: null | "solo" | "focus";
+  readonly isolateMode: SelectedIsolateMode;
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -246,7 +247,7 @@ export function DossierToolbar({
           onClick={onLocate}
         />
         <IsoBtn
-          active={isolateMode === "focus"}
+          active={isolateMode === IsolateMode.Focus}
           label="FOCUS"
           icon={Eye}
           toggle
@@ -254,7 +255,7 @@ export function DossierToolbar({
           onClick={onFocus}
         />
         <IsoBtn
-          active={isolateMode === "solo"}
+          active={isolateMode === IsolateMode.Solo}
           label="SOLO"
           icon={Crosshair}
           toggle

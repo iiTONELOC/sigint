@@ -1,3 +1,7 @@
+import {
+  PanelSide,
+  type SelectedIsolateMode,
+} from "@/workers/render/protocol";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { useData } from "@/context/DataContext";
@@ -65,7 +69,7 @@ export function LiveTrafficPane() {
     resumeWatch,
   } = useData();
 
-  const [panelSide, setPanelSide] = useState<"left" | "right">("right");
+  const [panelSide, setPanelSide] = useState<PanelSide>(PanelSide.Right);
   const [watchMenuOpen, setWatchMenuOpen] = useState(false);
   const watchMenuRef = useRef<HTMLDivElement>(null);
   const hasDossier = useHasDossier();
@@ -97,7 +101,7 @@ export function LiveTrafficPane() {
   }, [watchMenuOpen]);
 
   const handleSetIsolateMode = useCallback(
-    (mode: null | "solo" | "focus") => {
+    (mode: SelectedIsolateMode) => {
       setIsolateMode(mode);
     },
     [setIsolateMode],
