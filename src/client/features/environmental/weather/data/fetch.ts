@@ -1,170 +1,159 @@
+import { isOptionalString } from "@/features/base/pointCodec";
 import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
+import {
+  WEATHER_TEXT_FIELDS,
+  type WeatherTextField,
+} from "@/features/environmental/weather/types";
+import type { DatasetCompleteness } from "@/workers/data/datasetStore";
+import {
+  CLIENT_USER_AGENT,
+  HttpHeader,
+  MediaType,
+  RemoteSource,
+  type SourceFailureMessages,
+  type SourceTransport,
+} from "@/workers/data/source-model/remoteSource";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import { Domain } from "@shared/domain/identity";
-import type { WeatherGeometry } from "@/features/environmental/weather/types";
+import { SourceCompleteness } from "@shared/source";
+import {
+  geometryPolygons,
+  isRecord,
+  parseGeoJsonPolygonGeometry,
+  type GeoJsonPolygonGeometry,
+  type GeoRing,
+} from "@shared/geo";
 
 const ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
 
-const WEATHER_ERROR = {
-  request: "The weather alerts request failed",
-  format: "The weather alerts response was not NWS GeoJSON",
-} as const;
+enum WeatherFetchMessage {
+  Request = "The weather alerts request failed",
+  Payload = "The weather alerts response was not NWS GeoJSON",
+}
 
-const REQUEST_HEADERS: Readonly<Record<string, string>> = {
-  "User-Agent": "(sigint-dashboard, osint-tool)",
-  Accept: "application/geo+json",
-};
+enum WeatherPayloadField {
+  Features = "features",
+  Properties = "properties",
+  Id = "id",
+  Geometry = "geometry",
+  Sent = "sent",
+  Effective = "effective",
+  Severity = "severity",
+}
 
 const ID_PREFIX = "WX";
 const ID_TAIL_LENGTH = 12;
-const ID_ALLOWED = /[^a-zA-Z0-9]/g;
-
-// ── NWS GeoJSON shape ────────────────────────────────────────────────
-
-type NWSFeature = Readonly<{
-  id: string;
-  type: "Feature";
-  geometry: WeatherGeometry | null;
-  properties: Readonly<{
-    id: string;
-    event: string;
-    severity: string;
-    certainty: string;
-    urgency: string;
-    headline: string;
-    description: string;
-    instruction: string | null;
-    senderName: string;
-    areaDesc: string;
-    onset: string;
-    expires: string;
-    effective: string;
-    sent: string;
-    status: string;
-    messageType: string;
-    category: string;
-    response: string;
-  }>;
-}>;
-
-type NWSResponse = Readonly<{
-  type: "FeatureCollection";
-  features: NWSFeature[];
-}>;
+const ID_DISALLOWED = /[^a-zA-Z0-9]/g;
+const NULL_ISLAND_DEGREES = 0;
 
 type Centroid = Readonly<{ lat: number; lon: number }>;
 
-// ── Centroid ─────────────────────────────────────────────────────────
-
-function isPositionList(value: unknown): value is number[][] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every(
-      (entry: unknown) =>
-        Array.isArray(entry) &&
-        entry.length >= 2 &&
-        typeof entry[0] === "number" &&
-        typeof entry[1] === "number",
-    )
-  );
+function optionalText(value: unknown): string | undefined {
+  return isOptionalString(value) && value.length > 0 ? value : undefined;
 }
 
-function ringCentroid(ring: readonly number[][]): Centroid {
-  let latSum = 0;
+function ringCentroid(ring: GeoRing): Centroid | null {
+  if (ring.length === 0) return null;
   let lonSum = 0;
-  for (const [lon, lat] of ring) {
-    lonSum += lon ?? 0;
-    latSum += lat ?? 0;
+  let latSum = 0;
+  for (const point of ring) {
+    const [longitude, latitude] = point;
+    lonSum += longitude;
+    latSum += latitude;
   }
   return { lat: latSum / ring.length, lon: lonSum / ring.length };
 }
 
-/** First ring is the outer boundary for both Polygon and MultiPolygon. */
-function firstRing(coordinates: unknown): number[][] | null {
-  if (isPositionList(coordinates)) return coordinates;
-  if (!Array.isArray(coordinates)) return null;
-  for (const nested of coordinates) {
-    const ring = firstRing(nested);
-    if (ring) return ring;
-  }
-  return null;
+function geometryCentroid(geometry: GeoJsonPolygonGeometry): Centroid | null {
+  const [firstPolygon] = geometryPolygons(geometry);
+  const [outerRing] = firstPolygon ?? [];
+  return outerRing ? ringCentroid(outerRing) : null;
 }
 
-function getCentroid(geometry: WeatherGeometry | null): Centroid | null {
-  if (!geometry) return null;
-  if (geometry.type === "Point") {
-    const coords = geometry.coordinates;
-    const lon = coords[0];
-    const lat = coords[1];
-    return typeof lon === "number" && typeof lat === "number"
-      ? { lat, lon }
-      : null;
-  }
-  const ring = firstRing(geometry.coordinates);
-  return ring ? ringCentroid(ring) : null;
+function isNullIsland(centroid: Centroid): boolean {
+  return (
+    centroid.lat === NULL_ISLAND_DEGREES && centroid.lon === NULL_ISLAND_DEGREES
+  );
 }
 
-// ── Mapping ──────────────────────────────────────────────────────────
+function alertId(value: unknown): string | null {
+  const source = optionalText(value);
+  if (!source) return null;
+  const tail = source.replace(ID_DISALLOWED, "").slice(-ID_TAIL_LENGTH);
+  return tail.length > 0 ? `${ID_PREFIX}${tail}` : null;
+}
 
-function toWeatherPoint(
-  feature: NWSFeature,
-  now: number,
-): WeatherPoint | null {
-  const centroid = getCentroid(feature.geometry);
-  if (!centroid) return null;
-  if (centroid.lat === 0 && centroid.lon === 0) return null;
+function alertText(
+  properties: Readonly<Record<string, unknown>>,
+): Partial<Record<WeatherTextField, string>> {
+  const text: Partial<Record<WeatherTextField, string>> = {};
+  for (const field of WEATHER_TEXT_FIELDS) {
+    const value = optionalText(properties[field]);
+    if (value !== undefined) text[field] = value;
+  }
+  return text;
+}
 
-  const props = feature.properties;
-  return {
-    id: `${ID_PREFIX}${props.id.replace(ID_ALLOWED, "").slice(-ID_TAIL_LENGTH)}`,
-    type: Domain.Weather,
-    lat: centroid.lat,
-    lon: centroid.lon,
-    timestamp:
-      props.sent || props.effective || new Date(now).toISOString(),
-    data: {
-      event: props.event,
-      severity: props.severity,
-      certainty: props.certainty,
-      urgency: props.urgency,
-      headline: props.headline,
-      description: props.description,
-      instruction: props.instruction ?? undefined,
-      senderName: props.senderName,
-      areaDesc: props.areaDesc,
-      onset: props.onset,
-      expires: props.expires,
-      status: props.status,
-      messageType: props.messageType,
-      category: props.category,
-      response: props.response,
-      geometry: feature.geometry ?? undefined,
+class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
+  protected readonly transport: SourceTransport = {
+    url: ALERTS_URL,
+    headers: {
+      [HttpHeader.UserAgent]: CLIENT_USER_AGENT,
+      [HttpHeader.Accept]: MediaType.GeoJson,
     },
   };
+
+  protected readonly failureMessages: SourceFailureMessages =
+    WeatherFetchMessage;
+
+  protected readonly completeness: DatasetCompleteness =
+    SourceCompleteness.Complete;
+
+  protected items(payload: unknown): readonly unknown[] | null {
+    if (!isRecord(payload)) return null;
+    const features = payload[WeatherPayloadField.Features];
+    return Array.isArray(features) ? features : null;
+  }
+
+  protected toEntity(item: unknown, observedAt: number): WeatherPoint | null {
+    if (!isRecord(item)) return null;
+    const properties = item[WeatherPayloadField.Properties];
+    if (!isRecord(properties)) return null;
+
+    const id = alertId(properties[WeatherPayloadField.Id]);
+    if (!id) return null;
+
+    const geometry = parseGeoJsonPolygonGeometry(
+      item[WeatherPayloadField.Geometry],
+    );
+    if (!geometry) return null;
+
+    const centroid = geometryCentroid(geometry);
+    if (!centroid || isNullIsland(centroid)) return null;
+
+    return {
+      id,
+      type: Domain.Weather,
+      lat: centroid.lat,
+      lon: centroid.lon,
+      timestamp:
+        optionalText(properties[WeatherPayloadField.Sent]) ??
+        optionalText(properties[WeatherPayloadField.Effective]) ??
+        new Date(observedAt).toISOString(),
+      data: {
+        ...alertText(properties),
+        geometry,
+        severity: optionalText(properties[WeatherPayloadField.Severity]),
+      },
+    };
+  }
 }
 
-export type WeatherFetchSnapshot = Readonly<{
-  completeness: "complete";
-  entities: readonly WeatherPoint[];
-  observedAt: number;
-}>;
+const WEATHER_ALERT_FEED = new WeatherAlertFeed();
 
-/** The NWS active-alerts feed is the whole current set every time. */
-export async function fetchWeatherSnapshot(
+export function fetchWeatherSnapshot(
   now: () => number = Date.now,
-): Promise<WeatherFetchSnapshot> {
-  const response = await fetch(ALERTS_URL, { headers: REQUEST_HEADERS });
-  if (!response.ok) throw new Error(WEATHER_ERROR.request);
-
-  const raw: NWSResponse = await response.json();
-  if (!Array.isArray(raw.features)) throw new Error(WEATHER_ERROR.format);
-
-  const observedAt = now();
-  const entities: WeatherPoint[] = [];
-  for (const feature of raw.features) {
-    const point = toWeatherPoint(feature, observedAt);
-    if (point) entities.push(point);
-  }
-  return { completeness: "complete", entities, observedAt };
+): Promise<PointSourceFetchSnapshot<WeatherPoint>> {
+  return WEATHER_ALERT_FEED.fetchSnapshot(now);
 }

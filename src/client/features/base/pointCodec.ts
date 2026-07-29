@@ -16,7 +16,7 @@ export function hasOptionalFields(
   });
 }
 
-export function isOptionalString(value: unknown): boolean {
+export function isOptionalString(value: unknown): value is string {
   return typeof value === "string";
 }
 

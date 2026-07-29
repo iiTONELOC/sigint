@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import { type PointType } from "@shared/domain/pointType";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
@@ -30,7 +31,7 @@ describe("ship source runtime", () => {
       readCache: async () => null,
       persistCache: async () => undefined,
       fetchSnapshot: async () => ({
-        completeness: "complete",
+        completeness: SourceCompleteness.Complete,
         entities: [ship(45)],
         observedAt: 10,
       }),

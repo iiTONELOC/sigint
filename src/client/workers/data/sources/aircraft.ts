@@ -1,5 +1,6 @@
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import {
   AIRCRAFT_BOOLEAN_FIELDS as BOOLEAN_FIELDS,
   AIRCRAFT_NUMBER_FIELDS as NUMBER_FIELDS,
@@ -100,9 +101,9 @@ async function fetchLiveAircraft(): Promise<
   const result = await fetchAircraftSnapshot();
   return {
     completeness:
-      result.source.completeness === "complete"
-        ? "complete"
-        : "partial",
+      result.source.completeness === SourceCompleteness.Complete
+        ? SourceCompleteness.Complete
+        : SourceCompleteness.Partial,
     entities: result.data.filter(isAircraftPoint),
     observedAt:
       result.source.observedAt ??

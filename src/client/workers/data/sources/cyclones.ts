@@ -1,5 +1,6 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import {
   isCyclonePoint,
   parseCycloneCache,
@@ -56,7 +57,7 @@ export function createCycloneSourceRuntime(
   const fetchStorms = async (): Promise<
     PointSourceFetchSnapshot<CyclonePoint>
   > => ({
-    completeness: "complete",
+    completeness: SourceCompleteness.Complete,
     entities: (await fetchCurrentStorms()).filter(isCyclonePoint),
     observedAt: now(),
   });

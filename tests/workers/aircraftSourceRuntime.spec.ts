@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import { type PointType } from "@shared/domain/pointType";
 import { SquawkStatus } from "@shared/domain/aircraft";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
@@ -33,7 +34,7 @@ describe("aircraft source runtime", () => {
       readCache: async () => null,
       persistCache: async () => undefined,
       fetchSnapshot: async () => ({
-        completeness: "complete",
+        completeness: SourceCompleteness.Complete,
         entities: [aircraft(90)],
         observedAt: 10,
       }),

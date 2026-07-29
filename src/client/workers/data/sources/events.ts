@@ -1,4 +1,5 @@
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import {
   parseEventCache,
   type EventPoint,
@@ -83,7 +84,7 @@ export function createEventSourceRuntime(
       ? await options.fetchSnapshot()
       : await fetchEventSnapshot(now);
     return {
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: mergeEventWindow(
         retained.values(),
         snapshot.entities,

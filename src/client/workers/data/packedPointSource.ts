@@ -1,9 +1,8 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 import type { DatasetEntity } from "@/workers/data/datasetStore";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import type { SourceStatus } from "@shared/domain/sourceStatus";
-import type { SourceId } from "@shared/source";
+import { SourceCompleteness, type SourceId } from "@shared/source";
 import {
   createPointSourceRuntime,
   type PointSourceCacheSnapshot,
@@ -62,7 +61,7 @@ export function createPackedPointSource<TEntity extends DatasetEntity>(
     parseCache,
     persistCache: options.persistCache,
     fetchSnapshot: async () => ({
-      completeness: SourceCompletenessPolicy.Complete,
+      completeness: SourceCompleteness.Complete,
       entities: await options.fetchPoints(),
       observedAt: now(),
     }),

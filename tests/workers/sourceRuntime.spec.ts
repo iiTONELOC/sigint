@@ -1,4 +1,4 @@
-import { type SourceId } from "@shared/source";
+import { SourceCompleteness } from "@shared/source";
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { createPointSourceRuntime } from "@/workers/data/sourceRuntime";
@@ -43,7 +43,7 @@ describe("point source runtime", () => {
       parseCache,
       persistCache: async () => undefined,
       fetchSnapshot: async () => ({
-        completeness: "complete",
+        completeness: SourceCompleteness.Complete,
         entities: [],
         observedAt: 20,
       }),
@@ -70,7 +70,7 @@ describe("point source runtime", () => {
   test("keeps absent entities after a partial refresh", async () => {
     const snapshots = [
       {
-        completeness: "complete" as const,
+        completeness: SourceCompleteness.Complete,
         entities: [
           { id: "first", value: 1 },
           { id: "second", value: 2 },
@@ -78,7 +78,7 @@ describe("point source runtime", () => {
         observedAt: 10,
       },
       {
-        completeness: "partial" as const,
+        completeness: SourceCompleteness.Partial,
         entities: [{ id: "first", value: 3 }],
         observedAt: 20,
       },

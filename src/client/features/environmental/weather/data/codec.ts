@@ -6,46 +6,32 @@ import {
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
-import type {
-  WeatherData,
-  WeatherGeometry,
+import {
+  WEATHER_TEXT_FIELDS,
+  type WeatherData,
 } from "@/features/environmental/weather/types";
-import { isRecord } from "@shared/geo";
+import {
+  isRecord,
+  parseGeoJsonPolygonGeometry,
+  type GeoJsonPolygonGeometry,
+} from "@shared/geo";
 
 export type WeatherPoint = Extract<DataPoint, { type: Domain.Weather }>;
 
-const STRING_FIELDS = [
-  "event",
-  "severity",
-  "certainty",
-  "urgency",
-  "headline",
-  "description",
-  "instruction",
-  "senderName",
-  "areaDesc",
-  "onset",
-  "expires",
-  "status",
-  "messageType",
-  "category",
-  "response",
-] as const;
+const SEVERITY_KEY: keyof WeatherData = "severity";
 
-export function isWeatherGeometry(
+const TEXT_KEYS: readonly string[] = [...WEATHER_TEXT_FIELDS, SEVERITY_KEY];
+
+function isWeatherGeometry(
   value: unknown,
-): value is WeatherGeometry {
-  return (
-    isRecord(value) &&
-    typeof value.type === "string" &&
-    Array.isArray(value.coordinates)
-  );
+): value is GeoJsonPolygonGeometry {
+  return parseGeoJsonPolygonGeometry(value) !== null;
 }
 
 function isWeatherData(value: unknown): value is WeatherData {
   return (
     isRecord(value) &&
-    hasOptionalFields(value, STRING_FIELDS, isOptionalString) &&
+    hasOptionalFields(value, TEXT_KEYS, isOptionalString) &&
     (value.geometry === undefined || isWeatherGeometry(value.geometry))
   );
 }

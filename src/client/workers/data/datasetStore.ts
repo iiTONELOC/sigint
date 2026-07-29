@@ -1,4 +1,8 @@
-export type DatasetCompleteness = "complete" | "partial";
+import { SourceCompleteness } from "@shared/source";
+
+export type DatasetCompleteness =
+  | SourceCompleteness.Complete
+  | SourceCompleteness.Partial;
 
 export type DatasetEntity = Readonly<{
   id: string;
@@ -181,7 +185,7 @@ export function createDatasetStore<TEntity extends DatasetEntity>(
       let deletedIds: readonly string[] = [];
       let upserts: readonly TEntity[];
 
-      if (snapshot.completeness === "complete") {
+      if (snapshot.completeness === SourceCompleteness.Complete) {
         const result = await applyComplete(snapshot);
         deletedIds = result.deletedIds;
         upserts = result.upserts;

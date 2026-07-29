@@ -1,5 +1,6 @@
 import { authenticatedFetch } from "@/lib/net/authService";
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import { rampBand, type Band } from "@/lib/format/rampLookup";
 import type { EventPoint } from "@/features/intel/events/data/codec";
 
@@ -134,7 +135,7 @@ function toEventPoint(
 }
 
 export type EventFetchSnapshot = Readonly<{
-  completeness: "partial";
+  completeness: SourceCompleteness.Partial;
   entities: readonly EventPoint[];
   observedAt: number;
 }>;
@@ -159,5 +160,5 @@ export async function fetchEventSnapshot(
     const point = toEventPoint(feature, index, observedAt);
     if (point) entities.push(point);
   }
-  return { completeness: "partial", entities, observedAt };
+  return { completeness: SourceCompleteness.Partial, entities, observedAt };
 }

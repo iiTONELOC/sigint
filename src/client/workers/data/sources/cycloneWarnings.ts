@@ -1,4 +1,5 @@
 import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import {
   parseCycloneWarningCache,
@@ -45,7 +46,7 @@ async function fetchWarningSnapshot(): Promise<
     entities: warnings.map(
       (warning) => warningToDataPoint(warning) as CycloneWarningPoint,
     ),
-    completeness: "complete",
+    completeness: SourceCompleteness.Complete,
     observedAt: Date.now(),
   };
 }

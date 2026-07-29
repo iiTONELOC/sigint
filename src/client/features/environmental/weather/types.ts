@@ -1,32 +1,31 @@
-/**
- * The alert's own polygon, kept so the renderer can draw the affected AREA
- * rather than just the centroid marker. Only storm-based alerts carry one.
- */
-export type WeatherGeometry = Readonly<{
-  type: string;
-  coordinates: number[] | number[][] | number[][][];
-}>;
+import type { GeoJsonPolygonGeometry } from "@shared/geo";
 
-export type WeatherData = {
-  geometry?: WeatherGeometry;
-  event?: string;
+export enum WeatherTextField {
+  Event = "event",
+  Urgency = "urgency",
+  Certainty = "certainty",
+  Category = "category",
+  Response = "response",
+  Issuer = "senderName",
+  Area = "areaDesc",
+  Onset = "onset",
+  Expires = "expires",
+  Headline = "headline",
+  Description = "description",
+  Instruction = "instruction",
+  Status = "status",
+  MessageType = "messageType",
+}
+
+export const WEATHER_TEXT_FIELDS: readonly WeatherTextField[] =
+  Object.values(WeatherTextField);
+
+export type WeatherData = Partial<Record<WeatherTextField, string>> & {
+  geometry?: GeoJsonPolygonGeometry;
   severity?: string;
-  certainty?: string;
-  urgency?: string;
-  headline?: string;
-  description?: string;
-  instruction?: string;
-  senderName?: string;
-  areaDesc?: string;
-  onset?: string;
-  expires?: string;
-  status?: string;
-  messageType?: string;
-  category?: string;
-  response?: string;
 };
 
 export type WeatherFilter = {
   enabled: boolean;
-  minSeverity: number; // 0=all, 1=moderate+, 2=severe+, 3=extreme only
+  minSeverity: number;
 };

@@ -4,11 +4,12 @@ import {
   type ShipPoint,
 } from "@/features/tracking/ships/data/codec";
 import { authenticatedFetch } from "@/lib/net/authService";
+import type { DatasetCompleteness } from "@/workers/data/datasetStore";
 
 const SHIPS_URL = "/api/ships/latest";
 
 export type ShipFetchSnapshot = Readonly<{
-  completeness: "complete" | "partial";
+  completeness: DatasetCompleteness;
   entities: readonly ShipPoint[];
   observedAt: number;
 }>;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDatasetStore } from "@/workers/data/datasetStore";
+import { SourceCompleteness } from "@shared/source";
 
 type TestEntity = Readonly<{
   id: string;
@@ -15,7 +16,7 @@ describe("dataset store", () => {
 
     const initial = await store.applySnapshot({
       version: 1,
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: [first, second],
     });
     expect(initial.kind).toBe("rebase");
@@ -23,7 +24,7 @@ describe("dataset store", () => {
 
     const partial = await store.applySnapshot({
       version: 2,
-      completeness: "partial",
+      completeness: SourceCompleteness.Partial,
       entities: [{ id: "first", value: 3 }],
     });
     expect(partial.kind).toBe("patch");
@@ -32,7 +33,7 @@ describe("dataset store", () => {
 
     const complete = await store.applySnapshot({
       version: 3,
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: [{ id: "first", value: 4 }],
     });
     expect(complete.deletedIds).toEqual(["second"]);
@@ -46,13 +47,13 @@ describe("dataset store", () => {
     });
     await store.applySnapshot({
       version: 1,
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: [first, second],
     });
 
     const patch = await store.applySnapshot({
       version: 2,
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: [
         { id: "first", value: 1 },
         { id: "second", value: 3 },
@@ -67,7 +68,7 @@ describe("dataset store", () => {
     const store = createDatasetStore<TestEntity>({ maxQueryItems: 1 });
     await store.applySnapshot({
       version: 1,
-      completeness: "complete",
+      completeness: SourceCompleteness.Complete,
       entities: [first, second],
     });
 

@@ -1,5 +1,6 @@
 import {
   createDatasetStore,
+  type DatasetCompleteness,
   type DatasetEntity,
   type DatasetPatch,
   type DatasetQuery,
@@ -7,7 +8,7 @@ import {
 } from "@/workers/data/datasetStore";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { SourceStatus } from "@shared/domain/sourceStatus";
-import type { SourceId } from "@shared/source";
+import { SourceCompleteness, type SourceId } from "@shared/source";
 import { isRecord } from "@shared/geo";
 
 export type PointSourceCacheSnapshot<TEntity extends DatasetEntity> = Readonly<{
@@ -17,7 +18,7 @@ export type PointSourceCacheSnapshot<TEntity extends DatasetEntity> = Readonly<{
 }>;
 
 export type PointSourceFetchSnapshot<TEntity extends DatasetEntity> = Readonly<{
-  completeness: "complete" | "partial";
+  completeness: DatasetCompleteness;
   entities: readonly TEntity[];
   observedAt: number;
 }>;
@@ -218,7 +219,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       if (!entities) return;
       await applySnapshot(
         {
-          completeness: "complete",
+          completeness: SourceCompleteness.Complete,
           entities,
           observedAt: envelope.timestamp,
         },
