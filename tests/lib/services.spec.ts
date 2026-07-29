@@ -26,9 +26,12 @@ function pt(
 
 describe("relativeAge", () => {
   let relativeAge: typeof import("@/lib/format/timeFormat").relativeAge;
+  let AgeStyle: typeof import("@/lib/format/timeFormat").AgeStyle;
 
   beforeEach(async () => {
-    relativeAge = (await import("@/lib/format/timeFormat")).relativeAge;
+    const timeFormat = await import("@/lib/format/timeFormat");
+    relativeAge = timeFormat.relativeAge;
+    AgeStyle = timeFormat.AgeStyle;
   });
 
   test("null/undefined returns LIVE (compact)", () => {
@@ -37,7 +40,7 @@ describe("relativeAge", () => {
   });
 
   test("null/undefined returns just now (verbose)", () => {
-    expect(relativeAge(null, "verbose")).toBe("just now");
+    expect(relativeAge(null, AgeStyle.Verbose)).toBe("just now");
   });
 
   test("recent timestamp returns LIVE", () => {
@@ -46,7 +49,7 @@ describe("relativeAge", () => {
 
   test("5 minutes ago", () => {
     expect(relativeAge(Date.now() - 5 * 60_000)).toBe("5m");
-    expect(relativeAge(Date.now() - 5 * 60_000, "verbose")).toBe("5m ago");
+    expect(relativeAge(Date.now() - 5 * 60_000, AgeStyle.Verbose)).toBe("5m ago");
   });
 
   test("2 hours ago", () => {

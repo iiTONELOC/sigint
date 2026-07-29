@@ -1,25 +1,24 @@
-import { relativeAge, formatTime } from "@/lib/format/timeFormat";
-import type { CycloneData } from "../types";
+import { AgeStyle, formatTime, relativeAge } from "@/lib/format/timeFormat";
+import { CycloneKicker, SaffirSimpson, type CycloneData } from "../types";
 import { CATEGORY_LABEL } from "../classification";
 import { CycloneWarningFlags } from "./CycloneWarningFlags";
+import { EMPTY_TEXT, NO_VALUE, PARENTHETICAL } from "@shared/text";
+import { BASIN_LABEL } from "@shared/cyclonesSeason";
 
 // Identity placard — the always-first card. Category-colored top edge + CAT
 // badge (both ride var(--dossier-accent), which the dossier sets to
 // windColor(maxWindKt)). Name, kicker, STORM ID / BASIN pairs, advisory footer.
 
-const BASIN_LABEL: Record<string, string> = {
-  AL: "Atlantic",
-  EP: "East Pacific",
-  CP: "Central Pacific",
-};
-
 /** Kicker like "HURRICANE · MAJOR" / "TROPICAL STORM" from the classification. */
 function kicker(d: CycloneData): string {
-  const label = (CATEGORY_LABEL[d.classification] ?? d.classification).toUpperCase();
-  if (label.startsWith("HURRICANE")) {
-    return d.saffirSimpson >= 3 ? "HURRICANE · MAJOR" : "HURRICANE";
+  if (d.saffirSimpson !== SaffirSimpson.None) {
+    return d.saffirSimpson >= SaffirSimpson.Cat3
+      ? CycloneKicker.MajorHurricane
+      : CycloneKicker.Hurricane;
   }
-  return label.replace(/\s*\(.*\)\s*/, "");
+  return CATEGORY_LABEL[d.classification]
+    .toUpperCase()
+    .replace(PARENTHETICAL, EMPTY_TEXT);
 }
 
 export function CyclonePlacard({
@@ -31,9 +30,9 @@ export function CyclonePlacard({
   readonly issued?: string;
   readonly compact?: boolean;
 }) {
-  const badge = data.saffirSimpson > 0 ? String(data.saffirSimpson) : data.classification;
+  const badge = data.saffirSimpson !== SaffirSimpson.None ? String(data.saffirSimpson) : data.classification;
   const issuedAge = issued
-    ? `${formatTime(issued)} · ${relativeAge(new Date(issued).getTime(), "verbose")}`
+    ? `${formatTime(issued)} · ${relativeAge(new Date(issued).getTime(), AgeStyle.Verbose)}`
     : null;
 
   if (compact) {
@@ -43,7 +42,7 @@ export function CyclonePlacard({
         <div className="absolute left-0 inset-y-0 w-1 bg-(--dossier-accent)" />
         <div className="relative flex flex-col items-center justify-center w-10 h-10 shrink-0 rounded-[10px] border-2 border-(--dossier-accent) text-(--dossier-accent)">
           <span className="text-(length:--sig-text-md) font-bold leading-none">{badge}</span>
-          {data.saffirSimpson > 0 && (
+          {data.saffirSimpson !== SaffirSimpson.None && (
             <span className="text-[8px] tracking-widest leading-none mt-0.5">CAT</span>
           )}
         </div>
@@ -55,10 +54,10 @@ export function CyclonePlacard({
             {data.name}
           </div>
           <div className="text-(length:--sig-text-xs) text-sig-dim font-mono truncate">
-            {data.stormId} · {BASIN_LABEL[data.basin] ?? data.basin} · ADV {data.advisoryNumber || "—"}
+            {data.stormId} · {BASIN_LABEL[data.basin]} · ADV {data.advisoryNumber || NO_VALUE}
           </div>
         </div>
-        <CycloneWarningFlags maxWindKt={data.maxWindKt} isHurricane={data.saffirSimpson > 0} />
+        <CycloneWarningFlags maxWindKt={data.maxWindKt} isHurricane={data.saffirSimpson !== SaffirSimpson.None} />
       </div>
     );
   }
@@ -69,10 +68,10 @@ export function CyclonePlacard({
       <div className="relative h-1 bg-(--dossier-accent)" />
       <div className="relative px-4 pt-3 pb-3">
         <div className="absolute top-3 right-3 flex items-center gap-2">
-          <CycloneWarningFlags maxWindKt={data.maxWindKt} isHurricane={data.saffirSimpson > 0} />
+          <CycloneWarningFlags maxWindKt={data.maxWindKt} isHurricane={data.saffirSimpson !== SaffirSimpson.None} />
           <div className="flex flex-col items-center justify-center w-14 h-14 rounded-[12px] border-2 border-(--dossier-accent) text-(--dossier-accent)">
             <span className="text-(length:--sig-text-title) font-bold leading-none">{badge}</span>
-            {data.saffirSimpson > 0 && (
+            {data.saffirSimpson !== SaffirSimpson.None && (
               <span className="text-(length:--sig-text-xs) tracking-widest mt-0.5">CAT</span>
             )}
           </div>
@@ -91,13 +90,13 @@ export function CyclonePlacard({
           <div>
             <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim">BASIN</div>
             <div className="text-(length:--sig-text-md) text-sig-bright mt-0.5">
-              {BASIN_LABEL[data.basin] ?? data.basin}
+              {BASIN_LABEL[data.basin]}
             </div>
           </div>
         </div>
       </div>
       <div className="relative flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t border-(--dossier-accent)/20 bg-sig-bg/40 px-4 py-2 text-(length:--sig-text-xs) text-sig-dim">
-        <span className="shrink-0">ADVISORY <span className="text-sig-text">{data.advisoryNumber || "—"}</span></span>
+        <span className="shrink-0">ADVISORY <span className="text-sig-text">{data.advisoryNumber || NO_VALUE}</span></span>
         {issuedAge && (
           <span className="min-w-0">ISSUED <span className="text-sig-text">{issuedAge}</span></span>
         )}

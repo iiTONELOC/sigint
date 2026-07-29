@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
 import {
   weatherSeverityInk,
   weatherSeverityLabel,
@@ -38,7 +38,9 @@ export function WeatherPlacard({
   readonly timestamp?: string;
 }) {
   const ink = weatherSeverityInk(severity);
-  const age = timestamp ? relativeAge(new Date(timestamp).getTime(), "verbose") : null;
+  const age = timestamp
+    ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
+    : null;
   const areaCount = weatherAreas(areaDesc).length;
 
   return (

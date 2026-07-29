@@ -91,7 +91,7 @@ describe("diffAndApply", () => {
     const incoming = [pt("a", 1, 1, incomingData)];
     const r = diffAndApply(prior, incoming);
     expect(r.identityChanged).toBe(false);
-    expect(prior[0]!.data).toBe(incomingData);
+    expect(Object.is(prior[0]?.data, incomingData)).toBe(true);
   });
 
   test("repeated diff with stable id-set keeps the same array reference indefinitely", () => {

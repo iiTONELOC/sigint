@@ -11,7 +11,7 @@ import type { EarthquakePoint } from "@/features/environmental/earthquake/data/s
 import type { FirePoint } from "@/features/environmental/fires/data/source";
 import type { WeatherPoint } from "@/features/environmental/weather/types";
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
-import type { CycloneWarningPoint } from "@/features/environmental/cyclones/data/warningCodec";
+import type { CycloneWarningPoint } from "@/features/environmental/cyclones/types";
 import type { EventPoint } from "@/features/intel/events/data/codec";
 import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";

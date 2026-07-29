@@ -1,29 +1,38 @@
-import { AreaKind } from "@/workers/render/protocol";
+import type { DatasetCompleteness } from "@/workers/data/datasetStore";
+import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
 import {
+  RemoteSource,
+  type SourceFailureMessages,
+  type SourceTransport,
+} from "@/workers/data/source-model/remoteSource";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
+import { BLANK_SEPARATOR, nonEmptyText, textOrEmpty } from "@shared/text";
+import {
+  geometryCentroid,
+  isNullIsland,
   isRecord,
   parseGeoJsonPolygonGeometry,
-  type GeoJsonPolygonGeometry,
 } from "@shared/geo";
-import { BLANK_SEPARATOR, textOrEmpty } from "@shared/text";
+import { AreaKind } from "@/workers/render/protocol";
+import {
+  CycloneWarningField,
+  type CycloneWarningData,
+  type CycloneWarningPoint,
+} from "@/features/environmental/cyclones/types";
 
-export type CycloneWarning = {
-  id: string;
-  event: string;
-  kind: AreaKind;
-  headline: string;
-  areaDesc: string;
-  effective: string;
-  expires: string;
-  geometry: GeoJsonPolygonGeometry;
-};
+enum WarningFetchMessage {
+  Request = "The tropical alerts request failed",
+  Payload = "The tropical alerts response was not NWS GeoJSON",
+}
 
-const ALERTS_URL =
-  "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
-
-const REQUEST_HEADERS: Readonly<Record<string, string>> = {
-  "User-Agent": "(sigint-dashboard, osint-tool)",
-  Accept: "application/geo+json",
-};
+enum WarningPayloadField {
+  Features = "features",
+  Properties = "properties",
+  Id = "id",
+  Geometry = "geometry",
+}
 
 enum TropicalHazard {
   Hurricane = "hurricane",
@@ -43,45 +52,85 @@ function kindOf(eventLower: string): AreaKind {
     : AreaKind.Watch;
 }
 
-function toCycloneWarning(feature: unknown): CycloneWarning | null {
-  if (!isRecord(feature)) return null;
-
-  const geometry = parseGeoJsonPolygonGeometry(feature.geometry);
-  if (!geometry) return null;
-
-  const properties = isRecord(feature.properties) ? feature.properties : {};
-  const event = textOrEmpty(properties.event);
-  const eventLower = event.toLowerCase();
-  if (!TROPICAL_EVENTS.has(eventLower)) return null;
-
+function warningText(
+  properties: Readonly<Record<string, unknown>>,
+): Record<CycloneWarningField, string> {
   return {
-    id: textOrEmpty(feature.id) || event,
-    event,
-    kind: kindOf(eventLower),
-    headline: textOrEmpty(properties.headline),
-    areaDesc: textOrEmpty(properties.areaDesc),
-    effective: textOrEmpty(properties.effective),
-    expires: textOrEmpty(properties.expires),
-    geometry,
+    [CycloneWarningField.Alert]: textOrEmpty(
+      properties[CycloneWarningField.Alert],
+    ),
+    [CycloneWarningField.Headline]: textOrEmpty(
+      properties[CycloneWarningField.Headline],
+    ),
+    [CycloneWarningField.Area]: textOrEmpty(
+      properties[CycloneWarningField.Area],
+    ),
+    [CycloneWarningField.Effective]: textOrEmpty(
+      properties[CycloneWarningField.Effective],
+    ),
+    [CycloneWarningField.Expires]: textOrEmpty(
+      properties[CycloneWarningField.Expires],
+    ),
   };
 }
 
-function toCycloneWarnings(payload: unknown): CycloneWarning[] {
-  if (!isRecord(payload) || !Array.isArray(payload.features)) return [];
-  const warnings: CycloneWarning[] = [];
-  for (const feature of payload.features) {
-    const warning = toCycloneWarning(feature);
-    if (warning) warnings.push(warning);
+class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
+  protected readonly transport: SourceTransport = NWS_ALERTS_TRANSPORT;
+
+  protected readonly failureMessages: SourceFailureMessages =
+    WarningFetchMessage;
+
+  protected readonly completeness: DatasetCompleteness =
+    SourceCompleteness.Complete;
+
+  protected items(payload: unknown): readonly unknown[] | null {
+    if (!isRecord(payload)) return null;
+    const features = payload[WarningPayloadField.Features];
+    return Array.isArray(features) ? features : null;
   }
-  return warnings;
+
+  protected toEntity(
+    item: unknown,
+    observedAt: number,
+  ): CycloneWarningPoint | null {
+    if (!isRecord(item)) return null;
+    const rawProperties = item[WarningPayloadField.Properties];
+    const properties = isRecord(rawProperties) ? rawProperties : {};
+
+    const event = textOrEmpty(properties[CycloneWarningField.Alert]);
+    const eventLower = event.toLowerCase();
+    if (!TROPICAL_EVENTS.has(eventLower)) return null;
+
+    const geometry = parseGeoJsonPolygonGeometry(
+      item[WarningPayloadField.Geometry],
+    );
+    if (!geometry) return null;
+
+    const position = geometryCentroid(geometry);
+    if (!position || isNullIsland(position)) return null;
+
+    const id = nonEmptyText(item[WarningPayloadField.Id]) ?? event;
+    const data: CycloneWarningData = {
+      ...warningText(properties),
+      kind: kindOf(eventLower),
+      geometry,
+    };
+    return {
+      id,
+      type: Domain.CyclonesWarning,
+      position,
+      timestamp:
+        nonEmptyText(properties[CycloneWarningField.Effective]) ??
+        new Date(observedAt).toISOString(),
+      data,
+    };
+  }
 }
 
-export async function fetchCycloneWarnings(): Promise<CycloneWarning[]> {
-  try {
-    const response = await fetch(ALERTS_URL, { headers: REQUEST_HEADERS });
-    if (!response.ok) return [];
-    return toCycloneWarnings(await response.json());
-  } catch {
-    return [];
-  }
+const CYCLONE_WARNING_FEED = new CycloneWarningFeed();
+
+export function fetchCycloneWarningSnapshot(
+  now: () => number = Date.now,
+): Promise<PointSourceFetchSnapshot<CycloneWarningPoint>> {
+  return CYCLONE_WARNING_FEED.fetchSnapshot(now);
 }

@@ -5,10 +5,8 @@ import {
   type WeatherTextField,
 } from "@/features/environmental/weather/types";
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
+import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
 import {
-  CLIENT_USER_AGENT,
-  HttpHeader,
-  MediaType,
   RemoteSource,
   type SourceFailureMessages,
   type SourceTransport,
@@ -18,19 +16,11 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { EMPTY_TEXT, nonEmptyText } from "@shared/text";
 import {
-  createGeoPoint,
-  geometryPolygons,
+  geometryCentroid,
+  isNullIsland,
   isRecord,
-  latitudeOf,
-  longitudeOf,
   parseGeoJsonPolygonGeometry,
-  type GeoJsonPolygonGeometry,
-  type GeoPoint,
-  type GeoRing,
 } from "@shared/geo";
-
-const ALERTS_URL =
-  "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
 
 enum WeatherFetchMessage {
   Request = "The weather alerts request failed",
@@ -50,31 +40,6 @@ enum WeatherPayloadField {
 const ID_PREFIX = "WX";
 const ID_TAIL_LENGTH = 12;
 const ID_DISALLOWED = /[^a-zA-Z0-9]/g;
-const NULL_ISLAND_DEGREES = 0;
-
-function ringCentroid(ring: GeoRing): GeoPoint | null {
-  if (ring.length === 0) return null;
-  let lonSum = 0;
-  let latSum = 0;
-  for (const point of ring) {
-    lonSum += longitudeOf(point);
-    latSum += latitudeOf(point);
-  }
-  return createGeoPoint(lonSum / ring.length, latSum / ring.length);
-}
-
-function geometryCentroid(geometry: GeoJsonPolygonGeometry): GeoPoint | null {
-  const [firstPolygon] = geometryPolygons(geometry);
-  const [outerRing] = firstPolygon ?? [];
-  return outerRing ? ringCentroid(outerRing) : null;
-}
-
-function isNullIsland(position: GeoPoint): boolean {
-  return (
-    longitudeOf(position) === NULL_ISLAND_DEGREES &&
-    latitudeOf(position) === NULL_ISLAND_DEGREES
-  );
-}
 
 function alertId(value: unknown): string | null {
   const source = nonEmptyText(value);
@@ -97,13 +62,7 @@ function alertText(
 }
 
 class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
-  protected readonly transport: SourceTransport = {
-    url: ALERTS_URL,
-    headers: {
-      [HttpHeader.UserAgent]: CLIENT_USER_AGENT,
-      [HttpHeader.Accept]: MediaType.GeoJson,
-    },
-  };
+  protected readonly transport: SourceTransport = NWS_ALERTS_TRANSPORT;
 
   protected readonly failureMessages: SourceFailureMessages =
     WeatherFetchMessage;

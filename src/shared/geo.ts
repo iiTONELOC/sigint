@@ -163,6 +163,37 @@ export function geometryPolygons(
     : geometry.coordinates;
 }
 
+function ringCentroid(ring: GeoRing): GeoPoint | null {
+  if (ring.length === 0) return null;
+  let longitudeTotal = 0;
+  let latitudeTotal = 0;
+  for (const point of ring) {
+    longitudeTotal += longitudeOf(point);
+    latitudeTotal += latitudeOf(point);
+  }
+  return createGeoPoint(
+    longitudeTotal / ring.length,
+    latitudeTotal / ring.length,
+  );
+}
+
+export function geometryCentroid(
+  geometry: GeoJsonPolygonGeometry,
+): GeoPoint | null {
+  const [firstPolygon] = geometryPolygons(geometry);
+  const [outerRing] = firstPolygon ?? [];
+  return outerRing ? ringCentroid(outerRing) : null;
+}
+
+const NULL_ISLAND_DEGREES = 0;
+
+export function isNullIsland(point: GeoPoint): boolean {
+  return (
+    longitudeOf(point) === NULL_ISLAND_DEGREES &&
+    latitudeOf(point) === NULL_ISLAND_DEGREES
+  );
+}
+
 export function unwrapLongitude(
   longitude: number,
   referenceLongitude: number,

@@ -1,4 +1,4 @@
-import { relativeAge, formatTime } from "@/lib/format/timeFormat";
+import { AgeStyle, formatTime, relativeAge } from "@/lib/format/timeFormat";
 import { weatherSeverityLabel } from "./severity";
 import { WeatherTextField, type WeatherData } from "./types";
 
@@ -36,7 +36,7 @@ const TIME_FIELDS: ReadonlySet<WeatherRow> = new Set([
   WeatherTextField.Expires,
 ]);
 
-const AGE_FORMAT = "verbose";
+const AGE_FORMAT = AgeStyle.Verbose;
 
 function issuedText(timestamp: string): string {
   const issuedAt = new Date(timestamp).getTime();

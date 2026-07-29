@@ -1,50 +1,61 @@
-import { relativeAge, formatTime } from "@/lib/format/timeFormat";
-import { formatKtMph } from "@/lib/format/units";
-import type { CycloneData } from "./types";
+import { formatTimeWithAge } from "@/lib/format/timeFormat";
+import {
+  formatBearingDeg,
+  formatKtMph,
+  formatPressureMb,
+} from "@/lib/format/units";
+import { BLANK_SEPARATOR } from "@shared/text";
+import { CycloneRowLabel, SaffirSimpson, type CycloneData } from "./types";
 import { CATEGORY_LABEL } from "./classification";
+
+const MOVEMENT_JOIN = `${BLANK_SEPARATOR}at${BLANK_SEPARATOR}`;
+
+type CycloneRowReader = (
+  data: CycloneData,
+  timestamp: string | undefined,
+) => string | undefined;
+
+function movementText(data: CycloneData): string | undefined {
+  const { movementDir, movementSpeedKt } = data;
+  if (movementDir == null || movementSpeedKt == null) return undefined;
+  return [formatBearingDeg(movementDir), formatKtMph(movementSpeedKt)].join(
+    MOVEMENT_JOIN,
+  );
+}
+
+const ROWS: readonly (readonly [CycloneRowLabel, CycloneRowReader])[] = [
+  [CycloneRowLabel.Name, (data) => data.name],
+  [CycloneRowLabel.StormId, (data) => data.stormId],
+  [CycloneRowLabel.Classification, (data) => CATEGORY_LABEL[data.classification]],
+  [
+    CycloneRowLabel.Category,
+    (data) =>
+      data.saffirSimpson === SaffirSimpson.None
+        ? undefined
+        : String(data.saffirSimpson),
+  ],
+  [CycloneRowLabel.Winds, (data) => formatKtMph(data.maxWindKt)],
+  [
+    CycloneRowLabel.Pressure,
+    (data) =>
+      data.minPressureMb == null
+        ? undefined
+        : formatPressureMb(data.minPressureMb),
+  ],
+  [CycloneRowLabel.Movement, movementText],
+  [CycloneRowLabel.Basin, (data) => data.basin],
+  [CycloneRowLabel.Advisory, (data) => data.advisoryNumber],
+  [CycloneRowLabel.Issued, (_data, timestamp) => formatTimeWithAge(timestamp)],
+];
 
 export function buildCycloneDetailRows(
   data: CycloneData,
   timestamp?: string,
 ): [string, string][] {
   const rows: [string, string][] = [];
-
-  rows.push(["Name", data.name]);
-  rows.push(["Storm ID", data.stormId]);
-  rows.push([
-    "Classification",
-    CATEGORY_LABEL[data.classification] ?? data.classification,
-  ]);
-
-  if (data.saffirSimpson > 0) {
-    rows.push(["Category", String(data.saffirSimpson)]);
+  for (const [label, read] of ROWS) {
+    const value = read(data, timestamp);
+    if (value) rows.push([label, value]);
   }
-
-  rows.push(["Winds", formatKtMph(data.maxWindKt)]);
-
-  if (data.minPressureMb != null) {
-    rows.push(["Pressure", `${data.minPressureMb} mb`]);
-  }
-
-  if (data.movementDir != null && data.movementSpeedKt != null) {
-    rows.push([
-      "Movement",
-      `${data.movementDir}° at ${formatKtMph(data.movementSpeedKt)}`,
-    ]);
-  }
-
-  rows.push(["Basin", data.basin]);
-  if (data.advisoryNumber) {
-    rows.push(["Advisory", data.advisoryNumber]);
-  }
-
-  if (timestamp) {
-    const ts = new Date(timestamp).getTime();
-    rows.push([
-      "Issued",
-      `${formatTime(timestamp)} (${relativeAge(ts, "verbose")})`,
-    ]);
-  }
-
   return rows;
 }

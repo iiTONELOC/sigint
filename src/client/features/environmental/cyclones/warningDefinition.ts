@@ -1,23 +1,21 @@
 import { Domain } from "@shared/domain/identity";
 import { TriangleAlert } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
-import type { CycloneWarning } from "./data/warnings";
-import { buildWarningDetailRows } from "./data/warningPoint";
+import {
+  STROKED_ICON_PROPS,
+  type FeatureDefinition,
+} from "@/features/base/types";
+import { CycloneFeatureLabel, type CycloneWarningData } from "./types";
+import { buildWarningDetailRows } from "./warningDetailRows";
 
-// Synthetic feature so a clicked watch/warning polygon resolves through the
-// detail pipeline (featureRegistry.get(type) → buildDetailRows). It is NOT a
-// data layer: no Domain.CyclonesWarning points live in allData, so the ticker /
-// filter / count hooks never iterate it. Selection comes from a click hit-test
-// against the polygon geometry (see inputHandlers.ts).
 export const cycloneWarningFeature: FeatureDefinition<
-  CycloneWarning,
+  CycloneWarningData,
   Record<string, never>,
   Domain.CyclonesWarning
 > = {
   id: Domain.CyclonesWarning,
-  label: "TROPICAL ALERT",
+  label: CycloneFeatureLabel.TropicalAlert,
   icon: TriangleAlert,
-  iconProps: { strokeWidth: 2.5 },
+  iconProps: STROKED_ICON_PROPS,
   TickerContent: () => null,
   buildDetailRows: (data) => buildWarningDetailRows(data),
 };

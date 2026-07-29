@@ -1,40 +1,41 @@
-import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import {
-  hasPointShape,
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
 import { AreaKind } from "@/workers/render/protocol";
-import { isRecord, parseGeoJsonPolygonGeometry } from "@shared/geo";
+import {
+  isRecord,
+  parseGeoJsonPolygonGeometry,
+  parseGeoPoint,
+} from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
+import {
+  CYCLONE_WARNING_FIELDS,
+  type CycloneWarningData,
+  type CycloneWarningPoint,
+} from "@/features/environmental/cyclones/types";
 
-export type CycloneWarningPoint = Extract<
-  DataPoint,
-  { type: Domain.CyclonesWarning }
->;
-
-const WARNING_TEXT_KEYS = [
-  "id",
-  "event",
-  "headline",
-  "areaDesc",
-  "effective",
-  "expires",
-] as const;
-
-function isWarningData(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  if (!isEnumValue(value.kind, AreaKind)) return false;
-  if (!parseGeoJsonPolygonGeometry(value.geometry)) return false;
-  return WARNING_TEXT_KEYS.every((key) => isOptionalString(value[key]));
+function isWarningData(value: unknown): value is CycloneWarningData {
+  return (
+    isRecord(value) &&
+    isEnumValue(value.kind, AreaKind) &&
+    parseGeoJsonPolygonGeometry(value.geometry) !== null &&
+    CYCLONE_WARNING_FIELDS.every((field) => typeof value[field] === "string")
+  );
 }
 
 export function isCycloneWarningPoint(
   value: unknown,
 ): value is CycloneWarningPoint {
   return (
-    hasPointShape(value, Domain.CyclonesWarning) && isWarningData(value.data)
+    isRecord(value) &&
+    value.type === Domain.CyclonesWarning &&
+    isOptionalString(value.id) &&
+    value.id.length > 0 &&
+    parseGeoPoint(value.position) !== null &&
+    (value.timestamp === undefined || isOptionalString(value.timestamp)) &&
+    isWarningData(value.data)
   );
 }
 

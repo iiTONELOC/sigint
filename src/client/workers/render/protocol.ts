@@ -35,6 +35,13 @@ export enum AreaKind {
   Watch = "watch",
 }
 
+// Ascending urgency, so a rank is the position in the declared order.
+const AREA_KIND_ORDER: readonly AreaKind[] = [AreaKind.Watch, AreaKind.Warning];
+
+export function areaKindRank(kind: AreaKind): number {
+  return AREA_KIND_ORDER.indexOf(kind);
+}
+
 export enum PanelSide {
   Left = "left",
   Right = "right",

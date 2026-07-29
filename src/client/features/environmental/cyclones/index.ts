@@ -1,10 +1,11 @@
 export { cycloneFeature } from "./definition";
 export { cycloneForecastFeature } from "./forecastDefinition";
 export { cycloneWarningFeature } from "./warningDefinition";
-export { warningToDataPoint, WARNING_TYPE } from "./data/warningPoint";
 export type {
   CycloneData,
   CycloneFilter,
+  CycloneWarningData,
+  CycloneWarningPoint,
   ForecastPoint,
-  Category,
 } from "./types";
+export { Category } from "./types";

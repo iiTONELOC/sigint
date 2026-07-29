@@ -5,41 +5,15 @@ import {
   hasPointShape,
   parsePointList,
 } from "@/features/base/pointCodec";
-import type {
+import {
   Category,
-  CycloneData,
+  SaffirSimpson,
+  type CycloneData,
 } from "@/features/environmental/cyclones/types";
 import { isRecord } from "@shared/geo";
+import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
 
 export type CyclonePoint = Extract<DataPoint, { type: Domain.Cyclones }>;
-
-const CATEGORIES: ReadonlySet<string> = new Set<Category>([
-  "TD",
-  "TS",
-  "HU1",
-  "HU2",
-  "HU3",
-  "HU4",
-  "HU5",
-  "STD",
-  "STS",
-  "PT",
-]);
-
-const MAX_SAFFIR_SIMPSON = 5;
-
-function isCategory(value: unknown): value is Category {
-  return typeof value === "string" && CATEGORIES.has(value);
-}
-
-function isSaffirSimpson(value: unknown): value is CycloneData["saffirSimpson"] {
-  return (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= 0 &&
-    value <= MAX_SAFFIR_SIMPSON
-  );
-}
 
 function isOptionalArray(value: unknown): boolean {
   return value === undefined || Array.isArray(value);
@@ -57,8 +31,8 @@ function isCycloneData(value: unknown): value is CycloneData {
     typeof value.stormId === "string" &&
     typeof value.name === "string" &&
     isNhcBasin(value.basin) &&
-    isCategory(value.classification) &&
-    isSaffirSimpson(value.saffirSimpson) &&
+    isEnumValue(value.classification, Category) &&
+    isNumberEnumValue(value.saffirSimpson, SaffirSimpson) &&
     typeof value.maxWindKt === "number" &&
     typeof value.advisoryNumber === "string" &&
     typeof value.lastUpdate === "string" &&

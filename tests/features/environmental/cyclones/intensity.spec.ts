@@ -10,7 +10,12 @@ import {
   RI_THRESHOLD_KT,
   windTrend,
 } from "@/features/environmental/cyclones/data/intensity";
-import type { CycloneData, ForecastPoint } from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  SaffirSimpson,
+  type CycloneData,
+  type ForecastPoint,
+} from "@/features/environmental/cyclones/types";
 
 function fp(fcstHour: number, maxWindKt: number): ForecastPoint {
   return {
@@ -19,7 +24,7 @@ function fp(fcstHour: number, maxWindKt: number): ForecastPoint {
     lat: 0,
     lon: 0,
     maxWindKt,
-    category: "TS",
+    category: Category.TropicalStorm,
     errorRadiusNm: 0,
   };
 }
@@ -29,8 +34,8 @@ function storm(maxWindKt: number, forecast: ForecastPoint[]): CycloneData {
     stormId: "EP012026",
     name: "Amanda",
     basin: CycloneBasin.EasternPacific,
-    classification: "TS",
-    saffirSimpson: 0,
+    classification: Category.TropicalStorm,
+    saffirSimpson: SaffirSimpson.None,
     maxWindKt,
     advisoryNumber: "10",
     lastUpdate: "",

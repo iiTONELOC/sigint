@@ -13,6 +13,12 @@ export type NhcBasin =
   | CycloneBasin.EasternPacific
   | CycloneBasin.CentralPacific;
 
+export const BASIN_LABEL: Readonly<Record<NhcBasin, string>> = {
+  [CycloneBasin.Atlantic]: "Atlantic",
+  [CycloneBasin.EasternPacific]: "East Pacific",
+  [CycloneBasin.CentralPacific]: "Central Pacific",
+};
+
 enum SeasonWindowKind {
   YearRound = "year_round",
   Bounded = "bounded",

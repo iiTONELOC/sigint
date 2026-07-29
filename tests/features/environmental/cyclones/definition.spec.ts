@@ -4,15 +4,25 @@ import { type PointType } from "@shared/domain/pointType";
 import { CycloneBasin } from "@shared/cyclonesSeason";
 import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
 import { cycloneFeature } from "@/features/environmental/cyclones/definition";
-import type { CycloneData, CycloneFilter } from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  HURRICANE_CATEGORY,
+  SaffirSimpson,
+  type CycloneData,
+  type CycloneFilter,
+} from "@/features/environmental/cyclones/types";
 import type { BasePoint } from "@/features/base/types";
 
 // ── Sample storm helper ────────────────────────────────────────────
 
 function makeStorm(
-  saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5,
+  saffirSimpson: SaffirSimpson,
   maxWindKt = 100,
 ): BasePoint & { type: Domain.Cyclones; data: CycloneData } {
+  const classification =
+    saffirSimpson === SaffirSimpson.None
+      ? Category.TropicalStorm
+      : HURRICANE_CATEGORY[saffirSimpson];
   return {
     id: `CYAL05${saffirSimpson}2026`,
     type: Domain.Cyclones,
@@ -21,9 +31,9 @@ function makeStorm(
     timestamp: "2026-09-18T00:00:00Z",
     data: {
       stormId: `AL05${saffirSimpson}2026`,
-      name: `STORM_TEST_${saffirSimpson === 0 ? "TS" : "C" + saffirSimpson}`,
+      name: `STORM_TEST_${classification}`,
       basin: CycloneBasin.Atlantic,
-      classification: saffirSimpson === 0 ? "TS" : (`HU${saffirSimpson}` as CycloneData["classification"]),
+      classification,
       saffirSimpson,
       maxWindKt,
       advisoryNumber: "1",
@@ -163,10 +173,11 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
 
 describe("cycloneFeature.getSearchText", () => {
   test("includes name, stormId, classification, basin", () => {
-    const text = cycloneFeature.getSearchText?.(makeStorm(5).data) ?? "";
-    expect(text).toContain("STORM_TEST_C5");
-    expect(text).toContain("AL05");
-    expect(text).toContain("HU5");
-    expect(text).toContain("AL");
+    const storm = makeStorm(SaffirSimpson.Cat5).data;
+    const text = cycloneFeature.getSearchText?.(storm) ?? "";
+    expect(text).toContain(storm.name);
+    expect(text).toContain(storm.stormId);
+    expect(text).toContain(storm.classification);
+    expect(text).toContain(storm.basin);
   });
 });

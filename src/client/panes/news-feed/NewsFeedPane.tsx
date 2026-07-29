@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Rss, ExternalLink, ArrowLeft, RefreshCw, Filter } from "lucide-react";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
 import { cacheGet, cacheSet } from "@/lib/cache/storageService";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { useData } from "@/context/DataContext";
@@ -145,7 +145,7 @@ export function NewsFeedPane() {
               {selected.source}
             </span>
             <span className="text-sig-dim text-(length:--sig-text-sm)">
-              {relativeAge(selected.publishedAt, "verbose")}
+              {relativeAge(selected.publishedAt, AgeStyle.Verbose)}
             </span>
           </div>
 

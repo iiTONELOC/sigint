@@ -10,6 +10,7 @@ import {
   FIRE_SOURCE_POLICY,
 } from "@/features/environmental/fires/data/source";
 import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
+import { CYCLONE_WARNING_SOURCE_POLICY } from "@/features/environmental/cyclones/warningSource";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import {
@@ -67,10 +68,10 @@ const POINT_SOURCE_POLICIES = {
   },
   [Domain.CycloneWarnings]: {
     pointType: Domain.CyclonesWarning,
-    cacheKey: CACHE_KEYS.cycloneWarnings,
-    pollIntervalMs: POLL_INTERVALS.cycloneWarnings,
-    completeness: SourceCompletenessPolicy.Complete,
-    emptyResultIsComplete: true,
+    cacheKey: CYCLONE_WARNING_SOURCE_POLICY.cacheKey,
+    pollIntervalMs: CYCLONE_WARNING_SOURCE_POLICY.pollIntervalMs,
+    completeness: CYCLONE_WARNING_SOURCE_POLICY.completeness,
+    emptyResultIsComplete: CYCLONE_WARNING_SOURCE_POLICY.emptyResultIsComplete,
   },
   [Domain.Earthquake]: {
     pointType: Domain.Quakes,

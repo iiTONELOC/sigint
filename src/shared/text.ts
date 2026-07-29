@@ -7,6 +7,7 @@ export const SEMICOLON_SEPARATOR = ";";
 
 export const PARAGRAPH_SPLIT = /\n{2,}/;
 export const REPEATED_SPACES = / {2,}/g;
+export const PARENTHETICAL = /\s?\(\w+\)/;
 
 const EM_DASH_CODE_POINT = 0x2014;
 

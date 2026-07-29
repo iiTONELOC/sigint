@@ -13,15 +13,15 @@ import {
   EVENT_SOURCE,
   createEventSourceRuntime,
 } from "@/workers/data/sources/events";
-import { weatherAlertSource } from "@/workers/data/source-model/registry";
+import {
+  cycloneWarningSource,
+  GEO_SOURCES,
+  weatherAlertSource,
+} from "@/workers/data/source-model/registry";
 import {
   CYCLONE_SOURCE,
   createCycloneSourceRuntime,
 } from "@/workers/data/sources/cyclones";
-import {
-  createCycloneWarningSourceRuntime,
-  CYCLONE_WARNING_SOURCE,
-} from "@/workers/data/sources/cycloneWarnings";
 import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   TRAIL_RECORDER_POLICY,
@@ -280,14 +280,15 @@ const cycloneOwner = createCycloneSourceRuntime({
   },
 });
 
-const cycloneWarningOwner = createCycloneWarningSourceRuntime({
-  readCache: () => store.get(CYCLONE_WARNING_SOURCE.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(CYCLONE_WARNING_SOURCE.cacheKey, snapshot);
+const cycloneWarningOwner = cycloneWarningSource;
+cycloneWarningOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, value) => {
+    coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPoints: (points) => {
-    rebasePoints(CYCLONE_WARNING_SOURCE.id, points);
+  publishRecords: (records) => {
+    rebasePoints(Domain.CycloneWarnings, records);
   },
 });
 
@@ -389,8 +390,8 @@ function handleConnectRender(command: CommandOf<"connectRender">): void {
   aircraftOwner.publishRebase();
   shipOwner.publishRebase();
   eventOwner.publishRebase();
-  weatherOwner.publishRebase();
   cycloneOwner.publishRebase();
+  for (const source of GEO_SOURCES) source.publishRebase();
   rebaseEarthquakeRender(earthquakeOwner.values());
   rebaseFireRender(fireOwner.values());
   complete(command.requestId);

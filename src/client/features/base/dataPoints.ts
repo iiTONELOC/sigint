@@ -9,8 +9,8 @@ import type { WeatherPoint } from "@/features/environmental/weather/types";
 import type {
   CycloneData,
   CycloneForecastPointData,
+  CycloneWarningPoint,
 } from "@/features/environmental/cyclones/types";
-import type { CycloneWarning } from "@/features/environmental/cyclones/data/warnings";
 
 // ── DataPoint union ──────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export type DataPoint =
       data: CycloneForecastPointData;
     })
   | (BasePoint & { type: Domain.Cyclones; data: CycloneData })
-  | (BasePoint & { type: Domain.CyclonesWarning; data: CycloneWarning });
+  | CycloneWarningPoint;
 
 export type DataType = DataPoint["type"];
 

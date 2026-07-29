@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatKmMi } from "@/lib/format/units";
 import { mmiBand, isShallow } from "../intensity";
@@ -30,7 +30,9 @@ export function QuakeIdentityCard({
   readonly status?: string;
 }) {
   const band = mmiBand(mmi);
-  const age = timestamp ? relativeAge(new Date(timestamp).getTime(), "verbose") : null;
+  const age = timestamp
+    ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
+    : null;
 
   return (
     <div

@@ -1,15 +1,19 @@
 import { describe, test, expect } from "bun:test";
 import { CycloneBasin } from "@shared/cyclonesSeason";
 import { buildCycloneDetailRows } from "@/features/environmental/cyclones/detailRows";
-import type { CycloneData } from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  SaffirSimpson,
+  type CycloneData,
+} from "@/features/environmental/cyclones/types";
 
 function makeData(overrides: Partial<CycloneData> = {}): CycloneData {
   return {
     stormId: "AL052026",
     name: "STORM_TEST_C5",
     basin: CycloneBasin.Atlantic,
-    classification: "HU5",
-    saffirSimpson: 5,
+    classification: Category.Hurricane5,
+    saffirSimpson: SaffirSimpson.Cat5,
     maxWindKt: 145,
     minPressureMb: 918,
     movementDir: 290,
@@ -81,7 +85,10 @@ describe("buildCycloneDetailRows", () => {
 
   test("omits category for sub-HU storms (saffirSimpson 0)", () => {
     const rows = buildCycloneDetailRows(
-      makeData({ saffirSimpson: 0, classification: "TS" }),
+      makeData({
+        saffirSimpson: SaffirSimpson.None,
+        classification: Category.TropicalStorm,
+      }),
     );
     const category = rows.find((r) =>
       r[0].toLowerCase().includes("category"),

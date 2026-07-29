@@ -4,13 +4,27 @@ import {
   STROKED_ICON_PROPS,
   type FeatureDefinition,
 } from "@/features/base/types";
-import { formatKtMph, nmToKm } from "@/lib/format/units";
+import {
+  formatKtMph,
+  formatNmKm,
+  formatPressureMb,
+} from "@/lib/format/units";
 import {
   CycloneFeatureLabel,
-  ForecastRowLabel,
+  CycloneRowLabel,
   type CycloneForecastPointData,
 } from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
+import { BLANK_SEPARATOR } from "@shared/text";
+
+const SEARCH_SUFFIX = "forecast";
+const LEAD_TIME_PREFIX = "+";
+const HOUR_SUFFIX = "h";
+
+/** Lead time as the dossier writes it: `+24h`. */
+export function leadTime(fcstHour: number): string {
+  return `${LEAD_TIME_PREFIX}${fcstHour}${HOUR_SUFFIX}`;
+}
 
 // Feature entry for the synthetic Domain.CyclonesForecast points. Needed so
 // featureRegistry.get(type) resolves for the hit-test/detail pipeline.
@@ -28,24 +42,22 @@ export const cycloneForecastFeature: FeatureDefinition<
   TickerContent: CycloneForecastTickerContent,
 
   buildDetailRows: (data: CycloneForecastPointData) => {
-    const pressureRow: [string, string][] =
+    const pressureRow: [CycloneRowLabel, string][] =
       data.minPressureMb == null
         ? []
-        : [[ForecastRowLabel.Pressure, `${data.minPressureMb} mb`]];
-    return [
-      [ForecastRowLabel.Storm, data.parentName],
-      [ForecastRowLabel.Basin, data.parentBasin],
-      [ForecastRowLabel.Forecast, `+${data.fcstHour}h`],
-      [ForecastRowLabel.Winds, formatKtMph(data.maxWindKt)],
+        : [[CycloneRowLabel.Pressure, formatPressureMb(data.minPressureMb)]];
+    const rows: [CycloneRowLabel, string][] = [
+      [CycloneRowLabel.Storm, data.parentName],
+      [CycloneRowLabel.Basin, data.parentBasin],
+      [CycloneRowLabel.Forecast, leadTime(data.fcstHour)],
+      [CycloneRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,
-      [ForecastRowLabel.Class, data.category],
-      [
-        ForecastRowLabel.TrackError,
-        `${data.errorRadiusNm} nm (${nmToKm(data.errorRadiusNm)} km)`,
-      ],
+      [CycloneRowLabel.Class, data.category],
+      [CycloneRowLabel.TrackError, formatNmKm(data.errorRadiusNm)],
     ];
+    return rows.map(([label, value]) => [label.toUpperCase(), value]);
   },
 
   getSearchText: (data: CycloneForecastPointData) =>
-    `${data.parentName} +${data.fcstHour}h forecast`,
+    `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}${BLANK_SEPARATOR}${SEARCH_SUFFIX}`,
 };

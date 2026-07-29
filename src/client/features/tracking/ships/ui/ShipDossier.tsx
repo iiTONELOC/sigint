@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatKtMph } from "@/lib/format/units";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
 import { getTrail } from "@/lib/geo/trailService";
 import {
   recordLatitude,
@@ -37,7 +37,9 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
   const drift = setDrift(heading, cog);
   const closeBtnRef = useDossierFocus(item.id);
   const typeLine = [vesselType && vesselType !== "Unknown" ? vesselType : null, country].filter(Boolean).join(" · ");
-  const age = item.timestamp ? relativeAge(new Date(item.timestamp).getTime(), "verbose") : null;
+  const age = item.timestamp
+    ? relativeAge(new Date(item.timestamp).getTime(), AgeStyle.Verbose)
+    : null;
   const driftTxt = drift == null ? "—" : Math.abs(drift) < 1 ? "none" : `${Math.abs(Math.round(drift))}° ${drift > 0 ? "stbd" : "port"}`;
   const headingTxt = heading != null && heading !== 511 ? `${Math.round(heading)}°` : "—";
   const trail = getTrail(item.id).map((p) => ({ lat: p.lat, lon: p.lon }));
