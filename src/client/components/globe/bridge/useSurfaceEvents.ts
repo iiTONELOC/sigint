@@ -45,19 +45,13 @@ export function useSurfaceEvents({
         }
         const source = sourceForPointType(interaction.pointType);
         const dataClient = getDataWorkerClient();
-        if (!source || !dataClient) {
-          current.onSelect(null);
-          return;
-        }
+        if (!source || !dataClient) return;
         void dataClient.getSourceEntity(source, interaction.id).then(
           (response) => {
             if (request !== selectionRequest.current) return;
             propsRef.current.onSelect(response.value ?? null);
           },
-          () => {
-            if (request !== selectionRequest.current) return;
-            propsRef.current.onSelect(null);
-          },
+          (error_: unknown) => undefined,
         );
         return;
       }

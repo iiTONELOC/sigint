@@ -26,7 +26,7 @@ function countQuery(
  * How many points of each type survive that type's filter, counted in the
  * DataWorker. Keyed by point type, because that is what the layer chips and
  * the header read. A source with no filter set counts zero, which is the
- * behaviour the single-array walk had.
+ * behavior the single-array walk had.
  */
 export function useSourceCounts(
   filters: Readonly<Record<string, unknown>>,

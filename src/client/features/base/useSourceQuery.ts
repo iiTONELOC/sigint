@@ -48,8 +48,9 @@ export function useSourceSnapshot(
 
 /**
  * A bounded page of one source, recomputed in the worker whenever the query
- * or the source version changes. Null while a result is in flight or stale,
- * so callers never render a page that belongs to a different version.
+ * or the source version changes. The last page for the current query keeps
+ * being served while a newer one is in flight, so a poll or a slow worker
+ * never blanks a count the UI already has.
  */
 export function useSourceQuery<TId extends QueryableSourceId>(
   source: TId,
@@ -76,13 +77,12 @@ export function useSourceQuery<TId extends QueryableSourceId>(
           setState({ key: queryKey, sourceVersion: response.sourceVersion, result });
         }
       })
-      .catch(() => undefined);
+      .catch((error_: unknown) => undefined);
     return () => {
       cancelled = true;
     };
   }, [client, source, queryKey, snapshot?.version]);
 
   if (!queryKey || state?.key !== queryKey) return null;
-  if (snapshot && state.sourceVersion !== snapshot.version) return null;
   return state.result;
 }

@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -68,47 +70,74 @@ describe("relativeAge", () => {
 // ── sourceHealth ────────────────────────────────────────────────────
 
 describe("sourceHealth", () => {
-  let isSourceDown: typeof import("@/lib/net/sourceHealth").isSourceDown;
+  let isSourceDown: typeof import("@shared/domain/sourceStatus").isSourceDown;
+  let isSourceDelivering: typeof import("@shared/domain/sourceStatus").isSourceDelivering;
   let buildSourceStatusMap: typeof import("@/lib/net/sourceHealth").buildSourceStatusMap;
 
   beforeEach(async () => {
-    const mod = await import("@/lib/net/sourceHealth");
-    isSourceDown = mod.isSourceDown;
-    buildSourceStatusMap = mod.buildSourceStatusMap;
+    const statusModule = await import("@shared/domain/sourceStatus");
+    isSourceDown = statusModule.isSourceDown;
+    isSourceDelivering = statusModule.isSourceDelivering;
+    const healthModule = await import("@/lib/net/sourceHealth");
+    buildSourceStatusMap = healthModule.buildSourceStatusMap;
   });
 
-  test("error with 0 count is down", () => {
-    expect(isSourceDown("error", 0)).toBe(true);
+  test("error is down", () => {
+    expect(isSourceDown(SourceStatus.Error)).toBe(true);
   });
 
-  test("unavailable with 0 count is down", () => {
-    expect(isSourceDown("unavailable", 0)).toBe(true);
+  test("unavailable is down", () => {
+    expect(isSourceDown(SourceStatus.Unavailable)).toBe(true);
   });
 
-  test("error with data is NOT down", () => {
-    expect(isSourceDown("error", 5)).toBe(false);
+  test("cached is NOT down, which is how a failed refresh over retained data reads", () => {
+    expect(isSourceDown(SourceStatus.Cached)).toBe(false);
   });
 
   test("empty is NOT down", () => {
-    expect(isSourceDown("empty", 0)).toBe(false);
+    expect(isSourceDown(SourceStatus.Empty)).toBe(false);
   });
 
   test("live is NOT down", () => {
-    expect(isSourceDown("live", 100)).toBe(false);
+    expect(isSourceDown(SourceStatus.Live)).toBe(false);
+  });
+
+  test("loading is NOT down", () => {
+    expect(isSourceDown(SourceStatus.Loading)).toBe(false);
   });
 
   test("undefined status is NOT down", () => {
-    expect(isSourceDown(undefined, 0)).toBe(false);
+    expect(isSourceDown(undefined)).toBe(false);
   });
 
-  test("buildSourceStatusMap creates lookup", () => {
+  test("down never depends on a count the UI failed to fetch", () => {
+    // The regression: a query timeout left the count at 0 and the chip read
+    // offline while the source was live.
+    expect(isSourceDown(SourceStatus.Live)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Live)).toBe(true);
+  });
+
+  test("live and cached are delivering, nothing else is", () => {
+    expect(isSourceDelivering(SourceStatus.Live)).toBe(true);
+    expect(isSourceDelivering(SourceStatus.Cached)).toBe(true);
+    expect(isSourceDelivering(SourceStatus.Empty)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Loading)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Error)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Unavailable)).toBe(false);
+  });
+
+  test("buildSourceStatusMap keeps the reason a down source published", () => {
     const map = buildSourceStatusMap([
-      { id: "aircraft", label: "AIRCRAFT", status: "live" },
-      { id: "ships", label: "SHIPS", status: "cached" },
+      { id: Domain.Aircraft, status: SourceStatus.Live, error: null },
+      {
+        id: Domain.Ships,
+        status: SourceStatus.Error,
+        error: "Duplicate dataset id: S1",
+      },
     ]);
-    expect(map.get("aircraft")).toBe("live");
-    expect(map.get("ships")).toBe("cached");
-    expect(map.get("fires")).toBeUndefined();
+    expect(map.get(Domain.Aircraft)?.status).toBe(SourceStatus.Live);
+    expect(map.get(Domain.Ships)?.error).toBe("Duplicate dataset id: S1");
+    expect(map.get(Domain.Fires)).toBeUndefined();
   });
 });
 

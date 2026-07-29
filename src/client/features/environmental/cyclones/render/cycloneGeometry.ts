@@ -29,7 +29,7 @@ export function windRadiiBandColor(thresholdKt: number): string {
   return WIND_RADII_BANDS.find((b) => b.kt === thresholdKt)?.color ?? "#4ad2ff";
 }
 
-// Quadrant centre bearings (compass deg, 0=N clockwise): NE, SE, SW, NW.
+// Quadrant center bearings (compass deg, 0=N clockwise): NE, SE, SW, NW.
 const WR_QUAD_CENTER = [45, 135, 225, 315];
 const WR_STEPS = 64;
 

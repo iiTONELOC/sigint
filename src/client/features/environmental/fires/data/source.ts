@@ -24,6 +24,19 @@ export type FireSourcePolicy = Readonly<{
 
 const MINUTE_MS = 60_000;
 
+const INVALID_FIRE_FEED_MESSAGE = "Invalid fires response format";
+const FIRE_API_ERROR_MESSAGE = "The fires endpoint rejected the request";
+
+export type FireFetchError = Error & Readonly<{ httpStatus: number }>;
+
+export function isFireFetchError(value: unknown): value is FireFetchError {
+  return value instanceof Error && typeof (value as FireFetchError).httpStatus === "number";
+}
+
+export function fireFetchError(httpStatus: number): FireFetchError {
+  return Object.assign(new Error(FIRE_API_ERROR_MESSAGE), { httpStatus });
+}
+
 export const FIRE_SOURCE_POLICY: FireSourcePolicy = {
   id: Domain.Fire,
   cacheKey: CACHE_KEYS.fires,
@@ -164,14 +177,14 @@ function parseServerFire(value: unknown): FirePoint | null {
 
 export function parseFireFeed(value: unknown): FirePoint[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
-    throw new Error("Invalid fires response format");
+    throw new Error(INVALID_FIRE_FEED_MESSAGE);
   }
-  const points: FirePoint[] = [];
+  const byIdentity = new Map<string, FirePoint>();
   for (const candidate of value.data) {
     const point = parseServerFire(candidate);
-    if (point) points.push(point);
+    if (point) byIdentity.set(point.id, point);
   }
-  return points;
+  return [...byIdentity.values()];
 }
 
 export async function fetchFires(): Promise<FirePoint[]> {
@@ -185,7 +198,7 @@ export async function fetchFires(): Promise<FirePoint[]> {
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`Fires API error: ${response.status}`);
+      throw fireFetchError(response.status);
     }
     const payload: unknown = await response.json();
     return parseFireFeed(payload);

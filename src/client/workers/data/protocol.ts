@@ -1,4 +1,5 @@
 import { isRecord } from "@shared/geo";
+import { isSourceStatus, SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
 import {
   parseTrailEntry,
@@ -50,18 +51,10 @@ type QuerySourceCommandBody = {
   }>;
 }[QueryableSourceId];
 
-export type DataWorkerSourceStatus =
-  | "loading"
-  | "live"
-  | "cached"
-  | "error"
-  | "empty"
-  | "unavailable";
-
 export type DataWorkerSourceSnapshot = Readonly<{
   source: DataWorkerPointSource;
   version: number;
-  status: DataWorkerSourceStatus;
+  status: SourceStatus;
   loading: boolean;
   count: number;
   lastUpdatedAt: number | null;
@@ -175,17 +168,6 @@ function isMessagePort(value: unknown): value is MessagePort {
     typeof value.postMessage === "function" &&
     typeof value.start === "function" &&
     typeof value.close === "function"
-  );
-}
-
-function isSourceStatus(value: unknown): value is DataWorkerSourceStatus {
-  return (
-    value === "loading" ||
-    value === "live" ||
-    value === "cached" ||
-    value === "error" ||
-    value === "empty" ||
-    value === "unavailable"
   );
 }
 

@@ -1,4 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -171,7 +173,9 @@ describe("Header", () => {
         },
         toggleLayer: () => {},
         counts: { aircraft: 10, ships: 5 },
-        dataSources: [{ id: "aircraft", label: "AIRCRAFT", status: "live" }],
+        dataSources: [
+          { id: Domain.Aircraft, status: SourceStatus.Live, error: null },
+        ],
         aircraftFilter: {
           enabled: true,
           showAirborne: true,

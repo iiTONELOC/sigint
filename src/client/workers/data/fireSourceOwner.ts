@@ -1,7 +1,9 @@
 import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import {
   FIRE_SOURCE_POLICY,
   fetchFires,
+  isFireFetchError,
   parseFirePoint,
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
@@ -11,7 +13,7 @@ import {
   type PackedPointSourceOptions,
 } from "@/workers/data/packedPointSource";
 
-const UNAVAILABLE_UPSTREAM_STATUS = "503";
+export const SERVICE_UNAVAILABLE_STATUS = 503;
 
 export type FireSourceOwnerOptions = Omit<
   PackedPointSourceOptions<FirePoint>,
@@ -36,10 +38,10 @@ export function createFireSourceOwner(
       parseEntity: parseFirePoint,
       fetchPoints: options.fetchPoints ?? fetchFires,
       failureStatus: (error) =>
-        error instanceof Error &&
-        error.message.includes(UNAVAILABLE_UPSTREAM_STATUS)
-          ? "unavailable"
-          : "error",
+        isFireFetchError(error) &&
+        error.httpStatus === SERVICE_UNAVAILABLE_STATUS
+          ? SourceStatus.Unavailable
+          : SourceStatus.Error,
     },
   );
 }

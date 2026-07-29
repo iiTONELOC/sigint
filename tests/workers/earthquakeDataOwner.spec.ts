@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import {
@@ -115,7 +116,7 @@ describe("earthquake worker dataset", () => {
     expect(rebases[0]).toEqual([cached]);
     expect(owner.values()).toEqual([live]);
     expect(owner.get("Qlive")).toEqual(live);
-    expect(snapshots.at(-1)?.status).toBe("live");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Live);
 
     currentTime += EARTHQUAKE_SOURCE_POLICY.pollIntervalMs;
     await owner.refresh();
@@ -123,7 +124,7 @@ describe("earthquake worker dataset", () => {
     expect(owner.values()).toEqual([]);
     expect(owner.get("Qlive")).toBeNull();
     expect(rebases.at(-1)).toEqual([]);
-    expect(snapshots.at(-1)?.status).toBe("empty");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Empty);
     expect(persisted.at(-1)?.entities).toEqual([]);
   });
 });
@@ -149,6 +150,6 @@ test("retains an old cached snapshot when refresh is unavailable", async () => {
 
   expect(owner.values()).toEqual([cached]);
   expect(rebases.at(-1)).toEqual([cached]);
-  expect(snapshots.at(-1)?.status).toBe("cached");
+  expect(snapshots.at(-1)?.status).toBe(SourceStatus.Cached);
   expect(snapshots.at(-1)?.error).toBe("offline");
 });

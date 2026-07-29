@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import {
   FIRE_SOURCE_POLICY,
+  fireFetchError,
   parseFireFeed,
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
 import { packFireRenderData } from "@/workers/data/fireRenderData";
-import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
+import {
+  createFireSourceOwner,
+  SERVICE_UNAVAILABLE_STATUS,
+} from "@/workers/data/fireSourceOwner";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import type { PointSourceCacheSnapshot } from "@/workers/data/sourceRuntime";
 
@@ -52,6 +57,31 @@ describe("fire worker dataset", () => {
 
     expect(points).toHaveLength(expectedCount);
     expect(points.at(-1)?.data.frp).toBe(expectedCount - 1);
+  });
+
+  test("a repeated FIRMS row collapses instead of discarding the whole feed", () => {
+    // The regression: FIRMS bulk files repeat rows at swath overlaps. Two rows
+    // agreeing on satellite, acquisition minute and rounded coordinate mint the
+    // same identity, the dataset store rejected the duplicate, and every one of
+    // the 129,729 records was discarded on every retry.
+    const repeated = {
+      lat: -14.4192,
+      lon: 34.9362,
+      acqDate: "2026-07-28",
+      acqTime: "1041",
+      satellite: "N20",
+      confidence: "nominal",
+      frp: 12,
+    };
+    const distinct = { ...repeated, lat: -15.5, frp: 7 };
+
+    const points = parseFireFeed({
+      data: [repeated, { ...repeated, frp: 34 }, distinct],
+    });
+
+    expect(points).toHaveLength(2);
+    expect(new Set(points.map((point) => point.id)).size).toBe(2);
+    expect(points.find((point) => point.lat === repeated.lat)?.data.frp).toBe(34);
   });
 
   test("uses stable source identity and source observation time", () => {
@@ -115,7 +145,7 @@ describe("fire worker dataset", () => {
     expect(rebases[0]).toEqual([cached]);
     expect(owner.values()).toEqual([live]);
     expect(owner.get("FI-live")).toEqual(live);
-    expect(snapshots.at(-1)?.status).toBe("live");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Live);
 
     currentTime += FIRE_SOURCE_POLICY.pollIntervalMs;
     await owner.refresh();
@@ -123,7 +153,7 @@ describe("fire worker dataset", () => {
     expect(owner.values()).toEqual([]);
     expect(owner.get("FI-live")).toBeNull();
     expect(rebases.at(-1)).toEqual([]);
-    expect(snapshots.at(-1)?.status).toBe("empty");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Empty);
     expect(persisted.at(-1)?.entities).toEqual([]);
   });
 
@@ -134,7 +164,7 @@ describe("fire worker dataset", () => {
       readCache: async () => ({ timestamp: 1_000, data: [cached] }),
       persistCache: () => undefined,
       fetchPoints: async () => {
-        throw new Error("Fires API error: 503");
+        throw fireFetchError(SERVICE_UNAVAILABLE_STATUS);
       },
       publishStatus: (snapshot) => snapshots.push(snapshot),
       publishRebase: () => undefined,
@@ -146,7 +176,7 @@ describe("fire worker dataset", () => {
     await owner.start();
 
     expect(owner.values()).toEqual([cached]);
-    expect(snapshots.at(-1)?.status).toBe("cached");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Cached);
   });
 
   test("reports unavailable on a cold 503 response", async () => {
@@ -155,7 +185,7 @@ describe("fire worker dataset", () => {
       readCache: async () => null,
       persistCache: () => undefined,
       fetchPoints: async () => {
-        throw new Error("Fires API error: 503");
+        throw fireFetchError(SERVICE_UNAVAILABLE_STATUS);
       },
       publishStatus: (snapshot) => snapshots.push(snapshot),
       publishRebase: () => undefined,
@@ -166,6 +196,6 @@ describe("fire worker dataset", () => {
     await owner.start();
 
     expect(owner.values()).toEqual([]);
-    expect(snapshots.at(-1)?.status).toBe("unavailable");
+    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Unavailable);
   });
 });

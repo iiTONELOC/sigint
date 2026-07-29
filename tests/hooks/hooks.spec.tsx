@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import { renderHook } from "../hookHelper";
 
 // ── useNewsData ─────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ describe("useNewsData", () => {
 
     await waitFor(() => result.current.loading === false);
     expect(result.current.data.length).toBeGreaterThan(0);
-    expect(result.current.dataSource).toBe("live");
+    expect(result.current.dataSource).toBe(SourceStatus.Live);
   });
 });
 

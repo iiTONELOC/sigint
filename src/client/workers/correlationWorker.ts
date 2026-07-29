@@ -60,7 +60,7 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
 function allPoints(): DataPoint[] {
   const points: DataPoint[] = [];
   for (const sourcePoints of pointsBySource.values()) {
-    points.push(...sourcePoints);
+    for (const point of sourcePoints) points.push(point);
   }
   return points;
 }

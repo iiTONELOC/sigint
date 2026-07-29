@@ -107,6 +107,8 @@ export type DataWorkerClient = Readonly<{
   terminate: () => void;
 }>;
 
+const POST_MESSAGE_FAILED_MESSAGE = "DataWorker postMessage failed";
+
 function unexpectedEvent(expected: string): Error {
   return new Error(`DataWorker did not return ${expected}`);
 }
@@ -197,7 +199,7 @@ export function createDataWorkerClient(
         reject(
           error instanceof Error
             ? error
-            : new Error("DataWorker postMessage failed"),
+            : new Error(POST_MESSAGE_FAILED_MESSAGE),
         );
         cancelTimeout();
       }
@@ -340,7 +342,13 @@ export function createDataWorkerClient(
           ),
           [],
         );
-      } catch {}
+      } catch (error: unknown) {
+        rejectAll(
+          error instanceof Error
+            ? error
+            : new Error(POST_MESSAGE_FAILED_MESSAGE),
+        );
+      }
     },
 
     delete(key: string): Promise<void> {

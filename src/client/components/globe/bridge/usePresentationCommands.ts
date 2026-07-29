@@ -1,7 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
-import { getTrail, getTrackMotion } from "@/lib/geo/trailService";
-import { getSelectedRoute } from "@/lib/runtime/layoutSignals";
+import {
+  getTrail,
+  getTrackMotion,
+  subscribeWatchedTrail,
+  watchedTrailRevision,
+} from "@/lib/geo/trailService";
+import {
+  getSelectedRoute,
+  selectedRouteRevision,
+  subscribeSelectedRoute,
+} from "@/lib/runtime/layoutSignals";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import type { SelectedRenderItem } from "@/workers/render/protocol";
 
@@ -34,6 +43,17 @@ export function usePresentationCommands({
     zoomToId,
     revealId,
   } = props;
+
+  const trailRevision = useSyncExternalStore(
+    subscribeWatchedTrail,
+    watchedTrailRevision,
+    watchedTrailRevision,
+  );
+  const routeRevision = useSyncExternalStore(
+    subscribeSelectedRoute,
+    selectedRouteRevision,
+    selectedRouteRevision,
+  );
 
   useEffect(() => {
     if (!host) return;
@@ -99,6 +119,8 @@ export function usePresentationCommands({
     rotationSpeed,
     searchMatchIds,
     selected,
+    trailRevision,
+    routeRevision,
   ]);
 
   useEffect(() => {

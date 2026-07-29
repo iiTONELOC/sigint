@@ -635,11 +635,11 @@ let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
 let _selectedProjectionDepth = -1;
 
-// Tropical watch/warning polygons + their fill colours, set by the "warnings"
+// Tropical watch/warning polygons + their fill colors, set by the "warnings"
 // message and drawn each frame under the showWarnings toggle.
 let _warnings: WarningFeature[] | null = null;
 
-// NWS weather-alert polygons + severity fill colours, set by the "wxAlerts"
+// NWS weather-alert polygons + severity fill colors, set by the "wxAlerts"
 // message and drawn each frame under the weather layer toggle. Defaults are the
 // weather violet/magenta palette so an unset frame never flashes off-palette.
 let _wxAlerts: WarningFeature[] | null = null;

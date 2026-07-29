@@ -1,10 +1,8 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 import type { DatasetEntity } from "@/workers/data/datasetStore";
-import type {
-  DataWorkerSourceSnapshot,
-  DataWorkerSourceStatus,
-} from "@/workers/data/protocol";
+import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
+import type { SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
 import {
   createPointSourceRuntime,
@@ -29,7 +27,7 @@ export type PackedPointSourceOptions<TEntity extends DatasetEntity> = Readonly<{
   ) => Promise<void> | void;
   publishStatus: (snapshot: DataWorkerSourceSnapshot) => void;
   publishRebase: (entities: readonly TEntity[]) => void;
-  failureStatus?: (error: unknown) => DataWorkerSourceStatus;
+  failureStatus?: (error: unknown) => SourceStatus;
   now?: () => number;
   schedule?: PointSourceSchedule;
 }>;

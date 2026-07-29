@@ -57,7 +57,7 @@ export function CycloneForecastMiniMap({
   const [zoom, setZoom] = useState(1);
   const colors = theme.colors;
 
-  // Frame the whole track (past + forecast) so it fits, recentred on its midpoint.
+  // Frame the whole track (past + forecast) so it fits, recentered on its midpoint.
   const all = [
     ...(pastTrack ?? []).map((p) => ({ lat: p.lat, lon: p.lon })),
     { lat: current.lat, lon: current.lon },

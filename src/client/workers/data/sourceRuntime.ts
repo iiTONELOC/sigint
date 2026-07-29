@@ -5,10 +5,8 @@ import {
   type DatasetQuery,
   type DatasetQueryResult,
 } from "@/workers/data/datasetStore";
-import type {
-  DataWorkerSourceSnapshot,
-  DataWorkerSourceStatus,
-} from "@/workers/data/protocol";
+import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
 import { isRecord } from "@shared/geo";
 
@@ -44,7 +42,7 @@ export type PointSourceRuntimeOptions<TEntity extends DatasetEntity> = Readonly<
   fetchSnapshot: () => Promise<PointSourceFetchSnapshot<TEntity>>;
   publishStatus: (status: DataWorkerSourceSnapshot) => void;
   publishPatch: (patch: DatasetPatch<TEntity>) => void;
-  failureStatus?: (error: unknown) => DataWorkerSourceStatus;
+  failureStatus?: (error: unknown) => SourceStatus;
   schedule?: PointSourceSchedule;
 }>;
 
@@ -110,7 +108,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
   let published: DataWorkerSourceSnapshot = {
     source: options.id,
     version: 0,
-    status: "loading",
+    status: SourceStatus.Loading,
     loading: true,
     count: 0,
     lastUpdatedAt: null,
@@ -127,7 +125,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
   };
 
   const publishStatus = (
-    status: DataWorkerSourceStatus,
+    status: SourceStatus,
     loading: boolean,
     error: string | null,
   ): void => {
@@ -160,11 +158,11 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
   const retainAfterFailure = (error: unknown): void => {
     const message = errorMessage(error);
     if (store.size() > 0) {
-      publishStatus("cached", false, message);
+      publishStatus(SourceStatus.Cached, false, message);
       return;
     }
     publishStatus(
-      options.failureStatus?.(error) ?? "error",
+      options.failureStatus?.(error) ?? SourceStatus.Error,
       false,
       message,
     );
@@ -180,7 +178,11 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
         version: store.version(),
         entities: values(),
       });
-      publishStatus(store.size() === 0 ? "empty" : "live", false, null);
+      publishStatus(
+        store.size() === 0 ? SourceStatus.Empty : SourceStatus.Live,
+        false,
+        null,
+      );
       return true;
     } catch (error) {
       retainAfterFailure(error);
@@ -222,7 +224,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
         },
         envelope.version,
       );
-      publishStatus("cached", false, null);
+      publishStatus(SourceStatus.Cached, false, null);
     },
 
     async refresh(): Promise<void> {

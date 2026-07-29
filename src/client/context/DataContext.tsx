@@ -30,7 +30,9 @@ import { useSourceSnapshot } from "@/features/base/useSourceQuery";
 import { useSourceTicker } from "@/features/base/useSourceTicker";
 import { useSourceVersions } from "@/features/base/useSourceVersions";
 import { watchTrail } from "@/lib/geo/trailService";
-import type { SourceStatus } from "@/lib/net/sourceHealth";
+import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
+import { SourceStatus } from "@shared/domain/sourceStatus";
+import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import {
   loadBaseline,
   persistBaseline,
@@ -62,7 +64,7 @@ type DataContextValue = {
   fireCount: number;
   tickerItems: DataPoint[];
   availableCountries: string[];
-  dataSources: SourceStatus[];
+  dataSources: readonly SourceStatusEntry[];
   correlation: CorrelationResult;
   cycloneFilter: CycloneFilter;
   toggleCycloneLayer: (
@@ -74,6 +76,17 @@ type DataContextValue = {
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
+
+function entryFor(
+  id: Domain,
+  snapshot: DataWorkerSourceSnapshot | null,
+): SourceStatusEntry {
+  return {
+    id,
+    status: snapshot?.status ?? SourceStatus.Loading,
+    error: snapshot?.error ?? null,
+  };
+}
 
 /** Collapses a burst of source updates into one correlation request. */
 const CORRELATION_DEBOUNCE_MS = 1_000;
@@ -148,16 +161,16 @@ export function DataProvider({
   const correlationInputVersion = useSourceVersions();
 
   // ── Data source status ─────────────────────────────────────────
-  const dataSources = useMemo<SourceStatus[]>(
+  const dataSources = useMemo<readonly SourceStatusEntry[]>(
     () => [
-      { id: "aircraft", label: "AIRCRAFT", status: aircraftSource?.status ?? "loading" },
-      { id: "quakes", label: "SEISMIC", status: earthquakeSource?.status ?? "loading" },
-      { id: "events", label: "GDELT", status: eventSource?.status ?? "loading" },
-      { id: "ships", label: "SHIPS", status: shipSource?.status ?? "loading" },
-      { id: "fires", label: "FIRMS", status: fireSource?.status ?? "loading" },
-      { id: "weather", label: "NOAA", status: weatherSource?.status ?? "loading" },
-      { id: "cyclones", label: "NHC", status: cycloneSource?.status ?? "loading" },
-      { id: "news", label: "NEWS", status: newsSource },
+      entryFor(Domain.Aircraft, aircraftSource),
+      entryFor(Domain.Quakes, earthquakeSource),
+      entryFor(Domain.Events, eventSource),
+      entryFor(Domain.Ships, shipSource),
+      entryFor(Domain.Fires, fireSource),
+      entryFor(Domain.Weather, weatherSource),
+      entryFor(Domain.Cyclones, cycloneSource),
+      { id: Domain.News, status: newsSource, error: null },
     ],
     [
       aircraftSource?.status,

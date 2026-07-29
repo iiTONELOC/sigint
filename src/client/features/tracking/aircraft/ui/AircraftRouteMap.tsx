@@ -109,7 +109,7 @@ export function AircraftRouteMap({
       const cy = cssH / 2;
       const frameR = Math.min(cssW, cssH) / 2 - PAD;
 
-      // With a flight plan: frame the origin→dest arc. Without one: centre on
+      // With a flight plan: frame the origin→dest arc. Without one: center on
       // the aircraft itself at a fixed close-in zoom so every track still gets
       // a real basemap.
       let ry: number;

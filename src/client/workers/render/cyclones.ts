@@ -106,7 +106,7 @@ export function drawCyclone(
   ctx.arc(x, y, s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Current-position marker: hollow ring + bright centre pip.
+  // Current-position marker: hollow ring + bright center pip.
   ctx.strokeStyle = color;
   ctx.globalAlpha = depthAlpha * 0.95;
   ctx.lineWidth = 1.5;
