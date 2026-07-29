@@ -54,6 +54,24 @@ export type BasePoint = {
 
 // ── Feature rendering contracts ──────────────────────────────────────
 
+export enum IconStrokeWidth {
+  None = 0,
+  Standard = 2.5,
+}
+
+enum IconFill {
+  Current = "currentColor",
+}
+
+export const STROKED_ICON_PROPS = {
+  strokeWidth: IconStrokeWidth.Standard,
+} as const;
+
+export const FILLED_ICON_PROPS = {
+  fill: IconFill.Current,
+  strokeWidth: IconStrokeWidth.None,
+} as const;
+
 export type TickerRendererProps = {
   data: unknown;
   textColor: string;
@@ -74,15 +92,6 @@ export type FeatureDefinition<
 
   /** Icon rendering props — filled icons (aircraft, events) vs stroked */
   iconProps: Record<string, unknown>;
-
-  /** Does this item match the given filter? */
-  matchesFilter: (
-    item: BasePoint & { type: TType; data: TData },
-    filter: TFilter,
-  ) => boolean;
-
-  /** Default filter state */
-  defaultFilter: TFilter;
 
   /** Build detail panel rows from entity data */
   buildDetailRows: (data: TData, timestamp?: string) => [string, string][];

@@ -24,10 +24,10 @@ import type {
 } from "./types";
 import {
   CLUSTER_TIME_WINDOW,
-  HOUR,
   getCountry,
   getTs,
 } from "./shared";
+import { MS_PER_DAY, MS_PER_HOUR } from "@shared/time";
 import { accumulate, avgRate, recentCount } from "./baseline";
 import { clusterByRegion, type Cluster } from "./clusters";
 import {
@@ -57,7 +57,7 @@ export type CorrelationPolicy = Readonly<{
 }>;
 
 export const CORRELATION_POLICY: CorrelationPolicy = {
-  recentWindowMs: 24 * HOUR,
+  recentWindowMs: MS_PER_DAY,
   sourcePreviewLimit: 8,
   alertGroupPreviewLimit: 8,
 };
@@ -174,7 +174,7 @@ function clusterProductsOf(
           Math.floor(remaining.length / CLUSTER_PRIORITY_DIVISOR),
       ),
       title: `${remaining.length} ${label} in ${cluster.country}`,
-      summary: `Clustered activity within ${CLUSTER_TIME_WINDOW / HOUR}h window`,
+      summary: `Clustered activity within ${CLUSTER_TIME_WINDOW / MS_PER_HOUR}h window`,
       region: cluster.country,
       sources: remaining.slice(0, CORRELATION_POLICY.sourcePreviewLimit),
       sourceCount: remaining.length,
@@ -242,8 +242,8 @@ function buildProducts(
 
 // ── Alert scorer ────────────────────────────────────────────
 
-const ALERT_WINDOW_MS = 24 * HOUR;
-const DEDUP_WINDOW_MS = 2 * HOUR;
+const ALERT_WINDOW_MS = MS_PER_DAY;
+const DEDUP_WINDOW_MS = 2 * MS_PER_HOUR;
 const MAX_ALERT_SCORE = 10;
 
 const AIRCRAFT_SCORES = {

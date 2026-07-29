@@ -4,7 +4,7 @@ import {
   MS_PER_MINUTE,
 } from "@shared/time";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
-import type { WeatherPoint } from "../data/codec";
+import type { WeatherPoint } from "../types";
 import { weatherSeverityInk, weatherSeverityLabel } from "../severity";
 import { unwrapNwsText, weatherAreas } from "../text";
 

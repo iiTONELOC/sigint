@@ -4,6 +4,7 @@ import {
   type ShipSceneFilter,
 } from "@/workers/render/scene/shipLayer";
 import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
+import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 
 const view = {
@@ -39,7 +40,7 @@ describe("ship scene layer", () => {
     expect(
       shipSceneIncludes(view, 0, {
         ...base,
-        isolateMode: "focus",
+        isolateMode: IsolateMode.Focus,
         isolatedType: "weather",
       }),
     ).toBe(false);

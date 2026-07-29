@@ -13,10 +13,7 @@ import {
   EVENT_SOURCE,
   createEventSourceRuntime,
 } from "@/workers/data/sources/events";
-import {
-  WEATHER_SOURCE,
-  createWeatherSourceRuntime,
-} from "@/workers/data/sources/weather";
+import { weatherAlertSource } from "@/workers/data/source-model/registry";
 import {
   CYCLONE_SOURCE,
   createCycloneSourceRuntime,
@@ -260,14 +257,15 @@ function rebasePoints(
   postRenderData({ type: "pointsRebase", source, points });
 }
 
-const weatherOwner = createWeatherSourceRuntime({
-  readCache: () => store.get(WEATHER_SOURCE.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(WEATHER_SOURCE.cacheKey, snapshot);
+const weatherOwner = weatherAlertSource;
+weatherOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, value) => {
+    coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPoints: (points) => {
-    rebasePoints(WEATHER_SOURCE.id, points);
+  publishRecords: (records) => {
+    rebasePoints(Domain.Weather, records);
   },
 });
 

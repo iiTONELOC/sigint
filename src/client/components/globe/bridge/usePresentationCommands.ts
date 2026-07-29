@@ -12,6 +12,10 @@ import {
   subscribeSelectedRoute,
 } from "@/lib/runtime/layoutSignals";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import type { SelectedRenderItem } from "@/workers/render/protocol";
 
 type PresentationCommandOptions = Readonly<{
@@ -62,8 +66,8 @@ export function usePresentationCommands({
       ? {
           id: selected.id,
           type: selected.type,
-          lat: selected.lat,
-          lon: selected.lon,
+          lat: recordLatitude(selected),
+          lon: recordLongitude(selected),
           trail: getTrail(selected.id),
           route: getSelectedRoute(selected.id),
           motion: getTrackMotion(selected.id),
@@ -131,8 +135,8 @@ export function usePresentationCommands({
       type: "focus",
       payload: {
         id: item.id,
-        latitude: item.lat,
-        longitude: item.lon,
+        latitude: recordLatitude(item),
+        longitude: recordLongitude(item),
         kind: "focus",
       },
     });
@@ -146,8 +150,8 @@ export function usePresentationCommands({
       type: "focus",
       payload: {
         id: item.id,
-        latitude: item.lat,
-        longitude: item.lon,
+        latitude: recordLatitude(item),
+        longitude: recordLongitude(item),
         kind: "reveal",
       },
     });

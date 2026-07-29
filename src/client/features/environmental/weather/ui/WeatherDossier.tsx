@@ -7,7 +7,7 @@ import {
   Row,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
-import type { WeatherPoint } from "../data/codec";
+import type { WeatherPoint } from "../types";
 import { weatherSeverityInk } from "../severity";
 import { unwrapNwsText, weatherAreas } from "../text";
 import { WeatherPlacard } from "./WeatherPlacard";

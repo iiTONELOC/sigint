@@ -1,9 +1,7 @@
-import {
-  isWeatherPoint,
-  type WeatherPoint,
-} from "@/features/environmental/weather/data/codec";
+import { isWeatherPoint } from "@/features/environmental/weather/data/codec";
 import { weatherSeverityRank } from "@/features/environmental/weather/severity";
 import type {
+  WeatherPoint,
   WeatherData,
   WeatherFilter,
 } from "@/features/environmental/weather/types";

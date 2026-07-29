@@ -9,6 +9,7 @@ import {
 import {
   FIRE_SOURCE_POLICY,
 } from "@/features/environmental/fires/data/source";
+import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import {
@@ -52,10 +53,10 @@ const POINT_SOURCE_POLICIES = {
   },
   [Domain.Weather]: {
     pointType: Domain.Weather,
-    cacheKey: CACHE_KEYS.weather,
-    pollIntervalMs: POLL_INTERVALS.weather,
-    completeness: SourceCompletenessPolicy.Complete,
-    emptyResultIsComplete: true,
+    cacheKey: WEATHER_SOURCE_POLICY.cacheKey,
+    pollIntervalMs: WEATHER_SOURCE_POLICY.pollIntervalMs,
+    completeness: WEATHER_SOURCE_POLICY.completeness,
+    emptyResultIsComplete: WEATHER_SOURCE_POLICY.emptyResultIsComplete,
   },
   [Domain.Cyclones]: {
     pointType: Domain.Cyclones,

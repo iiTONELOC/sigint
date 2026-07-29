@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { RenderAircraftFilter } from "@/workers/render/protocol";
+import {
+  IsolateMode,
+  type RenderAircraftFilter,
+} from "@/workers/render/protocol";
 import {
   aircraftSceneIncludes,
   type AircraftSceneFilter,
@@ -135,7 +138,7 @@ describe("aircraft scene layer", () => {
         view,
         1,
         settings({
-          isolateMode: "solo",
+          isolateMode: IsolateMode.Solo,
           isolatedId: "mil-ground",
         }),
       ),
@@ -145,7 +148,7 @@ describe("aircraft scene layer", () => {
         view,
         1,
         settings({
-          isolateMode: "focus",
+          isolateMode: IsolateMode.Focus,
           isolatedType: "weather",
         }),
       ),

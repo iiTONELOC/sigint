@@ -1,6 +1,9 @@
-import { type PointType } from "@shared/domain/pointType";
 import { Domain } from "@shared/domain/identity";
-import { SourcePhase, SourceFreshness, SourceCompleteness, type SourceId } from "@shared/source";
+import { SourcePhase, SourceFreshness, SourceCompleteness } from "@shared/source";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   parseAdsbResponse,
@@ -162,8 +165,8 @@ describe("parseAdsbResponse", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("Aabe7c5");
     expect(result[0]!.type).toBe(Domain.Aircraft);
-    expect(result[0]!.lat).toBeCloseTo(40.476334, 5);
-    expect(result[0]!.lon).toBeCloseTo(-105.227234, 5);
+    expect(recordLatitude(result[0]!)).toBeCloseTo(40.476334, 5);
+    expect(recordLongitude(result[0]!)).toBeCloseTo(-105.227234, 5);
   });
 
   test("returns empty array on missing ac field", () => {

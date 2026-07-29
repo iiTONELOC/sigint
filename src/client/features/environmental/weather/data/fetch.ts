@@ -1,7 +1,7 @@
 import { parseWeatherSeverity } from "@/features/environmental/weather/severity";
-import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
 import {
   WEATHER_TEXT_FIELDS,
+  type WeatherPoint,
   type WeatherTextField,
 } from "@/features/environmental/weather/types";
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
@@ -18,10 +18,14 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { EMPTY_TEXT, nonEmptyText } from "@shared/text";
 import {
+  createGeoPoint,
   geometryPolygons,
   isRecord,
+  latitudeOf,
+  longitudeOf,
   parseGeoJsonPolygonGeometry,
   type GeoJsonPolygonGeometry,
+  type GeoPoint,
   type GeoRing,
 } from "@shared/geo";
 
@@ -48,29 +52,27 @@ const ID_TAIL_LENGTH = 12;
 const ID_DISALLOWED = /[^a-zA-Z0-9]/g;
 const NULL_ISLAND_DEGREES = 0;
 
-type Centroid = Readonly<{ lat: number; lon: number }>;
-
-function ringCentroid(ring: GeoRing): Centroid | null {
+function ringCentroid(ring: GeoRing): GeoPoint | null {
   if (ring.length === 0) return null;
   let lonSum = 0;
   let latSum = 0;
   for (const point of ring) {
-    const [longitude, latitude] = point;
-    lonSum += longitude;
-    latSum += latitude;
+    lonSum += longitudeOf(point);
+    latSum += latitudeOf(point);
   }
-  return { lat: latSum / ring.length, lon: lonSum / ring.length };
+  return createGeoPoint(lonSum / ring.length, latSum / ring.length);
 }
 
-function geometryCentroid(geometry: GeoJsonPolygonGeometry): Centroid | null {
+function geometryCentroid(geometry: GeoJsonPolygonGeometry): GeoPoint | null {
   const [firstPolygon] = geometryPolygons(geometry);
   const [outerRing] = firstPolygon ?? [];
   return outerRing ? ringCentroid(outerRing) : null;
 }
 
-function isNullIsland(centroid: Centroid): boolean {
+function isNullIsland(position: GeoPoint): boolean {
   return (
-    centroid.lat === NULL_ISLAND_DEGREES && centroid.lon === NULL_ISLAND_DEGREES
+    longitudeOf(position) === NULL_ISLAND_DEGREES &&
+    latitudeOf(position) === NULL_ISLAND_DEGREES
   );
 }
 
@@ -134,8 +136,7 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
     return {
       id,
       type: Domain.Weather,
-      lat: centroid.lat,
-      lon: centroid.lon,
+      position: centroid,
       timestamp:
         nonEmptyText(properties[WeatherPayloadField.Sent]) ??
         nonEmptyText(properties[WeatherPayloadField.Effective]) ??

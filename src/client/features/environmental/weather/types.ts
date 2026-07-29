@@ -1,4 +1,5 @@
-import type { GeoJsonPolygonGeometry } from "@shared/geo";
+import type { GeoJsonPolygonGeometry, GeoPoint } from "@shared/geo";
+import type { Domain } from "@shared/domain/identity";
 import type { WeatherSeverity } from "./severity";
 
 export enum WeatherTextField {
@@ -24,6 +25,14 @@ export const WEATHER_TEXT_FIELDS: readonly WeatherTextField[] =
 export type WeatherData = Partial<Record<WeatherTextField, string>> & {
   geometry?: GeoJsonPolygonGeometry;
   severity: WeatherSeverity;
+};
+
+export type WeatherPoint = {
+  id: string;
+  type: Domain.Weather;
+  position: GeoPoint;
+  timestamp?: string;
+  data: WeatherData;
 };
 
 export type WeatherFilter = {

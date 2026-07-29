@@ -1,6 +1,10 @@
 /// <reference lib="webworker" />
 // Owns the transferred canvas and all Canvas2D drawing.
 import { Domain } from "@shared/domain/identity";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
 import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
 import {
@@ -1194,7 +1198,7 @@ const unitVectorByPoint = new WeakMap<RenderPoint, UnitVector>();
 function unitVectorForPoint(item: RenderPoint): UnitVector {
   const cached = unitVectorByPoint.get(item);
   if (cached) return cached;
-  const unit = geographicToUnitVector(item.lat, item.lon);
+  const unit = geographicToUnitVector(recordLatitude(item), recordLongitude(item));
   unitVectorByPoint.set(item, unit);
   return unit;
 }
@@ -1850,8 +1854,8 @@ function positionForItem(item: RenderPoint): CameraPosition {
       : null;
   return {
     id: item.id,
-    latitude: interpolated?.lat ?? item.lat,
-    longitude: interpolated?.lon ?? item.lon,
+    latitude: interpolated?.lat ?? recordLatitude(item),
+    longitude: interpolated?.lon ?? recordLongitude(item),
   };
 }
 
@@ -2754,7 +2758,7 @@ function createProjectors(
   if (fm) {
     return {
       projectPoint: (item) =>
-        projFlat(item.lat, item.lon, fm.cx, fm.cy, fm.mW, fm.mH),
+        projFlat(recordLatitude(item), recordLongitude(item), fm.cx, fm.cy, fm.mW, fm.mH),
       projFn: (lat, lon) => projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH),
     };
   }

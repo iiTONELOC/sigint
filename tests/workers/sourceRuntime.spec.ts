@@ -1,7 +1,10 @@
 import { SourceCompleteness } from "@shared/source";
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
-import { createPointSourceRuntime } from "@/workers/data/sourceRuntime";
+import {
+  createPointSourceRuntime,
+  type PointSourceFetchSnapshot,
+} from "@/workers/data/sourceRuntime";
 
 type TestEntity = Readonly<{
   id: string;
@@ -68,7 +71,7 @@ describe("point source runtime", () => {
   });
 
   test("keeps absent entities after a partial refresh", async () => {
-    const snapshots = [
+    const snapshots: PointSourceFetchSnapshot<TestEntity>[] = [
       {
         completeness: SourceCompleteness.Complete,
         entities: [

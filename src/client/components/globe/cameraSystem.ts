@@ -1,6 +1,10 @@
 import { getInterpolatedPosition } from "@/lib/geo/trailService";
 import { isMobileWidth } from "@/config/breakpoints";
 import type { DataPoint } from "@/features/base/dataPoints";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import type { CamState, CamTarget } from "./types";
 import { clampFlatPan } from "@/lib/geo/render/flatMap";
 
@@ -44,8 +48,8 @@ export function updateCamera(
   // If locked onto a selected item, update target to follow it
   if (camTarget.lockedId && selected && selected.id === camTarget.lockedId) {
     const interp = getInterpolatedPosition(selected.id);
-    const tLat = interp ? interp.lat : selected.lat;
-    const tLon = interp ? interp.lon : selected.lon;
+    const tLat = interp ? interp.lat : recordLatitude(selected);
+    const tLon = interp ? interp.lon : recordLongitude(selected);
 
     // On mobile, the bottom sheet covers ~38% of viewport height.
     // Shift the target point UP so it lands in the center of the visible

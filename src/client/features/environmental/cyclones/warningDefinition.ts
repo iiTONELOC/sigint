@@ -19,7 +19,5 @@ export const cycloneWarningFeature: FeatureDefinition<
   icon: TriangleAlert,
   iconProps: { strokeWidth: 2.5 },
   TickerContent: () => null,
-  matchesFilter: () => true,
-  defaultFilter: {},
   buildDetailRows: (data) => buildWarningDetailRows(data),
 };

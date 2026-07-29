@@ -1,8 +1,6 @@
-import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import {
   hasOptionalFields,
-  hasPointShape,
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
@@ -10,15 +8,15 @@ import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import {
   WEATHER_TEXT_FIELDS,
   type WeatherData,
+  type WeatherPoint,
 } from "@/features/environmental/weather/types";
-import { isEnumValue } from "@shared/types/enum";
 import {
   isRecord,
   parseGeoJsonPolygonGeometry,
+  parseGeoPoint,
   type GeoJsonPolygonGeometry,
 } from "@shared/geo";
-
-export type WeatherPoint = Extract<DataPoint, { type: Domain.Weather }>;
+import { isEnumValue } from "@shared/types/enum";
 
 function isWeatherGeometry(
   value: unknown,
@@ -36,7 +34,15 @@ function isWeatherData(value: unknown): value is WeatherData {
 }
 
 export function isWeatherPoint(value: unknown): value is WeatherPoint {
-  return hasPointShape(value, Domain.Weather) && isWeatherData(value.data);
+  return (
+    isRecord(value) &&
+    value.type === Domain.Weather &&
+    isOptionalString(value.id) &&
+    value.id.length > 0 &&
+    parseGeoPoint(value.position) !== null &&
+    (value.timestamp === undefined || isOptionalString(value.timestamp)) &&
+    isWeatherData(value.data)
+  );
 }
 
 export function parseWeatherCache(

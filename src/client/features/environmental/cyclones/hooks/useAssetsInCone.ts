@@ -11,6 +11,10 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { pointInPolygon } from "@/lib/geo/pointInPolygon";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
 import type { GeoJSONPolygon } from "../types";
 
@@ -61,7 +65,7 @@ function insideCone(
   cone: GeoJSONPolygon,
 ): readonly DataPoint[] {
   return candidates.filter((point) =>
-    pointInPolygon(point.lat, point.lon, cone),
+    pointInPolygon(recordLatitude(point), recordLongitude(point), cone),
   );
 }
 

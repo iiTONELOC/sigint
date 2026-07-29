@@ -5,6 +5,10 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { authenticatedFetch } from "@/lib/net/authService";
 import { getTrail } from "@/lib/geo/trailService";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
@@ -214,7 +218,14 @@ export function AircraftDossier({
 
   const trail = [
     ...getTrail(item.id),
-    { lat: item.lat, lon: item.lon, altitude, heading, speed, ts: Date.now() },
+    {
+      lat: recordLatitude(item),
+      lon: recordLongitude(item),
+      altitude,
+      heading,
+      speed,
+      ts: Date.now(),
+    },
   ];
 
   const originCode = airportCode(route?.origin);
@@ -243,7 +254,7 @@ export function AircraftDossier({
         POSITION
       </span>
       <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">
-        {formatLat(item.lat)} · {formatLon(item.lon)}
+        {formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}
       </span>
     </div>
   );
@@ -334,8 +345,8 @@ export function AircraftDossier({
             <AircraftRouteMap
               originCode={originCode}
               destCode={destCode}
-              lat={item.lat}
-              lon={item.lon}
+              lat={recordLatitude(item)}
+              lon={recordLongitude(item)}
               heading={heading}
               waypoints={route?.waypoints}
               trail={trail}

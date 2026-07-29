@@ -9,7 +9,7 @@ import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import type { FirePoint } from "@/features/environmental/fires/data/source";
-import type { WeatherPoint } from "@/features/environmental/weather/data/codec";
+import type { WeatherPoint } from "@/features/environmental/weather/types";
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
 import type { CycloneWarningPoint } from "@/features/environmental/cyclones/data/warningCodec";
 import type { EventPoint } from "@/features/intel/events/data/codec";

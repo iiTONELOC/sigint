@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { isRenderSourceId, type RenderSourceId } from "@/workers/data/sourceIds";
-import { isRecord } from "@shared/geo";
+import { isRecord, parseGeoPoint } from "@shared/geo";
 
 export const RENDER_DATA_PROTOCOL_VERSION = 5 as const;
 
@@ -196,16 +196,25 @@ function parseFireRebase(
  * lanes. Only the fields the projector reads are checked here; each draw site
  * already guards its own payload.
  */
+function hasRenderPosition(
+  value: Readonly<Record<string, unknown>>,
+): boolean {
+  if (parseGeoPoint(value.position) !== null) return true;
+  return (
+    typeof value.lat === "number" &&
+    Number.isFinite(value.lat) &&
+    typeof value.lon === "number" &&
+    Number.isFinite(value.lon)
+  );
+}
+
 function isRenderPoint(value: unknown): value is DataPoint {
   return (
     isRecord(value) &&
     typeof value.type === "string" &&
     typeof value.id === "string" &&
     value.id.length > 0 &&
-    typeof value.lat === "number" &&
-    Number.isFinite(value.lat) &&
-    typeof value.lon === "number" &&
-    Number.isFinite(value.lon) &&
+    hasRenderPosition(value) &&
     isRecord(value.data)
   );
 }

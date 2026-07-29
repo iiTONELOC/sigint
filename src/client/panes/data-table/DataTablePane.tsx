@@ -1,3 +1,7 @@
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import type { AriaAttributes } from "react";
 import { useData } from "@/context/DataContext";
@@ -160,8 +164,10 @@ function compareDataPoints(
   let comparison = 0;
   if (sortKey === "type") comparison = left.type.localeCompare(right.type);
   else if (sortKey === "name") comparison = getName(left).localeCompare(getName(right));
-  else if (sortKey === "lat") comparison = left.lat - right.lat;
-  else if (sortKey === "lon") comparison = left.lon - right.lon;
+  else if (sortKey === "lat")
+    comparison = recordLatitude(left) - recordLatitude(right);
+  else if (sortKey === "lon")
+    comparison = recordLongitude(left) - recordLongitude(right);
   else if (sortKey === "value1") {
     comparison =
       getValue1Num(left) - getValue1Num(right) ||
@@ -535,11 +541,11 @@ export function DataTablePane() {
                     {getValue2(item)}
                   </td>
                   <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
-                    {item.lat.toFixed(2)}
+                    {recordLatitude(item).toFixed(2)}
                   </td>
                   {!isMobileTable && (
                     <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
-                      {item.lon.toFixed(2)}
+                      {recordLongitude(item).toFixed(2)}
                     </td>
                   )}
                   <td className="text-right text-sig-dim text-(length:--sig-text-sm)">

@@ -1,8 +1,15 @@
 import { Domain } from "@shared/domain/identity";
 import { Wind } from "lucide-react";
-import type { FeatureDefinition, BasePoint } from "@/features/base/types";
+import {
+  STROKED_ICON_PROPS,
+  type FeatureDefinition,
+} from "@/features/base/types";
 import { formatKtMph, nmToKm } from "@/lib/format/units";
-import type { CycloneForecastPointData } from "./types";
+import {
+  CycloneFeatureLabel,
+  ForecastRowLabel,
+  type CycloneForecastPointData,
+} from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 
 // Feature entry for the synthetic Domain.CyclonesForecast points. Needed so
@@ -15,33 +22,25 @@ export const cycloneForecastFeature: FeatureDefinition<
   Domain.CyclonesForecast
 > = {
   id: Domain.CyclonesForecast,
-  label: "CYCLONE FORECAST",
+  label: CycloneFeatureLabel.Forecast,
   icon: Wind,
-  iconProps: { strokeWidth: 2.5 },
+  iconProps: STROKED_ICON_PROPS,
   TickerContent: CycloneForecastTickerContent,
 
-  // No standalone filter. Forecast points follow their parent storm, and the
-  // renderer applies that in its own filter pass. The derive walk calls
-  // matchesFilter only when filters[type] != null, and no filter is ever set
-  // for Domain.CyclonesForecast, so this never runs in practice.
-  matchesFilter: () => true,
-  defaultFilter: {} as Record<string, never>,
-
-  // Must be [label, value] tuples — DetailPanel destructures each as [k, v].
   buildDetailRows: (data: CycloneForecastPointData) => {
     const pressureRow: [string, string][] =
       data.minPressureMb == null
         ? []
-        : [["PRESSURE", `${data.minPressureMb} mb`]];
+        : [[ForecastRowLabel.Pressure, `${data.minPressureMb} mb`]];
     return [
-      ["STORM", data.parentName],
-      ["BASIN", data.parentBasin],
-      ["FORECAST", `+${data.fcstHour}h`],
-      ["WINDS", formatKtMph(data.maxWindKt)],
+      [ForecastRowLabel.Storm, data.parentName],
+      [ForecastRowLabel.Basin, data.parentBasin],
+      [ForecastRowLabel.Forecast, `+${data.fcstHour}h`],
+      [ForecastRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,
-      ["CLASS", data.category],
+      [ForecastRowLabel.Class, data.category],
       [
-        "TRACK ERROR",
+        ForecastRowLabel.TrackError,
         `${data.errorRadiusNm} nm (${nmToKm(data.errorRadiusNm)} km)`,
       ],
     ];
@@ -50,6 +49,3 @@ export const cycloneForecastFeature: FeatureDefinition<
   getSearchText: (data: CycloneForecastPointData) =>
     `${data.parentName} +${data.fcstHour}h forecast`,
 };
-
-// Type guard for use in the registry
-export type ForecastBasePoint = BasePoint & { data: CycloneForecastPointData };

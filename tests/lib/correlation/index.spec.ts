@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { Domain } from "@shared/domain/identity";
+import { MS_PER_HOUR } from "@shared/time";
 import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -20,7 +21,7 @@ const { computeCorrelations, initBaseline } = await import(
 
 // ── Test data factories ─────────────────────────────────────────────
 
-const HOUR = 3600_000;
+
 let _idCounter = 0;
 
 function makeEvent(overrides: Record<string, any> = {}): DataPoint {
@@ -29,7 +30,7 @@ function makeEvent(overrides: Record<string, any> = {}): DataPoint {
     type: Domain.Events,
     lat: overrides.lat ?? 35.0,
     lon: overrides.lon ?? 45.0,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
     data: {
       severity: overrides.severity ?? 4,
       sourceCountry: overrides.country ?? "Iraq",
@@ -45,7 +46,7 @@ function makeQuake(overrides: Record<string, any> = {}): DataPoint {
     type: Domain.Quakes,
     lat: overrides.lat ?? 35.7,
     lon: overrides.lon ?? 139.7,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
     data: {
       magnitude: overrides.magnitude ?? 5.2,
       location: overrides.location ?? "10 km SE of Tokyo, Japan",
@@ -61,7 +62,7 @@ function makeFire(overrides: Record<string, any> = {}): DataPoint {
     type: Domain.Fires,
     lat: overrides.lat ?? 35.1,
     lon: overrides.lon ?? 45.1,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
     data: {
       frp: overrides.frp ?? 50,
       ...(overrides.data ?? {}),
@@ -91,9 +92,8 @@ function makeWeather(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `wx-${++_idCounter}`,
     type: Domain.Weather,
-    lat: overrides.lat ?? 30.0,
-    lon: overrides.lon ?? -90.0,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
+    position: [overrides.lon ?? -90.0, overrides.lat ?? 30.0],
+    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
     data: {
       severity: overrides.severity ?? WeatherSeverity.Severe,
       event: overrides.event ?? "Tornado Warning",
@@ -303,7 +303,7 @@ describe("alert scoring", () => {
   });
 
   test("extreme weather generates alert", () => {
-    const wx = makeWeather({ severity: "Extreme", event: "Tornado" });
+    const wx = makeWeather({ severity: WeatherSeverity.Extreme, event: "Tornado" });
     const result = computeCorrelations([wx], []);
     const alert = result.alerts.find((a) => a.item.id === wx.id);
     expect(alert).toBeDefined();
@@ -311,7 +311,7 @@ describe("alert scoring", () => {
   });
 
   test("moderate weather does NOT generate alert", () => {
-    const wx = makeWeather({ severity: "Minor" });
+    const wx = makeWeather({ severity: WeatherSeverity.Minor });
     const result = computeCorrelations([wx], []);
     const alert = result.alerts.find((a) => a.item.id === wx.id);
     expect(alert).toBeUndefined();
@@ -343,7 +343,7 @@ describe("alert scoring", () => {
   test("old data (>24h) does NOT generate alerts", () => {
     const old = makeEvent({
       severity: 5,
-      timestamp: new Date(Date.now() - 25 * HOUR).toISOString(),
+      timestamp: new Date(Date.now() - 25 * MS_PER_HOUR).toISOString(),
     });
     const result = computeCorrelations([old], []);
     expect(result.alerts).toHaveLength(0);
@@ -379,12 +379,12 @@ describe("alert deduplication", () => {
     const e1 = makeEvent({
       severity: 4,
       country: "Iraq",
-      timestamp: new Date(now - HOUR).toISOString(),
+      timestamp: new Date(now - MS_PER_HOUR).toISOString(),
     });
     const e2 = makeEvent({
       severity: 4,
       country: "Syria",
-      timestamp: new Date(now - HOUR).toISOString(),
+      timestamp: new Date(now - MS_PER_HOUR).toISOString(),
     });
     const result = computeCorrelations([e1, e2], []);
     // Each should be its own alert

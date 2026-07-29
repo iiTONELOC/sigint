@@ -3,6 +3,10 @@ import { Activity } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { estimateMmi, mmiInk } from "../intensity";
 import { useTsunamiAlerts } from "../hooks/useTsunamiAlerts";
 import { QuakeIdentityCard } from "./QuakeIdentityCard";
@@ -67,8 +71,8 @@ export function EarthquakeDossier({
             mmi={mmi}
             depthKm={depth}
             location={place}
-            lat={item.lat}
-            lon={item.lon}
+            lat={recordLatitude(item)}
+            lon={recordLongitude(item)}
             felt={felt}
             significance={significance}
             timestamp={item.timestamp}
@@ -88,7 +92,7 @@ export function EarthquakeDossier({
 
           <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
             <Section title="SEISMOGRAM">
-              <Seismogram lat={item.lat} lon={item.lon} originTimeIso={item.timestamp} mmi={mmi} />
+              <Seismogram lat={recordLatitude(item)} lon={recordLongitude(item)} originTimeIso={item.timestamp} mmi={mmi} />
             </Section>
           </section>
 

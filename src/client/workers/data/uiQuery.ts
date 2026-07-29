@@ -1,4 +1,9 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import {
+  recordLatitude,
+  recordLongitude,
+  type PositionedRecord,
+} from "@/workers/data/source-model/position";
 import { isRecord } from "@shared/geo";
 
 const SEARCH_SCORE = {
@@ -69,10 +74,9 @@ export type PointUiQueryResult<TPoint> =
 
 export type TimestampedPoint = Readonly<{
   id: string;
-  lat: number;
-  lon: number;
   timestamp?: string;
-}>;
+}> &
+  PositionedRecord;
 
 export type PointUiQueryDescriptor<TPoint extends TimestampedPoint> = Readonly<{
   parseEntity: (value: unknown) => TPoint | null;
@@ -360,8 +364,8 @@ function compareTable<TPoint extends TimestampedPoint>(
   if (sortKey === "name") {
     return descriptor.nameLabel(left).localeCompare(descriptor.nameLabel(right));
   }
-  if (sortKey === "lat") return left.lat - right.lat;
-  if (sortKey === "lon") return left.lon - right.lon;
+  if (sortKey === "lat") return recordLatitude(left) - recordLatitude(right);
+  if (sortKey === "lon") return recordLongitude(left) - recordLongitude(right);
   if (sortKey === "value1") {
     return (
       descriptor.value1(left) - descriptor.value1(right) ||
@@ -420,13 +424,16 @@ function runBboxQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
   query: Extract<PointUiQuery, { kind: "bbox" }>,
 ): PointUiQueryResult<TPoint> {
-  const inside = points.filter(
-    (point) =>
-      point.lat >= query.minLat &&
-      point.lat <= query.maxLat &&
-      point.lon >= query.minLon &&
-      point.lon <= query.maxLon,
-  );
+  const inside = points.filter((point) => {
+    const latitude = recordLatitude(point);
+    const longitude = recordLongitude(point);
+    return (
+      latitude >= query.minLat &&
+      latitude <= query.maxLat &&
+      longitude >= query.minLon &&
+      longitude <= query.maxLon
+    );
+  });
   return { kind: "bbox", total: inside.length, items: inside.slice(0, query.limit) };
 }
 

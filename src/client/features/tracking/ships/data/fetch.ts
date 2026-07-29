@@ -5,6 +5,7 @@ import {
 } from "@/features/tracking/ships/data/codec";
 import { authenticatedFetch } from "@/lib/net/authService";
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
+import { SourceCompleteness } from "@shared/source";
 
 const SHIPS_URL = "/api/ships/latest";
 
@@ -37,8 +38,8 @@ export async function fetchShipSnapshot(
     completeness:
       payload.connected &&
       payload.vesselCount === payload.vessels.length
-        ? "complete"
-        : "partial",
+        ? SourceCompleteness.Complete
+        : SourceCompleteness.Partial,
     entities: decodeShipPoints(payload),
     observedAt: (options.now ?? Date.now)(),
   };

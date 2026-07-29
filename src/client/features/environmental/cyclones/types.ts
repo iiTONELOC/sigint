@@ -138,3 +138,27 @@ export type CycloneFilter = {
   /** Show NWS tropical watch/warning area polygons */
   showWarnings: boolean;
 };
+
+export enum CycloneFeatureLabel {
+  Forecast = "CYCLONE FORECAST",
+  TropicalAlert = "TROPICAL ALERT",
+}
+
+export enum ForecastRowLabel {
+  Storm = "STORM",
+  Basin = "BASIN",
+  Forecast = "FORECAST",
+  Winds = "WINDS",
+  Pressure = "PRESSURE",
+  Class = "CLASS",
+  TrackError = "TRACK ERROR",
+}
+
+export enum WarningRowLabel {
+  Alert = "Alert",
+  Severity = "Severity",
+  Area = "Area",
+  Headline = "Headline",
+  Effective = "Effective",
+  Expires = "Expires",
+}

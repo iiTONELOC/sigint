@@ -20,6 +20,10 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap, ThemeCssVar } from "@/config/theme";
 import { windColor } from "@/features/environmental/cyclones/classification";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { useUnitsMode } from "@/lib/ui/userPreferences";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { FeatureDefinition } from "@/features/base/types";
@@ -598,7 +602,7 @@ function PanelBody({
       {/* Coordinates */}
       {!TYPES_WITH_OWN_COORDINATES.has(item.type) && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
-          {formatLat(item.lat)}, {formatLon(item.lon)}
+          {formatLat(recordLatitude(item))}, {formatLon(recordLongitude(item))}
         </div>
       )}
 

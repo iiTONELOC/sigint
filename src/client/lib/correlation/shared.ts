@@ -1,81 +1,107 @@
 // ── Correlation shared helpers ──────────────────────────────────────
-// Pure utilities used across rule modules: distance math, country
-// extraction, timestamp parsing, 2° spatial grid, and the post-scoring
-// alert dedup pass.
+// Pure utilities used across rule modules: country extraction, timestamp
+// parsing, the 2 degree spatial grid, and the correlation policy numbers.
 
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { GeoLimit, TurnDeg } from "@shared/geo";
+import { MS_PER_HOUR } from "@shared/time";
+import { EMPTY_TEXT } from "@shared/text";
 
-// ── Time + geo constants ───────────────────────────────────────────
+// ── Correlation policy ─────────────────────────────────────────────
 
-export const HOUR = 3600_000;
-export const DAY = 86400_000;
-export const BASELINE_BUCKETS = 168; // 7 days × 24 hours
-export const CLUSTER_RADIUS_KM = 100;
-export const CLUSTER_TIME_WINDOW = 6 * HOUR;
-export const CROSS_SOURCE_RADIUS_KM = 75;
-export const CROSS_SOURCE_TIME_WINDOW = 12 * HOUR;
+/** One baseline bucket per hour across a rolling week. */
+export { HOURS_PER_WEEK as BASELINE_BUCKETS } from "@shared/time";
 
-export const DEG = Math.PI / 180;
-export const EARTH_R = 6371; // km
-
-// ── Distance ───────────────────────────────────────────────────────
-
-export function haversineKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const dLat = (lat2 - lat1) * DEG;
-  const dLon = (lon2 - lon1) * DEG;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.sin(dLon / 2) ** 2;
-  return EARTH_R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+export enum CorrelationRadiusKm {
+  Cluster = 100,
+  CrossSource = 75,
+  Military = 200,
 }
+
+enum CorrelationWindowHours {
+  Cluster = 6,
+  CrossSource = 12,
+}
+
+export const CLUSTER_TIME_WINDOW =
+  CorrelationWindowHours.Cluster * MS_PER_HOUR;
+export const CROSS_SOURCE_TIME_WINDOW =
+  CorrelationWindowHours.CrossSource * MS_PER_HOUR;
 
 // ── Country / timestamp helpers ────────────────────────────────────
 
+const UNKNOWN_COUNTRY = "Unknown";
+const COUNTRY_SEPARATOR = ",";
+
 export function getCountry(item: DataPoint): string {
-  const d = item.data as Record<string, unknown>;
-  if (item.type === "events")
-    return (
-      (d.sourceCountry as string) ||
-      (d.locationName as string)?.split(",").pop()?.trim() ||
-      "Unknown"
-    );
-  if (item.type === "aircraft") return (d.originCountry as string) || "Unknown";
-  if (item.type === "quakes") {
-    const loc = (d.location as string) || "";
-    const parts = loc.split(",");
-    return parts.length > 1 ? parts[parts.length - 1]!.trim() : loc;
+  switch (item.type) {
+    case Domain.Events:
+      return (
+        item.data.sourceCountry ||
+        item.data.locationName?.split(COUNTRY_SEPARATOR).pop()?.trim() ||
+        UNKNOWN_COUNTRY
+      );
+    case Domain.Aircraft:
+      return item.data.originCountry || UNKNOWN_COUNTRY;
+    case Domain.Quakes: {
+      const location = item.data.location || EMPTY_TEXT;
+      const parts = location.split(COUNTRY_SEPARATOR);
+      return parts.length > 1 ? (parts.at(-1) ?? location).trim() : location;
+    }
+    case Domain.Weather:
+      return "United States";
+    case Domain.Fires:
+      return "Global";
+    default:
+      return UNKNOWN_COUNTRY;
   }
-  if (item.type === "weather") return "United States";
-  if (item.type === "fires") return "Global";
-  return "Unknown";
 }
 
 export function getTs(item: DataPoint): number {
   return item.timestamp ? new Date(item.timestamp).getTime() : Date.now();
 }
 
-// ── 2° spatial grid (matches lib/spatialIndex.ts cell size) ────────
+// ── 2 degree spatial grid (matches lib/spatialIndex.ts cell size) ──
 
-export const GRID_CELL_DEG = 2;
-export const GRID_COLS = 180;
-export const QUERY_RADIUS_DEG = 2;
-export const MIL_QUERY_RADIUS_DEG = 2.5;
+export enum CorrelationGridDeg {
+  Cell = 2,
+}
+
+export enum CorrelationQueryDeg {
+  Standard = 2,
+  Military = 2.5,
+}
+
+export const GRID_COLS = TurnDeg.Full / CorrelationGridDeg.Cell;
+const GRID_ROWS = TurnDeg.Half / CorrelationGridDeg.Cell;
 
 export function gridKey(lat: number, lon: number): number {
-  const row = Math.max(0, Math.min(89, ((lat + 90) / GRID_CELL_DEG) | 0));
-  const col = Math.max(0, Math.min(179, ((lon + 180) / GRID_CELL_DEG) | 0));
+  const row = Math.max(
+    0,
+    Math.min(
+      GRID_ROWS - 1,
+      Math.trunc((lat + GeoLimit.MaxLatitude) / CorrelationGridDeg.Cell),
+    ),
+  );
+  const col = Math.max(
+    0,
+    Math.min(
+      GRID_COLS - 1,
+      Math.trunc((lon + GeoLimit.MaxLongitude) / CorrelationGridDeg.Cell),
+    ),
+  );
   return row * GRID_COLS + col;
 }
 
 export function buildGrid(items: DataPoint[]): Map<number, DataPoint[]> {
   const grid = new Map<number, DataPoint[]>();
   for (const item of items) {
-    const k = gridKey(item.lat, item.lon);
+    const k = gridKey(recordLatitude(item), recordLongitude(item));
     const cell = grid.get(k);
     if (cell) cell.push(item);
     else grid.set(k, [item]);
@@ -90,10 +116,20 @@ export function gridQuery(
   lon: number,
   radiusDeg: number,
 ): DataPoint[] {
-  const rMin = Math.max(0, ((lat - radiusDeg + 90) / GRID_CELL_DEG) | 0);
-  const rMax = Math.min(89, ((lat + radiusDeg + 90) / GRID_CELL_DEG) | 0);
-  const cMin = ((lon - radiusDeg + 180) / GRID_CELL_DEG) | 0;
-  const cMax = ((lon + radiusDeg + 180) / GRID_CELL_DEG) | 0;
+  const rMin = Math.max(
+    0,
+    Math.trunc((lat - radiusDeg + GeoLimit.MaxLatitude) / CorrelationGridDeg.Cell),
+  );
+  const rMax = Math.min(
+    GRID_ROWS - 1,
+    Math.trunc((lat + radiusDeg + GeoLimit.MaxLatitude) / CorrelationGridDeg.Cell),
+  );
+  const cMin = Math.trunc(
+    (lon - radiusDeg + GeoLimit.MaxLongitude) / CorrelationGridDeg.Cell,
+  );
+  const cMax = Math.trunc(
+    (lon + radiusDeg + GeoLimit.MaxLongitude) / CorrelationGridDeg.Cell,
+  );
   const result: DataPoint[] = [];
   for (let r = rMin; r <= rMax; r++) {
     for (let c = cMin; c <= cMax; c++) {

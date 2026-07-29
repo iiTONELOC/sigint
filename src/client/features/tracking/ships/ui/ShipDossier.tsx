@@ -6,6 +6,10 @@ import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatKtMph } from "@/lib/format/units";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { getTrail } from "@/lib/geo/trailService";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { DossierToolbar, mmsiCountry, useDossierFocus } from "@/panes/dossier/DossierAtoms";
 import { SectionLabel, Card, StatCell, Field, Label } from "@/features/tracking/aircraft/ui/dossierKit";
 import type { ShipData } from "../types";
@@ -119,13 +123,13 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
           <section className="min-w-0 flex flex-col order-3 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-span-2 @min-[76rem]/dossier:col-start-3 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
             <SectionLabel>CHART</SectionLabel>
             <div className="aspect-4/3 @min-[40rem]/dossier:aspect-auto @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-64">
-              <ShipMiniMap lat={item.lat} lon={item.lon} heading={heading} cog={cog} sog={sog} trail={trail} />
+              <ShipMiniMap lat={recordLatitude(item)} lon={recordLongitude(item)} heading={heading} cog={cog} sog={sog} trail={trail} />
             </div>
             <div className="flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5 mt-2">
               <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
                 <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden="true" /> POSITION
               </span>
-              <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">{formatLat(item.lat)} · {formatLon(item.lon)}</span>
+              <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">{formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}</span>
             </div>
           </section>
 
