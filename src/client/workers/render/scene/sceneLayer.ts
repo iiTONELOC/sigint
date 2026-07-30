@@ -8,6 +8,9 @@ import {
   type SceneProjection,
   type SceneProjectionFrame,
 } from "@/workers/render/scene/projectedLayer";
+import type {
+  ScenePositionAccessor,
+} from "@/workers/render/scene/scenePosition";
 import {
   SceneDataCommandType,
   type SceneLayerCommand,
@@ -41,6 +44,7 @@ export type SceneLayerStyle = Readonly<{ context: Ctx }>;
 
 export type RenderLayerSelectionTarget = Readonly<{
   identity: RenderSelectionIdentity;
+  interpolated: boolean;
   latitude: number;
   longitude: number;
 }>;
@@ -49,6 +53,7 @@ export interface RenderLayer {
   readonly order: RenderLayerOrder;
   readonly source: RenderSourceId;
   apply(command: SceneLayerCommand): void;
+  hasFrameMotion(): boolean;
   hasTimeAnimation(reducedMotion: boolean): boolean;
   interactionIdentity(hit: SceneHit): RenderSelectionIdentity;
   nearest(
@@ -60,8 +65,17 @@ export interface RenderLayer {
   ): SceneHit | null;
   searchIncludesEntity(entityId: string): boolean;
   selectionAnchor(entityId: string): SceneProjection | null;
-  selectionTarget(id: string): RenderLayerSelectionTarget | null;
+  selectionTarget(
+    id: string,
+    time: number,
+  ): RenderLayerSelectionTarget | null;
 }
+
+type RenderLayerPosition = Readonly<{
+  interpolated: boolean;
+  latitude: number;
+  longitude: number;
+}>;
 
 export abstract class SceneLayer<TFilter> implements RenderLayer {
   abstract readonly order: RenderLayerOrder;
@@ -116,6 +130,10 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     return false;
   }
 
+  hasFrameMotion(): boolean {
+    return false;
+  }
+
   interactionIdentity(hit: SceneHit): RenderSelectionIdentity {
     return {
       source: this.source,
@@ -125,7 +143,10 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     };
   }
 
-  selectionTarget(id: string): RenderLayerSelectionTarget | null {
+  selectionTarget(
+    id: string,
+    time: number,
+  ): RenderLayerSelectionTarget | null {
     const handle =
       this.store.handleForSceneId(id) ??
       this.store.handlesForEntityId(id)[0] ??
@@ -133,7 +154,7 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     if (handle === null) return null;
     const record = this.store.read(handle);
     if (!record) return null;
-    return this.targetForRecord(record);
+    return this.targetForRecord(record, time);
   }
 
   protected beginProject(): RenderSceneView {
@@ -158,6 +179,17 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     index: number,
     filter: TFilter,
   ): boolean;
+
+  protected positionForRecord(
+    record: RenderSceneRecord,
+    _time: number,
+  ): RenderLayerPosition {
+    return {
+      interpolated: false,
+      latitude: record.latitude,
+      longitude: record.longitude,
+    };
+  }
 
   protected recordSelectionIdentity(
     record: RenderSceneRecord,
@@ -187,11 +219,12 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
 
   private targetForRecord(
     record: RenderSceneRecord,
+    time: number,
   ): RenderLayerSelectionTarget {
+    const position = this.positionForRecord(record, time);
     return {
       identity: this.recordSelectionIdentity(record),
-      latitude: record.latitude,
-      longitude: record.longitude,
+      ...position,
     };
   }
 }
@@ -200,22 +233,27 @@ export abstract class ScenePointLayer<
   TFilter,
   TStyle extends SceneLayerStyle,
 > extends SceneLayer<TFilter> {
-  protected readonly projection = new ProjectedSceneLayer();
+  protected readonly projection: ProjectedSceneLayer;
 
-  protected constructor(source: RenderSourceId) {
+  protected constructor(
+    source: RenderSourceId,
+    positionAccessor: ScenePositionAccessor | null = null,
+  ) {
     super(source);
+    this.projection = new ProjectedSceneLayer(positionAccessor);
   }
 
   project(
     frame: SceneLayerProjectionFrame,
     filter: TFilter,
+    time: number = Date.now(),
   ): void {
     const view = this.beginProject();
     this.projection.project(view, {
       ...frame,
       includes: (index) =>
         this.recordIncludes(view, index, filter),
-    });
+    }, time);
   }
 
   draw(style: TStyle): void {
@@ -256,6 +294,24 @@ export abstract class ScenePointLayer<
 
   protected visibleIndices(): IterableIterator<number> {
     return this.projection.visibleIndices();
+  }
+
+  override hasFrameMotion(): boolean {
+    return this.view
+      ? this.projection.hasFrameMotion(this.view)
+      : false;
+  }
+
+  protected override positionForRecord(
+    record: RenderSceneRecord,
+    time: number,
+  ): RenderLayerPosition {
+    const position = this.projection.positionForRecord(record, time);
+    return {
+      interpolated: position.interpolated,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    };
   }
 
   protected abstract override includes(

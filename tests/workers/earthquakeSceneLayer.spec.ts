@@ -27,6 +27,8 @@ const view = {
   sceneIds: ["quake-marker-high", "quake-marker-low"],
   entityIds: ["Qhigh", "Qlow"],
   positions: new Float64Array([20, 10, -20, -10]),
+  motionPositions: new Float64Array(),
+  motionPositionStride: 0,
   unitVectors: new Float32Array(6),
   timestamps: new Float64Array([
     TestInstant.EventSceneNow - 30 * MS_PER_MINUTE,

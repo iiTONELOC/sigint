@@ -1,6 +1,7 @@
 export enum AircraftSceneSchema {
-  AttributeStride = 3,
+  AttributeStride = 5,
   StringAttributeStride = 1,
+  MotionAttributeOffset = 3,
 }
 
 export enum AircraftSceneAttribute {

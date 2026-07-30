@@ -28,6 +28,8 @@ describe("scene publisher", () => {
       sceneIds: ["A1"],
       entityIds: ["A1"],
       positions: new Float64Array([20, 10]),
+      motionPositions: new Float64Array(),
+      motionPositionStride: 0,
       unitVectors: new Float32Array([1, 0, 0]),
       timestamps: new Float64Array([100]),
       attributes: new Float32Array([90]),
@@ -63,7 +65,7 @@ describe("scene publisher", () => {
       sequence: 2,
       sessionId: "session-a",
     });
-    expect(transfers[1]).toHaveLength(12);
+    expect(transfers[1]).toHaveLength(13);
     expect(messages[2]).toMatchObject({
       type: SceneDataCommandType.SourceSearch,
       source: Domain.Aircraft,

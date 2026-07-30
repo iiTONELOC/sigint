@@ -17,7 +17,13 @@ import {
   sceneRecordIsVisible,
   type SceneVisibilitySettings,
 } from "@/workers/render/scene/visibility";
+import {
+  MovingScenePositionAccessor,
+} from "@/workers/render/scene/movingScenePosition";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
+import {
+  TRAIL_POLICY,
+} from "@/lib/geo/trails/trailStore";
 import { Domain } from "@shared/domain/identity";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import { TurnDeg } from "@shared/geo";
@@ -341,7 +347,15 @@ export class AircraftLayer extends ScenePointLayer<
   readonly order = RenderLayerOrder.Aircraft;
 
   constructor() {
-    super(Domain.Aircraft);
+    super(
+      Domain.Aircraft,
+      new MovingScenePositionAccessor({
+        attributeOffset: AircraftSceneSchema.MotionAttributeOffset,
+        attributeStride: AircraftSceneSchema.AttributeStride,
+        maximumAgeMs:
+          TRAIL_POLICY[Domain.Aircraft].maxExtrapolationMs,
+      }),
+    );
   }
 
   protected includes(

@@ -131,6 +131,8 @@ function sceneCommand(): Extract<
       sceneIds: [],
       entityIds: [],
       positions: new Float64Array(),
+      motionPositions: new Float64Array(),
+      motionPositionStride: 0,
       unitVectors: new Float32Array(),
       timestamps: new Float64Array(),
       attributes: new Float32Array(),
@@ -178,13 +180,14 @@ describe("cyclone scene layer", () => {
       pointType: Domain.CyclonesForecast,
     });
     expect(layer.selectionAnchor(forecastId)).not.toBeNull();
-    expect(layer.selectionTarget(forecastId)).toEqual({
+    expect(layer.selectionTarget(forecastId, 0)).toEqual({
       identity: {
         source: Domain.Cyclones,
         entityId: point.id,
         interactionId: forecastId,
         pointType: Domain.CyclonesForecast,
       },
+      interpolated: false,
       latitude: TEST_CYCLONE_FORECAST.lat,
       longitude: TEST_CYCLONE_FORECAST.lon,
     });

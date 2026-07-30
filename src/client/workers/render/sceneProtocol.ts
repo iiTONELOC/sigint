@@ -10,7 +10,6 @@ import {
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   isTrackSource,
-  isTrackMotion,
   isTrailPoint,
 } from "@/lib/geo/trails/trailStore";
 import {
@@ -22,7 +21,7 @@ import {
 } from "@/workers/render/protocol";
 
 export enum SceneProtocolVersion {
-  Current = 7,
+  Current = 1,
 }
 
 export enum SceneDataCommandType {
@@ -66,6 +65,8 @@ type ScenePatchBuffers = Readonly<{
   sceneIds: readonly string[];
   entityIds: readonly string[];
   positions: TransferFloat64Array;
+  motionPositions: TransferFloat64Array;
+  motionPositionStride: number;
   unitVectors: TransferFloat32Array;
   timestamps: TransferFloat64Array;
   attributes: TransferFloat32Array;
@@ -436,6 +437,7 @@ function hasValidPatchBuffers(
   value: Readonly<Record<string, unknown>>,
 ): value is Readonly<Record<string, unknown>> & ScenePatchBuffers {
   const attributeStride = value.attributeStride;
+  const motionPositionStride = value.motionPositionStride;
   const stringAttributeStride = value.stringAttributeStride;
   const dictionaryStart = value.dictionaryStart;
   if (
@@ -443,12 +445,16 @@ function hasValidPatchBuffers(
     !isStringArray(value.sceneIds) ||
     !isStringArray(value.entityIds) ||
     !isTransferFloat64Array(value.positions) ||
+    !isTransferFloat64Array(value.motionPositions) ||
     !isTransferFloat32Array(value.unitVectors) ||
     !isTransferFloat64Array(value.timestamps) ||
     !isTransferFloat32Array(value.attributes) ||
     !isTransferUint32Array(value.stringAttributes) ||
     !isTransferUint32Array(value.deletedHandles) ||
     !isNonNegativeInteger(attributeStride) ||
+    !isNonNegativeInteger(motionPositionStride) ||
+    (motionPositionStride !== 0 &&
+      motionPositionStride !== SceneProtocolComponentCount.Position) ||
     !isNonNegativeInteger(stringAttributeStride) ||
     !isNonNegativeInteger(dictionaryStart)
   ) {
@@ -468,12 +474,16 @@ function hasValidPatchBuffers(
     value.entityIds.length === count &&
     value.positions.length ===
       count * SceneProtocolComponentCount.Position &&
+    value.motionPositions.length === count * motionPositionStride &&
     value.unitVectors.length ===
       count * SceneProtocolComponentCount.UnitVector &&
     value.timestamps.length === count &&
     value.positions.every(Number.isFinite) &&
+    value.motionPositions.every(Number.isFinite) &&
+    value.unitVectors.every(Number.isFinite) &&
     value.timestamps.every(Number.isFinite) &&
     value.attributes.length === count * attributeStride &&
+    value.attributes.every(Number.isFinite) &&
     value.stringAttributes.length ===
       count * stringAttributeStride &&
     value.stringAttributes.every(
@@ -529,7 +539,7 @@ function isSceneSelectionOverlay(
     !isRenderSelectionSnapshot(value.selection) ||
     !Array.isArray(value.trail) ||
     !value.trail.every(isTrailPoint) ||
-    (value.motion !== null && !isTrackMotion(value.motion)) ||
+    value.motion !== undefined ||
     (value.route !== null && !isAircraftRoutePolyline(value.route))
   ) {
     return false;
@@ -537,7 +547,6 @@ function isSceneSelectionOverlay(
   const identity = value.selection.identity;
   if (identity === null || !isTrackSource(identity.source)) {
     return value.trail.length === 0 &&
-      value.motion === null &&
       value.route === null;
   }
   return identity.source === Domain.Aircraft || value.route === null;
@@ -563,7 +572,6 @@ export function parseSceneDataCommand(
       type: SceneDataCommandType.SelectionOverlay,
       selection: value.selection,
       trail: value.trail,
-      motion: value.motion,
       route: value.route,
     };
   }
@@ -610,6 +618,8 @@ export function parseSceneDataCommand(
     sceneIds: value.sceneIds,
     entityIds: value.entityIds,
     positions: value.positions,
+    motionPositions: value.motionPositions,
+    motionPositionStride: value.motionPositionStride,
     unitVectors: value.unitVectors,
     timestamps: value.timestamps,
     attributes: value.attributes,
@@ -667,6 +677,7 @@ export function sceneDataTransfers(
   return [
     command.handles.buffer,
     command.positions.buffer,
+    command.motionPositions.buffer,
     command.unitVectors.buffer,
     command.timestamps.buffer,
     command.attributes.buffer,

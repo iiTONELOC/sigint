@@ -116,13 +116,6 @@ describe("selection overlay channel", () => {
       expect(overlayStore.snapshot()).toMatchObject({
         selection: selected,
         trail: trail.points,
-        motion: {
-          lat: 40,
-          lon: -74,
-          ts: 100,
-          headingDeg: 90,
-          speedMps: 200,
-        },
         route: null,
       });
     } finally {

@@ -1,6 +1,5 @@
 import {
   isTrackSource,
-  trackMotion,
   type TrackSource,
   type TrailEntry,
 } from "@/lib/geo/trails/trailStore";
@@ -91,7 +90,6 @@ export class SelectionInterestService {
       type: SceneDataCommandType.SelectionOverlay,
       selection,
       trail: selectedEntry?.points ?? [],
-      motion: selectedEntry ? trackMotion(selectedEntry) : null,
       route: this.selectedRoute,
     });
   }

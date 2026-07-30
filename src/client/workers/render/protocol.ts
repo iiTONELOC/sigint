@@ -3,7 +3,6 @@ import type {
   DataType,
 } from "@/features/base/dataPoints";
 import type {
-  TrackMotion,
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
 import type {
@@ -354,7 +353,6 @@ export function renderSelectionIdentitiesEqual(
 export type RenderSelectionOverlay = Readonly<{
   selection: RenderSelectionSnapshot;
   trail: readonly TrailPoint[];
-  motion: TrackMotion | null;
   route: readonly AircraftRouteWaypoint[] | null;
 }>;
 

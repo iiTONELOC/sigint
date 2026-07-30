@@ -38,7 +38,7 @@ function aircraftEntry(lastSeen: number): TrailEntry {
 }
 
 describe("SelectionInterestService", () => {
-  test("publishes trail and motion for the selected source entity", () => {
+  test("publishes the trail for the selected source entity", () => {
     let entry = aircraftEntry(100);
     const overlays: SceneSelectionOverlay[] = [];
     const service = new SelectionInterestService(
@@ -61,13 +61,6 @@ describe("SelectionInterestService", () => {
       },
     })).toBe(true);
     expect(overlays[0]?.trail).toEqual(entry.points);
-    expect(overlays[0]?.motion).toEqual({
-      lat: 40,
-      lon: -74,
-      ts: 100,
-      headingDeg: 90,
-      speedMps: 200,
-    });
 
     entry = aircraftEntry(200);
     expect(service.refresh(Domain.Aircraft)).toBe(true);
@@ -101,7 +94,6 @@ describe("SelectionInterestService", () => {
         identity: null,
       },
       trail: [],
-      motion: null,
       route: null,
     });
   });
@@ -156,7 +148,6 @@ describe("SelectionInterestService", () => {
       },
     })).toBe(true);
     expect(overlays[0]?.trail).toEqual([]);
-    expect(overlays[0]?.motion).toBeNull();
   });
 
   test("publishes the selected aircraft route after it resolves", async () => {

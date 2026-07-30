@@ -7,6 +7,7 @@ import {
   type TrackSource,
   type TrailEntry,
   type TrailObservation,
+  type TrailPoint,
 } from "@/lib/geo/trails/trailStore";
 import { isRecord } from "@shared/geo";
 import { MS_PER_SECOND } from "@shared/time";
@@ -32,6 +33,10 @@ export type TrailRecorder = Readonly<{
     observations: readonly TrailObservation[],
   ) => void;
   get: (id: string) => TrailEntry | null;
+  lastPoint: (
+    source: TrackSource,
+    id: string,
+  ) => TrailPoint | null;
   subscribe: (
     listener: (source: TrackSource) => void,
   ) => () => void;
@@ -98,6 +103,12 @@ export function createTrailRecorder(
 
     get(id: string): TrailEntry | null {
       return trails.get(id) ?? null;
+    },
+
+    lastPoint(source: TrackSource, id: string): TrailPoint | null {
+      const entry = trails.get(id);
+      if (entry?.type !== source) return null;
+      return entry.points.at(-1) ?? null;
     },
 
     subscribe(listener): () => void {

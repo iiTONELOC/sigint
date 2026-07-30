@@ -91,6 +91,8 @@ const WEATHER_VIEW = {
   sceneIds: ["weather-scene"],
   entityIds: ["weather-entity"],
   positions: new Float64Array([20, 10]),
+  motionPositions: new Float64Array(),
+  motionPositionStride: 0,
   unitVectors: new Float32Array(3),
   timestamps: new Float64Array([1]),
   attributes: new Float32Array([

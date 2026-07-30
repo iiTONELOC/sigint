@@ -96,12 +96,6 @@ enum DataWorkerError {
 const store = createDataCacheStore(indexedDB);
 const scenePublisher = new ScenePublisher();
 const sourceCatalog = new SourceCatalog();
-const aircraftSceneBinding = new AircraftSceneBinding((patch) => {
-  scenePublisher.publish(patch);
-});
-const shipSceneBinding = new ShipSceneBinding((patch) => {
-  scenePublisher.publish(patch);
-});
 const eventSceneBinding = new EventSceneBinding((patch) => {
   scenePublisher.publish(patch);
 });
@@ -180,6 +174,18 @@ const trailRecorder = createTrailRecorder({
     coordinator.setDeferred(TRAIL_RECORDER_POLICY.cacheKey, value);
   },
 });
+const aircraftSceneBinding = new AircraftSceneBinding(
+  trailRecorder,
+  (patch) => {
+    scenePublisher.publish(patch);
+  },
+);
+const shipSceneBinding = new ShipSceneBinding(
+  trailRecorder,
+  (patch) => {
+    scenePublisher.publish(patch);
+  },
+);
 const aircraftOwner = new AircraftSource({
   patchObservers: [
     new ObservedTrailBinding(

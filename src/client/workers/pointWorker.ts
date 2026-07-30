@@ -5,9 +5,6 @@ import {
   MilFilter,
   squawkBucketFor,
 } from "@shared/domain/aircraft";
-import {
-  MS_PER_SECOND,
-} from "@shared/time";
 import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
 import {
   applyCameraKey,
@@ -116,8 +113,6 @@ import {
 } from "@/lib/geo/spatialIndex";
 import type { Ctx, Projected, ProjFn } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
-  advanceGeographicMotion,
-  createGeographicMotion,
   createGlobeRotationMatrix,
   geographicToUnitVector,
   projectGeographicPoint as projGlobe,
@@ -140,10 +135,7 @@ import {
   type HorizonCircle,
   type LandColors,
 } from "@/lib/geo/render/types";
-import type {
-  TrackMotion,
-  TrailPoint,
-} from "@/lib/geo/trails/trailStore";
+import type { TrailPoint } from "@/lib/geo/trails/trailStore";
 import {
   SceneInterestPublisher,
 } from "@/workers/render/sceneInterestPublisher";
@@ -184,59 +176,7 @@ enum FlatCoordinateLabel {
   LatitudeStepDivisor = 2,
 }
 
-// ── Interpolation ───────────────────────────────────────────────────
-
-type SelectedMotion = Readonly<{
-  source: Domain.Aircraft | Domain.Ships;
-  motion: TrackMotion;
-}>;
-
 const markerVisuals = new MarkerVisuals();
-
-function interpolationSeconds(
-  selected: SelectedMotion,
-): number | null {
-  if (selected.motion.speedMps <= 0) return null;
-  const elapsedMilliseconds = Date.now() - selected.motion.ts;
-  const limit = selected.source === Domain.Ships
-    ? RENDER_POLICY.shipInterpolationLimitMs
-    : RENDER_POLICY.aircraftInterpolationLimitMs;
-  if (
-    elapsedMilliseconds < RENDER_POLICY.minimumInterpolationAgeMs ||
-    elapsedMilliseconds > limit
-  ) {
-    return null;
-  }
-  return elapsedMilliseconds / MS_PER_SECOND;
-}
-
-function selectedInterpolation(): { lat: number; lon: number } | null {
-  const identity = selectionController.snapshot().identity;
-  const motion = selectionOverlayStore.snapshot()?.motion ?? null;
-  if (!identity || !motion || (
-    identity.source !== Domain.Aircraft &&
-    identity.source !== Domain.Ships
-  )) {
-    return null;
-  }
-  const selected: SelectedMotion = {
-    source: identity.source,
-    motion,
-  };
-  const elapsedSeconds = interpolationSeconds(selected);
-  if (elapsedSeconds === null) return null;
-  const geographicMotion = createGeographicMotion(
-    motion.lat,
-    motion.lon,
-    motion.headingDeg,
-    motion.speedMps,
-  );
-  const position = advanceGeographicMotion(
-    geographicMotion,
-    elapsedSeconds,
-  );
-  return { lat: position.latitude, lon: position.longitude };
-}
 
 // ── Theme detection ─────────────────────────────────────────────────
 
@@ -412,6 +352,7 @@ function drawTrail(
   projFn: ProjFn,
   selectedId: string | null,
   trail: readonly TrailPoint[],
+  livePosition: CameraPosition | null,
   colors: TrailColors,
 ): TrailHitTarget[] {
   if (!selectedId || trail.length < 1) return [];
@@ -423,8 +364,13 @@ function drawTrail(
     speed: p.speed,
     heading: p.heading,
   }));
-  const interp = selectedInterpolation();
-  if (interp) coords.push({ lat: interp.lat, lon: interp.lon, ts: Date.now() });
+  if (livePosition) {
+    coords.push({
+      lat: livePosition.latitude,
+      lon: livePosition.longitude,
+      ts: Date.now(),
+    });
+  }
   if (coords.length < 2) return [];
 
   const projected: ProjTrail[] = coords
@@ -805,21 +751,25 @@ function scheduleRender(): void {
   requestAnimationFrame(renderFrame);
 }
 
-function selectedCameraPosition(): CameraPosition | null {
+type SelectedScenePosition = CameraPosition &
+  Readonly<{ interpolated: boolean }>;
+
+function selectedCameraPosition(
+  time: number,
+): SelectedScenePosition | null {
   const identity = selectionIdentity();
   if (!identity) return null;
   const target = renderLayerCatalog.selectionTarget(
     identity.source,
     identity.interactionId,
+    time,
   );
   if (!target) return null;
-  const interpolated = selectedInterpolation();
   return {
     id: identity.interactionId,
-    latitude:
-      interpolated?.lat ?? target.latitude,
-    longitude:
-      interpolated?.lon ?? target.longitude,
+    interpolated: target.interpolated,
+    latitude: target.latitude,
+    longitude: target.longitude,
   };
 }
 
@@ -964,10 +914,12 @@ function handleFocus(
   >,
 ): void {
   if (!_viewport) return;
+  const time = Date.now();
   const position = focusResolver.resolve(
     msg.payload,
     selectionIdentity(),
-    selectedCameraPosition(),
+    selectedCameraPosition(time),
+    time,
   );
   if (!position) return;
   focusCamera(
@@ -1815,6 +1767,7 @@ type ProjectFrameOptions = Readonly<{
   geometry: SceneGeometry;
   globeState: RenderGlobeStateSnapshot;
   selection: RenderSelectionIdentity | null;
+  time: number;
 }>;
 
 type ProjectedFrame = Readonly<{
@@ -1847,12 +1800,16 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     filter: state.aircraftFilter,
     ...sceneVisibility,
   };
-  aircraftLayer.project(base, aircraftSceneFilter);
+  aircraftLayer.project(
+    base,
+    aircraftSceneFilter,
+    options.time,
+  );
 
   shipLayer.project(base, {
     enabled: state.layers[Domain.Ships],
     ...sceneVisibility,
-  });
+  }, options.time);
 
   const fireSceneFilter: FireSceneFilter = {
     enabled: state.layers[Domain.Fires],
@@ -1928,7 +1885,7 @@ function scheduleNextFrameIfNeeded(
     (renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
-    (selectionOverlayStore.snapshot()?.motion ?? null) !== null ||
+    renderLayerCatalog.hasFrameMotion() ||
     hasVisualAnimation ||
     cameraActive;
   if (!needsFrame || _frameScheduled) return;
@@ -1952,6 +1909,8 @@ function renderFrame(): void {
   const isFlat =
     globeState.projection === RenderProjectionMode.Flat;
   const now = performance.now();
+  const wallTime = Date.now();
+  const selectedPosition = selectedCameraPosition(wallTime);
   const cameraActive = stepCamera(
     _camera,
     _cameraTarget,
@@ -1961,13 +1920,12 @@ function renderFrame(): void {
       flat: isFlat,
       autoRotate: globeState.rotationEnabled,
       rotationSpeed: globeState.rotationSpeed,
-      selectedPosition: selectedCameraPosition(),
+      selectedPosition,
       deltaMilliseconds: now - _lastFrameAt,
     },
   );
   _lastFrameAt = now;
   const cam = cameraSnapshot(_camera);
-  const wallTime = Date.now();
   const t = wallTime * 0.003;
   const selection = selectionIdentity();
   const selId = selection?.interactionId ?? null;
@@ -1975,7 +1933,6 @@ function renderFrame(): void {
   const isoId =
     isoMode === null ? null : selection?.interactionId ?? null;
 
-  const selectedPosition = selectedCameraPosition();
   const selectedOverlay = selectionOverlayStore.snapshot();
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
@@ -2013,6 +1970,7 @@ function renderFrame(): void {
     geometry,
     globeState,
     selection,
+    time: wallTime,
   });
   const {
     isolatedType,
@@ -2059,12 +2017,17 @@ function renderFrame(): void {
       colors,
     );
   }
+  const liveTrailPosition =
+    selectedPosition?.interpolated === true
+      ? selectedPosition
+      : null;
   const hitTargets = drawSelectedTrail
     ? drawTrail(
         ctx,
         projFn,
         selId,
         selectedOverlay?.trail ?? [],
+        liveTrailPosition,
         colors,
       )
     : [];

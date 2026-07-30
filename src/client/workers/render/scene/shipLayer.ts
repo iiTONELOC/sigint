@@ -8,6 +8,9 @@ import {
   RenderLayerOrder,
   ScenePointLayer,
 } from "@/workers/render/scene/sceneLayer";
+import {
+  MovingScenePositionAccessor,
+} from "@/workers/render/scene/movingScenePosition";
 import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
 import {
   sceneRecordIsVisible,
@@ -15,6 +18,9 @@ import {
 } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
+import {
+  TRAIL_POLICY,
+} from "@/lib/geo/trails/trailStore";
 import { Domain } from "@shared/domain/identity";
 import { TurnDeg } from "@shared/geo";
 
@@ -150,7 +156,15 @@ export class ShipLayer extends ScenePointLayer<
   readonly order = RenderLayerOrder.Ships;
 
   constructor() {
-    super(Domain.Ships);
+    super(
+      Domain.Ships,
+      new MovingScenePositionAccessor({
+        attributeOffset: ShipSceneSchema.MotionAttributeOffset,
+        attributeStride: ShipSceneSchema.AttributeStride,
+        maximumAgeMs:
+          TRAIL_POLICY[Domain.Ships].maxExtrapolationMs,
+      }),
+    );
   }
 
   protected includes(

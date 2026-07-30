@@ -28,6 +28,8 @@ const view = {
   sceneIds: ["event-marker-a", "event-marker-b"],
   entityIds: ["event-a", "event-b"],
   positions: new Float64Array([20, 10, -20, -10]),
+  motionPositions: new Float64Array(),
+  motionPositionStride: 0,
   unitVectors: new Float32Array(6),
   timestamps: new Float64Array([
     TestInstant.EventSceneNow - 30 * MS_PER_MINUTE,

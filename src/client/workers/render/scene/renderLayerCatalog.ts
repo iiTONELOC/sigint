@@ -110,8 +110,13 @@ export class RenderLayerCatalog {
   selectionTarget(
     source: RenderSourceId,
     id: string,
+    time: number,
   ): RenderLayerSelectionTarget | null {
-    return this.bySource.get(source)?.selectionTarget(id) ?? null;
+    return this.bySource.get(source)?.selectionTarget(id, time) ?? null;
+  }
+
+  hasFrameMotion(): boolean {
+    return this.ordered.some((layer) => layer.hasFrameMotion());
   }
 
   hasTimeAnimation(reducedMotion: boolean): boolean {

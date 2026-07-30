@@ -79,6 +79,8 @@ export function sceneRebaseCommand(
     sceneIds: view.sceneIds,
     entityIds: view.entityIds,
     positions: view.positions,
+    motionPositions: view.motionPositions,
+    motionPositionStride: view.motionPositionStride,
     unitVectors: view.unitVectors,
     timestamps: view.timestamps,
     attributes: view.attributes,

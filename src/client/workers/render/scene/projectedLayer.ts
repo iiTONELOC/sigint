@@ -1,5 +1,14 @@
 import type { GlobeRotationMatrix } from "@/lib/geo/unitSphere";
-import type { RenderSceneView } from "@/workers/render/sceneStore";
+import {
+  scenePositionFromRecord,
+  scenePositionFromView,
+  type ScenePositionAccessor,
+  type SceneResolvedPosition,
+} from "@/workers/render/scene/scenePosition";
+import type {
+  RenderSceneRecord,
+  RenderSceneView,
+} from "@/workers/render/sceneStore";
 import { TurnDeg } from "@shared/geo";
 
 enum SceneLaneComponentCount {
@@ -11,17 +20,6 @@ enum ProjectionOffset {
   X = 0,
   Y = 1,
   Depth = 2,
-}
-
-enum PositionOffset {
-  Longitude = 0,
-  Latitude = 1,
-}
-
-enum UnitVectorOffset {
-  X = 0,
-  Y = 1,
-  Z = 2,
 }
 
 enum HitCellOffset {
@@ -82,12 +80,22 @@ export class ProjectedSceneLayer {
   private cells = new Map<number, number[]>();
   private columns = 0;
   private hitCellSize = 1;
+  private readonly positionAccessor: ScenePositionAccessor | null;
   private projected = new Float32Array(0);
+  private resolvedPositions = new Float64Array(0);
   private rows = 0;
   private view: RenderSceneView | null = null;
   private visible: number[] = [];
 
-  project(view: RenderSceneView, frame: SceneProjectionFrame): void {
+  constructor(positionAccessor: ScenePositionAccessor | null = null) {
+    this.positionAccessor = positionAccessor;
+  }
+
+  project(
+    view: RenderSceneView,
+    frame: SceneProjectionFrame,
+    time: number = Date.now(),
+  ): void {
     this.view = view;
     this.ensureProjectionCapacity(view.capacity);
     this.clearProjection();
@@ -95,12 +103,27 @@ export class ProjectedSceneLayer {
 
     for (const [index, active] of view.active.entries()) {
       if (active !== 1 || !frame.includes(index)) continue;
-      const projection = this.projectRecord(view, frame, index);
+      const position = this.resolveViewPosition(view, index, time);
+      if (!position) continue;
+      const projection = this.projectRecord(frame, position);
       if (!projection || !this.isInsideFrame(projection, frame)) continue;
       this.writeProjection(index, projection);
+      this.writeResolvedPosition(index, position);
       this.visible.push(index);
       this.addHitCandidate(index, projection.x, projection.y);
     }
+  }
+
+  hasFrameMotion(view: RenderSceneView): boolean {
+    return this.positionAccessor?.hasFrameMotion(view) ?? false;
+  }
+
+  positionForRecord(
+    record: RenderSceneRecord,
+    time: number,
+  ): SceneResolvedPosition {
+    return this.positionAccessor?.resolveRecord(record, time) ??
+      scenePositionFromRecord(record);
   }
 
   visibleIndices(): IterableIterator<number> {
@@ -147,8 +170,14 @@ export class ProjectedSceneLayer {
 
   private ensureProjectionCapacity(capacity: number): void {
     const required = capacity * SceneLaneComponentCount.Triple;
-    if (this.projected.length >= required) return;
-    this.projected = new Float32Array(required);
+    if (this.projected.length < required) {
+      this.projected = new Float32Array(required);
+    }
+    const resolvedRequired =
+      capacity * SceneLaneComponentCount.Pair;
+    if (this.resolvedPositions.length < resolvedRequired) {
+      this.resolvedPositions = new Float64Array(resolvedRequired);
+    }
   }
 
   private clearProjection(): void {
@@ -174,19 +203,18 @@ export class ProjectedSceneLayer {
   }
 
   private projectRecord(
-    view: RenderSceneView,
     frame: SceneProjectionFrame,
-    index: number,
+    position: SceneResolvedPosition,
   ): SceneProjection | null {
-    const positionOffset = index * SceneLaneComponentCount.Pair;
-    const longitude =
-      view.positions[positionOffset + PositionOffset.Longitude];
-    const latitude =
-      view.positions[positionOffset + PositionOffset.Latitude];
-    if (longitude === undefined || latitude === undefined) return null;
-    if (frame.flat) return this.projectFlat(frame.flat, longitude, latitude);
+    if (frame.flat) {
+      return this.projectFlat(
+        frame.flat,
+        position.longitude,
+        position.latitude,
+      );
+    }
     return frame.globe
-      ? this.projectGlobe(view, frame.globe, index)
+      ? this.projectGlobe(frame.globe, position)
       : null;
   }
 
@@ -209,29 +237,22 @@ export class ProjectedSceneLayer {
   }
 
   private projectGlobe(
-    view: RenderSceneView,
     globe: GlobeSceneProjection,
-    index: number,
+    position: SceneResolvedPosition,
   ): SceneProjection | null {
-    const unitOffset = index * SceneLaneComponentCount.Triple;
-    const unitX = view.unitVectors[unitOffset + UnitVectorOffset.X];
-    const unitY = view.unitVectors[unitOffset + UnitVectorOffset.Y];
-    const unitZ = view.unitVectors[unitOffset + UnitVectorOffset.Z];
-    if (
-      unitX === undefined ||
-      unitY === undefined ||
-      unitZ === undefined
-    ) {
-      return null;
-    }
-
     const matrix = globe.matrix;
     const rotatedX =
-      matrix.m00 * unitX + matrix.m01 * unitY + matrix.m02 * unitZ;
+      matrix.m00 * position.unitX +
+      matrix.m01 * position.unitY +
+      matrix.m02 * position.unitZ;
     const rotatedY =
-      matrix.m10 * unitX + matrix.m11 * unitY + matrix.m12 * unitZ;
+      matrix.m10 * position.unitX +
+      matrix.m11 * position.unitY +
+      matrix.m12 * position.unitZ;
     const depth =
-      matrix.m20 * unitX + matrix.m21 * unitY + matrix.m22 * unitZ;
+      matrix.m20 * position.unitX +
+      matrix.m21 * position.unitY +
+      matrix.m22 * position.unitZ;
     if (depth <= 0) return null;
     return {
       x: globe.centerX + rotatedX * globe.radius,
@@ -260,6 +281,15 @@ export class ProjectedSceneLayer {
     this.projected[offset + ProjectionOffset.X] = projection.x;
     this.projected[offset + ProjectionOffset.Y] = projection.y;
     this.projected[offset + ProjectionOffset.Depth] = projection.depth;
+  }
+
+  private writeResolvedPosition(
+    index: number,
+    position: SceneResolvedPosition,
+  ): void {
+    const offset = index * SceneLaneComponentCount.Pair;
+    this.resolvedPositions[offset] = position.longitude;
+    this.resolvedPositions[offset + 1] = position.latitude;
   }
 
   private addHitCandidate(index: number, x: number, y: number): void {
@@ -319,9 +349,9 @@ export class ProjectedSceneLayer {
     const entityId = view.entityIds[index];
     const positionOffset = index * SceneLaneComponentCount.Pair;
     const longitude =
-      view.positions[positionOffset + PositionOffset.Longitude];
+      this.resolvedPositions[positionOffset];
     const latitude =
-      view.positions[positionOffset + PositionOffset.Latitude];
+      this.resolvedPositions[positionOffset + 1];
     if (
       !projection ||
       !sceneId ||
@@ -340,5 +370,14 @@ export class ProjectedSceneLayer {
       latitude,
       distance: Math.hypot(projection.x - x, projection.y - y),
     };
+  }
+
+  private resolveViewPosition(
+    view: RenderSceneView,
+    index: number,
+    time: number,
+  ): SceneResolvedPosition | null {
+    return this.positionAccessor?.resolveView(view, index, time) ??
+      scenePositionFromView(view, index);
   }
 }

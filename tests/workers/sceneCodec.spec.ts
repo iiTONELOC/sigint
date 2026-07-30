@@ -9,6 +9,9 @@ import {
 } from "@/workers/data/render-codecs/sceneCodec";
 import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import {
+  MovingSceneMotionPositionSchema,
+} from "@/workers/render/scene/movingSceneSchema";
+import {
   GeoJsonGeometryType,
   type GeoJsonPolygonGeometry,
 } from "@shared/geo";
@@ -19,6 +22,7 @@ type TestPoint = Readonly<{
   lon: number;
   timestamp: number;
   value: number;
+  motionPosition?: readonly [number, number];
   geometry?: GeoJsonPolygonGeometry;
 }>;
 
@@ -67,6 +71,48 @@ const TEST_GEOMETRY: GeoJsonPolygonGeometry = {
 };
 
 describe("scene patch codec", () => {
+  test("keeps motion positions in a separate Float64 lane", () => {
+    const codec = new ScenePatchCodec<TestPoint>({
+      source: Domain.Aircraft,
+      attributeStride: 1,
+      records: singleSceneRecord,
+      position: (point) => [point.lon, point.lat],
+      motionPosition: (point) =>
+        point.motionPosition ?? [point.lon, point.lat],
+      timestamp: (point) => point.timestamp,
+      writeAttributes: (point, target, offset) => {
+        target[offset] = point.value;
+      },
+    });
+
+    const patch = codec.encode({
+      kind: DatasetPatchKind.Rebase,
+      version: 1,
+      upserts: [{
+        id: "moving",
+        lat: 10,
+        lon: 20,
+        timestamp: 100,
+        value: 1,
+        motionPosition: [
+          20.123456789012,
+          10.123456789012,
+        ],
+      }],
+      deletedIds: [],
+    });
+
+    expect(patch.motionPositions).toBeInstanceOf(Float64Array);
+    expect(patch.motionPositionStride).toBe(
+      MovingSceneMotionPositionSchema.MotionPositionStride,
+    );
+    expect(Array.from(patch.motionPositions)).toEqual([
+      20.123456789012,
+      10.123456789012,
+    ]);
+    expect(Array.from(patch.attributes)).toEqual([1]);
+  });
+
   test("encodes patch records and reuses released handles", () => {
     const codec = new ScenePatchCodec<TestPoint>({
       source: Domain.Aircraft,
@@ -119,6 +165,8 @@ describe("scene patch codec", () => {
     expect(Array.from(first.handles)).toEqual([1, 2]);
     expect(first.sceneIds).toEqual(["first", "second"]);
     expect(first.entityIds).toEqual(["first", "second"]);
+    expect(first.motionPositionStride).toBe(0);
+    expect(first.motionPositions).toHaveLength(0);
     expect(Array.from(first.timestamps)).toEqual([100, 200]);
     expect(Array.from(first.geometryKinds)).toEqual([
       SceneGeometryKind.Polygon,

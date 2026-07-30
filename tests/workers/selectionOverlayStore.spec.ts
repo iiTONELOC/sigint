@@ -24,7 +24,6 @@ function overlay(revision: number): RenderSelectionOverlay {
   return {
     selection: selection(revision),
     trail: [],
-    motion: null,
     route: null,
   };
 }

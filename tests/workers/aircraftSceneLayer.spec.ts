@@ -13,10 +13,19 @@ import {
   AircraftSceneSchema,
   AircraftSceneSquawk,
 } from "@/workers/render/scene/aircraftSchema";
+import {
+  MovingSceneMotionPositionSchema,
+} from "@/workers/render/scene/movingSceneSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
+import {
+  advanceGeographicMotion,
+  createGeographicMotion,
+  geographicToUnitVector,
+} from "@/lib/geo/unitSphere";
+import { MS_PER_SECOND } from "@shared/time";
 import {
   sceneRebaseCommand,
   sceneSearchCommand,
@@ -28,20 +37,29 @@ const view = {
   sceneIds: ["civil-marker", "mil-marker", "recon-marker"],
   entityIds: ["civil-air", "mil-ground", "recon-air"],
   positions: new Float64Array(6),
+  motionPositions: new Float64Array(6),
+  motionPositionStride:
+    MovingSceneMotionPositionSchema.MotionPositionStride,
   unitVectors: new Float32Array(9),
   timestamps: new Float64Array(3),
   attributes: new Float32Array([
     10,
     0,
     AircraftSceneSquawk.Emergency,
+    0,
+    0,
     20,
     AircraftSceneFlag.Military +
       AircraftSceneFlag.OnGround,
     AircraftSceneSquawk.Normal,
+    0,
+    0,
     30,
     AircraftSceneFlag.Military +
       AircraftSceneFlag.Recon,
     AircraftSceneSquawk.Hijack,
+    0,
+    0,
   ]),
   attributeStride: AircraftSceneSchema.AttributeStride,
   stringAttributes: new Uint32Array([1, 2, 1]),
@@ -104,6 +122,81 @@ describe("aircraft scene layer", () => {
       "civil-air",
     );
     expect(layer.includesEntity("mil-ground", settings())).toBe(true);
+  });
+
+  test("projects an unselected aircraft and resolves one moving position", () => {
+    const rawUnit = geographicToUnitVector(10, 20);
+    const moving = {
+      capacity: 1,
+      active: new Uint8Array([1]),
+      sceneIds: ["moving-aircraft"],
+      entityIds: ["moving-aircraft"],
+      positions: new Float64Array([20, 10]),
+      motionPositions: new Float64Array([0, 0]),
+      motionPositionStride:
+        MovingSceneMotionPositionSchema.MotionPositionStride,
+      unitVectors: new Float32Array([
+        rawUnit.x,
+        rawUnit.y,
+        rawUnit.z,
+      ]),
+      timestamps: new Float64Array([1_000]),
+      attributes: new Float32Array([
+        90,
+        0,
+        AircraftSceneSquawk.Normal,
+        90,
+        1_000,
+      ]),
+      attributeStride: AircraftSceneSchema.AttributeStride,
+      stringAttributes: new Uint32Array([0]),
+      stringAttributeStride:
+        AircraftSceneSchema.StringAttributeStride,
+      dictionary: [],
+      geometries: [null],
+    } satisfies RenderSceneView;
+    const layer = new AircraftLayer();
+    const time = 1_000 + MS_PER_SECOND;
+    const expected = advanceGeographicMotion(
+      createGeographicMotion(0, 0, 90, 1_000),
+      1,
+    );
+    layer.apply(sceneRebaseCommand(Domain.Aircraft, moving));
+    layer.project(
+      {
+        width: 200,
+        height: 200,
+        hitCellSize: 32,
+        cullMargin: 0,
+        flat: {
+          centerX: 100,
+          centerY: 100,
+          mapWidth: 360,
+          mapHeight: 180,
+        },
+        globe: null,
+      },
+      settings(),
+      time,
+    );
+
+    const hit = layer.nearest(
+      SceneHitKind.Point,
+      100 + expected.longitude,
+      100 - expected.latitude,
+      10,
+      10,
+    );
+    const target = layer.selectionTarget(
+      "moving-aircraft",
+      time,
+    );
+    expect(hit?.latitude).toBeCloseTo(expected.latitude);
+    expect(hit?.longitude).toBeCloseTo(expected.longitude);
+    expect(target?.latitude).toBeCloseTo(expected.latitude);
+    expect(target?.longitude).toBeCloseTo(expected.longitude);
+    expect(target?.interpolated).toBe(true);
+    expect(layer.hasFrameMotion()).toBe(true);
   });
 
   test("matches exact country and squawk buckets", () => {

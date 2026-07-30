@@ -72,6 +72,7 @@ export type ScenePatchCodecOptions<
   attributeStride: number;
   records: (entity: TEntity) => readonly TRecord[];
   position: (record: TRecord) => GeoPoint;
+  motionPosition?: (record: TRecord) => GeoPoint;
   timestamp: (record: TRecord) => number;
   geometry?: (record: TRecord) => SceneGeometryInput | null | undefined;
   writeAttributes: (
@@ -122,6 +123,7 @@ type ScenePatchAllocation = Readonly<{
   sceneIds: string[];
   entityIds: string[];
   positions: Float64Array<ArrayBuffer>;
+  motionPositions: Float64Array<ArrayBuffer>;
   unitVectors: Float32Array<ArrayBuffer>;
   timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
@@ -176,6 +178,7 @@ export class ScenePatchCodec<
   private readonly dictionaryValues: string[] = [];
   private readonly entityIdBySceneId = new Map<string, string>();
   private readonly handleAllocator = new SceneHandleAllocator();
+  private readonly motionPositionStride: number;
   private readonly options: ScenePatchCodecOptions<TEntity, TRecord>;
   private readonly sceneIdsByEntityId = new Map<string, Set<string>>();
   private readonly stringAttributeStride: number;
@@ -184,6 +187,9 @@ export class ScenePatchCodec<
     validateAttributeStride(options.attributeStride);
     this.stringAttributeStride = options.stringAttributeStride ?? 0;
     validateAttributeStride(this.stringAttributeStride);
+    this.motionPositionStride = options.motionPosition
+      ? SceneComponentCount.Position
+      : 0;
     this.options = options;
   }
 
@@ -212,6 +218,7 @@ export class ScenePatchCodec<
       ...allocation,
       ...geometry,
       attributeStride: this.options.attributeStride,
+      motionPositionStride: this.motionPositionStride,
       stringAttributeStride: this.stringAttributeStride,
       dictionaryStart,
       dictionaryValues:
@@ -249,6 +256,9 @@ export class ScenePatchCodec<
       sceneIds: new Array<string>(count),
       entityIds: new Array<string>(count),
       positions: new Float64Array(count * SceneComponentCount.Position),
+      motionPositions: new Float64Array(
+        count * this.motionPositionStride,
+      ),
       unitVectors: new Float32Array(count * SceneComponentCount.UnitVector),
       timestamps: new Float64Array(count),
       attributes: new Float32Array(count * this.options.attributeStride),
@@ -341,6 +351,7 @@ export class ScenePatchCodec<
     allocation.entityIds[index] = entityId;
     this.registerIdentity(sceneId, entityId);
     this.writePosition(allocation, index, longitude, latitude);
+    this.writeMotionPosition(allocation, projected.record, index);
     allocation.timestamps[index] = timestamp;
     this.options.writeAttributes(
       projected.record,
@@ -376,17 +387,44 @@ export class ScenePatchCodec<
     allocation.unitVectors[unitOffset + SceneUnitVectorOffset.Z] = unit.z;
   }
 
+  private writeMotionPosition(
+    allocation: ScenePatchAllocation,
+    record: TRecord,
+    index: number,
+  ): void {
+    const position = this.options.motionPosition?.(record);
+    if (!position) return;
+    const longitude = longitudeOf(position);
+    const latitude = latitudeOf(position);
+    this.validatePosition(record.id, longitude, latitude);
+    const offset = index * this.motionPositionStride;
+    allocation.motionPositions[
+      offset + ScenePositionOffset.Longitude
+    ] = longitude;
+    allocation.motionPositions[
+      offset + ScenePositionOffset.Latitude
+    ] = latitude;
+  }
+
   private validateEntity(
     sceneId: string,
     longitude: number,
     latitude: number,
     timestamp: number,
   ): void {
-    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-      throw new SceneCodecError(SceneCodecErrorKind.InvalidPosition, sceneId);
-    }
+    this.validatePosition(sceneId, longitude, latitude);
     if (!Number.isFinite(timestamp)) {
       throw new SceneCodecError(SceneCodecErrorKind.InvalidTimestamp, sceneId);
+    }
+  }
+
+  private validatePosition(
+    sceneId: string,
+    longitude: number,
+    latitude: number,
+  ): void {
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      throw new SceneCodecError(SceneCodecErrorKind.InvalidPosition, sceneId);
     }
   }
 

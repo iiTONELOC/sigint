@@ -1,17 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
-import { SceneStore } from "@/workers/render/sceneStore";
+import {
+  SceneStore,
+  SceneStoreError,
+  SceneStoreErrorKind,
+} from "@/workers/render/sceneStore";
 import {
   createSceneCommand,
   SceneDataCommandType,
   SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
+import {
+  MovingSceneMotionPositionSchema,
+} from "@/workers/render/scene/movingSceneSchema";
 
 describe("render scene store", () => {
   test("applies changed handles without rebuilding retained records", () => {
     const store = new SceneStore(Domain.Aircraft);
-    store.apply(createSceneCommand({
+    const update = createSceneCommand({
       type: SceneDataCommandType.SourcePatch,
       source: Domain.Aircraft,
       sourceVersion: 1,
@@ -20,6 +27,14 @@ describe("render scene store", () => {
       sceneIds: ["scene-first", "scene-second"],
       entityIds: ["first", "second"],
       positions: new Float64Array([20, 10, 40, 30]),
+      motionPositions: new Float64Array([
+        20.123456789012,
+        10.123456789012,
+        40.123456789012,
+        30.123456789012,
+      ]),
+      motionPositionStride:
+        MovingSceneMotionPositionSchema.MotionPositionStride,
       unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
       timestamps: new Float64Array([100, 200]),
       attributes: new Float32Array([1, 2]),
@@ -39,7 +54,8 @@ describe("render scene store", () => {
       geometryGroupEnds: new Uint32Array([1]),
       geometryRecordEnds: new Uint32Array([1, 1]),
       deletedHandles: new Uint32Array(),
-    }, "session-a", 1));
+    }, "session-a", 1);
+    store.apply(update);
 
     store.apply(createSceneCommand({
       type: SceneDataCommandType.SourcePatch,
@@ -50,6 +66,12 @@ describe("render scene store", () => {
       sceneIds: ["scene-first"],
       entityIds: ["first"],
       positions: new Float64Array([21, 11]),
+      motionPositions: new Float64Array([
+        21.123456789012,
+        11.123456789012,
+      ]),
+      motionPositionStride:
+        MovingSceneMotionPositionSchema.MotionPositionStride,
       unitVectors: new Float32Array([0, 0, 1]),
       timestamps: new Float64Array([300]),
       attributes: new Float32Array([3]),
@@ -75,6 +97,8 @@ describe("render scene store", () => {
       entityId: "first",
       longitude: 21,
       latitude: 11,
+      motionLongitude: 21.123456789012,
+      motionLatitude: 11.123456789012,
       unitX: 0,
       unitY: 0,
       unitZ: 1,
@@ -98,5 +122,18 @@ describe("render scene store", () => {
     expect(store.handleForSceneId("scene-first")).toBe(1);
     expect(store.handlesForEntityId("first")).toEqual([1]);
     expect(store.read(2)).toBeNull();
+    expect(() => {
+      store.apply({
+        ...update,
+        sourceVersion: 3,
+        sequence: 3,
+        motionPositions: new Float64Array(),
+        motionPositionStride: 0,
+      });
+    }).toThrow(
+      new SceneStoreError(
+        SceneStoreErrorKind.MotionPositionStrideChanged,
+      ),
+    );
   });
 });

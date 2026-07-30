@@ -15,9 +15,16 @@ import {
 } from "@/workers/data/render-codecs/sceneBinding";
 import {
   ScenePatchCodec,
-  sceneTimestamp,
-  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  movingSceneMotionPosition,
+  movingScenePosition,
+  movingSceneRecords,
+  movingSceneTimestamp,
+  writeMovingSceneAttributes,
+  type MovingSceneRecord,
+  type MovingSceneTrailReader,
+} from "@/workers/data/render-codecs/movingSceneRecord";
 import {
   EntityLifetime,
   GeoCarrier,
@@ -26,7 +33,6 @@ import {
   type SourcePatchObserver,
   type SourcePolicy,
 } from "@/workers/data/source-model/dataSource";
-import { recordPosition } from "@/workers/data/source-model/position";
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import {
@@ -160,28 +166,49 @@ export class AircraftSource extends GeoDataSource<AircraftPoint> {
   }
 }
 
-export class AircraftSceneBinding extends SceneBinding<AircraftPoint> {
-  constructor(publishScene: SceneCommandPublisher) {
+export class AircraftSceneBinding extends SceneBinding<
+  AircraftPoint,
+  MovingSceneRecord<AircraftPoint>
+> {
+  constructor(
+    trails: MovingSceneTrailReader,
+    publishScene: SceneCommandPublisher,
+  ) {
     super(
-      new ScenePatchCodec<AircraftPoint>({
+      new ScenePatchCodec<
+        AircraftPoint,
+        MovingSceneRecord<AircraftPoint>
+      >({
         source: Domain.Aircraft,
         attributeStride: AircraftSceneSchema.AttributeStride,
         stringAttributeStride:
           AircraftSceneSchema.StringAttributeStride,
-        records: singleSceneRecord,
-        position: recordPosition,
-        timestamp: sceneTimestamp,
-        writeAttributes: (point, target, offset) => {
+        records: (point) =>
+          movingSceneRecords(Domain.Aircraft, trails, point),
+        position: movingScenePosition,
+        motionPosition: movingSceneMotionPosition,
+        timestamp: movingSceneTimestamp,
+        writeAttributes: (record, target, offset) => {
+          const point = record.entity;
           target[offset + AircraftSceneAttribute.Heading] =
             point.data.heading ?? 0;
           target[offset + AircraftSceneAttribute.Flags] =
             aircraftFlags(point.data);
           target[offset + AircraftSceneAttribute.Squawk] =
             squawkCode(point.data.squawkStatus);
+          writeMovingSceneAttributes(
+            record,
+            target,
+            offset + AircraftSceneSchema.MotionAttributeOffset,
+            {
+              directionDegrees: point.data.heading ?? 0,
+              speedMetersPerSecond: point.data.speedMps ?? 0,
+            },
+          );
         },
-        writeStringAttributes: (point, target, offset, intern) => {
+        writeStringAttributes: (record, target, offset, intern) => {
           target[offset + AircraftSceneStringAttribute.Country] =
-            intern(point.data.originCountry ?? "");
+            intern(record.entity.data.originCountry ?? "");
         },
       }),
       publishScene,

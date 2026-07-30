@@ -1,13 +1,8 @@
 import { Domain } from "@shared/domain/identity";
-import {
-  DEGREES_TO_RADIANS,
-  EARTH_RADIUS_METERS,
-  isRecord,
-} from "@shared/geo";
+import { isRecord } from "@shared/geo";
 import {
   MS_PER_HOUR,
   MS_PER_MINUTE,
-  MS_PER_SECOND,
 } from "@shared/time";
 
 export type TrackSource = Domain.Aircraft | Domain.Ships;
@@ -269,89 +264,4 @@ export function recordTrailPositions(
     if (recordOne(target, source, item, now, policy)) changed = true;
   }
   return pruneStale(target, source, now, policy) || changed;
-}
-
-// ── Dead reckoning ───────────────────────────────────────────────────
-
-const MIN_EXTRAPOLATION_MS = MS_PER_SECOND;
-
-function movePoint(
-  lat: number,
-  lon: number,
-  headingDeg: number,
-  distMeters: number,
-): { lat: number; lon: number } {
-  const hdg = headingDeg * DEGREES_TO_RADIANS;
-  const dLat =
-    (distMeters * Math.cos(hdg)) /
-    EARTH_RADIUS_METERS /
-    DEGREES_TO_RADIANS;
-  const dLon =
-    (distMeters * Math.sin(hdg)) /
-    (EARTH_RADIUS_METERS * Math.cos(lat * DEGREES_TO_RADIANS)) /
-    DEGREES_TO_RADIANS;
-  return { lat: lat + dLat, lon: lon + dLon };
-}
-
-/**
- * The last fix plus the motion that carries it forward. Everything the
- * renderer needs to dead-reckon one track between polls.
- */
-export type TrackMotion = Readonly<{
-  lat: number;
-  lon: number;
-  ts: number;
-  headingDeg: number;
-  speedMps: number;
-}>;
-
-export function isTrackMotion(value: unknown): value is TrackMotion {
-  return (
-    isRecord(value) &&
-    typeof value.lat === "number" &&
-    Number.isFinite(value.lat) &&
-    typeof value.lon === "number" &&
-    Number.isFinite(value.lon) &&
-    typeof value.ts === "number" &&
-    Number.isFinite(value.ts) &&
-    typeof value.headingDeg === "number" &&
-    Number.isFinite(value.headingDeg) &&
-    typeof value.speedMps === "number" &&
-    Number.isFinite(value.speedMps)
-  );
-}
-
-export function trackMotion(entry: TrailEntry): TrackMotion | null {
-  const last = entry.points.at(-1);
-  if (!last || entry.speedMps <= 0) return null;
-  return {
-    lat: last.lat,
-    lon: last.lon,
-    ts: last.ts,
-    headingDeg: entry.heading,
-    speedMps: entry.speedMps,
-  };
-}
-
-/**
- * Extrapolate from the last known position along its heading. Null when the
- * track is stationary, too fresh to have drifted, or too old to trust.
- */
-export function interpolatePosition(
-  entry: TrailEntry,
-  now: number,
-): { lat: number; lon: number } | null {
-  const last = entry.points.at(-1);
-  if (!last || entry.speedMps <= 0) return null;
-
-  const elapsedMs = now - last.ts;
-  if (elapsedMs > TRAIL_POLICY[entry.type].maxExtrapolationMs) return null;
-  if (elapsedMs < MIN_EXTRAPOLATION_MS) return null;
-
-  return movePoint(
-    last.lat,
-    last.lon,
-    entry.heading,
-    entry.speedMps * (elapsedMs / MS_PER_SECOND),
-  );
 }

@@ -24,6 +24,8 @@ describe("projected scene layer", () => {
       sceneIds: ["aircraft-marker-A1"],
       entityIds: ["A1"],
       positions: new Float64Array([20, 10]),
+      motionPositions: new Float64Array(),
+      motionPositionStride: 0,
       unitVectors: new Float32Array([1, 0, 0]),
       timestamps: new Float64Array([1_000]),
       attributes: new Float32Array([90, 0, 0]),

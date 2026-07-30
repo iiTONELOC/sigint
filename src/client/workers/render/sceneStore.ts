@@ -41,6 +41,7 @@ enum SceneUnitVectorOffset {
 export enum SceneStoreErrorKind {
   AttributeStrideChanged = "The scene attribute stride cannot change",
   DictionarySequenceInvalid = "The scene dictionary sequence is invalid",
+  MotionPositionStrideChanged = "The scene motion-position stride cannot change",
   SourceMismatch = "The scene patch has an incorrect source",
   SourceVersionNotIncreasing = "The scene source version must increase",
   StringAttributeStrideChanged = "The scene string attribute stride cannot change",
@@ -66,6 +67,8 @@ export type RenderSceneRecord = Readonly<{
   entityId: string;
   longitude: number;
   latitude: number;
+  motionLongitude: number | null;
+  motionLatitude: number | null;
   unitX: number;
   unitY: number;
   unitZ: number;
@@ -85,6 +88,8 @@ export type RenderSceneView = Readonly<{
   sceneIds: readonly (string | null)[];
   entityIds: readonly (string | null)[];
   positions: Float64Array<ArrayBuffer>;
+  motionPositions: Float64Array<ArrayBuffer>;
+  motionPositionStride: number;
   unitVectors: Float32Array<ArrayBuffer>;
   timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
@@ -112,6 +117,7 @@ type SceneStorage = {
   sceneIds: (string | null)[];
   entityIds: (string | null)[];
   positions: Float64Array<ArrayBuffer>;
+  motionPositions: Float64Array<ArrayBuffer>;
   unitVectors: Float32Array<ArrayBuffer>;
   timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
@@ -142,6 +148,7 @@ function copyStorage(target: SceneStorage, source: SceneStorage): void {
   copyIdentityLane(target.sceneIds, source.sceneIds);
   copyIdentityLane(target.entityIds, source.entityIds);
   target.positions.set(source.positions);
+  target.motionPositions.set(source.motionPositions);
   target.unitVectors.set(source.unitVectors);
   target.timestamps.set(source.timestamps);
   target.attributes.set(source.attributes);
@@ -163,12 +170,16 @@ function nextCapacity(current: number, required: number): number {
 function createStorage(
   capacity: number,
   attributeStride: number,
+  motionPositionStride: number,
   stringAttributeStride: number,
   previous?: SceneStorage,
 ): SceneStorage {
   const active = new Uint8Array(capacity);
   const positions = new Float64Array(
     capacity * SceneStorageComponentCount.Position,
+  );
+  const motionPositions = new Float64Array(
+    capacity * motionPositionStride,
   );
   const unitVectors = new Float32Array(
     capacity * SceneStorageComponentCount.UnitVector,
@@ -184,6 +195,7 @@ function createStorage(
     sceneIds: new Array<string | null>(capacity).fill(null),
     entityIds: new Array<string | null>(capacity).fill(null),
     positions,
+    motionPositions,
     unitVectors,
     timestamps,
     attributes,
@@ -306,7 +318,8 @@ export class SceneStore {
   private itemCount = 0;
   private readonly source: RenderSourceId;
   private sourceVersion = 0;
-  private storage = createStorage(0, 0, 0);
+  private storage = createStorage(0, 0, 0, 0);
+  private motionPositionStride: number | null = null;
   private stringAttributeStride: number | null = null;
 
   constructor(source: RenderSourceId) {
@@ -342,6 +355,8 @@ export class SceneStore {
       sceneIds: this.storage.sceneIds,
       entityIds: this.storage.entityIds,
       positions: this.storage.positions,
+      motionPositions: this.storage.motionPositions,
+      motionPositionStride: this.motionPositionStride ?? 0,
       unitVectors: this.storage.unitVectors,
       timestamps: this.storage.timestamps,
       attributes: this.storage.attributes,
@@ -370,6 +385,10 @@ export class SceneStore {
     if (!sceneId || !entityId) return null;
 
     const positionOffset = index * SceneStorageComponentCount.Position;
+    const motionPositionStride = this.motionPositionStride ?? 0;
+    const motionPositionOffset = index * motionPositionStride;
+    const hasMotionPosition =
+      motionPositionStride === SceneStorageComponentCount.Position;
     const unitOffset = index * SceneStorageComponentCount.UnitVector;
     const stride = this.attributeStride ?? 0;
     return {
@@ -383,6 +402,16 @@ export class SceneStore {
         this.storage.positions[
           positionOffset + ScenePositionOffset.Latitude
         ] ?? 0,
+      motionLongitude: hasMotionPosition
+        ? (this.storage.motionPositions[
+            motionPositionOffset + ScenePositionOffset.Longitude
+          ] ?? null)
+        : null,
+      motionLatitude: hasMotionPosition
+        ? (this.storage.motionPositions[
+            motionPositionOffset + ScenePositionOffset.Latitude
+          ] ?? null)
+        : null,
       unitX:
         this.storage.unitVectors[
           unitOffset + SceneUnitVectorOffset.X
@@ -424,6 +453,14 @@ export class SceneStore {
       );
     }
     if (
+      this.motionPositionStride !== null &&
+      patch.motionPositionStride !== this.motionPositionStride
+    ) {
+      throw new SceneStoreError(
+        SceneStoreErrorKind.MotionPositionStrideChanged,
+      );
+    }
+    if (
       this.stringAttributeStride !== null &&
       patch.stringAttributeStride !== this.stringAttributeStride
     ) {
@@ -436,10 +473,12 @@ export class SceneStore {
   private applySchema(patch: RenderScenePatch): void {
     if (this.attributeStride !== null) return;
     this.attributeStride = patch.attributeStride;
+    this.motionPositionStride = patch.motionPositionStride;
     this.stringAttributeStride = patch.stringAttributeStride;
     this.storage = createStorage(
       this.storage.capacity,
       this.attributeStride,
+      this.motionPositionStride,
       this.stringAttributeStride,
       this.storage,
     );
@@ -461,6 +500,7 @@ export class SceneStore {
     this.storage = createStorage(
       capacity,
       this.attributeStride ?? 0,
+      this.motionPositionStride ?? 0,
       this.stringAttributeStride ?? 0,
       this.storage,
     );
@@ -526,6 +566,17 @@ export class SceneStore {
         patchPositionOffset + SceneStorageComponentCount.Position,
       ),
       positionOffset,
+    );
+
+    const motionPositionStride = this.motionPositionStride ?? 0;
+    const patchMotionPositionOffset =
+      patchIndex * motionPositionStride;
+    this.storage.motionPositions.set(
+      patch.motionPositions.subarray(
+        patchMotionPositionOffset,
+        patchMotionPositionOffset + motionPositionStride,
+      ),
+      index * motionPositionStride,
     );
 
     const patchUnitOffset =

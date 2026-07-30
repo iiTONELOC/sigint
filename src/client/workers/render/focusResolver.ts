@@ -16,6 +16,7 @@ export class RenderFocusResolver {
     request: RenderFocusPayload,
     selection: RenderSelectionIdentity | null,
     selectedPosition: CameraPosition | null,
+    time: number,
   ): CameraPosition | null {
     if (
       selectedPosition &&
@@ -27,6 +28,7 @@ export class RenderFocusResolver {
     const target = this.layers.selectionTarget(
       request.source,
       request.entityId,
+      time,
     );
     return target
       ? {

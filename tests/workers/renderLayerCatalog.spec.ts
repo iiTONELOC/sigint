@@ -40,6 +40,10 @@ class ProbeLayer implements RenderLayer {
     this.applied += 1;
   }
 
+  hasFrameMotion(): boolean {
+    return false;
+  }
+
   hasTimeAnimation(_reducedMotion: boolean): boolean {
     return false;
   }
@@ -75,7 +79,10 @@ class ProbeLayer implements RenderLayer {
       : null;
   }
 
-  selectionTarget(id: string): RenderLayerSelectionTarget | null {
+  selectionTarget(
+    id: string,
+    time: number,
+  ): RenderLayerSelectionTarget | null {
     if (id !== this.source) return null;
     return {
       identity: {
@@ -84,9 +91,16 @@ class ProbeLayer implements RenderLayer {
         interactionId: id,
         pointType: this.source,
       },
-      latitude: 0,
-      longitude: 0,
+      interpolated: time > 0,
+      latitude: time,
+      longitude: -time,
     };
+  }
+}
+
+class MotionProbeLayer extends ProbeLayer {
+  override hasFrameMotion(): boolean {
+    return true;
   }
 }
 
@@ -96,6 +110,8 @@ const EMPTY_VIEW = {
   sceneIds: [],
   entityIds: [],
   positions: new Float64Array(),
+  motionPositions: new Float64Array(),
+  motionPositionStride: 0,
   unitVectors: new Float32Array(),
   timestamps: new Float64Array(),
   attributes: new Float32Array(),
@@ -145,7 +161,7 @@ describe("RenderLayerCatalog", () => {
       catalog.searchIncludesEntity(Domain.Ships, Domain.Ships),
     ).toBe(true);
     expect(
-      catalog.selectionTarget(Domain.Ships, Domain.Ships),
+      catalog.selectionTarget(Domain.Ships, Domain.Ships, 100),
     ).toEqual({
       identity: {
         source: Domain.Ships,
@@ -153,8 +169,9 @@ describe("RenderLayerCatalog", () => {
         interactionId: Domain.Ships,
         pointType: Domain.Ships,
       },
-      latitude: 0,
-      longitude: 0,
+      interpolated: true,
+      latitude: 100,
+      longitude: -100,
     });
   });
 
@@ -175,6 +192,19 @@ describe("RenderLayerCatalog", () => {
       ),
     );
   });
+
+  test("reports retained motion independently of selection", () => {
+    const catalog = new RenderLayerCatalog();
+
+    expect(catalog.hasFrameMotion()).toBe(false);
+    catalog.register(
+      new MotionProbeLayer(
+        Domain.Aircraft,
+        RenderLayerOrder.Aircraft,
+      ),
+    );
+    expect(catalog.hasFrameMotion()).toBe(true);
+  });
 });
 
 describe("RenderFocusResolver", () => {
@@ -194,15 +224,16 @@ describe("RenderFocusResolver", () => {
         },
         null,
         null,
+        100,
       ),
     ).toEqual({
       id: Domain.Ships,
-      latitude: 0,
-      longitude: 0,
+      latitude: 100,
+      longitude: -100,
     });
   });
 
-  test("prefers the live position for the selected identity", () => {
+  test("preserves the selected interaction target", () => {
     const catalog = new RenderLayerCatalog();
     catalog.register(
       new ProbeLayer(Domain.Aircraft, RenderLayerOrder.Aircraft),
@@ -228,6 +259,7 @@ describe("RenderFocusResolver", () => {
           pointType: Domain.Aircraft,
         },
         selectedPosition,
+        100,
       ),
     ).toBe(selectedPosition);
   });
@@ -246,6 +278,7 @@ describe("RenderFocusResolver", () => {
         },
         null,
         null,
+        0,
       ),
     ).toBeNull();
   });

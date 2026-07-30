@@ -13,6 +13,9 @@ import {
   SceneProtocolVersion,
   SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
+import {
+  MovingSceneMotionPositionSchema,
+} from "@/workers/render/scene/movingSceneSchema";
 
 enum MalformedSceneCommandType {
   LegacyData = "data",
@@ -30,6 +33,12 @@ describe("scene data protocol", () => {
         sceneIds: ["A1"],
         entityIds: ["A1"],
         positions: new Float64Array([10, 20]),
+        motionPositions: new Float64Array([
+          10.123456789012,
+          20.123456789012,
+        ]),
+        motionPositionStride:
+          MovingSceneMotionPositionSchema.MotionPositionStride,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array([100, 90]),
@@ -55,6 +64,60 @@ describe("scene data protocol", () => {
     expect(parseSceneDataCommand(command)).toEqual(command);
   });
 
+  test("rejects malformed motion-position and numeric lanes", () => {
+    const command = createSceneCommand(
+      {
+        type: SceneDataCommandType.SourcePatch,
+        source: Domain.Aircraft,
+        sourceVersion: 1,
+        kind: DatasetPatchKind.Rebase,
+        handles: new Uint32Array([1]),
+        sceneIds: ["A1"],
+        entityIds: ["A1"],
+        positions: new Float64Array([10, 20]),
+        motionPositions: new Float64Array([10, 20]),
+        motionPositionStride:
+          MovingSceneMotionPositionSchema.MotionPositionStride,
+        unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
+        attributes: new Float32Array([90]),
+        attributeStride: 1,
+        stringAttributes: new Uint32Array(),
+        stringAttributeStride: 0,
+        dictionaryStart: 0,
+        dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.None]),
+        geometryCoordinates: new Float64Array(),
+        geometryPartEnds: new Uint32Array(),
+        geometryGroupEnds: new Uint32Array(),
+        geometryRecordEnds: new Uint32Array([0]),
+        deletedHandles: new Uint32Array(),
+      },
+      "session-1",
+      1,
+    );
+
+    expect(parseSceneDataCommand({
+      ...command,
+      motionPositionStride: 0,
+    })).toBeNull();
+    expect(parseSceneDataCommand({
+      ...command,
+      motionPositions: new Float64Array([
+        Number.POSITIVE_INFINITY,
+        20,
+      ]),
+    })).toBeNull();
+    expect(parseSceneDataCommand({
+      ...command,
+      attributes: new Float32Array([Number.NaN]),
+    })).toBeNull();
+    expect(parseSceneDataCommand({
+      ...command,
+      unitVectors: new Float32Array([Number.NaN, 0, 0]),
+    })).toBeNull();
+  });
+
   test("rejects malformed buffers and legacy object arrays", () => {
     const malformed = createSceneCommand(
       {
@@ -66,6 +129,8 @@ describe("scene data protocol", () => {
         sceneIds: ["A1"],
         entityIds: ["A1"],
         positions: new Float64Array(),
+        motionPositions: new Float64Array(),
+        motionPositionStride: 0,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array(),
@@ -108,6 +173,8 @@ describe("scene data protocol", () => {
         sceneIds: ["weather-area"],
         entityIds: ["weather-area"],
         positions: new Float64Array([5, 5]),
+        motionPositions: new Float64Array(),
+        motionPositionStride: 0,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array(),
@@ -143,6 +210,8 @@ describe("scene data protocol", () => {
         sceneIds: ["weather-area"],
         entityIds: ["weather-area"],
         positions: new Float64Array([5, 5]),
+        motionPositions: new Float64Array(),
+        motionPositionStride: 0,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array(),
@@ -178,6 +247,8 @@ describe("scene data protocol", () => {
         sceneIds: ["cyclone-path"],
         entityIds: ["cyclone"],
         positions: new Float64Array([-75, 25]),
+        motionPositions: new Float64Array(),
+        motionPositionStride: 0,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array(),
@@ -243,13 +314,6 @@ describe("scene data protocol", () => {
           lon: -74,
           ts: 100,
         }],
-        motion: {
-          lat: 40,
-          lon: -74,
-          ts: 100,
-          headingDeg: 90,
-          speedMps: 200,
-        },
         route: [
           [40.6, -73.7],
           [33.9, -118.4],
@@ -260,6 +324,38 @@ describe("scene data protocol", () => {
     );
 
     expect(parseSceneDataCommand(command)).toEqual(command);
+  });
+
+  test("rejects the deleted selected-only motion field", () => {
+    const command = createSceneCommand(
+      {
+        type: SceneDataCommandType.SelectionOverlay,
+        selection: {
+          revision: 2,
+          identity: {
+            source: Domain.Aircraft,
+            entityId: "aircraft-a",
+            interactionId: "aircraft-a",
+            pointType: Domain.Aircraft,
+          },
+        },
+        trail: [],
+        route: null,
+      },
+      "session-1",
+      3,
+    );
+
+    expect(parseSceneDataCommand({
+      ...command,
+      motion: {
+        lat: 40,
+        lon: -74,
+        ts: 100,
+        headingDeg: 90,
+        speedMps: 200,
+      },
+    })).toBeNull();
   });
 
   test("rejects track data for a non-track selection", () => {
@@ -280,7 +376,6 @@ describe("scene data protocol", () => {
           lon: -74,
           ts: 100,
         }],
-        motion: null,
         route: null,
       },
       "session-1",
@@ -304,7 +399,6 @@ describe("scene data protocol", () => {
           },
         },
         trail: [],
-        motion: null,
         route: [
           [40.6, -73.7],
           [33.9, -118.4],
