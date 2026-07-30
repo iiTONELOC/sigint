@@ -1,8 +1,7 @@
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
-  EARTHQUAKE_POSITION_COMPONENTS,
-  EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
+  RenderDataLaneComponentCount,
   type PackedEarthquakeRenderData,
 } from "@/workers/render/dataChannel";
 
@@ -12,10 +11,10 @@ export function packEarthquakeRenderData(
   const count = points.length;
   const ids = new Array<string>(count);
   const positions = new Float64Array(
-    count * EARTHQUAKE_POSITION_COMPONENTS,
+    count * RenderDataLaneComponentCount.Position,
   );
   const unitVectors = new Float32Array(
-    count * EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
+    count * RenderDataLaneComponentCount.UnitVector,
   );
   const magnitudes = new Float32Array(count);
   const timestamps = new Float64Array(count);
@@ -24,11 +23,13 @@ export function packEarthquakeRenderData(
     const point = points[index];
     if (!point) continue;
     ids[index] = point.id;
-    const positionOffset = index * EARTHQUAKE_POSITION_COMPONENTS;
+    const positionOffset =
+      index * RenderDataLaneComponentCount.Position;
     positions[positionOffset] = point.lon;
     positions[positionOffset + 1] = point.lat;
     const unit = geographicToUnitVector(point.lat, point.lon);
-    const vectorOffset = index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+    const vectorOffset =
+      index * RenderDataLaneComponentCount.UnitVector;
     unitVectors[vectorOffset] = unit.x;
     unitVectors[vectorOffset + 1] = unit.y;
     unitVectors[vectorOffset + 2] = unit.z;

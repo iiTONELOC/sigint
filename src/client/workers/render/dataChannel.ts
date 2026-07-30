@@ -1,17 +1,37 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import { isRenderSourceId, type RenderSourceId } from "@/workers/data/sourceIds";
+import { Domain } from "@shared/domain/identity";
 import { isRecord, parseGeoPoint } from "@shared/geo";
 
-export const RENDER_DATA_PROTOCOL_VERSION = 5 as const;
+export enum RenderDataProtocolVersion {
+  Current = 5,
+}
 
-export const PACKED_POSITION_COMPONENTS = 2;
-export const PACKED_UNIT_VECTOR_COMPONENTS = 3;
-export const EARTHQUAKE_POSITION_COMPONENTS = PACKED_POSITION_COMPONENTS;
-export const EARTHQUAKE_UNIT_VECTOR_COMPONENTS =
-  PACKED_UNIT_VECTOR_COMPONENTS;
+export enum RenderDataCommandType {
+  Bind = "bind",
+  EarthquakeSearch = "earthquakeSearch",
+  FireSearch = "fireSearch",
+  PointsRebase = "pointsRebase",
+  EarthquakeRebase = "earthquakeRebase",
+  FireRebase = "fireRebase",
+}
+
+export enum RenderDataLaneComponentCount {
+  Scalar = 1,
+  Position = 2,
+  UnitVector = 3,
+}
+
+enum RenderDataSequence {
+  Minimum = 1,
+}
+
+export type LegacyPointSourceId =
+  | Domain.Weather
+  | Domain.Cyclones
+  | Domain.CycloneWarnings;
 
 type RenderDataEnvelope = Readonly<{
-  protocolVersion: typeof RENDER_DATA_PROTOCOL_VERSION;
+  protocolVersion: RenderDataProtocolVersion;
   sessionId: string;
   sequence: number;
 }>;
@@ -34,27 +54,50 @@ export type PackedFireRenderData = Readonly<{
 }>;
 
 export type RenderDataCommandBody =
-  | Readonly<{ type: "bind" }>
+  | Readonly<{ type: RenderDataCommandType.Bind }>
   | Readonly<{
-      type: "earthquakeSearch" | "fireSearch";
+      type:
+        | RenderDataCommandType.EarthquakeSearch
+        | RenderDataCommandType.FireSearch;
       matchingIds: readonly string[] | null;
     }>
   | Readonly<{
-      type: "pointsRebase";
-      source: RenderSourceId;
+      type: RenderDataCommandType.PointsRebase;
+      source: LegacyPointSourceId;
       points: readonly DataPoint[];
     }>
-  | (Readonly<{ type: "earthquakeRebase" }> & PackedEarthquakeRenderData)
-  | (Readonly<{ type: "fireRebase" }> & PackedFireRenderData);
+  | (Readonly<{ type: RenderDataCommandType.EarthquakeRebase }> &
+      PackedEarthquakeRenderData)
+  | (Readonly<{ type: RenderDataCommandType.FireRebase }> &
+      PackedFireRenderData);
 
 type WithEnvelope<T> = T extends object ? T & RenderDataEnvelope : never;
 
 export type RenderDataCommand = WithEnvelope<RenderDataCommandBody>;
 
-export type RenderDataProtocolState = {
-  sessionId: string;
-  sequence: number;
-};
+export class RenderDataProtocolState {
+  private readonly sessionId: string;
+  private sequence = 0;
+
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  accept(command: RenderDataCommand): boolean {
+    if (
+      command.sessionId !== this.sessionId ||
+      command.sequence <= this.sequence
+    ) {
+      return false;
+    }
+    this.sequence = command.sequence;
+    return true;
+  }
+
+  lastSequence(): number {
+    return this.sequence;
+  }
+}
 
 export function createRenderDataCommand<T extends RenderDataCommandBody>(
   body: T,
@@ -63,7 +106,7 @@ export function createRenderDataCommand<T extends RenderDataCommandBody>(
 ): T & RenderDataEnvelope {
   return {
     ...body,
-    protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
+    protocolVersion: RenderDataProtocolVersion.Current,
     sessionId,
     sequence,
   };
@@ -73,17 +116,17 @@ function parseEnvelope(
   value: Readonly<Record<string, unknown>>,
 ): RenderDataEnvelope | null {
   if (
-    value.protocolVersion !== RENDER_DATA_PROTOCOL_VERSION ||
+    value.protocolVersion !== RenderDataProtocolVersion.Current ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
     typeof value.sequence !== "number" ||
     !Number.isSafeInteger(value.sequence) ||
-    value.sequence < 1
+    value.sequence < RenderDataSequence.Minimum
   ) {
     return null;
   }
   return {
-    protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
+    protocolVersion: RenderDataProtocolVersion.Current,
     sessionId: value.sessionId,
     sequence: value.sequence,
   };
@@ -114,7 +157,9 @@ function lanesMatch(
 
 function parseSearch(
   envelope: RenderDataEnvelope,
-  type: "earthquakeSearch" | "fireSearch",
+  type:
+    | RenderDataCommandType.EarthquakeSearch
+    | RenderDataCommandType.FireSearch,
   value: Readonly<Record<string, unknown>>,
 ): RenderDataCommand | null {
   if (value.matchingIds === null) {
@@ -137,17 +182,17 @@ function parseEarthquakeRebase(
     !(magnitudes instanceof Float32Array) ||
     !(timestamps instanceof Float64Array) ||
     !lanesMatch(ids.length, [
-      [positions, EARTHQUAKE_POSITION_COMPONENTS],
-      [unitVectors, EARTHQUAKE_UNIT_VECTOR_COMPONENTS],
-      [magnitudes, 1],
-      [timestamps, 1],
+      [positions, RenderDataLaneComponentCount.Position],
+      [unitVectors, RenderDataLaneComponentCount.UnitVector],
+      [magnitudes, RenderDataLaneComponentCount.Scalar],
+      [timestamps, RenderDataLaneComponentCount.Scalar],
     ])
   ) {
     return null;
   }
   return {
     ...envelope,
-    type: "earthquakeRebase",
+    type: RenderDataCommandType.EarthquakeRebase,
     ids,
     positions,
     unitVectors,
@@ -170,18 +215,18 @@ function parseFireRebase(
     !(timestamps instanceof Float64Array) ||
     !(confidences instanceof Uint8Array) ||
     !lanesMatch(ids.length, [
-      [positions, PACKED_POSITION_COMPONENTS],
-      [unitVectors, PACKED_UNIT_VECTOR_COMPONENTS],
-      [frp, 1],
-      [timestamps, 1],
-      [confidences, 1],
+      [positions, RenderDataLaneComponentCount.Position],
+      [unitVectors, RenderDataLaneComponentCount.UnitVector],
+      [frp, RenderDataLaneComponentCount.Scalar],
+      [timestamps, RenderDataLaneComponentCount.Scalar],
+      [confidences, RenderDataLaneComponentCount.Scalar],
     ])
   ) {
     return null;
   }
   return {
     ...envelope,
-    type: "fireRebase",
+    type: RenderDataCommandType.FireRebase,
     ids,
     positions,
     unitVectors,
@@ -219,11 +264,24 @@ function isRenderPoint(value: unknown): value is DataPoint {
   );
 }
 
+function isLegacyPointSourceId(
+  value: unknown,
+): value is LegacyPointSourceId {
+  return (
+    value === Domain.Weather ||
+    value === Domain.Cyclones ||
+    value === Domain.CycloneWarnings
+  );
+}
+
 function parsePointsRebase(
   envelope: RenderDataEnvelope,
   value: Readonly<Record<string, unknown>>,
 ): RenderDataCommand | null {
-  if (!isRenderSourceId(value.source) || !Array.isArray(value.points)) {
+  if (
+    !isLegacyPointSourceId(value.source) ||
+    !Array.isArray(value.points)
+  ) {
     return null;
   }
   const points: DataPoint[] = [];
@@ -231,7 +289,12 @@ function parsePointsRebase(
     if (!isRenderPoint(point)) return null;
     points.push(point);
   }
-  return { ...envelope, type: "pointsRebase", source: value.source, points };
+  return {
+    ...envelope,
+    type: RenderDataCommandType.PointsRebase,
+    source: value.source,
+    points,
+  };
 }
 
 export function parseRenderDataCommand(
@@ -242,32 +305,18 @@ export function parseRenderDataCommand(
   if (!envelope) return null;
 
   switch (value.type) {
-    case "bind":
-      return { ...envelope, type: "bind" };
-    case "earthquakeSearch":
-    case "fireSearch":
+    case RenderDataCommandType.Bind:
+      return { ...envelope, type: RenderDataCommandType.Bind };
+    case RenderDataCommandType.EarthquakeSearch:
+    case RenderDataCommandType.FireSearch:
       return parseSearch(envelope, value.type, value);
-    case "pointsRebase":
+    case RenderDataCommandType.PointsRebase:
       return parsePointsRebase(envelope, value);
-    case "earthquakeRebase":
+    case RenderDataCommandType.EarthquakeRebase:
       return parseEarthquakeRebase(envelope, value);
-    case "fireRebase":
+    case RenderDataCommandType.FireRebase:
       return parseFireRebase(envelope, value);
     default:
       return null;
   }
-}
-
-export function acceptRenderDataCommand(
-  state: RenderDataProtocolState,
-  command: RenderDataCommand,
-): boolean {
-  if (
-    command.sessionId !== state.sessionId ||
-    command.sequence <= state.sequence
-  ) {
-    return false;
-  }
-  state.sequence = command.sequence;
-  return true;
 }

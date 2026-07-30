@@ -26,6 +26,7 @@ import type {
   DataWorkerEnvelope,
   DataWorkerEvent,
 } from "@/workers/data/protocol";
+import { DataWorkerMessageType } from "@/workers/data/messageType";
 
 /**
  * The one place a source becomes queryable. Adding a source is an entry here
@@ -106,14 +107,19 @@ function codecFor<TId extends QueryableSourceId>(
     buildQueryCommand: (envelope, rawQuery) => {
       const query = queries.parseQuery(rawQuery);
       return query
-        ? { ...envelope, type: "querySource", source, query }
+        ? {
+            ...envelope,
+            type: DataWorkerMessageType.QuerySource,
+            source,
+            query,
+          }
         : null;
     },
     buildEntityEvent: (envelope, sourceVersion, rawValue) => {
       if (rawValue === null) {
         return {
           ...envelope,
-          type: "sourceEntity",
+          type: DataWorkerMessageType.SourceEntity,
           source,
           sourceVersion,
           value: null,
@@ -121,13 +127,25 @@ function codecFor<TId extends QueryableSourceId>(
       }
       const value = queries.descriptor.parseEntity(rawValue);
       return value
-        ? { ...envelope, type: "sourceEntity", source, sourceVersion, value }
+        ? {
+            ...envelope,
+            type: DataWorkerMessageType.SourceEntity,
+            source,
+            sourceVersion,
+            value,
+          }
         : null;
     },
     buildQueryEvent: (envelope, sourceVersion, rawResult) => {
       const result = queries.parseResult(rawResult);
       return result
-        ? { ...envelope, type: "sourceQuery", source, sourceVersion, result }
+        ? {
+            ...envelope,
+            type: DataWorkerMessageType.SourceQuery,
+            source,
+            sourceVersion,
+            result,
+          }
         : null;
     },
   };

@@ -1,4 +1,5 @@
 import { IsolateMode, type SelectedIsolateMode } from "@/workers/render/protocol";
+import type { RenderSourceId } from "@/workers/data/sourceIds";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 
 export type SceneVisibilitySettings = Readonly<{
@@ -11,17 +12,17 @@ export type SceneVisibilitySettings = Readonly<{
 export function sceneRecordIsVisible(
   view: RenderSceneView,
   index: number,
-  pointType: string,
+  pointType: RenderSourceId,
   enabled: boolean,
   settings: SceneVisibilitySettings,
 ): boolean {
   if (!enabled) return false;
-  const id = view.ids[index];
-  if (!id) return false;
-  if (settings.searchIds && !settings.searchIds.has(id)) return false;
+  const entityId = view.entityIds[index];
+  if (!entityId) return false;
+  if (settings.searchIds && !settings.searchIds.has(entityId)) return false;
   if (
     settings.isolateMode === IsolateMode.Solo &&
-    id !== settings.isolatedId
+    entityId !== settings.isolatedId
   ) {
     return false;
   }

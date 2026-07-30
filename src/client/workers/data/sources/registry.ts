@@ -1,4 +1,4 @@
-import type { DataPoint, DataType } from "@/features/base/dataPoints";
+import type { DataType } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
@@ -13,6 +13,7 @@ import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
 import { CYCLONE_WARNING_SOURCE_POLICY } from "@/features/environmental/cyclones/warningSource";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { EVENT_SOURCE_POLICY } from "@/workers/data/sources/events";
 import {
   RENDER_SOURCE_IDS,
   type RenderSourceId,
@@ -30,7 +31,9 @@ export type PointSourceDefinition = PointSourcePolicy & Readonly<{
   id: RenderSourceId;
 }>;
 
-const POINT_SOURCE_POLICIES = {
+const POINT_SOURCE_POLICIES: Readonly<
+  Record<RenderSourceId, PointSourcePolicy>
+> = {
   [Domain.Aircraft]: {
     pointType: Domain.Aircraft,
     cacheKey: CACHE_KEYS.aircraft,
@@ -47,10 +50,10 @@ const POINT_SOURCE_POLICIES = {
   },
   [Domain.Events]: {
     pointType: Domain.Events,
-    cacheKey: CACHE_KEYS.events,
-    pollIntervalMs: POLL_INTERVALS.events,
-    completeness: SourceCompletenessPolicy.Partial,
-    emptyResultIsComplete: false,
+    cacheKey: EVENT_SOURCE_POLICY.cacheKey,
+    pollIntervalMs: EVENT_SOURCE_POLICY.pollIntervalMs,
+    completeness: EVENT_SOURCE_POLICY.completeness,
+    emptyResultIsComplete: EVENT_SOURCE_POLICY.emptyResultIsComplete,
   },
   [Domain.Weather]: {
     pointType: Domain.Weather,
@@ -87,7 +90,7 @@ const POINT_SOURCE_POLICIES = {
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
-} as const satisfies Readonly<Record<RenderSourceId, PointSourcePolicy>>;
+};
 
 export const POINT_SOURCE_DEFINITIONS = RENDER_SOURCE_IDS.map((id) => ({
   id,
@@ -105,11 +108,6 @@ export function getPointSourceDefinition<TId extends RenderSourceId>(
   const policy: PointSourcePolicy = POINT_SOURCE_POLICIES[id];
   return { ...policy, id };
 }
-
-export type PointSourceEntity = Extract<
-  DataPoint,
-  { type: (typeof POINT_SOURCE_DEFINITIONS)[number]["pointType"] }
->;
 
 const POINT_TYPE_BY_SOURCE: ReadonlyMap<RenderSourceId, DataType> = new Map(
   POINT_SOURCE_DEFINITIONS.map((definition) => [

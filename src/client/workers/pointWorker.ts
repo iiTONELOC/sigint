@@ -2,6 +2,14 @@
 // Owns the transferred canvas and all Canvas2D drawing.
 import { Domain } from "@shared/domain/identity";
 import {
+  MilFilter,
+  squawkBucketFor,
+} from "@shared/domain/aircraft";
+import {
+  MS_PER_DAY,
+  MS_PER_HOUR,
+} from "@shared/time";
+import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
@@ -29,8 +37,14 @@ import {
   type CameraPosition,
 } from "./render/camera";
 import {
-  RENDER_PROTOCOL_VERSION,
+  RenderCursor,
+  RenderFocusKind,
+  RenderInputKind,
+  RenderInputPhase,
+  RenderInteractionKind,
+  RenderMessageType,
   acceptRenderCommand,
+  createRenderMessage,
   type RenderAircraftFilter,
   type RenderCamera,
   type RenderInputPayload,
@@ -41,7 +55,7 @@ import {
   type RenderPoint,
   type RenderWorkerCommand,
   type RenderWorkerColors,
-  type RenderWorkerEvent,
+  type RenderWorkerEventBody,
   type SelectedRenderItem,
   AreaKind,
   IsolateMode,
@@ -49,40 +63,48 @@ import {
 } from "./render/protocol";
 
 import {
-  EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
-  PACKED_POSITION_COMPONENTS,
-  PACKED_UNIT_VECTOR_COMPONENTS,
-  acceptRenderDataCommand,
+  RenderDataCommandType,
+  RenderDataLaneComponentCount,
   parseRenderDataCommand,
+  RenderDataProtocolState,
+  type LegacyPointSourceId,
   type PackedEarthquakeRenderData,
   type PackedFireRenderData,
-  type RenderDataProtocolState,
 } from "./render/dataChannel";
 
 import { orderPointsByLayer } from "./render/layerOrder";
+import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { DataType } from "@/features/base/dataPoints";
-import { createRenderSceneStore } from "./render/sceneStore";
+import type { AircraftData } from "@/features/tracking/aircraft/types";
+import { SceneStore } from "./render/sceneStore";
 import {
   aircraftSceneIncludes,
   drawAircraftScene,
   type AircraftSceneFilter,
 } from "./render/scene/aircraftLayer";
 import {
-  createProjectedSceneLayer,
-  type ProjectedSceneLayer,
+  ProjectedSceneLayer,
 } from "./render/scene/projectedLayer";
 import {
   drawShipScene,
   shipSceneIncludes,
   type ShipSceneFilter,
 } from "./render/scene/shipLayer";
+import { EventLayer } from "./render/scene/eventLayer";
 import { drawSelectionRing } from "./render/primitives/selectionRing";
-import { RENDER_SOURCE_IDS } from "./data/sourceIds";
+import {
+  MarkerVisuals,
+  markerPulseIntensity,
+} from "./render/primitives/markerVisuals";
+import {
+  RENDER_SOURCE_IDS,
+  type RenderSourceId,
+} from "./data/sourceIds";
 import { drawWarnings, type WarningFeature } from "./render/warnings";
 import {
-  acceptSceneDataCommand,
   parseSceneDataCommand,
-  type SceneDataProtocolState,
+  SceneDataCommandType,
+  SceneDataProtocolState,
 } from "./render/sceneProtocol";
 import { zoomScale } from "./render/workerMath";
 import {
@@ -110,13 +132,56 @@ import {
   type GlobeRotationMatrix,
   type UnitVector,
 } from "@/lib/geo/unitSphere";
-import type { GeoRing } from "@shared/geo";
+import {
+  GeoLimit,
+  type GeoRing,
+} from "@shared/geo";
 import { parseLandGeoJson } from "@shared/land";
 import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
 import { drawClippedPoly, simpleDraw } from "@/lib/geo/render/polygon";
 import type { HorizonCircle, LandColors } from "@/lib/geo/render/types";
+
+enum PointWorkerError {
+  LandGeometryRequestFailed = "Land geometry request failed",
+}
+
+enum CanvasLineStyle {
+  Round = "round",
+}
+
+enum EarthquakeAnimationPolicy {
+  MagnitudeThreshold = 3,
+  IdRadix = 36,
+  PhaseRate = 0.7,
+}
+
+enum EarthquakeMarkerSize {
+  Maximum = 10,
+}
+
+enum FireAnimationPolicy {
+  PowerThreshold = 15,
+}
+
+enum PackedProjectionPolicy {
+  CullMarginPixels = 24,
+}
+
+enum FlatLabelLayout {
+  MinimumPixels = 8,
+  ViewportScale = 0.015,
+  BottomOffsetPixels = 13,
+  SideOffsetPixels = 5,
+  BaselineOffsetPixels = 3,
+}
+
+enum FlatCoordinateLabel {
+  LongitudeStepDegrees = 60,
+  LongitudeLimitDegrees = 120,
+  LatitudeStepDivisor = 2,
+}
 
 // ── Interpolation ───────────────────────────────────────────────────
 
@@ -126,6 +191,7 @@ type TrailEntry = Readonly<{
   motion: GeographicMotion;
 }>;
 
+const markerVisuals = new MarkerVisuals();
 let trailMap = new Map<string, TrailEntry>();
 
 function interpolationSeconds(
@@ -158,36 +224,10 @@ function getInterp(id: string): { lat: number; lon: number } | null {
 // ── Theme detection ─────────────────────────────────────────────────
 
 function isLightTheme(colors: { bg?: string }): boolean {
-  // Light themes have bright backgrounds.
-  const [r, g, b] = parseHex(colors.bg || "#080a0f");
-  return (r + g + b) / 3 > 128;
-}
-
-// ── Generic color fading — derives aged variants from the theme base ─
-
-function parseHex(hex: string): [number, number, number] {
-  return [
-    Number.parseInt(hex.slice(1, 3), 16) || 0,
-    Number.parseInt(hex.slice(3, 5), 16) || 0,
-    Number.parseInt(hex.slice(5, 7), 16) || 0,
-  ];
-}
-
-function toHex(r: number, g: number, b: number): string {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  return "#" + ((1 << 24) + (clamp(r) << 16) + (clamp(g) << 8) + clamp(b)).toString(16).slice(1);
-}
-
-function fadeColor(base: string, factor: number): string {
-  if (factor >= 0.95) return base;
-  const [r, g, b] = parseHex(base);
-  return toHex(r * factor, g * factor, b * factor);
+  return markerVisuals.isLight(colors.bg);
 }
 
 // ── Age/size helpers ────────────────────────────────────────────────
-
-const HR = 3600000;
-const DY = 86400000;
 
 /** Age (ms since `ts`) → opacity factor down a stepped ramp. `steps` is
  *  [thresholdMs, factor] descending; the first threshold not exceeded wins. */
@@ -198,26 +238,40 @@ function ageFactor(ts: string | number | undefined, steps: ReadonlyArray<[number
   return hit ? hit[1] : (steps.at(-1)?.[1] ?? 0.5);
 }
 
-const quakeAgeFactor = (ts?: string | number) =>
-  ageFactor(ts, [[HR, 1], [6 * HR, 0.9], [DY, 0.8], [3 * DY, 0.65], [Infinity, 0.5]]);
-const eventAgeFactor = (ts?: string | number) =>
-  ageFactor(ts, [[HR, 1], [6 * HR, 0.9], [DY, 0.75], [3 * DY, 0.6], [Infinity, 0.45]]);
-const fireAgeFactor = (ts?: string | number) =>
-  ageFactor(ts, [[HR, 1], [3 * HR, 0.9], [6 * HR, 0.8], [12 * HR, 0.65], [Infinity, 0.5]]);
+function quakeAgeFactor(timestamp?: string | number): number {
+  return ageFactor(timestamp, [
+    [MS_PER_HOUR, 1],
+    [6 * MS_PER_HOUR, 0.9],
+    [MS_PER_DAY, 0.8],
+    [3 * MS_PER_DAY, 0.65],
+    [Infinity, 0.5],
+  ]);
+}
 
-const quakeColor = (af: number, base: string) => fadeColor(base, af);
-const eventColor = (af: number, base: string) => fadeColor(base, af);
-const fireColor = (af: number, base: string) => fadeColor(base, af);
+function fireAgeFactor(timestamp?: string | number): number {
+  return ageFactor(timestamp, [
+    [MS_PER_HOUR, 1],
+    [3 * MS_PER_HOUR, 0.9],
+    [6 * MS_PER_HOUR, 0.8],
+    [MS_PER_DAY / 2, 0.65],
+    [Infinity, 0.5],
+  ]);
+}
+
+function quakeColor(age: number, base: string): string {
+  return markerVisuals.fade(base, age);
+}
+
+function fireColor(age: number, base: string): string {
+  return markerVisuals.fade(base, age);
+}
 
 function quakeSize(m: number): number {
   const bands: ReadonlyArray<[number, number]> = [
     [1, 1.2], [2, 1.5], [3, 2], [4, 3], [5, 4.5], [6, 6], [7, 8],
   ];
-  return bands.find(([max]) => m < max)?.[1] ?? 10;
-}
-function eventSize(s: number): number {
-  const bands: ReadonlyArray<[number, number]> = [[1, 1], [2, 1.3], [3, 1.8], [4, 2.5]];
-  return bands.find(([max]) => s <= max)?.[1] ?? 3.5;
+  return bands.find(([max]) => m < max)?.[1] ??
+    EarthquakeMarkerSize.Maximum;
 }
 function fireSize(frp: number): number {
   const bands: ReadonlyArray<[number, number]> = [
@@ -226,56 +280,9 @@ function fireSize(frp: number): number {
   return bands.find(([max]) => frp < max)?.[1] ?? 4.5;
 }
 
-// Glow baked into a per-(color,alpha) sprite once, then blitted per point —
-// avoids a createRadialGradient allocation per point per frame.
-const GLOW_SPRITE_PX = 128;
-const glowSpriteCache = new Map<string, OffscreenCanvas>();
-
-function getGlowSprite(color: string, alphaHex: string): OffscreenCanvas {
-  const key = color + alphaHex;
-  const cached = glowSpriteCache.get(key);
-  if (cached) return cached;
-  if (glowSpriteCache.size > 512) glowSpriteCache.clear();
-  const c = new OffscreenCanvas(GLOW_SPRITE_PX, GLOW_SPRITE_PX);
-  const g = c.getContext("2d");
-  if (!g) return c;
-  const r = GLOW_SPRITE_PX / 2;
-  const grad = g.createRadialGradient(r, r, 0, r, r, r);
-  grad.addColorStop(0, color + alphaHex);
-  grad.addColorStop(1, color + "00");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, GLOW_SPRITE_PX, GLOW_SPRITE_PX);
-  glowSpriteCache.set(key, c);
-  return c;
-}
-
-function drawGlow(
-  ctx: OffscreenCanvasRenderingContext2D,
-  color: string,
-  alphaHex: string,
-  x: number,
-  y: number,
-  gr: number,
-  alpha: number,
-): void {
-  ctx.globalAlpha = alpha;
-  ctx.drawImage(getGlowSprite(color, alphaHex), x - gr, y - gr, gr * 2, gr * 2);
-}
-
 // ── Aircraft filter ─────────────────────────────────────────────────
 
-type AircraftData = Extract<
-  RenderPoint,
-  { type: Domain.Aircraft }
->["data"];
 type AircraftFilter = RenderAircraftFilter;
-
-const TRACKED_SQUAWKS: ReadonlySet<string> = new Set([
-  "7700",
-  "7600",
-  "7500",
-]);
-const OTHER_SQUAWK = "other";
 
 function matchesAltitudeBand(
   d: AircraftData,
@@ -286,12 +293,12 @@ function matchesAltitudeBand(
 }
 
 function matchesRole(d: AircraftData, f: AircraftFilter): boolean {
-  switch (f.milFilter || "all") {
-    case "military":
+  switch (f.milFilter) {
+    case MilFilter.Military:
       return d.military === true;
-    case "civilian":
+    case MilFilter.Civilian:
       return d.military !== true;
-    case "recon":
+    case MilFilter.Recon:
       return d.recon === true;
     default:
       return true;
@@ -300,8 +307,7 @@ function matchesRole(d: AircraftData, f: AircraftFilter): boolean {
 
 function matchesSquawk(d: AircraftData, f: AircraftFilter): boolean {
   if (f.squawks.length === 0) return true;
-  const squawk = d.squawk || "";
-  const bucket = TRACKED_SQUAWKS.has(squawk) ? squawk : OTHER_SQUAWK;
+  const bucket = squawkBucketFor(d.squawk);
   return f.squawks.includes(bucket);
 }
 
@@ -352,7 +358,9 @@ function parseLandGeoJSON(value: unknown): LandRing[] {
 function fetchLandData(): void {
   void fetch(RENDER_POLICY.landGeometryUrl)
     .then((response) => {
-      if (!response.ok) throw new Error("Land geometry request failed");
+      if (!response.ok) {
+        throw new Error(PointWorkerError.LandGeometryRequestFailed);
+      }
       return response.json();
     })
     .then((value: unknown) => {
@@ -415,6 +423,11 @@ type TrailHitTarget = Readonly<{
   point: WorkerTrailPoint;
 }>;
 
+type TrailColors = Readonly<{
+  accent: string;
+  bright: string;
+}>;
+
 function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: number, span: number, color: string): void {
   ctx.lineWidth = width;
   ctx.strokeStyle = color;
@@ -434,7 +447,7 @@ function drawTrail(
   ctx: Ctx,
   projFn: ProjFn,
   selectedItem: SelectedRenderItem | null,
-  colors: { accent: string },
+  colors: TrailColors,
 ): TrailHitTarget[] {
   const trail = selectedItem?.trail;
   if (!selectedItem || !trail || trail.length < 1) return [];
@@ -457,13 +470,13 @@ function drawTrail(
   if (projected.length < 2) return [];
 
   ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
+  ctx.lineJoin = CanvasLineStyle.Round;
+  ctx.lineCap = CanvasLineStyle.Round;
   strokeTrailPass(ctx, projected, 6, 0.05, 0.15, colors.accent); // glow pass
   strokeTrailPass(ctx, projected, 2.5, 0.3, 0.7, colors.accent); // main line
 
   const hitTargets: TrailHitTarget[] = [];
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = colors.bright;
   projected.slice(0, -1).forEach((p, i) => {
     ctx.globalAlpha = 0.4 + (i / projected.length) * 0.6;
     ctx.beginPath();
@@ -479,7 +492,11 @@ function drawTrail(
 // selected aircraft. Split at the plane's projected point ON the route (not the
 // nearest waypoint, which can sit ahead of the plane): flown is thick + solid,
 // the leg ahead is thin + dashed (mirrors the dossier route map).
-type RouteColors = { cyclones?: string; accent: string; bright?: string };
+type RouteColors = Readonly<{
+  cyclones: string;
+  accent: string;
+  bright: string;
+}>;
 
 function drawRoute(
   ctx: Ctx,
@@ -536,22 +553,22 @@ function drawRoute(
   };
 
   ctx.save();
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
+  ctx.lineJoin = CanvasLineStyle.Round;
+  ctx.lineCap = CanvasLineStyle.Round;
   ctx.strokeStyle = colors.cyclones || colors.accent;
-  // Ahead — thin, dashed.
+  // Ahead: thin and dashed.
   ctx.globalAlpha = 0.6;
   ctx.lineWidth = 1.25;
   ctx.setLineDash([6, 4]);
   strokePts(ahead);
-  // Flown — thick, solid.
+  // Flown: thick and solid.
   ctx.setLineDash([]);
   ctx.globalAlpha = 0.95;
   ctx.lineWidth = 2.75;
   strokePts(flown);
 
   // Waypoint markers.
-  ctx.fillStyle = colors.bright || "#ffffff";
+  ctx.fillStyle = colors.bright;
   ctx.globalAlpha = 0.95;
   for (const [lat, lon] of route) {
     const wp = projFn(lat, lon);
@@ -573,7 +590,9 @@ let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
 let _data: RenderPoint[] | null = null;
 let _colors: RenderWorkerColors | null = null;
-let _dataBySource: Record<string, RenderPoint[] | null> | null = null;
+let _dataBySource:
+  | Partial<Record<LegacyPointSourceId, RenderPoint[]>>
+  | null = null;
 let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
@@ -583,13 +602,18 @@ let _lastFrameAt = performance.now();
 let _hasAnimatedPoints = false;
 let _hitGrid = new Map<string, ProjPoint[]>();
 let _trailHitTargets: TrailHitTarget[] = [];
-let _activeTrailPoint: TrailHitTarget["point"] | null = null;
+let _activeTrailPoint: WorkerTrailPoint | null = null;
 let _lastClickTime = 0;
 let _lastClickId: string | null = null;
 let _lastClickPosition: CameraPosition | null = null;
-let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
-  kind: "cursor",
-  cursor: "default",
+type CursorInteraction = Extract<
+  RenderInteractionPayload,
+  { kind: RenderInteractionKind.Cursor }
+>;
+
+let _lastCursor: CursorInteraction = {
+  kind: RenderInteractionKind.Cursor,
+  cursor: RenderCursor.Default,
 };
 let _lastSelectedSide: PanelSide = PanelSide.Right;
 let _lastCameraSummary: RenderCamera | null = null;
@@ -617,8 +641,6 @@ type EarthquakeRenderState = PackedEarthquakeRenderData & {
 
 type FireRenderState = PackedFireRenderData & PackedProjectionState;
 
-const PACKED_CULL_MARGIN_PX = 24;
-const EARTHQUAKE_PULSE_THRESHOLD = 3;
 let _earthquakes: EarthquakeRenderState | null = null;
 let _earthquakeSearchIds: ReadonlySet<string> | null = null;
 let _fires: FireRenderState | null = null;
@@ -637,8 +659,8 @@ let _warnings: WarningFeature[] | null = null;
 // message and drawn each frame under the weather layer toggle. Defaults are the
 // weather violet/magenta palette so an unset frame never flashes off-palette.
 let _wxAlerts: WarningFeature[] | null = null;
-let _wxWarnColor = "#e64980";
-let _wxWatchColor = "#9775fa";
+let _wxWarnColor = WEATHER_AREA_FILL[AreaKind.Warning];
+let _wxWatchColor = WEATHER_AREA_FILL[AreaKind.Watch];
 
 // Progressive reveal: the main thread hands the full data array once per change;
 // the worker reveals it in chunks across its own render ticks. Preserved across
@@ -655,45 +677,43 @@ const protocolState: RenderProtocolState = {
 
 let dataPort: MessagePort | null = null;
 
-const aircraftSceneStore = createRenderSceneStore(Domain.Aircraft);
-const aircraftProjection = createProjectedSceneLayer();
-const shipSceneStore = createRenderSceneStore(Domain.Ships);
-const shipProjection = createProjectedSceneLayer();
-const TYPED_SCENE_STORES = {
-  [Domain.Aircraft]: aircraftSceneStore,
-  [Domain.Ships]: shipSceneStore,
-} as const;
+const aircraftSceneStore = new SceneStore(Domain.Aircraft);
+const aircraftProjection = new ProjectedSceneLayer();
+const shipSceneStore = new SceneStore(Domain.Ships);
+const shipProjection = new ProjectedSceneLayer();
+const eventSceneStore = new SceneStore(Domain.Events);
+const eventLayer = new EventLayer(markerVisuals);
+
+function createTypedSceneStore(source: RenderSourceId): SceneStore {
+  if (source === Domain.Aircraft) return aircraftSceneStore;
+  if (source === Domain.Ships) return shipSceneStore;
+  if (source === Domain.Events) return eventSceneStore;
+  return new SceneStore(source);
+}
+
 const typedScenes = new Map(
   RENDER_SOURCE_IDS.map((source) => [
     source,
-    source === Domain.Aircraft || source === Domain.Ships
-      ? TYPED_SCENE_STORES[source]
-      : createRenderSceneStore(source),
-  ] as const),
+    createTypedSceneStore(source),
+  ]),
 );
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
-  const state: RenderDataProtocolState = {
-    sessionId,
-    sequence: 0,
-  };
-  const sceneState: SceneDataProtocolState = {
-    sessionId,
-    sequence: 0,
-  };
+  const state = new RenderDataProtocolState(sessionId);
+  const sceneState = new SceneDataProtocolState(sessionId);
   port.onmessage = (event: MessageEvent<unknown>) => {
     const command = parseRenderDataCommand(event.data);
-    if (command && acceptRenderDataCommand(state, command)) {
-      if (command.type === "bind") {
-        const ready: RenderWorkerEvent = {
-          type: "dataChannelReady",
-          protocolVersion: RENDER_PROTOCOL_VERSION,
-          sessionId,
-          sequence: protocolState.sequence,
-        };
-        globalThis.postMessage(ready);
+    if (command && state.accept(command)) {
+      if (command.type === RenderDataCommandType.Bind) {
+        globalThis.postMessage(
+          createRenderMessage(
+            { type: RenderMessageType.DataChannelReady },
+            sessionId,
+            protocolState.sequence,
+          ),
+        );
         return;
       }
       applyRenderDataCommand(command);
@@ -704,8 +724,8 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
     const sceneCommand = parseSceneDataCommand(event.data);
     if (
       !sceneCommand ||
-      !acceptSceneDataCommand(sceneState, sceneCommand) ||
-      sceneCommand.type === "bind"
+      !sceneState.accept(sceneCommand) ||
+      sceneCommand.type === SceneDataCommandType.Bind
     ) {
       return;
     }
@@ -717,19 +737,22 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
   port.start();
 }
 
-function postInteraction(payload: RenderInteractionPayload): void {
-  if (!protocolState.sessionId) return;
-  const event: RenderWorkerEvent = {
-    type: "interaction",
-    protocolVersion: RENDER_PROTOCOL_VERSION,
-    sessionId: protocolState.sessionId,
-    sequence: protocolState.sequence,
-    payload,
-  };
-  globalThis.postMessage(event);
+function postWorkerEvent(body: RenderWorkerEventBody): void {
+  const sessionId = protocolState.sessionId;
+  if (!sessionId) return;
+  globalThis.postMessage(
+    createRenderMessage(body, sessionId, protocolState.sequence),
+  );
 }
 
-function postCursor(cursor: RenderInteractionPayload & { kind: "cursor" }): void {
+function postInteraction(payload: RenderInteractionPayload): void {
+  postWorkerEvent({
+    type: RenderMessageType.Interaction,
+    payload,
+  });
+}
+
+function postCursor(cursor: CursorInteraction): void {
   if (_lastCursor.cursor === cursor.cursor) return;
   _lastCursor = cursor;
   postInteraction(cursor);
@@ -754,17 +777,12 @@ function postCameraSummary(now: number): void {
   ) {
     return;
   }
-  if (!protocolState.sessionId) return;
   _lastCameraSummary = snapshot;
   _lastCameraSummaryAt = now;
-  const event: RenderWorkerEvent = {
-    type: "camera",
-    protocolVersion: RENDER_PROTOCOL_VERSION,
-    sessionId: protocolState.sessionId,
-    sequence: protocolState.sequence,
+  postWorkerEvent({
+    type: RenderMessageType.Camera,
     payload: snapshot,
-  };
-  globalThis.postMessage(event);
+  });
 }
 
 
@@ -804,7 +822,6 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
 }
 function pointHasTimeAnimation(item: RenderPoint): boolean {
   if (item.type === Domain.Cyclones) return true;
-  if (item.type === Domain.Events) return (item.data.severity ?? 1) >= 3;
   if (item.type === Domain.Weather) {
     return weatherPulse(item.data.severity) !== null;
   }
@@ -835,7 +852,7 @@ function handleEarthquakeRebase(
   _earthquakes = {
     ...packed,
     projected: new Float32Array(
-      count * EARTHQUAKE_UNIT_VECTOR_COMPONENTS,
+      count * RenderDataLaneComponentCount.UnitVector,
     ),
     hitHeads: new Int32Array(0),
     hitNext: new Int32Array(count),
@@ -843,7 +860,8 @@ function handleEarthquakeRebase(
     hitRows: 0,
   };
   _hasAnimatedEarthquakes = packed.magnitudes.some(
-    (magnitude) => magnitude > EARTHQUAKE_PULSE_THRESHOLD,
+    (magnitude) =>
+      magnitude > EarthquakeAnimationPolicy.MagnitudeThreshold,
   );
   rebuildGenericData();
 }
@@ -852,13 +870,17 @@ function handleFireRebase(packed: PackedFireRenderData): void {
   const count = packed.ids.length;
   _fires = {
     ...packed,
-    projected: new Float32Array(count * PACKED_UNIT_VECTOR_COMPONENTS),
+    projected: new Float32Array(
+      count * RenderDataLaneComponentCount.UnitVector,
+    ),
     hitHeads: new Int32Array(0),
     hitNext: new Int32Array(count),
     hitColumns: 0,
     hitRows: 0,
   };
-  _hasAnimatedFires = packed.frp.some((frp) => frp > 15);
+  _hasAnimatedFires = packed.frp.some(
+    (power) => power > FireAnimationPolicy.PowerThreshold,
+  );
   rebuildGenericData();
 }
 
@@ -901,23 +923,23 @@ function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
 /** Packed source updates from the DataWorker, past the bind handshake. */
 function applyRenderDataCommand(command: RenderDataCommand): void {
   switch (command.type) {
-    case "earthquakeSearch":
+    case RenderDataCommandType.EarthquakeSearch:
       _earthquakeSearchIds = command.matchingIds
         ? new Set(command.matchingIds)
         : null;
       return;
-    case "fireSearch":
+    case RenderDataCommandType.FireSearch:
       _fireSearchIds = command.matchingIds
         ? new Set(command.matchingIds)
         : null;
       return;
-    case "earthquakeRebase":
+    case RenderDataCommandType.EarthquakeRebase:
       handleEarthquakeRebase(command);
       return;
-    case "fireRebase":
+    case RenderDataCommandType.FireRebase:
       handleFireRebase(command);
       return;
-    case "pointsRebase":
+    case RenderDataCommandType.PointsRebase:
       _dataBySource ??= {};
       _dataBySource[command.source] = [...command.points];
       if (command.source === Domain.Weather) {
@@ -949,8 +971,14 @@ type InputSurface = Readonly<{
   flat: boolean;
 }>;
 
-type PointerInput = Extract<RenderInputPayload, { kind: "pointer" }>;
-type PinchInput = Extract<RenderInputPayload, { kind: "pinch" }>;
+type PointerInput = Extract<
+  RenderInputPayload,
+  { kind: RenderInputKind.Pointer }
+>;
+type PinchInput = Extract<
+  RenderInputPayload,
+  { kind: RenderInputKind.Pinch }
+>;
 
 function handlePointerInput(
   payload: PointerInput,
@@ -958,17 +986,19 @@ function handlePointerInput(
 ): void {
   const { viewport, flat } = surface;
   switch (payload.phase) {
-    case "hover":
+    case RenderInputPhase.Hover:
       handlePointerHover(payload.x, payload.y);
       return;
-    case "start":
+    case RenderInputPhase.Start:
       beginCameraPointer(_camera, _pointer, viewport, flat, payload.x, payload.y);
       postCursor({
-        kind: "cursor",
-        cursor: _pointer.interactive ? "grabbing" : "default",
+        kind: RenderInteractionKind.Cursor,
+        cursor: _pointer.interactive
+          ? RenderCursor.Grabbing
+          : RenderCursor.Default,
       });
       break;
-    case "move":
+    case RenderInputPhase.Move:
       moveCameraPointer(
         _camera,
         _cameraTarget,
@@ -979,32 +1009,36 @@ function handlePointerInput(
         payload.y,
       );
       break;
-    case "end": {
+    case RenderInputPhase.End: {
       const click = endCameraPointer(_pointer);
       if (click) handlePointerClick(click);
-      postCursor({ kind: "cursor", cursor: "default" });
+      postCursor({
+        kind: RenderInteractionKind.Cursor,
+        cursor: RenderCursor.Default,
+      });
       break;
     }
     default:
       cancelCameraPointer(_pointer);
-      postCursor({ kind: "cursor", cursor: "default" });
+      postCursor({
+        kind: RenderInteractionKind.Cursor,
+        cursor: RenderCursor.Default,
+      });
   }
   scheduleRender();
 }
 
 function handlePinchInput(payload: PinchInput, surface: InputSurface): void {
-  if (payload.phase === "start") {
+  if (payload.phase === RenderInputPhase.Start) {
     beginCameraPinch(_pointer, payload.distance);
-  } else if (payload.phase === "move") {
+  } else if (payload.phase === RenderInputPhase.Move) {
     moveCameraPinch(
       _camera,
       _cameraTarget,
       _pointer,
       surface.viewport,
       surface.flat,
-      payload.centerX,
-      payload.centerY,
-      payload.distance,
+      payload,
     );
   } else {
     endCameraPinch(_pointer);
@@ -1020,13 +1054,13 @@ function handleCameraInput(payload: RenderInputPayload): void {
   };
 
   switch (payload.kind) {
-    case "pointer":
+    case RenderInputKind.Pointer:
       handlePointerInput(payload, surface);
       return;
-    case "pinch":
+    case RenderInputKind.Pinch:
       handlePinchInput(payload, surface);
       return;
-    case "wheel":
+    case RenderInputKind.Wheel:
       applyCameraWheel(
         _camera,
         _cameraTarget,
@@ -1050,22 +1084,27 @@ globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
   dispatchRenderCommand(msg);
 };
 
-function handleInit(msg: Extract<RenderWorkerCommand, { type: "init" }>): void {
+function handleInit(
+  msg: Extract<RenderWorkerCommand, { type: RenderMessageType.Init }>,
+): void {
   canvas = msg.canvas;
   ctx = canvas.getContext("2d");
   if (msg.dataPort) bindDataPort(msg.dataPort, msg.sessionId);
-  const ready: RenderWorkerEvent = {
-    type: "ready",
-    protocolVersion: RENDER_PROTOCOL_VERSION,
-    sessionId: msg.sessionId,
-    sequence: msg.sequence,
-  };
-  globalThis.postMessage(ready);
+  globalThis.postMessage(
+    createRenderMessage(
+      { type: RenderMessageType.Ready },
+      msg.sessionId,
+      msg.sequence,
+    ),
+  );
   if (landRings.length === 0) fetchLandData();
 }
 
 function handleFocus(
-  msg: Extract<RenderWorkerCommand, { type: "focus" }>,
+  msg: Extract<
+    RenderWorkerCommand,
+    { type: RenderMessageType.Focus }
+  >,
 ): void {
   if (!_viewport || !_presentation) return;
   focusCamera(
@@ -1103,25 +1142,25 @@ function handlePresentation(payload: RenderPresentationPayload): void {
 
 function dispatchRenderCommand(msg: RenderWorkerCommand): void {
   switch (msg.type) {
-    case "init":
+    case RenderMessageType.Init:
       handleInit(msg);
       return;
-    case "colors":
+    case RenderMessageType.Colors:
       _colors = msg.payload;
       break;
-    case "viewport":
+    case RenderMessageType.Viewport:
       handleViewport(msg.payload);
       break;
-    case "presentation":
+    case RenderMessageType.Presentation:
       handlePresentation(msg.payload);
       break;
-    case "focus":
+    case RenderMessageType.Focus:
       handleFocus(msg);
       return;
-    case "input":
+    case RenderMessageType.Input:
       handleCameraInput(msg.payload);
       return;
-    case "dispose":
+    case RenderMessageType.Dispose:
       handleDispose();
       return;
     default:
@@ -1159,35 +1198,30 @@ type PulseGlowState = Readonly<{
   cfg: PulseGlow;
 }>;
 
-const EVENT_PULSE_GLOW: PulseGlow = {
-  idSliceFrom: 2,
-  rate: 0.5,
-  baseAmp: 0.1,
-  ampGain: 0.2,
-  radBase: 1.8,
-  radGain: 1.2,
-  alphaHex: "30",
-  glowMul: 0.4,
-};
-
 function drawPulsingDot(env: DotEnv, dot: PulsingDot): void {
   const { x, y, s, color, fillAlpha, isSel, glow, shape } = dot;
-  const { ctx, t } = env;
-  if (glow && glow.intensity > 0.01) {
-    const { pulseIndex: pi, id, cfg } = glow;
-    const pulse = 1 + Math.sin(t + (Number.parseInt(id.slice(cfg.idSliceFrom), 36) || 0) * cfg.rate) * (cfg.baseAmp + pi * cfg.ampGain);
-    const gr = s * (cfg.radBase + pi * cfg.radGain) * pulse;
-    drawGlow(ctx, color, cfg.alphaHex, x, y, gr, fillAlpha * glow.intensity * cfg.glowMul);
-  }
-  ctx.globalAlpha = fillAlpha;
-  ctx.fillStyle = color;
-  shape(s);
-  ctx.fill();
-  if (isSel) drawSelectionRing(ctx, x, y, s, color, t);
-  ctx.globalAlpha = 1;
+  markerVisuals.drawPulsing(env.ctx, env.t, {
+    x,
+    y,
+    size: s,
+    color,
+    fillAlpha,
+    selected: isSel,
+    glow: glow
+      ? {
+          intensity: glow.intensity,
+          pulseIndex: glow.pulseIndex,
+          id: glow.id,
+          config: glow.cfg,
+        }
+      : null,
+    shape,
+  });
 }
 
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+function clampUnit(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
 
 type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
 
@@ -1281,7 +1315,7 @@ function hitCandidates(x: number, y: number): ProjPoint[] {
 }
 
 type PointHit = CameraPosition &
-  Readonly<{ distance: number; pointType: RenderPoint["type"] }>;
+  Readonly<{ distance: number; pointType: DataType }>;
 
 type PackedProjectionFrame = Readonly<{
   width: number;
@@ -1349,7 +1383,8 @@ function projectPackedSource(
   preparePackedHitGrid(state, frame.width, frame.height);
   const visible = packedLayerVisible(frame.filters, pointType);
   for (let index = 0; index < state.ids.length; index++) {
-    const projectedOffset = index * PACKED_UNIT_VECTOR_COMPONENTS;
+    const projectedOffset =
+      index * RenderDataLaneComponentCount.UnitVector;
     state.projected[projectedOffset + 2] = -1;
     if (!visible || !passesSourceFilter(index)) continue;
     const id = state.ids[index];
@@ -1384,18 +1419,22 @@ function projectPackedIndex(
 ): PackedProjection | null {
   const flat = frame.flatMetrics;
   if (flat) {
-    const offset = index * PACKED_POSITION_COMPONENTS;
+    const offset = index * RenderDataLaneComponentCount.Position;
     const longitude = state.positions[offset];
     const latitude = state.positions[offset + 1];
     if (longitude === undefined || latitude === undefined) return null;
     return {
-      x: flat.cx + (longitude / 180) * (flat.mW / 2),
-      y: flat.cy - (latitude / 90) * (flat.mH / 2),
+      x:
+        flat.cx +
+        (longitude / GeoLimit.MaxLongitude) * (flat.mW / 2),
+      y:
+        flat.cy -
+        (latitude / GeoLimit.MaxLatitude) * (flat.mH / 2),
       depth: 1,
     };
   }
 
-  const offset = index * PACKED_UNIT_VECTOR_COMPONENTS;
+  const offset = index * RenderDataLaneComponentCount.UnitVector;
   const unitX = state.unitVectors[offset];
   const unitY = state.unitVectors[offset + 1];
   const unitZ = state.unitVectors[offset + 2];
@@ -1420,10 +1459,10 @@ function isOffscreen(
   frame: PackedProjectionFrame,
 ): boolean {
   return (
-    x < -PACKED_CULL_MARGIN_PX ||
-    y < -PACKED_CULL_MARGIN_PX ||
-    x >= frame.width + PACKED_CULL_MARGIN_PX ||
-    y >= frame.height + PACKED_CULL_MARGIN_PX
+    x < -PackedProjectionPolicy.CullMarginPixels ||
+    y < -PackedProjectionPolicy.CullMarginPixels ||
+    x >= frame.width + PackedProjectionPolicy.CullMarginPixels ||
+    y >= frame.height + PackedProjectionPolicy.CullMarginPixels
   );
 }
 
@@ -1574,11 +1613,12 @@ function packedHitCandidate(
   x: number,
   y: number,
 ): PointHit | null {
-  const projectedOffset = index * PACKED_UNIT_VECTOR_COMPONENTS;
+  const projectedOffset =
+    index * RenderDataLaneComponentCount.UnitVector;
   const projectedX = state.projected[projectedOffset];
   const projectedY = state.projected[projectedOffset + 1];
   const id = state.ids[index];
-  const positionOffset = index * PACKED_POSITION_COMPONENTS;
+  const positionOffset = index * RenderDataLaneComponentCount.Position;
   const longitude = state.positions[positionOffset];
   const latitude = state.positions[positionOffset + 1];
   if (
@@ -1600,7 +1640,7 @@ function packedHitCandidate(
 }
 
 function nearestScenePoint(
-  layer: ProjectedSceneLayer,
+  layer: ProjectedSceneLayer | EventLayer,
   pointType: DataType,
   x: number,
   y: number,
@@ -1614,7 +1654,7 @@ function nearestScenePoint(
   );
   if (!hit) return null;
   return {
-    id: hit.id,
+    id: hit.entityId,
     latitude: hit.latitude,
     longitude: hit.longitude,
     distance: hit.distance,
@@ -1638,6 +1678,14 @@ function nearestShipPoint(
   return nearestScenePoint(shipProjection, Domain.Ships, x, y, radius);
 }
 
+function nearestEventPoint(
+  x: number,
+  y: number,
+  radius: number,
+): PointHit | null {
+  return nearestScenePoint(eventLayer, Domain.Events, x, y, radius);
+}
+
 function nearestPoint(
   x: number,
   y: number,
@@ -1647,6 +1695,7 @@ function nearestPoint(
   const specialized = [
     nearestAircraftPoint(x, y, radius),
     nearestShipPoint(x, y, radius),
+    nearestEventPoint(x, y, radius),
     nearestPackedPoint(_earthquakes, Domain.Quakes, x, y, radius),
     nearestPackedPoint(_fires, Domain.Fires, x, y, radius),
   ];
@@ -1839,7 +1888,7 @@ function clearTrailTooltip(): void {
   if (!_activeTrailPoint) return;
   _activeTrailPoint = null;
   postInteraction({
-    kind: "trailTooltip",
+    kind: RenderInteractionKind.TrailTooltip,
     point: null,
     x: 0,
     y: 0,
@@ -1849,7 +1898,7 @@ function clearTrailTooltip(): void {
 
 function positionForItem(item: RenderPoint): CameraPosition {
   const interpolated =
-    item.type === Domain.Aircraft || item.type === "ships"
+    item.type === Domain.Aircraft || item.type === Domain.Ships
       ? getInterp(item.id)
       : null;
   return {
@@ -1867,7 +1916,9 @@ function resetClickMemory(): void {
 
 function handlePointerClick(click: CameraClick): void {
   if (!click.interactive) {
-    postInteraction({ kind: "rawCanvasClick" });
+    postInteraction({
+      kind: RenderInteractionKind.RawCanvasClick,
+    });
     resetClickMemory();
     return;
   }
@@ -1896,7 +1947,7 @@ function handlePointerClick(click: CameraClick): void {
           height: _viewport.height,
         },
         _presentation.flat,
-        "double",
+        RenderFocusKind.Double,
       );
     }
     resetClickMemory();
@@ -1906,7 +1957,7 @@ function handlePointerClick(click: CameraClick): void {
   if (point && !trailTarget) {
     clearTrailTooltip();
     postInteraction({
-      kind: "selection",
+      kind: RenderInteractionKind.Selection,
       id: point.id,
       pointType: point.pointType,
     });
@@ -1931,7 +1982,7 @@ function handlePointerClick(click: CameraClick): void {
   if (trailTarget) {
     _activeTrailPoint = trailTarget.point;
     postInteraction({
-      kind: "trailTooltip",
+      kind: RenderInteractionKind.TrailTooltip,
       point: trailTarget.point,
       x: trailTarget.x,
       y: trailTarget.y,
@@ -1945,12 +1996,16 @@ function handlePointerClick(click: CameraClick): void {
   const warningId = warningIdAt(click.x, click.y);
   if (warningId) {
     postInteraction({
-      kind: "selection",
+      kind: RenderInteractionKind.Selection,
       id: warningId,
       pointType: Domain.CyclonesWarning,
     });
   } else if (!selectedRouteContains(click.x, click.y)) {
-    postInteraction({ kind: "selection", id: null, pointType: null });
+    postInteraction({
+      kind: RenderInteractionKind.Selection,
+      id: null,
+      pointType: null,
+    });
   }
   resetClickMemory();
 }
@@ -1970,7 +2025,10 @@ function handlePointerHover(x: number, y: number): void {
       y,
     )
   ) {
-    postCursor({ kind: "cursor", cursor: "default" });
+    postCursor({
+      kind: RenderInteractionKind.Cursor,
+      cursor: RenderCursor.Default,
+    });
     return;
   }
   const hasTrail = nearestTrailTarget(x, y) !== null;
@@ -1978,9 +2036,11 @@ function handlePointerHover(x: number, y: number): void {
     nearestPoint(x, y, CAMERA_POLICY.hoverHitRadiusPx) !== null;
   const hasWarning = warningIdAt(x, y) !== null;
   postCursor({
-    kind: "cursor",
+    kind: RenderInteractionKind.Cursor,
     cursor:
-      hasTrail || hasPoint || hasWarning ? "pointer" : "grab",
+      hasTrail || hasPoint || hasWarning
+        ? RenderCursor.Pointer
+        : RenderCursor.Grab,
   });
 }
 
@@ -2009,7 +2069,10 @@ function updateSelectedSide(): void {
   }
   if (next === _lastSelectedSide) return;
   _lastSelectedSide = next;
-  postInteraction({ kind: "selectedSide", side: next });
+  postInteraction({
+    kind: RenderInteractionKind.SelectedSide,
+    side: next,
+  });
 }
 
 function updateTrailTooltip(): void {
@@ -2021,7 +2084,7 @@ function updateTrailTooltip(): void {
       candidate.point.lon === _activeTrailPoint?.lon,
   );
   postInteraction({
-    kind: "trailTooltip",
+    kind: RenderInteractionKind.TrailTooltip,
     point: _activeTrailPoint,
     x: target?.x ?? 0,
     y: target?.y ?? 0,
@@ -2053,10 +2116,10 @@ function drawEarthquakeLayer(
   const { ctx, colorMap, accent, selId, t, zoomLevel } = pc;
   const baseColor = colorMap.quakes || accent;
   const scale = zoomScale(zoomLevel);
-  const pulseIntensity = clamp01((zoomLevel - 1.3) / 2);
+  const pulseIntensity = clampUnit((zoomLevel - 1.3) / 2);
   for (let index = 0; index < state.ids.length; index++) {
     const projectedOffset =
-      index * EARTHQUAKE_UNIT_VECTOR_COMPONENTS;
+      index * RenderDataLaneComponentCount.UnitVector;
     const x = state.projected[projectedOffset];
     const y = state.projected[projectedOffset + 1];
     const depth = state.projected[projectedOffset + 2];
@@ -2082,22 +2145,26 @@ function drawEarthquakeLayer(
       quakeSize(magnitude) * scale * (selected ? 2 : 1);
     const fillAlpha = (0.4 + depth * 0.6) * age * 0.8;
     if (
-      magnitude > EARTHQUAKE_PULSE_THRESHOLD &&
+      magnitude > EarthquakeAnimationPolicy.MagnitudeThreshold &&
       pulseIntensity > 0.01
     ) {
       const pulseIndex = Math.min(
         1,
-        (magnitude - EARTHQUAKE_PULSE_THRESHOLD) / 4,
+        (magnitude -
+          EarthquakeAnimationPolicy.MagnitudeThreshold) / 4,
       );
       const phase =
-        (Number.parseInt(id.slice(1), 36) || 0) * 0.7;
+        (Number.parseInt(
+          id.slice(1),
+          EarthquakeAnimationPolicy.IdRadix,
+        ) || 0) * EarthquakeAnimationPolicy.PhaseRate;
       const pulse =
         1 +
         Math.sin(t + phase) *
           (0.1 + pulseIndex * 0.2);
       const glowRadius =
         size * (1.8 + pulseIndex * 1.5) * pulse;
-      drawGlow(
+      markerVisuals.drawGlow(
         ctx,
         color,
         "40",
@@ -2126,9 +2193,10 @@ function drawFireLayer(
   const { ctx, colorMap, accent, selId, t, zoomLevel } = pc;
   const baseColor = colorMap.fires || accent;
   const scale = zoomScale(zoomLevel);
-  const pulseIntensity = clamp01((zoomLevel - 1.5) / 2.5);
+  const pulseIntensity = clampUnit((zoomLevel - 1.5) / 2.5);
   for (let index = 0; index < state.ids.length; index++) {
-    const projectedOffset = index * PACKED_UNIT_VECTOR_COMPONENTS;
+    const projectedOffset =
+      index * RenderDataLaneComponentCount.UnitVector;
     const x = state.projected[projectedOffset];
     const y = state.projected[projectedOffset + 1];
     const depth = state.projected[projectedOffset + 2];
@@ -2152,15 +2220,21 @@ function drawFireLayer(
     const selected = id === selId;
     const size = fireSize(frp) * scale * (selected ? 2 : 1);
     const fillAlpha = (0.4 + depth * 0.6) * age * 0.5;
-    if (frp > 15 && pulseIntensity > 0.01) {
-      const pulseIndex = Math.min(1, (frp - 15) / 85);
+    if (
+      frp > FireAnimationPolicy.PowerThreshold &&
+      pulseIntensity > 0.01
+    ) {
+      const pulseIndex = Math.min(
+        1,
+        (frp - FireAnimationPolicy.PowerThreshold) / 85,
+      );
       const phase = (Number.parseInt(id.slice(2), 36) || 0) * 0.6;
       const pulse =
         1 +
         Math.sin(t + phase) * (0.05 + pulseIndex * 0.15);
       const glowRadius =
         size * (1.5 + pulseIndex * 1.5) * pulse;
-      drawGlow(
+      markerVisuals.drawGlow(
         ctx,
         color,
         "30",
@@ -2192,44 +2266,6 @@ type PointDraw = Readonly<{
   env: DotEnv;
 }>;
 
-const PULSE_ZOOM_FLOOR = 1.3;
-const PULSE_ZOOM_SPAN = 2;
-
-function pulseIntensity(zoomLevel: number): number {
-  return clamp01((zoomLevel - PULSE_ZOOM_FLOOR) / PULSE_ZOOM_SPAN);
-}
-
-function drawEventPoint(
-  item: Extract<RenderPoint, { type: Domain.Events }>,
-  d: PointDraw,
-  zoomLevel: number,
-): void {
-  const sev = item.data.severity ?? 1;
-  const ageFactor = eventAgeFactor(item.timestamp);
-  const s = eventSize(sev) * zoomScale(zoomLevel) * (d.isSel ? 2 : 1);
-  drawPulsingDot(d.env, {
-    x: d.x,
-    y: d.y,
-    s,
-    color: eventColor(ageFactor, d.baseColor),
-    fillAlpha: d.depthAlpha * ageFactor * 0.75,
-    isSel: d.isSel,
-    glow:
-      sev >= 3
-        ? {
-            intensity: pulseIntensity(zoomLevel),
-            pulseIndex: Math.min(1, (sev - 2) / 3),
-            id: item.id,
-            cfg: EVENT_PULSE_GLOW,
-          }
-        : null,
-    shape: (size) => {
-      d.env.ctx.beginPath();
-      d.env.ctx.arc(d.x, d.y, size, 0, Math.PI * 2);
-    },
-  });
-}
-
 function drawWeatherPoint(
   item: Extract<RenderPoint, { type: Domain.Weather }>,
   d: PointDraw,
@@ -2247,7 +2283,7 @@ function drawWeatherPoint(
     isSel: d.isSel,
     glow: pulse
       ? {
-          intensity: pulseIntensity(zoomLevel),
+          intensity: markerPulseIntensity(zoomLevel),
           pulseIndex: pulse.index,
           id: item.id,
           cfg: pulse.glow,
@@ -2282,13 +2318,10 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   };
 
   switch (item.type) {
-    case "events":
-      drawEventPoint(item, d, zoomLevel);
-      return;
-    case "weather":
+    case Domain.Weather:
       drawWeatherPoint(item, d, zoomLevel);
       return;
-    case "cyclones":
+    case Domain.Cyclones:
       drawCyclone(
         ctx,
         projFn,
@@ -2309,7 +2342,7 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
         },
       );
       return;
-    case "cyclones-forecast":
+    case Domain.CyclonesForecast:
       drawCycloneForecastPoint(
         ctx,
         x,
@@ -2416,7 +2449,7 @@ function sceneProjectionBase(geometry: SceneGeometry) {
     width: geometry.width,
     height: geometry.height,
     hitCellSize: CAMERA_POLICY.hitCellSizePx,
-    cullMargin: PACKED_CULL_MARGIN_PX,
+    cullMargin: PackedProjectionPolicy.CullMarginPixels,
     flat: fm
       ? {
           centerX: fm.cx,
@@ -2436,49 +2469,25 @@ function sceneProjectionBase(geometry: SceneGeometry) {
   };
 }
 
-const FIRE_LAYER_PRECEDES: ReadonlySet<string> = new Set([
-  Domain.Events,
-  Domain.Weather,
-  Domain.CyclonesForecast,
-  Domain.Cyclones,
-]);
-
-const EARTHQUAKE_LAYER_PRECEDES: ReadonlySet<string> = new Set([
-  Domain.Weather,
-  Domain.CyclonesForecast,
-  Domain.Cyclones,
-]);
-
-/**
- * Packed fires and earthquakes are single draw calls, so they slot into the
- * legacy point order at the first point they must sit beneath.
- */
 function drawPointLayers(
   pointCtx: PointDrawCtx,
   pts: readonly ProjPoint[],
+  drawEventLayer: () => void,
 ): void {
-  let firesDrawn = false;
-  let earthquakesDrawn = false;
-
-  const drawFires = (): void => {
-    if (firesDrawn || !_fires) return;
-    drawFireLayer(pointCtx, _fires);
-    firesDrawn = true;
-  };
-  const drawEarthquakes = (): void => {
-    if (earthquakesDrawn || !_earthquakes) return;
-    drawFires();
-    drawEarthquakeLayer(pointCtx, _earthquakes);
-    earthquakesDrawn = true;
-  };
-
-  for (const pt of pts) {
-    if (FIRE_LAYER_PRECEDES.has(pt.item.type)) drawFires();
-    if (EARTHQUAKE_LAYER_PRECEDES.has(pt.item.type)) drawEarthquakes();
-    drawPoint(pointCtx, pt);
-  }
-  drawFires();
-  drawEarthquakes();
+  drawMarkerLayerSequence({
+    fire: () => {
+      if (_fires) drawFireLayer(pointCtx, _fires);
+    },
+    event: drawEventLayer,
+    earthquake: () => {
+      if (_earthquakes) {
+        drawEarthquakeLayer(pointCtx, _earthquakes);
+      }
+    },
+    legacy: () => {
+      for (const point of pts) drawPoint(pointCtx, point);
+    },
+  });
 }
 
 type AreaOverlayOptions = Readonly<{
@@ -2528,13 +2537,6 @@ function drawAreaOverlays(options: AreaOverlayOptions): void {
   }
 }
 
-const FLAT_LABEL_MIN_PX = 8;
-const FLAT_LABEL_SCALE = 0.015;
-const FLAT_LONGITUDE_STEP = 60;
-const FLAT_LONGITUDE_LIMIT = 120;
-const FLAT_LATITUDE_STEP = 30;
-const FLAT_LATITUDE_LIMIT = 60;
-
 /** Map border plus the degree labels down its outer edges. */
 function drawFlatFrame(
   ctx: Ctx,
@@ -2549,32 +2551,38 @@ function drawFlatFrame(
   ctx.globalAlpha = 1;
   ctx.fillStyle = colors.dim || colors.accent;
   const fontSize = Math.max(
-    FLAT_LABEL_MIN_PX,
-    Math.min(viewport.width, viewport.height) * FLAT_LABEL_SCALE,
+    FlatLabelLayout.MinimumPixels,
+    Math.min(viewport.width, viewport.height) *
+      FlatLabelLayout.ViewportScale,
   );
   ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
   ctx.textAlign = "center";
   for (
-    let lon = -FLAT_LONGITUDE_LIMIT;
-    lon <= FLAT_LONGITUDE_LIMIT;
-    lon += FLAT_LONGITUDE_STEP
+    let lon = -FlatCoordinateLabel.LongitudeLimitDegrees;
+    lon <= FlatCoordinateLabel.LongitudeLimitDegrees;
+    lon += FlatCoordinateLabel.LongitudeStepDegrees
   ) {
     ctx.fillText(
       `${Math.abs(lon)}°${lon >= 0 ? "E" : "W"}`,
-      fm.cx + (lon / 180) * (fm.mW / 2),
-      fm.my + fm.mH + 13,
+      fm.cx +
+        (lon / GeoLimit.MaxLongitude) * (fm.mW / 2),
+      fm.my + fm.mH + FlatLabelLayout.BottomOffsetPixels,
     );
   }
   ctx.textAlign = "right";
   for (
-    let lat = -FLAT_LATITUDE_LIMIT;
-    lat <= FLAT_LATITUDE_LIMIT;
-    lat += FLAT_LATITUDE_STEP
+    let lat = -FlatCoordinateLabel.LongitudeStepDegrees;
+    lat <= FlatCoordinateLabel.LongitudeStepDegrees;
+    lat +=
+      FlatCoordinateLabel.LongitudeStepDegrees /
+      FlatCoordinateLabel.LatitudeStepDivisor
   ) {
     ctx.fillText(
       `${Math.abs(lat)}°${lat >= 0 ? "N" : "S"}`,
-      fm.mx - 5,
-      fm.cy - (lat / 90) * (fm.mH / 2) + 3,
+      fm.mx - FlatLabelLayout.SideOffsetPixels,
+      fm.cy -
+        (lat / GeoLimit.MaxLatitude) * (fm.mH / 2) +
+        FlatLabelLayout.BaselineOffsetPixels,
     );
   }
 }
@@ -2589,16 +2597,6 @@ type FrameTheme = Readonly<{
   colorMap: Record<string, string>;
 }>;
 
-const FALLBACK_COLORS = {
-  fires: "#ff6600",
-  weather: "#aa66ff",
-  cyclones: "#ff66cc",
-  reconLight: "#b86b00",
-  reconDark: "#ff9500",
-  militaryLight: "#3a3a3a",
-  militaryDark: "#e0e0e0",
-} as const;
-
 function frameTheme(colors: RenderWorkerColors): FrameTheme {
   const light = isLightTheme(colors);
   return {
@@ -2606,20 +2604,16 @@ function frameTheme(colors: RenderWorkerColors): FrameTheme {
     landAlpha: light ? 0.9 : 0.7,
     gridAlpha: light ? 0.18 : 0.11,
     glowAlpha: light ? "08" : "0d",
-    milColor: light
-      ? FALLBACK_COLORS.militaryLight
-      : FALLBACK_COLORS.militaryDark,
-    reconColor:
-      colors.recon ||
-      (light ? FALLBACK_COLORS.reconLight : FALLBACK_COLORS.reconDark),
+    milColor: colors.military,
+    reconColor: colors.recon,
     colorMap: {
       ships: colors.ships,
       aircraft: colors.aircraft,
       events: colors.events,
       quakes: colors.quakes,
-      fires: colors.fires || FALLBACK_COLORS.fires,
-      weather: colors.weather || FALLBACK_COLORS.weather,
-      cyclones: colors.cyclones || FALLBACK_COLORS.cyclones,
+      fires: colors.fires,
+      weather: colors.weather,
+      cyclones: colors.cyclones,
     },
   };
 }
@@ -2702,7 +2696,8 @@ function selectionPassesFilters(v: SelectionVisibility): boolean {
   }
   if (item.type !== Domain.Aircraft) return v.layers[item.type] !== false;
 
-  const handle = aircraftSceneStore.handleForId(item.id);
+  const handle =
+    aircraftSceneStore.handlesForEntityId(item.id)[0] ?? null;
   return (
     handle !== null &&
     aircraftSceneIncludes(v.aircraftView, handle - 1, v.aircraftFilter)
@@ -2875,6 +2870,14 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     includes: (index) => shipSceneIncludes(shipView, index, shipSceneFilter),
   });
 
+  eventLayer.project(eventSceneStore.view(), base, {
+    enabled: p.layers[Domain.Events] !== false,
+    searchIds: searchSet,
+    isolateMode: isoMode,
+    isolatedId: isoId,
+    isolatedType,
+  });
+
   return {
     pts,
     searchSet,
@@ -2904,7 +2907,15 @@ function updateSelectedProjection(
     _selectedProjectionDepth = point.z;
   }
 
-  const handle = aircraftSceneStore.handleForId(selectedId);
+  const eventProjection = eventLayer.selectionAnchor(selectedId);
+  if (eventProjection) {
+    _hasSelectedProjection = true;
+    _selectedProjectionX = eventProjection.x;
+    _selectedProjectionDepth = eventProjection.depth;
+  }
+
+  const handle =
+    aircraftSceneStore.handlesForEntityId(selectedId)[0] ?? null;
   const projection =
     handle === null ? null : aircraftProjection.projection(handle - 1);
   if (!projection) return;
@@ -2924,6 +2935,7 @@ function scheduleNextFrameIfNeeded(
     (_hasAnimatedPoints ||
       _hasAnimatedEarthquakes ||
       _hasAnimatedFires ||
+      eventLayer.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
     hasRevealWork || trailMap.size > 0 || hasVisualAnimation || cameraActive;
@@ -2945,16 +2957,19 @@ function renderFrame(): void {
     _camera,
     _cameraTarget,
     _pointer,
-    { width: W, height: H },
-    isFlat,
-    p.autoRotate,
-    p.rotationSpeed,
-    selectedCameraPosition(),
-    now - _lastFrameAt,
+    {
+      viewport: { width: W, height: H },
+      flat: isFlat,
+      autoRotate: p.autoRotate,
+      rotationSpeed: p.rotationSpeed,
+      selectedPosition: selectedCameraPosition(),
+      deltaMilliseconds: now - _lastFrameAt,
+    },
   );
   _lastFrameAt = now;
   const cam = cameraSnapshot(_camera);
-  const t = Date.now() * 0.003;
+  const wallTime = Date.now();
+  const t = wallTime * 0.003;
   const selId = p.selectedId;
   const isoId = p.isolatedId;
   const isoMode = p.isolateMode;
@@ -3079,13 +3094,6 @@ function renderFrame(): void {
     hiddenModels: cyclones.hiddenModels,
     reducedMotion: cyclones.reducedMotion,
   };
-  drawShipScene(shipView, shipProjection, {
-    context: ctx,
-    color: colorMap.ships ?? colors.accent,
-    selectedId: selId,
-    time: t,
-    zoomLevel,
-  });
   drawAircraftScene(aircraftView, aircraftProjection, {
     context: ctx,
     baseColor: colors.aircraft,
@@ -3095,7 +3103,23 @@ function renderFrame(): void {
     time: t,
     zoomLevel,
   });
-  drawPointLayers(pointCtx, pts);
+  drawShipScene(shipView, shipProjection, {
+    context: ctx,
+    color: colorMap.ships ?? colors.accent,
+    selectedId: selId,
+    time: t,
+    zoomLevel,
+  });
+  drawPointLayers(pointCtx, pts, () => {
+    eventLayer.draw({
+      context: ctx,
+      color: colorMap.events ?? colors.accent,
+      selectedId: selId,
+      time: t,
+      now: wallTime,
+      zoomLevel,
+    });
+  });
   ctx.globalAlpha = 1;
 
   // ── Restore clip and draw rim/border ──────────────────────────

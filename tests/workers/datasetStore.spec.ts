@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createDatasetStore } from "@/workers/data/datasetStore";
+import {
+  createDatasetStore,
+  DatasetPatchKind,
+} from "@/workers/data/datasetStore";
 import { SourceCompleteness } from "@shared/source";
 
 type TestEntity = Readonly<{
@@ -19,7 +22,7 @@ describe("dataset store", () => {
       completeness: SourceCompleteness.Complete,
       entities: [first, second],
     });
-    expect(initial.kind).toBe("rebase");
+    expect(initial.kind).toBe(DatasetPatchKind.Rebase);
     expect(store.size()).toBe(2);
 
     const partial = await store.applySnapshot({
@@ -27,7 +30,7 @@ describe("dataset store", () => {
       completeness: SourceCompleteness.Partial,
       entities: [{ id: "first", value: 3 }],
     });
-    expect(partial.kind).toBe("patch");
+    expect(partial.kind).toBe(DatasetPatchKind.Patch);
     expect(partial.deletedIds).toEqual([]);
     expect(store.get("second")).toBe(second);
 

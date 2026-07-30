@@ -5,20 +5,26 @@ import {
 } from "@/features/tracking/ships/data/fetch";
 import {
   isShipPoint,
+  SHIP_NUMBER_FIELDS,
+  SHIP_STRING_FIELDS,
   type ShipPoint,
 } from "@/features/tracking/ships/data/codec";
 import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import { parsePointList } from "@/features/base/pointCodec";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import { recordPosition } from "@/workers/data/source-model/position";
 import {
   createPointSourceRuntime,
   type PointSourceCacheSnapshot,
   type PointSourceFetchSnapshot,
   type PointSourceRuntime,
 } from "@/workers/data/sourceRuntime";
-import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
+import {
+  ShipSceneAttribute,
+  ShipSceneSchema,
+} from "@/workers/render/scene/shipSchema";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 
 export const SHIP_SOURCE = getPointSourceDefinition(Domain.Ships);
@@ -38,36 +44,6 @@ export type ShipSourceRuntimeOptions = Readonly<{
   observe?: (points: readonly ShipPoint[]) => void;
 }>;
 
-const STRING_FIELDS = [
-  "name",
-  "callSign",
-  "vesselType",
-  "flag",
-  "navStatusLabel",
-  "destination",
-  "eta",
-] as const;
-
-const NUMBER_FIELDS = [
-  "mmsi",
-  "imo",
-  "shipTypeCode",
-  "speed",
-  "sog",
-  "cog",
-  "heading",
-  "navStatus",
-  "rot",
-  "draught",
-  "length",
-  "width",
-  "dimA",
-  "dimB",
-  "dimC",
-  "dimD",
-  "speedMps",
-] as const;
-
 export function parseShipCache(
   value: unknown,
 ): readonly ShipPoint[] | null {
@@ -82,13 +58,19 @@ function shipChanged(
     previous.lat !== next.lat ||
     previous.lon !== next.lon ||
     previous.timestamp !== next.timestamp ||
-    STRING_FIELDS.some(
+    SHIP_STRING_FIELDS.some(
       (key) => previous.data[key] !== next.data[key],
     ) ||
-    NUMBER_FIELDS.some(
+    SHIP_NUMBER_FIELDS.some(
       (key) => previous.data[key] !== next.data[key],
     )
   );
+}
+
+function shipTimestamp(point: ShipPoint): number {
+  if (!point.timestamp) return 0;
+  const timestamp = Date.parse(point.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeSnapshot(
@@ -100,11 +82,13 @@ function normalizeSnapshot(
 export function createShipSourceRuntime(
   options: ShipSourceRuntimeOptions,
 ): ShipSourceRuntime {
-  const codec = createScenePatchCodec<ShipPoint>({
+  const codec = new ScenePatchCodec<ShipPoint>({
     source: SHIP_SOURCE.id,
-    attributeStride: SHIP_SCENE.attributeStride,
+    attributeStride: ShipSceneSchema.AttributeStride,
+    position: recordPosition,
+    timestamp: shipTimestamp,
     writeAttributes: (point, target, offset) => {
-      target[offset + SHIP_SCENE.attributes.heading] =
+      target[offset + ShipSceneAttribute.Heading] =
         point.data.heading ?? 0;
     },
   });

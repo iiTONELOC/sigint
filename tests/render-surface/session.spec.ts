@@ -3,6 +3,10 @@ import {
   createRenderCommandSender,
   type RenderWorkerEndpoint,
 } from "@/render-surface/session";
+import {
+  RenderMessageType,
+  RenderProtocolVersion,
+} from "@/workers/render/protocol";
 
 describe("render surface session", () => {
   test("owns one increasing command sequence", () => {
@@ -14,22 +18,22 @@ describe("render surface session", () => {
     };
     const sender = createRenderCommandSender(endpoint, "session-a");
 
-    sender.send({ type: "dispose" });
+    sender.send({ type: RenderMessageType.Dispose });
     sender.send({
-      type: "viewport",
+      type: RenderMessageType.Viewport,
       payload: { width: 800, height: 600, devicePixelRatio: 2 },
     });
 
     expect(messages).toEqual([
       {
-        type: "dispose",
-        protocolVersion: 2,
+        type: RenderMessageType.Dispose,
+        protocolVersion: RenderProtocolVersion.Current,
         sessionId: "session-a",
         sequence: 1,
       },
       {
-        type: "viewport",
-        protocolVersion: 2,
+        type: RenderMessageType.Viewport,
+        protocolVersion: RenderProtocolVersion.Current,
         sessionId: "session-a",
         sequence: 2,
         payload: { width: 800, height: 600, devicePixelRatio: 2 },

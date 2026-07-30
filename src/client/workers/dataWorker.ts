@@ -10,8 +10,8 @@ import {
   createShipSourceRuntime,
 } from "@/workers/data/sources/ships";
 import {
-  EVENT_SOURCE,
-  createEventSourceRuntime,
+  EVENT_SOURCE_POLICY,
+  EventSource,
 } from "@/workers/data/sources/events";
 import {
   cycloneWarningSource,
@@ -22,7 +22,8 @@ import {
   CYCLONE_SOURCE,
   createCycloneSourceRuntime,
 } from "@/workers/data/sources/cyclones";
-import { createScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
+import { ScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
+import { EventSceneBinding } from "@/workers/data/render-codecs/eventSceneBinding";
 import {
   TRAIL_RECORDER_POLICY,
   createTrailRecorder,
@@ -44,24 +45,37 @@ import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
 import { packFireRenderData } from "@/workers/data/fireRenderData";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 import {
-  DATA_WORKER_PROTOCOL_VERSION,
+  DataWorkerMessageType,
+  DataWorkerProtocolVersion,
   parseDataWorkerCommand,
   type DataWorkerCommand,
   type DataWorkerEnvelope,
   type DataWorkerEvent,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
-import { createRenderDataCommand } from "@/workers/render/dataChannel";
+import {
+  createRenderDataCommand,
+  RenderDataCommandType,
+  type LegacyPointSourceId,
+} from "@/workers/render/dataChannel";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
 
-type CommandOf<TType extends DataWorkerCommand["type"]> = Extract<
+type CommandOf<TType extends DataWorkerMessageType> = Extract<
   DataWorkerCommand,
   { type: TType }
 >;
 
+enum DataWorkerError {
+  InactiveSource = "The requested source is not active",
+  OperationFailed = "DataWorker operation failed",
+}
+
 const store = createDataCacheStore(indexedDB);
-const scenePublisher = createScenePublisher();
+const scenePublisher = new ScenePublisher();
+const eventSceneBinding = new EventSceneBinding((patch) => {
+  scenePublisher.publish(patch);
+});
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
@@ -88,8 +102,8 @@ function post(event: DataWorkerEvent): void {
 
 function publishSource(snapshot: DataWorkerSourceSnapshot): void {
   post({
-    type: "sourceSnapshot",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.SourceSnapshot,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: null,
     snapshot,
   });
@@ -149,7 +163,7 @@ function postRenderData(
 
 function publishEarthquakeSearch(): void {
   postRenderData({
-    type: "earthquakeSearch",
+    type: RenderDataCommandType.EarthquakeSearch,
     matchingIds: earthquakeSearchText
       ? findQueryableSearchIds(
           Domain.Earthquake,
@@ -162,7 +176,7 @@ function publishEarthquakeSearch(): void {
 
 function publishFireSearch(): void {
   postRenderData({
-    type: "fireSearch",
+    type: RenderDataCommandType.FireSearch,
     matchingIds: fireSearchText
       ? findQueryableSearchIds(Domain.Fire, fireOwner.values(), fireSearchText)
       : null,
@@ -174,7 +188,10 @@ function rebaseEarthquakeRender(
 ): void {
   if (!renderPort || !renderSessionId) return;
   const packed = packEarthquakeRenderData(points);
-  postRenderData({ type: "earthquakeRebase", ...packed }, [
+  postRenderData({
+    type: RenderDataCommandType.EarthquakeRebase,
+    ...packed,
+  }, [
     packed.positions.buffer,
     packed.unitVectors.buffer,
     packed.magnitudes.buffer,
@@ -197,7 +214,10 @@ function rebaseFireRender(
 ): void {
   if (!renderPort || !renderSessionId) return;
   const packed = packFireRenderData(points);
-  postRenderData({ type: "fireRebase", ...packed }, [
+  postRenderData({
+    type: RenderDataCommandType.FireRebase,
+    ...packed,
+  }, [
     packed.positions.buffer,
     packed.unitVectors.buffer,
     packed.frp.buffer,
@@ -230,31 +250,30 @@ const shipOwner = createShipSourceRuntime({
   },
 });
 
-const eventOwner = createEventSourceRuntime({
-  readCache: () => store.get(EVENT_SOURCE.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(EVENT_SOURCE.cacheKey, snapshot);
+const eventOwner = new EventSource();
+eventOwner.attach({
+  readCache: () => store.get(EVENT_SOURCE_POLICY.cacheKey),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPoints: (points) => {
-    rebasePoints(EVENT_SOURCE.id, points);
+  publishPatch: (patch) => {
+    eventSceneBinding.publish(patch);
   },
 });
 
 /**
- * Events, weather and cyclones carry geometry and number in the hundreds, so
- * they ride to the renderer as objects rather than packed lanes. React is not
- * on this path at all.
+ * Weather and cyclones still carry geometry on the legacy object path.
  */
 function rebasePoints(
-  source:
-    | Domain.Events
-    | Domain.Weather
-    | Domain.Cyclones
-    | Domain.CycloneWarnings,
+  source: LegacyPointSourceId,
   points: readonly DataPoint[],
 ): void {
-  postRenderData({ type: "pointsRebase", source, points });
+  postRenderData({
+    type: RenderDataCommandType.PointsRebase,
+    source,
+    points,
+  });
 }
 
 const weatherOwner = weatherAlertSource;
@@ -264,8 +283,8 @@ weatherOwner.attach({
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishRecords: (records) => {
-    rebasePoints(Domain.Weather, records);
+  publishPatch: () => {
+    rebasePoints(Domain.Weather, weatherOwner.values());
   },
 });
 
@@ -287,8 +306,11 @@ cycloneWarningOwner.attach({
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishRecords: (records) => {
-    rebasePoints(Domain.CycloneWarnings, records);
+  publishPatch: () => {
+    rebasePoints(
+      Domain.CycloneWarnings,
+      cycloneWarningOwner.values(),
+    );
   },
 });
 
@@ -301,7 +323,7 @@ const sourceOwners = {
   [Domain.Fire]: fireOwner,
   [Domain.Ships]: shipOwner,
   [Domain.Weather]: weatherOwner,
-} as const;
+};
 
 // One line per source; each binds its codec to its owner where both types
 // are concrete, which is what keeps the handlers branch-free.
@@ -320,16 +342,16 @@ const sourceAnswers = {
   [Domain.Fire]: createSourceAnswers(Domain.Fire, fireOwner),
   [Domain.Ships]: createSourceAnswers(Domain.Ships, shipOwner),
   [Domain.Weather]: createSourceAnswers(Domain.Weather, weatherOwner),
-} as const;
+};
 
 type OwnedSourceId = keyof typeof sourceOwners;
-
-const INACTIVE_SOURCE_MESSAGE = "The requested source is not active";
 
 type InactiveSourceError = Error & Readonly<{ source: string }>;
 
 function inactiveSourceError(source: string): InactiveSourceError {
-  return Object.assign(new Error(INACTIVE_SOURCE_MESSAGE), { source });
+  return Object.assign(new Error(DataWorkerError.InactiveSource), {
+    source,
+  });
 }
 
 function isOwnedSource(value: string): value is OwnedSourceId {
@@ -339,8 +361,8 @@ function isOwnedSource(value: string): value is OwnedSourceId {
 function complete(requestId: number | null): void {
   if (requestId === null) return;
   post({
-    type: "complete",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Complete,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId,
   });
 }
@@ -348,11 +370,13 @@ function complete(requestId: number | null): void {
 function fail(requestId: number | null, error: unknown): void {
   if (requestId === null) return;
   post({
-    type: "error",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Error,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId,
     message:
-      error instanceof Error ? error.message : "DataWorker operation failed",
+      error instanceof Error
+        ? error.message
+        : DataWorkerError.OperationFailed,
   });
 }
 
@@ -368,24 +392,28 @@ async function startOwners(): Promise<void> {
   );
 }
 
-async function handleInit(command: CommandOf<"init">): Promise<void> {
+async function handleInit(
+  command: CommandOf<DataWorkerMessageType.Init>,
+): Promise<void> {
   await store.open();
   post({
-    type: "ready",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Ready,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     entries: mainThreadCacheEntries(await store.getAll()),
   });
   void startOwners();
 }
 
-function handleConnectRender(command: CommandOf<"connectRender">): void {
+function handleConnectRender(
+  command: CommandOf<DataWorkerMessageType.ConnectRender>,
+): void {
   renderPort?.close();
   renderPort = command.port;
   renderSessionId = command.renderSessionId;
   renderSequence = 0;
   renderPort.start();
-  postRenderData({ type: "bind" });
+  postRenderData({ type: RenderDataCommandType.Bind });
   scenePublisher.connect(renderPort, renderSessionId);
   aircraftOwner.publishRebase();
   shipOwner.publishRebase();
@@ -398,7 +426,7 @@ function handleConnectRender(command: CommandOf<"connectRender">): void {
 }
 
 function handleConnectCorrelation(
-  command: CommandOf<"connectCorrelation">,
+  command: CommandOf<DataWorkerMessageType.ConnectCorrelation>,
 ): void {
   correlationPort?.close();
   correlationPort = command.port;
@@ -421,7 +449,7 @@ function handleConnectCorrelation(
 }
 
 async function handleRefreshSource(
-  command: CommandOf<"refreshSource">,
+  command: CommandOf<DataWorkerMessageType.RefreshSource>,
 ): Promise<void> {
   if (!isOwnedSource(command.source)) {
     throw inactiveSourceError(command.source);
@@ -431,28 +459,33 @@ async function handleRefreshSource(
 }
 
 function handleListSourceEntities(
-  command: CommandOf<"listSourceEntities">,
+  command: CommandOf<DataWorkerMessageType.ListSourceEntities>,
 ): void {
   if (!isOwnedSource(command.source)) {
     throw inactiveSourceError(command.source);
   }
   post({
-    type: "value",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Value,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     value: sourceOwners[command.source].values(),
   });
 }
 
 function envelopeFor(requestId: number | null): DataWorkerEnvelope {
-  return { protocolVersion: DATA_WORKER_PROTOCOL_VERSION, requestId };
+  return {
+    protocolVersion: DataWorkerProtocolVersion.Current,
+    requestId,
+  };
 }
 
 /**
  * Every queryable source answers through its own bound codec, so these
  * handlers carry no per-source branching.
  */
-function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
+function handleGetSourceEntity(
+  command: CommandOf<DataWorkerMessageType.GetSourceEntity>,
+): void {
   const event = sourceAnswers[command.source].entity(
     envelopeFor(command.requestId),
     command.id,
@@ -460,7 +493,9 @@ function handleGetSourceEntity(command: CommandOf<"getSourceEntity">): void {
   if (event) post(event);
 }
 
-function handleQuerySource(command: CommandOf<"querySource">): void {
+function handleQuerySource(
+  command: CommandOf<DataWorkerMessageType.QuerySource>,
+): void {
   const event = sourceAnswers[command.source].query(
     envelopeFor(command.requestId),
     command.query,
@@ -469,58 +504,62 @@ function handleQuerySource(command: CommandOf<"querySource">): void {
 }
 
 function handleSetSourceSearch(
-  command: CommandOf<"setSourceSearch">,
+  command: CommandOf<DataWorkerMessageType.SetSourceSearch>,
 ): void {
   const normalized = command.text?.trim() ?? "";
   const text = normalized.length > 0 ? normalized : null;
-  if (command.source === "earthquake") {
+  if (command.source === Domain.Earthquake) {
     earthquakeSearchText = text;
     publishEarthquakeSearch();
-  } else if (command.source === "fire") {
+  } else if (command.source === Domain.Fire) {
     fireSearchText = text;
     publishFireSearch();
   }
   complete(command.requestId);
 }
 
-function handleGetTrail(command: CommandOf<"getTrail">): void {
+function handleGetTrail(
+  command: CommandOf<DataWorkerMessageType.GetTrail>,
+): void {
   post({
-    type: "trail",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Trail,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     id: command.id,
     entry: trailRecorder.get(command.id),
   });
 }
 
-async function handleGet(command: CommandOf<"get">): Promise<void> {
+async function handleGet(
+  command: CommandOf<DataWorkerMessageType.Get>,
+): Promise<void> {
   post({
-    type: "value",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Value,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     value: await store.get(command.key),
   });
 }
 
 async function handleImportJson(
-  command: CommandOf<"importJson">,
+  command: CommandOf<DataWorkerMessageType.ImportJson>,
 ): Promise<void> {
   const value: unknown = JSON.parse(command.json);
   await coordinator.set(command.key, value);
   post({
-    type: "value",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Value,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     value,
   });
 }
 
 async function handleEstimate(
-  command: CommandOf<"estimate">,
+  command: CommandOf<DataWorkerMessageType.Estimate>,
 ): Promise<void> {
   post({
-    type: "size",
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    type: DataWorkerMessageType.Size,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
     bytes: await store.estimate(command.key),
   });
@@ -528,44 +567,44 @@ async function handleEstimate(
 
 async function dispatch(command: DataWorkerCommand): Promise<void> {
   switch (command.type) {
-    case "init":
+    case DataWorkerMessageType.Init:
       return handleInit(command);
-    case "connectRender":
+    case DataWorkerMessageType.ConnectRender:
       return handleConnectRender(command);
-    case "connectCorrelation":
+    case DataWorkerMessageType.ConnectCorrelation:
       return handleConnectCorrelation(command);
-    case "refreshSource":
+    case DataWorkerMessageType.RefreshSource:
       return handleRefreshSource(command);
-    case "listSourceEntities":
+    case DataWorkerMessageType.ListSourceEntities:
       return handleListSourceEntities(command);
-    case "getSourceEntity":
+    case DataWorkerMessageType.GetSourceEntity:
       return handleGetSourceEntity(command);
-    case "querySource":
+    case DataWorkerMessageType.QuerySource:
       return handleQuerySource(command);
-    case "setSourceSearch":
+    case DataWorkerMessageType.SetSourceSearch:
       return handleSetSourceSearch(command);
-    case "getTrail":
+    case DataWorkerMessageType.GetTrail:
       return handleGetTrail(command);
-    case "get":
+    case DataWorkerMessageType.Get:
       return handleGet(command);
-    case "importJson":
+    case DataWorkerMessageType.ImportJson:
       return handleImportJson(command);
-    case "set":
+    case DataWorkerMessageType.Set:
       await coordinator.set(command.key, command.value);
       return complete(command.requestId);
-    case "setDeferred":
+    case DataWorkerMessageType.SetDeferred:
       coordinator.setDeferred(command.key, command.value);
       return complete(command.requestId);
-    case "delete":
+    case DataWorkerMessageType.Delete:
       await coordinator.delete(command.key, () => store.delete(command.key));
       return complete(command.requestId);
-    case "clear":
+    case DataWorkerMessageType.Clear:
       await coordinator.clear(store.clear);
       return complete(command.requestId);
-    case "flush":
+    case DataWorkerMessageType.Flush:
       await coordinator.flush();
       return complete(command.requestId);
-    case "estimate":
+    case DataWorkerMessageType.Estimate:
       return handleEstimate(command);
   }
 }

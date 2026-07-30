@@ -3,20 +3,23 @@ import {
   shipSceneIncludes,
   type ShipSceneFilter,
 } from "@/workers/render/scene/shipLayer";
-import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
+import { ShipSceneSchema } from "@/workers/render/scene/shipSchema";
 import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { Domain } from "@shared/domain/identity";
 
 const view = {
   capacity: 1,
   active: new Uint8Array([1]),
-  ids: ["S123"],
-  positions: new Float32Array(2),
+  sceneIds: ["ship-marker-S123"],
+  entityIds: ["S123"],
+  positions: new Float64Array(2),
   unitVectors: new Float32Array(3),
+  timestamps: new Float64Array(1),
   attributes: new Float32Array([90]),
-  attributeStride: SHIP_SCENE.attributeStride,
+  attributeStride: ShipSceneSchema.AttributeStride,
   stringAttributes: new Uint32Array(),
-  stringAttributeStride: SHIP_SCENE.stringAttributeStride,
+  stringAttributeStride: ShipSceneSchema.StringAttributeStride,
   dictionary: [],
 } satisfies RenderSceneView;
 
@@ -41,7 +44,7 @@ describe("ship scene layer", () => {
       shipSceneIncludes(view, 0, {
         ...base,
         isolateMode: IsolateMode.Focus,
-        isolatedType: "weather",
+        isolatedType: Domain.Weather,
       }),
     ).toBe(false);
     expect(

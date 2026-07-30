@@ -1,12 +1,14 @@
 import {
-  RENDER_PROTOCOL_VERSION,
-  createRenderCommand,
-  type RenderInteractionPayload,
+  RenderInteractionKind,
+  RenderMessageType,
+  RenderProtocolVersion,
+  createRenderMessage,
   type RenderWorkerCommand,
   type RenderWorkerCommandBody,
 } from "@/workers/render/protocol";
 import { RENDER_POLICY } from "@/workers/render/policy";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
+import { DomEvent } from "@/lib/runtime/domEvent";
 import { isRecord } from "@shared/geo";
 import {
   attachInputHandlers,
@@ -26,6 +28,10 @@ import {
   createBrowserViewportAdapter,
   type ViewportAdapter,
 } from "@/render-surface/viewport";
+
+enum DatasetState {
+  Ready = "true",
+}
 
 export type RenderWorkerEndpoint = Readonly<{
   post: (
@@ -71,7 +77,7 @@ export function createRenderCommandSender(
     ): void {
       sequence += 1;
       endpoint.post(
-        createRenderCommand(body, sessionId, sequence),
+        createRenderMessage(body, sessionId, sequence),
         transfer,
       );
     },
@@ -88,8 +94,9 @@ function createBrowserWorkerEndpoint(): RenderWorkerEndpoint {
       const handleMessage = (event: MessageEvent<unknown>): void => {
         listener(event.data);
       };
-      worker.addEventListener("message", handleMessage);
-      return () => worker.removeEventListener("message", handleMessage);
+      worker.addEventListener(DomEvent.Message, handleMessage);
+      return () =>
+        worker.removeEventListener(DomEvent.Message, handleMessage);
     },
     terminate(): void {
       worker.terminate();
@@ -103,7 +110,7 @@ function acceptsWorkerEvent(
 ): value is Readonly<Record<string, unknown>> {
   if (!isRecord(value)) return false;
   return (
-    value.protocolVersion === RENDER_PROTOCOL_VERSION &&
+    value.protocolVersion === RenderProtocolVersion.Current &&
     value.sessionId === sessionId &&
     typeof value.sequence === "number" &&
     Number.isSafeInteger(value.sequence) &&
@@ -138,20 +145,20 @@ export function createRenderSurfaceSession(
 
       unsubscribe = endpoint.subscribe((message) => {
         if (!acceptsWorkerEvent(message, sessionId)) return;
-        if (message.type === "ready") {
-          nextCanvas.dataset.renderWorkerReady = "true";
+        if (message.type === RenderMessageType.Ready) {
+          nextCanvas.dataset.renderWorkerReady = DatasetState.Ready;
           emitRenderSignal(host, RENDER_SURFACE_READY_EVENT);
           return;
         }
-        if (message.type === "dataChannelReady") {
-          nextCanvas.dataset.renderDataChannelReady = "true";
+        if (message.type === RenderMessageType.DataChannelReady) {
+          nextCanvas.dataset.renderDataChannelReady = DatasetState.Ready;
           emitRenderSignal(host, RENDER_SURFACE_DATA_READY_EVENT);
           return;
         }
-        if (message.type !== "interaction") return;
+        if (message.type !== RenderMessageType.Interaction) return;
         const interaction = message.payload;
         if (!isRenderInteraction(interaction)) return;
-        if (interaction.kind === "cursor") {
+        if (interaction.kind === RenderInteractionKind.Cursor) {
           nextCanvas.style.cursor = interaction.cursor;
         }
         emitRenderInteraction(host, interaction);
@@ -162,24 +169,33 @@ export function createRenderSurfaceSession(
       if (dataClient && typeof MessageChannel !== "undefined") {
         const channel = new MessageChannel();
         send(
-          { type: "init", canvas: offscreen, dataPort: channel.port2 },
+          {
+            type: RenderMessageType.Init,
+            canvas: offscreen,
+            dataPort: channel.port2,
+          },
           [offscreen, channel.port2],
         );
         void dataClient.connectRender(channel.port1, sessionId);
       } else {
-        send({ type: "init", canvas: offscreen }, [offscreen]);
+        send(
+          { type: RenderMessageType.Init, canvas: offscreen },
+          [offscreen],
+        );
       }
 
       viewport = createBrowserViewportAdapter(
         host,
-        (payload) => send({ type: "viewport", payload }),
+        (payload) =>
+          send({ type: RenderMessageType.Viewport, payload }),
         RENDER_POLICY.maxDevicePixelRatio,
       );
       viewport.start();
 
       input = createInputHandlers({
         canvas: nextCanvas,
-        sendInput: (payload) => send({ type: "input", payload }),
+        sendInput: (payload) =>
+          send({ type: RenderMessageType.Input, payload }),
         onMiddleClick: () => {
           emitRenderSignal(host, RENDER_SURFACE_MIDDLE_CLICK_EVENT);
         },
@@ -194,7 +210,9 @@ export function createRenderSurfaceSession(
       viewport = null;
       if (canvas && input) detachInputHandlers(canvas, input);
       input = null;
-      if (sender) sender.send({ type: "dispose" });
+      if (sender) {
+        sender.send({ type: RenderMessageType.Dispose });
+      }
       unsubscribe?.();
       unsubscribe = null;
       endpoint?.terminate();

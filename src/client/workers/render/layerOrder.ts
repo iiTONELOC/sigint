@@ -1,13 +1,10 @@
-export const POINT_LAYER_ORDER = [
-  "aircraft",
-  "ships",
-  "fires",
-  "events",
-  "quakes",
-  "weather",
-  "cyclones-forecast",
-  "cyclones",
-] as const;
+import { Domain } from "@shared/domain/identity";
+
+export const POINT_LAYER_ORDER: readonly Domain[] = [
+  Domain.Weather,
+  Domain.CyclonesForecast,
+  Domain.Cyclones,
+];
 
 type LayeredPoint = Readonly<{
   item: Readonly<{ type: string }>;

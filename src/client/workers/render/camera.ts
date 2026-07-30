@@ -1,9 +1,16 @@
 import { isMobileWidth } from "@/config/breakpoints";
 import { clampFlatPan, getFlatMetrics } from "@/lib/geo/render/flatMap";
-import type { RenderCamera } from "./protocol";
+import {
+  RenderCameraKey,
+  RenderFocusKind,
+  type RenderCamera,
+} from "./protocol";
 import { CAMERA_POLICY } from "./policy";
-
-const TWO_PI = Math.PI * 2;
+import {
+  GeoLimit,
+  TurnDeg,
+} from "@shared/geo";
+import { MS_PER_SECOND } from "@shared/time";
 
 export type CameraViewport = Readonly<{
   width: number;
@@ -55,7 +62,20 @@ export type CameraClick = Readonly<{
   interactive: boolean;
 }>;
 
-export type CameraFocusKind = "focus" | "reveal" | "double";
+export type CameraPinchMovement = Readonly<{
+  centerX: number;
+  centerY: number;
+  distance: number;
+}>;
+
+export type CameraStepFrame = Readonly<{
+  viewport: CameraViewport;
+  flat: boolean;
+  autoRotate: boolean;
+  rotationSpeed: number;
+  selectedPosition: CameraPosition | null;
+  deltaMilliseconds: number;
+}>;
 
 export function createWorkerCameraState(): WorkerCameraState {
   return {
@@ -111,8 +131,13 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function fullTurnRadians(): number {
+  return Math.PI * 2;
+}
+
 function wrapRotation(value: number): number {
-  return ((value % TWO_PI) + TWO_PI) % TWO_PI;
+  const fullTurn = fullTurnRadians();
+  return ((value % fullTurn) + fullTurn) % fullTurn;
 }
 
 function positionTarget(
@@ -128,16 +153,20 @@ function positionTarget(
       viewport.width * CAMERA_POLICY.flatMapWidthRatio * zoom;
     const mapHeight =
       viewport.height * CAMERA_POLICY.flatMapHeightRatio * zoom;
-    target.panX = -(position.longitude / 180) * (mapWidth / 2);
-    const basePanY = (position.latitude / 90) * (mapHeight / 2);
+    target.panX =
+      -(position.longitude / GeoLimit.MaxLongitude) * (mapWidth / 2);
+    const basePanY =
+      (position.latitude / GeoLimit.MaxLatitude) * (mapHeight / 2);
     target.panY =
       useMobileOffset && isMobileWidth(viewport.width)
         ? basePanY - viewport.height * CAMERA_POLICY.mobileFlatOffsetRatio
         : basePanY;
     target.zoom = zoom;
   } else {
-    const latitudeRadians = (position.latitude * Math.PI) / 180;
-    const longitudeRadians = (position.longitude * Math.PI) / 180;
+    const latitudeRadians =
+      (position.latitude * Math.PI) / TurnDeg.Half;
+    const longitudeRadians =
+      (position.longitude * Math.PI) / TurnDeg.Half;
     target.rotY = -longitudeRadians - Math.PI / 2;
     const baseRotX = latitudeRadians;
     if (useMobileOffset && isMobileWidth(viewport.width)) {
@@ -157,63 +186,75 @@ function positionTarget(
   target.active = true;
 }
 
+function flatTargetZoom(
+  camera: WorkerCameraState,
+  kind: RenderFocusKind,
+): number {
+  if (kind === RenderFocusKind.Double) {
+    return Math.min(
+      CAMERA_POLICY.flatMaximumZoom,
+      Math.max(
+        camera.zoomFlat *
+          CAMERA_POLICY.doubleClickFlatZoomMultiplier,
+        CAMERA_POLICY.doubleClickFlatMinimumZoom,
+      ),
+    );
+  }
+  const minimumZoom =
+    kind === RenderFocusKind.Focus
+      ? CAMERA_POLICY.flatFocusZoom
+      : CAMERA_POLICY.revealFlatZoom;
+  return Math.max(camera.zoomFlat, minimumZoom);
+}
+
+function globeTargetZoom(
+  camera: WorkerCameraState,
+  kind: RenderFocusKind,
+): number {
+  if (kind === RenderFocusKind.Double) {
+    return CAMERA_POLICY.globeMaximumZoom;
+  }
+  const minimumZoom =
+    kind === RenderFocusKind.Focus
+      ? CAMERA_POLICY.globeFocusZoom
+      : CAMERA_POLICY.revealGlobeZoom;
+  return Math.max(camera.zoomGlobe, minimumZoom);
+}
+
 export function focusCamera(
   camera: WorkerCameraState,
   target: WorkerCameraTarget,
   position: CameraPosition,
   viewport: CameraViewport,
   flat: boolean,
-  kind: CameraFocusKind,
+  kind: RenderFocusKind,
 ): void {
   if (flat) {
-    const zoom =
-      kind === "double"
-        ? Math.min(
-            CAMERA_POLICY.flatMaximumZoom,
-            Math.max(
-              camera.zoomFlat * CAMERA_POLICY.doubleClickFlatZoomMultiplier,
-              CAMERA_POLICY.doubleClickFlatMinimumZoom,
-            ),
-          )
-        : Math.max(
-            camera.zoomFlat,
-            kind === "focus"
-              ? CAMERA_POLICY.flatFocusZoom
-              : CAMERA_POLICY.revealFlatZoom,
-          );
     positionTarget(
       target,
       position,
       viewport,
       true,
-      zoom,
-      kind === "reveal",
+      flatTargetZoom(camera, kind),
+      kind === RenderFocusKind.Reveal,
     );
   } else {
-    const zoom =
-      kind === "double"
-        ? CAMERA_POLICY.globeMaximumZoom
-        : Math.max(
-            camera.zoomGlobe,
-            kind === "focus"
-              ? CAMERA_POLICY.globeFocusZoom
-              : CAMERA_POLICY.revealGlobeZoom,
-          );
     positionTarget(
       target,
       position,
       viewport,
       false,
-      zoom,
-      kind === "reveal",
+      globeTargetZoom(camera, kind),
+      kind === RenderFocusKind.Reveal,
     );
-    if (kind === "double") {
+    if (kind === RenderFocusKind.Double) {
       camera.rotY = target.rotY;
       camera.rotX = target.rotX;
       camera.velocityY = 0;
     }
   }
-  target.lockedId = kind === "reveal" ? null : position.id;
+  target.lockedId =
+    kind === RenderFocusKind.Reveal ? null : position.id;
 }
 
 export function lockCamera(
@@ -364,10 +405,9 @@ export function moveCameraPinch(
   pointer: WorkerPointerState,
   viewport: CameraViewport,
   flat: boolean,
-  centerX: number,
-  centerY: number,
-  distance: number,
+  movement: CameraPinchMovement,
 ): boolean {
+  const { centerX, centerY, distance } = movement;
   if (!pointer.pinching) {
     beginCameraPinch(pointer, distance);
     return false;
@@ -464,21 +504,26 @@ export function applyCameraKey(
   camera: WorkerCameraState,
   viewport: CameraViewport,
   flat: boolean,
-  code: string,
+  code: RenderCameraKey,
 ): boolean {
-  if (code === "ArrowLeft") camera.rotY -= CAMERA_POLICY.keyboardRotationRadians;
-  else if (code === "ArrowRight") camera.rotY += CAMERA_POLICY.keyboardRotationRadians;
-  else if (code === "ArrowUp") {
+  if (code === RenderCameraKey.ArrowLeft) {
+    camera.rotY -= CAMERA_POLICY.keyboardRotationRadians;
+  } else if (code === RenderCameraKey.ArrowRight) {
+    camera.rotY += CAMERA_POLICY.keyboardRotationRadians;
+  } else if (code === RenderCameraKey.ArrowUp) {
     camera.rotX = Math.max(
       -CAMERA_POLICY.pitchLimitRadians,
       camera.rotX - CAMERA_POLICY.keyboardRotationRadians,
     );
-  } else if (code === "ArrowDown") {
+  } else if (code === RenderCameraKey.ArrowDown) {
     camera.rotX = Math.min(
       CAMERA_POLICY.pitchLimitRadians,
       camera.rotX + CAMERA_POLICY.keyboardRotationRadians,
     );
-  } else if (code === "Equal" || code === "NumpadAdd") {
+  } else if (
+    code === RenderCameraKey.Equal ||
+    code === RenderCameraKey.NumpadAdd
+  ) {
     if (flat) {
       camera.zoomFlat = Math.min(
         CAMERA_POLICY.flatMaximumZoom,
@@ -491,7 +536,10 @@ export function applyCameraKey(
         camera.zoomGlobe * CAMERA_POLICY.keyboardZoomFactor,
       );
     }
-  } else if (code === "Minus" || code === "NumpadSubtract") {
+  } else if (
+    code === RenderCameraKey.Minus ||
+    code === RenderCameraKey.NumpadSubtract
+  ) {
     if (flat) {
       camera.zoomFlat = Math.max(
         CAMERA_POLICY.flatMinimumZoom,
@@ -510,48 +558,67 @@ export function applyCameraKey(
   return true;
 }
 
-export function stepCamera(
+type CameraStepTiming = Readonly<{
+  boundedDelta: number;
+  frameFactor: number;
+  lerpFactor: number;
+}>;
+
+function releaseTargetForAutoRotation(
   camera: WorkerCameraState,
   target: WorkerCameraTarget,
-  pointer: WorkerPointerState,
-  viewport: CameraViewport,
-  flat: boolean,
-  autoRotate: boolean,
-  rotationSpeed: number,
-  selectedPosition: CameraPosition | null,
-  deltaMilliseconds: number,
-): boolean {
-  if (!autoRotate) camera.rotationReleasedLock = false;
+  frame: CameraStepFrame,
+): void {
+  if (!frame.autoRotate) {
+    camera.rotationReleasedLock = false;
+    return;
+  }
   if (
-    autoRotate &&
-    !flat &&
+    !frame.flat &&
     target.lockedId &&
     !camera.rotationReleasedLock
   ) {
     releaseCameraTarget(target);
     camera.rotationReleasedLock = true;
   }
+}
 
+function currentCameraZoom(
+  camera: WorkerCameraState,
+  flat: boolean,
+): number {
+  return flat ? camera.zoomFlat : camera.zoomGlobe;
+}
+
+function refreshLockedTarget(
+  camera: WorkerCameraState,
+  target: WorkerCameraTarget,
+  frame: CameraStepFrame,
+): void {
   if (
     target.lockedId &&
-    selectedPosition?.id === target.lockedId
+    frame.selectedPosition?.id === target.lockedId
   ) {
-    positionTarget(
-      target,
-      selectedPosition,
-      viewport,
-      flat,
+    const zoom =
       target.zoom > 0
         ? target.zoom
-        : flat
-          ? camera.zoomFlat
-          : camera.zoomGlobe,
+        : currentCameraZoom(camera, frame.flat);
+    positionTarget(
+      target,
+      frame.selectedPosition,
+      frame.viewport,
+      frame.flat,
+      zoom,
       true,
     );
-  } else if (target.lockedId && !selectedPosition) {
+  } else if (target.lockedId && !frame.selectedPosition) {
     releaseCameraTarget(target);
   }
+}
 
+function cameraStepTiming(
+  deltaMilliseconds: number,
+): CameraStepTiming {
   const boundedDelta = clamp(
     deltaMilliseconds,
     0,
@@ -564,71 +631,143 @@ export function stepCamera(
       1 - CAMERA_POLICY.targetLerpPerFrame,
       Math.max(frameFactor, 0),
     );
+  return { boundedDelta, frameFactor, lerpFactor };
+}
 
-  if (target.active) {
-    if (flat) {
-      camera.panX += (target.panX - camera.panX) * lerpFactor;
-      camera.panY += (target.panY - camera.panY) * lerpFactor;
-      camera.zoomFlat +=
-        (target.zoom - camera.zoomFlat) * lerpFactor;
-      clampFlatPan(camera, viewport.width, viewport.height);
-    } else {
-      let rotationDelta = target.rotY - camera.rotY;
-      rotationDelta =
-        ((((rotationDelta + Math.PI) % TWO_PI) + TWO_PI) % TWO_PI) -
-        Math.PI;
-      camera.rotY += rotationDelta * lerpFactor;
-      camera.rotX += (target.rotX - camera.rotX) * lerpFactor;
-      camera.zoomGlobe +=
-        (target.zoom - camera.zoomGlobe) * lerpFactor;
-      camera.velocityY = 0;
-    }
-
-    if (!target.lockedId) {
-      const zoomDelta = Math.abs(
-        flat
-          ? camera.zoomFlat - target.zoom
-          : camera.zoomGlobe - target.zoom,
-      );
-      const positionDelta = flat
-        ? Math.abs(camera.panX - target.panX) +
-          Math.abs(camera.panY - target.panY)
-        : Math.abs(camera.rotY - target.rotY) +
-          Math.abs(camera.rotX - target.rotX);
-      if (
-        zoomDelta < CAMERA_POLICY.targetZoomStop &&
-        positionDelta < CAMERA_POLICY.targetPositionStopRadians
-      ) {
-        target.active = false;
-      }
-    }
+function targetHasSettled(
+  camera: WorkerCameraState,
+  target: WorkerCameraTarget,
+  flat: boolean,
+): boolean {
+  let zoomDelta: number;
+  let positionDelta: number;
+  if (flat) {
+    zoomDelta = Math.abs(camera.zoomFlat - target.zoom);
+    positionDelta =
+      Math.abs(camera.panX - target.panX) +
+      Math.abs(camera.panY - target.panY);
+  } else {
+    zoomDelta = Math.abs(camera.zoomGlobe - target.zoom);
+    positionDelta =
+      Math.abs(camera.rotY - target.rotY) +
+      Math.abs(camera.rotX - target.rotX);
   }
+  return (
+    zoomDelta < CAMERA_POLICY.targetZoomStop &&
+    positionDelta <
+      CAMERA_POLICY.targetPositionStopRadians
+  );
+}
 
-  if (!flat && !pointer.active && autoRotate) {
-    camera.rotY +=
-      CAMERA_POLICY.autoRotationRadiansPerSecond *
-      rotationSpeed *
-      (boundedDelta / 1_000);
-  }
-
-  if (!flat && Math.abs(camera.velocityY) > 0) {
-    camera.rotY += camera.velocityY * frameFactor;
-    camera.velocityY *= Math.pow(
-      CAMERA_POLICY.inertiaDecayPerFrame,
-      frameFactor,
+function interpolateTarget(
+  camera: WorkerCameraState,
+  target: WorkerCameraTarget,
+  frame: CameraStepFrame,
+  lerpFactor: number,
+): void {
+  if (!target.active) return;
+  if (frame.flat) {
+    camera.panX += (target.panX - camera.panX) * lerpFactor;
+    camera.panY += (target.panY - camera.panY) * lerpFactor;
+    camera.zoomFlat +=
+      (target.zoom - camera.zoomFlat) * lerpFactor;
+    clampFlatPan(
+      camera,
+      frame.viewport.width,
+      frame.viewport.height,
     );
-    if (
-      Math.abs(camera.velocityY) <
-      CAMERA_POLICY.inertiaStopRadians
-    ) {
-      camera.velocityY = 0;
-    }
+  } else {
+    let rotationDelta = target.rotY - camera.rotY;
+    const fullTurn = fullTurnRadians();
+    rotationDelta =
+      ((((rotationDelta + Math.PI) % fullTurn) + fullTurn) %
+        fullTurn) -
+      Math.PI;
+    camera.rotY += rotationDelta * lerpFactor;
+    camera.rotX += (target.rotX - camera.rotX) * lerpFactor;
+    camera.zoomGlobe +=
+      (target.zoom - camera.zoomGlobe) * lerpFactor;
+    camera.velocityY = 0;
   }
+
+  if (
+    !target.lockedId &&
+    targetHasSettled(camera, target, frame.flat)
+  ) {
+    target.active = false;
+  }
+}
+
+function applyAutoRotation(
+  camera: WorkerCameraState,
+  pointer: WorkerPointerState,
+  frame: CameraStepFrame,
+  boundedDelta: number,
+): void {
+  if (
+    frame.flat ||
+    pointer.active ||
+    !frame.autoRotate
+  ) {
+    return;
+  }
+  camera.rotY +=
+    CAMERA_POLICY.autoRotationRadiansPerSecond *
+    frame.rotationSpeed *
+    (boundedDelta / MS_PER_SECOND);
+}
+
+function applyCameraInertia(
+  camera: WorkerCameraState,
+  flat: boolean,
+  frameFactor: number,
+): void {
+  if (flat || Math.abs(camera.velocityY) <= 0) return;
+  camera.rotY += camera.velocityY * frameFactor;
+  camera.velocityY *= Math.pow(
+    CAMERA_POLICY.inertiaDecayPerFrame,
+    frameFactor,
+  );
+  if (
+    Math.abs(camera.velocityY) <
+    CAMERA_POLICY.inertiaStopRadians
+  ) {
+    camera.velocityY = 0;
+  }
+}
+
+export function stepCamera(
+  camera: WorkerCameraState,
+  target: WorkerCameraTarget,
+  pointer: WorkerPointerState,
+  frame: CameraStepFrame,
+): boolean {
+  releaseTargetForAutoRotation(camera, target, frame);
+  refreshLockedTarget(camera, target, frame);
+
+  const timing = cameraStepTiming(frame.deltaMilliseconds);
+  interpolateTarget(
+    camera,
+    target,
+    frame,
+    timing.lerpFactor,
+  );
+  applyAutoRotation(
+    camera,
+    pointer,
+    frame,
+    timing.boundedDelta,
+  );
+  applyCameraInertia(
+    camera,
+    frame.flat,
+    timing.frameFactor,
+  );
 
   camera.rotY = wrapRotation(camera.rotY);
   return (
     target.active ||
-    (!flat && autoRotate && !pointer.active) ||
+    (!frame.flat && frame.autoRotate && !pointer.active) ||
     Math.abs(camera.velocityY) > 0
   );
 }

@@ -3,6 +3,7 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { type PointType } from "@shared/domain/pointType";
 import { SquawkStatus } from "@shared/domain/aircraft";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
   createAircraftSourceRuntime,
@@ -48,7 +49,7 @@ describe("aircraft source runtime", () => {
     await runtime.refresh();
 
     expect(scenePatches).toHaveLength(2);
-    expect(scenePatches[0]?.kind).toBe("rebase");
+    expect(scenePatches[0]?.kind).toBe(DatasetPatchKind.Rebase);
     expect(Array.from(scenePatches[0]?.handles ?? [])).toEqual([1]);
     expect(Array.from(scenePatches[0]?.attributes ?? [])).toEqual([
       90,
@@ -61,7 +62,7 @@ describe("aircraft source runtime", () => {
     expect(scenePatches[0]?.dictionaryValues).toEqual([
       "United States",
     ]);
-    expect(scenePatches[1]?.kind).toBe("patch");
+    expect(scenePatches[1]?.kind).toBe(DatasetPatchKind.Patch);
     expect(scenePatches[1]?.handles).toHaveLength(0);
   });
 });

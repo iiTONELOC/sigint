@@ -1,0 +1,32 @@
+export enum DataWorkerProtocolVersion {
+  Current = 9,
+}
+
+export enum DataWorkerMessageType {
+  Init = "init",
+  ConnectRender = "connectRender",
+  ConnectCorrelation = "connectCorrelation",
+  RefreshSource = "refreshSource",
+  ListSourceEntities = "listSourceEntities",
+  GetSourceEntity = "getSourceEntity",
+  QuerySource = "querySource",
+  SetSourceSearch = "setSourceSearch",
+  GetTrail = "getTrail",
+  Get = "get",
+  Set = "set",
+  SetDeferred = "setDeferred",
+  ImportJson = "importJson",
+  Delete = "delete",
+  Clear = "clear",
+  Flush = "flush",
+  Estimate = "estimate",
+  SourceEntity = "sourceEntity",
+  SourceQuery = "sourceQuery",
+  Ready = "ready",
+  Value = "value",
+  Size = "size",
+  Complete = "complete",
+  SourceSnapshot = "sourceSnapshot",
+  Trail = "trail",
+  Error = "error",
+}

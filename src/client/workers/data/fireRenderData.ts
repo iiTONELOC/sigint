@@ -4,8 +4,7 @@ import {
 } from "@/features/environmental/fires/data/source";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
-  PACKED_POSITION_COMPONENTS,
-  PACKED_UNIT_VECTOR_COMPONENTS,
+  RenderDataLaneComponentCount,
   type PackedFireRenderData,
 } from "@/workers/render/dataChannel";
 
@@ -14,9 +13,11 @@ export function packFireRenderData(
 ): PackedFireRenderData {
   const count = points.length;
   const ids = new Array<string>(count);
-  const positions = new Float64Array(count * PACKED_POSITION_COMPONENTS);
+  const positions = new Float64Array(
+    count * RenderDataLaneComponentCount.Position,
+  );
   const unitVectors = new Float32Array(
-    count * PACKED_UNIT_VECTOR_COMPONENTS,
+    count * RenderDataLaneComponentCount.UnitVector,
   );
   const frp = new Float32Array(count);
   const timestamps = new Float64Array(count);
@@ -26,11 +27,13 @@ export function packFireRenderData(
     const point = points[index];
     if (!point) continue;
     ids[index] = point.id;
-    const positionOffset = index * PACKED_POSITION_COMPONENTS;
+    const positionOffset =
+      index * RenderDataLaneComponentCount.Position;
     positions[positionOffset] = point.lon;
     positions[positionOffset + 1] = point.lat;
     const unit = geographicToUnitVector(point.lat, point.lon);
-    const vectorOffset = index * PACKED_UNIT_VECTOR_COMPONENTS;
+    const vectorOffset =
+      index * RenderDataLaneComponentCount.UnitVector;
     unitVectors[vectorOffset] = unit.x;
     unitVectors[vectorOffset + 1] = unit.y;
     unitVectors[vectorOffset + 2] = unit.z;

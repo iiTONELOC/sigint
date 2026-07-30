@@ -39,7 +39,7 @@ describe("src/client/workers/render/cyclones.ts", () => {
   test("respects motion-reduce by gating pulse on a reducedMotion arg", async () => {
     const src = await readSource("src/client/workers/render/cyclones.ts");
     // drawCyclone takes a reducedMotion flag and skips Math.sin pulses
-    // when true. WCAG 2.2 AA — Hard Rule 15 (cyclone eye pulse, selection
+    // when true. WCAG 2.2 AA, Hard Rule 15 (cyclone eye pulse, selection
     // ring oscillation, forecast track dash animation).
     expect(src).toContain("reducedMotion");
   });
@@ -53,15 +53,17 @@ describe("src/client/workers/render/cyclones.ts", () => {
 
 // ── src/client/workers/pointWorker.ts ──────────────────────────────
 
-describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
+describe("src/client/workers/pointWorker.ts cyclones integration", () => {
   test("imports the cyclones render module as bundled ESM", async () => {
     const src = await readSource("src/client/workers/pointWorker.ts");
     expect(src).toMatch(/import\s+\{[^}]*drawCyclone[^}]*\}\s+from\s+"\.\/render\/cyclones"/);
   });
 
   test("layerOrder draws cyclones above cyclones-forecast (eye on top of its own track)", () => {
-    const forecastOrder = POINT_LAYER_ORDER.indexOf("cyclones-forecast");
-    const cyclonesOrder = POINT_LAYER_ORDER.indexOf("cyclones");
+    const forecastOrder = POINT_LAYER_ORDER.indexOf(
+      Domain.CyclonesForecast,
+    );
+    const cyclonesOrder = POINT_LAYER_ORDER.indexOf(Domain.Cyclones);
     expect(forecastOrder).toBeGreaterThanOrEqual(0);
     expect(cyclonesOrder).toBeGreaterThan(forecastOrder);
   });
@@ -87,7 +89,7 @@ describe("src/client/workers/pointWorker.ts — cyclones integration", () => {
 
 // ── src/client/components/globe/GlobeVisualization.tsx ─────────────
 
-describe("render presentation bridge — cyclone wiring", () => {
+describe("render presentation bridge cyclone wiring", () => {
   test("frame payload posts cyclonesShowForecast", async () => {
     const src = await readSource(
       "src/client/components/globe/bridge/usePresentationCommands.ts",

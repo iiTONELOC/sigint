@@ -16,7 +16,12 @@ import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import type { SelectedRenderItem } from "@/workers/render/protocol";
+import {
+  RenderFocusKind,
+  RenderMessageType,
+  type SelectedRenderItem,
+} from "@/workers/render/protocol";
+import { MilFilter } from "@shared/domain/aircraft";
 
 type PresentationCommandOptions = Readonly<{
   host: HTMLElement | null;
@@ -77,7 +82,7 @@ export function usePresentationCommands({
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     sendRenderSurfaceCommand(host, {
-      type: "presentation",
+      type: RenderMessageType.Presentation,
       payload: {
         flat,
         autoRotate,
@@ -92,7 +97,7 @@ export function usePresentationCommands({
           showGround: aircraftFilter.showGround,
           squawks: Array.from(aircraftFilter.squawks),
           countries: Array.from(aircraftFilter.countries),
-          milFilter: aircraftFilter.milFilter ?? "all",
+          milFilter: aircraftFilter.milFilter ?? MilFilter.All,
         },
         earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
         fireMinConfidence: fireFilter.minConfidence,
@@ -132,12 +137,12 @@ export function usePresentationCommands({
     const item = findTarget(zoomToId, props);
     if (!item) return;
     sendRenderSurfaceCommand(host, {
-      type: "focus",
+      type: RenderMessageType.Focus,
       payload: {
         id: item.id,
         latitude: recordLatitude(item),
         longitude: recordLongitude(item),
-        kind: "focus",
+        kind: RenderFocusKind.Focus,
       },
     });
   }, [host, props, zoomToId]);
@@ -147,12 +152,12 @@ export function usePresentationCommands({
     const item = findTarget(revealId, props);
     if (!item) return;
     sendRenderSurfaceCommand(host, {
-      type: "focus",
+      type: RenderMessageType.Focus,
       payload: {
         id: item.id,
         latitude: recordLatitude(item),
         longitude: recordLongitude(item),
-        kind: "reveal",
+        kind: RenderFocusKind.Reveal,
       },
     });
   }, [host, props, revealId]);

@@ -1,23 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
-  RENDER_DATA_PROTOCOL_VERSION,
-  acceptRenderDataCommand,
+  RenderDataCommandType,
+  RenderDataProtocolVersion,
   createRenderDataCommand,
   parseRenderDataCommand,
-  type RenderDataProtocolState,
+  RenderDataProtocolState,
 } from "@/workers/render/dataChannel";
+import { Domain } from "@shared/domain/identity";
 
 describe("render data channel", () => {
   test("creates and parses the canonical bind command", () => {
     const command = createRenderDataCommand(
-      { type: "bind" },
+      { type: RenderDataCommandType.Bind },
       "session-a",
       1,
     );
 
     expect(command).toEqual({
-      type: "bind",
-      protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
+      type: RenderDataCommandType.Bind,
+      protocolVersion: RenderDataProtocolVersion.Current,
       sessionId: "session-a",
       sequence: 1,
     });
@@ -27,7 +28,7 @@ describe("render data channel", () => {
   test("validates a complete packed earthquake rebase", () => {
     const command = createRenderDataCommand(
       {
-        type: "earthquakeRebase",
+        type: RenderDataCommandType.EarthquakeRebase,
         ids: ["Qone", "Qtwo"],
         positions: new Float64Array([-122, 47, 10, -20]),
         unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
@@ -49,7 +50,10 @@ describe("render data channel", () => {
 
   test("validates a worker-owned earthquake search filter", () => {
     const command = createRenderDataCommand(
-      { type: "earthquakeSearch", matchingIds: ["Qone", "Qtwo"] },
+      {
+        type: RenderDataCommandType.EarthquakeSearch,
+        matchingIds: ["Qone", "Qtwo"],
+      },
       "session-a",
       3,
     );
@@ -62,7 +66,7 @@ describe("render data channel", () => {
   test("validates a complete packed fire rebase", () => {
     const command = createRenderDataCommand(
       {
-        type: "fireRebase",
+        type: RenderDataCommandType.FireRebase,
         ids: ["Fone", "Ftwo"],
         positions: new Float64Array([-122, 47, 10, -20]),
         unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
@@ -85,7 +89,10 @@ describe("render data channel", () => {
 
   test("validates a worker-owned fire search filter", () => {
     const command = createRenderDataCommand(
-      { type: "fireSearch", matchingIds: ["Fone", "Ftwo"] },
+      {
+        type: RenderDataCommandType.FireSearch,
+        matchingIds: ["Fone", "Ftwo"],
+      },
       "session-a",
       5,
     );
@@ -95,24 +102,24 @@ describe("render data channel", () => {
   test("rejects malformed envelopes", () => {
     expect(
       parseRenderDataCommand({
-        type: "bind",
-        protocolVersion: RENDER_DATA_PROTOCOL_VERSION + 1,
+        type: RenderDataCommandType.Bind,
+        protocolVersion: RenderDataProtocolVersion.Current + 1,
         sessionId: "session-a",
         sequence: 1,
       }),
     ).toBeNull();
     expect(
       parseRenderDataCommand({
-        type: "bind",
-        protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
+        type: RenderDataCommandType.Bind,
+        protocolVersion: RenderDataProtocolVersion.Current,
         sessionId: "",
         sequence: 1,
       }),
     ).toBeNull();
     expect(
       parseRenderDataCommand({
-        type: "bind",
-        protocolVersion: RENDER_DATA_PROTOCOL_VERSION,
+        type: RenderDataCommandType.Bind,
+        protocolVersion: RenderDataProtocolVersion.Current,
         sessionId: "session-a",
         sequence: 0,
       }),
@@ -120,24 +127,45 @@ describe("render data channel", () => {
   });
 
   test("accepts only increasing commands for the bound session", () => {
-    const state: RenderDataProtocolState = {
-      sessionId: "session-a",
-      sequence: 0,
-    };
+    const state = new RenderDataProtocolState("session-a");
     const first = createRenderDataCommand(
-      { type: "bind" },
+      { type: RenderDataCommandType.Bind },
       "session-a",
       1,
     );
 
-    expect(acceptRenderDataCommand(state, first)).toBe(true);
-    expect(acceptRenderDataCommand(state, first)).toBe(false);
+    expect(state.accept(first)).toBe(true);
+    expect(state.accept(first)).toBe(false);
     expect(
-      acceptRenderDataCommand(
-        state,
-        createRenderDataCommand({ type: "bind" }, "session-b", 2),
+      state.accept(
+        createRenderDataCommand(
+          { type: RenderDataCommandType.Bind },
+          "session-b",
+          2,
+        ),
       ),
     ).toBe(false);
-    expect(state).toEqual({ sessionId: "session-a", sequence: 1 });
+    expect(state.lastSequence()).toBe(1);
+  });
+
+  test("rejects events on the legacy object-array path", () => {
+    expect(
+      parseRenderDataCommand({
+        type: RenderDataCommandType.PointsRebase,
+        protocolVersion: RenderDataProtocolVersion.Current,
+        sessionId: "session-a",
+        sequence: 1,
+        source: Domain.Events,
+        points: [
+          {
+            id: "event-a",
+            type: Domain.Events,
+            lat: 10,
+            lon: 20,
+            data: {},
+          },
+        ],
+      }),
+    ).toBeNull();
   });
 });

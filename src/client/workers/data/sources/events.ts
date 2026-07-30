@@ -1,36 +1,42 @@
-import { Domain } from "@shared/domain/identity";
-import { SourceCompleteness } from "@shared/source";
 import {
   parseEventCache,
   type EventPoint,
 } from "@/features/intel/events/data/codec";
 import { fetchEventSnapshot } from "@/features/intel/events/data/fetch";
-import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
+import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
+import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import {
-  createPointSourceRuntime,
-  type PointSourceCacheSnapshot,
-  type PointSourceFetchSnapshot,
-  type PointSourceRuntime,
-} from "@/workers/data/sourceRuntime";
+  EntityLifetime,
+  GeoCarrier,
+  StationaryGeoDataSource,
+  type SourcePolicy,
+} from "@/workers/data/source-model/dataSource";
+import { recordPosition } from "@/workers/data/source-model/position";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { Domain } from "@shared/domain/identity";
+import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
+import { geoPointsEqual } from "@shared/geo";
+import {
+  DAYS_PER_WEEK,
+  MS_PER_DAY,
+} from "@shared/time";
+import { SourceCompleteness } from "@shared/source";
 
-export const EVENT_SOURCE = getPointSourceDefinition(Domain.Events);
+export function eventWindowDurationMs(): number {
+  return DAYS_PER_WEEK * MS_PER_DAY;
+}
 
-/** GDELT keeps a rolling window rather than a live snapshot. */
-export const EVENT_WINDOW_MS = 7 * 24 * 60 * 60_000;
+export const EVENT_SOURCE_POLICY: SourcePolicy = {
+  id: Domain.Events,
+  cacheKey: CACHE_KEYS.events,
+  pollIntervalMs: POLL_INTERVALS.events,
+  completeness: SourceCompletenessPolicy.Partial,
+  emptyResultIsComplete: false,
+};
 
-export type EventSourceRuntime = PointSourceRuntime<EventPoint> &
-  Readonly<{ publishRebase: () => void }>;
-
-export type EventSourceRuntimeOptions = Readonly<{
-  readCache: () => Promise<unknown>;
-  persistCache: (
-    snapshot: PointSourceCacheSnapshot<EventPoint>,
-  ) => Promise<void> | void;
+export type EventSourceOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<EventPoint>>;
-  publishStatus: (status: DataWorkerSourceSnapshot) => void;
-  publishPoints: (points: readonly EventPoint[]) => void;
   now?: () => number;
 }>;
 
@@ -39,28 +45,12 @@ function publishedAt(point: EventPoint): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function eventChanged(previous: EventPoint, next: EventPoint): boolean {
-  return (
-    previous.lat !== next.lat ||
-    previous.lon !== next.lon ||
-    previous.timestamp !== next.timestamp ||
-    previous.data.severity !== next.data.severity ||
-    previous.data.headline !== next.data.headline
-  );
-}
-
-/**
- * Each poll returns only the newest export, so the window is rebuilt here:
- * retained entries inside the window plus the incoming batch, published as a
- * complete snapshot. That is what drops anything older than the window,
- * which a partial snapshot alone would never do.
- */
 export function mergeEventWindow(
   retained: readonly EventPoint[],
   incoming: readonly EventPoint[],
   now: number,
 ): EventPoint[] {
-  const cutoff = now - EVENT_WINDOW_MS;
+  const cutoff = now - eventWindowDurationMs();
   const byId = new Map<string, EventPoint>();
   for (const point of retained) {
     if (publishedAt(point) >= cutoff) byId.set(point.id, point);
@@ -69,51 +59,54 @@ export function mergeEventWindow(
   return [...byId.values()];
 }
 
-export function createEventSourceRuntime(
-  options: EventSourceRuntimeOptions,
-): EventSourceRuntime {
-  const now = options.now ?? Date.now;
-  // Assigned immediately after the runtime exists; only read inside the
-  // fetch callback, which cannot run before then.
-  const retained = { values: (): readonly EventPoint[] => [] };
+export class EventSource extends StationaryGeoDataSource<EventPoint> {
+  readonly policy = EVENT_SOURCE_POLICY;
+  readonly carrier = GeoCarrier.Position;
+  readonly lifetime = EntityLifetime.Ephemeral;
+  readonly pointType = Domain.Events;
+  readonly queries = EVENT_UI_QUERIES;
 
-  const fetchWindow = async (): Promise<
+  private readonly fetchOverride:
+    | (() => Promise<PointSourceFetchSnapshot<EventPoint>>)
+    | null;
+  private readonly now: () => number;
+
+  constructor(options: EventSourceOptions = {}) {
+    super();
+    this.fetchOverride = options.fetchSnapshot ?? null;
+    this.now = options.now ?? Date.now;
+  }
+
+  protected parseCache(value: unknown): readonly EventPoint[] | null {
+    return parseEventCache(value);
+  }
+
+  protected async fetchSnapshot(): Promise<
     PointSourceFetchSnapshot<EventPoint>
-  > => {
-    const snapshot = options.fetchSnapshot
-      ? await options.fetchSnapshot()
-      : await fetchEventSnapshot(now);
+  > {
+    const snapshot = this.fetchOverride
+      ? await this.fetchOverride()
+      : await fetchEventSnapshot(this.now);
     return {
       completeness: SourceCompleteness.Complete,
       entities: mergeEventWindow(
-        retained.values(),
+        this.values(),
         snapshot.entities,
         snapshot.observedAt,
       ),
       observedAt: snapshot.observedAt,
     };
-  };
+  }
 
-  const runtime = createPointSourceRuntime<EventPoint>({
-    id: EVENT_SOURCE.id,
-    cacheKey: EVENT_SOURCE.cacheKey,
-    pollIntervalMs: EVENT_SOURCE.pollIntervalMs,
-    maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
-    hasChanged: eventChanged,
-    readCache: options.readCache,
-    parseCache: parseEventCache,
-    persistCache: options.persistCache,
-    fetchSnapshot: fetchWindow,
-    publishStatus: options.publishStatus,
-    publishPatch: () => {
-      options.publishPoints(runtime.values());
-    },
-  });
-  retained.values = runtime.values;
-  return {
-    ...runtime,
-    publishRebase(): void {
-      options.publishPoints(runtime.values());
-    },
-  };
+  protected hasChanged(
+    previous: EventPoint,
+    next: EventPoint,
+  ): boolean {
+    return (
+      !geoPointsEqual(recordPosition(previous), recordPosition(next)) ||
+      previous.timestamp !== next.timestamp ||
+      previous.data.severity !== next.data.severity ||
+      previous.data.headline !== next.data.headline
+    );
+  }
 }

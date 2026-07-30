@@ -1,5 +1,8 @@
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import type { DatasetEntity } from "@/workers/data/datasetStore";
+import type {
+  DatasetEntity,
+  DatasetPatch,
+} from "@/workers/data/datasetStore";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import {
   createPointSourceRuntime,
@@ -56,7 +59,7 @@ export type SourceHost<TEntity extends SourceRecord> = Readonly<{
   readCache: (key: CacheKey) => Promise<unknown>;
   persistCache: (key: CacheKey, value: unknown) => void;
   publishStatus: (snapshot: DataWorkerSourceSnapshot) => void;
-  publishRecords: (records: readonly TEntity[]) => void;
+  publishPatch: (patch: DatasetPatch<TEntity>) => void;
 }>;
 
 export abstract class DataSource<TEntity extends SourceRecord> {
@@ -69,7 +72,6 @@ export abstract class DataSource<TEntity extends SourceRecord> {
     PointSourceFetchSnapshot<TEntity>
   >;
   protected abstract hasChanged(previous: TEntity, next: TEntity): boolean;
-  protected abstract publishPatch(): void;
 
   protected attachedHost: SourceHost<TEntity> | null = null;
   private runtime: PointSourceRuntime<TEntity> | null = null;
@@ -89,9 +91,7 @@ export abstract class DataSource<TEntity extends SourceRecord> {
       },
       fetchSnapshot: () => this.fetchSnapshot(),
       publishStatus: host.publishStatus,
-      publishPatch: () => {
-        this.publishPatch();
-      },
+      publishPatch: host.publishPatch,
     });
   }
 
@@ -125,7 +125,7 @@ export abstract class DataSource<TEntity extends SourceRecord> {
     return host;
   }
 
-  private requireRuntime(): PointSourceRuntime<TEntity> {
+  protected requireRuntime(): PointSourceRuntime<TEntity> {
     const runtime = this.runtime;
     if (!runtime) throw unattachedSourceError(this.policy.id);
     return runtime;
@@ -142,12 +142,9 @@ export abstract class GeoDataSource<
   abstract readonly lifetime: EntityLifetime;
   abstract readonly pointType: PointType;
 
-  protected publishPatch(): void {
-    this.publishRebase();
-  }
-
   publishRebase(): void {
-    this.requireHost().publishRecords(this.values());
+    const patch = this.requireRuntime().rebase();
+    if (patch) this.requireHost().publishPatch(patch);
   }
 }
 

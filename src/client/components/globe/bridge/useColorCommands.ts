@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
-import type { RenderWorkerColors } from "@/workers/render/protocol";
+import {
+  RenderMessageType,
+  type RenderWorkerColors,
+} from "@/workers/render/protocol";
 
 /**
  * The theme is the only thing about the drawing that React still owns; every
@@ -12,6 +15,9 @@ export function useColorCommands(
 ): void {
   useEffect(() => {
     if (!host) return;
-    sendRenderSurfaceCommand(host, { type: "colors", payload: colors });
+    sendRenderSurfaceCommand(host, {
+      type: RenderMessageType.Colors,
+      payload: colors,
+    });
   }, [host, colors]);
 }

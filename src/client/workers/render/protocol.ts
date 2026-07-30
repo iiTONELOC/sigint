@@ -1,10 +1,77 @@
-import type { DataPoint } from "@/features/base/dataPoints";
+import type {
+  DataPoint,
+  DataType,
+} from "@/features/base/dataPoints";
 import type {
   TrackMotion,
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
+import type { MilFilter } from "@shared/domain/aircraft";
 
-export const RENDER_PROTOCOL_VERSION = 2 as const;
+export enum RenderProtocolVersion {
+  Current = 2,
+}
+
+export enum RenderMessageType {
+  Init = "init",
+  Colors = "colors",
+  Viewport = "viewport",
+  Presentation = "presentation",
+  Input = "input",
+  Focus = "focus",
+  Dispose = "dispose",
+  Ready = "ready",
+  DataChannelReady = "dataChannelReady",
+  Interaction = "interaction",
+  Camera = "camera",
+}
+
+export enum RenderFocusKind {
+  Focus = "focus",
+  Reveal = "reveal",
+  Double = "double",
+}
+
+export enum RenderInputKind {
+  Pointer = "pointer",
+  Pinch = "pinch",
+  Wheel = "wheel",
+  Key = "key",
+}
+
+export enum RenderInputPhase {
+  Start = "start",
+  Move = "move",
+  End = "end",
+  Cancel = "cancel",
+  Hover = "hover",
+}
+
+export enum RenderCameraKey {
+  ArrowLeft = "ArrowLeft",
+  ArrowRight = "ArrowRight",
+  ArrowUp = "ArrowUp",
+  ArrowDown = "ArrowDown",
+  Equal = "Equal",
+  NumpadAdd = "NumpadAdd",
+  Minus = "Minus",
+  NumpadSubtract = "NumpadSubtract",
+}
+
+export enum RenderCursor {
+  Default = "default",
+  Grab = "grab",
+  Grabbing = "grabbing",
+  Pointer = "pointer",
+}
+
+export enum RenderInteractionKind {
+  Cursor = "cursor",
+  Selection = "selection",
+  RawCanvasClick = "rawCanvasClick",
+  TrailTooltip = "trailTooltip",
+  SelectedSide = "selectedSide",
+}
 
 export type RenderPoint = DataPoint;
 
@@ -22,6 +89,7 @@ export type RenderWorkerColors = Readonly<{
   events: string;
   fires: string;
   grid: string;
+  military: string;
   ocean: string;
   oceanDeep: string;
   quakes: string;
@@ -73,14 +141,14 @@ export type RenderAircraftFilter = Readonly<{
   enabled: boolean;
   showAirborne: boolean;
   showGround: boolean;
-  milFilter: "all" | "military" | "civilian" | "recon";
+  milFilter: MilFilter;
   squawks: readonly string[];
   countries: readonly string[];
 }>;
 
 export type SelectedRenderItem = Readonly<{
   id: string;
-  type: DataPoint["type"];
+  type: DataType;
   lat: number;
   lon: number;
   trail: readonly TrailPoint[];
@@ -121,104 +189,125 @@ export type RenderFocusPayload = Readonly<{
   id: string;
   latitude: number;
   longitude: number;
-  kind: "focus" | "reveal";
+  kind: RenderFocusKind.Focus | RenderFocusKind.Reveal;
 }>;
 
 export type RenderInputPayload =
   | Readonly<{
-      kind: "pointer";
-      phase: "start" | "move" | "end" | "cancel" | "hover";
+      kind: RenderInputKind.Pointer;
+      phase: RenderInputPhase;
       x: number;
       y: number;
     }>
   | Readonly<{
-      kind: "pinch";
-      phase: "start" | "move" | "end";
+      kind: RenderInputKind.Pinch;
+      phase:
+        | RenderInputPhase.Start
+        | RenderInputPhase.Move
+        | RenderInputPhase.End;
       centerX: number;
       centerY: number;
       distance: number;
     }>
   | Readonly<{
-      kind: "wheel";
+      kind: RenderInputKind.Wheel;
       x: number;
       y: number;
       deltaY: number;
     }>
   | Readonly<{
-      kind: "key";
-      code: string;
+      kind: RenderInputKind.Key;
+      code: RenderCameraKey;
     }>;
 
-export type RenderCursor = "default" | "grab" | "grabbing" | "pointer";
-
 export type RenderInteractionPayload =
-  | Readonly<{ kind: "cursor"; cursor: RenderCursor }>
   | Readonly<{
-      kind: "selection";
-      id: string | null;
-      pointType: DataPoint["type"] | null;
+      kind: RenderInteractionKind.Cursor;
+      cursor: RenderCursor;
     }>
-  | Readonly<{ kind: "rawCanvasClick" }>
   | Readonly<{
-      kind: "trailTooltip";
+      kind: RenderInteractionKind.Selection;
+      id: string | null;
+      pointType: DataType | null;
+    }>
+  | Readonly<{ kind: RenderInteractionKind.RawCanvasClick }>
+  | Readonly<{
+      kind: RenderInteractionKind.TrailTooltip;
       point: TrailPoint | null;
       x: number;
       y: number;
       visible: boolean;
     }>
-  | Readonly<{ kind: "selectedSide"; side: PanelSide }>;
+  | Readonly<{
+      kind: RenderInteractionKind.SelectedSide;
+      side: PanelSide;
+    }>;
 
 
 type RenderProtocolEnvelope = Readonly<{
-  protocolVersion: typeof RENDER_PROTOCOL_VERSION;
+  protocolVersion: RenderProtocolVersion;
   sessionId: string;
   sequence: number;
 }>;
 
 export type RenderWorkerCommandBody =
   | Readonly<{
-      type: "init";
+      type: RenderMessageType.Init;
       canvas: OffscreenCanvas;
       dataPort?: MessagePort;
     }>
   // Points arrive from the DataWorker over the data port. React only still
   // owns the theme, so that is all it sends about what gets drawn.
-  | Readonly<{ type: "colors"; payload: RenderWorkerColors }>
-  | Readonly<{ type: "viewport"; payload: RenderViewportPayload }>
   | Readonly<{
-      type: "presentation";
+      type: RenderMessageType.Colors;
+      payload: RenderWorkerColors;
+    }>
+  | Readonly<{
+      type: RenderMessageType.Viewport;
+      payload: RenderViewportPayload;
+    }>
+  | Readonly<{
+      type: RenderMessageType.Presentation;
       payload: RenderPresentationPayload;
     }>
-  | Readonly<{ type: "input"; payload: RenderInputPayload }>
-  | Readonly<{ type: "focus"; payload: RenderFocusPayload }>
-  | Readonly<{ type: "dispose" }>;
+  | Readonly<{
+      type: RenderMessageType.Input;
+      payload: RenderInputPayload;
+    }>
+  | Readonly<{
+      type: RenderMessageType.Focus;
+      payload: RenderFocusPayload;
+    }>
+  | Readonly<{ type: RenderMessageType.Dispose }>;
 
 type WithEnvelope<T> = T extends object ? T & RenderProtocolEnvelope : never;
 
 export type RenderWorkerCommand = WithEnvelope<RenderWorkerCommandBody>;
 
-type RenderWorkerEventBody =
-  | Readonly<{ type: "ready" }>
-  | Readonly<{ type: "dataChannelReady" }>
+export type RenderWorkerEventBody =
+  | Readonly<{ type: RenderMessageType.Ready }>
+  | Readonly<{ type: RenderMessageType.DataChannelReady }>
   | Readonly<{
-      type: "interaction";
+      type: RenderMessageType.Interaction;
       payload: RenderInteractionPayload;
     }>
   | Readonly<{
-      type: "camera";
+      type: RenderMessageType.Camera;
       payload: RenderCamera;
     }>;
 
 export type RenderWorkerEvent = WithEnvelope<RenderWorkerEventBody>;
 
-export function createRenderCommand<T extends RenderWorkerCommandBody>(
+export function createRenderMessage<
+  T extends RenderWorkerCommandBody | RenderWorkerEventBody,
+>(
   body: T,
   sessionId: string,
   sequence: number,
 ): T & RenderProtocolEnvelope {
   return {
     ...body,
-    protocolVersion: RENDER_PROTOCOL_VERSION,
+    protocolVersion: RenderProtocolVersion.Current,
     sessionId,
     sequence,
   };
@@ -240,7 +329,9 @@ export function acceptRenderHeader(
   state: RenderProtocolState,
   header: RenderProtocolHeader,
 ): boolean {
-  if (header.protocolVersion !== RENDER_PROTOCOL_VERSION) return false;
+  if (header.protocolVersion !== RenderProtocolVersion.Current) {
+    return false;
+  }
   if (header.startsSession) {
     if (
       header.sessionId === state.sessionId &&
@@ -266,6 +357,6 @@ export function acceptRenderCommand(
     protocolVersion: command.protocolVersion,
     sessionId: command.sessionId,
     sequence: command.sequence,
-    startsSession: command.type === "init",
+    startsSession: command.type === RenderMessageType.Init,
   });
 }

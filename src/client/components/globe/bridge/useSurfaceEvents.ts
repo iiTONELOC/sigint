@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
-import type { RenderInteractionPayload } from "@/workers/render/protocol";
+import {
+  RenderInteractionKind,
+  type RenderInteractionPayload,
+} from "@/workers/render/protocol";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 import { sourceForPointType } from "@/workers/data/sources/registry";
 import {
@@ -11,7 +14,7 @@ import {
 
 export type TrailTooltipState = Extract<
   RenderInteractionPayload,
-  { kind: "trailTooltip" }
+  { kind: RenderInteractionKind.TrailTooltip }
 >;
 
 type SurfaceEventOptions = Readonly<{
@@ -36,7 +39,7 @@ export function useSurfaceEvents({
       if (!interaction) return;
       const current = propsRef.current;
 
-      if (interaction.kind === "selection") {
+      if (interaction.kind === RenderInteractionKind.Selection) {
         selectionRequest.current += 1;
         const request = selectionRequest.current;
         if (!interaction.id) {
@@ -56,15 +59,15 @@ export function useSurfaceEvents({
         return;
       }
 
-      if (interaction.kind === "rawCanvasClick") {
+      if (interaction.kind === RenderInteractionKind.RawCanvasClick) {
         current.onRawCanvasClick?.();
         return;
       }
-      if (interaction.kind === "selectedSide") {
+      if (interaction.kind === RenderInteractionKind.SelectedSide) {
         current.onSelectedSide?.(interaction.side);
         return;
       }
-      if (interaction.kind === "trailTooltip") {
+      if (interaction.kind === RenderInteractionKind.TrailTooltip) {
         setTooltip(interaction.visible && interaction.point
           ? interaction
           : null);

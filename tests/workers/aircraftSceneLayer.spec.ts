@@ -7,31 +7,39 @@ import {
   aircraftSceneIncludes,
   type AircraftSceneFilter,
 } from "@/workers/render/scene/aircraftLayer";
-import { AIRCRAFT_SCENE } from "@/workers/render/scene/aircraftSchema";
+import {
+  AircraftSceneFlag,
+  AircraftSceneSchema,
+  AircraftSceneSquawk,
+} from "@/workers/render/scene/aircraftSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { Domain } from "@shared/domain/identity";
+import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 
 const view = {
   capacity: 3,
   active: new Uint8Array([1, 1, 1]),
-  ids: ["civil-air", "mil-ground", "recon-air"],
-  positions: new Float32Array(6),
+  sceneIds: ["civil-marker", "mil-marker", "recon-marker"],
+  entityIds: ["civil-air", "mil-ground", "recon-air"],
+  positions: new Float64Array(6),
   unitVectors: new Float32Array(9),
+  timestamps: new Float64Array(3),
   attributes: new Float32Array([
     10,
     0,
-    AIRCRAFT_SCENE.squawks.emergency,
+    AircraftSceneSquawk.Emergency,
     20,
-    AIRCRAFT_SCENE.flags.military +
-      AIRCRAFT_SCENE.flags.onGround,
-    AIRCRAFT_SCENE.squawks.normal,
+    AircraftSceneFlag.Military +
+      AircraftSceneFlag.OnGround,
+    AircraftSceneSquawk.Normal,
     30,
-    AIRCRAFT_SCENE.flags.military +
-      AIRCRAFT_SCENE.flags.recon,
-    AIRCRAFT_SCENE.squawks.hijack,
+    AircraftSceneFlag.Military +
+      AircraftSceneFlag.Recon,
+    AircraftSceneSquawk.Hijack,
   ]),
-  attributeStride: AIRCRAFT_SCENE.attributeStride,
+  attributeStride: AircraftSceneSchema.AttributeStride,
   stringAttributes: new Uint32Array([1, 2, 1]),
-  stringAttributeStride: AIRCRAFT_SCENE.stringAttributeStride,
+  stringAttributeStride: AircraftSceneSchema.StringAttributeStride,
   dictionary: ["United States", "Canada"],
 } satisfies RenderSceneView;
 
@@ -42,7 +50,7 @@ function filter(
     enabled: true,
     showAirborne: true,
     showGround: true,
-    milFilter: "all",
+    milFilter: MilFilter.All,
     squawks: [],
     countries: [],
     ...values,
@@ -71,7 +79,7 @@ describe("aircraft scene layer", () => {
         settings({
           filter: filter({
             countries: ["United States"],
-            squawks: ["7700"],
+            squawks: [SquawkBucket.Emergency],
           }),
         }),
       ),
@@ -90,7 +98,7 @@ describe("aircraft scene layer", () => {
         view,
         2,
         settings({
-          filter: filter({ squawks: ["7500"] }),
+          filter: filter({ squawks: [SquawkBucket.Hijack] }),
         }),
       ),
     ).toBe(true);
@@ -104,7 +112,7 @@ describe("aircraft scene layer", () => {
         settings({
           filter: filter({
             showGround: false,
-            milFilter: "military",
+            milFilter: MilFilter.Military,
           }),
         }),
       ),
@@ -113,14 +121,14 @@ describe("aircraft scene layer", () => {
       aircraftSceneIncludes(
         view,
         2,
-        settings({ filter: filter({ milFilter: "recon" }) }),
+        settings({ filter: filter({ milFilter: MilFilter.Recon }) }),
       ),
     ).toBe(true);
     expect(
       aircraftSceneIncludes(
         view,
         0,
-        settings({ filter: filter({ milFilter: "civilian" }) }),
+        settings({ filter: filter({ milFilter: MilFilter.Civilian }) }),
       ),
     ).toBe(true);
   });
@@ -149,7 +157,7 @@ describe("aircraft scene layer", () => {
         1,
         settings({
           isolateMode: IsolateMode.Focus,
-          isolatedType: "weather",
+          isolatedType: Domain.Weather,
         }),
       ),
     ).toBe(false);

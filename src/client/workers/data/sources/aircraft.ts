@@ -1,5 +1,6 @@
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import { Domain } from "@shared/domain/identity";
+import { SquawkStatus } from "@shared/domain/aircraft";
 import { SourceCompleteness } from "@shared/source";
 import {
   AIRCRAFT_BOOLEAN_FIELDS as BOOLEAN_FIELDS,
@@ -13,7 +14,8 @@ import { fetchAircraftSnapshot } from "@/features/tracking/aircraft/data/parseAd
 import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import { createScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import { recordPosition } from "@/workers/data/source-model/position";
 import {
   createPointSourceRuntime,
   type PointSourceCacheSnapshot,
@@ -21,7 +23,13 @@ import {
   type PointSourceRuntime,
 } from "@/workers/data/sourceRuntime";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
-import { AIRCRAFT_SCENE } from "@/workers/render/scene/aircraftSchema";
+import {
+  AircraftSceneAttribute,
+  AircraftSceneFlag,
+  AircraftSceneSchema,
+  AircraftSceneSquawk,
+  AircraftSceneStringAttribute,
+} from "@/workers/render/scene/aircraftSchema";
 
 export { isAircraftPoint, parseAircraftCache, type AircraftPoint };
 
@@ -78,21 +86,33 @@ function aircraftChanged(
   return !arraysEqual(previous.data.navModes, next.data.navModes);
 }
 
-function squawkCode(value: AircraftData["squawkStatus"]): number {
-  if (value === "emergency") return AIRCRAFT_SCENE.squawks.emergency;
-  if (value === "radio_failure") {
-    return AIRCRAFT_SCENE.squawks.radioFailure;
+function squawkCode(
+  value: SquawkStatus | undefined,
+): AircraftSceneSquawk {
+  if (value === SquawkStatus.Emergency) {
+    return AircraftSceneSquawk.Emergency;
   }
-  if (value === "hijack") return AIRCRAFT_SCENE.squawks.hijack;
-  return AIRCRAFT_SCENE.squawks.normal;
+  if (value === SquawkStatus.RadioFailure) {
+    return AircraftSceneSquawk.RadioFailure;
+  }
+  if (value === SquawkStatus.Hijack) {
+    return AircraftSceneSquawk.Hijack;
+  }
+  return AircraftSceneSquawk.Normal;
 }
 
 function aircraftFlags(data: AircraftData): number {
   return (
-    (data.military ? AIRCRAFT_SCENE.flags.military : 0) +
-    (data.recon ? AIRCRAFT_SCENE.flags.recon : 0) +
-    (data.onGround ? AIRCRAFT_SCENE.flags.onGround : 0)
+    (data.military ? AircraftSceneFlag.Military : 0) +
+    (data.recon ? AircraftSceneFlag.Recon : 0) +
+    (data.onGround ? AircraftSceneFlag.OnGround : 0)
   );
+}
+
+function aircraftTimestamp(point: AircraftPoint): number {
+  if (!point.timestamp) return 0;
+  const timestamp = Date.parse(point.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 async function fetchLiveAircraft(): Promise<
@@ -115,20 +135,22 @@ async function fetchLiveAircraft(): Promise<
 export function createAircraftSourceRuntime(
   options: AircraftSourceRuntimeOptions,
 ): AircraftSourceRuntime {
-  const codec = createScenePatchCodec<AircraftPoint>({
+  const codec = new ScenePatchCodec<AircraftPoint>({
     source: AIRCRAFT_SOURCE.id,
-    attributeStride: AIRCRAFT_SCENE.attributeStride,
-    stringAttributeStride: AIRCRAFT_SCENE.stringAttributeStride,
+    attributeStride: AircraftSceneSchema.AttributeStride,
+    stringAttributeStride: AircraftSceneSchema.StringAttributeStride,
+    position: recordPosition,
+    timestamp: aircraftTimestamp,
     writeAttributes: (point, target, offset) => {
-      target[offset + AIRCRAFT_SCENE.attributes.heading] =
+      target[offset + AircraftSceneAttribute.Heading] =
         point.data.heading ?? 0;
-      target[offset + AIRCRAFT_SCENE.attributes.flags] =
+      target[offset + AircraftSceneAttribute.Flags] =
         aircraftFlags(point.data);
-      target[offset + AIRCRAFT_SCENE.attributes.squawk] =
+      target[offset + AircraftSceneAttribute.Squawk] =
         squawkCode(point.data.squawkStatus);
     },
     writeStringAttributes: (point, target, offset, intern) => {
-      target[offset + AIRCRAFT_SCENE.stringAttributes.country] =
+      target[offset + AircraftSceneStringAttribute.Country] =
         intern(point.data.originCountry ?? "");
     },
   });

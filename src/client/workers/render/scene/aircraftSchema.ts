@@ -1,29 +1,27 @@
-export const AIRCRAFT_SCENE = {
-  attributeStride: 3,
-  stringAttributeStride: 1,
-  attributes: {
-    heading: 0,
-    flags: 1,
-    squawk: 2,
-  },
-  stringAttributes: {
-    country: 0,
-  },
-  flags: {
-    military: 1,
-    recon: 2,
-    onGround: 4,
-  },
-  squawks: {
-    normal: 0,
-    emergency: 1,
-    radioFailure: 2,
-    hijack: 3,
-  },
-} as const;
+export enum AircraftSceneSchema {
+  AttributeStride = 3,
+  StringAttributeStride = 1,
+}
 
-export type AircraftSquawkBucket =
-  | "7700"
-  | "7600"
-  | "7500"
-  | "other";
+export enum AircraftSceneAttribute {
+  Heading = 0,
+  Flags = 1,
+  Squawk = 2,
+}
+
+export enum AircraftSceneStringAttribute {
+  Country = 0,
+}
+
+export enum AircraftSceneFlag {
+  Military = 1,
+  Recon = 2,
+  OnGround = 4,
+}
+
+export enum AircraftSceneSquawk {
+  Normal = 0,
+  Emergency = 1,
+  RadioFailure = 2,
+  Hijack = 3,
+}

@@ -1,5 +1,12 @@
-import type { RenderInputPayload } from "@/workers/render/protocol";
+import {
+  RenderCameraKey,
+  RenderInputKind,
+  RenderInputPhase,
+  type RenderInputPayload,
+} from "@/workers/render/protocol";
 import { CAMERA_POLICY } from "@/workers/render/policy";
+import { DomEvent } from "@/lib/runtime/domEvent";
+import { isEnumValue } from "@shared/types/enum";
 
 export type InputRefs = Readonly<{
   canvas: HTMLCanvasElement;
@@ -21,24 +28,13 @@ export type InputHandlers = Readonly<{
 
 type PointerPayload = Extract<
   RenderInputPayload,
-  { kind: "pointer" }
+  { kind: RenderInputKind.Pointer }
 >;
 
 type ClientPoint = Readonly<{
   clientX: number;
   clientY: number;
 }>;
-
-const CAMERA_KEYS = new Set([
-  "ArrowLeft",
-  "ArrowRight",
-  "ArrowUp",
-  "ArrowDown",
-  "Equal",
-  "NumpadAdd",
-  "Minus",
-  "NumpadSubtract",
-]);
 
 function firstTouch(event: TouchEvent): Touch | null {
   return event.touches.item(0);
@@ -66,8 +62,11 @@ function relativePoint(
 function pinchPayload(
   canvas: HTMLCanvasElement,
   event: TouchEvent,
-  phase: "start" | "move",
-): Extract<RenderInputPayload, { kind: "pinch" }> | null {
+  phase: RenderInputPhase.Start | RenderInputPhase.Move,
+): Extract<
+  RenderInputPayload,
+  { kind: RenderInputKind.Pinch }
+> | null {
   const pair = touchPair(event);
   if (!pair) return null;
   const [first, second] = pair;
@@ -76,7 +75,7 @@ function pinchPayload(
     clientY: (first.clientY + second.clientY) / 2,
   });
   return {
-    kind: "pinch",
+    kind: RenderInputKind.Pinch,
     phase,
     centerX: center.x,
     centerY: center.y,
@@ -114,7 +113,11 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     if ("touches" in event) {
       lastTouchTime = Date.now();
       event.preventDefault();
-      const pinch = pinchPayload(canvas, event, "start");
+      const pinch = pinchPayload(
+        canvas,
+        event,
+        RenderInputPhase.Start,
+      );
       if (pinch) {
         flushPointer();
         pinching = true;
@@ -145,8 +148,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     active = true;
     flushPointer();
     sendInput({
-      kind: "pointer",
-      phase: "start",
+      kind: RenderInputKind.Pointer,
+      phase: RenderInputPhase.Start,
       x: relative.x,
       y: relative.y,
     });
@@ -154,12 +157,19 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
 
   const onMove = (event: MouseEvent | TouchEvent): void => {
     if ("touches" in event) {
-      const pinch = pinchPayload(canvas, event, "move");
+      const pinch = pinchPayload(
+        canvas,
+        event,
+        RenderInputPhase.Move,
+      );
       if (pinch) {
         if (!pinching) {
           pinching = true;
           active = false;
-          sendInput({ ...pinch, phase: "start" });
+          sendInput({
+            ...pinch,
+            phase: RenderInputPhase.Start,
+          });
         } else {
           sendInput(pinch);
         }
@@ -173,8 +183,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     const relative = relativePoint(canvas, point);
     lastPoint = relative;
     queuePointer({
-      kind: "pointer",
-      phase: "move",
+      kind: RenderInputKind.Pointer,
+      phase: RenderInputPhase.Move,
       x: relative.x,
       y: relative.y,
     });
@@ -185,8 +195,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     if (pinching) {
       pinching = false;
       sendInput({
-        kind: "pinch",
-        phase: "end",
+        kind: RenderInputKind.Pinch,
+        phase: RenderInputPhase.End,
         centerX: lastPoint.x,
         centerY: lastPoint.y,
         distance: 0,
@@ -196,8 +206,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     if (!active) return;
     active = false;
     sendInput({
-      kind: "pointer",
-      phase: "end",
+      kind: RenderInputKind.Pointer,
+      phase: RenderInputPhase.End,
       x: lastPoint.x,
       y: lastPoint.y,
     });
@@ -207,8 +217,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     if (active || pinching) return;
     const relative = relativePoint(canvas, event);
     queuePointer({
-      kind: "pointer",
-      phase: "hover",
+      kind: RenderInputKind.Pointer,
+      phase: RenderInputPhase.Hover,
       x: relative.x,
       y: relative.y,
     });
@@ -218,7 +228,7 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     event.preventDefault();
     const relative = relativePoint(canvas, event);
     sendInput({
-      kind: "wheel",
+      kind: RenderInputKind.Wheel,
       x: relative.x,
       y: relative.y,
       deltaY: event.deltaY,
@@ -238,8 +248,8 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
     pinching = false;
     flushPointer();
     sendInput({
-      kind: "pointer",
-      phase: "cancel",
+      kind: RenderInputKind.Pointer,
+      phase: RenderInputPhase.Cancel,
       x: lastPoint.x,
       y: lastPoint.y,
     });
@@ -262,9 +272,12 @@ export function createInputHandlers(refs: InputRefs): InputHandlers {
       onMiddleClick();
       return;
     }
-    if (!CAMERA_KEYS.has(event.code)) return;
+    if (!isEnumValue(event.code, RenderCameraKey)) return;
     event.preventDefault();
-    sendInput({ kind: "key", code: event.code });
+    sendInput({
+      kind: RenderInputKind.Key,
+      code: event.code,
+    });
   };
 
   return {
@@ -284,18 +297,22 @@ export function attachInputHandlers(
   canvas: HTMLCanvasElement,
   handlers: InputHandlers,
 ): void {
-  canvas.addEventListener("mousedown", handlers.onDown);
-  window.addEventListener("mousemove", handlers.onMove);
-  window.addEventListener("mouseup", handlers.onUp);
-  canvas.addEventListener("mousemove", handlers.onHover);
-  canvas.addEventListener("wheel", handlers.onWheel, { passive: false });
-  canvas.addEventListener("touchstart", handlers.onDown, { passive: false });
-  canvas.addEventListener("touchmove", handlers.onTouchMove, {
+  canvas.addEventListener(DomEvent.MouseDown, handlers.onDown);
+  window.addEventListener(DomEvent.MouseMove, handlers.onMove);
+  window.addEventListener(DomEvent.MouseUp, handlers.onUp);
+  canvas.addEventListener(DomEvent.MouseMove, handlers.onHover);
+  canvas.addEventListener(DomEvent.Wheel, handlers.onWheel, {
     passive: false,
   });
-  canvas.addEventListener("touchend", handlers.onUp);
-  canvas.addEventListener("contextmenu", handlers.onContextMenu);
-  window.addEventListener("keydown", handlers.onKeyDown);
+  canvas.addEventListener(DomEvent.TouchStart, handlers.onDown, {
+    passive: false,
+  });
+  canvas.addEventListener(DomEvent.TouchMove, handlers.onTouchMove, {
+    passive: false,
+  });
+  canvas.addEventListener(DomEvent.TouchEnd, handlers.onUp);
+  canvas.addEventListener(DomEvent.ContextMenu, handlers.onContextMenu);
+  window.addEventListener(DomEvent.KeyDown, handlers.onKeyDown);
 }
 
 export function detachInputHandlers(
@@ -303,14 +320,14 @@ export function detachInputHandlers(
   handlers: InputHandlers,
 ): void {
   handlers.dispose();
-  canvas.removeEventListener("mousedown", handlers.onDown);
-  window.removeEventListener("mousemove", handlers.onMove);
-  window.removeEventListener("mouseup", handlers.onUp);
-  canvas.removeEventListener("mousemove", handlers.onHover);
-  canvas.removeEventListener("wheel", handlers.onWheel);
-  canvas.removeEventListener("touchstart", handlers.onDown);
-  canvas.removeEventListener("touchmove", handlers.onTouchMove);
-  canvas.removeEventListener("touchend", handlers.onUp);
-  canvas.removeEventListener("contextmenu", handlers.onContextMenu);
-  window.removeEventListener("keydown", handlers.onKeyDown);
+  canvas.removeEventListener(DomEvent.MouseDown, handlers.onDown);
+  window.removeEventListener(DomEvent.MouseMove, handlers.onMove);
+  window.removeEventListener(DomEvent.MouseUp, handlers.onUp);
+  canvas.removeEventListener(DomEvent.MouseMove, handlers.onHover);
+  canvas.removeEventListener(DomEvent.Wheel, handlers.onWheel);
+  canvas.removeEventListener(DomEvent.TouchStart, handlers.onDown);
+  canvas.removeEventListener(DomEvent.TouchMove, handlers.onTouchMove);
+  canvas.removeEventListener(DomEvent.TouchEnd, handlers.onUp);
+  canvas.removeEventListener(DomEvent.ContextMenu, handlers.onContextMenu);
+  window.removeEventListener(DomEvent.KeyDown, handlers.onKeyDown);
 }

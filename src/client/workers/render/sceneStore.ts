@@ -2,29 +2,76 @@ import type {
   SceneDataCommand,
   SceneSourcePatch,
 } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+} from "@/workers/render/sceneProtocol";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
+
+enum SceneStoragePolicy {
+  InitialCapacity = 16,
+  GrowthFactor = 2,
+}
+
+enum SceneStorageComponentCount {
+  Position = 2,
+  UnitVector = 3,
+}
+
+enum ScenePositionOffset {
+  Longitude = 0,
+  Latitude = 1,
+}
+
+enum SceneUnitVectorOffset {
+  X = 0,
+  Y = 1,
+  Z = 2,
+}
+
+export enum SceneStoreErrorKind {
+  AttributeStrideChanged = "The scene attribute stride cannot change",
+  DictionarySequenceInvalid = "The scene dictionary sequence is invalid",
+  SourceMismatch = "The scene patch has an incorrect source",
+  SourceVersionNotIncreasing = "The scene source version must increase",
+  StringAttributeStrideChanged = "The scene string attribute stride cannot change",
+}
+
+export class SceneStoreError extends Error {
+  readonly kind: SceneStoreErrorKind;
+
+  constructor(kind: SceneStoreErrorKind) {
+    super(kind);
+    this.name = SceneStoreError.name;
+    this.kind = kind;
+  }
+}
 
 export type RenderScenePatch = Extract<
   SceneDataCommand,
-  { type: "sourcePatch" }
+  { type: SceneDataCommandType.SourcePatch }
 >;
 
 export type RenderSceneRecord = Readonly<{
-  id: string;
+  sceneId: string;
+  entityId: string;
   longitude: number;
   latitude: number;
   unitX: number;
   unitY: number;
   unitZ: number;
+  timestamp: number;
   attributes: readonly number[];
 }>;
 
 export type RenderSceneView = Readonly<{
   capacity: number;
   active: Uint8Array<ArrayBuffer>;
-  ids: readonly (string | null)[];
-  positions: Float32Array<ArrayBuffer>;
+  sceneIds: readonly (string | null)[];
+  entityIds: readonly (string | null)[];
+  positions: Float64Array<ArrayBuffer>;
   unitVectors: Float32Array<ArrayBuffer>;
+  timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
   attributeStride: number;
   stringAttributes: Uint32Array<ArrayBuffer>;
@@ -32,29 +79,46 @@ export type RenderSceneView = Readonly<{
   dictionary: readonly string[];
 }>;
 
-export type RenderSceneStore = Readonly<{
-  apply: (patch: RenderScenePatch) => void;
-  version: () => number;
-  size: () => number;
-  view: () => RenderSceneView;
-  handleForId: (id: string) => number | null;
-  read: (handle: number) => RenderSceneRecord | null;
-}>;
-
 type SceneStorage = {
   capacity: number;
   active: Uint8Array<ArrayBuffer>;
-  ids: (string | null)[];
-  positions: Float32Array<ArrayBuffer>;
+  sceneIds: (string | null)[];
+  entityIds: (string | null)[];
+  positions: Float64Array<ArrayBuffer>;
   unitVectors: Float32Array<ArrayBuffer>;
+  timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
   stringAttributes: Uint32Array<ArrayBuffer>;
 };
 
+function copyIdentityLane(
+  target: (string | null)[],
+  source: readonly (string | null)[],
+): void {
+  for (const [index, identity] of source.entries()) {
+    target[index] = identity;
+  }
+}
+
+function copyStorage(target: SceneStorage, source: SceneStorage): void {
+  target.active.set(source.active);
+  copyIdentityLane(target.sceneIds, source.sceneIds);
+  copyIdentityLane(target.entityIds, source.entityIds);
+  target.positions.set(source.positions);
+  target.unitVectors.set(source.unitVectors);
+  target.timestamps.set(source.timestamps);
+  target.attributes.set(source.attributes);
+  target.stringAttributes.set(source.stringAttributes);
+}
+
 function nextCapacity(current: number, required: number): number {
   if (required <= current) return current;
-  const exponent = Math.ceil(Math.log2(required / 16));
-  const capacity = 16 * 2 ** Math.max(0, exponent);
+  const exponent = Math.ceil(
+    Math.log2(required / SceneStoragePolicy.InitialCapacity),
+  );
+  const capacity =
+    SceneStoragePolicy.InitialCapacity *
+    SceneStoragePolicy.GrowthFactor ** Math.max(0, exponent);
   return Math.max(current, capacity);
 }
 
@@ -65,31 +129,30 @@ function createStorage(
   previous?: SceneStorage,
 ): SceneStorage {
   const active = new Uint8Array(capacity);
-  const positions = new Float32Array(capacity * 2);
-  const unitVectors = new Float32Array(capacity * 3);
+  const positions = new Float64Array(
+    capacity * SceneStorageComponentCount.Position,
+  );
+  const unitVectors = new Float32Array(
+    capacity * SceneStorageComponentCount.UnitVector,
+  );
+  const timestamps = new Float64Array(capacity);
   const attributes = new Float32Array(capacity * attributeStride);
   const stringAttributes = new Uint32Array(
     capacity * stringAttributeStride,
   );
-  if (previous) {
-    active.set(previous.active);
-    positions.set(previous.positions);
-    unitVectors.set(previous.unitVectors);
-    attributes.set(previous.attributes);
-    stringAttributes.set(previous.stringAttributes);
-  }
-  return {
+  const storage: SceneStorage = {
     capacity,
     active,
-    ids: Array.from(
-      { length: capacity },
-      (_, index) => previous?.ids[index] ?? null,
-    ),
+    sceneIds: new Array<string | null>(capacity).fill(null),
+    entityIds: new Array<string | null>(capacity).fill(null),
     positions,
     unitVectors,
+    timestamps,
     attributes,
     stringAttributes,
   };
+  if (previous) copyStorage(storage, previous);
+  return storage;
 }
 
 function maximumHandle(patch: SceneSourcePatch): number {
@@ -103,181 +166,289 @@ function maximumHandle(patch: SceneSourcePatch): number {
   return maximum;
 }
 
-export function createRenderSceneStore(
-  source: RenderSourceId,
-): RenderSceneStore {
-  let sourceVersion = 0;
-  let itemCount = 0;
-  let attributeStride: number | null = null;
-  let stringAttributeStride: number | null = null;
-  let dictionary: string[] = [];
-  const handlesById = new Map<string, number>();
-  let storage = createStorage(0, 0, 0);
+export class SceneStore {
+  private attributeStride: number | null = null;
+  private dictionary: string[] = [];
+  private readonly handlesByEntityId = new Map<string, Set<number>>();
+  private readonly handlesBySceneId = new Map<string, number>();
+  private itemCount = 0;
+  private readonly source: RenderSourceId;
+  private sourceVersion = 0;
+  private storage = createStorage(0, 0, 0);
+  private stringAttributeStride: number | null = null;
 
-  const ensureCapacity = (required: number): void => {
-    const capacity = nextCapacity(storage.capacity, required);
-    if (capacity === storage.capacity) return;
-    storage = createStorage(
-      capacity,
-      attributeStride ?? 0,
-      stringAttributeStride ?? 0,
-      storage,
-    );
-  };
+  constructor(source: RenderSourceId) {
+    this.source = source;
+  }
 
-  return {
-    apply(patch): void {
-      if (patch.source !== source) {
-        throw new Error("The scene patch has an incorrect source");
-      }
-      if (patch.sourceVersion <= sourceVersion) {
-        throw new Error("The scene source version must increase");
-      }
-      if (
-        attributeStride !== null &&
-        patch.attributeStride !== attributeStride
-      ) {
-        throw new Error("The scene attribute stride cannot change");
-      }
-      if (
-        stringAttributeStride !== null &&
-        patch.stringAttributeStride !== stringAttributeStride
-      ) {
-        throw new Error("The scene string attribute stride cannot change");
-      }
-      if (attributeStride === null) {
-        attributeStride = patch.attributeStride;
-        stringAttributeStride = patch.stringAttributeStride;
-        storage = createStorage(
-          storage.capacity,
-          attributeStride,
-          stringAttributeStride,
-          storage,
-        );
-      }
-      if (patch.kind === "rebase") dictionary = [];
-      if (patch.dictionaryStart !== dictionary.length) {
-        throw new Error("The scene dictionary sequence is invalid");
-      }
-      dictionary.push(...patch.dictionaryValues);
+  apply(patch: RenderScenePatch): void {
+    this.validatePatch(patch);
+    this.applySchema(patch);
+    this.applyDictionary(patch);
+    this.ensureCapacity(maximumHandle(patch));
 
-      ensureCapacity(maximumHandle(patch));
-      if (patch.kind === "rebase") {
-        storage.active.fill(0);
-        storage.ids.fill(null);
-        handlesById.clear();
-        itemCount = 0;
-      }
+    if (patch.kind === DatasetPatchKind.Rebase) {
+      this.resetRecords();
+    }
+    this.writeRecords(patch);
+    this.deleteRecords(patch.deletedHandles);
+    this.sourceVersion = patch.sourceVersion;
+  }
 
-      for (const [patchIndex, handle] of patch.handles.entries()) {
-        const index = handle - 1;
-        if (storage.active[index] === 0) itemCount += 1;
-        const previousId = storage.ids[index];
-        if (previousId) handlesById.delete(previousId);
-        const id = patch.ids[patchIndex] ?? null;
-        storage.active[index] = 1;
-        storage.ids[index] = id;
-        if (id) handlesById.set(id, handle);
+  version(): number {
+    return this.sourceVersion;
+  }
 
-        const patchPositionOffset = patchIndex * 2;
-        const positionOffset = index * 2;
-        storage.positions[positionOffset] =
-          patch.positions[patchPositionOffset] ?? 0;
-        storage.positions[positionOffset + 1] =
-          patch.positions[patchPositionOffset + 1] ?? 0;
+  size(): number {
+    return this.itemCount;
+  }
 
-        const patchUnitOffset = patchIndex * 3;
-        const unitOffset = index * 3;
-        storage.unitVectors[unitOffset] =
-          patch.unitVectors[patchUnitOffset] ?? 0;
-        storage.unitVectors[unitOffset + 1] =
-          patch.unitVectors[patchUnitOffset + 1] ?? 0;
-        storage.unitVectors[unitOffset + 2] =
-          patch.unitVectors[patchUnitOffset + 2] ?? 0;
+  view(): RenderSceneView {
+    return {
+      capacity: this.storage.capacity,
+      active: this.storage.active,
+      sceneIds: this.storage.sceneIds,
+      entityIds: this.storage.entityIds,
+      positions: this.storage.positions,
+      unitVectors: this.storage.unitVectors,
+      timestamps: this.storage.timestamps,
+      attributes: this.storage.attributes,
+      attributeStride: this.attributeStride ?? 0,
+      stringAttributes: this.storage.stringAttributes,
+      stringAttributeStride: this.stringAttributeStride ?? 0,
+      dictionary: this.dictionary,
+    };
+  }
 
-        const stride = attributeStride ?? 0;
-        const patchAttributeOffset = patchIndex * stride;
-        storage.attributes.set(
-          patch.attributes.subarray(
-            patchAttributeOffset,
-            patchAttributeOffset + stride,
-          ),
+  handleForSceneId(sceneId: string): number | null {
+    return this.handlesBySceneId.get(sceneId) ?? null;
+  }
+
+  handlesForEntityId(entityId: string): readonly number[] {
+    return Array.from(this.handlesByEntityId.get(entityId) ?? []);
+  }
+
+  read(handle: number): RenderSceneRecord | null {
+    if (!Number.isSafeInteger(handle) || handle < 1) return null;
+    const index = handle - 1;
+    if (this.storage.active[index] !== 1) return null;
+    const sceneId = this.storage.sceneIds[index];
+    const entityId = this.storage.entityIds[index];
+    if (!sceneId || !entityId) return null;
+
+    const positionOffset = index * SceneStorageComponentCount.Position;
+    const unitOffset = index * SceneStorageComponentCount.UnitVector;
+    const stride = this.attributeStride ?? 0;
+    return {
+      sceneId,
+      entityId,
+      longitude:
+        this.storage.positions[
+          positionOffset + ScenePositionOffset.Longitude
+        ] ?? 0,
+      latitude:
+        this.storage.positions[
+          positionOffset + ScenePositionOffset.Latitude
+        ] ?? 0,
+      unitX:
+        this.storage.unitVectors[
+          unitOffset + SceneUnitVectorOffset.X
+        ] ?? 0,
+      unitY:
+        this.storage.unitVectors[
+          unitOffset + SceneUnitVectorOffset.Y
+        ] ?? 0,
+      unitZ:
+        this.storage.unitVectors[
+          unitOffset + SceneUnitVectorOffset.Z
+        ] ?? 0,
+      timestamp: this.storage.timestamps[index] ?? 0,
+      attributes: Array.from(
+        this.storage.attributes.subarray(
           index * stride,
-        );
-        const stringStride = stringAttributeStride ?? 0;
-        const patchStringOffset = patchIndex * stringStride;
-        storage.stringAttributes.set(
-          patch.stringAttributes.subarray(
-            patchStringOffset,
-            patchStringOffset + stringStride,
-          ),
-          index * stringStride,
-        );
-      }
-
-      for (const handle of patch.deletedHandles) {
-        const index = handle - 1;
-        if (storage.active[index] !== 1) continue;
-        storage.active[index] = 0;
-        const id = storage.ids[index];
-        if (id) handlesById.delete(id);
-        storage.ids[index] = null;
-        itemCount -= 1;
-      }
-
-      sourceVersion = patch.sourceVersion;
-    },
-
-    version(): number {
-      return sourceVersion;
-    },
-
-    size(): number {
-      return itemCount;
-    },
-
-    view(): RenderSceneView {
-      return {
-        capacity: storage.capacity,
-        active: storage.active,
-        ids: storage.ids,
-        positions: storage.positions,
-        unitVectors: storage.unitVectors,
-        attributes: storage.attributes,
-        attributeStride: attributeStride ?? 0,
-        stringAttributes: storage.stringAttributes,
-        stringAttributeStride: stringAttributeStride ?? 0,
-        dictionary,
-      };
-    },
-
-    handleForId(id): number | null {
-      return handlesById.get(id) ?? null;
-    },
-
-    read(handle): RenderSceneRecord | null {
-      if (!Number.isSafeInteger(handle) || handle < 1) return null;
-      const index = handle - 1;
-      if (storage.active[index] !== 1) return null;
-      const id = storage.ids[index];
-      if (!id) return null;
-      const positionOffset = index * 2;
-      const unitOffset = index * 3;
-      const stride = attributeStride ?? 0;
-      return {
-        id,
-        longitude: storage.positions[positionOffset] ?? 0,
-        latitude: storage.positions[positionOffset + 1] ?? 0,
-        unitX: storage.unitVectors[unitOffset] ?? 0,
-        unitY: storage.unitVectors[unitOffset + 1] ?? 0,
-        unitZ: storage.unitVectors[unitOffset + 2] ?? 0,
-        attributes: Array.from(
-          storage.attributes.subarray(
-            index * stride,
-            index * stride + stride,
-          ),
+          index * stride + stride,
         ),
-      };
-    },
-  };
+      ),
+    };
+  }
+
+  private validatePatch(patch: RenderScenePatch): void {
+    if (patch.source !== this.source) {
+      throw new SceneStoreError(SceneStoreErrorKind.SourceMismatch);
+    }
+    if (patch.sourceVersion <= this.sourceVersion) {
+      throw new SceneStoreError(
+        SceneStoreErrorKind.SourceVersionNotIncreasing,
+      );
+    }
+    if (
+      this.attributeStride !== null &&
+      patch.attributeStride !== this.attributeStride
+    ) {
+      throw new SceneStoreError(
+        SceneStoreErrorKind.AttributeStrideChanged,
+      );
+    }
+    if (
+      this.stringAttributeStride !== null &&
+      patch.stringAttributeStride !== this.stringAttributeStride
+    ) {
+      throw new SceneStoreError(
+        SceneStoreErrorKind.StringAttributeStrideChanged,
+      );
+    }
+  }
+
+  private applySchema(patch: RenderScenePatch): void {
+    if (this.attributeStride !== null) return;
+    this.attributeStride = patch.attributeStride;
+    this.stringAttributeStride = patch.stringAttributeStride;
+    this.storage = createStorage(
+      this.storage.capacity,
+      this.attributeStride,
+      this.stringAttributeStride,
+      this.storage,
+    );
+  }
+
+  private applyDictionary(patch: RenderScenePatch): void {
+    if (patch.kind === DatasetPatchKind.Rebase) this.dictionary = [];
+    if (patch.dictionaryStart !== this.dictionary.length) {
+      throw new SceneStoreError(
+        SceneStoreErrorKind.DictionarySequenceInvalid,
+      );
+    }
+    this.dictionary.push(...patch.dictionaryValues);
+  }
+
+  private ensureCapacity(required: number): void {
+    const capacity = nextCapacity(this.storage.capacity, required);
+    if (capacity === this.storage.capacity) return;
+    this.storage = createStorage(
+      capacity,
+      this.attributeStride ?? 0,
+      this.stringAttributeStride ?? 0,
+      this.storage,
+    );
+  }
+
+  private resetRecords(): void {
+    this.storage.active.fill(0);
+    this.storage.sceneIds.fill(null);
+    this.storage.entityIds.fill(null);
+    this.handlesBySceneId.clear();
+    this.handlesByEntityId.clear();
+    this.itemCount = 0;
+  }
+
+  private writeRecords(patch: RenderScenePatch): void {
+    for (const [patchIndex, handle] of patch.handles.entries()) {
+      const index = handle - 1;
+      if (this.storage.active[index] === 1) {
+        this.removeIndexes(index, handle);
+      } else {
+        this.itemCount += 1;
+      }
+      this.writeIdentity(patch, patchIndex, handle, index);
+      this.writePosition(patch, patchIndex, index);
+      this.writeAttributes(patch, patchIndex, index);
+    }
+  }
+
+  private writeIdentity(
+    patch: RenderScenePatch,
+    patchIndex: number,
+    handle: number,
+    index: number,
+  ): void {
+    const sceneId = patch.sceneIds[patchIndex] ?? null;
+    const entityId = patch.entityIds[patchIndex] ?? null;
+    this.storage.active[index] = 1;
+    this.storage.sceneIds[index] = sceneId;
+    this.storage.entityIds[index] = entityId;
+    if (sceneId) this.handlesBySceneId.set(sceneId, handle);
+    if (!entityId) return;
+    const handles = this.handlesByEntityId.get(entityId) ?? new Set<number>();
+    handles.add(handle);
+    this.handlesByEntityId.set(entityId, handles);
+  }
+
+  private writePosition(
+    patch: RenderScenePatch,
+    patchIndex: number,
+    index: number,
+  ): void {
+    const patchPositionOffset =
+      patchIndex * SceneStorageComponentCount.Position;
+    const positionOffset = index * SceneStorageComponentCount.Position;
+    this.storage.positions.set(
+      patch.positions.subarray(
+        patchPositionOffset,
+        patchPositionOffset + SceneStorageComponentCount.Position,
+      ),
+      positionOffset,
+    );
+
+    const patchUnitOffset =
+      patchIndex * SceneStorageComponentCount.UnitVector;
+    const unitOffset = index * SceneStorageComponentCount.UnitVector;
+    this.storage.unitVectors.set(
+      patch.unitVectors.subarray(
+        patchUnitOffset,
+        patchUnitOffset + SceneStorageComponentCount.UnitVector,
+      ),
+      unitOffset,
+    );
+    this.storage.timestamps[index] = patch.timestamps[patchIndex] ?? 0;
+  }
+
+  private writeAttributes(
+    patch: RenderScenePatch,
+    patchIndex: number,
+    index: number,
+  ): void {
+    const stride = this.attributeStride ?? 0;
+    const patchAttributeOffset = patchIndex * stride;
+    this.storage.attributes.set(
+      patch.attributes.subarray(
+        patchAttributeOffset,
+        patchAttributeOffset + stride,
+      ),
+      index * stride,
+    );
+
+    const stringStride = this.stringAttributeStride ?? 0;
+    const patchStringOffset = patchIndex * stringStride;
+    this.storage.stringAttributes.set(
+      patch.stringAttributes.subarray(
+        patchStringOffset,
+        patchStringOffset + stringStride,
+      ),
+      index * stringStride,
+    );
+  }
+
+  private deleteRecords(handles: Uint32Array<ArrayBuffer>): void {
+    for (const handle of handles) {
+      const index = handle - 1;
+      if (this.storage.active[index] !== 1) continue;
+      this.removeIndexes(index, handle);
+      this.storage.active[index] = 0;
+      this.storage.sceneIds[index] = null;
+      this.storage.entityIds[index] = null;
+      this.itemCount -= 1;
+    }
+  }
+
+  private removeIndexes(index: number, handle: number): void {
+    const sceneId = this.storage.sceneIds[index];
+    if (sceneId) this.handlesBySceneId.delete(sceneId);
+
+    const entityId = this.storage.entityIds[index];
+    if (!entityId) return;
+    const handles = this.handlesByEntityId.get(entityId);
+    if (!handles) return;
+    handles.delete(handle);
+    if (handles.size === 0) this.handlesByEntityId.delete(entityId);
+  }
 }

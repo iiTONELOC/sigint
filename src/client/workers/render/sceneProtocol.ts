@@ -3,19 +3,28 @@ import {
   isRenderSourceId,
   type RenderSourceId,
 } from "@/workers/data/sourceIds";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
 
-export const SCENE_DATA_PROTOCOL_VERSION = 1 as const;
+export enum SceneDataProtocolVersion {
+  Current = 1,
+}
 
-export type ScenePatchKind = "rebase" | "patch";
+export enum SceneDataCommandType {
+  Bind = "bind",
+  SourcePatch = "sourcePatch",
+}
 
 type TransferUint32Array = Uint32Array<ArrayBuffer>;
 type TransferFloat32Array = Float32Array<ArrayBuffer>;
+type TransferFloat64Array = Float64Array<ArrayBuffer>;
 
 type ScenePatchBuffers = Readonly<{
   handles: TransferUint32Array;
-  ids: readonly string[];
-  positions: TransferFloat32Array;
+  sceneIds: readonly string[];
+  entityIds: readonly string[];
+  positions: TransferFloat64Array;
   unitVectors: TransferFloat32Array;
+  timestamps: TransferFloat64Array;
   attributes: TransferFloat32Array;
   attributeStride: number;
   stringAttributes: TransferUint32Array;
@@ -26,44 +35,55 @@ type ScenePatchBuffers = Readonly<{
 }>;
 
 export type SceneSourcePatch = Readonly<{
-  type: "sourcePatch";
+  type: SceneDataCommandType.SourcePatch;
   source: RenderSourceId;
   sourceVersion: number;
-  kind: ScenePatchKind;
+  kind: DatasetPatchKind;
 }> &
   ScenePatchBuffers;
 
 export type SceneDataCommandBody =
-  | Readonly<{ type: "bind" }>
+  | Readonly<{ type: SceneDataCommandType.Bind }>
   | SceneSourcePatch;
 
 export type SceneDataEnvelope = Readonly<{
-  protocolVersion: typeof SCENE_DATA_PROTOCOL_VERSION;
+  protocolVersion: SceneDataProtocolVersion;
   sessionId: string;
   sequence: number;
 }>;
 
 export type SceneDataCommand = SceneDataCommandBody & SceneDataEnvelope;
 
-export type SceneDataProtocolState = {
-  sessionId: string;
-  sequence: number;
-};
+export class SceneDataProtocolState {
+  readonly sessionId: string;
+  private sequence = 0;
 
-function isPositiveSequence(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value > 0
-  );
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
+  }
+
+  accept(command: SceneDataCommand): boolean {
+    if (
+      command.sessionId !== this.sessionId ||
+      command.sequence <= this.sequence
+    ) {
+      return false;
+    }
+    this.sequence = command.sequence;
+    return true;
+  }
 }
 
-function isSourceVersion(value: unknown): value is number {
+function isNonNegativeInteger(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= 0
   );
+}
+
+function isPositiveSequence(value: unknown): value is number {
+  return isNonNegativeInteger(value) && value > 0;
 }
 
 function isStringArray(value: unknown): value is readonly string[] {
@@ -85,6 +105,12 @@ function isTransferFloat32Array(
   return value instanceof Float32Array && value.buffer instanceof ArrayBuffer;
 }
 
+function isTransferFloat64Array(
+  value: unknown,
+): value is TransferFloat64Array {
+  return value instanceof Float64Array && value.buffer instanceof ArrayBuffer;
+}
+
 function hasValidPatchBuffers(
   value: Readonly<Record<string, unknown>>,
 ): value is Readonly<Record<string, unknown>> & ScenePatchBuffers {
@@ -93,21 +119,17 @@ function hasValidPatchBuffers(
   const dictionaryStart = value.dictionaryStart;
   if (
     !isTransferUint32Array(value.handles) ||
-    !isStringArray(value.ids) ||
-    !isTransferFloat32Array(value.positions) ||
+    !isStringArray(value.sceneIds) ||
+    !isStringArray(value.entityIds) ||
+    !isTransferFloat64Array(value.positions) ||
     !isTransferFloat32Array(value.unitVectors) ||
+    !isTransferFloat64Array(value.timestamps) ||
     !isTransferFloat32Array(value.attributes) ||
     !isTransferUint32Array(value.stringAttributes) ||
     !isTransferUint32Array(value.deletedHandles) ||
-    typeof attributeStride !== "number" ||
-    !Number.isSafeInteger(attributeStride) ||
-    attributeStride < 0 ||
-    typeof stringAttributeStride !== "number" ||
-    !Number.isSafeInteger(stringAttributeStride) ||
-    stringAttributeStride < 0 ||
-    typeof dictionaryStart !== "number" ||
-    !Number.isSafeInteger(dictionaryStart) ||
-    dictionaryStart < 0
+    !isNonNegativeInteger(attributeStride) ||
+    !isNonNegativeInteger(stringAttributeStride) ||
+    !isNonNegativeInteger(dictionaryStart)
   ) {
     return false;
   }
@@ -121,9 +143,13 @@ function hasValidPatchBuffers(
     value.handles.every((handle) => handle > 0) &&
     value.deletedHandles.every((handle) => handle > 0) &&
     value.handles.every((handle) => !deleted.has(handle)) &&
-    value.ids.length === count &&
+    value.sceneIds.length === count &&
+    value.entityIds.length === count &&
     value.positions.length === count * 2 &&
     value.unitVectors.length === count * 3 &&
+    value.timestamps.length === count &&
+    value.positions.every(Number.isFinite) &&
+    value.timestamps.every(Number.isFinite) &&
     value.attributes.length === count * attributeStride &&
     value.stringAttributes.length ===
       count * stringAttributeStride &&
@@ -133,7 +159,8 @@ function hasValidPatchBuffers(
         dictionaryStart + dictionaryValues.length,
     ) &&
     new Set(dictionaryValues).size === dictionaryValues.length &&
-    new Set(value.handles).size === count
+    new Set(value.handles).size === count &&
+    new Set(value.sceneIds).size === count
   );
 }
 
@@ -146,7 +173,7 @@ export function createSceneDataCommand<
 ): TBody & SceneDataEnvelope {
   return {
     ...body,
-    protocolVersion: SCENE_DATA_PROTOCOL_VERSION,
+    protocolVersion: SceneDataProtocolVersion.Current,
     sessionId,
     sequence,
   };
@@ -157,7 +184,7 @@ export function parseSceneDataCommand(
 ): SceneDataCommand | null {
   if (
     !isRecord(value) ||
-    value.protocolVersion !== SCENE_DATA_PROTOCOL_VERSION ||
+    value.protocolVersion !== SceneDataProtocolVersion.Current ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
     !isPositiveSequence(value.sequence)
@@ -166,36 +193,40 @@ export function parseSceneDataCommand(
   }
 
   const envelope: SceneDataEnvelope = {
-    protocolVersion: SCENE_DATA_PROTOCOL_VERSION,
+    protocolVersion: SceneDataProtocolVersion.Current,
     sessionId: value.sessionId,
     sequence: value.sequence,
   };
 
-  if (value.type === "bind") {
-    return { ...envelope, type: "bind" };
+  if (value.type === SceneDataCommandType.Bind) {
+    return { ...envelope, type: SceneDataCommandType.Bind };
   }
 
   if (
-    value.type !== "sourcePatch" ||
+    value.type !== SceneDataCommandType.SourcePatch ||
     !isRenderSourceId(value.source) ||
-    !isSourceVersion(value.sourceVersion) ||
-    (value.kind !== "rebase" && value.kind !== "patch") ||
+    !isNonNegativeInteger(value.sourceVersion) ||
+    (value.kind !== DatasetPatchKind.Rebase &&
+      value.kind !== DatasetPatchKind.Patch) ||
     !hasValidPatchBuffers(value) ||
-    (value.kind === "rebase" && value.dictionaryStart !== 0)
+    (value.kind === DatasetPatchKind.Rebase &&
+      value.dictionaryStart !== 0)
   ) {
     return null;
   }
 
   return {
     ...envelope,
-    type: "sourcePatch",
+    type: SceneDataCommandType.SourcePatch,
     source: value.source,
     sourceVersion: value.sourceVersion,
     kind: value.kind,
     handles: value.handles,
-    ids: value.ids,
+    sceneIds: value.sceneIds,
+    entityIds: value.entityIds,
     positions: value.positions,
     unitVectors: value.unitVectors,
+    timestamps: value.timestamps,
     attributes: value.attributes,
     attributeStride: value.attributeStride,
     stringAttributes: value.stringAttributes,
@@ -209,27 +240,14 @@ export function parseSceneDataCommand(
 export function sceneDataTransfers(
   command: SceneDataCommand,
 ): readonly Transferable[] {
-  if (command.type === "bind") return [];
+  if (command.type === SceneDataCommandType.Bind) return [];
   return [
     command.handles.buffer,
     command.positions.buffer,
     command.unitVectors.buffer,
+    command.timestamps.buffer,
     command.attributes.buffer,
     command.stringAttributes.buffer,
     command.deletedHandles.buffer,
   ];
-}
-
-export function acceptSceneDataCommand(
-  state: SceneDataProtocolState,
-  command: SceneDataCommand,
-): boolean {
-  if (
-    command.sessionId !== state.sessionId ||
-    command.sequence <= state.sequence
-  ) {
-    return false;
-  }
-  state.sequence = command.sequence;
-  return true;
 }

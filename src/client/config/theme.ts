@@ -1,3 +1,6 @@
+import type { DataType } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+
 export type ThemeMode = "dark" | "light" | "auto";
 
 export type ThemeColors = {
@@ -17,8 +20,9 @@ export type ThemeColors = {
   fires: string;
   weather: string;
   cyclones: string;
-  /** Hurricane Hunter / recon aircraft — neon orange, distinct from fires. */
+  /** Hurricane Hunter color, distinct from fires. */
   recon: string;
+  military: string;
   /** Tropical WARNING area fill (hurricane/TS/surge warning). */
   cycWarning: string;
   /** Tropical WATCH area fill (one step below a warning). */
@@ -34,7 +38,7 @@ export type Theme = {
   colors: ThemeColors;
 };
 
-// "auto" is not a concrete theme — it resolves to dark/light at runtime by
+// "auto" resolves to dark or light at runtime by
 // system preference, so only the two real palettes live here.
 export const themes: Record<"dark" | "light", Theme> = {
   dark: {
@@ -47,7 +51,7 @@ export const themes: Record<"dark" | "light", Theme> = {
       coastFill: "#0f1e2e",
       ocean: "#0e1825",
       oceanDeep: "#060c16",
-      // Map gridline tone — sits between border (#172033) and dim
+      // Map gridline tone sits between border (#172033) and dim
       // (#556070) on the luminance ramp. The previous #172033 was
       // identical to border/bg and disappeared on the ocean tile.
       grid: "#3a4d66",
@@ -58,9 +62,10 @@ export const themes: Record<"dark" | "light", Theme> = {
       fires: "#ff6600",
       weather: "#aa66ff",
       cyclones: "#ff2b3d",
-      // Neon amber — brighter/yellower than fires (#ff6600) so recon birds
+      // Neon amber is brighter than fires (#ff6600), so recon aircraft
       // stand apart from fire dots on the dark globe.
       recon: "#ff9500",
+      military: "#e0e0e0",
       // Warning = hot magenta-red (pinker than cyclone red #ff2b3d so the
       // area fill reads apart from the storm marker); watch = amber.
       cycWarning: "#ff1a6e",
@@ -90,9 +95,10 @@ export const themes: Record<"dark" | "light", Theme> = {
       fires: "#cc2200",
       weather: "#e07000",
       cyclones: "#a3001a",
-      // Deep amber — readable on the light background, distinct from the
+      // Deep amber is readable on the light background and distinct from the
       // red-leaning light fires (#cc2200) and weather orange (#e07000).
       recon: "#b86b00",
+      military: "#3a3a3a",
       // Warning = deep magenta-red; watch = deep amber. Both legible on the
       // light background and distinct from cyclone red (#a3001a).
       cycWarning: "#c2185b",
@@ -112,17 +118,24 @@ export enum ThemeCssVar {
   Danger = "var(--sigint-danger)",
 }
 
-export const LAYER_COLOR_KEYS = [
-  "aircraft",
-  "ships",
-  "events",
-  "quakes",
-  "fires",
-  "weather",
-  "cyclones",
-] as const;
+enum ThemeColorMix {
+  HeadingBasePercent = 68,
+}
 
-export type LayerColorKey = (typeof LAYER_COLOR_KEYS)[number];
+export type LayerColorKey = Exclude<
+  DataType,
+  Domain.CyclonesForecast | Domain.CyclonesWarning
+>;
+
+export const LAYER_COLOR_KEYS: readonly LayerColorKey[] = [
+  Domain.Aircraft,
+  Domain.Ships,
+  Domain.Events,
+  Domain.Quakes,
+  Domain.Fires,
+  Domain.Weather,
+  Domain.Cyclones,
+];
 
 export const LAYER_COLOR_LABELS: Record<LayerColorKey, string> = {
   aircraft: "Aircraft",
@@ -134,7 +147,7 @@ export const LAYER_COLOR_LABELS: Record<LayerColorKey, string> = {
   cyclones: "Tropical Cyclones",
 };
 
-/** Per-theme color overrides — only layer colors, not UI chrome */
+/** Per-theme color overrides for layers only. */
 export type ColorOverrides = {
   dark: Partial<Record<LayerColorKey, string>>;
   light: Partial<Record<LayerColorKey, string>>;
@@ -170,7 +183,7 @@ export function getColorMap(theme: Theme): Record<string, string> {
 export function filterHeadingColor(theme: Theme, type: string): string {
   const base = getColorMap(theme)[type];
   if (!base) return "var(--sigint-warn)";
-  return `color-mix(in srgb, ${base} 68%, var(--sigint-bright))`;
+  return `color-mix(in srgb, ${base} ${ThemeColorMix.HeadingBasePercent}%, var(--sigint-bright))`;
 }
 
 export function applyThemeToRoot(theme: Theme) {

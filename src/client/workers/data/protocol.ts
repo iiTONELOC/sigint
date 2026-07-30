@@ -8,13 +8,21 @@ import {
 import {
   QUERYABLE_SOURCE_CODECS,
   isQueryableSourceId,
+  type QueryableSourceEntities,
   type QueryableSourceId,
   type QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
 import { isSourceId } from "@/workers/data/sourceIds";
 import type { PointUiQueryResult } from "@/workers/data/uiQuery";
+import {
+  DataWorkerMessageType,
+  DataWorkerProtocolVersion,
+} from "@/workers/data/messageType";
 
-export const DATA_WORKER_PROTOCOL_VERSION = 9 as const;
+export {
+  DataWorkerMessageType,
+  DataWorkerProtocolVersion,
+};
 
 export type DataWorkerCacheEntry = Readonly<{
   key: string;
@@ -25,19 +33,19 @@ export type DataWorkerPointSource = SourceId;
 export type DataWorkerQueryableSource = QueryableSourceId;
 
 export type AnySourceEntity =
-  QueryableSourceShapes[QueryableSourceId]["entity"];
+  QueryableSourceEntities[QueryableSourceId];
 
 export type AnySourceQueryResult = PointUiQueryResult<AnySourceEntity>;
 
 type SourceEntityBody = Readonly<{
-  type: "sourceEntity";
+  type: DataWorkerMessageType.SourceEntity;
   source: QueryableSourceId;
   sourceVersion: number;
   value: AnySourceEntity | null;
 }>;
 
 type SourceQueryBody = Readonly<{
-  type: "sourceQuery";
+  type: DataWorkerMessageType.SourceQuery;
   source: QueryableSourceId;
   sourceVersion: number;
   result: AnySourceQueryResult;
@@ -45,7 +53,7 @@ type SourceQueryBody = Readonly<{
 
 type QuerySourceCommandBody = {
   [TId in QueryableSourceId]: Readonly<{
-    type: "querySource";
+    type: DataWorkerMessageType.QuerySource;
     source: TId;
     query: QueryableSourceShapes[TId]["query"];
   }>;
@@ -62,50 +70,62 @@ export type DataWorkerSourceSnapshot = Readonly<{
 }>;
 
 export type DataWorkerEnvelope = Readonly<{
-  protocolVersion: typeof DATA_WORKER_PROTOCOL_VERSION;
+  protocolVersion: DataWorkerProtocolVersion;
   requestId: number | null;
 }>;
 
 export type DataWorkerCommandBody =
-  | Readonly<{ type: "init" }>
+  | Readonly<{ type: DataWorkerMessageType.Init }>
   | Readonly<{
-      type: "connectRender";
+      type: DataWorkerMessageType.ConnectRender;
       port: MessagePort;
       renderSessionId: string;
     }>
   | Readonly<{
-      type: "connectCorrelation";
+      type: DataWorkerMessageType.ConnectCorrelation;
       port: MessagePort;
       correlationSessionId: string;
     }>
   | Readonly<{
-      type: "refreshSource";
+      type: DataWorkerMessageType.RefreshSource;
       source: DataWorkerPointSource;
     }>
   | Readonly<{
-      type: "listSourceEntities";
+      type: DataWorkerMessageType.ListSourceEntities;
       source: DataWorkerPointSource;
     }>
   | Readonly<{
-      type: "getSourceEntity";
+      type: DataWorkerMessageType.GetSourceEntity;
       source: DataWorkerQueryableSource;
       id: string;
     }>
   | QuerySourceCommandBody
   | Readonly<{
-      type: "setSourceSearch";
+      type: DataWorkerMessageType.SetSourceSearch;
       source: DataWorkerQueryableSource;
       text: string | null;
     }>
-  | Readonly<{ type: "getTrail"; id: string }>
-  | Readonly<{ type: "get"; key: string }>
-  | Readonly<{ type: "set"; key: string; value: unknown }>
-  | Readonly<{ type: "setDeferred"; key: string; value: unknown }>
-  | Readonly<{ type: "importJson"; key: string; json: string }>
-  | Readonly<{ type: "delete"; key: string }>
-  | Readonly<{ type: "clear" }>
-  | Readonly<{ type: "flush" }>
-  | Readonly<{ type: "estimate"; key: string }>;
+  | Readonly<{ type: DataWorkerMessageType.GetTrail; id: string }>
+  | Readonly<{ type: DataWorkerMessageType.Get; key: string }>
+  | Readonly<{
+      type: DataWorkerMessageType.Set;
+      key: string;
+      value: unknown;
+    }>
+  | Readonly<{
+      type: DataWorkerMessageType.SetDeferred;
+      key: string;
+      value: unknown;
+    }>
+  | Readonly<{
+      type: DataWorkerMessageType.ImportJson;
+      key: string;
+      json: string;
+    }>
+  | Readonly<{ type: DataWorkerMessageType.Delete; key: string }>
+  | Readonly<{ type: DataWorkerMessageType.Clear }>
+  | Readonly<{ type: DataWorkerMessageType.Flush }>
+  | Readonly<{ type: DataWorkerMessageType.Estimate; key: string }>;
 
 type WithEnvelope<T> = T extends object ? T & DataWorkerEnvelope : never;
 
@@ -114,24 +134,36 @@ export type DataWorkerCommand = WithEnvelope<DataWorkerCommandBody>;
 export type DataWorkerEvent =
   | (DataWorkerEnvelope &
       Readonly<{
-        type: "ready";
+        type: DataWorkerMessageType.Ready;
         entries: readonly DataWorkerCacheEntry[];
       }>)
   | (DataWorkerEnvelope &
-      Readonly<{ type: "value"; value: unknown }>)
-  | (DataWorkerEnvelope & Readonly<{ type: "size"; bytes: number }>)
-  | (DataWorkerEnvelope & Readonly<{ type: "complete" }>)
+      Readonly<{
+        type: DataWorkerMessageType.Value;
+        value: unknown;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{ type: DataWorkerMessageType.Size; bytes: number }>)
+  | (DataWorkerEnvelope &
+      Readonly<{ type: DataWorkerMessageType.Complete }>)
   | (DataWorkerEnvelope &
       Readonly<{
-        type: "sourceSnapshot";
+        type: DataWorkerMessageType.SourceSnapshot;
         snapshot: DataWorkerSourceSnapshot;
       }>)
   | (DataWorkerEnvelope & SourceEntityBody)
   | (DataWorkerEnvelope & SourceQueryBody)
   | (DataWorkerEnvelope &
-      Readonly<{ type: "trail"; id: string; entry: TrailEntry | null }>)
+      Readonly<{
+        type: DataWorkerMessageType.Trail;
+        id: string;
+        entry: TrailEntry | null;
+      }>)
   | (DataWorkerEnvelope &
-      Readonly<{ type: "error"; message: string }>);
+      Readonly<{
+        type: DataWorkerMessageType.Error;
+        message: string;
+      }>);
 
 export function createDataWorkerCommand<T extends DataWorkerCommandBody>(
   body: T,
@@ -139,7 +171,7 @@ export function createDataWorkerCommand<T extends DataWorkerCommandBody>(
 ): T & DataWorkerEnvelope {
   return {
     ...body,
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId,
   };
 }
@@ -147,7 +179,11 @@ export function createDataWorkerCommand<T extends DataWorkerCommandBody>(
 function parseEnvelope(
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerEnvelope | null {
-  if (value.protocolVersion !== DATA_WORKER_PROTOCOL_VERSION) return null;
+  if (
+    value.protocolVersion !== DataWorkerProtocolVersion.Current
+  ) {
+    return null;
+  }
   const requestId = value.requestId;
   if (
     requestId !== null &&
@@ -158,7 +194,7 @@ function parseEnvelope(
     return null;
   }
   return {
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId,
   };
 }
@@ -209,7 +245,8 @@ function parseSourceCommand(
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerCommand | null {
   if (
-    (value.type === "refreshSource" || value.type === "listSourceEntities") &&
+    (value.type === DataWorkerMessageType.RefreshSource ||
+      value.type === DataWorkerMessageType.ListSourceEntities) &&
     isSourceId(value.source)
   ) {
     return { ...envelope, type: value.type, source: value.source };
@@ -218,19 +255,19 @@ function parseSourceCommand(
   if (!isQueryableSourceId(value.source)) return null;
 
   if (
-    value.type === "getSourceEntity" &&
+    value.type === DataWorkerMessageType.GetSourceEntity &&
     typeof value.id === "string" &&
     value.id.length > 0
   ) {
     return {
       ...envelope,
-      type: "getSourceEntity",
+      type: DataWorkerMessageType.GetSourceEntity,
       source: value.source,
       id: value.id,
     };
   }
 
-  if (value.type === "querySource") {
+  if (value.type === DataWorkerMessageType.QuerySource) {
     return QUERYABLE_SOURCE_CODECS[value.source].buildQueryCommand(
       envelope,
       value.query,
@@ -238,12 +275,12 @@ function parseSourceCommand(
   }
 
   if (
-    value.type === "setSourceSearch" &&
+    value.type === DataWorkerMessageType.SetSourceSearch &&
     (value.text === null || typeof value.text === "string")
   ) {
     return {
       ...envelope,
-      type: "setSourceSearch",
+      type: DataWorkerMessageType.SetSourceSearch,
       source: value.source,
       text: value.text,
     };
@@ -257,28 +294,32 @@ function parseCacheCommand(
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerCommand | null {
   if (
-    value.type === "init" ||
-    value.type === "clear" ||
-    value.type === "flush"
+    value.type === DataWorkerMessageType.Init ||
+    value.type === DataWorkerMessageType.Clear ||
+    value.type === DataWorkerMessageType.Flush
   ) {
     return { ...envelope, type: value.type };
   }
 
   if (
-    (value.type === "get" ||
-      value.type === "delete" ||
-      value.type === "estimate") &&
+    (value.type === DataWorkerMessageType.Get ||
+      value.type === DataWorkerMessageType.Delete ||
+      value.type === DataWorkerMessageType.Estimate) &&
     typeof value.key === "string"
   ) {
     return { ...envelope, type: value.type, key: value.key };
   }
 
   if (
-    value.type === "getTrail" &&
+    value.type === DataWorkerMessageType.GetTrail &&
     typeof value.id === "string" &&
     value.id.length > 0
   ) {
-    return { ...envelope, type: "getTrail", id: value.id };
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.GetTrail,
+      id: value.id,
+    };
   }
 
   return null;
@@ -292,28 +333,28 @@ export function parseDataWorkerCommand(
   if (!envelope) return null;
 
   if (
-    value.type === "connectRender" &&
+    value.type === DataWorkerMessageType.ConnectRender &&
     isMessagePort(value.port) &&
     typeof value.renderSessionId === "string" &&
     value.renderSessionId.length > 0
   ) {
     return {
       ...envelope,
-      type: "connectRender",
+      type: DataWorkerMessageType.ConnectRender,
       port: value.port,
       renderSessionId: value.renderSessionId,
     };
   }
 
   if (
-    value.type === "connectCorrelation" &&
+    value.type === DataWorkerMessageType.ConnectCorrelation &&
     isMessagePort(value.port) &&
     typeof value.correlationSessionId === "string" &&
     value.correlationSessionId.length > 0
   ) {
     return {
       ...envelope,
-      type: "connectCorrelation",
+      type: DataWorkerMessageType.ConnectCorrelation,
       port: value.port,
       correlationSessionId: value.correlationSessionId,
     };
@@ -326,7 +367,8 @@ export function parseDataWorkerCommand(
   if (cacheCommand) return cacheCommand;
 
   if (
-    (value.type === "set" || value.type === "setDeferred") &&
+    (value.type === DataWorkerMessageType.Set ||
+      value.type === DataWorkerMessageType.SetDeferred) &&
     typeof value.key === "string"
   ) {
     return {
@@ -338,13 +380,13 @@ export function parseDataWorkerCommand(
   }
 
   if (
-    value.type === "importJson" &&
+    value.type === DataWorkerMessageType.ImportJson &&
     typeof value.key === "string" &&
     typeof value.json === "string"
   ) {
     return {
       ...envelope,
-      type: "importJson",
+      type: DataWorkerMessageType.ImportJson,
       key: value.key,
       json: value.json,
     };
@@ -363,27 +405,45 @@ function parseCacheEvent(
   envelope: DataWorkerEnvelope,
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerEvent | null {
-  if (value.type === "complete") {
-    return { ...envelope, type: "complete" };
-  }
-  if (value.type === "error" && typeof value.message === "string") {
-    return { ...envelope, type: "error", message: value.message };
+  if (value.type === DataWorkerMessageType.Complete) {
+    return { ...envelope, type: DataWorkerMessageType.Complete };
   }
   if (
-    value.type === "size" &&
+    value.type === DataWorkerMessageType.Error &&
+    typeof value.message === "string"
+  ) {
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.Error,
+      message: value.message,
+    };
+  }
+  if (
+    value.type === DataWorkerMessageType.Size &&
     typeof value.bytes === "number" &&
     Number.isFinite(value.bytes) &&
     value.bytes >= 0
   ) {
-    return { ...envelope, type: "size", bytes: value.bytes };
-  }
-  if (value.type === "value") {
-    return { ...envelope, type: "value", value: value.value ?? null };
-  }
-  if (value.type === "trail" && typeof value.id === "string") {
     return {
       ...envelope,
-      type: "trail",
+      type: DataWorkerMessageType.Size,
+      bytes: value.bytes,
+    };
+  }
+  if (value.type === DataWorkerMessageType.Value) {
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.Value,
+      value: value.value ?? null,
+    };
+  }
+  if (
+    value.type === DataWorkerMessageType.Trail &&
+    typeof value.id === "string"
+  ) {
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.Trail,
       id: value.id,
       entry:
         value.entry === null
@@ -391,14 +451,19 @@ function parseCacheEvent(
           : parseTrailEntry(value.id, value.entry),
     };
   }
-  if (value.type !== "ready" || !Array.isArray(value.entries)) return null;
+  if (
+    value.type !== DataWorkerMessageType.Ready ||
+    !Array.isArray(value.entries)
+  ) {
+    return null;
+  }
 
   const entries: DataWorkerCacheEntry[] = [];
   for (const entry of value.entries) {
     if (!isRecord(entry) || typeof entry.key !== "string") return null;
     entries.push({ key: entry.key, value: entry.value });
   }
-  return { ...envelope, type: "ready", entries };
+  return { ...envelope, type: DataWorkerMessageType.Ready, entries };
 }
 
 export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
@@ -406,22 +471,23 @@ export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {
   const envelope = parseEnvelope(value);
   if (!envelope) return null;
 
-  if (value.type === "sourceSnapshot") {
+  if (value.type === DataWorkerMessageType.SourceSnapshot) {
     const snapshot = parseSourceSnapshot(value.snapshot);
     if (!snapshot) return null;
     return {
       ...envelope,
-      type: "sourceSnapshot",
+      type: DataWorkerMessageType.SourceSnapshot,
       snapshot,
     };
   }
   if (
-    (value.type === "sourceEntity" || value.type === "sourceQuery") &&
+    (value.type === DataWorkerMessageType.SourceEntity ||
+      value.type === DataWorkerMessageType.SourceQuery) &&
     isQueryableSourceId(value.source) &&
     isSourceVersion(value.sourceVersion)
   ) {
     const codec = QUERYABLE_SOURCE_CODECS[value.source];
-    return value.type === "sourceEntity"
+    return value.type === DataWorkerMessageType.SourceEntity
       ? codec.buildEntityEvent(envelope, value.sourceVersion, value.value)
       : codec.buildQueryEvent(envelope, value.sourceVersion, value.result);
   }

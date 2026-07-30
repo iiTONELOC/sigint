@@ -1,5 +1,12 @@
-import type { RenderInteractionPayload } from "@/workers/render/protocol";
+import {
+  PanelSide,
+  RenderCursor,
+  RenderInteractionKind,
+  type RenderInteractionPayload,
+} from "@/workers/render/protocol";
+import { Domain } from "@shared/domain/identity";
 import { isRecord } from "@shared/geo";
+import { isEnumValue } from "@shared/types/enum";
 
 export const RENDER_SURFACE_INTERACTION_EVENT =
   "sigint-render-interaction";
@@ -33,26 +40,23 @@ function isTrailPoint(value: unknown): boolean {
 export function isRenderInteraction(
   value: unknown,
 ): value is RenderInteractionPayload {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
-  if (value.kind === "cursor") {
-    return (
-      value.cursor === "default" ||
-      value.cursor === "grab" ||
-      value.cursor === "grabbing" ||
-      value.cursor === "pointer"
-    );
+  if (!isRecord(value)) return false;
+  if (!isEnumValue(value.kind, RenderInteractionKind)) return false;
+  if (value.kind === RenderInteractionKind.Cursor) {
+    return isEnumValue(value.cursor, RenderCursor);
   }
-  if (value.kind === "selection") {
+  if (value.kind === RenderInteractionKind.Selection) {
     return (
       (value.id === null || typeof value.id === "string") &&
-      (value.pointType === null || typeof value.pointType === "string")
+      (value.pointType === null ||
+        isEnumValue(value.pointType, Domain))
     );
   }
-  if (value.kind === "rawCanvasClick") return true;
-  if (value.kind === "selectedSide") {
-    return value.side === "left" || value.side === "right";
+  if (value.kind === RenderInteractionKind.RawCanvasClick) return true;
+  if (value.kind === RenderInteractionKind.SelectedSide) {
+    return isEnumValue(value.side, PanelSide);
   }
-  if (value.kind !== "trailTooltip") return false;
+  if (value.kind !== RenderInteractionKind.TrailTooltip) return false;
   return (
     (value.point === null || isTrailPoint(value.point)) &&
     typeof value.x === "number" &&

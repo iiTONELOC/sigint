@@ -1,7 +1,8 @@
-export const SHIP_SCENE = {
-  attributeStride: 1,
-  stringAttributeStride: 0,
-  attributes: {
-    heading: 0,
-  },
-} as const;
+export enum ShipSceneSchema {
+  AttributeStride = 1,
+  StringAttributeStride = 0,
+}
+
+export enum ShipSceneAttribute {
+  Heading = 0,
+}

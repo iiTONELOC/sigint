@@ -1,7 +1,9 @@
 import {
   createSceneDataCommand,
+  SceneDataCommandType,
   sceneDataTransfers,
   type SceneDataCommand,
+  type SceneDataCommandBody,
   type SceneSourcePatch,
 } from "@/workers/render/sceneProtocol";
 
@@ -12,48 +14,41 @@ export type SceneMessagePort = Readonly<{
   ) => void;
 }>;
 
-export type ScenePublisher = Readonly<{
-  connect: (port: SceneMessagePort, sessionId: string) => void;
-  publish: (patch: SceneSourcePatch) => boolean;
-  disconnect: () => void;
-}>;
+export class ScenePublisher {
+  private port: SceneMessagePort | null = null;
+  private sequence = 0;
+  private sessionId: string | null = null;
 
-export function createScenePublisher(): ScenePublisher {
-  let port: SceneMessagePort | null = null;
-  let sessionId: string | null = null;
-  let sequence = 0;
+  connect(port: SceneMessagePort, sessionId: string): void {
+    this.port = port;
+    this.sessionId = sessionId;
+    this.sequence = 0;
+    this.post({ type: SceneDataCommandType.Bind });
+  }
 
-  const post = (
-    body: Parameters<typeof createSceneDataCommand>[0],
-  ): void => {
-    if (!port || !sessionId) return;
-    sequence += 1;
+  publish(patch: SceneSourcePatch): boolean {
+    if (!this.port || !this.sessionId) return false;
+    this.post(patch);
+    return true;
+  }
+
+  disconnect(): void {
+    this.port = null;
+    this.sessionId = null;
+    this.sequence = 0;
+  }
+
+  private post(body: SceneDataCommandBody): void {
+    if (!this.port || !this.sessionId) return;
+    this.sequence += 1;
     const command = createSceneDataCommand(
       body,
-      sessionId,
-      sequence,
+      this.sessionId,
+      this.sequence,
     );
-    port.postMessage(command, Array.from(sceneDataTransfers(command)));
-  };
-
-  return {
-    connect(nextPort, nextSessionId): void {
-      port = nextPort;
-      sessionId = nextSessionId;
-      sequence = 0;
-      post({ type: "bind" });
-    },
-
-    publish(patch): boolean {
-      if (!port || !sessionId) return false;
-      post(patch);
-      return true;
-    },
-
-    disconnect(): void {
-      port = null;
-      sessionId = null;
-      sequence = 0;
-    },
-  };
+    this.port.postMessage(
+      command,
+      Array.from(sceneDataTransfers(command)),
+    );
+  }
 }

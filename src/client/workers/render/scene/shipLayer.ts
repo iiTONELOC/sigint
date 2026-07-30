@@ -1,6 +1,9 @@
 import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
-import { SHIP_SCENE } from "@/workers/render/scene/shipSchema";
+import {
+  ShipSceneAttribute,
+  ShipSceneSchema,
+} from "@/workers/render/scene/shipSchema";
 import type { ProjectedSceneLayer } from "@/workers/render/scene/projectedLayer";
 import {
   sceneRecordIsVisible,
@@ -8,6 +11,27 @@ import {
 } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
+import { Domain } from "@shared/domain/identity";
+import { TurnDeg } from "@shared/geo";
+
+enum ShipMarkerSize {
+  BaseSize = 2.5,
+  SelectedScale = 2,
+  HalfWidthScale = 0.7,
+  BowScale = 1.4,
+  SternScale = 0.8,
+}
+
+enum ShipMarkerAlpha {
+  MaximumAlpha = 0.85,
+  BaseAlpha = 0.35,
+  ZoomDivisor = 2,
+  ZoomGain = 0.5,
+}
+
+enum ShipMarkerAngle {
+  QuarterTurnDivisor = 2,
+}
 
 export type ShipSceneFilter = SceneVisibilitySettings &
   Readonly<{ enabled: boolean }>;
@@ -26,13 +50,13 @@ export function shipSceneIncludes(
   settings: ShipSceneFilter,
 ): boolean {
   return (
-    view.attributeStride === SHIP_SCENE.attributeStride &&
+    view.attributeStride === ShipSceneSchema.AttributeStride &&
     view.stringAttributeStride ===
-      SHIP_SCENE.stringAttributeStride &&
+      ShipSceneSchema.StringAttributeStride &&
     sceneRecordIsVisible(
       view,
       index,
-      "ships",
+      Domain.Ships,
       settings.enabled,
       settings,
     )
@@ -46,44 +70,62 @@ function drawShip(
   style: ShipSceneStyle,
 ): void {
   const projection = layer.projection(index);
-  const id = view.ids[index];
-  if (!projection || !id) return;
-  const selected = id === style.selectedId;
+  const entityId = view.entityIds[index];
+  if (!projection || !entityId) return;
+  const selected = entityId === style.selectedId;
   const size =
-    2.5 * zoomScale(style.zoomLevel) * (selected ? 2 : 1);
+    ShipMarkerSize.BaseSize *
+    zoomScale(style.zoomLevel) *
+    (selected ? ShipMarkerSize.SelectedScale : 1);
   const angle =
     ((view.attributes[
       index * view.attributeStride +
-        SHIP_SCENE.attributes.heading
+        ShipSceneAttribute.Heading
     ] ?? 0) *
       Math.PI) /
-    180;
-  const halfWidth = size * 0.7;
+    TurnDeg.Half;
+  const halfWidth = size * ShipMarkerSize.HalfWidthScale;
   const context = style.context;
   const alpha = Math.min(
-    0.85,
-    0.35 +
-      Math.max(0, (style.zoomLevel - 1) / 2) * 0.5,
+    ShipMarkerAlpha.MaximumAlpha,
+    ShipMarkerAlpha.BaseAlpha +
+      Math.max(
+        0,
+        (style.zoomLevel - 1) / ShipMarkerAlpha.ZoomDivisor,
+      ) *
+        ShipMarkerAlpha.ZoomGain,
   );
 
   context.globalAlpha = projection.depth * alpha;
   context.fillStyle = style.color;
   context.beginPath();
   context.moveTo(
-    projection.x + Math.sin(angle) * size * 1.4,
-    projection.y - Math.cos(angle) * size * 1.4,
+    projection.x +
+      Math.sin(angle) * size * ShipMarkerSize.BowScale,
+    projection.y -
+      Math.cos(angle) * size * ShipMarkerSize.BowScale,
   );
   context.lineTo(
-    projection.x + Math.sin(angle + Math.PI / 2) * halfWidth,
-    projection.y - Math.cos(angle + Math.PI / 2) * halfWidth,
+    projection.x +
+      Math.sin(angle + Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
+        halfWidth,
+    projection.y -
+      Math.cos(angle + Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
+        halfWidth,
   );
   context.lineTo(
-    projection.x + Math.sin(angle + Math.PI) * size * 0.8,
-    projection.y - Math.cos(angle + Math.PI) * size * 0.8,
+    projection.x +
+      Math.sin(angle + Math.PI) * size * ShipMarkerSize.SternScale,
+    projection.y -
+      Math.cos(angle + Math.PI) * size * ShipMarkerSize.SternScale,
   );
   context.lineTo(
-    projection.x + Math.sin(angle - Math.PI / 2) * halfWidth,
-    projection.y - Math.cos(angle - Math.PI / 2) * halfWidth,
+    projection.x +
+      Math.sin(angle - Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
+        halfWidth,
+    projection.y -
+      Math.cos(angle - Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
+        halfWidth,
   );
   context.closePath();
   context.fill();

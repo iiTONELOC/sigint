@@ -21,3 +21,7 @@ export function recordLatitude(record: PositionedRecord): number {
 export function recordLongitude(record: PositionedRecord): number {
   return isMigrated(record) ? longitudeOf(record.position) : record.lon;
 }
+
+export function recordPosition(record: PositionedRecord): GeoPoint {
+  return isMigrated(record) ? record.position : [record.lon, record.lat];
+}

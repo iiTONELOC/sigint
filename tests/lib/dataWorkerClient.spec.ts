@@ -2,12 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import { type SourceId } from "@shared/source";
+import { SourceStatus } from "@shared/domain/sourceStatus";
+import { DomEvent } from "@/lib/runtime/domEvent";
 import {
+  DataWorkerClientError,
   createDataWorkerClient,
   type DataWorkerTransport,
 } from "@/lib/cache/dataWorkerClient";
 import {
-  DATA_WORKER_PROTOCOL_VERSION,
+  DataWorkerMessageType,
+  DataWorkerProtocolVersion,
   parseDataWorkerCommand,
   parseDataWorkerEvent,
   type DataWorkerCommand,
@@ -19,6 +23,10 @@ type WorkerHarness = Readonly<{
   transfers: Transferable[][];
   emit: (value: unknown) => void;
 }>;
+
+enum DataWorkerClientTestTimeout {
+  ImmediateMs = 1,
+}
 
 function createWorkerHarness(): WorkerHarness {
   const sent: unknown[] = [];
@@ -38,7 +46,7 @@ function createWorkerHarness(): WorkerHarness {
     transfers,
     emit(value: unknown): void {
       transport.onmessage?.(
-        new MessageEvent<unknown>("message", { data: value }),
+        new MessageEvent<unknown>(DomEvent.Message, { data: value }),
       );
     },
   };
@@ -56,7 +64,7 @@ function event(
 ): unknown {
   return {
     ...value,
-    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+    protocolVersion: DataWorkerProtocolVersion.Current,
     requestId,
   };
 }
@@ -65,15 +73,15 @@ describe("DataWorker protocol", () => {
   test("rejects unknown versions and malformed commands", () => {
     expect(
       parseDataWorkerCommand({
-        type: "init",
+        type: DataWorkerMessageType.Init,
         protocolVersion: 99,
         requestId: 1,
       }),
     ).toBeNull();
     expect(
       parseDataWorkerCommand({
-        type: "set",
-        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
+        type: DataWorkerMessageType.Set,
+        protocolVersion: DataWorkerProtocolVersion.Current,
         requestId: 1,
         key: 42,
       }),
@@ -84,11 +92,11 @@ describe("DataWorker protocol", () => {
     expect(
       parseDataWorkerEvent(
         event(null, {
-          type: "sourceSnapshot",
+          type: DataWorkerMessageType.SourceSnapshot,
           snapshot: {
             source: Domain.Earthquake,
             version: 3,
-            status: "live",
+            status: SourceStatus.Live,
             loading: false,
             count: 24,
             lastUpdatedAt: 2_000,
@@ -100,11 +108,11 @@ describe("DataWorker protocol", () => {
     expect(
       parseDataWorkerEvent(
         event(null, {
-          type: "sourceSnapshot",
+          type: DataWorkerMessageType.SourceSnapshot,
           snapshot: {
             source: Domain.Earthquake,
             version: 3,
-            status: "live",
+            status: SourceStatus.Live,
             loading: false,
             count: -1,
             lastUpdatedAt: 2_000,
@@ -119,7 +127,7 @@ describe("DataWorker protocol", () => {
     expect(
       parseDataWorkerEvent(
         event(1, {
-          type: "ready",
+          type: DataWorkerMessageType.Ready,
           entries: [{ key: "aircraft", value: { data: [] } }],
         }),
       ),
@@ -127,7 +135,7 @@ describe("DataWorker protocol", () => {
     expect(
       parseDataWorkerEvent(
         event(1, {
-          type: "ready",
+          type: DataWorkerMessageType.Ready,
           entries: [{ key: 42, value: null }],
         }),
       ),
@@ -141,11 +149,11 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.init();
     const command = latestCommand(harness);
-    expect(command.type).toBe("init");
+    expect(command.type).toBe(DataWorkerMessageType.Init);
 
     harness.emit(
       event(command.requestId, {
-        type: "ready",
+        type: DataWorkerMessageType.Ready,
         entries: [{ key: "trails", value: { a: 1 } }],
       }),
     );
@@ -160,14 +168,18 @@ describe("createDataWorkerClient", () => {
     const channel = new MessageChannel();
     const pending = client.connectRender(channel.port1, "render-session");
     const command = latestCommand(harness);
-    if (command.type !== "connectRender") {
+    if (command.type !== DataWorkerMessageType.ConnectRender) {
       throw new Error("Expected connectRender command");
     }
 
     expect(command.renderSessionId).toBe("render-session");
     expect(harness.transfers.at(-1)).toEqual([channel.port1]);
 
-    harness.emit(event(command.requestId, { type: "complete" }));
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.Complete,
+      }),
+    );
     await pending;
     channel.port1.close();
     channel.port2.close();
@@ -183,14 +195,18 @@ describe("createDataWorkerClient", () => {
       "correlation-session",
     );
     const command = latestCommand(harness);
-    if (command.type !== "connectCorrelation") {
+    if (command.type !== DataWorkerMessageType.ConnectCorrelation) {
       throw new Error("Expected connectCorrelation command");
     }
 
     expect(command.correlationSessionId).toBe("correlation-session");
     expect(harness.transfers.at(-1)).toEqual([channel.port1]);
 
-    harness.emit(event(command.requestId, { type: "complete" }));
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.Complete,
+      }),
+    );
     await pending;
     channel.port1.close();
     channel.port2.close();
@@ -207,11 +223,11 @@ describe("createDataWorkerClient", () => {
 
     harness.emit(
       event(null, {
-        type: "sourceSnapshot",
+        type: DataWorkerMessageType.SourceSnapshot,
         snapshot: {
           source: Domain.Earthquake,
           version: 1,
-          status: "live",
+          status: SourceStatus.Live,
           loading: false,
           count: 12,
           lastUpdatedAt: 2_000,
@@ -230,9 +246,13 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.refreshSource(Domain.Earthquake);
     const command = latestCommand(harness);
-    expect(command.type).toBe("refreshSource");
+    expect(command.type).toBe(DataWorkerMessageType.RefreshSource);
 
-    harness.emit(event(command.requestId, { type: "complete" }));
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.Complete,
+      }),
+    );
 
     await pending;
   });
@@ -242,14 +262,14 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.getSourceEntity(Domain.Earthquake, "Qone");
     const command = latestCommand(harness);
-    if (command.type !== "getSourceEntity") {
+    if (command.type !== DataWorkerMessageType.GetSourceEntity) {
       throw new Error("Expected getSourceEntity command");
     }
     expect(command.id).toBe("Qone");
 
     harness.emit(
       event(command.requestId, {
-        type: "sourceEntity",
+        type: DataWorkerMessageType.SourceEntity,
         source: Domain.Earthquake,
         sourceVersion: 7,
         value: {
@@ -291,14 +311,14 @@ describe("createDataWorkerClient", () => {
       },
     });
     const command = latestCommand(harness);
-    if (command.type !== "querySource") {
+    if (command.type !== DataWorkerMessageType.QuerySource) {
       throw new Error("Expected querySource command");
     }
     expect(command.query.kind).toBe("table");
 
     harness.emit(
       event(command.requestId, {
-        type: "sourceQuery",
+        type: DataWorkerMessageType.SourceQuery,
         source: Domain.Earthquake,
         sourceVersion: 8,
         result: {
@@ -342,8 +362,12 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.setSourceSearch(Domain.Earthquake, "Mexico");
     const command = latestCommand(harness);
-    expect(command.type).toBe("setSourceSearch");
-    harness.emit(event(command.requestId, { type: "complete" }));
+    expect(command.type).toBe(DataWorkerMessageType.SetSourceSearch);
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.Complete,
+      }),
+    );
     await pending;
   });
 
@@ -355,11 +379,15 @@ describe("createDataWorkerClient", () => {
       settled = true;
     });
     const command = latestCommand(harness);
-    expect(command.type).toBe("set");
+    expect(command.type).toBe(DataWorkerMessageType.Set);
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    harness.emit(event(command.requestId, { type: "complete" }));
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.Complete,
+      }),
+    );
     await pending;
     expect(settled).toBe(true);
   });
@@ -371,7 +399,7 @@ describe("createDataWorkerClient", () => {
     client.setDeferred("trails", { a: 1 });
 
     const command = latestCommand(harness);
-    expect(command.type).toBe("setDeferred");
+    expect(command.type).toBe(DataWorkerMessageType.SetDeferred);
     expect(command.requestId).toBeNull();
   });
 
@@ -383,7 +411,7 @@ describe("createDataWorkerClient", () => {
 
     harness.emit(
       event(command.requestId, {
-        type: "error",
+        type: DataWorkerMessageType.Error,
         message: "IndexedDB unavailable",
       }),
     );
@@ -398,24 +426,25 @@ describe("createDataWorkerClient", () => {
     const command = latestCommand(harness);
 
     harness.emit({
-      type: "ready",
-      protocolVersion: DATA_WORKER_PROTOCOL_VERSION - 1,
+      type: DataWorkerMessageType.Ready,
+      protocolVersion: DataWorkerProtocolVersion.Current - 1,
       requestId: command.requestId,
       entries: [],
     });
 
-    await expect(pending).rejects.toThrow("protocol is incompatible");
+    await expect(pending).rejects.toThrow(
+      DataWorkerClientError.ProtocolIncompatible,
+    );
   });
 
   test("times out an unanswered worker request", async () => {
-    const requestTimeoutMs = 1;
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport, {
-      requestTimeoutMs,
+      requestTimeoutMs: DataWorkerClientTestTimeout.ImmediateMs,
     });
 
     await expect(client.init()).rejects.toThrow(
-      `timed out after ${requestTimeoutMs}ms`,
+      DataWorkerClientError.RequestTimedOut,
     );
   });
 
@@ -424,11 +453,11 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.importJson("land", "{\"version\":1}");
     const command = latestCommand(harness);
-    expect(command.type).toBe("importJson");
+    expect(command.type).toBe(DataWorkerMessageType.ImportJson);
 
     harness.emit(
       event(command.requestId, {
-        type: "value",
+        type: DataWorkerMessageType.Value,
         value: { version: 1 },
       }),
     );

@@ -1,23 +1,31 @@
-import { type SourceId } from "@shared/source";
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   createSceneDataCommand,
   parseSceneDataCommand,
+  SceneDataCommandType,
+  SceneDataProtocolVersion,
 } from "@/workers/render/sceneProtocol";
+
+enum MalformedSceneCommandType {
+  LegacyData = "data",
+}
 
 describe("scene data protocol", () => {
   test("accepts a versioned transferable source patch", () => {
     const command = createSceneDataCommand(
       {
-        type: "sourcePatch",
+        type: SceneDataCommandType.SourcePatch,
         source: Domain.Aircraft,
         sourceVersion: 1,
-        kind: "rebase",
+        kind: DatasetPatchKind.Rebase,
         handles: new Uint32Array([1]),
-        ids: ["A1"],
-        positions: new Float32Array([10, 20]),
+        sceneIds: ["A1"],
+        entityIds: ["A1"],
+        positions: new Float64Array([10, 20]),
         unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
         attributes: new Float32Array([100, 90]),
         attributeStride: 2,
         stringAttributes: new Uint32Array(),
@@ -36,14 +44,16 @@ describe("scene data protocol", () => {
   test("rejects malformed buffers and legacy object arrays", () => {
     const malformed = createSceneDataCommand(
       {
-        type: "sourcePatch",
+        type: SceneDataCommandType.SourcePatch,
         source: Domain.Aircraft,
         sourceVersion: 1,
-        kind: "rebase",
+        kind: DatasetPatchKind.Rebase,
         handles: new Uint32Array([1]),
-        ids: ["A1"],
-        positions: new Float32Array(),
+        sceneIds: ["A1"],
+        entityIds: ["A1"],
+        positions: new Float64Array(),
         unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
         attributes: new Float32Array(),
         attributeStride: 0,
         stringAttributes: new Uint32Array(),
@@ -59,10 +69,10 @@ describe("scene data protocol", () => {
     expect(parseSceneDataCommand(malformed)).toBeNull();
     expect(
       parseSceneDataCommand({
-        protocolVersion: 1,
+        protocolVersion: SceneDataProtocolVersion.Current,
         sessionId: "session-1",
         sequence: 1,
-        type: "data",
+        type: MalformedSceneCommandType.LegacyData,
         data: [],
       }),
     ).toBeNull();

@@ -1,7 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import { ktToMps } from "@/lib/format/units";
-import { isRecord } from "@shared/geo";
+import { GeoLimit, isRecord } from "@shared/geo";
 
 export type ShipPoint = Extract<DataPoint, { type: Domain.Ships }>;
 
@@ -38,66 +38,57 @@ export type ShipServerPayload = Readonly<{
   connected: boolean;
 }>;
 
-const REQUIRED_NUMBER_FIELDS = [
-  "sog",
-  "cog",
-  "heading",
-  "navStatus",
-] as const;
+export enum ShipNumberField {
+  Mmsi = "mmsi",
+  Imo = "imo",
+  ShipTypeCode = "shipTypeCode",
+  Speed = "speed",
+  Sog = "sog",
+  Cog = "cog",
+  Heading = "heading",
+  NavStatus = "navStatus",
+  Rot = "rot",
+  Draught = "draught",
+  Length = "length",
+  Width = "width",
+  DimensionA = "dimA",
+  DimensionB = "dimB",
+  DimensionC = "dimC",
+  DimensionD = "dimD",
+  SpeedMetersPerSecond = "speedMps",
+}
 
-const OPTIONAL_NUMBER_FIELDS = [
-  "rot",
-  "imo",
-  "shipType",
-  "draught",
-  "length",
-  "width",
-  "dimA",
-  "dimB",
-  "dimC",
-  "dimD",
-] as const;
+export enum ShipStringField {
+  Name = "name",
+  CallSign = "callSign",
+  VesselType = "vesselType",
+  Flag = "flag",
+  NavigationStatusLabel = "navStatusLabel",
+  Destination = "destination",
+  EstimatedArrival = "eta",
+}
 
-const OPTIONAL_STRING_FIELDS = [
-  "name",
-  "callSign",
-  "shipTypeLabel",
-  "destination",
-  "eta",
-] as const;
+enum ShipTimestampLimit {
+  MaximumAbsoluteMilliseconds = 8_640_000_000_000_000,
+}
 
-const SHIP_NUMBER_FIELDS = [
-  "mmsi",
-  "imo",
-  "shipTypeCode",
-  "speed",
-  "sog",
-  "cog",
-  "heading",
-  "navStatus",
-  "rot",
-  "draught",
-  "length",
-  "width",
-  "dimA",
-  "dimB",
-  "dimC",
-  "dimD",
-  "speedMps",
-] as const;
+enum ShipDataPrecision {
+  SpeedDecimalFactor = 10,
+}
 
-const SHIP_STRING_FIELDS = [
-  "name",
-  "callSign",
-  "vesselType",
-  "flag",
-  "navStatusLabel",
-  "destination",
-  "eta",
-] as const;
+export const SHIP_NUMBER_FIELDS = Object.values(ShipNumberField);
+export const SHIP_STRING_FIELDS = Object.values(ShipStringField);
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || isFiniteNumber(value);
+}
+
+function isOptionalText(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
 }
 
 function hasOptionalNumbers(
@@ -131,23 +122,38 @@ function isServerVessel(value: unknown): value is ServerVessel {
     !isFiniteNumber(latitude) ||
     !isFiniteNumber(longitude) ||
     !isFiniteNumber(lastSeen) ||
-    !REQUIRED_NUMBER_FIELDS.every((key) =>
-      isFiniteNumber(value[key]),
-    ) ||
+    !isFiniteNumber(value.sog) ||
+    !isFiniteNumber(value.cog) ||
+    !isFiniteNumber(value.heading) ||
+    !isFiniteNumber(value.navStatus) ||
     typeof value.navStatusLabel !== "string" ||
-    !hasOptionalNumbers(value, OPTIONAL_NUMBER_FIELDS) ||
-    !hasOptionalStrings(value, OPTIONAL_STRING_FIELDS)
+    !isOptionalFiniteNumber(value.rot) ||
+    !isOptionalFiniteNumber(value.imo) ||
+    !isOptionalFiniteNumber(value.shipType) ||
+    !isOptionalFiniteNumber(value.draught) ||
+    !isOptionalFiniteNumber(value.length) ||
+    !isOptionalFiniteNumber(value.width) ||
+    !isOptionalFiniteNumber(value.dimA) ||
+    !isOptionalFiniteNumber(value.dimB) ||
+    !isOptionalFiniteNumber(value.dimC) ||
+    !isOptionalFiniteNumber(value.dimD) ||
+    !isOptionalText(value.name) ||
+    !isOptionalText(value.callSign) ||
+    !isOptionalText(value.shipTypeLabel) ||
+    !isOptionalText(value.destination) ||
+    !isOptionalText(value.eta)
   ) {
     return false;
   }
   return (
     Number.isSafeInteger(mmsi) &&
     mmsi > 0 &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    longitude >= -180 &&
-    longitude <= 180 &&
-    Math.abs(lastSeen) <= 8.64e15
+    latitude >= GeoLimit.MinLatitude &&
+    latitude <= GeoLimit.MaxLatitude &&
+    longitude >= GeoLimit.MinLongitude &&
+    longitude <= GeoLimit.MaxLongitude &&
+    Math.abs(lastSeen) <=
+      ShipTimestampLimit.MaximumAbsoluteMilliseconds
   );
 }
 
@@ -162,15 +168,15 @@ function isShipData(value: unknown): boolean {
 export function isShipPoint(value: unknown): value is ShipPoint {
   return (
     isRecord(value) &&
-    value.type === "ships" &&
+    value.type === Domain.Ships &&
     typeof value.id === "string" &&
     value.id.length > 0 &&
     isFiniteNumber(value.lat) &&
-    value.lat >= -90 &&
-    value.lat <= 90 &&
+    value.lat >= GeoLimit.MinLatitude &&
+    value.lat <= GeoLimit.MaxLatitude &&
     isFiniteNumber(value.lon) &&
-    value.lon >= -180 &&
-    value.lon <= 180 &&
+    value.lon >= GeoLimit.MinLongitude &&
+    value.lon <= GeoLimit.MaxLongitude &&
     (value.timestamp === undefined ||
       typeof value.timestamp === "string") &&
     isShipData(value.data)
@@ -218,7 +224,9 @@ function toShipPoint(vessel: ServerVessel): ShipPoint | null {
       callSign: vessel.callSign,
       vesselType: vessel.shipTypeLabel ?? "Unknown",
       shipTypeCode: vessel.shipType,
-      speed: Math.round(vessel.sog * 10) / 10,
+      speed:
+        Math.round(vessel.sog * ShipDataPrecision.SpeedDecimalFactor) /
+        ShipDataPrecision.SpeedDecimalFactor,
       sog: vessel.sog,
       cog: vessel.cog,
       heading: vessel.heading,

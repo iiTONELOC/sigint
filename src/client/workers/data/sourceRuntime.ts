@@ -1,4 +1,5 @@
 import {
+  DatasetPatchKind,
   createDatasetStore,
   type DatasetCompleteness,
   type DatasetEntity,
@@ -67,18 +68,24 @@ type CacheEnvelope = Readonly<{
   entities: unknown;
 }>;
 
-const DEFAULT_CACHE_VERSION = 1;
+enum SourceCacheVersion {
+  Initial = 1,
+}
+
+enum SourceRuntimeError {
+  UpdateFailed = "The source update failed",
+}
 
 function parseCacheEnvelope(value: unknown): CacheEnvelope | null {
   if (!isRecord(value)) return null;
   if (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp)) {
     return null;
   }
-  const version = value.version ?? DEFAULT_CACHE_VERSION;
+  const version = value.version ?? SourceCacheVersion.Initial;
   if (
     typeof version !== "number" ||
     !Number.isSafeInteger(version) ||
-    version < DEFAULT_CACHE_VERSION
+    version < SourceCacheVersion.Initial
   ) {
     return null;
   }
@@ -87,7 +94,9 @@ function parseCacheEnvelope(value: unknown): CacheEnvelope | null {
 }
 
 function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The source update failed";
+  return value instanceof Error
+    ? value.message
+    : SourceRuntimeError.UpdateFailed;
 }
 
 function defaultSchedule(callback: () => void, delayMs: number): () => void {
@@ -248,7 +257,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       const version = store.version();
       if (version === 0) return null;
       return {
-        kind: "rebase",
+        kind: DatasetPatchKind.Rebase,
         version,
         upserts: values(),
         deletedIds: [],

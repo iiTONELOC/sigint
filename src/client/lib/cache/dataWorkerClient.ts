@@ -7,7 +7,8 @@ import type {
 import {
   createDataWorkerCommand,
   parseDataWorkerEvent,
-  DATA_WORKER_PROTOCOL_VERSION,
+  DataWorkerMessageType,
+  DataWorkerProtocolVersion,
   type DataWorkerCacheEntry,
   type DataWorkerCommandBody,
   type DataWorkerEvent,
@@ -107,10 +108,24 @@ export type DataWorkerClient = Readonly<{
   terminate: () => void;
 }>;
 
-const POST_MESSAGE_FAILED_MESSAGE = "DataWorker postMessage failed";
+export enum DataWorkerClientError {
+  UnexpectedEvent = "DataWorker returned an unexpected event",
+  ProtocolIncompatible = "DataWorker protocol is incompatible",
+  WorkerFailed = "DataWorker failed",
+  RequestTimedOut = "DataWorker request timed out",
+  PostMessageFailed = "DataWorker postMessage failed",
+  Terminated = "DataWorker terminated",
+}
+
+export enum DataWorkerClientPath {
+  Worker = "/workers/dataWorker.js",
+}
 
 function unexpectedEvent(expected: string): Error {
-  return new Error(`DataWorker did not return ${expected}`);
+  return Object.assign(
+    new Error(DataWorkerClientError.UnexpectedEvent),
+    { expected },
+  );
 }
 
 export function createDataWorkerClient(
@@ -141,14 +156,17 @@ export function createDataWorkerClient(
     if (
       isRecord(message.data) &&
       "protocolVersion" in message.data &&
-      message.data.protocolVersion !== DATA_WORKER_PROTOCOL_VERSION
+      message.data.protocolVersion !==
+        DataWorkerProtocolVersion.Current
     ) {
-      rejectAll(new Error("DataWorker protocol is incompatible"));
+      rejectAll(
+        new Error(DataWorkerClientError.ProtocolIncompatible),
+      );
       return;
     }
     const event = parseDataWorkerEvent(message.data);
     if (!event) return;
-    if (event.type === "sourceSnapshot") {
+    if (event.type === DataWorkerMessageType.SourceSnapshot) {
       sourceSnapshots.set(event.snapshot.source, event.snapshot);
       for (const registration of sourceListeners) {
         if (registration.source === event.snapshot.source) {
@@ -162,7 +180,7 @@ export function createDataWorkerClient(
     if (!request) return;
     pending.delete(event.requestId);
     request.cancelTimeout();
-    if (event.type === "error") {
+    if (event.type === DataWorkerMessageType.Error) {
       request.reject(new Error(event.message));
     } else {
       request.resolve(event);
@@ -170,7 +188,9 @@ export function createDataWorkerClient(
   };
 
   worker.onerror = (event: ErrorEvent) => {
-    rejectAll(new Error(event.message || "DataWorker failed"));
+    rejectAll(
+      new Error(event.message || DataWorkerClientError.WorkerFailed),
+    );
   };
 
   const request = (
@@ -184,7 +204,10 @@ export function createDataWorkerClient(
       const timeout = setTimeout(() => {
         if (!pending.delete(requestId)) return;
         reject(
-          new Error(`DataWorker request timed out after ${requestTimeoutMs}ms`),
+          Object.assign(
+            new Error(DataWorkerClientError.RequestTimedOut),
+            { requestTimeoutMs },
+          ),
         );
       }, requestTimeoutMs);
       const cancelTimeout = (): void => clearTimeout(timeout);
@@ -199,7 +222,7 @@ export function createDataWorkerClient(
         reject(
           error instanceof Error
             ? error
-            : new Error(POST_MESSAGE_FAILED_MESSAGE),
+            : new Error(DataWorkerClientError.PostMessageFailed),
         );
         cancelTimeout();
       }
@@ -211,13 +234,19 @@ export function createDataWorkerClient(
     transfer: Transferable[] = [],
   ): Promise<void> => {
     const event = await request(body, transfer);
-    if (event.type !== "complete") throw unexpectedEvent("completion");
+    if (event.type !== DataWorkerMessageType.Complete) {
+      throw unexpectedEvent("completion");
+    }
   };
 
   return {
     async init(): Promise<readonly DataWorkerCacheEntry[]> {
-      const event = await request({ type: "init" });
-      if (event.type !== "ready") throw unexpectedEvent("cache entries");
+      const event = await request({
+        type: DataWorkerMessageType.Init,
+      });
+      if (event.type !== DataWorkerMessageType.Ready) {
+        throw unexpectedEvent("cache entries");
+      }
       return event.entries;
     },
 
@@ -226,7 +255,11 @@ export function createDataWorkerClient(
       renderSessionId: string,
     ): Promise<void> {
       return requireComplete(
-        { type: "connectRender", port, renderSessionId },
+        {
+          type: DataWorkerMessageType.ConnectRender,
+          port,
+          renderSessionId,
+        },
         [port],
       );
     },
@@ -236,26 +269,43 @@ export function createDataWorkerClient(
       correlationSessionId: string,
     ): Promise<void> {
       return requireComplete(
-        { type: "connectCorrelation", port, correlationSessionId },
+        {
+          type: DataWorkerMessageType.ConnectCorrelation,
+          port,
+          correlationSessionId,
+        },
         [port],
       );
     },
 
     refreshSource(source: DataWorkerPointSource): Promise<void> {
-      return requireComplete({ type: "refreshSource", source });
+      return requireComplete({
+        type: DataWorkerMessageType.RefreshSource,
+        source,
+      });
     },
 
     async listSourceEntities(
       source: DataWorkerPointSource,
     ): Promise<unknown> {
-      const event = await request({ type: "listSourceEntities", source });
-      if (event.type !== "value") throw unexpectedEvent("source entities");
+      const event = await request({
+        type: DataWorkerMessageType.ListSourceEntities,
+        source,
+      });
+      if (event.type !== DataWorkerMessageType.Value) {
+        throw unexpectedEvent("source entities");
+      }
       return event.value;
     },
 
     async getTrail(id: string): Promise<TrailEntry | null> {
-      const event = await request({ type: "getTrail", id });
-      if (event.type !== "trail") throw unexpectedEvent("a trail");
+      const event = await request({
+        type: DataWorkerMessageType.GetTrail,
+        id,
+      });
+      if (event.type !== DataWorkerMessageType.Trail) {
+        throw unexpectedEvent("a trail");
+      }
       return event.entry;
     },
 
@@ -264,11 +314,11 @@ export function createDataWorkerClient(
       id: string,
     ): Promise<DataWorkerSourceEntityResult> {
       const event = await request({
-        type: "getSourceEntity",
+        type: DataWorkerMessageType.GetSourceEntity,
         source,
         id,
       });
-      if (event.type !== "sourceEntity") {
+      if (event.type !== DataWorkerMessageType.SourceEntity) {
         throw unexpectedEvent("source entity");
       }
       return event;
@@ -278,10 +328,10 @@ export function createDataWorkerClient(
       queryRequest: DataWorkerSourceQueryRequest,
     ): Promise<DataWorkerSourceQueryResult> {
       const event = await request({
-        type: "querySource",
+        type: DataWorkerMessageType.QuerySource,
         ...queryRequest,
       });
-      if (event.type !== "sourceQuery") {
+      if (event.type !== DataWorkerMessageType.SourceQuery) {
         throw unexpectedEvent("source query");
       }
       return event;
@@ -291,7 +341,11 @@ export function createDataWorkerClient(
       source: DataWorkerQueryableSource,
       text: string | null,
     ): Promise<void> {
-      return requireComplete({ type: "setSourceSearch", source, text });
+      return requireComplete({
+        type: DataWorkerMessageType.SetSourceSearch,
+        source,
+        text,
+      });
     },
 
     getSourceSnapshot(
@@ -314,8 +368,13 @@ export function createDataWorkerClient(
     },
 
     async get(key: string): Promise<unknown> {
-      const event = await request({ type: "get", key });
-      if (event.type !== "value") throw unexpectedEvent("cache value");
+      const event = await request({
+        type: DataWorkerMessageType.Get,
+        key,
+      });
+      if (event.type !== DataWorkerMessageType.Value) {
+        throw unexpectedEvent("cache value");
+      }
       return event.value;
     },
 
@@ -323,13 +382,23 @@ export function createDataWorkerClient(
       key: string,
       json: string,
     ): Promise<unknown> {
-      const event = await request({ type: "importJson", key, json });
-      if (event.type !== "value") throw unexpectedEvent("imported value");
+      const event = await request({
+        type: DataWorkerMessageType.ImportJson,
+        key,
+        json,
+      });
+      if (event.type !== DataWorkerMessageType.Value) {
+        throw unexpectedEvent("imported value");
+      }
       return event.value;
     },
 
     set(key: string, value: unknown): Promise<void> {
-      return requireComplete({ type: "set", key, value });
+      return requireComplete({
+        type: DataWorkerMessageType.Set,
+        key,
+        value,
+      });
     },
 
     setDeferred(key: string, value: unknown): void {
@@ -337,7 +406,7 @@ export function createDataWorkerClient(
       try {
         worker.postMessage(
           createDataWorkerCommand(
-            { type: "setDeferred", key, value },
+            { type: DataWorkerMessageType.SetDeferred, key, value },
             null,
           ),
           [],
@@ -346,31 +415,39 @@ export function createDataWorkerClient(
         rejectAll(
           error instanceof Error
             ? error
-            : new Error(POST_MESSAGE_FAILED_MESSAGE),
+            : new Error(DataWorkerClientError.PostMessageFailed),
         );
       }
     },
 
     delete(key: string): Promise<void> {
-      return requireComplete({ type: "delete", key });
+      return requireComplete({
+        type: DataWorkerMessageType.Delete,
+        key,
+      });
     },
 
     clear(): Promise<void> {
-      return requireComplete({ type: "clear" });
+      return requireComplete({ type: DataWorkerMessageType.Clear });
     },
 
     flush(): Promise<void> {
-      return requireComplete({ type: "flush" });
+      return requireComplete({ type: DataWorkerMessageType.Flush });
     },
 
     async estimate(key: string): Promise<number> {
-      const event = await request({ type: "estimate", key });
-      if (event.type !== "size") throw unexpectedEvent("cache size");
+      const event = await request({
+        type: DataWorkerMessageType.Estimate,
+        key,
+      });
+      if (event.type !== DataWorkerMessageType.Size) {
+        throw unexpectedEvent("cache size");
+      }
       return event.bytes;
     },
 
     terminate(): void {
-      rejectAll(new Error("DataWorker terminated"));
+      rejectAll(new Error(DataWorkerClientError.Terminated));
       sourceListeners.clear();
       worker.terminate();
     },
@@ -378,8 +455,6 @@ export function createDataWorkerClient(
 }
 
 let sharedClient: DataWorkerClient | null | undefined;
-
-export const DATA_WORKER_URL = "/workers/dataWorker.js";
 
 export function getDataWorkerClient(): DataWorkerClient | null {
   if (sharedClient !== undefined) return sharedClient;
@@ -389,7 +464,7 @@ export function getDataWorkerClient(): DataWorkerClient | null {
   }
   try {
     sharedClient = createDataWorkerClient(
-      new Worker(DATA_WORKER_URL, { type: "module" }),
+      new Worker(DataWorkerClientPath.Worker, { type: "module" }),
     );
   } catch {
     // No worker available (test runtime, blocked script). Callers fall back
