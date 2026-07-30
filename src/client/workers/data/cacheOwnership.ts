@@ -9,6 +9,7 @@ import type { DataWorkerCacheEntry } from "@/workers/data/protocol";
 
 const WORKER_OWNED_CACHE_KEYS = new Set<string>([
   CACHE_KEYS.aircraft,
+  CACHE_KEYS.dossier,
   EARTHQUAKE_SOURCE.cacheKey,
   FIRE_SOURCE.cacheKey,
   WEATHER_SOURCE_POLICY.cacheKey,

@@ -251,6 +251,10 @@ describe("scene data protocol", () => {
           headingDeg: 90,
           speedMps: 200,
         },
+        route: [
+          [40.6, -73.7],
+          [33.9, -118.4],
+        ],
       },
       "session-1",
       3,
@@ -278,6 +282,34 @@ describe("scene data protocol", () => {
           ts: 100,
         }],
         motion: null,
+        route: null,
+      },
+      "session-1",
+      3,
+    );
+
+    expect(parseSceneDataCommand(command)).toBeNull();
+  });
+
+  test("rejects an aircraft route for another source", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SelectionOverlay,
+        selection: {
+          revision: 2,
+          identity: {
+            source: Domain.Ships,
+            entityId: "ship-a",
+            interactionId: "ship-a",
+            pointType: Domain.Ships,
+          },
+        },
+        trail: [],
+        motion: null,
+        route: [
+          [40.6, -73.7],
+          [33.9, -118.4],
+        ],
       },
       "session-1",
       3,

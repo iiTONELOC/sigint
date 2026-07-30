@@ -125,7 +125,11 @@ import { parseLandGeoJson } from "@shared/land";
 import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
-import type { HorizonCircle, LandColors } from "@/lib/geo/render/types";
+import {
+  CanvasLineStyle,
+  type HorizonCircle,
+  type LandColors,
+} from "@/lib/geo/render/types";
 import type {
   TrackMotion,
   TrailPoint,
@@ -137,15 +141,15 @@ import {
   SelectionOverlayStore,
 } from "@/workers/render/selectionOverlayStore";
 import {
+  AircraftRoutePolylineLimit,
+  type AircraftRouteWaypoint,
+} from "@shared/domain/aircraftDossier";
+import {
   selectionIsVisible,
 } from "@/workers/render/selectionVisibility";
 
 enum PointWorkerError {
   LandGeometryRequestFailed = "Land geometry request failed",
-}
-
-enum CanvasLineStyle {
-  Round = "round",
 }
 
 enum SceneProjectionPolicy {
@@ -448,12 +452,17 @@ type RouteColors = Readonly<{
 function drawRoute(
   ctx: Ctx,
   projFn: ProjFn,
-  route: ReadonlyArray<readonly [number, number]> | null | undefined,
+  route: readonly AircraftRouteWaypoint[] | null | undefined,
   planeLat: number,
   planeLon: number,
   colors: RouteColors,
 ): void {
-  if (!route || route.length < 2) return;
+  if (
+    !route ||
+    route.length < AircraftRoutePolylineLimit.MinimumWaypointCount
+  ) {
+    return;
+  }
 
   // Closest point on the polyline to the plane → segment index + fraction.
   let segI = 0;
@@ -481,12 +490,21 @@ function drawRoute(
   const a0 = route[segI];
   const a1 = route[segI + 1];
   if (!a0 || !a1) return;
-  const split: [number, number] = [a0[0] + segT * (a1[0] - a0[0]), a0[1] + segT * (a1[1] - a0[1])];
+  const split: AircraftRouteWaypoint = [
+    a0[0] + segT * (a1[0] - a0[0]),
+    a0[1] + segT * (a1[1] - a0[1]),
+  ];
 
-  const flown: Array<readonly [number, number]> = [...route.slice(0, segI + 1), split];
-  const ahead: Array<readonly [number, number]> = [split, ...route.slice(segI + 1)];
+  const flown: AircraftRouteWaypoint[] = [
+    ...route.slice(0, segI + 1),
+    split,
+  ];
+  const ahead: AircraftRouteWaypoint[] = [
+    split,
+    ...route.slice(segI + 1),
+  ];
 
-  const strokePts = (pts: ReadonlyArray<readonly [number, number]>) => {
+  const strokePts = (pts: readonly AircraftRouteWaypoint[]) => {
     ctx.beginPath();
     let pen = false;
     for (const [lat, lon] of pts) {
@@ -1105,9 +1123,15 @@ function segmentDistance(
 }
 
 function selectedRouteContains(x: number, y: number): boolean {
-  const route = selectedPresentationItem()?.route;
+  const route = selectionOverlayStore.snapshot()?.route;
   const project = currentProjection();
-  if (!route || route.length < 2 || !project) return false;
+  if (
+    !route ||
+    route.length < AircraftRoutePolylineLimit.MinimumWaypointCount ||
+    !project
+  ) {
+    return false;
+  }
   let previous: Projected | null = null;
   for (const [latitude, longitude] of route) {
     const point = project(latitude, longitude);
@@ -1938,12 +1962,13 @@ function renderFrame(): void {
       ),
   });
 
-  if (drawSelectedTrail && selectedItem?.route) {
+  const selectedRoute = selectedOverlay?.route;
+  if (drawSelectedTrail && selectedItem && selectedRoute) {
     const routePos = selectedInterpolation();
     drawRoute(
       ctx,
       projFn,
-      selectedItem.route,
+      selectedRoute,
       routePos ? routePos.lat : selectedItem.lat,
       routePos ? routePos.lon : selectedItem.lon,
       colors,

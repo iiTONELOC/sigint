@@ -1,12 +1,12 @@
 import type { SelectedIsolateMode } from "@/workers/render/protocol";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Plane, ExternalLink, LocateFixed } from "lucide-react";
 import type {
   AircraftPoint,
 } from "@/features/tracking/aircraft/data/codec";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { authenticatedFetch } from "@/lib/net/authService";
 import { useTrail } from "@/features/base/useTrail";
+import { useAircraftDossier } from "../hooks/useAircraftDossier";
 import { Domain } from "@shared/domain/identity";
 import { SquawkStatus } from "@shared/domain/aircraft";
 import { GeoMeasurement, TurnDeg } from "@shared/geo";
@@ -27,17 +27,10 @@ import {
   sourceLabel,
   windComponents,
 } from "@/features/tracking/aircraft/lib/utils";
-import type {
-  AircraftDossier as AircraftDossierData,
-  DossierState,
-} from "@/panes/dossier/dossierTypes";
 import {
   AircraftRouteSource,
-  DossierLoadStatus,
-  getCachedDossier,
-  setCachedDossier,
-  airportCode,
-} from "@/panes/dossier/dossierTypes";
+  aircraftAirportCode,
+} from "@shared/domain/aircraftDossier";
 import { DossierFallback } from "@/panes/dossier/dossierFallback";
 import {
   DossierToolbar,
@@ -219,94 +212,6 @@ function aircraftIntelLinks(
   return links;
 }
 
-function useAircraftDossierState(item: AircraftPoint) {
-  const [state, setState] = useState<DossierState>({
-    status: DossierLoadStatus.Idle,
-    data: null,
-    entityId: null,
-  });
-  const [photoError, setPhotoError] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const fetchDossier = useCallback(async (entity: AircraftPoint) => {
-    const { icao24, callsign } = entity.data;
-    if (!icao24) {
-      setState({
-        status: DossierLoadStatus.Idle,
-        data: null,
-        entityId: entity.id,
-      });
-      return;
-    }
-    const cacheKey = `${icao24}:${callsign ?? ""}`;
-    const cached = await getCachedDossier(cacheKey);
-    if (cached) {
-      setState({
-        status: DossierLoadStatus.Loaded,
-        data: cached,
-        entityId: entity.id,
-      });
-      setPhotoError(false);
-      return;
-    }
-    setState({
-      status: DossierLoadStatus.Loading,
-      data: null,
-      entityId: entity.id,
-    });
-    setPhotoError(false);
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const callsignText = callsign?.trim();
-      const query = callsignText
-        ? `?callsign=${encodeURIComponent(callsignText)}`
-        : "";
-      const response = await authenticatedFetch(
-        `/api/dossier/aircraft/${icao24.toLowerCase()}${query}`,
-        { signal: controller.signal },
-      );
-      if (!response.ok) {
-        setState({
-          status: DossierLoadStatus.Error,
-          data: null,
-          entityId: entity.id,
-        });
-        return;
-      }
-      const { dossier } = (await response.json()) as {
-        dossier: AircraftDossierData;
-      };
-      void setCachedDossier(cacheKey, dossier);
-      setState({
-        status: DossierLoadStatus.Loaded,
-        data: dossier,
-        entityId: entity.id,
-      });
-    } catch {
-      if (controller.signal.aborted) return;
-      setState({
-        status: DossierLoadStatus.Error,
-        data: null,
-        entityId: entity.id,
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchDossier(item);
-  }, [item, fetchDossier]);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
-
-  return {
-    dossier: state.data,
-    photoError,
-    setPhotoError,
-  };
-}
-
 export function AircraftDossier({
   item,
   isolateMode,
@@ -315,11 +220,11 @@ export function AircraftDossier({
   onSolo,
   onClose,
 }: Props) {
-  const {
-    dossier,
-    photoError,
-    setPhotoError,
-  } = useAircraftDossierState(item);
+  const dossier = useAircraftDossier(item.id);
+  const [photoError, setPhotoError] = useState(false);
+  useEffect(() => {
+    setPhotoError(false);
+  }, [item.id]);
   const closeBtnRef = useDossierFocus(item.id);
   const recordedTrail = useTrail(item.id, Domain.Aircraft);
 
@@ -417,8 +322,8 @@ export function AircraftDossier({
     },
   ];
 
-  const originCode = airportCode(route?.origin);
-  const destCode = airportCode(route?.destination);
+  const originCode = aircraftAirportCode(route?.origin);
+  const destCode = aircraftAirportCode(route?.destination);
   const chip = onTimeChip(!!route, route?.delays?.departure);
   const arrLate =
     !!chip && chip.label !== AircraftDossierLabel.OnTime;

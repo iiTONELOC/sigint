@@ -9,6 +9,19 @@ import {
 import type {
   SceneSelectionOverlay,
 } from "@/workers/render/sceneProtocol";
+import type {
+  AircraftRouteWaypoint,
+} from "@shared/domain/aircraftDossier";
+
+function routeReader(
+  route: readonly AircraftRouteWaypoint[] | null = null,
+): Readonly<{
+  route: () => Promise<readonly AircraftRouteWaypoint[] | null>;
+}> {
+  return {
+    route: async () => route,
+  };
+}
 
 function aircraftEntry(lastSeen: number): TrailEntry {
   return {
@@ -32,6 +45,7 @@ describe("SelectionInterestService", () => {
       {
         get: () => entry,
       },
+      routeReader(),
       (overlay) => {
         overlays.push(overlay);
       },
@@ -66,6 +80,7 @@ describe("SelectionInterestService", () => {
       {
         get: () => null,
       },
+      routeReader(),
       (overlay) => {
         overlays.push(overlay);
       },
@@ -87,6 +102,7 @@ describe("SelectionInterestService", () => {
       },
       trail: [],
       motion: null,
+      route: null,
     });
   });
 
@@ -96,6 +112,7 @@ describe("SelectionInterestService", () => {
       {
         get: () => null,
       },
+      routeReader(),
       (overlay) => {
         overlays.push(overlay);
       },
@@ -123,6 +140,7 @@ describe("SelectionInterestService", () => {
           type: Domain.Ships,
         }),
       },
+      routeReader(),
       (overlay) => {
         overlays.push(overlay);
       },
@@ -139,5 +157,74 @@ describe("SelectionInterestService", () => {
     })).toBe(true);
     expect(overlays[0]?.trail).toEqual([]);
     expect(overlays[0]?.motion).toBeNull();
+  });
+
+  test("publishes the selected aircraft route after it resolves", async () => {
+    const route: readonly AircraftRouteWaypoint[] = [
+      [40.6, -73.7],
+      [33.9, -118.4],
+    ];
+    const overlays: SceneSelectionOverlay[] = [];
+    const service = new SelectionInterestService(
+      { get: () => aircraftEntry(100) },
+      routeReader(route),
+      (overlay) => {
+        overlays.push(overlay);
+      },
+    );
+
+    service.update({
+      revision: 1,
+      identity: {
+        source: Domain.Aircraft,
+        entityId: "aircraft-a",
+        interactionId: "aircraft-a",
+        pointType: Domain.Aircraft,
+      },
+    });
+    await Promise.resolve();
+
+    expect(overlays).toHaveLength(2);
+    expect(overlays[0]?.route).toBeNull();
+    expect(overlays[1]?.route).toEqual(route);
+  });
+
+  test("does not publish a route resolved for a stale selection", async () => {
+    let resolveRoute = (
+      _route: readonly AircraftRouteWaypoint[] | null,
+    ): void => undefined;
+    const pendingRoute = new Promise<
+      readonly AircraftRouteWaypoint[] | null
+    >((resolve) => {
+      resolveRoute = resolve;
+    });
+    const overlays: SceneSelectionOverlay[] = [];
+    const service = new SelectionInterestService(
+      { get: () => null },
+      { route: () => pendingRoute },
+      (overlay) => {
+        overlays.push(overlay);
+      },
+    );
+
+    service.update({
+      revision: 1,
+      identity: {
+        source: Domain.Aircraft,
+        entityId: "aircraft-a",
+        interactionId: "aircraft-a",
+        pointType: Domain.Aircraft,
+      },
+    });
+    service.update({ revision: 2, identity: null });
+    resolveRoute([
+      [40.6, -73.7],
+      [33.9, -118.4],
+    ]);
+    await pendingRoute;
+
+    expect(overlays).toHaveLength(2);
+    expect(overlays.at(-1)?.selection.revision).toBe(2);
+    expect(overlays.at(-1)?.route).toBeNull();
   });
 });

@@ -47,6 +47,7 @@ import { zoomScale } from "@/workers/render/workerMath";
 import { Domain } from "@shared/domain/identity";
 import type { GeoLineString } from "@shared/geo";
 import { GeoMeasurement } from "@shared/geo";
+import { CanvasLineStyle } from "@/lib/geo/render/types";
 
 enum CycloneMarkerGeometry {
   BaseRadius = 2,
@@ -183,10 +184,6 @@ enum CycloneDistance {
 
 enum CycloneRecordState {
   Active = 1,
-}
-
-enum CycloneLineStyle {
-  Round = "round",
 }
 
 enum CyclonePathPointCount {
@@ -841,8 +838,8 @@ export class CycloneLayer extends SceneLayer<CycloneSceneFilter> {
     style: CycloneSceneStyle,
     depthAlpha: number,
   ): void {
-    style.context.lineCap = CycloneLineStyle.Round;
-    style.context.lineJoin = CycloneLineStyle.Round;
+    style.context.lineCap = CanvasLineStyle.Round;
+    style.context.lineJoin = CanvasLineStyle.Round;
     style.context.lineWidth = CyclonePathStyle.ModelStrokeWidth;
     style.context.globalAlpha = depthAlpha * CyclonePathStyle.ModelAlpha;
     for (const index of records.modelPaths) {

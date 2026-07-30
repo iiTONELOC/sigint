@@ -3,6 +3,7 @@ import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import { type SourceId } from "@shared/source";
 import { SourceStatus } from "@shared/domain/sourceStatus";
+import { AircraftRouteSource } from "@shared/domain/aircraftDossier";
 import { DomEvent } from "@/lib/runtime/domEvent";
 import {
   DataWorkerClientError,
@@ -369,6 +370,41 @@ describe("createDataWorkerClient", () => {
       }),
     );
     await pending;
+  });
+
+  test("returns a validated bounded aircraft dossier", async () => {
+    const harness = createWorkerHarness();
+    const client = createDataWorkerClient(harness.transport);
+    const pending = client.getAircraftDossier("aircraft-a");
+    const command = latestCommand(harness);
+    if (command.type !== DataWorkerMessageType.GetAircraftDossier) {
+      throw new Error("Expected aircraft dossier command");
+    }
+    expect(command.entityId).toBe("aircraft-a");
+
+    harness.emit(
+      event(command.requestId, {
+        type: DataWorkerMessageType.AircraftDossier,
+        entityId: "aircraft-a",
+        dossier: {
+          icao24: "abc123",
+          aircraft: null,
+          route: {
+            source: AircraftRouteSource.FlightAware,
+            origin: { icao: "KJFK" },
+            destination: { icao: "KLAX" },
+            waypoints: [
+              [40.6, -73.7],
+              [33.9, -118.4],
+            ],
+          },
+        },
+      }),
+    );
+
+    expect((await pending)?.route?.source).toBe(
+      AircraftRouteSource.FlightAware,
+    );
   });
 
   test("waits for worker completion on durable writes", async () => {

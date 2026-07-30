@@ -6,6 +6,9 @@ import type {
   TrackMotion,
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
+import type {
+  AircraftRouteWaypoint,
+} from "@shared/domain/aircraftDossier";
 import {
   isRenderSourceId,
   type RenderSourceId,
@@ -166,6 +169,7 @@ export type RenderSelectionOverlay = Readonly<{
   selection: RenderSelectionSnapshot;
   trail: readonly TrailPoint[];
   motion: TrackMotion | null;
+  route: readonly AircraftRouteWaypoint[] | null;
 }>;
 
 enum RenderSelectionStringLength {
@@ -227,7 +231,6 @@ export type SelectedRenderItem = Readonly<{
   type: DataType;
   lat: number;
   lon: number;
-  route: readonly (readonly [number, number])[] | null;
 }>;
 
 export type RenderViewportPayload = Readonly<{

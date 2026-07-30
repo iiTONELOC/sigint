@@ -1,10 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
-import {
-  getSelectedRoute,
-  selectedRouteRevision,
-  subscribeSelectedRoute,
-} from "@/lib/runtime/layoutSignals";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import {
   recordLatitude,
@@ -52,12 +47,6 @@ export function usePresentationCommands({
     revealId,
   } = props;
 
-  const routeRevision = useSyncExternalStore(
-    subscribeSelectedRoute,
-    selectedRouteRevision,
-    selectedRouteRevision,
-  );
-
   useEffect(() => {
     if (!host) return;
     const source = selected
@@ -85,7 +74,6 @@ export function usePresentationCommands({
           type: selected.type,
           lat: recordLatitude(selected),
           lon: recordLongitude(selected),
-          route: getSelectedRoute(selected.id),
         }
       : null;
     const prefersReducedMotion =
@@ -139,7 +127,6 @@ export function usePresentationCommands({
     rotationSpeed,
     searchMatchIds,
     selected,
-    routeRevision,
   ]);
 
   useEffect(() => {

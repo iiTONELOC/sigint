@@ -3,19 +3,38 @@ import {
   useRef,
   useEffect,
   useCallback,
+  cloneElement,
+  type FocusEventHandler,
+  type MouseEventHandler,
   type ReactNode,
+  type ReactElement,
 } from "react";
 import { createPortal } from "react-dom";
 import { isMobileWidth } from "@/config/breakpoints";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-type TooltipPlacement = "top" | "bottom" | "left" | "right";
+export enum TooltipPlacement {
+  Bottom = "bottom",
+  Left = "left",
+  Right = "right",
+  Top = "top",
+}
+
+type TooltipPlacementValue = `${TooltipPlacement}`;
+
+type TooltipTriggerProps = Readonly<{
+  onBlur?: FocusEventHandler<HTMLElement>;
+  onFocus?: FocusEventHandler<HTMLElement>;
+  onMouseDown?: MouseEventHandler<HTMLElement>;
+  onMouseEnter?: MouseEventHandler<HTMLElement>;
+  onMouseLeave?: MouseEventHandler<HTMLElement>;
+}>;
 
 type TooltipProps = {
   readonly content: ReactNode;
-  readonly children: ReactNode;
-  readonly placement?: TooltipPlacement;
+  readonly children: ReactElement<TooltipTriggerProps>;
+  readonly placement?: TooltipPlacementValue;
   readonly delay?: number;
   readonly disabled?: boolean;
   readonly shortcut?: string;
@@ -23,57 +42,66 @@ type TooltipProps = {
 
 // ── Positioning ──────────────────────────────────────────────────────
 
-const GAP = 6;
-const VIEWPORT_PAD = 8;
+enum TooltipMetric {
+  DefaultDelayMs = 400,
+  GapPx = 6,
+  HiddenCoordinatePx = -9_999,
+  ViewportPaddingPx = 8,
+}
 
 function computePosition(
   triggerRect: DOMRect,
   tooltipRect: DOMRect,
-  placement: TooltipPlacement,
-): { x: number; y: number; finalPlacement: TooltipPlacement } {
+  placement: TooltipPlacementValue,
+): { x: number; y: number; finalPlacement: TooltipPlacementValue } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  const positions: Record<TooltipPlacement, { x: number; y: number }> = {
-    top: {
+  const positions: Record<TooltipPlacementValue, { x: number; y: number }> = {
+    [TooltipPlacement.Top]: {
       x: triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2,
-      y: triggerRect.top - tooltipRect.height - GAP,
+      y: triggerRect.top - tooltipRect.height - TooltipMetric.GapPx,
     },
-    bottom: {
+    [TooltipPlacement.Bottom]: {
       x: triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2,
-      y: triggerRect.bottom + GAP,
+      y: triggerRect.bottom + TooltipMetric.GapPx,
     },
-    left: {
-      x: triggerRect.left - tooltipRect.width - GAP,
+    [TooltipPlacement.Left]: {
+      x: triggerRect.left - tooltipRect.width - TooltipMetric.GapPx,
       y: triggerRect.top + triggerRect.height / 2 - tooltipRect.height / 2,
     },
-    right: {
-      x: triggerRect.right + GAP,
+    [TooltipPlacement.Right]: {
+      x: triggerRect.right + TooltipMetric.GapPx,
       y: triggerRect.top + triggerRect.height / 2 - tooltipRect.height / 2,
     },
   };
 
   // Try preferred placement first, then flip if it goes off-screen
-  const order: TooltipPlacement[] = [placement];
-  const opposites: Record<TooltipPlacement, TooltipPlacement> = {
-    top: "bottom",
-    bottom: "top",
-    left: "right",
-    right: "left",
+  const order: TooltipPlacementValue[] = [placement];
+  const opposites: Record<TooltipPlacementValue, TooltipPlacementValue> = {
+    [TooltipPlacement.Top]: TooltipPlacement.Bottom,
+    [TooltipPlacement.Bottom]: TooltipPlacement.Top,
+    [TooltipPlacement.Left]: TooltipPlacement.Right,
+    [TooltipPlacement.Right]: TooltipPlacement.Left,
   };
   order.push(opposites[placement]);
-  if (placement === "top" || placement === "bottom") {
-    order.push("right", "left");
+  if (
+    placement === TooltipPlacement.Top ||
+    placement === TooltipPlacement.Bottom
+  ) {
+    order.push(TooltipPlacement.Right, TooltipPlacement.Left);
   } else {
-    order.push("bottom", "top");
+    order.push(TooltipPlacement.Bottom, TooltipPlacement.Top);
   }
 
   for (const p of order) {
     const pos = positions[p]!;
     const fitsX =
-      pos.x >= VIEWPORT_PAD && pos.x + tooltipRect.width <= vw - VIEWPORT_PAD;
+      pos.x >= TooltipMetric.ViewportPaddingPx &&
+      pos.x + tooltipRect.width <= vw - TooltipMetric.ViewportPaddingPx;
     const fitsY =
-      pos.y >= VIEWPORT_PAD && pos.y + tooltipRect.height <= vh - VIEWPORT_PAD;
+      pos.y >= TooltipMetric.ViewportPaddingPx &&
+      pos.y + tooltipRect.height <= vh - TooltipMetric.ViewportPaddingPx;
     if (fitsX && fitsY) {
       return { x: pos.x, y: pos.y, finalPlacement: p };
     }
@@ -83,12 +111,18 @@ function computePosition(
   const pos = positions[placement]!;
   return {
     x: Math.max(
-      VIEWPORT_PAD,
-      Math.min(vw - tooltipRect.width - VIEWPORT_PAD, pos.x),
+      TooltipMetric.ViewportPaddingPx,
+      Math.min(
+        vw - tooltipRect.width - TooltipMetric.ViewportPaddingPx,
+        pos.x,
+      ),
     ),
     y: Math.max(
-      VIEWPORT_PAD,
-      Math.min(vh - tooltipRect.height - VIEWPORT_PAD, pos.y),
+      TooltipMetric.ViewportPaddingPx,
+      Math.min(
+        vh - tooltipRect.height - TooltipMetric.ViewportPaddingPx,
+        pos.y,
+      ),
     ),
     finalPlacement: placement,
   };
@@ -99,8 +133,8 @@ function computePosition(
 export function Tooltip({
   content,
   children,
-  placement = "top",
-  delay = 400,
+  placement = TooltipPlacement.Top,
+  delay = TooltipMetric.DefaultDelayMs,
   disabled = false,
   shortcut,
 }: TooltipProps) {
@@ -108,7 +142,7 @@ export function Tooltip({
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const triggerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,19 +185,32 @@ export function Tooltip({
     };
   }, []);
 
+  const trigger = cloneElement(children, {
+    onMouseEnter: (event) => {
+      children.props.onMouseEnter?.(event);
+      show();
+    },
+    onMouseLeave: (event) => {
+      children.props.onMouseLeave?.(event);
+      hide();
+    },
+    onMouseDown: (event) => {
+      children.props.onMouseDown?.(event);
+      hide();
+    },
+    onFocus: (event) => {
+      children.props.onFocus?.(event);
+      show();
+    },
+    onBlur: (event) => {
+      children.props.onBlur?.(event);
+      hide();
+    },
+  });
+
   return (
     <>
-      <div
-        ref={triggerRef}
-        onMouseEnter={show}
-        onMouseLeave={hide}
-        onMouseDown={hide}
-        onFocus={show}
-        onBlur={hide}
-        className="inline-flex"
-      >
-        {children}
-      </div>
+      <span ref={triggerRef} className="inline-flex">{trigger}</span>
       {visible &&
         createPortal(
           <div
@@ -171,8 +218,8 @@ export function Tooltip({
             role="tooltip"
             className="fixed z-40 pointer-events-none"
             style={{
-              left: position?.x ?? -9999,
-              top: position?.y ?? -9999,
+              left: position?.x ?? TooltipMetric.HiddenCoordinatePx,
+              top: position?.y ?? TooltipMetric.HiddenCoordinatePx,
               opacity: position ? 1 : 0,
               transition: "opacity 0.1s ease-out",
             }}
@@ -182,7 +229,7 @@ export function Tooltip({
                 {content}
               </div>
               {shortcut && (
-                <div className="text-sig-dim text-[10px] mt-0.5 tracking-wider">
+                <div className="text-sig-dim text-(length:--sig-text-xs) mt-0.5 tracking-wider">
                   {shortcut}
                 </div>
               )}

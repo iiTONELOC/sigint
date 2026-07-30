@@ -1,5 +1,5 @@
 export enum DataWorkerProtocolVersion {
-  Current = 9,
+  Current = 10,
 }
 
 export enum DataWorkerMessageType {
@@ -12,6 +12,7 @@ export enum DataWorkerMessageType {
   QuerySource = "querySource",
   SetSourceSearch = "setSourceSearch",
   GetTrail = "getTrail",
+  GetAircraftDossier = "getAircraftDossier",
   Get = "get",
   Set = "set",
   SetDeferred = "setDeferred",
@@ -28,5 +29,6 @@ export enum DataWorkerMessageType {
   Complete = "complete",
   SourceSnapshot = "sourceSnapshot",
   Trail = "trail",
+  AircraftDossier = "aircraftDossier",
   Error = "error",
 }

@@ -44,7 +44,7 @@ import { UIProvider, useUI } from "@/context/UIContext";
 import { WatchProvider, useWatch } from "@/context/WatchContext";
 
 // Re-export for consumers that imported from here
-export type { WatchSource } from "@/context/WatchContext";
+export { WatchSource } from "@/context/WatchContext";
 
 // ── Context value type ──────────────────────────────────────────────
 

@@ -23,47 +23,6 @@ export function useHasDossier(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-// ── Selected aircraft route (decoded waypoints, [lat,lon]) ───────
-// The dossier publishes the fetched route here; GlobeVisualization reads it
-// imperatively per frame to draw the planned route for the selected aircraft.
-const MIN_ROUTE_WAYPOINTS = 2;
-
-let _routeId: string | null = null;
-let _routeWaypoints: [number, number][] | null = null;
-let _routeRevision = 0;
-const routeListeners = new Set<() => void>();
-
-export function setSelectedRoute(
-  id: string | null,
-  waypoints: [number, number][] | null,
-) {
-  const accepted = Boolean(
-    waypoints && waypoints.length >= MIN_ROUTE_WAYPOINTS && id,
-  );
-  const nextId = accepted ? id : null;
-  const nextWaypoints = accepted ? waypoints : null;
-  if (_routeId === nextId && _routeWaypoints === nextWaypoints) return;
-  _routeId = nextId;
-  _routeWaypoints = nextWaypoints;
-  _routeRevision += 1;
-  routeListeners.forEach((cb) => cb());
-}
-
-export function getSelectedRoute(id: string): [number, number][] | null {
-  return _routeId === id ? _routeWaypoints : null;
-}
-
-export function subscribeSelectedRoute(listener: () => void): () => void {
-  routeListeners.add(listener);
-  return () => {
-    routeListeners.delete(listener);
-  };
-}
-
-export function selectedRouteRevision(): number {
-  return _routeRevision;
-}
-
 // ── Request dossier open (cross-component event) ─────────────────
 
 const dossierRequestListeners = new Set<() => void>();
@@ -127,8 +86,8 @@ export function onWalkthroughUndo(
 // Walkthrough reads it via useSyncExternalStore to detect when the
 // user has completed an action (e.g. added a data-table pane).
 
-let _leafTypes: Set<string> = new Set(["globe"]);
-let _leafCount = 1;
+let _leafTypes: Set<string> = new Set();
+let _leafCount = 0;
 let _presetCount = 0;
 const layoutSnapshotListeners = new Set<() => void>();
 

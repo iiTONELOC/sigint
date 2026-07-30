@@ -1,6 +1,9 @@
 import { isRecord } from "@shared/geo";
 import type { TrailEntry } from "@/lib/geo/trails/trailStore";
 import type {
+  AircraftDossier,
+} from "@shared/domain/aircraftDossier";
+import type {
   QueryableSourceId,
   QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
@@ -79,6 +82,9 @@ export type DataWorkerClient = Readonly<{
   refreshSource: (source: DataWorkerPointSource) => Promise<void>;
   listSourceEntities: (source: DataWorkerPointSource) => Promise<unknown>;
   getTrail: (id: string) => Promise<TrailEntry | null>;
+  getAircraftDossier: (
+    entityId: string,
+  ) => Promise<AircraftDossier | null>;
   getSourceEntity: (
     source: DataWorkerQueryableSource,
     id: string,
@@ -307,6 +313,19 @@ export function createDataWorkerClient(
         throw unexpectedEvent("a trail");
       }
       return event.entry;
+    },
+
+    async getAircraftDossier(
+      entityId: string,
+    ): Promise<AircraftDossier | null> {
+      const event = await request({
+        type: DataWorkerMessageType.GetAircraftDossier,
+        entityId,
+      });
+      if (event.type !== DataWorkerMessageType.AircraftDossier) {
+        throw unexpectedEvent("an aircraft dossier");
+      }
+      return event.dossier;
     },
 
     async getSourceEntity(

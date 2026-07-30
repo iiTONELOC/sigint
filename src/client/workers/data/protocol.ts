@@ -16,6 +16,10 @@ import {
 import { isSourceId } from "@/workers/data/sourceIds";
 import type { PointUiQueryResult } from "@/workers/data/uiQuery";
 import {
+  parseAircraftDossier,
+  type AircraftDossier,
+} from "@shared/domain/aircraftDossier";
+import {
   DataWorkerMessageType,
   DataWorkerProtocolVersion,
 } from "@/workers/data/messageType";
@@ -109,6 +113,10 @@ export type DataWorkerCommandBody =
       text: string | null;
     }>
   | Readonly<{ type: DataWorkerMessageType.GetTrail; id: string }>
+  | Readonly<{
+      type: DataWorkerMessageType.GetAircraftDossier;
+      entityId: string;
+    }>
   | Readonly<{ type: DataWorkerMessageType.Get; key: string }>
   | Readonly<{
       type: DataWorkerMessageType.Set;
@@ -161,6 +169,12 @@ export type DataWorkerEvent =
         type: DataWorkerMessageType.Trail;
         id: string;
         entry: TrailEntry | null;
+      }>)
+  | (DataWorkerEnvelope &
+      Readonly<{
+        type: DataWorkerMessageType.AircraftDossier;
+        entityId: string;
+        dossier: AircraftDossier | null;
       }>)
   | (DataWorkerEnvelope &
       Readonly<{
@@ -325,6 +339,18 @@ function parseCacheCommand(
     };
   }
 
+  if (
+    value.type === DataWorkerMessageType.GetAircraftDossier &&
+    typeof value.entityId === "string" &&
+    value.entityId.length > 0
+  ) {
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.GetAircraftDossier,
+      entityId: value.entityId,
+    };
+  }
+
   return null;
 }
 
@@ -404,7 +430,7 @@ function isSourceVersion(value: unknown): value is number {
   );
 }
 
-function parseCacheEvent(
+function parseSimpleCacheEvent(
   envelope: DataWorkerEnvelope,
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerEvent | null {
@@ -440,20 +466,58 @@ function parseCacheEvent(
       value: value.value ?? null,
     };
   }
+  return null;
+}
+
+function parseTrailEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
   if (
-    value.type === DataWorkerMessageType.Trail &&
-    typeof value.id === "string"
+    value.type !== DataWorkerMessageType.Trail ||
+    typeof value.id !== "string"
   ) {
-    return {
-      ...envelope,
-      type: DataWorkerMessageType.Trail,
-      id: value.id,
-      entry:
-        value.entry === null
-          ? null
-          : parseTrailEntry(value.entry),
-    };
+    return null;
   }
+
+  return {
+    ...envelope,
+    type: DataWorkerMessageType.Trail,
+    id: value.id,
+    entry:
+      value.entry === null
+        ? null
+        : parseTrailEntry(value.entry),
+  };
+}
+
+function parseAircraftDossierEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
+  if (
+    value.type !== DataWorkerMessageType.AircraftDossier ||
+    typeof value.entityId !== "string"
+  ) {
+    return null;
+  }
+
+  const dossier = value.dossier === null
+    ? null
+    : parseAircraftDossier(value.dossier);
+  if (value.dossier !== null && dossier === null) return null;
+  return {
+    ...envelope,
+    type: DataWorkerMessageType.AircraftDossier,
+    entityId: value.entityId,
+    dossier,
+  };
+}
+
+function parseReadyEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
   if (
     value.type !== DataWorkerMessageType.Ready ||
     !Array.isArray(value.entries)
@@ -467,6 +531,16 @@ function parseCacheEvent(
     entries.push({ key: entry.key, value: entry.value });
   }
   return { ...envelope, type: DataWorkerMessageType.Ready, entries };
+}
+
+function parseCacheEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
+  return parseSimpleCacheEvent(envelope, value) ??
+    parseTrailEvent(envelope, value) ??
+    parseAircraftDossierEvent(envelope, value) ??
+    parseReadyEvent(envelope, value);
 }
 
 export function parseDataWorkerEvent(value: unknown): DataWorkerEvent | null {

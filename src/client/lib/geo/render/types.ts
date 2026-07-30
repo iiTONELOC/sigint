@@ -2,6 +2,14 @@ export type RenderContext2D =
   | CanvasRenderingContext2D
   | OffscreenCanvasRenderingContext2D;
 
+export enum CanvasLineStyle {
+  Bevel = "bevel",
+  Butt = "butt",
+  Miter = "miter",
+  Round = "round",
+  Square = "square",
+}
+
 export type Projected = {
   x: number;
   y: number;

@@ -1,4 +1,8 @@
 import { GeoLimit, isRecord } from "@shared/geo";
+import { Domain } from "@shared/domain/identity";
+import {
+  isAircraftRoutePolyline,
+} from "@shared/domain/aircraftDossier";
 import {
   isRenderSourceId,
   type RenderSourceId,
@@ -16,7 +20,7 @@ import {
 } from "@/workers/render/protocol";
 
 export enum SceneProtocolVersion {
-  Current = 5,
+  Current = 6,
 }
 
 export enum SceneDataCommandType {
@@ -523,15 +527,18 @@ function isSceneSelectionOverlay(
     !isRenderSelectionSnapshot(value.selection) ||
     !Array.isArray(value.trail) ||
     !value.trail.every(isTrailPoint) ||
-    (value.motion !== null && !isTrackMotion(value.motion))
+    (value.motion !== null && !isTrackMotion(value.motion)) ||
+    (value.route !== null && !isAircraftRoutePolyline(value.route))
   ) {
     return false;
   }
   const identity = value.selection.identity;
   if (identity === null || !isTrackSource(identity.source)) {
-    return value.trail.length === 0 && value.motion === null;
+    return value.trail.length === 0 &&
+      value.motion === null &&
+      value.route === null;
   }
-  return true;
+  return identity.source === Domain.Aircraft || value.route === null;
 }
 
 export function parseSceneDataCommand(
@@ -555,6 +562,7 @@ export function parseSceneDataCommand(
       selection: value.selection,
       trail: value.trail,
       motion: value.motion,
+      route: value.route,
     };
   }
 

@@ -68,6 +68,9 @@ describe("selection overlay channel", () => {
           ? trail
           : null,
       },
+      {
+        route: async () => null,
+      },
       (overlay) => {
         scenePublisher.publish(overlay);
       },
@@ -120,6 +123,7 @@ describe("selection overlay channel", () => {
           headingDeg: 90,
           speedMps: 200,
         },
+        route: null,
       });
     } finally {
       interestPublisher.disconnect();

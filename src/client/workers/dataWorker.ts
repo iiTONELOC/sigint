@@ -41,6 +41,10 @@ import { ObservedTrailBinding } from "@/workers/data/trails/observedTrailBinding
 import {
   SelectionInterestService,
 } from "@/workers/data/selectionInterestService";
+import {
+  AIRCRAFT_DOSSIER_CACHE_POLICY,
+  AircraftDossierService,
+} from "@/workers/data/aircraftDossierService";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
   findQueryableSearchIds,
@@ -173,16 +177,6 @@ const trailRecorder = createTrailRecorder({
     coordinator.setDeferred(TRAIL_RECORDER_POLICY.cacheKey, value);
   },
 });
-const selectionInterest = new SelectionInterestService(
-  trailRecorder,
-  (overlay) => {
-    scenePublisher.publish(overlay);
-  },
-);
-trailRecorder.subscribe((source) => {
-  selectionInterest.refresh(source);
-});
-
 const aircraftOwner = new AircraftSource({
   patchObservers: [
     new ObservedTrailBinding(
@@ -192,6 +186,27 @@ const aircraftOwner = new AircraftSource({
     ),
   ],
 });
+const aircraftDossier = new AircraftDossierService({
+  entities: aircraftOwner,
+  readCache: () => store.get(AIRCRAFT_DOSSIER_CACHE_POLICY.key),
+  persistCache: (snapshot) => {
+    coordinator.setDeferred(
+      AIRCRAFT_DOSSIER_CACHE_POLICY.key,
+      snapshot,
+    );
+  },
+});
+const selectionInterest = new SelectionInterestService(
+  trailRecorder,
+  aircraftDossier,
+  (overlay) => {
+    scenePublisher.publish(overlay);
+  },
+);
+trailRecorder.subscribe((source) => {
+  selectionInterest.refresh(source);
+});
+
 aircraftOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
@@ -550,6 +565,18 @@ function handleGetTrail(
   });
 }
 
+async function handleGetAircraftDossier(
+  command: CommandOf<DataWorkerMessageType.GetAircraftDossier>,
+): Promise<void> {
+  post({
+    type: DataWorkerMessageType.AircraftDossier,
+    protocolVersion: DataWorkerProtocolVersion.Current,
+    requestId: command.requestId,
+    entityId: command.entityId,
+    dossier: await aircraftDossier.get(command.entityId),
+  });
+}
+
 async function handleGet(
   command: CommandOf<DataWorkerMessageType.Get>,
 ): Promise<void> {
@@ -605,6 +632,8 @@ async function dispatch(command: DataWorkerCommand): Promise<void> {
       return handleSetSourceSearch(command);
     case DataWorkerMessageType.GetTrail:
       return handleGetTrail(command);
+    case DataWorkerMessageType.GetAircraftDossier:
+      return handleGetAircraftDossier(command);
     case DataWorkerMessageType.Get:
       return handleGet(command);
     case DataWorkerMessageType.ImportJson:
