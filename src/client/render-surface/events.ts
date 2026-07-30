@@ -2,11 +2,26 @@ import {
   PanelSide,
   RenderCursor,
   RenderInteractionKind,
+  type RenderSelectionIdentity,
   type RenderInteractionPayload,
 } from "@/workers/render/protocol";
 import { Domain } from "@shared/domain/identity";
 import { isRecord } from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
+import {
+  isRenderSourceId,
+} from "@/workers/data/sourceIds";
+import {
+  sourceForPointType,
+} from "@/workers/data/sources/registry";
+
+enum SelectionStringLength {
+  Empty = 0,
+}
+
+enum SelectionRevisionBoundary {
+  MinimumRevision = 0,
+}
 
 export const RENDER_SURFACE_INTERACTION_EVENT =
   "sigint-render-interaction";
@@ -37,6 +52,32 @@ function isTrailPoint(value: unknown): boolean {
   );
 }
 
+function isSelectionIdentity(
+  value: unknown,
+): value is RenderSelectionIdentity {
+  return (
+    isRecord(value) &&
+    isRenderSourceId(value.source) &&
+    typeof value.entityId === "string" &&
+    value.entityId.length > SelectionStringLength.Empty &&
+    typeof value.interactionId === "string" &&
+    value.interactionId.length > SelectionStringLength.Empty &&
+    isEnumValue(value.pointType, Domain) &&
+    sourceForPointType(value.pointType) === value.source
+  );
+}
+
+function isSelection(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.revision === "number" &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= SelectionRevisionBoundary.MinimumRevision &&
+    (value.identity === null ||
+      isSelectionIdentity(value.identity))
+  );
+}
+
 export function isRenderInteraction(
   value: unknown,
 ): value is RenderInteractionPayload {
@@ -46,11 +87,7 @@ export function isRenderInteraction(
     return isEnumValue(value.cursor, RenderCursor);
   }
   if (value.kind === RenderInteractionKind.Selection) {
-    return (
-      (value.id === null || typeof value.id === "string") &&
-      (value.pointType === null ||
-        isEnumValue(value.pointType, Domain))
-    );
+    return isSelection(value.selection);
   }
   if (value.kind === RenderInteractionKind.RawCanvasClick) return true;
   if (value.kind === RenderInteractionKind.SelectedSide) {

@@ -1,7 +1,6 @@
 import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import { pointTypeForSource } from "@/workers/data/sources/registry";
-import type { DataType } from "@/features/base/dataPoints";
 import {
   ProjectedSceneLayer,
   SceneHitKind,
@@ -16,8 +15,10 @@ import {
 } from "@/workers/render/sceneProtocol";
 import {
   SceneStore,
+  type RenderSceneRecord,
   type RenderSceneView,
 } from "@/workers/render/sceneStore";
+import type { RenderSelectionIdentity } from "@/workers/render/protocol";
 
 export enum RenderLayerOrder {
   Aircraft = 0,
@@ -38,13 +39,18 @@ export type SceneLayerProjectionFrame = Omit<
 
 export type SceneLayerStyle = Readonly<{ context: Ctx }>;
 
+export type RenderLayerSelectionTarget = Readonly<{
+  identity: RenderSelectionIdentity;
+  latitude: number;
+  longitude: number;
+}>;
+
 export interface RenderLayer {
   readonly order: RenderLayerOrder;
   readonly source: RenderSourceId;
   apply(command: SceneLayerCommand): void;
   hasTimeAnimation(reducedMotion: boolean): boolean;
-  interactionId(hit: SceneHit): string;
-  interactionPointType(hit: SceneHit): DataType;
+  interactionIdentity(hit: SceneHit): RenderSelectionIdentity;
   nearest(
     kind: SceneHitKind,
     x: number,
@@ -53,6 +59,7 @@ export interface RenderLayer {
     maximumCandidates: number,
   ): SceneHit | null;
   selectionAnchor(entityId: string): SceneProjection | null;
+  selectionTarget(id: string): RenderLayerSelectionTarget | null;
 }
 
 export abstract class SceneLayer<TFilter> implements RenderLayer {
@@ -101,12 +108,24 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     return false;
   }
 
-  interactionId(hit: SceneHit): string {
-    return hit.entityId;
+  interactionIdentity(hit: SceneHit): RenderSelectionIdentity {
+    return {
+      source: this.source,
+      entityId: hit.entityId,
+      interactionId: hit.entityId,
+      pointType: pointTypeForSource(this.source),
+    };
   }
 
-  interactionPointType(_hit: SceneHit): DataType {
-    return pointTypeForSource(this.source);
+  selectionTarget(id: string): RenderLayerSelectionTarget | null {
+    const handle =
+      this.store.handleForSceneId(id) ??
+      this.store.handlesForEntityId(id)[0] ??
+      null;
+    if (handle === null) return null;
+    const record = this.store.read(handle);
+    if (!record) return null;
+    return this.targetForRecord(record);
   }
 
   protected beginProject(): RenderSceneView {
@@ -132,6 +151,17 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     filter: TFilter,
   ): boolean;
 
+  protected recordSelectionIdentity(
+    record: RenderSceneRecord,
+  ): RenderSelectionIdentity {
+    return {
+      source: this.source,
+      entityId: record.entityId,
+      interactionId: record.entityId,
+      pointType: pointTypeForSource(this.source),
+    };
+  }
+
   private applySearch(command: SceneSearchCommand): void {
     if (command.searchRevision < this.searchRevision) return;
     this.searchRevision = command.searchRevision;
@@ -145,6 +175,16 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
       this.searchHandles === null ||
       this.searchHandles.has(index + 1)
     );
+  }
+
+  private targetForRecord(
+    record: RenderSceneRecord,
+  ): RenderLayerSelectionTarget {
+    return {
+      identity: this.recordSelectionIdentity(record),
+      latitude: record.latitude,
+      longitude: record.longitude,
+    };
   }
 }
 

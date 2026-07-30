@@ -148,7 +148,7 @@ export type WindRadii = {
 // A forecast scene hit resolves to this bounded UI projection in DataWorker.
 // It is not persisted or sent to RenderWorker.
 export type CycloneForecastPointData = {
-  parentStormId: string;
+  parentEntityId: string;
   parentName: string;
   parentBasin: NhcBasin;
   fcstHour: number;

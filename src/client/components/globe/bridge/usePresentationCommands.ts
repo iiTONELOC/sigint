@@ -21,6 +21,10 @@ import {
   RenderMessageType,
   type SelectedRenderItem,
 } from "@/workers/render/protocol";
+import {
+  canonicalEntityId,
+  sourceForPointType,
+} from "@/workers/data/sources/registry";
 import { MilFilter } from "@shared/domain/aircraft";
 import { SaffirSimpson } from "@/features/environmental/cyclones/types";
 
@@ -67,6 +71,24 @@ export function usePresentationCommands({
 
   useEffect(() => {
     if (!host) return;
+    const source = selected
+      ? sourceForPointType(selected.type)
+      : null;
+    sendRenderSurfaceCommand(host, {
+      type: RenderMessageType.Selection,
+      payload: selected && source
+        ? {
+            source,
+            entityId: canonicalEntityId(selected),
+            interactionId: selected.id,
+            pointType: selected.type,
+          }
+        : null,
+    });
+  }, [host, selected]);
+
+  useEffect(() => {
+    if (!host) return;
     const cyclone = cycloneFilter;
     const selectedItem: SelectedRenderItem | null = selected
       ? {
@@ -88,7 +110,6 @@ export function usePresentationCommands({
         flat,
         autoRotate,
         rotationSpeed,
-        selectedId: selected?.id ?? null,
         isolatedId,
         isolateMode,
         layers,

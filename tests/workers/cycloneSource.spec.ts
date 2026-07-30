@@ -169,9 +169,9 @@ describe("cyclone source reconciliation", () => {
     expect(forecast?.type).toBe(Domain.CyclonesForecast);
     expect(
       forecast?.type === Domain.CyclonesForecast
-        ? forecast.data.parentStormId
+        ? forecast.data.parentEntityId
         : null,
-    ).toBe(initial.data.stormId);
+    ).toBe(initial.id);
     await source.refresh();
     await source.refresh();
     await source.refresh();

@@ -33,10 +33,12 @@ import {
 import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import {
   sceneNumericAttribute,
+  type RenderSceneRecord,
   type RenderSceneView,
 } from "@/workers/render/sceneStore";
 import {
   IsolateMode,
+  type RenderSelectionIdentity,
 } from "@/workers/render/protocol";
 import type {
   SceneVisibilitySettings,
@@ -273,12 +275,9 @@ class CycloneRecordSet {
   }
 }
 
-function roleAt(view: RenderSceneView, index: number): CycloneSceneRole | null {
-  const role = sceneNumericAttribute(
-    view,
-    index,
-    CycloneSceneAttribute.Role,
-  );
+function cycloneRole(
+  role: number | undefined,
+): CycloneSceneRole | null {
   switch (role) {
     case CycloneSceneRole.Current:
     case CycloneSceneRole.Forecast:
@@ -290,6 +289,32 @@ function roleAt(view: RenderSceneView, index: number): CycloneSceneRole | null {
     default:
       return null;
   }
+}
+
+function roleAt(view: RenderSceneView, index: number): CycloneSceneRole | null {
+  return cycloneRole(
+    sceneNumericAttribute(
+      view,
+      index,
+      CycloneSceneAttribute.Role,
+    ),
+  );
+}
+
+function cycloneSelectionIdentity(
+  role: CycloneSceneRole | null,
+  sceneId: string,
+  entityId: string,
+): RenderSelectionIdentity {
+  const forecast = role === CycloneSceneRole.Forecast;
+  return {
+    source: Domain.Cyclones,
+    entityId,
+    interactionId: forecast ? sceneId : entityId,
+    pointType: forecast
+      ? Domain.CyclonesForecast
+      : Domain.Cyclones,
+  };
 }
 
 function sceneIdAt(view: RenderSceneView, index: number): string | null {
@@ -560,26 +585,30 @@ export class CycloneLayer extends SceneLayer<CycloneSceneFilter> {
     return null;
   }
 
-  override interactionId(hit: SceneHit): string {
-    const view = this.view;
-    const role = view ? roleAt(view, hit.handle - 1) : null;
-    return role === CycloneSceneRole.Forecast
-      ? hit.sceneId
-      : hit.entityId;
-  }
-
-  override interactionPointType(
+  override interactionIdentity(
     hit: SceneHit,
-  ): Domain.Cyclones | Domain.CyclonesForecast {
+  ): RenderSelectionIdentity {
     const view = this.view;
     const role = view ? roleAt(view, hit.handle - 1) : null;
-    return role === CycloneSceneRole.Forecast
-      ? Domain.CyclonesForecast
-      : Domain.Cyclones;
+    return cycloneSelectionIdentity(
+      role,
+      hit.sceneId,
+      hit.entityId,
+    );
   }
 
   override hasTimeAnimation(reducedMotion: boolean): boolean {
     return !reducedMotion && this.recordSets.size > 0;
+  }
+
+  protected override recordSelectionIdentity(
+    record: RenderSceneRecord,
+  ): RenderSelectionIdentity {
+    return cycloneSelectionIdentity(
+      cycloneRole(record.attributes[CycloneSceneAttribute.Role]),
+      record.sceneId,
+      record.entityId,
+    );
   }
 
   protected includes(

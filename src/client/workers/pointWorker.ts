@@ -44,6 +44,7 @@ import {
   type RenderInputPayload,
   type RenderInteractionPayload,
   type RenderPresentationPayload,
+  type RenderSelectionIdentity,
   type RenderViewportPayload,
   type RenderProtocolState,
   type RenderWorkerCommand,
@@ -53,9 +54,11 @@ import {
   IsolateMode,
   PanelSide,
 } from "./render/protocol";
+import {
+  RenderSelectionController,
+} from "./render/selectionController";
 
 import { drawMarkerLayerSequence } from "./render/layerSequence";
-import type { DataType } from "@/features/base/dataPoints";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import {
   AircraftLayer,
@@ -545,6 +548,7 @@ const protocolState: RenderProtocolState = {
 let dataPort: MessagePort | null = null;
 
 const renderLayerCatalog = new RenderLayerCatalog();
+const selectionController = new RenderSelectionController();
 const aircraftLayer = new AircraftLayer();
 const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
@@ -598,6 +602,33 @@ function postInteraction(payload: RenderInteractionPayload): void {
     type: RenderMessageType.Interaction,
     payload,
   });
+}
+
+function selectionIdentity(): RenderSelectionIdentity | null {
+  return selectionController.snapshot().identity;
+}
+
+function selectedInteractionId(): string | null {
+  return selectionIdentity()?.interactionId ?? null;
+}
+
+function selectedPresentationItem(): SelectedRenderItem | null {
+  const selectedId = selectedInteractionId();
+  const item = _presentation?.selectedItem;
+  return selectedId !== null && item?.id === selectedId
+    ? item
+    : null;
+}
+
+function commitCanvasSelection(
+  identity: RenderSelectionIdentity | null,
+): void {
+  if (!selectionController.set(identity)) return;
+  postInteraction({
+    kind: RenderInteractionKind.Selection,
+    selection: selectionController.snapshot(),
+  });
+  scheduleRender();
 }
 
 function postCursor(cursor: CursorInteraction): void {
@@ -674,13 +705,23 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
   ]);
 }
 function selectedCameraPosition(): CameraPosition | null {
-  const selected = _presentation?.selectedItem;
-  if (!selected) return null;
-  const interpolated = getInterp(selected.id);
+  const identity = selectionIdentity();
+  if (!identity) return null;
+  const target = renderLayerCatalog.selectionTarget(
+    identity.source,
+    identity.interactionId,
+  );
+  if (!target) return null;
+  const selected = selectedPresentationItem();
+  const interpolated = selected
+    ? getInterp(selected.id)
+    : null;
   return {
-    id: selected.id,
-    latitude: interpolated?.lat ?? selected.lat,
-    longitude: interpolated?.lon ?? selected.lon,
+    id: identity.interactionId,
+    latitude:
+      interpolated?.lat ?? target.latitude,
+    longitude:
+      interpolated?.lon ?? target.longitude,
   };
 }
 
@@ -858,6 +899,12 @@ function handlePresentation(payload: RenderPresentationPayload): void {
   _presentation = payload;
 }
 
+function handleSelection(
+  identity: RenderSelectionIdentity | null,
+): void {
+  selectionController.set(identity);
+}
+
 function dispatchRenderCommand(msg: RenderWorkerCommand): void {
   switch (msg.type) {
     case RenderMessageType.Init:
@@ -871,6 +918,9 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
       break;
     case RenderMessageType.Presentation:
       handlePresentation(msg.payload);
+      break;
+    case RenderMessageType.Selection:
+      handleSelection(msg.payload);
       break;
     case RenderMessageType.Focus:
       handleFocus(msg);
@@ -890,12 +940,13 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
 // ── Render everything ───────────────────────────────────────────────
 
 
-type PointHit = CameraPosition &
-  Readonly<{
-    distance: number;
-    kind: SceneHitKind;
-    pointType: DataType;
-  }>;
+type PointHit = Readonly<{
+  distance: number;
+  identity: RenderSelectionIdentity;
+  kind: SceneHitKind;
+  latitude: number;
+  longitude: number;
+}>;
 
 function nearestScenePoint(
   x: number,
@@ -911,12 +962,11 @@ function nearestScenePoint(
   );
   if (!result) return null;
   return {
-    id: result.interactionId,
+    identity: result.identity,
     latitude: result.hit.latitude,
     longitude: result.hit.longitude,
     distance: result.hit.distance,
     kind: result.hit.kind,
-    pointType: result.pointType,
   };
 }
 
@@ -930,12 +980,11 @@ function areaAt(x: number, y: number): PointHit | null {
   );
   if (!result) return null;
   return {
-    id: result.interactionId,
+    identity: result.identity,
     latitude: result.hit.latitude,
     longitude: result.hit.longitude,
     distance: result.hit.distance,
     kind: result.hit.kind,
-    pointType: result.pointType,
   };
 }
 
@@ -1034,7 +1083,7 @@ function segmentDistance(
 }
 
 function selectedRouteContains(x: number, y: number): boolean {
-  const route = _presentation?.selectedItem?.route;
+  const route = selectedPresentationItem()?.route;
   const project = currentProjection();
   if (!route || route.length < 2 || !project) return false;
   let previous: Projected | null = null;
@@ -1172,23 +1221,19 @@ function handlePointerClick(click: CameraClick): void {
 
   if (point && !trailTarget) {
     clearTrailTooltip();
-    postInteraction({
-      kind: RenderInteractionKind.Selection,
-      id: point.id,
-      pointType: point.pointType,
-    });
+    commitCanvasSelection(point.identity);
     if (_presentation) {
       lockCamera(
         _camera,
         _cameraTarget,
-        point.id,
+        point.identity.interactionId,
         _presentation.flat,
       );
     }
     _lastClickTime = now;
-    _lastClickId = point.id;
+    _lastClickId = point.identity.interactionId;
     _lastClickPosition = {
-      id: point.id,
+      id: point.identity.interactionId,
       latitude: point.latitude,
       longitude: point.longitude,
     };
@@ -1211,17 +1256,9 @@ function handlePointerClick(click: CameraClick): void {
   clearTrailTooltip();
   const area = areaAt(click.x, click.y);
   if (area) {
-    postInteraction({
-      kind: RenderInteractionKind.Selection,
-      id: area.id,
-      pointType: area.pointType,
-    });
+    commitCanvasSelection(area.identity);
   } else if (!selectedRouteContains(click.x, click.y)) {
-    postInteraction({
-      kind: RenderInteractionKind.Selection,
-      id: null,
-      pointType: null,
-    });
+    commitCanvasSelection(null);
   }
   resetClickMemory();
 }
@@ -1261,7 +1298,7 @@ function handlePointerHover(x: number, y: number): void {
 }
 
 function updateSelectedSide(): void {
-  const selectedId = _presentation?.selectedId;
+  const selectedId = selectedInteractionId();
   if (
     !selectedId ||
     !_viewport ||
@@ -1694,10 +1731,11 @@ type ProjectedFrame = Readonly<{
  */
 function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   const p = options.presentation;
-  const { isolatedId: isoId, selectedId: selId, isolateMode: isoMode } = p;
+  const { isolatedId: isoId, isolateMode: isoMode } = p;
+  const selectedItem = selectedPresentationItem();
   const isolatedType =
-    isoId && selId
-      ? p.selectedItem?.type ?? null
+    isoId && selectedItem?.id === isoId
+      ? selectedItem.type
       : null;
   const searchSet = p.searchMatchIds ? new Set(p.searchMatchIds) : null;
   const base = sceneProjectionBase(
@@ -1769,18 +1807,18 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   };
 }
 
-/**
- * Where the selection landed this frame, for the side-of-screen readout. The
- * typed aircraft scene wins over the legacy point when both resolve.
- */
+/** Locate the selected scene record for the side-of-screen readout. */
 function updateSelectedProjection(
-  selectedId: string | null,
+  selection: RenderSelectionIdentity | null,
 ): void {
   _hasSelectedProjection = false;
-  if (selectedId === null) return;
+  if (selection === null) return;
 
   const sceneProjection =
-    renderLayerCatalog.selectionAnchor(selectedId);
+    renderLayerCatalog.selectionAnchor(
+      selection.source,
+      selection.interactionId,
+    );
   if (sceneProjection) {
     _hasSelectedProjection = true;
     _selectedProjectionX = sceneProjection.x;
@@ -1830,12 +1868,13 @@ function renderFrame(): void {
   const cam = cameraSnapshot(_camera);
   const wallTime = Date.now();
   const t = wallTime * 0.003;
-  const selId = p.selectedId;
+  const selection = selectionIdentity();
+  const selId = selection?.interactionId ?? null;
   const isoId = p.isolatedId;
   const isoMode = p.isolateMode;
   const { layers } = p;
 
-  const selectedItem = p.selectedItem;
+  const selectedItem = selectedPresentationItem();
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
   const { light, landAlpha, gridAlpha, glowAlpha, milColor, reconColor, colorMap } =
@@ -1877,7 +1916,7 @@ function renderFrame(): void {
     isolatedType,
     aircraftSceneFilter,
   } = projected;
-  updateSelectedProjection(selId);
+  updateSelectedProjection(selection);
 
   drawAreaOverlays({
     context: ctx,
@@ -1995,7 +2034,7 @@ function renderFrame(): void {
 
   scheduleNextFrameIfNeeded(
     p.prefersReducedMotion,
-    p.selectedId !== null,
+    selection !== null,
     cameraActive,
   );
 }

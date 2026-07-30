@@ -31,7 +31,7 @@ function isForecastData(
 ): value is CycloneForecastPointData {
   return (
     isRecord(value) &&
-    typeof value.parentStormId === "string" &&
+    typeof value.parentEntityId === "string" &&
     typeof value.parentName === "string" &&
     isNhcBasin(value.parentBasin) &&
     typeof value.fcstHour === "number" &&
@@ -78,7 +78,7 @@ export function cycloneForecastPoint(
     lon: forecast.lon,
     timestamp: forecast.validTime,
     data: {
-      parentStormId: cyclone.data.stormId,
+      parentEntityId: cyclone.id,
       parentName: cyclone.data.name,
       parentBasin: cyclone.data.basin,
       fcstHour: forecast.fcstHour,

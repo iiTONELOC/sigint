@@ -6,11 +6,12 @@ import type {
   TrackMotion,
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
+import type { RenderSourceId } from "@/workers/data/sourceIds";
 import type { MilFilter } from "@shared/domain/aircraft";
 import type { MinCategory } from "@/features/environmental/cyclones/types";
 
 export enum RenderProtocolVersion {
-  Current = 2,
+  Current = 3,
 }
 
 export enum RenderMessageType {
@@ -20,6 +21,7 @@ export enum RenderMessageType {
   Presentation = "presentation",
   Input = "input",
   Focus = "focus",
+  Selection = "selection",
   Dispose = "dispose",
   Ready = "ready",
   DataChannelReady = "dataChannelReady",
@@ -127,6 +129,18 @@ export enum IsolateMode {
 
 export type SelectedIsolateMode = IsolateMode | null;
 
+export type RenderSelectionIdentity = Readonly<{
+  source: RenderSourceId;
+  entityId: string;
+  interactionId: string;
+  pointType: DataType;
+}>;
+
+export type RenderSelectionSnapshot = Readonly<{
+  revision: number;
+  identity: RenderSelectionIdentity | null;
+}>;
+
 export type RenderCamera = Readonly<{
   zoomFlat: number;
   zoomGlobe: number;
@@ -166,7 +180,6 @@ export type RenderPresentationPayload = Readonly<{
   flat: boolean;
   autoRotate: boolean;
   rotationSpeed: number;
-  selectedId: string | null;
   isolatedId: string | null;
   isolateMode: SelectedIsolateMode;
   layers: Readonly<Record<string, boolean | undefined>>;
@@ -227,8 +240,7 @@ export type RenderInteractionPayload =
     }>
   | Readonly<{
       kind: RenderInteractionKind.Selection;
-      id: string | null;
-      pointType: DataType | null;
+      selection: RenderSelectionSnapshot;
     }>
   | Readonly<{ kind: RenderInteractionKind.RawCanvasClick }>
   | Readonly<{
@@ -277,6 +289,10 @@ export type RenderWorkerCommandBody =
   | Readonly<{
       type: RenderMessageType.Focus;
       payload: RenderFocusPayload;
+    }>
+  | Readonly<{
+      type: RenderMessageType.Selection;
+      payload: RenderSelectionIdentity | null;
     }>
   | Readonly<{ type: RenderMessageType.Dispose }>;
 

@@ -1,4 +1,7 @@
-import type { DataType } from "@/features/base/dataPoints";
+import type {
+  DataPoint,
+  DataType,
+} from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
@@ -136,4 +139,10 @@ export function sourceForPointType(
 ): RenderSourceId | null {
   if (pointType === null) return null;
   return SOURCE_BY_POINT_TYPE.get(pointType as DataType) ?? null;
+}
+
+export function canonicalEntityId(point: DataPoint): string {
+  return point.type === Domain.CyclonesForecast
+    ? point.data.parentEntityId
+    : point.id;
 }

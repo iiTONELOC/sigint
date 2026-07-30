@@ -24,7 +24,10 @@ import {
   type SceneSourceCommandBody,
 } from "@/workers/render/sceneProtocol";
 import { Domain } from "@shared/domain/identity";
-import { testCycloneScenePoint } from "../_support/cyclone";
+import {
+  TEST_CYCLONE_FORECAST,
+  testCycloneScenePoint,
+} from "../_support/cyclone";
 
 enum TestProjection {
   Width = 400,
@@ -169,11 +172,23 @@ describe("cyclone scene layer", () => {
       10,
     );
     expect(hit?.sceneId).toBe(forecastId);
-    expect(hit ? layer.interactionId(hit) : null).toBe(forecastId);
-    expect(hit ? layer.interactionPointType(hit) : null).toBe(
-      Domain.CyclonesForecast,
-    );
+    expect(hit ? layer.interactionIdentity(hit) : null).toEqual({
+      source: Domain.Cyclones,
+      entityId: point.id,
+      interactionId: forecastId,
+      pointType: Domain.CyclonesForecast,
+    });
     expect(layer.selectionAnchor(forecastId)).not.toBeNull();
+    expect(layer.selectionTarget(forecastId)).toEqual({
+      identity: {
+        source: Domain.Cyclones,
+        entityId: point.id,
+        interactionId: forecastId,
+        pointType: Domain.CyclonesForecast,
+      },
+      latitude: TEST_CYCLONE_FORECAST.lat,
+      longitude: TEST_CYCLONE_FORECAST.lon,
+    });
 
     const records: DrawRecord = { fills: [], strokes: [] };
     layer.draw({

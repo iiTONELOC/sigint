@@ -7,6 +7,7 @@ import {
 import {
   RenderLayerOrder,
   type RenderLayer,
+  type RenderLayerSelectionTarget,
 } from "@/workers/render/scene/sceneLayer";
 import type {
   SceneHit,
@@ -39,12 +40,13 @@ class ProbeLayer implements RenderLayer {
     return false;
   }
 
-  interactionId(hit: SceneHit): string {
-    return hit.entityId;
-  }
-
-  interactionPointType(): Domain.Aircraft | Domain.Ships {
-    return this.source;
+  interactionIdentity(hit: SceneHit) {
+    return {
+      source: this.source,
+      entityId: hit.entityId,
+      interactionId: hit.entityId,
+      pointType: this.source,
+    };
   }
 
   nearest(kind: SceneHitKind): SceneHit {
@@ -63,6 +65,20 @@ class ProbeLayer implements RenderLayer {
     return entityId === this.source
       ? { x: 1, y: 2, depth: 1 }
       : null;
+  }
+
+  selectionTarget(id: string): RenderLayerSelectionTarget | null {
+    if (id !== this.source) return null;
+    return {
+      identity: {
+        source: this.source,
+        entityId: id,
+        interactionId: id,
+        pointType: this.source,
+      },
+      latitude: 0,
+      longitude: 0,
+    };
   }
 }
 
@@ -103,14 +119,31 @@ describe("RenderLayerCatalog", () => {
     expect(ships.applied).toBe(0);
     expect(
       catalog.nearest(SceneHitKind.Point, 0, 0, 10, 10)
-        ?.source,
+        ?.identity.source,
     ).toBe(
       Domain.Aircraft,
     );
-    expect(catalog.selectionAnchor(Domain.Ships)).toEqual({
+    expect(
+      catalog.selectionAnchor(Domain.Ships, Domain.Ships),
+    ).toEqual({
       x: 1,
       y: 2,
       depth: 1,
+    });
+    expect(
+      catalog.selectionAnchor(Domain.Aircraft, Domain.Ships),
+    ).toBeNull();
+    expect(
+      catalog.selectionTarget(Domain.Ships, Domain.Ships),
+    ).toEqual({
+      identity: {
+        source: Domain.Ships,
+        entityId: Domain.Ships,
+        interactionId: Domain.Ships,
+        pointType: Domain.Ships,
+      },
+      latitude: 0,
+      longitude: 0,
     });
   });
 

@@ -7,6 +7,7 @@ import {
   RenderMessageType,
   RenderProtocolVersion,
 } from "@/workers/render/protocol";
+import { Domain } from "@shared/domain/identity";
 
 describe("render surface session", () => {
   test("owns one increasing command sequence", () => {
@@ -23,6 +24,15 @@ describe("render surface session", () => {
       type: RenderMessageType.Viewport,
       payload: { width: 800, height: 600, devicePixelRatio: 2 },
     });
+    sender.send({
+      type: RenderMessageType.Selection,
+      payload: {
+        source: Domain.Aircraft,
+        entityId: "aircraft-a",
+        interactionId: "aircraft-a",
+        pointType: Domain.Aircraft,
+      },
+    });
 
     expect(messages).toEqual([
       {
@@ -37,6 +47,18 @@ describe("render surface session", () => {
         sessionId: "session-a",
         sequence: 2,
         payload: { width: 800, height: 600, devicePixelRatio: 2 },
+      },
+      {
+        type: RenderMessageType.Selection,
+        protocolVersion: RenderProtocolVersion.Current,
+        sessionId: "session-a",
+        sequence: 3,
+        payload: {
+          source: Domain.Aircraft,
+          entityId: "aircraft-a",
+          interactionId: "aircraft-a",
+          pointType: Domain.Aircraft,
+        },
       },
     ]);
   });

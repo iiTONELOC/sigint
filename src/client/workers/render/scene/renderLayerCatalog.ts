@@ -6,9 +6,12 @@ import type {
 } from "@/workers/render/scene/projectedLayer";
 import type {
   RenderLayer,
+  RenderLayerSelectionTarget,
 } from "@/workers/render/scene/sceneLayer";
 import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
-import type { DataType } from "@/features/base/dataPoints";
+import type {
+  RenderSelectionIdentity,
+} from "@/workers/render/protocol";
 
 export enum RenderLayerCatalogErrorKind {
   DuplicateSource = "The render layer source is already registered",
@@ -30,10 +33,8 @@ export class RenderLayerCatalogError extends Error {
 }
 
 export type RenderLayerHit = Readonly<{
-  source: RenderSourceId;
   hit: SceneHit;
-  interactionId: string;
-  pointType: DataType;
+  identity: RenderSelectionIdentity;
 }>;
 
 export class RenderLayerCatalog {
@@ -81,22 +82,26 @@ export class RenderLayerCatalog {
         (!closest || hit.distance < closest.hit.distance)
       ) {
         closest = {
-          source: layer.source,
           hit,
-          interactionId: layer.interactionId(hit),
-          pointType: layer.interactionPointType(hit),
+          identity: layer.interactionIdentity(hit),
         };
       }
     }
     return closest;
   }
 
-  selectionAnchor(entityId: string): SceneProjection | null {
-    for (const layer of this.ordered) {
-      const anchor = layer.selectionAnchor(entityId);
-      if (anchor) return anchor;
-    }
-    return null;
+  selectionAnchor(
+    source: RenderSourceId,
+    entityId: string,
+  ): SceneProjection | null {
+    return this.bySource.get(source)?.selectionAnchor(entityId) ?? null;
+  }
+
+  selectionTarget(
+    source: RenderSourceId,
+    id: string,
+  ): RenderLayerSelectionTarget | null {
+    return this.bySource.get(source)?.selectionTarget(id) ?? null;
   }
 
   hasTimeAnimation(reducedMotion: boolean): boolean {

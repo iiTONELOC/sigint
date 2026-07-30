@@ -5,7 +5,6 @@ import {
   type RenderInteractionPayload,
 } from "@/workers/render/protocol";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
-import { sourceForPointType } from "@/workers/data/sources/registry";
 import {
   RENDER_SURFACE_INTERACTION_EVENT,
   RENDER_SURFACE_MIDDLE_CLICK_EVENT,
@@ -42,14 +41,17 @@ export function useSurfaceEvents({
       if (interaction.kind === RenderInteractionKind.Selection) {
         selectionRequest.current += 1;
         const request = selectionRequest.current;
-        if (!interaction.id) {
+        const identity = interaction.selection.identity;
+        if (!identity) {
           current.onSelect(null);
           return;
         }
-        const source = sourceForPointType(interaction.pointType);
         const dataClient = getDataWorkerClient();
-        if (!source || !dataClient) return;
-        void dataClient.getSourceEntity(source, interaction.id).then(
+        if (!dataClient) return;
+        void dataClient.getSourceEntity(
+          identity.source,
+          identity.interactionId,
+        ).then(
           (response) => {
             if (request !== selectionRequest.current) return;
             propsRef.current.onSelect(response.value ?? null);
@@ -99,6 +101,7 @@ export function useSurfaceEvents({
   }, [host]);
 
   useEffect(() => {
+    selectionRequest.current += 1;
     setTooltip(null);
   }, [props.selected?.id]);
 
