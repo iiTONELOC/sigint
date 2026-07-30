@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
+import {
+  CycloneFixture,
+  installDefaultMocks,
+  mockCyclones,
+} from "./helpers/fixtures";
 import { waitForCanvasFirstFrame } from "./helpers/canvas";
 import { axeScan } from "./helpers/axe";
 
@@ -15,11 +19,9 @@ test.describe("boot sequence", () => {
     });
 
     await installDefaultMocks(page);
-    await mockCyclones(page, "empty-out-of-season");
+    await mockCyclones(page, CycloneFixture.EmptyOutOfSeason);
     await page.goto("/");
-    await waitForCanvasFirstFrame(page);
-
-    const canvas = page.locator("canvas").first();
+    const canvas = await waitForCanvasFirstFrame(page);
     await expect(canvas).toBeVisible();
 
     // Filter known-benign messages: SW updates, autoplay nags, 404s for
@@ -27,7 +29,7 @@ test.describe("boot sequence", () => {
     // services (ships/fires/news/events). The Playwright webServer
     // doesn't load AISSTREAM_API_KEY / FIRMS_MAP_KEY etc., so those
     // routes correctly return 503. The UI renders an "offline" indicator
-    // for each — that's the right user-facing behaviour, just not
+    // for each. That is the right user-facing behavior, but not
     // something we want flagged as a boot regression.
     const real = consoleErrors.filter(
       (m) =>
@@ -43,7 +45,7 @@ test.describe("boot sequence", () => {
 
   test("initial render passes WCAG 2.2 AA (axe)", async ({ page }) => {
     await installDefaultMocks(page);
-    await mockCyclones(page, "empty-out-of-season");
+    await mockCyclones(page, CycloneFixture.EmptyOutOfSeason);
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
 
