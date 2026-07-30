@@ -5,7 +5,7 @@ import type { TrailObservation } from "@/lib/geo/trails/trailStore";
 
 export type TrackedPoint = Extract<
   DataPoint,
-  { type: Domain.Aircraft | "ships" }
+  { type: Domain.Aircraft | Domain.Ships }
 >;
 
 function observedAt(timestamp: string | undefined): number | null {
@@ -15,13 +15,15 @@ function observedAt(timestamp: string | undefined): number | null {
 }
 
 function course(point: TrackedPoint): number | undefined {
-  return point.type === "ships"
+  return point.type === Domain.Ships
     ? point.data.cog ?? point.data.heading
     : point.data.heading;
 }
 
 function altitude(point: TrackedPoint): number | undefined {
-  return point.type === "aircraft" ? point.data.altitude : undefined;
+  return point.type === Domain.Aircraft
+    ? point.data.altitude
+    : undefined;
 }
 
 /** Positions a track carries this poll, in the shape the recorder wants. */

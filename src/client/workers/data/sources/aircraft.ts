@@ -1,7 +1,3 @@
-import type { AircraftData } from "@/features/tracking/aircraft/types";
-import { Domain } from "@shared/domain/identity";
-import { SquawkStatus } from "@shared/domain/aircraft";
-import { SourceCompleteness } from "@shared/source";
 import {
   AIRCRAFT_BOOLEAN_FIELDS as BOOLEAN_FIELDS,
   AIRCRAFT_NUMBER_FIELDS as NUMBER_FIELDS,
@@ -11,18 +7,24 @@ import {
   type AircraftPoint,
 } from "@/features/tracking/aircraft/data/codec";
 import { fetchAircraftSnapshot } from "@/features/tracking/aircraft/data/parseAdsbV2";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
-import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
-import { recordPosition } from "@/workers/data/source-model/position";
+import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
+import type { AircraftData } from "@/features/tracking/aircraft/types";
 import {
-  createPointSourceRuntime,
-  type PointSourceCacheSnapshot,
-  type PointSourceFetchSnapshot,
-  type PointSourceRuntime,
-} from "@/workers/data/sourceRuntime";
-import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
+  SceneBinding,
+  type ScenePatchPublisher,
+} from "@/workers/data/render-codecs/sceneBinding";
+import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  EntityLifetime,
+  GeoCarrier,
+  GeoDataSource,
+  GeoMotion,
+  type SourcePatchObserver,
+  type SourcePolicy,
+} from "@/workers/data/source-model/dataSource";
+import { recordPosition } from "@/workers/data/source-model/position";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import {
   AircraftSceneAttribute,
   AircraftSceneFlag,
@@ -30,24 +32,17 @@ import {
   AircraftSceneSquawk,
   AircraftSceneStringAttribute,
 } from "@/workers/render/scene/aircraftSchema";
+import { SquawkStatus } from "@shared/domain/aircraft";
+import { Domain } from "@shared/domain/identity";
+import { SourceCompleteness } from "@shared/source";
 
 export { isAircraftPoint, parseAircraftCache, type AircraftPoint };
 
 export const AIRCRAFT_SOURCE = getPointSourceDefinition(Domain.Aircraft);
 
-export type AircraftSourceRuntime = PointSourceRuntime<AircraftPoint> &
-  Readonly<{ publishRebase: () => void }>;
-
-export type AircraftSourceRuntimeOptions = Readonly<{
-  readCache: () => Promise<unknown>;
-  persistCache: (
-    snapshot: PointSourceCacheSnapshot<AircraftPoint>,
-  ) => Promise<void>;
+export type AircraftSourceOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<AircraftPoint>>;
-  publishStatus: (status: DataWorkerSourceSnapshot) => void;
-  publishScene: (patch: SceneSourcePatch) => void;
-  /** Every entity this poll added or moved, for the trail recorder. */
-  observe?: (points: readonly AircraftPoint[]) => void;
+  patchObservers?: readonly SourcePatchObserver<AircraftPoint>[];
 }>;
 
 function arraysEqual(
@@ -132,51 +127,65 @@ async function fetchLiveAircraft(): Promise<
   };
 }
 
-export function createAircraftSourceRuntime(
-  options: AircraftSourceRuntimeOptions,
-): AircraftSourceRuntime {
-  const codec = new ScenePatchCodec<AircraftPoint>({
-    source: AIRCRAFT_SOURCE.id,
-    attributeStride: AircraftSceneSchema.AttributeStride,
-    stringAttributeStride: AircraftSceneSchema.StringAttributeStride,
-    position: recordPosition,
-    timestamp: aircraftTimestamp,
-    writeAttributes: (point, target, offset) => {
-      target[offset + AircraftSceneAttribute.Heading] =
-        point.data.heading ?? 0;
-      target[offset + AircraftSceneAttribute.Flags] =
-        aircraftFlags(point.data);
-      target[offset + AircraftSceneAttribute.Squawk] =
-        squawkCode(point.data.squawkStatus);
-    },
-    writeStringAttributes: (point, target, offset, intern) => {
-      target[offset + AircraftSceneStringAttribute.Country] =
-        intern(point.data.originCountry ?? "");
-    },
-  });
+export class AircraftSource extends GeoDataSource<AircraftPoint> {
+  readonly policy: SourcePolicy = AIRCRAFT_SOURCE;
+  readonly carrier = GeoCarrier.Position;
+  readonly motion = GeoMotion.Moving;
+  readonly lifetime = EntityLifetime.Ephemeral;
+  readonly pointType = Domain.Aircraft;
+  readonly queries = AIRCRAFT_UI_QUERIES;
 
-  const runtime = createPointSourceRuntime<AircraftPoint>({
-    id: AIRCRAFT_SOURCE.id,
-    cacheKey: AIRCRAFT_SOURCE.cacheKey,
-    pollIntervalMs: AIRCRAFT_SOURCE.pollIntervalMs,
-    maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
-    hasChanged: aircraftChanged,
-    readCache: options.readCache,
-    parseCache: parseAircraftCache,
-    persistCache: options.persistCache,
-    fetchSnapshot: options.fetchSnapshot ?? fetchLiveAircraft,
-    publishStatus: options.publishStatus,
-    publishPatch: (patch) => {
-      options.observe?.(patch.upserts);
-      options.publishScene(codec.encode(patch));
-    },
-  });
+  private readonly fetchOverride:
+    | (() => Promise<PointSourceFetchSnapshot<AircraftPoint>>)
+    | null;
 
-  return {
-    ...runtime,
-    publishRebase(): void {
-      const patch = runtime.rebase();
-      if (patch) options.publishScene(codec.encode(patch));
-    },
-  };
+  constructor(options: AircraftSourceOptions = {}) {
+    super(options.patchObservers);
+    this.fetchOverride = options.fetchSnapshot ?? null;
+  }
+
+  protected parseCache(value: unknown): readonly AircraftPoint[] | null {
+    return parseAircraftCache(value);
+  }
+
+  protected fetchSnapshot(): Promise<
+    PointSourceFetchSnapshot<AircraftPoint>
+  > {
+    return this.fetchOverride?.() ?? fetchLiveAircraft();
+  }
+
+  protected hasChanged(
+    previous: AircraftPoint,
+    next: AircraftPoint,
+  ): boolean {
+    return aircraftChanged(previous, next);
+  }
+}
+
+export class AircraftSceneBinding extends SceneBinding<AircraftPoint> {
+  constructor(publishScene: ScenePatchPublisher) {
+    super(
+      new ScenePatchCodec<AircraftPoint>({
+        source: Domain.Aircraft,
+        attributeStride: AircraftSceneSchema.AttributeStride,
+        stringAttributeStride:
+          AircraftSceneSchema.StringAttributeStride,
+        position: recordPosition,
+        timestamp: aircraftTimestamp,
+        writeAttributes: (point, target, offset) => {
+          target[offset + AircraftSceneAttribute.Heading] =
+            point.data.heading ?? 0;
+          target[offset + AircraftSceneAttribute.Flags] =
+            aircraftFlags(point.data);
+          target[offset + AircraftSceneAttribute.Squawk] =
+            squawkCode(point.data.squawkStatus);
+        },
+        writeStringAttributes: (point, target, offset, intern) => {
+          target[offset + AircraftSceneStringAttribute.Country] =
+            intern(point.data.originCountry ?? "");
+        },
+      }),
+      publishScene,
+    );
+  }
 }

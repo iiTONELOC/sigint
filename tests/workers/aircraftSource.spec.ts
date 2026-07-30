@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import { type PointType } from "@shared/domain/pointType";
 import { SquawkStatus } from "@shared/domain/aircraft";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
-  createAircraftSourceRuntime,
+  AircraftSceneBinding,
+  AircraftSource,
   type AircraftPoint,
 } from "@/workers/data/sources/aircraft";
 
@@ -28,25 +28,30 @@ function aircraft(heading: number): AircraftPoint {
   };
 }
 
-describe("aircraft source runtime", () => {
+describe("AircraftSource", () => {
   test("publishes a typed rebase and omits an unchanged refresh", async () => {
     const scenePatches: SceneSourcePatch[] = [];
-    const runtime = createAircraftSourceRuntime({
-      readCache: async () => null,
-      persistCache: async () => undefined,
+    const binding = new AircraftSceneBinding((patch) => {
+      scenePatches.push(patch);
+    });
+    const source = new AircraftSource({
       fetchSnapshot: async () => ({
         completeness: SourceCompleteness.Complete,
         entities: [aircraft(90)],
         observedAt: 10,
       }),
+    });
+    source.attach({
+      readCache: async () => null,
+      persistCache: () => undefined,
       publishStatus: () => undefined,
-      publishScene: (patch) => {
-        scenePatches.push(patch);
+      publishPatch: (patch) => {
+        binding.publish(patch);
       },
     });
 
-    await runtime.refresh();
-    await runtime.refresh();
+    await source.refresh();
+    await source.refresh();
 
     expect(scenePatches).toHaveLength(2);
     expect(scenePatches[0]?.kind).toBe(DatasetPatchKind.Rebase);

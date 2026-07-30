@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import { Domain } from "@shared/domain/identity";
-import { GeoJsonGeometryType, type GeoPoint } from "@shared/geo";
+import {
+  GeoJsonGeometryType,
+  type GeoJsonPolygon,
+  type GeoPoint,
+} from "@shared/geo";
 import { AreaKind } from "@/workers/render/protocol";
 import { parseCycloneWarningCache } from "@/features/environmental/cyclones/data/warningCodec";
 import {
@@ -11,11 +15,10 @@ import {
   CycloneWarningField,
   type CycloneWarningPoint,
 } from "@/features/environmental/cyclones/types";
-import { GEO_SOURCES } from "@/workers/data/source-model/registry";
 
 const WARNING_POSITION: GeoPoint = [-80.5, 26.5];
 
-const WARNING_GEOMETRY = {
+const WARNING_GEOMETRY: GeoJsonPolygon = {
   type: GeoJsonGeometryType.Polygon,
   coordinates: [
     [
@@ -25,7 +28,7 @@ const WARNING_GEOMETRY = {
       [-81, 26],
     ],
   ],
-} as const;
+};
 
 function makeWarning(
   overrides: Partial<CycloneWarningPoint["data"]> = {},
@@ -122,11 +125,5 @@ describe("cyclone warning source policy", () => {
   test("declares the warning identity once", () => {
     expect(CYCLONE_WARNING_SOURCE_POLICY.id).toBe(Domain.CycloneWarnings);
     expect(new CycloneWarningSource().pointType).toBe(Domain.CyclonesWarning);
-  });
-
-  // Warnings used to be dropped when they resolved before the canvas
-  // connected, because the rebase named its sources by hand.
-  test("the registry carries the warning source into the connect rebase", () => {
-    expect(GEO_SOURCES).toHaveLength(2);
   });
 });

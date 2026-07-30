@@ -4,7 +4,11 @@ import {
   ShipSceneAttribute,
   ShipSceneSchema,
 } from "@/workers/render/scene/shipSchema";
-import type { ProjectedSceneLayer } from "@/workers/render/scene/projectedLayer";
+import {
+  RenderLayerOrder,
+  ScenePointLayer,
+} from "@/workers/render/scene/sceneLayer";
+import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
 import {
   sceneRecordIsVisible,
   type SceneVisibilitySettings,
@@ -65,11 +69,10 @@ export function shipSceneIncludes(
 
 function drawShip(
   view: RenderSceneView,
-  layer: ProjectedSceneLayer,
+  projection: SceneProjection | null,
   index: number,
   style: ShipSceneStyle,
 ): void {
-  const projection = layer.projection(index);
   const entityId = view.entityIds[index];
   if (!projection || !entityId) return;
   const selected = entityId === style.selectedId;
@@ -141,13 +144,34 @@ function drawShip(
   }
 }
 
-export function drawShipScene(
-  view: RenderSceneView,
-  layer: ProjectedSceneLayer,
-  style: ShipSceneStyle,
-): void {
-  for (const index of layer.visibleIndices()) {
-    drawShip(view, layer, index, style);
+export class ShipLayer extends ScenePointLayer<
+  ShipSceneFilter,
+  ShipSceneStyle
+> {
+  readonly order = RenderLayerOrder.Ships;
+
+  constructor() {
+    super(Domain.Ships);
   }
-  style.context.globalAlpha = 1;
+
+  protected includes(
+    view: RenderSceneView,
+    index: number,
+    filter: ShipSceneFilter,
+  ): boolean {
+    return shipSceneIncludes(view, index, filter);
+  }
+
+  protected drawRecord(
+    view: RenderSceneView,
+    index: number,
+    style: ShipSceneStyle,
+  ): void {
+    drawShip(
+      view,
+      this.projection.projection(index),
+      index,
+      style,
+    );
+  }
 }

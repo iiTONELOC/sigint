@@ -6,18 +6,17 @@ import type { NewsArticle } from "@/features/news";
 import type { CorrelationResult, RegionBaseline } from "../correlation";
 import { computeCorrelations } from "../correlation";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
+import {
+  CorrelationWorkerLocation,
+  CorrelationWorkerMessageType,
+  type CorrelationWorkerResponse,
+} from "@/workers/correlation/protocol";
 
 type Job = {
   requestId: number;
   resolve: (r: CorrelationResult) => void;
   news: NewsArticle[];
   baseline: RegionBaseline;
-};
-
-type WorkerResponse = {
-  type: "result";
-  requestId: number;
-  result: CorrelationResult;
 };
 
 export type CorrelationClient = Readonly<{
@@ -48,8 +47,6 @@ function inlineFallback(): CorrelationClient {
   });
 }
 
-const WORKER_URL = "/workers/correlationWorker.js";
-
 export function createCorrelationClient(): CorrelationClient {
   if (typeof Worker === "undefined") return inlineFallback();
   if (
@@ -61,7 +58,9 @@ export function createCorrelationClient(): CorrelationClient {
 
   let worker: Worker;
   try {
-    worker = new Worker(WORKER_URL, { type: "module" });
+    worker = new Worker(CorrelationWorkerLocation.Script, {
+      type: "module",
+    });
   } catch {
     return inlineFallback();
   }
@@ -72,7 +71,7 @@ export function createCorrelationClient(): CorrelationClient {
     const correlationSessionId = globalThis.crypto.randomUUID();
     worker.postMessage(
       {
-        type: "bindData",
+        type: CorrelationWorkerMessageType.BindData,
         port: channel.port2,
         correlationSessionId,
       },
@@ -96,9 +95,9 @@ export function createCorrelationClient(): CorrelationClient {
     pending.clear();
   }
 
-  worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+  worker.onmessage = (e: MessageEvent<CorrelationWorkerResponse>) => {
     const msg = e.data;
-    if (msg?.type !== "result") return;
+    if (msg?.type !== CorrelationWorkerMessageType.Result) return;
     const job = pending.get(msg.requestId);
     if (!job) return;
     pending.delete(msg.requestId);
@@ -118,7 +117,7 @@ export function createCorrelationClient(): CorrelationClient {
         pending.set(requestId, { requestId, resolve, news, baseline });
         try {
           worker.postMessage({
-            type: "compute",
+            type: CorrelationWorkerMessageType.Compute,
             requestId,
             news,
             baseline,

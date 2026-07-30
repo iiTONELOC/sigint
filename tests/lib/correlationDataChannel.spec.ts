@@ -1,9 +1,9 @@
-import { type PointType } from "@shared/domain/pointType";
 import { Domain } from "@shared/domain/identity";
-import { type SourceId } from "@shared/source";
 import { describe, expect, test } from "bun:test";
 import {
   acceptCorrelationDataCommand,
+  CorrelationDataCommandType,
+  CorrelationDataProtocolVersion,
   createCorrelationDataCommand,
   parseCorrelationDataCommand,
   type CorrelationDataProtocolState,
@@ -13,7 +13,7 @@ describe("correlation data channel", () => {
   test("validates a complete source rebase", () => {
     const command = createCorrelationDataCommand(
       {
-        type: "sourceRebase",
+        type: CorrelationDataCommandType.SourceRebase,
         source: Domain.Fire,
         points: [
           {
@@ -35,7 +35,7 @@ describe("correlation data channel", () => {
   test("rejects a rebase whose points do not match its source", () => {
     const command = createCorrelationDataCommand(
       {
-        type: "sourceRebase",
+        type: CorrelationDataCommandType.SourceRebase,
         source: Domain.Ships,
         points: [
           {
@@ -57,10 +57,10 @@ describe("correlation data channel", () => {
   test("rejects an unknown source", () => {
     expect(
       parseCorrelationDataCommand({
-        protocolVersion: 2,
+        protocolVersion: CorrelationDataProtocolVersion.Current,
         sessionId: "correlation-session",
         sequence: 2,
-        type: "sourceRebase",
+        type: CorrelationDataCommandType.SourceRebase,
         source: "mystery",
         points: [],
       }),
@@ -73,7 +73,7 @@ describe("correlation data channel", () => {
       sequence: 0,
     };
     const command = createCorrelationDataCommand(
-      { type: "bind" },
+      { type: CorrelationDataCommandType.Bind },
       "correlation-session",
       1,
     );

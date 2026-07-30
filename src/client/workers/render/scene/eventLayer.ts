@@ -6,15 +6,14 @@ import type {
 } from "@/workers/render/primitives/markerVisuals";
 import { markerPulseIntensity } from "@/workers/render/primitives/markerVisuals";
 import {
-  ProjectedSceneLayer,
-  type SceneHit,
-  type SceneProjection,
-  type SceneProjectionFrame,
-} from "@/workers/render/scene/projectedLayer";
-import {
   EventSceneAttribute,
   EventSceneSchema,
 } from "@/workers/render/scene/eventSchema";
+import {
+  RenderLayerOrder,
+  ScenePointLayer,
+  type SceneLayerProjectionFrame,
+} from "@/workers/render/scene/sceneLayer";
 import {
   sceneRecordIsVisible,
   type SceneVisibilitySettings,
@@ -103,8 +102,6 @@ export type EventSceneStyle = Readonly<{
   zoomLevel: number;
 }>;
 
-type EventProjectionFrame = Omit<SceneProjectionFrame, "includes">;
-
 function severityAt(
   view: RenderSceneView,
   index: number,
@@ -185,7 +182,12 @@ export function eventSceneIncludes(
   );
 }
 
-export class EventLayer {
+export class EventLayer extends ScenePointLayer<
+  EventSceneFilter,
+  EventSceneStyle
+> {
+  readonly order = RenderLayerOrder.Events;
+
   private readonly glow: MarkerGlow = {
     idSliceFrom: EventGlowTuning.IdSliceFrom,
     rate: EventGlowTuning.Rate,
@@ -197,27 +199,23 @@ export class EventLayer {
     glowMul: EventGlowTuning.AlphaMultiplier,
   };
 
-  private readonly projection = new ProjectedSceneLayer();
   private readonly visuals: MarkerVisualRenderer;
   private animated = false;
-  private view: RenderSceneView | null = null;
 
   constructor(visuals: MarkerVisualRenderer) {
+    super(Domain.Events);
     this.visuals = visuals;
   }
 
-  project(
-    view: RenderSceneView,
-    frame: EventProjectionFrame,
+  override project(
+    frame: SceneLayerProjectionFrame,
     filter: EventSceneFilter,
   ): void {
-    this.view = view;
-    this.projection.project(view, {
-      ...frame,
-      includes: (index) => eventSceneIncludes(view, index, filter),
-    });
+    super.project(frame, filter);
+    const view = this.view;
     this.animated = false;
-    for (const index of this.projection.visibleIndices()) {
+    if (!view) return;
+    for (const index of this.visibleIndices()) {
       if (severityAt(view, index) >= EventSeverity.Tension) {
         this.animated = true;
         return;
@@ -225,44 +223,19 @@ export class EventLayer {
     }
   }
 
-  draw(style: EventSceneStyle): void {
-    const view = this.view;
-    if (!view) return;
-    for (const index of this.projection.visibleIndices()) {
-      this.drawRecord(view, index, style);
-    }
-  }
-
-  nearest(
-    x: number,
-    y: number,
-    radius: number,
-    maximumCandidates: number,
-  ): SceneHit | null {
-    return this.projection.nearest(
-      x,
-      y,
-      radius,
-      maximumCandidates,
-    );
-  }
-
-  selectionAnchor(entityId: string): SceneProjection | null {
-    const view = this.view;
-    if (!view) return null;
-    for (const index of this.projection.visibleIndices()) {
-      if (view.entityIds[index] === entityId) {
-        return this.projection.projection(index);
-      }
-    }
-    return null;
-  }
-
-  hasTimeAnimation(reducedMotion: boolean): boolean {
+  override hasTimeAnimation(reducedMotion: boolean): boolean {
     return !reducedMotion && this.animated;
   }
 
-  private drawRecord(
+  protected includes(
+    view: RenderSceneView,
+    index: number,
+    filter: EventSceneFilter,
+  ): boolean {
+    return eventSceneIncludes(view, index, filter);
+  }
+
+  protected drawRecord(
     view: RenderSceneView,
     index: number,
     style: EventSceneStyle,

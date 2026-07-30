@@ -11,7 +11,10 @@ import {
 } from "@/features/environmental/fires/data/source";
 import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
 import { CYCLONE_WARNING_SOURCE_POLICY } from "@/features/environmental/cyclones/warningSource";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import {
+  CACHE_KEYS,
+  type CacheKey,
+} from "@/lib/cache/cacheKeys";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { EVENT_SOURCE_POLICY } from "@/workers/data/sources/events";
 import {
@@ -21,7 +24,7 @@ import {
 
 export type PointSourcePolicy = Readonly<{
   pointType: DataType;
-  cacheKey: string;
+  cacheKey: CacheKey;
   pollIntervalMs: number;
   completeness: SourceCompletenessPolicy;
   emptyResultIsComplete: boolean;
@@ -78,14 +81,14 @@ const POINT_SOURCE_POLICIES: Readonly<
   },
   [Domain.Earthquake]: {
     pointType: Domain.Quakes,
-    cacheKey: EARTHQUAKE_SOURCE_POLICY.cacheKey,
+    cacheKey: CACHE_KEYS.earthquake,
     pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
   [Domain.Fire]: {
     pointType: Domain.Fires,
-    cacheKey: FIRE_SOURCE_POLICY.cacheKey,
+    cacheKey: CACHE_KEYS.fires,
     pollIntervalMs: FIRE_SOURCE_POLICY.pollIntervalMs,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,

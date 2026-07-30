@@ -2,6 +2,7 @@ import { mkdir, rm } from "fs/promises";
 
 export enum TestInstant {
   EventSceneNow = 1_800_000_000_000,
+  TrailNow = 1_000_000,
 }
 
 export async function mkTmpDir(prefix: string): Promise<string> {

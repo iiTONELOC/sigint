@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { TestInstant } from "../_support";
+import { Domain } from "../../src/shared/domain/identity";
+import { MS_PER_MINUTE } from "../../src/shared/time";
 import {
   TRAIL_POLICY,
   recordTrailPositions,
   type TrailEntry,
   type TrailObservation,
-  type TrackType,
+  type TrackSource,
 } from "../../src/client/lib/geo/trails/trailStore";
-
-const NOW = 1_000_000;
 
 function observation(
   id: string,
@@ -27,7 +28,7 @@ function observation(
 
 function record(
   trails: Map<string, TrailEntry>,
-  source: TrackType,
+  source: TrackSource,
   items: readonly TrailObservation[],
   now: number,
 ): boolean {
@@ -37,26 +38,38 @@ function record(
 describe("recordTrailPositions", () => {
   test("filters movement below the aircraft threshold", () => {
     const trails = new Map<string, TrailEntry>();
-    record(trails, "aircraft", [observation("A1", NOW)], NOW);
     record(
       trails,
-      "aircraft",
-      [observation("A1", NOW + 1, 40.0005)],
-      NOW + 1,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow)],
+      TestInstant.TrailNow,
+    );
+    record(
+      trails,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow + 1, 40.0005)],
+      TestInstant.TrailNow + 1,
     );
 
     expect(trails.get("A1")?.points).toHaveLength(1);
-    expect(trails.get("A1")?.lastSeen).toBe(NOW + 1);
+    expect(trails.get("A1")?.lastSeen).toBe(
+      TestInstant.TrailNow + 1,
+    );
   });
 
   test("records movement above the aircraft threshold", () => {
     const trails = new Map<string, TrailEntry>();
-    record(trails, "aircraft", [observation("A1", NOW)], NOW);
     record(
       trails,
-      "aircraft",
-      [observation("A1", NOW + 1, 40.002)],
-      NOW + 1,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow)],
+      TestInstant.TrailNow,
+    );
+    record(
+      trails,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow + 1, 40.002)],
+      TestInstant.TrailNow + 1,
     );
 
     expect(trails.get("A1")?.points).toHaveLength(2);
@@ -64,22 +77,31 @@ describe("recordTrailPositions", () => {
 
   test("uses the production point cap", () => {
     const trails = new Map<string, TrailEntry>();
-    const count = TRAIL_POLICY.aircraft.maxTrailPoints + 30;
+    const count =
+      TRAIL_POLICY[Domain.Aircraft].maxTrailPoints + 30;
     const observations = Array.from({ length: count }, (_, index) =>
       observation(
         "A1",
-        NOW + index,
-        40 + index * TRAIL_POLICY.aircraft.minMoveDeg * 2,
+        TestInstant.TrailNow + index,
+        40 +
+          index *
+            TRAIL_POLICY[Domain.Aircraft].minMoveDeg *
+            2,
       ),
     );
 
-    record(trails, "aircraft", observations, NOW + count);
+    record(
+      trails,
+      Domain.Aircraft,
+      observations,
+      TestInstant.TrailNow + count,
+    );
 
     expect(trails.get("A1")?.points).toHaveLength(
-      TRAIL_POLICY.aircraft.maxTrailPoints,
+      TRAIL_POLICY[Domain.Aircraft].maxTrailPoints,
     );
     expect(trails.get("A1")?.points.at(-1)?.ts).toBe(
-      NOW + count - 1,
+      TestInstant.TrailNow + count - 1,
     );
   });
 
@@ -87,29 +109,33 @@ describe("recordTrailPositions", () => {
     const trails = new Map<string, TrailEntry>();
     record(
       trails,
-      "aircraft",
-      [observation("A1", NOW + 10, 41)],
-      NOW + 10,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow + 10, 41)],
+      TestInstant.TrailNow + 10,
     );
     const changed = record(
       trails,
-      "aircraft",
-      [observation("A1", NOW + 5, 42)],
-      NOW + 10,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow + 5, 42)],
+      TestInstant.TrailNow + 10,
     );
 
     expect(changed).toBe(false);
     expect(trails.get("A1")?.points.at(-1)?.lat).toBe(41);
-    expect(trails.get("A1")?.lastSeen).toBe(NOW + 10);
+    expect(trails.get("A1")?.lastSeen).toBe(
+      TestInstant.TrailNow + 10,
+    );
   });
 
   test("does not create a trail from an already stale observation", () => {
     const trails = new Map<string, TrailEntry>();
     const changed = record(
       trails,
-      "aircraft",
-      [observation("A1", NOW)],
-      NOW + TRAIL_POLICY.aircraft.staleMs + 1,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow)],
+      TestInstant.TrailNow +
+        TRAIL_POLICY[Domain.Aircraft].staleMs +
+        1,
     );
 
     expect(changed).toBe(false);
@@ -118,14 +144,26 @@ describe("recordTrailPositions", () => {
 
   test("an empty source batch prunes only that source", () => {
     const trails = new Map<string, TrailEntry>();
-    record(trails, "aircraft", [observation("A1", NOW)], NOW);
-    record(trails, "ships", [observation("S1", NOW)], NOW);
+    record(
+      trails,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow)],
+      TestInstant.TrailNow,
+    );
+    record(
+      trails,
+      Domain.Ships,
+      [observation("S1", TestInstant.TrailNow)],
+      TestInstant.TrailNow,
+    );
 
     record(
       trails,
-      "aircraft",
+      Domain.Aircraft,
       [],
-      NOW + TRAIL_POLICY.aircraft.staleMs + 1,
+      TestInstant.TrailNow +
+        TRAIL_POLICY[Domain.Aircraft].staleMs +
+        1,
     );
 
     expect(trails.has("A1")).toBe(false);
@@ -136,12 +174,14 @@ describe("recordTrailPositions", () => {
     const trails = new Map<string, TrailEntry>();
     record(
       trails,
-      "aircraft",
-      [observation("A1", NOW + 60_000)],
-      NOW,
+      Domain.Aircraft,
+      [observation("A1", TestInstant.TrailNow + MS_PER_MINUTE)],
+      TestInstant.TrailNow,
     );
 
-    expect(trails.get("A1")?.lastSeen).toBe(NOW);
-    expect(trails.get("A1")?.points[0]?.ts).toBe(NOW);
+    expect(trails.get("A1")?.lastSeen).toBe(TestInstant.TrailNow);
+    expect(trails.get("A1")?.points[0]?.ts).toBe(
+      TestInstant.TrailNow,
+    );
   });
 });

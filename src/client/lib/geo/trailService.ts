@@ -7,16 +7,6 @@ import {
   type TrailPoint,
 } from "@/lib/geo/trails/trailStore";
 
-export type {
-  TrackMotion,
-  TrackType,
-  TrailEntry,
-  TrailObservation,
-  TrailPoint,
-} from "@/lib/geo/trails/trailStore";
-export { TRAIL_POLICY } from "@/lib/geo/trails/trailStore";
-
-// ── Watched track ────────────────────────────────────────────────────
 // The DataWorker records every track's history. The main thread only ever
 // draws one at a time (the selected item's polyline, the tracked item's
 // dead-reckoned position), so it mirrors exactly that one entry. Reads stay

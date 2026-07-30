@@ -1,13 +1,15 @@
-// ── trailService — initTrails merge contract ────────────────────────
+// trailService initTrails merge contract
 // Bug fix: `initTrails()` previously did `trails = cached`, replacing
 // the live Map and silently dropping any positions `recordPositions`
 // had already written during the boot race. The new contract MERGES
 // cached history into the live Map so both directions are preserved.
 //
 // These tests target the pure `mergeCachedTrails(live, cached)` helper
-// extracted from initTrails. No async, no IDB — just Map → Map math.
+// extracted from initTrails. No async or IDB, only Map to Map math.
 
 import { describe, test, expect } from "bun:test";
+import { Domain } from "../../src/shared/domain/identity";
+import { TestInstant } from "../_support";
 import {
   mergeCachedTrails,
   type TrailEntry,
@@ -19,7 +21,7 @@ function mkPoint(ts: number, lat = 0, lon = 0) {
 
 function mkEntry(
   points: Array<{ lat: number; lon: number; ts: number }>,
-  type: TrailEntry["type"] = "aircraft",
+  type: TrailEntry["type"] = Domain.Aircraft,
 ): TrailEntry {
   return {
     type,
@@ -35,7 +37,7 @@ describe("mergeCachedTrails", () => {
     const live = new Map<string, TrailEntry>();
     const cached = new Map<string, TrailEntry>([
       ["A1", mkEntry([mkPoint(100), mkPoint(200)])],
-      ["S2", mkEntry([mkPoint(150)], "ships")],
+      ["S2", mkEntry([mkPoint(150)], Domain.Ships)],
     ]);
 
     mergeCachedTrails(live, cached);
@@ -59,7 +61,7 @@ describe("mergeCachedTrails", () => {
   test("id present in both: cached points (older) prepended to live points", () => {
     // Live entry has one fresh point at ts=1000 (just-recorded during boot).
     // Cached has historical points at ts=100, 200, 300 (older).
-    // Expected result: [100, 200, 300, 1000] — full history preserved.
+    // Expected result: [100, 200, 300, 1000], full history preserved.
     const live = new Map<string, TrailEntry>([
       ["A1", mkEntry([mkPoint(1000)])],
     ]);
@@ -95,7 +97,7 @@ describe("mergeCachedTrails", () => {
 
   test("aircraft trail respects the production cap after merge", () => {
     const live = new Map<string, TrailEntry>([
-      ["A1", mkEntry([mkPoint(1_000_000)])],
+      ["A1", mkEntry([mkPoint(TestInstant.TrailNow)])],
     ]);
     const cachedPoints = Array.from({ length: 180 }, (_, index) =>
       mkPoint(index * 100),
@@ -106,19 +108,22 @@ describe("mergeCachedTrails", () => {
 
     const merged = live.get("A1")!.points;
     expect(merged.length).toBe(120);
-    expect(merged.at(-1)?.ts).toBe(1_000_000);
+    expect(merged.at(-1)?.ts).toBe(TestInstant.TrailNow);
     expect(merged[0]?.ts).toBe(61 * 100);
   });
 
   test("ships trail respects 500-point cap after merge", () => {
     const live = new Map<string, TrailEntry>([
-      ["S1", mkEntry([mkPoint(1_000_000)], "ships")],
+      [
+        "S1",
+        mkEntry([mkPoint(TestInstant.TrailNow)], Domain.Ships),
+      ],
     ]);
     const cachedPoints = Array.from({ length: 600 }, (_, i) =>
       mkPoint(i * 100),
     );
     const cached = new Map<string, TrailEntry>([
-      ["S1", mkEntry(cachedPoints, "ships")],
+      ["S1", mkEntry(cachedPoints, Domain.Ships)],
     ]);
 
     mergeCachedTrails(live, cached);
@@ -160,7 +165,7 @@ describe("mergeCachedTrails", () => {
   });
 
   test("live entry with empty points: cached entry replaces it", () => {
-    // Edge case — a live entry can theoretically have zero points if
+    // A live entry can theoretically have zero points if
     // recordPositions never appended (e.g. minMoveDeg gate). Treat as
     // "no live history" and use cached wholesale.
     const live = new Map<string, TrailEntry>([

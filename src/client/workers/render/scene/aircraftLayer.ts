@@ -7,11 +7,12 @@ import {
   AircraftSceneSquawk,
   AircraftSceneStringAttribute,
 } from "@/workers/render/scene/aircraftSchema";
-import type {
-  ProjectedSceneLayer,
-  SceneProjection,
-} from "@/workers/render/scene/projectedLayer";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
+import {
+  RenderLayerOrder,
+  ScenePointLayer,
+} from "@/workers/render/scene/sceneLayer";
 import {
   sceneRecordIsVisible,
   type SceneVisibilitySettings,
@@ -333,13 +334,34 @@ function drawMarker(
   }
 }
 
-export function drawAircraftScene(
-  view: RenderSceneView,
-  layer: ProjectedSceneLayer,
-  style: AircraftSceneStyle,
-): void {
-  for (const index of layer.visibleIndices()) {
-    drawMarker(view, layer.projection(index), index, style);
+export class AircraftLayer extends ScenePointLayer<
+  AircraftSceneFilter,
+  AircraftSceneStyle
+> {
+  readonly order = RenderLayerOrder.Aircraft;
+
+  constructor() {
+    super(Domain.Aircraft);
   }
-  style.context.globalAlpha = 1;
+
+  protected includes(
+    view: RenderSceneView,
+    index: number,
+    filter: AircraftSceneFilter,
+  ): boolean {
+    return aircraftSceneIncludes(view, index, filter);
+  }
+
+  protected drawRecord(
+    view: RenderSceneView,
+    index: number,
+    style: AircraftSceneStyle,
+  ): void {
+    drawMarker(
+      view,
+      this.projection.projection(index),
+      index,
+      style,
+    );
+  }
 }

@@ -6,18 +6,25 @@ import {
 } from "@/workers/data/queryableSources";
 import { isRecord } from "@shared/geo";
 
-export const CORRELATION_DATA_PROTOCOL_VERSION = 2 as const;
+export enum CorrelationDataProtocolVersion {
+  Current = 2,
+}
+
+export enum CorrelationDataCommandType {
+  Bind = "bind",
+  SourceRebase = "sourceRebase",
+}
 
 type CorrelationDataEnvelope = Readonly<{
-  protocolVersion: typeof CORRELATION_DATA_PROTOCOL_VERSION;
+  protocolVersion: CorrelationDataProtocolVersion;
   sessionId: string;
   sequence: number;
 }>;
 
 export type CorrelationDataCommandBody =
-  | Readonly<{ type: "bind" }>
+  | Readonly<{ type: CorrelationDataCommandType.Bind }>
   | Readonly<{
-      type: "sourceRebase";
+      type: CorrelationDataCommandType.SourceRebase;
       source: QueryableSourceId;
       points: readonly DataPoint[];
     }>;
@@ -43,7 +50,7 @@ export function createCorrelationDataCommand<
 ): T & CorrelationDataEnvelope {
   return {
     ...body,
-    protocolVersion: CORRELATION_DATA_PROTOCOL_VERSION,
+    protocolVersion: CorrelationDataProtocolVersion.Current,
     sessionId,
     sequence,
   };
@@ -53,7 +60,7 @@ function parseEnvelope(
   value: Record<string, unknown>,
 ): CorrelationDataEnvelope | null {
   if (
-    value.protocolVersion !== CORRELATION_DATA_PROTOCOL_VERSION ||
+    value.protocolVersion !== CorrelationDataProtocolVersion.Current ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
     typeof value.sequence !== "number" ||
@@ -63,7 +70,7 @@ function parseEnvelope(
     return null;
   }
   return {
-    protocolVersion: CORRELATION_DATA_PROTOCOL_VERSION,
+    protocolVersion: CorrelationDataProtocolVersion.Current,
     sessionId: value.sessionId,
     sequence: value.sequence,
   };
@@ -76,13 +83,23 @@ export function parseCorrelationDataCommand(
   const envelope = parseEnvelope(value);
   if (!envelope) return null;
 
-  if (value.type === "bind") return { ...envelope, type: "bind" };
-  if (value.type !== "sourceRebase" || !isQueryableSourceId(value.source)) {
+  if (value.type === CorrelationDataCommandType.Bind) {
+    return { ...envelope, type: CorrelationDataCommandType.Bind };
+  }
+  if (
+    value.type !== CorrelationDataCommandType.SourceRebase ||
+    !isQueryableSourceId(value.source)
+  ) {
     return null;
   }
   const points = parseQueryableSourceList(value.source, value.points);
   return points
-    ? { ...envelope, type: "sourceRebase", source: value.source, points }
+    ? {
+        ...envelope,
+        type: CorrelationDataCommandType.SourceRebase,
+        source: value.source,
+        points,
+      }
     : null;
 }
 

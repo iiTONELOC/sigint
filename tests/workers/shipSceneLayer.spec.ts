@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ShipLayer,
   shipSceneIncludes,
   type ShipSceneFilter,
 } from "@/workers/render/scene/shipLayer";
@@ -7,6 +8,7 @@ import { ShipSceneSchema } from "@/workers/render/scene/shipSchema";
 import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { Domain } from "@shared/domain/identity";
+import { sceneRebaseCommand } from "../_support/scene";
 
 const view = {
   capacity: 1,
@@ -32,6 +34,30 @@ const base = {
 } satisfies ShipSceneFilter;
 
 describe("ship scene layer", () => {
+  test("owns scene storage, projection, and hit resolution", () => {
+    const layer = new ShipLayer();
+    layer.apply(sceneRebaseCommand(Domain.Ships, view));
+    layer.project(
+      {
+        width: 200,
+        height: 200,
+        hitCellSize: 32,
+        cullMargin: 0,
+        flat: {
+          centerX: 100,
+          centerY: 100,
+          mapWidth: 360,
+          mapHeight: 180,
+        },
+        globe: null,
+      },
+      base,
+    );
+
+    expect(layer.nearest(100, 100, 10, 10)?.entityId).toBe("S123");
+    expect(layer.includesEntity("S123", base)).toBe(true);
+  });
+
   test("applies source, search, and isolation visibility", () => {
     expect(shipSceneIncludes(view, 0, base)).toBe(true);
     expect(

@@ -1,47 +1,42 @@
-import { Domain } from "@shared/domain/identity";
-import {
-  fetchShipSnapshot,
-  type ShipFetchSnapshot,
-} from "@/features/tracking/ships/data/fetch";
+import { parsePointList } from "@/features/base/pointCodec";
 import {
   isShipPoint,
   SHIP_NUMBER_FIELDS,
   SHIP_STRING_FIELDS,
   type ShipPoint,
 } from "@/features/tracking/ships/data/codec";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
-import { parsePointList } from "@/features/base/pointCodec";
-import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
-import { recordPosition } from "@/workers/data/source-model/position";
 import {
-  createPointSourceRuntime,
-  type PointSourceCacheSnapshot,
-  type PointSourceFetchSnapshot,
-  type PointSourceRuntime,
-} from "@/workers/data/sourceRuntime";
+  fetchShipSnapshot,
+  type ShipFetchSnapshot,
+} from "@/features/tracking/ships/data/fetch";
+import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
+import {
+  SceneBinding,
+  type ScenePatchPublisher,
+} from "@/workers/data/render-codecs/sceneBinding";
+import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  EntityLifetime,
+  GeoCarrier,
+  GeoDataSource,
+  GeoMotion,
+  type SourcePatchObserver,
+  type SourcePolicy,
+} from "@/workers/data/source-model/dataSource";
+import { recordPosition } from "@/workers/data/source-model/position";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import {
   ShipSceneAttribute,
   ShipSceneSchema,
 } from "@/workers/render/scene/shipSchema";
-import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
+import { Domain } from "@shared/domain/identity";
 
 export const SHIP_SOURCE = getPointSourceDefinition(Domain.Ships);
 
-export type ShipSourceRuntime = PointSourceRuntime<ShipPoint> &
-  Readonly<{ publishRebase: () => void }>;
-
-export type ShipSourceRuntimeOptions = Readonly<{
-  readCache: () => Promise<unknown>;
-  persistCache: (
-    snapshot: PointSourceCacheSnapshot<ShipPoint>,
-  ) => Promise<void>;
+export type ShipSourceOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<ShipPoint>>;
-  publishStatus: (status: DataWorkerSourceSnapshot) => void;
-  publishScene: (patch: SceneSourcePatch) => void;
-  /** Every entity this poll added or moved, for the trail recorder. */
-  observe?: (points: readonly ShipPoint[]) => void;
+  patchObservers?: readonly SourcePatchObserver<ShipPoint>[];
 }>;
 
 export function parseShipCache(
@@ -79,42 +74,60 @@ function normalizeSnapshot(
   return snapshot;
 }
 
-export function createShipSourceRuntime(
-  options: ShipSourceRuntimeOptions,
-): ShipSourceRuntime {
-  const codec = new ScenePatchCodec<ShipPoint>({
-    source: SHIP_SOURCE.id,
-    attributeStride: ShipSceneSchema.AttributeStride,
-    position: recordPosition,
-    timestamp: shipTimestamp,
-    writeAttributes: (point, target, offset) => {
-      target[offset + ShipSceneAttribute.Heading] =
-        point.data.heading ?? 0;
-    },
-  });
-  const runtime = createPointSourceRuntime<ShipPoint>({
-    id: SHIP_SOURCE.id,
-    cacheKey: SHIP_SOURCE.cacheKey,
-    pollIntervalMs: SHIP_SOURCE.pollIntervalMs,
-    maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
-    hasChanged: shipChanged,
-    readCache: options.readCache,
-    parseCache: parseShipCache,
-    persistCache: options.persistCache,
-    fetchSnapshot:
-      options.fetchSnapshot ??
-      (async () => normalizeSnapshot(await fetchShipSnapshot())),
-    publishStatus: options.publishStatus,
-    publishPatch: (patch) => {
-      options.observe?.(patch.upserts);
-      options.publishScene(codec.encode(patch));
-    },
-  });
-  return {
-    ...runtime,
-    publishRebase(): void {
-      const patch = runtime.rebase();
-      if (patch) options.publishScene(codec.encode(patch));
-    },
-  };
+async function fetchLiveShips(): Promise<
+  PointSourceFetchSnapshot<ShipPoint>
+> {
+  return normalizeSnapshot(await fetchShipSnapshot());
+}
+
+export class ShipSource extends GeoDataSource<ShipPoint> {
+  readonly policy: SourcePolicy = SHIP_SOURCE;
+  readonly carrier = GeoCarrier.Position;
+  readonly motion = GeoMotion.Moving;
+  readonly lifetime = EntityLifetime.Ephemeral;
+  readonly pointType = Domain.Ships;
+  readonly queries = SHIP_UI_QUERIES;
+
+  private readonly fetchOverride:
+    | (() => Promise<PointSourceFetchSnapshot<ShipPoint>>)
+    | null;
+
+  constructor(options: ShipSourceOptions = {}) {
+    super(options.patchObservers);
+    this.fetchOverride = options.fetchSnapshot ?? null;
+  }
+
+  protected parseCache(value: unknown): readonly ShipPoint[] | null {
+    return parseShipCache(value);
+  }
+
+  protected fetchSnapshot(): Promise<PointSourceFetchSnapshot<ShipPoint>> {
+    return this.fetchOverride?.() ?? fetchLiveShips();
+  }
+
+  protected hasChanged(
+    previous: ShipPoint,
+    next: ShipPoint,
+  ): boolean {
+    return shipChanged(previous, next);
+  }
+}
+
+export class ShipSceneBinding extends SceneBinding<ShipPoint> {
+  constructor(publishScene: ScenePatchPublisher) {
+    super(
+      new ScenePatchCodec<ShipPoint>({
+        source: Domain.Ships,
+        attributeStride: ShipSceneSchema.AttributeStride,
+        stringAttributeStride: ShipSceneSchema.StringAttributeStride,
+        position: recordPosition,
+        timestamp: shipTimestamp,
+        writeAttributes: (point, target, offset) => {
+          target[offset + ShipSceneAttribute.Heading] =
+            point.data.heading ?? 0;
+        },
+      }),
+      publishScene,
+    );
+  }
 }

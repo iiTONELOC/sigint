@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import { type PointType } from "@shared/domain/pointType";
 import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
 import {
-  createShipSourceRuntime,
-  type ShipSourceRuntimeOptions,
+  ShipSceneBinding,
+  ShipSource,
 } from "@/workers/data/sources/ships";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";
 
@@ -24,26 +23,30 @@ function ship(heading: number): ShipPoint {
   };
 }
 
-describe("ship source runtime", () => {
+describe("ShipSource", () => {
   test("publishes a typed rebase and omits an unchanged refresh", async () => {
     const patches: SceneSourcePatch[] = [];
-    const options = {
-      readCache: async () => null,
-      persistCache: async () => undefined,
+    const binding = new ShipSceneBinding((patch) => {
+      patches.push(patch);
+    });
+    const source = new ShipSource({
       fetchSnapshot: async () => ({
         completeness: SourceCompleteness.Complete,
         entities: [ship(45)],
         observedAt: 10,
       }),
+    });
+    source.attach({
+      readCache: async () => null,
+      persistCache: () => undefined,
       publishStatus: () => undefined,
-      publishScene: (patch) => {
-        patches.push(patch);
+      publishPatch: (patch) => {
+        binding.publish(patch);
       },
-    } satisfies ShipSourceRuntimeOptions;
-    const runtime = createShipSourceRuntime(options);
+    });
 
-    await runtime.refresh();
-    await runtime.refresh();
+    await source.refresh();
+    await source.refresh();
 
     expect(patches).toHaveLength(2);
     expect(Array.from(patches[0]?.attributes ?? [])).toEqual([45]);

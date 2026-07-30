@@ -1,6 +1,16 @@
-import { isRecord } from "@shared/geo";
+import { Domain } from "@shared/domain/identity";
+import {
+  DEGREES_TO_RADIANS,
+  EARTH_RADIUS_METERS,
+  isRecord,
+} from "@shared/geo";
+import {
+  MS_PER_HOUR,
+  MS_PER_MINUTE,
+  MS_PER_SECOND,
+} from "@shared/time";
 
-export type TrackType = "aircraft" | "ships";
+export type TrackSource = Domain.Aircraft | Domain.Ships;
 
 type TrailPolicy = Readonly<{
   minMoveDeg: number;
@@ -9,18 +19,18 @@ type TrailPolicy = Readonly<{
   maxExtrapolationMs: number;
 }>;
 
-export const TRAIL_POLICY: Readonly<Record<TrackType, TrailPolicy>> = {
-  aircraft: {
+export const TRAIL_POLICY: Readonly<Record<TrackSource, TrailPolicy>> = {
+  [Domain.Aircraft]: {
     minMoveDeg: 0.001,
     maxTrailPoints: 120,
-    staleMs: 900_000,
-    maxExtrapolationMs: 600_000,
+    staleMs: 15 * MS_PER_MINUTE,
+    maxExtrapolationMs: 10 * MS_PER_MINUTE,
   },
-  ships: {
+  [Domain.Ships]: {
     minMoveDeg: 0.0002,
     maxTrailPoints: 500,
-    staleMs: 3_600_000,
-    maxExtrapolationMs: 1_800_000,
+    staleMs: MS_PER_HOUR,
+    maxExtrapolationMs: 30 * MS_PER_MINUTE,
   },
 };
 
@@ -34,7 +44,7 @@ export type TrailPoint = {
 };
 
 export type TrailEntry = {
-  type: TrackType;
+  type: TrackSource;
   points: TrailPoint[];
   lastSeen: number;
   heading: number;
@@ -52,9 +62,8 @@ export type TrailObservation = {
   speed?: number;
 };
 
-export function legacyTrackType(id: string): TrackType {
-  // Old cache entries lacked an owner discriminator.
-  return id.startsWith("S") ? "ships" : "aircraft";
+function isTrackSource(value: unknown): value is TrackSource {
+  return value === Domain.Aircraft || value === Domain.Ships;
 }
 
 // ── Parse ────────────────────────────────────────────────────────────
@@ -80,19 +89,18 @@ function numberOr(value: unknown, fallback: number): number {
 }
 
 /**
- * One validator for both the persisted cache and the worker reply. `id` only
- * supplies the track type for cache entries written before it was recorded.
+ * One validator for both the persisted cache and the worker reply.
  */
-export function parseTrailEntry(
-  id: string,
-  value: unknown,
-): TrailEntry | null {
-  if (!isRecord(value) || !isTrailPointArray(value.points)) return null;
+export function parseTrailEntry(value: unknown): TrailEntry | null {
+  if (
+    !isRecord(value) ||
+    !isTrailPointArray(value.points) ||
+    !isTrackSource(value.type)
+  ) {
+    return null;
+  }
   return {
-    type:
-      value.type === "aircraft" || value.type === "ships"
-        ? value.type
-        : legacyTrackType(id),
+    type: value.type,
     points: value.points,
     lastSeen: numberOr(value.lastSeen, 0),
     heading: numberOr(value.heading, 0),
@@ -156,7 +164,7 @@ function trailPoint(item: TrailObservation, ts: number): TrailPoint {
 }
 
 function newEntry(
-  source: TrackType,
+  source: TrackSource,
   item: TrailObservation,
   observedAt: number,
 ): TrailEntry {
@@ -201,7 +209,7 @@ function extendEntry(
 
 function recordOne(
   target: Map<string, TrailEntry>,
-  source: TrackType,
+  source: TrackSource,
   item: TrailObservation,
   now: number,
   policy: TrailPolicy,
@@ -221,7 +229,7 @@ function recordOne(
 
 function pruneStale(
   target: Map<string, TrailEntry>,
-  source: TrackType,
+  source: TrackSource,
   now: number,
   policy: TrailPolicy,
 ): boolean {
@@ -237,7 +245,7 @@ function pruneStale(
 
 export function recordTrailPositions(
   target: Map<string, TrailEntry>,
-  source: TrackType,
+  source: TrackSource,
   items: readonly TrailObservation[],
   now: number,
 ): boolean {
@@ -251,9 +259,6 @@ export function recordTrailPositions(
 
 // ── Dead reckoning ───────────────────────────────────────────────────
 
-const DEG = Math.PI / 180;
-const EARTH_R = 6_371_000;
-const MS_PER_SECOND = 1_000;
 const MIN_EXTRAPOLATION_MS = MS_PER_SECOND;
 
 function movePoint(
@@ -262,10 +267,15 @@ function movePoint(
   headingDeg: number,
   distMeters: number,
 ): { lat: number; lon: number } {
-  const hdg = headingDeg * DEG;
-  const dLat = (distMeters * Math.cos(hdg)) / EARTH_R / DEG;
+  const hdg = headingDeg * DEGREES_TO_RADIANS;
+  const dLat =
+    (distMeters * Math.cos(hdg)) /
+    EARTH_RADIUS_METERS /
+    DEGREES_TO_RADIANS;
   const dLon =
-    (distMeters * Math.sin(hdg)) / (EARTH_R * Math.cos(lat * DEG)) / DEG;
+    (distMeters * Math.sin(hdg)) /
+    (EARTH_RADIUS_METERS * Math.cos(lat * DEGREES_TO_RADIANS)) /
+    DEGREES_TO_RADIANS;
   return { lat: lat + dLat, lon: lon + dLon };
 }
 

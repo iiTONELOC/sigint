@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { Domain } from "../../src/shared/domain/identity";
+import { TestInstant } from "../_support";
 import {
   recordTrailPositions,
   type TrailEntry,
   type TrailObservation,
 } from "../../src/client/lib/geo/trails/trailStore";
 
-const NOW = 1_000_000;
-
 function ship(index: number): TrailObservation {
   return {
     id: `S${index}`,
     lat: (index % 90) - 45,
     lon: (index % 180) - 90,
-    observedAt: NOW,
+    observedAt: TestInstant.TrailNow,
     heading: 0,
     speedMps: 5,
   };
@@ -23,22 +23,29 @@ describe("trail source ownership", () => {
     const trails = new Map<string, TrailEntry>();
     recordTrailPositions(
       trails,
-      "aircraft",
+      Domain.Aircraft,
       [{
         id: "Aplane",
         lat: 40,
         lon: -74,
-        observedAt: NOW,
+        observedAt: TestInstant.TrailNow,
         heading: 90,
         speedMps: 250,
       }],
-      NOW,
+      TestInstant.TrailNow,
     );
 
     const ships = Array.from({ length: 10_050 }, (_, index) => ship(index));
-    recordTrailPositions(trails, "ships", ships, NOW + 1);
+    recordTrailPositions(
+      trails,
+      Domain.Ships,
+      ships,
+      TestInstant.TrailNow + 1,
+    );
 
-    expect(trails.get("Aplane")?.lastSeen).toBe(NOW);
+    expect(trails.get("Aplane")?.lastSeen).toBe(
+      TestInstant.TrailNow,
+    );
     expect(trails.get("Aplane")?.points).toHaveLength(1);
   });
 });

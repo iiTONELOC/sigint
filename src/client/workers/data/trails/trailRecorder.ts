@@ -4,16 +4,20 @@ import {
   mergeCachedTrails,
   parseTrailEntry,
   recordTrailPositions,
-  type TrackType,
+  type TrackSource,
   type TrailEntry,
   type TrailObservation,
 } from "@/lib/geo/trails/trailStore";
 import { isRecord } from "@shared/geo";
+import { MS_PER_SECOND } from "@shared/time";
 
-export const TRAIL_RECORDER_POLICY = {
+export const TRAIL_RECORDER_POLICY: Readonly<{
+  cacheKey: typeof CACHE_KEYS.trails;
+  persistIntervalMs: number;
+}> = {
   cacheKey: CACHE_KEYS.trails,
-  persistIntervalMs: 10_000,
-} as const;
+  persistIntervalMs: 10 * MS_PER_SECOND,
+};
 
 export type TrailRecorderOptions = Readonly<{
   readCache: () => Promise<unknown>;
@@ -24,7 +28,7 @@ export type TrailRecorderOptions = Readonly<{
 export type TrailRecorder = Readonly<{
   hydrate: () => Promise<void>;
   observe: (
-    source: TrackType,
+    source: TrackSource,
     observations: readonly TrailObservation[],
   ) => void;
   get: (id: string) => TrailEntry | null;
@@ -34,7 +38,7 @@ function parseCache(value: unknown): Map<string, TrailEntry> {
   const map = new Map<string, TrailEntry>();
   if (!isRecord(value)) return map;
   for (const [id, entry] of Object.entries(value)) {
-    const parsed = parseTrailEntry(id, entry);
+    const parsed = parseTrailEntry(entry);
     if (parsed) map.set(id, parsed);
   }
   return map;
@@ -73,7 +77,7 @@ export function createTrailRecorder(
     },
 
     observe(
-      source: TrackType,
+      source: TrackSource,
       observations: readonly TrailObservation[],
     ): void {
       const at = now();

@@ -2,12 +2,12 @@ import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/da
 import { Domain } from "@shared/domain/identity";
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import {
-  AIRCRAFT_SOURCE,
-  createAircraftSourceRuntime,
+  AircraftSceneBinding,
+  AircraftSource,
 } from "@/workers/data/sources/aircraft";
 import {
-  SHIP_SOURCE,
-  createShipSourceRuntime,
+  ShipSceneBinding,
+  ShipSource,
 } from "@/workers/data/sources/ships";
 import {
   EVENT_SOURCE_POLICY,
@@ -15,7 +15,6 @@ import {
 } from "@/workers/data/sources/events";
 import {
   cycloneWarningSource,
-  GEO_SOURCES,
   weatherAlertSource,
 } from "@/workers/data/source-model/registry";
 import {
@@ -28,12 +27,13 @@ import {
   TRAIL_RECORDER_POLICY,
   createTrailRecorder,
 } from "@/workers/data/trails/trailRecorder";
+import { ObservedTrailBinding } from "@/workers/data/trails/observedTrailBinding";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
-  createSourceAnswers,
   findQueryableSearchIds,
   QUERYABLE_SOURCE_IDS,
 } from "@/workers/data/queryableSources";
+import { SourceCatalog } from "@/workers/data/sourceCatalog";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
@@ -59,7 +59,10 @@ import {
   type LegacyPointSourceId,
 } from "@/workers/render/dataChannel";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { createCorrelationDataCommand } from "@/workers/correlation/dataChannel";
+import {
+  CorrelationDataCommandType,
+  createCorrelationDataCommand,
+} from "@/workers/correlation/dataChannel";
 
 type CommandOf<TType extends DataWorkerMessageType> = Extract<
   DataWorkerCommand,
@@ -73,6 +76,13 @@ enum DataWorkerError {
 
 const store = createDataCacheStore(indexedDB);
 const scenePublisher = new ScenePublisher();
+const sourceCatalog = new SourceCatalog();
+const aircraftSceneBinding = new AircraftSceneBinding((patch) => {
+  scenePublisher.publish(patch);
+});
+const shipSceneBinding = new ShipSceneBinding((patch) => {
+  scenePublisher.publish(patch);
+});
 const eventSceneBinding = new EventSceneBinding((patch) => {
   scenePublisher.publish(patch);
 });
@@ -117,11 +127,15 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
  */
 function rebaseCorrelation(source: string): void {
   if (!correlationPort || !correlationSessionId) return;
-  if (!isOwnedSource(source)) return;
+  if (!sourceCatalog.has(source)) return;
   correlationSequence++;
   correlationPort.postMessage(
     createCorrelationDataCommand(
-      { type: "sourceRebase", source, points: sourceOwners[source].values() },
+      {
+        type: CorrelationDataCommandType.SourceRebase,
+        source,
+        points: sourceCatalog.values(source),
+      },
       correlationSessionId,
       correlationSequence,
     ),
@@ -135,17 +149,23 @@ const trailRecorder = createTrailRecorder({
   },
 });
 
-const aircraftOwner = createAircraftSourceRuntime({
-  readCache: () => store.get(AIRCRAFT_SOURCE.cacheKey),
-  persistCache: async (snapshot) => {
-    coordinator.setDeferred(AIRCRAFT_SOURCE.cacheKey, snapshot);
+const aircraftOwner = new AircraftSource({
+  patchObservers: [
+    new ObservedTrailBinding(
+      Domain.Aircraft,
+      trailRecorder,
+      trailObservations,
+    ),
+  ],
+});
+aircraftOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishScene: (patch) => {
-    scenePublisher.publish(patch);
-  },
-  observe: (points) => {
-    trailRecorder.observe("aircraft", trailObservations(points));
+  publishPatch: (patch) => {
+    aircraftSceneBinding.publish(patch);
   },
 });
 
@@ -236,17 +256,23 @@ const fireOwner = createFireSourceOwner({
   publishRebase: rebaseFireRender,
 });
 
-const shipOwner = createShipSourceRuntime({
-  readCache: () => store.get(SHIP_SOURCE.cacheKey),
-  persistCache: async (snapshot) => {
-    coordinator.setDeferred(SHIP_SOURCE.cacheKey, snapshot);
+const shipOwner = new ShipSource({
+  patchObservers: [
+    new ObservedTrailBinding(
+      Domain.Ships,
+      trailRecorder,
+      trailObservations,
+    ),
+  ],
+});
+shipOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishScene: (patch) => {
-    scenePublisher.publish(patch);
-  },
-  observe: (points) => {
-    trailRecorder.observe("ships", trailObservations(points));
+  publishPatch: (patch) => {
+    shipSceneBinding.publish(patch);
   },
 });
 
@@ -314,37 +340,46 @@ cycloneWarningOwner.attach({
   },
 });
 
-const sourceOwners = {
-  [Domain.Aircraft]: aircraftOwner,
-  [Domain.CycloneWarnings]: cycloneWarningOwner,
-  [Domain.Cyclones]: cycloneOwner,
-  [Domain.Earthquake]: earthquakeOwner,
-  [Domain.Events]: eventOwner,
-  [Domain.Fire]: fireOwner,
-  [Domain.Ships]: shipOwner,
-  [Domain.Weather]: weatherOwner,
-};
-
-// One line per source; each binds its codec to its owner where both types
-// are concrete, which is what keeps the handlers branch-free.
-const sourceAnswers = {
-  [Domain.Aircraft]: createSourceAnswers(Domain.Aircraft, aircraftOwner),
-  [Domain.Cyclones]: createSourceAnswers(Domain.Cyclones, cycloneOwner),
-  [Domain.CycloneWarnings]: createSourceAnswers(
-    Domain.CycloneWarnings,
-    cycloneWarningOwner,
-  ),
-  [Domain.Earthquake]: createSourceAnswers(
-    Domain.Earthquake,
-    earthquakeOwner,
-  ),
-  [Domain.Events]: createSourceAnswers(Domain.Events, eventOwner),
-  [Domain.Fire]: createSourceAnswers(Domain.Fire, fireOwner),
-  [Domain.Ships]: createSourceAnswers(Domain.Ships, shipOwner),
-  [Domain.Weather]: createSourceAnswers(Domain.Weather, weatherOwner),
-};
-
-type OwnedSourceId = keyof typeof sourceOwners;
+sourceCatalog.register(
+  Domain.Aircraft,
+  aircraftOwner,
+  () => aircraftOwner.publishRebase(),
+);
+sourceCatalog.register(
+  Domain.CycloneWarnings,
+  cycloneWarningOwner,
+  () => cycloneWarningOwner.publishRebase(),
+);
+sourceCatalog.register(
+  Domain.Cyclones,
+  cycloneOwner,
+  () => cycloneOwner.publishRebase(),
+);
+sourceCatalog.register(
+  Domain.Earthquake,
+  earthquakeOwner,
+  () => rebaseEarthquakeRender(earthquakeOwner.values()),
+);
+sourceCatalog.register(
+  Domain.Events,
+  eventOwner,
+  () => eventOwner.publishRebase(),
+);
+sourceCatalog.register(
+  Domain.Fire,
+  fireOwner,
+  () => rebaseFireRender(fireOwner.values()),
+);
+sourceCatalog.register(
+  Domain.Ships,
+  shipOwner,
+  () => shipOwner.publishRebase(),
+);
+sourceCatalog.register(
+  Domain.Weather,
+  weatherOwner,
+  () => weatherOwner.publishRebase(),
+);
 
 type InactiveSourceError = Error & Readonly<{ source: string }>;
 
@@ -352,10 +387,6 @@ function inactiveSourceError(source: string): InactiveSourceError {
   return Object.assign(new Error(DataWorkerError.InactiveSource), {
     source,
   });
-}
-
-function isOwnedSource(value: string): value is OwnedSourceId {
-  return value in sourceOwners;
 }
 
 function complete(requestId: number | null): void {
@@ -384,12 +415,7 @@ async function startOwners(): Promise<void> {
   // Before any source patch lands, so cached history is merged under the
   // live points rather than written over by the first poll.
   await trailRecorder.hydrate();
-  await Promise.all(
-    Object.values(sourceOwners).map(async (owner) => {
-      await owner.hydrate();
-      await owner.start();
-    }),
-  );
+  await sourceCatalog.startAll();
 }
 
 async function handleInit(
@@ -415,13 +441,7 @@ function handleConnectRender(
   renderPort.start();
   postRenderData({ type: RenderDataCommandType.Bind });
   scenePublisher.connect(renderPort, renderSessionId);
-  aircraftOwner.publishRebase();
-  shipOwner.publishRebase();
-  eventOwner.publishRebase();
-  cycloneOwner.publishRebase();
-  for (const source of GEO_SOURCES) source.publishRebase();
-  rebaseEarthquakeRender(earthquakeOwner.values());
-  rebaseFireRender(fireOwner.values());
+  sourceCatalog.publishRenderRebases();
   complete(command.requestId);
 }
 
@@ -436,7 +456,7 @@ function handleConnectCorrelation(
   correlationSequence++;
   correlationPort.postMessage(
     createCorrelationDataCommand(
-      { type: "bind" },
+      { type: CorrelationDataCommandType.Bind },
       correlationSessionId,
       correlationSequence,
     ),
@@ -451,24 +471,24 @@ function handleConnectCorrelation(
 async function handleRefreshSource(
   command: CommandOf<DataWorkerMessageType.RefreshSource>,
 ): Promise<void> {
-  if (!isOwnedSource(command.source)) {
+  if (!sourceCatalog.has(command.source)) {
     throw inactiveSourceError(command.source);
   }
-  await sourceOwners[command.source].refresh();
+  await sourceCatalog.refresh(command.source);
   complete(command.requestId);
 }
 
 function handleListSourceEntities(
   command: CommandOf<DataWorkerMessageType.ListSourceEntities>,
 ): void {
-  if (!isOwnedSource(command.source)) {
+  if (!sourceCatalog.has(command.source)) {
     throw inactiveSourceError(command.source);
   }
   post({
     type: DataWorkerMessageType.Value,
     protocolVersion: DataWorkerProtocolVersion.Current,
     requestId: command.requestId,
-    value: sourceOwners[command.source].values(),
+    value: sourceCatalog.values(command.source),
   });
 }
 
@@ -486,7 +506,8 @@ function envelopeFor(requestId: number | null): DataWorkerEnvelope {
 function handleGetSourceEntity(
   command: CommandOf<DataWorkerMessageType.GetSourceEntity>,
 ): void {
-  const event = sourceAnswers[command.source].entity(
+  const event = sourceCatalog.entity(
+    command.source,
     envelopeFor(command.requestId),
     command.id,
   );
@@ -496,7 +517,8 @@ function handleGetSourceEntity(
 function handleQuerySource(
   command: CommandOf<DataWorkerMessageType.QuerySource>,
 ): void {
-  const event = sourceAnswers[command.source].query(
+  const event = sourceCatalog.query(
+    command.source,
     envelopeFor(command.requestId),
     command.query,
   );

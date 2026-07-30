@@ -8,6 +8,7 @@ import {
 import {
   MS_PER_DAY,
   MS_PER_HOUR,
+  MS_PER_SECOND,
 } from "@shared/time";
 import {
   recordLatitude,
@@ -76,30 +77,22 @@ import { orderPointsByLayer } from "./render/layerOrder";
 import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { DataType } from "@/features/base/dataPoints";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
-import { SceneStore } from "./render/sceneStore";
 import {
-  aircraftSceneIncludes,
-  drawAircraftScene,
+  AircraftLayer,
   type AircraftSceneFilter,
 } from "./render/scene/aircraftLayer";
 import {
-  ProjectedSceneLayer,
-} from "./render/scene/projectedLayer";
-import {
-  drawShipScene,
-  shipSceneIncludes,
+  ShipLayer,
   type ShipSceneFilter,
 } from "./render/scene/shipLayer";
 import { EventLayer } from "./render/scene/eventLayer";
+import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
 import { drawSelectionRing } from "./render/primitives/selectionRing";
 import {
   MarkerVisuals,
   markerPulseIntensity,
 } from "./render/primitives/markerVisuals";
-import {
-  RENDER_SOURCE_IDS,
-  type RenderSourceId,
-} from "./data/sourceIds";
+import { pointTypeForSource } from "./data/sources/registry";
 import { drawWarnings, type WarningFeature } from "./render/warnings";
 import {
   parseSceneDataCommand,
@@ -186,6 +179,7 @@ enum FlatCoordinateLabel {
 // ── Interpolation ───────────────────────────────────────────────────
 
 type TrailEntry = Readonly<{
+  source: Domain.Aircraft | Domain.Ships;
   timestamp: number;
   speedMetersPerSecond: number;
   motion: GeographicMotion;
@@ -195,12 +189,11 @@ const markerVisuals = new MarkerVisuals();
 let trailMap = new Map<string, TrailEntry>();
 
 function interpolationSeconds(
-  id: string,
   entry: TrailEntry,
 ): number | null {
   if (entry.speedMetersPerSecond <= 0) return null;
   const elapsedMilliseconds = Date.now() - entry.timestamp;
-  const limit = id.startsWith("S")
+  const limit = entry.source === Domain.Ships
     ? RENDER_POLICY.shipInterpolationLimitMs
     : RENDER_POLICY.aircraftInterpolationLimitMs;
   if (
@@ -209,13 +202,13 @@ function interpolationSeconds(
   ) {
     return null;
   }
-  return elapsedMilliseconds / 1_000;
+  return elapsedMilliseconds / MS_PER_SECOND;
 }
 
 function getInterp(id: string): { lat: number; lon: number } | null {
   const entry = trailMap.get(id);
   if (!entry) return null;
-  const elapsedSeconds = interpolationSeconds(id, entry);
+  const elapsedSeconds = interpolationSeconds(entry);
   if (elapsedSeconds === null) return null;
   const position = advanceGeographicMotion(entry.motion, elapsedSeconds);
   return { lat: position.latitude, lon: position.longitude };
@@ -677,26 +670,13 @@ const protocolState: RenderProtocolState = {
 
 let dataPort: MessagePort | null = null;
 
-const aircraftSceneStore = new SceneStore(Domain.Aircraft);
-const aircraftProjection = new ProjectedSceneLayer();
-const shipSceneStore = new SceneStore(Domain.Ships);
-const shipProjection = new ProjectedSceneLayer();
-const eventSceneStore = new SceneStore(Domain.Events);
+const renderLayerCatalog = new RenderLayerCatalog();
+const aircraftLayer = new AircraftLayer();
+const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
-
-function createTypedSceneStore(source: RenderSourceId): SceneStore {
-  if (source === Domain.Aircraft) return aircraftSceneStore;
-  if (source === Domain.Ships) return shipSceneStore;
-  if (source === Domain.Events) return eventSceneStore;
-  return new SceneStore(source);
-}
-
-const typedScenes = new Map(
-  RENDER_SOURCE_IDS.map((source) => [
-    source,
-    createTypedSceneStore(source),
-  ]),
-);
+renderLayerCatalog.register(aircraftLayer);
+renderLayerCatalog.register(shipLayer);
+renderLayerCatalog.register(eventLayer);
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
@@ -729,9 +709,7 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
     ) {
       return;
     }
-    const sceneStore = typedScenes.get(sceneCommand.source);
-    if (!sceneStore) return;
-    sceneStore.apply(sceneCommand);
+    if (!renderLayerCatalog.apply(sceneCommand)) return;
     scheduleRender();
   };
   port.start();
@@ -800,7 +778,11 @@ function scheduleRender(): void {
  */
 function setSelectedMotion(item: SelectedRenderItem | null): void {
   const motion = item?.motion;
-  if (!item || !motion) {
+  if (
+    !item ||
+    !motion ||
+    (item.type !== Domain.Aircraft && item.type !== Domain.Ships)
+  ) {
     if (trailMap.size > 0) trailMap = new Map();
     return;
   }
@@ -808,6 +790,7 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
     [
       item.id,
       {
+        source: item.type,
         timestamp: motion.ts,
         speedMetersPerSecond: motion.speedMps,
         motion: createGeographicMotion(
@@ -1640,50 +1623,24 @@ function packedHitCandidate(
 }
 
 function nearestScenePoint(
-  layer: ProjectedSceneLayer | EventLayer,
-  pointType: DataType,
   x: number,
   y: number,
   radius: number,
 ): PointHit | null {
-  const hit = layer.nearest(
+  const result = renderLayerCatalog.nearest(
     x,
     y,
     radius,
     CAMERA_POLICY.maximumHitCandidates,
   );
-  if (!hit) return null;
+  if (!result) return null;
   return {
-    id: hit.entityId,
-    latitude: hit.latitude,
-    longitude: hit.longitude,
-    distance: hit.distance,
-    pointType,
+    id: result.hit.entityId,
+    latitude: result.hit.latitude,
+    longitude: result.hit.longitude,
+    distance: result.hit.distance,
+    pointType: pointTypeForSource(result.source),
   };
-}
-
-function nearestAircraftPoint(
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  return nearestScenePoint(aircraftProjection, Domain.Aircraft, x, y, radius);
-}
-
-function nearestShipPoint(
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  return nearestScenePoint(shipProjection, Domain.Ships, x, y, radius);
-}
-
-function nearestEventPoint(
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  return nearestScenePoint(eventLayer, Domain.Events, x, y, radius);
 }
 
 function nearestPoint(
@@ -1693,9 +1650,7 @@ function nearestPoint(
 ): PointHit | null {
   let closest = nearestGenericPoint(x, y, radius);
   const specialized = [
-    nearestAircraftPoint(x, y, radius),
-    nearestShipPoint(x, y, radius),
-    nearestEventPoint(x, y, radius),
+    nearestScenePoint(x, y, radius),
     nearestPackedPoint(_earthquakes, Domain.Quakes, x, y, radius),
     nearestPackedPoint(_fires, Domain.Fires, x, y, radius),
   ];
@@ -2677,7 +2632,6 @@ type SelectionVisibility = Readonly<{
   isoId: string | null;
   isolatedType: string | null;
   layers: RenderPresentationPayload["layers"];
-  aircraftView: ReturnType<typeof aircraftSceneStore.view>;
   aircraftFilter: AircraftSceneFilter;
 }>;
 
@@ -2696,12 +2650,7 @@ function selectionPassesFilters(v: SelectionVisibility): boolean {
   }
   if (item.type !== Domain.Aircraft) return v.layers[item.type] !== false;
 
-  const handle =
-    aircraftSceneStore.handlesForEntityId(item.id)[0] ?? null;
-  return (
-    handle !== null &&
-    aircraftSceneIncludes(v.aircraftView, handle - 1, v.aircraftFilter)
-  );
+  return aircraftLayer.includesEntity(item.id, v.aircraftFilter);
 }
 
 type FrameInputs = Readonly<{
@@ -2809,9 +2758,7 @@ type ProjectedFrame = Readonly<{
   searchSet: Set<string> | null;
   isolatedType: string | null;
   filterCfg: FilterCfg;
-  aircraftView: ReturnType<typeof aircraftSceneStore.view>;
   aircraftSceneFilter: AircraftSceneFilter;
-  shipView: ReturnType<typeof shipSceneStore.view>;
 }>;
 
 /**
@@ -2843,7 +2790,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   rebuildHitGrid(pts);
 
   const base = sceneProjectionBase(options.geometry);
-  const aircraftView = aircraftSceneStore.view();
   const aircraftSceneFilter: AircraftSceneFilter = {
     filter: p.aircraftFilter,
     searchIds: searchSet,
@@ -2851,13 +2797,8 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedId: isoId,
     isolatedType,
   };
-  aircraftProjection.project(aircraftView, {
-    ...base,
-    includes: (index) =>
-      aircraftSceneIncludes(aircraftView, index, aircraftSceneFilter),
-  });
+  aircraftLayer.project(base, aircraftSceneFilter);
 
-  const shipView = shipSceneStore.view();
   const shipSceneFilter: ShipSceneFilter = {
     enabled: p.layers.ships !== false,
     searchIds: searchSet,
@@ -2865,12 +2806,9 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedId: isoId,
     isolatedType,
   };
-  shipProjection.project(shipView, {
-    ...base,
-    includes: (index) => shipSceneIncludes(shipView, index, shipSceneFilter),
-  });
+  shipLayer.project(base, shipSceneFilter);
 
-  eventLayer.project(eventSceneStore.view(), base, {
+  eventLayer.project(base, {
     enabled: p.layers[Domain.Events] !== false,
     searchIds: searchSet,
     isolateMode: isoMode,
@@ -2883,9 +2821,7 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     searchSet,
     isolatedType,
     filterCfg,
-    aircraftView,
     aircraftSceneFilter,
-    shipView,
   };
 }
 
@@ -2907,21 +2843,13 @@ function updateSelectedProjection(
     _selectedProjectionDepth = point.z;
   }
 
-  const eventProjection = eventLayer.selectionAnchor(selectedId);
-  if (eventProjection) {
+  const sceneProjection =
+    renderLayerCatalog.selectionAnchor(selectedId);
+  if (sceneProjection) {
     _hasSelectedProjection = true;
-    _selectedProjectionX = eventProjection.x;
-    _selectedProjectionDepth = eventProjection.depth;
+    _selectedProjectionX = sceneProjection.x;
+    _selectedProjectionDepth = sceneProjection.depth;
   }
-
-  const handle =
-    aircraftSceneStore.handlesForEntityId(selectedId)[0] ?? null;
-  const projection =
-    handle === null ? null : aircraftProjection.projection(handle - 1);
-  if (!projection) return;
-  _hasSelectedProjection = true;
-  _selectedProjectionX = projection.x;
-  _selectedProjectionDepth = projection.depth;
 }
 
 function scheduleNextFrameIfNeeded(
@@ -2935,7 +2863,7 @@ function scheduleNextFrameIfNeeded(
     (_hasAnimatedPoints ||
       _hasAnimatedEarthquakes ||
       _hasAnimatedFires ||
-      eventLayer.hasTimeAnimation(reducedMotion) ||
+      renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
     hasRevealWork || trailMap.size > 0 || hasVisualAnimation || cameraActive;
@@ -3038,9 +2966,7 @@ function renderFrame(): void {
     searchSet,
     isolatedType,
     filterCfg,
-    aircraftView,
     aircraftSceneFilter,
-    shipView,
   } = projected;
   updateSelectedProjection(pts, selId);
   const packedFrame: PackedProjectionFrame = {
@@ -3065,7 +2991,6 @@ function renderFrame(): void {
     isoId,
     isolatedType,
     layers,
-    aircraftView,
     aircraftFilter: aircraftSceneFilter,
   });
 
@@ -3094,7 +3019,7 @@ function renderFrame(): void {
     hiddenModels: cyclones.hiddenModels,
     reducedMotion: cyclones.reducedMotion,
   };
-  drawAircraftScene(aircraftView, aircraftProjection, {
+  aircraftLayer.draw({
     context: ctx,
     baseColor: colors.aircraft,
     militaryColor: milColor,
@@ -3103,7 +3028,7 @@ function renderFrame(): void {
     time: t,
     zoomLevel,
   });
-  drawShipScene(shipView, shipProjection, {
+  shipLayer.draw({
     context: ctx,
     color: colorMap.ships ?? colors.accent,
     selectedId: selId,

@@ -448,7 +448,7 @@ function parseCacheEvent(
       entry:
         value.entry === null
           ? null
-          : parseTrailEntry(value.id, value.entry),
+          : parseTrailEntry(value.entry),
     };
   }
   if (

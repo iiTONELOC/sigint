@@ -4,6 +4,7 @@ import {
   type RenderAircraftFilter,
 } from "@/workers/render/protocol";
 import {
+  AircraftLayer,
   aircraftSceneIncludes,
   type AircraftSceneFilter,
 } from "@/workers/render/scene/aircraftLayer";
@@ -15,6 +16,7 @@ import {
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { Domain } from "@shared/domain/identity";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
+import { sceneRebaseCommand } from "../_support/scene";
 
 const view = {
   capacity: 3,
@@ -71,6 +73,32 @@ function settings(
 }
 
 describe("aircraft scene layer", () => {
+  test("owns scene storage, projection, and hit resolution", () => {
+    const layer = new AircraftLayer();
+    layer.apply(sceneRebaseCommand(Domain.Aircraft, view));
+    layer.project(
+      {
+        width: 200,
+        height: 200,
+        hitCellSize: 32,
+        cullMargin: 0,
+        flat: {
+          centerX: 100,
+          centerY: 100,
+          mapWidth: 360,
+          mapHeight: 180,
+        },
+        globe: null,
+      },
+      settings(),
+    );
+
+    expect(layer.nearest(100, 100, 10, 10)?.entityId).toBe(
+      "civil-air",
+    );
+    expect(layer.includesEntity("mil-ground", settings())).toBe(true);
+  });
+
   test("matches exact country and squawk buckets", () => {
     expect(
       aircraftSceneIncludes(

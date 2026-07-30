@@ -52,7 +52,11 @@ export type SceneDataEnvelope = Readonly<{
   sequence: number;
 }>;
 
-export type SceneDataCommand = SceneDataCommandBody & SceneDataEnvelope;
+export type SceneSourceCommand = SceneSourcePatch & SceneDataEnvelope;
+
+export type SceneDataCommand =
+  | (Readonly<{ type: SceneDataCommandType.Bind }> & SceneDataEnvelope)
+  | SceneSourceCommand;
 
 export class SceneDataProtocolState {
   readonly sessionId: string;

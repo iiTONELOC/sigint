@@ -16,6 +16,7 @@ import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
+import { sceneRebaseCommand } from "../_support/scene";
 
 const view = {
   capacity: 2,
@@ -52,7 +53,8 @@ function filter(
 }
 
 function project(layer: EventLayer, settings = filter()): void {
-  layer.project(view, {
+  layer.apply(sceneRebaseCommand(Domain.Events, view));
+  layer.project({
     width: 200,
     height: 200,
     hitCellSize: 32,

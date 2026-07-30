@@ -62,6 +62,10 @@ export type SourceHost<TEntity extends SourceRecord> = Readonly<{
   publishPatch: (patch: DatasetPatch<TEntity>) => void;
 }>;
 
+export type SourcePatchObserver<TEntity extends SourceRecord> = Readonly<{
+  observe: (patch: DatasetPatch<TEntity>) => void;
+}>;
+
 export abstract class DataSource<TEntity extends SourceRecord> {
   abstract readonly kind: SourceDomainKind;
   abstract readonly policy: SourcePolicy;
@@ -74,7 +78,14 @@ export abstract class DataSource<TEntity extends SourceRecord> {
   protected abstract hasChanged(previous: TEntity, next: TEntity): boolean;
 
   protected attachedHost: SourceHost<TEntity> | null = null;
+  private readonly patchObservers: readonly SourcePatchObserver<TEntity>[];
   private runtime: PointSourceRuntime<TEntity> | null = null;
+
+  constructor(
+    patchObservers: readonly SourcePatchObserver<TEntity>[] = [],
+  ) {
+    this.patchObservers = patchObservers;
+  }
 
   attach(host: SourceHost<TEntity>): void {
     this.attachedHost = host;
@@ -91,7 +102,12 @@ export abstract class DataSource<TEntity extends SourceRecord> {
       },
       fetchSnapshot: () => this.fetchSnapshot(),
       publishStatus: host.publishStatus,
-      publishPatch: host.publishPatch,
+      publishPatch: (patch) => {
+        for (const observer of this.patchObservers) {
+          observer.observe(patch);
+        }
+        host.publishPatch(patch);
+      },
     });
   }
 
