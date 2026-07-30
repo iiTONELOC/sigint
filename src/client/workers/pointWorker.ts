@@ -6,8 +6,6 @@ import {
   squawkBucketFor,
 } from "@shared/domain/aircraft";
 import {
-  MS_PER_DAY,
-  MS_PER_HOUR,
   MS_PER_SECOND,
 } from "@shared/time";
 import {
@@ -65,11 +63,9 @@ import {
 
 import {
   RenderDataCommandType,
-  RenderDataLaneComponentCount,
   parseRenderDataCommand,
   RenderDataProtocolState,
   type LegacyPointSourceId,
-  type PackedFireRenderData,
 } from "./render/dataChannel";
 
 import { orderPointsByLayer } from "./render/layerOrder";
@@ -89,8 +85,11 @@ import {
   EarthquakeLayer,
   type EarthquakeSceneFilter,
 } from "./render/scene/earthquakeLayer";
+import {
+  FireLayer,
+  type FireSceneFilter,
+} from "./render/scene/fireLayer";
 import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
-import { drawSelectionRing } from "./render/primitives/selectionRing";
 import {
   MarkerVisuals,
   markerPulseIntensity,
@@ -147,11 +146,7 @@ enum CanvasLineStyle {
   Round = "round",
 }
 
-enum FireAnimationPolicy {
-  PowerThreshold = 15,
-}
-
-enum PackedProjectionPolicy {
+enum SceneProjectionPolicy {
   CullMarginPixels = 24,
 }
 
@@ -211,38 +206,6 @@ function getInterp(id: string): { lat: number; lon: number } | null {
 
 function isLightTheme(colors: { bg?: string }): boolean {
   return markerVisuals.isLight(colors.bg);
-}
-
-// ── Age/size helpers ────────────────────────────────────────────────
-
-/** Age (ms since `ts`) → opacity factor down a stepped ramp. `steps` is
- *  [thresholdMs, factor] descending; the first threshold not exceeded wins. */
-function ageFactor(ts: string | number | undefined, steps: ReadonlyArray<[number, number]>): number {
-  if (!ts) return 0.5;
-  const a = Date.now() - new Date(ts).getTime();
-  const hit = steps.find(([threshold]) => a < threshold);
-  return hit ? hit[1] : (steps.at(-1)?.[1] ?? 0.5);
-}
-
-function fireAgeFactor(timestamp?: string | number): number {
-  return ageFactor(timestamp, [
-    [MS_PER_HOUR, 1],
-    [3 * MS_PER_HOUR, 0.9],
-    [6 * MS_PER_HOUR, 0.8],
-    [MS_PER_DAY / 2, 0.65],
-    [Infinity, 0.5],
-  ]);
-}
-
-function fireColor(age: number, base: string): string {
-  return markerVisuals.fade(base, age);
-}
-
-function fireSize(frp: number): number {
-  const bands: ReadonlyArray<[number, number]> = [
-    [1, 0.8], [5, 1], [10, 1.3], [25, 1.8], [50, 2.5], [100, 3.5],
-  ];
-  return bands.find(([max]) => frp < max)?.[1] ?? 4.5;
 }
 
 // ── Aircraft filter ─────────────────────────────────────────────────
@@ -585,22 +548,6 @@ let _lastCameraSummary: RenderCamera | null = null;
 let _lastCameraSummaryAt = 0;
 let _frameScheduled = false;
 
-type PackedProjectionState = {
-  ids: readonly string[];
-  positions: Float64Array;
-  unitVectors: Float32Array;
-  projected: Float32Array;
-  hitHeads: Int32Array;
-  hitNext: Int32Array;
-  hitColumns: number;
-  hitRows: number;
-};
-
-type FireRenderState = PackedFireRenderData & PackedProjectionState;
-
-let _fires: FireRenderState | null = null;
-let _fireSearchIds: ReadonlySet<string> | null = null;
-let _hasAnimatedFires = false;
 let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
 let _selectedProjectionDepth = -1;
@@ -636,8 +583,10 @@ const aircraftLayer = new AircraftLayer();
 const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
 const earthquakeLayer = new EarthquakeLayer(markerVisuals);
+const fireLayer = new FireLayer(markerVisuals);
 renderLayerCatalog.register(aircraftLayer);
 renderLayerCatalog.register(shipLayer);
+renderLayerCatalog.register(fireLayer);
 renderLayerCatalog.register(eventLayer);
 renderLayerCatalog.register(earthquakeLayer);
 
@@ -791,24 +740,6 @@ function rebuildGenericData(): void {
   }
 }
 
-function handleFireRebase(packed: PackedFireRenderData): void {
-  const count = packed.ids.length;
-  _fires = {
-    ...packed,
-    projected: new Float32Array(
-      count * RenderDataLaneComponentCount.UnitVector,
-    ),
-    hitHeads: new Int32Array(0),
-    hitNext: new Int32Array(count),
-    hitColumns: 0,
-    hitRows: 0,
-  };
-  _hasAnimatedFires = packed.frp.some(
-    (power) => power > FireAnimationPolicy.PowerThreshold,
-  );
-  rebuildGenericData();
-}
-
 type RenderDataCommand = NonNullable<
   ReturnType<typeof parseRenderDataCommand>
 >;
@@ -845,31 +776,19 @@ function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
   _wxWatchColor = WEATHER_AREA_FILL[AreaKind.Watch];
 }
 
-/** Packed source updates from the DataWorker, past the bind handshake. */
+/** Legacy geometry source updates, past the bind handshake. */
 function applyRenderDataCommand(command: RenderDataCommand): void {
-  switch (command.type) {
-    case RenderDataCommandType.FireSearch:
-      _fireSearchIds = command.matchingIds
-        ? new Set(command.matchingIds)
-        : null;
-      return;
-    case RenderDataCommandType.FireRebase:
-      handleFireRebase(command);
-      return;
-    case RenderDataCommandType.PointsRebase:
-      _dataBySource ??= {};
-      _dataBySource[command.source] = [...command.points];
-      if (command.source === Domain.Weather) {
-        rebuildWeatherAreas(command.points);
-      }
-      if (command.source === Domain.CycloneWarnings) {
-        rebuildCycloneWarningAreas(command.points);
-      }
-      rebuildGenericData();
-      return;
-    default:
-      return;
+  if (command.type !== RenderDataCommandType.PointsRebase) return;
+
+  _dataBySource ??= {};
+  _dataBySource[command.source] = [...command.points];
+  if (command.source === Domain.Weather) {
+    rebuildWeatherAreas(command.points);
   }
+  if (command.source === Domain.CycloneWarnings) {
+    rebuildCycloneWarningAreas(command.points);
+  }
+  rebuildGenericData();
 }
 
 function selectedCameraPosition(): CameraPosition | null {
@@ -1136,10 +1055,6 @@ function drawPulsingDot(env: DotEnv, dot: PulsingDot): void {
   });
 }
 
-function clampUnit(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
 type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
 
 type PointProjector = (item: RenderPoint) => Projected;
@@ -1161,7 +1076,6 @@ type FilterCfg = {
   isolatedType: string | null;
   layers: Readonly<Record<string, boolean | undefined>>;
   af: AircraftFilter;
-  fireMinConfidence: number;
   showForecast: boolean;
 };
 
@@ -1233,191 +1147,6 @@ function hitCandidates(x: number, y: number): ProjPoint[] {
 type PointHit = CameraPosition &
   Readonly<{ distance: number; pointType: DataType }>;
 
-type PackedProjectionFrame = Readonly<{
-  width: number;
-  height: number;
-  flatMetrics: ReturnType<typeof getFlatMetrics> | null;
-  globeMatrix: GlobeRotationMatrix;
-  centerX: number;
-  centerY: number;
-  globeRadius: number;
-  filters: FilterCfg;
-  selectedId: string | null;
-}>;
-
-function preparePackedHitGrid(
-  state: PackedProjectionState,
-  width: number,
-  height: number,
-): void {
-  const columns = Math.max(
-    1,
-    Math.ceil(width / CAMERA_POLICY.hitCellSizePx),
-  );
-  const rows = Math.max(
-    1,
-    Math.ceil(height / CAMERA_POLICY.hitCellSizePx),
-  );
-  const cellCount = columns * rows;
-  if (state.hitHeads.length !== cellCount) {
-    state.hitHeads = new Int32Array(cellCount);
-  }
-  state.hitHeads.fill(-1);
-  state.hitNext.fill(-1);
-  state.hitColumns = columns;
-  state.hitRows = rows;
-}
-
-function packedLayerVisible(
-  filters: FilterCfg,
-  pointType: Domain.Fires,
-): boolean {
-  if (filters.layers[pointType] === false) return false;
-  return !(
-    filters.isoMode === IsolateMode.Focus &&
-    filters.isolatedType &&
-    filters.isolatedType !== pointType
-  );
-}
-
-function packedIdPasses(
-  id: string,
-  filters: FilterCfg,
-  searchIds: ReadonlySet<string> | null,
-): boolean {
-  if (searchIds && !searchIds.has(id)) return false;
-  return filters.isoMode !== IsolateMode.Solo || id === filters.isoId;
-}
-
-function projectPackedSource(
-  state: PackedProjectionState,
-  frame: PackedProjectionFrame,
-  pointType: Domain.Fires,
-  searchIds: ReadonlySet<string> | null,
-  passesSourceFilter: (index: number) => boolean,
-): void {
-  preparePackedHitGrid(state, frame.width, frame.height);
-  const visible = packedLayerVisible(frame.filters, pointType);
-  for (let index = 0; index < state.ids.length; index++) {
-    const projectedOffset =
-      index * RenderDataLaneComponentCount.UnitVector;
-    state.projected[projectedOffset + 2] = -1;
-    if (!visible || !passesSourceFilter(index)) continue;
-    const id = state.ids[index];
-    if (id === undefined || !packedIdPasses(id, frame.filters, searchIds)) {
-      continue;
-    }
-
-    const projection = projectPackedIndex(state, frame, index);
-    if (!projection) continue;
-    const { x: projectedX, y: projectedY, depth } = projection;
-    if (isOffscreen(projectedX, projectedY, frame)) continue;
-
-    state.projected[projectedOffset] = projectedX;
-    state.projected[projectedOffset + 1] = projectedY;
-    state.projected[projectedOffset + 2] = depth;
-    if (id === frame.selectedId) {
-      _hasSelectedProjection = true;
-      _selectedProjectionX = projectedX;
-      _selectedProjectionDepth = depth;
-    }
-    insertPackedHit(state, index, projectedX, projectedY);
-  }
-}
-
-type PackedProjection = Readonly<{ x: number; y: number; depth: number }>;
-
-/** Flat is a straight lat/lon map; globe rotates the retained unit vector. */
-function projectPackedIndex(
-  state: PackedProjectionState,
-  frame: PackedProjectionFrame,
-  index: number,
-): PackedProjection | null {
-  const flat = frame.flatMetrics;
-  if (flat) {
-    const offset = index * RenderDataLaneComponentCount.Position;
-    const longitude = state.positions[offset];
-    const latitude = state.positions[offset + 1];
-    if (longitude === undefined || latitude === undefined) return null;
-    return {
-      x:
-        flat.cx +
-        (longitude / GeoLimit.MaxLongitude) * (flat.mW / 2),
-      y:
-        flat.cy -
-        (latitude / GeoLimit.MaxLatitude) * (flat.mH / 2),
-      depth: 1,
-    };
-  }
-
-  const offset = index * RenderDataLaneComponentCount.UnitVector;
-  const unitX = state.unitVectors[offset];
-  const unitY = state.unitVectors[offset + 1];
-  const unitZ = state.unitVectors[offset + 2];
-  if (unitX === undefined || unitY === undefined || unitZ === undefined) {
-    return null;
-  }
-  const m = frame.globeMatrix;
-  const depth = m.m20 * unitX + m.m21 * unitY + m.m22 * unitZ;
-  if (depth <= 0) return null;
-  const rotatedX = m.m00 * unitX + m.m01 * unitY + m.m02 * unitZ;
-  const rotatedY = m.m10 * unitX + m.m11 * unitY + m.m12 * unitZ;
-  return {
-    x: frame.centerX + rotatedX * frame.globeRadius,
-    y: frame.centerY - rotatedY * frame.globeRadius,
-    depth,
-  };
-}
-
-function isOffscreen(
-  x: number,
-  y: number,
-  frame: PackedProjectionFrame,
-): boolean {
-  return (
-    x < -PackedProjectionPolicy.CullMarginPixels ||
-    y < -PackedProjectionPolicy.CullMarginPixels ||
-    x >= frame.width + PackedProjectionPolicy.CullMarginPixels ||
-    y >= frame.height + PackedProjectionPolicy.CullMarginPixels
-  );
-}
-
-function insertPackedHit(
-  state: PackedProjectionState,
-  index: number,
-  x: number,
-  y: number,
-): void {
-  const column = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
-  const row = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
-  if (
-    column < 0 ||
-    row < 0 ||
-    column >= state.hitColumns ||
-    row >= state.hitRows
-  ) {
-    return;
-  }
-  const cell = row * state.hitColumns + column;
-  state.hitNext[index] = state.hitHeads[cell] ?? -1;
-  state.hitHeads[cell] = index;
-}
-
-function projectFires(
-  state: FireRenderState,
-  frame: PackedProjectionFrame,
-): void {
-  projectPackedSource(
-    state,
-    frame,
-    Domain.Fires,
-    _fireSearchIds,
-    (index) =>
-      (state.confidences[index] ?? 0) >=
-      frame.filters.fireMinConfidence,
-  );
-}
-
 function nearestGenericPoint(
   x: number,
   y: number,
@@ -1440,104 +1169,6 @@ function nearestGenericPoint(
     distance = candidateDistance;
   }
   return closest;
-}
-
-function nearestPackedPoint(
-  state: PackedProjectionState | null,
-  pointType: Domain.Fires,
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  if (!state || state.hitHeads.length === 0) return null;
-  const centerColumn = Math.floor(
-    x / CAMERA_POLICY.hitCellSizePx,
-  );
-  const centerRow = Math.floor(
-    y / CAMERA_POLICY.hitCellSizePx,
-  );
-  const search: PackedHitSearch = {
-    closest: null,
-    distance: radius,
-    inspected: 0,
-  };
-  for (let row = centerRow - 1; row <= centerRow + 1; row++) {
-    if (row < 0 || row >= state.hitRows) continue;
-    for (let column = centerColumn - 1; column <= centerColumn + 1; column++) {
-      if (column < 0 || column >= state.hitColumns) continue;
-      const exhausted = scanPackedCell(
-        state,
-        row * state.hitColumns + column,
-        pointType,
-        { x, y },
-        search,
-      );
-      if (exhausted) return search.closest;
-    }
-  }
-  return search.closest;
-}
-
-type PackedHitSearch = {
-  closest: PointHit | null;
-  distance: number;
-  inspected: number;
-};
-
-/** Walks one cell's chain. True once the candidate budget is spent. */
-function scanPackedCell(
-  state: PackedProjectionState,
-  cell: number,
-  pointType: Domain.Fires,
-  at: Readonly<{ x: number; y: number }>,
-  search: PackedHitSearch,
-): boolean {
-  let index = state.hitHeads[cell] ?? -1;
-  while (index >= 0) {
-    const candidate = packedHitCandidate(state, index, pointType, at.x, at.y);
-    if (candidate && candidate.distance < search.distance) {
-      search.closest = candidate;
-      search.distance = candidate.distance;
-    }
-    search.inspected++;
-    if (search.inspected >= CAMERA_POLICY.maximumHitCandidates) return true;
-    index = state.hitNext[index] ?? -1;
-  }
-  return false;
-}
-
-/** Null when any packed lane is short, which means the slot is not live. */
-function packedHitCandidate(
-  state: PackedProjectionState,
-  index: number,
-  pointType: Domain.Fires,
-  x: number,
-  y: number,
-): PointHit | null {
-  const projectedOffset =
-    index * RenderDataLaneComponentCount.UnitVector;
-  const projectedX = state.projected[projectedOffset];
-  const projectedY = state.projected[projectedOffset + 1];
-  const id = state.ids[index];
-  const positionOffset = index * RenderDataLaneComponentCount.Position;
-  const longitude = state.positions[positionOffset];
-  const latitude = state.positions[positionOffset + 1];
-  if (
-    projectedX === undefined ||
-    projectedY === undefined ||
-    id === undefined ||
-    longitude === undefined ||
-    latitude === undefined
-  ) {
-    return null;
-  }
-  return {
-    id,
-    latitude,
-    longitude,
-    distance: Math.hypot(projectedX - x, projectedY - y),
-    pointType,
-  };
 }
 
 function nearestScenePoint(
@@ -1566,17 +1197,11 @@ function nearestPoint(
   y: number,
   radius: number,
 ): PointHit | null {
-  let closest = nearestGenericPoint(x, y, radius);
-  const specialized = [
-    nearestScenePoint(x, y, radius),
-    nearestPackedPoint(_fires, Domain.Fires, x, y, radius),
-  ];
-  for (const candidate of specialized) {
-    if (candidate && (!closest || candidate.distance < closest.distance)) {
-      closest = candidate;
-    }
-  }
-  return closest;
+  const generic = nearestGenericPoint(x, y, radius);
+  const scene = nearestScenePoint(x, y, radius);
+  return scene && (!generic || scene.distance < generic.distance)
+    ? scene
+    : generic;
 }
 
 function nearestTrailTarget(
@@ -1981,76 +1606,6 @@ type PointDrawCtx = {
   reducedMotion: boolean;
 };
 
-function drawFireLayer(
-  pc: PointDrawCtx,
-  state: FireRenderState,
-): void {
-  const { ctx, colorMap, accent, selId, t, zoomLevel } = pc;
-  const baseColor = colorMap.fires || accent;
-  const scale = zoomScale(zoomLevel);
-  const pulseIntensity = clampUnit((zoomLevel - 1.5) / 2.5);
-  for (let index = 0; index < state.ids.length; index++) {
-    const projectedOffset =
-      index * RenderDataLaneComponentCount.UnitVector;
-    const x = state.projected[projectedOffset];
-    const y = state.projected[projectedOffset + 1];
-    const depth = state.projected[projectedOffset + 2];
-    const id = state.ids[index];
-    const frp = state.frp[index];
-    const timestamp = state.timestamps[index];
-    if (
-      x === undefined ||
-      y === undefined ||
-      depth === undefined ||
-      depth <= 0 ||
-      id === undefined ||
-      frp === undefined ||
-      timestamp === undefined
-    ) {
-      continue;
-    }
-
-    const age = fireAgeFactor(timestamp);
-    const color = fireColor(age, baseColor);
-    const selected = id === selId;
-    const size = fireSize(frp) * scale * (selected ? 2 : 1);
-    const fillAlpha = (0.4 + depth * 0.6) * age * 0.5;
-    if (
-      frp > FireAnimationPolicy.PowerThreshold &&
-      pulseIntensity > 0.01
-    ) {
-      const pulseIndex = Math.min(
-        1,
-        (frp - FireAnimationPolicy.PowerThreshold) / 85,
-      );
-      const phase = (Number.parseInt(id.slice(2), 36) || 0) * 0.6;
-      const pulse =
-        1 +
-        Math.sin(t + phase) * (0.05 + pulseIndex * 0.15);
-      const glowRadius =
-        size * (1.5 + pulseIndex * 1.5) * pulse;
-      markerVisuals.drawGlow(
-        ctx,
-        color,
-        "30",
-        x,
-        y,
-        glowRadius,
-        fillAlpha * pulseIntensity * 0.35,
-      );
-    }
-    ctx.globalAlpha = fillAlpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.fill();
-    if (selected) {
-      drawSelectionRing(ctx, x, y, size, color, t);
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
 /** Draw one projected point by its type. Each branch returns after drawing. */
 type PointDraw = Readonly<{
   x: number;
@@ -2097,8 +1652,8 @@ function drawWeatherPoint(
 }
 
 /**
- * The legacy point path. Aircraft, ships, and quakes use worker-owned scenes.
- * Fires use a worker-owned packed lane and never arrive here.
+ * The legacy point path. Aircraft, ships, quakes, and fires use worker-owned
+ * scenes and never arrive here.
  */
 function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   const { ctx, projFn, colorMap, accent, selId, t, zoomLevel } = pc;
@@ -2244,7 +1799,7 @@ function sceneProjectionBase(geometry: SceneGeometry) {
     width: geometry.width,
     height: geometry.height,
     hitCellSize: CAMERA_POLICY.hitCellSizePx,
-    cullMargin: PackedProjectionPolicy.CullMarginPixels,
+    cullMargin: SceneProjectionPolicy.CullMarginPixels,
     flat: fm
       ? {
           centerX: fm.cx,
@@ -2267,13 +1822,12 @@ function sceneProjectionBase(geometry: SceneGeometry) {
 function drawPointLayers(
   pointCtx: PointDrawCtx,
   pts: readonly ProjPoint[],
+  drawFireLayer: () => void,
   drawEventLayer: () => void,
   drawEarthquakeLayer: () => void,
 ): void {
   drawMarkerLayerSequence({
-    fire: () => {
-      if (_fires) drawFireLayer(pointCtx, _fires);
-    },
+    fire: drawFireLayer,
     event: drawEventLayer,
     earthquake: drawEarthquakeLayer,
     legacy: () => {
@@ -2594,7 +2148,6 @@ type ProjectedFrame = Readonly<{
   pts: ProjPoint[];
   searchSet: Set<string> | null;
   isolatedType: string | null;
-  filterCfg: FilterCfg;
   aircraftSceneFilter: AircraftSceneFilter;
 }>;
 
@@ -2619,7 +2172,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedType,
     layers: p.layers,
     af: p.aircraftFilter,
-    fireMinConfidence: p.fireMinConfidence,
     showForecast: options.showForecast,
   };
   const pts = projectAndFilter(options.data, options.projectPoint, filterCfg);
@@ -2644,6 +2196,16 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   };
   shipLayer.project(base, shipSceneFilter);
 
+  const fireSceneFilter: FireSceneFilter = {
+    enabled: p.layers[Domain.Fires] !== false,
+    minimumConfidence: p.fireMinConfidence,
+    searchIds: null,
+    isolateMode: isoMode,
+    isolatedId: isoId,
+    isolatedType,
+  };
+  fireLayer.project(base, fireSceneFilter);
+
   eventLayer.project(base, {
     enabled: p.layers[Domain.Events] !== false,
     searchIds: searchSet,
@@ -2666,7 +2228,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     pts,
     searchSet,
     isolatedType,
-    filterCfg,
     aircraftSceneFilter,
   };
 }
@@ -2707,7 +2268,6 @@ function scheduleNextFrameIfNeeded(
   const hasVisualAnimation =
     !reducedMotion &&
     (_hasAnimatedPoints ||
-      _hasAnimatedFires ||
       renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
@@ -2810,22 +2370,9 @@ function renderFrame(): void {
     pts,
     searchSet,
     isolatedType,
-    filterCfg,
     aircraftSceneFilter,
   } = projected;
   updateSelectedProjection(pts, selId);
-  const packedFrame: PackedProjectionFrame = {
-    width: W,
-    height: H,
-    flatMetrics: fm,
-    globeMatrix,
-    centerX: cx,
-    centerY: cy,
-    globeRadius: globeR,
-    filters: filterCfg,
-    selectedId: selId,
-  };
-  if (_fires) projectFires(_fires, packedFrame);
 
   // ── Draw trail (only if the selected item passes current filters) ──
   const drawSelectedTrail = selectionPassesFilters({
@@ -2882,6 +2429,16 @@ function renderFrame(): void {
   drawPointLayers(
     pointCtx,
     pts,
+    () => {
+      fireLayer.draw({
+        context: ctx,
+        color: colorMap.fires ?? colors.accent,
+        selectedId: selId,
+        time: t,
+        now: wallTime,
+        zoomLevel,
+      });
+    },
     () => {
       eventLayer.draw({
         context: ctx,

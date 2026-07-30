@@ -3,9 +3,6 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
 export { SourceCompletenessPolicy };
-import {
-  FIRE_SOURCE_POLICY,
-} from "@/features/environmental/fires/data/source";
 import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
 import { CYCLONE_WARNING_SOURCE_POLICY } from "@/features/environmental/cyclones/warningSource";
 import {
@@ -86,7 +83,7 @@ const POINT_SOURCE_POLICIES: Readonly<
   [Domain.Fire]: {
     pointType: Domain.Fires,
     cacheKey: CACHE_KEYS.fires,
-    pollIntervalMs: FIRE_SOURCE_POLICY.pollIntervalMs,
+    pollIntervalMs: POLL_INTERVALS.fires,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },

@@ -1,12 +1,12 @@
-import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { EARTHQUAKE_SOURCE } from "@/workers/data/sources/earthquakes";
+import { FIRE_SOURCE } from "@/workers/data/sources/fires";
 import type { DataWorkerCacheEntry } from "@/workers/data/protocol";
 
 const WORKER_OWNED_CACHE_KEYS = new Set<string>([
   CACHE_KEYS.aircraft,
   EARTHQUAKE_SOURCE.cacheKey,
-  FIRE_SOURCE_POLICY.cacheKey,
+  FIRE_SOURCE.cacheKey,
 ]);
 
 export function mainThreadCacheEntries(

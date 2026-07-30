@@ -11,6 +11,15 @@ export type SceneCommandPublisher = (
   command: SceneSourceCommandBody,
 ) => void;
 
+export type SceneSearchBindingOptions = Readonly<{
+  findEntityIds: (text: string) => readonly string[];
+  publishSearch: (
+    entityIds: readonly string[],
+    revision: number,
+    active: boolean,
+  ) => void;
+}>;
+
 export class SceneBinding<TEntity extends DatasetEntity> {
   private readonly codec: ScenePatchCodec<TEntity>;
   private readonly publishScene: SceneCommandPublisher;
@@ -34,6 +43,47 @@ export class SceneBinding<TEntity extends DatasetEntity> {
   ): void {
     this.publishScene(
       this.codec.encodeSearch(entityIds, searchRevision, active),
+    );
+  }
+}
+
+export class SceneSearchBinding {
+  private readonly findEntityIds: (
+    text: string,
+  ) => readonly string[];
+  private readonly publishSearch: (
+    entityIds: readonly string[],
+    revision: number,
+    active: boolean,
+  ) => void;
+  private revision = 0;
+  private text: string | null = null;
+
+  constructor(options: SceneSearchBindingOptions) {
+    this.findEntityIds = options.findEntityIds;
+    this.publishSearch = options.publishSearch;
+  }
+
+  update(text: string | null): void {
+    const normalized = text?.trim() ?? "";
+    this.text = normalized.length > 0 ? normalized : null;
+    this.revision += 1;
+    this.publish();
+  }
+
+  refresh(): void {
+    if (this.revision === 0) return;
+    this.publish();
+  }
+
+  private publish(): void {
+    const entityIds = this.text
+      ? this.findEntityIds(this.text)
+      : [];
+    this.publishSearch(
+      entityIds,
+      this.revision,
+      this.text !== null,
     );
   }
 }

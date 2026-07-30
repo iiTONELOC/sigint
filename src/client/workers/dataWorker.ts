@@ -1,5 +1,4 @@
 import { Domain } from "@shared/domain/identity";
-import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import {
   AircraftSceneBinding,
   AircraftSource,
@@ -16,6 +15,10 @@ import {
   EarthquakeSceneBinding,
   EarthquakeSource,
 } from "@/workers/data/sources/earthquakes";
+import {
+  FireSceneBinding,
+  FireSource,
+} from "@/workers/data/sources/fires";
 import {
   cycloneWarningSource,
   weatherAlertSource,
@@ -35,15 +38,17 @@ import { trailObservations } from "@/lib/geo/trails/observations";
 import {
   findQueryableSearchIds,
   QUERYABLE_SOURCE_IDS,
+  type QueryableSourceId,
 } from "@/workers/data/queryableSources";
+import {
+  SceneSearchBinding,
+} from "@/workers/data/render-codecs/sceneBinding";
 import { SourceCatalog } from "@/workers/data/sourceCatalog";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
   createDataCacheStore,
 } from "@/workers/data/cacheStore";
-import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
-import { packFireRenderData } from "@/workers/data/fireRenderData";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 import {
   DataWorkerMessageType,
@@ -90,15 +95,15 @@ const eventSceneBinding = new EventSceneBinding((patch) => {
 const earthquakeSceneBinding = new EarthquakeSceneBinding((command) => {
   scenePublisher.publish(command);
 });
+const fireSceneBinding = new FireSceneBinding((command) => {
+  scenePublisher.publish(command);
+});
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
 let correlationPort: MessagePort | null = null;
 let correlationSessionId: string | null = null;
 let correlationSequence = 0;
-let earthquakeSearchText: string | null = null;
-let earthquakeSearchRevision = 0;
-let fireSearchText: string | null = null;
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
   minWriteIntervalMs: DATA_CACHE_POLICY.minWriteIntervalMs,
@@ -186,32 +191,22 @@ function postRenderData(
   );
 }
 
-function publishEarthquakeSearch(): void {
-  if (earthquakeSearchRevision === 0) return;
-  const matchingIds = earthquakeSearchText
-    ? findQueryableSearchIds(
-        Domain.Earthquake,
-        earthquakeOwner.values(),
-        earthquakeSearchText,
-      )
-    : [];
-  earthquakeSceneBinding.publishSearch(
-    matchingIds,
-    earthquakeSearchRevision,
-    earthquakeSearchText !== null,
-  );
-}
-
-function publishFireSearch(): void {
-  postRenderData({
-    type: RenderDataCommandType.FireSearch,
-    matchingIds: fireSearchText
-      ? findQueryableSearchIds(Domain.Fire, fireOwner.values(), fireSearchText)
-      : null,
-  });
-}
-
 const earthquakeOwner = new EarthquakeSource();
+const earthquakeSearch = new SceneSearchBinding({
+  findEntityIds: (text) =>
+    findQueryableSearchIds(
+      Domain.Earthquake,
+      earthquakeOwner.values(),
+      text,
+    ),
+  publishSearch: (entityIds, revision, active) => {
+    earthquakeSceneBinding.publishSearch(
+      entityIds,
+      revision,
+      active,
+    );
+  },
+});
 earthquakeOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
@@ -220,36 +215,41 @@ earthquakeOwner.attach({
   publishStatus: publishSource,
   publishPatch: (patch) => {
     earthquakeSceneBinding.publish(patch);
-    publishEarthquakeSearch();
+    earthquakeSearch.refresh();
   },
 });
 
-function rebaseFireRender(
-  points: ReturnType<typeof fireOwner.values>,
-): void {
-  if (!renderPort || !renderSessionId) return;
-  const packed = packFireRenderData(points);
-  postRenderData({
-    type: RenderDataCommandType.FireRebase,
-    ...packed,
-  }, [
-    packed.positions.buffer,
-    packed.unitVectors.buffer,
-    packed.frp.buffer,
-    packed.timestamps.buffer,
-    packed.confidences.buffer,
-  ]);
-  publishFireSearch();
-}
-
-const fireOwner = createFireSourceOwner({
-  readCache: () => store.get(FIRE_SOURCE_POLICY.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(FIRE_SOURCE_POLICY.cacheKey, snapshot);
+const fireOwner = new FireSource();
+const fireSearch = new SceneSearchBinding({
+  findEntityIds: (text) =>
+    findQueryableSearchIds(
+      Domain.Fire,
+      fireOwner.values(),
+      text,
+    ),
+  publishSearch: (entityIds, revision, active) => {
+    fireSceneBinding.publishSearch(entityIds, revision, active);
+  },
+});
+fireOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishRebase: rebaseFireRender,
+  publishPatch: (patch) => {
+    fireSceneBinding.publish(patch);
+    fireSearch.refresh();
+  },
 });
+
+const sceneSearchBindings = new Map<
+  QueryableSourceId,
+  SceneSearchBinding
+>([
+  [Domain.Earthquake, earthquakeSearch],
+  [Domain.Fire, fireSearch],
+]);
 
 const shipOwner = new ShipSource({
   patchObservers: [
@@ -355,7 +355,7 @@ sourceCatalog.register(
   earthquakeOwner,
   () => {
     earthquakeOwner.publishRebase();
-    publishEarthquakeSearch();
+    earthquakeSearch.refresh();
   },
 );
 sourceCatalog.register(
@@ -366,7 +366,10 @@ sourceCatalog.register(
 sourceCatalog.register(
   Domain.Fire,
   fireOwner,
-  () => rebaseFireRender(fireOwner.values()),
+  () => {
+    fireOwner.publishRebase();
+    fireSearch.refresh();
+  },
 );
 sourceCatalog.register(
   Domain.Ships,
@@ -526,16 +529,7 @@ function handleQuerySource(
 function handleSetSourceSearch(
   command: CommandOf<DataWorkerMessageType.SetSourceSearch>,
 ): void {
-  const normalized = command.text?.trim() ?? "";
-  const text = normalized.length > 0 ? normalized : null;
-  if (command.source === Domain.Earthquake) {
-    earthquakeSearchText = text;
-    earthquakeSearchRevision += 1;
-    publishEarthquakeSearch();
-  } else if (command.source === Domain.Fire) {
-    fireSearchText = text;
-    publishFireSearch();
-  }
+  sceneSearchBindings.get(command.source)?.update(command.text);
   complete(command.requestId);
 }
 

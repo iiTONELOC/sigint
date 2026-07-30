@@ -1,55 +1,74 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import type { FireData } from "@/features/environmental/fires/types";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { authenticatedFetch } from "@/lib/net/authService";
 import { createGeoPoint, isRecord } from "@shared/geo";
+import { MS_PER_MINUTE } from "@shared/time";
 
 export type FirePoint = Extract<DataPoint, { type: Domain.Fires }>;
 
-export type FireSourcePolicy = Readonly<{
-  id: Domain.Fire;
-  cacheKey: string;
+export type FireFeedPolicy = Readonly<{
   feedUrl: string;
-  pollIntervalMs: number;
   retryIntervalMs: number;
-  freshDurationMs: number;
   requestTimeoutMs: number;
-  identityRule: "satellite_acquisition_coordinate";
-  observationTimestampRule: "firms_acquisition_time";
-  completenessRule: "successful_server_snapshot_replaces_source";
-  deletionRule: "absent_from_complete_snapshot";
 }>;
 
-const MINUTE_MS = 60_000;
+export enum FireFeedErrorKind {
+  InvalidResponse = "The fires response format is invalid",
+  RequestRejected = "The fires endpoint rejected the request",
+}
 
-const INVALID_FIRE_FEED_MESSAGE = "Invalid fires response format";
-const FIRE_API_ERROR_MESSAGE = "The fires endpoint rejected the request";
+export class FireFetchError extends Error {
+  readonly httpStatus: number | null;
+  readonly kind: FireFeedErrorKind;
 
-export type FireFetchError = Error & Readonly<{ httpStatus: number }>;
+  constructor(
+    kind: FireFeedErrorKind,
+    httpStatus: number | null = null,
+  ) {
+    super(kind);
+    this.name = FireFetchError.name;
+    this.kind = kind;
+    this.httpStatus = httpStatus;
+  }
+}
 
 export function isFireFetchError(value: unknown): value is FireFetchError {
-  return value instanceof Error && typeof (value as FireFetchError).httpStatus === "number";
+  return value instanceof FireFetchError;
 }
 
 export function fireFetchError(httpStatus: number): FireFetchError {
-  return Object.assign(new Error(FIRE_API_ERROR_MESSAGE), { httpStatus });
+  return new FireFetchError(
+    FireFeedErrorKind.RequestRejected,
+    httpStatus,
+  );
 }
 
-export const FIRE_SOURCE_POLICY: FireSourcePolicy = {
-  id: Domain.Fire,
-  cacheKey: CACHE_KEYS.fires,
+export const FIRE_FEED_POLICY: FireFeedPolicy = {
   feedUrl: "/api/fires/latest",
-  pollIntervalMs: POLL_INTERVALS.fires,
-  retryIntervalMs: MINUTE_MS,
-  freshDurationMs: 30 * MINUTE_MS,
+  retryIntervalMs: MS_PER_MINUTE,
   requestTimeoutMs: 20_000,
-  identityRule: "satellite_acquisition_coordinate",
-  observationTimestampRule: "firms_acquisition_time",
-  completenessRule: "successful_server_snapshot_replaces_source",
-  deletionRule: "absent_from_complete_snapshot",
 };
+
+enum FireConfidenceCode {
+  High = "high",
+  HighShort = "h",
+  Nominal = "nominal",
+  NominalShort = "n",
+}
+
+export enum FireConfidenceLevel {
+  Low = 0,
+  Nominal = 1,
+  High = 2,
+}
+
+enum FireIdentityToken {
+  Prefix = "FI",
+  UnknownSatellite = "unknown",
+  Separator = ":",
+  Empty = "",
+}
 
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -61,11 +80,23 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function fireConfidenceLevel(confidence: string | undefined): number {
+export function fireConfidenceLevel(
+  confidence: string | undefined,
+): FireConfidenceLevel {
   const normalized = confidence?.toLowerCase();
-  if (normalized === "high" || normalized === "h") return 2;
-  if (normalized === "nominal" || normalized === "n") return 1;
-  return 0;
+  if (
+    normalized === FireConfidenceCode.High ||
+    normalized === FireConfidenceCode.HighShort
+  ) {
+    return FireConfidenceLevel.High;
+  }
+  if (
+    normalized === FireConfidenceCode.Nominal ||
+    normalized === FireConfidenceCode.NominalShort
+  ) {
+    return FireConfidenceLevel.Nominal;
+  }
+  return FireConfidenceLevel.Low;
 }
 
 function parseFireData(value: unknown): FireData | null {
@@ -142,15 +173,17 @@ function parseServerFire(value: unknown): FirePoint | null {
   const coordinate = createGeoPoint(longitude, latitude);
   const timestamp = acquisitionTimestamp(acquisitionDate, acquisitionTime);
   if (!coordinate || !timestamp) return null;
-  const satellite = optionalString(value.satellite) ?? "unknown";
+  const satellite =
+    optionalString(value.satellite) ??
+    FireIdentityToken.UnknownSatellite;
   const id = [
-    "FI",
+    FireIdentityToken.Prefix,
     satellite,
-    acquisitionDate.replaceAll("-", ""),
+    acquisitionDate.replaceAll("-", FireIdentityToken.Empty),
     acquisitionTime,
     coordinate[1].toFixed(4),
     coordinate[0].toFixed(4),
-  ].join(":");
+  ].join(FireIdentityToken.Separator);
   return {
     id,
     type: Domain.Fires,
@@ -177,7 +210,7 @@ function parseServerFire(value: unknown): FirePoint | null {
 
 export function parseFireFeed(value: unknown): FirePoint[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
-    throw new Error(INVALID_FIRE_FEED_MESSAGE);
+    throw new FireFetchError(FireFeedErrorKind.InvalidResponse);
   }
   const byIdentity = new Map<string, FirePoint>();
   for (const candidate of value.data) {
@@ -191,10 +224,10 @@ export async function fetchFires(): Promise<FirePoint[]> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
-    FIRE_SOURCE_POLICY.requestTimeoutMs,
+    FIRE_FEED_POLICY.requestTimeoutMs,
   );
   try {
-    const response = await authenticatedFetch(FIRE_SOURCE_POLICY.feedUrl, {
+    const response = await authenticatedFetch(FIRE_FEED_POLICY.feedUrl, {
       signal: controller.signal,
     });
     if (!response.ok) {
