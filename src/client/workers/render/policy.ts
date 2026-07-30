@@ -1,10 +1,8 @@
 export type RenderPolicy = Readonly<{
   aircraftInterpolationLimitMs: number;
-  dataChunkSize: number;
   landGeometryUrl: string;
   maxDevicePixelRatio: number;
   minimumInterpolationAgeMs: number;
-  revealChunkSize: number;
   shipInterpolationLimitMs: number;
 }>;
 
@@ -54,11 +52,9 @@ export type CameraPolicy = Readonly<{
 
 export const RENDER_POLICY: RenderPolicy = {
   aircraftInterpolationLimitMs: 10 * 60 * 1_000,
-  dataChunkSize: 4_000,
   landGeometryUrl: "/data/ne_50m_land.json",
   maxDevicePixelRatio: 2,
   minimumInterpolationAgeMs: 1_000,
-  revealChunkSize: 1_500,
   shipInterpolationLimitMs: 30 * 60 * 1_000,
 };
 

@@ -8,11 +8,6 @@ import {
 import {
   MS_PER_SECOND,
 } from "@shared/time";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
-import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
 import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
 import {
   applyCameraKey,
@@ -51,7 +46,6 @@ import {
   type RenderPresentationPayload,
   type RenderViewportPayload,
   type RenderProtocolState,
-  type RenderPoint,
   type RenderWorkerCommand,
   type RenderWorkerColors,
   type RenderWorkerEventBody,
@@ -60,14 +54,6 @@ import {
   PanelSide,
 } from "./render/protocol";
 
-import {
-  RenderDataCommandType,
-  parseRenderDataCommand,
-  RenderDataProtocolState,
-  type LegacyPointSourceId,
-} from "./render/dataChannel";
-
-import { orderPointsByLayer } from "./render/layerOrder";
 import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { DataType } from "@/features/base/dataPoints";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
@@ -101,7 +87,6 @@ import type {
   SceneVisibilitySettings,
 } from "./render/scene/visibility";
 import { MarkerVisuals } from "./render/primitives/markerVisuals";
-import { pointTypeForSource } from "./data/sources/registry";
 import {
   parseSceneDataCommand,
   SceneDataCommandType,
@@ -110,6 +95,9 @@ import {
 import {
   SceneHitKind,
 } from "./render/scene/projectedLayer";
+import {
+  CycloneLayer,
+} from "./render/scene/cycloneLayer";
 import {
   screenToLatLonFlat,
   screenToLatLonGlobe,
@@ -121,7 +109,6 @@ import {
   createGlobeRotationMatrix,
   geographicToUnitVector,
   projectGeographicPoint as projGlobe,
-  projectUnitVector,
   projectUnitVectorInto,
   type GeographicMotion,
   type GlobeRotationMatrix,
@@ -518,19 +505,13 @@ function drawRoute(
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
-let _data: RenderPoint[] | null = null;
 let _colors: RenderWorkerColors | null = null;
-let _dataBySource:
-  | Partial<Record<LegacyPointSourceId, RenderPoint[]>>
-  | null = null;
 let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
 const _cameraTarget = createWorkerCameraTarget();
 const _pointer = createWorkerPointerState();
 let _lastFrameAt = performance.now();
-let _hasAnimatedPoints = false;
-let _hitGrid = new Map<string, ProjPoint[]>();
 let _trailHitTargets: TrailHitTarget[] = [];
 let _activeTrailPoint: WorkerTrailPoint | null = null;
 let _lastClickTime = 0;
@@ -554,12 +535,6 @@ let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
 let _selectedProjectionDepth = -1;
 
-// Progressive reveal: the main thread hands the full data array once per change;
-// the worker reveals it in chunks across its own render ticks. Preserved across
-// same-length updates so the ramp doesn't restart.
-const REVEAL_CHUNK = RENDER_POLICY.revealChunkSize;
-let _revealCount = 0;
-
 // ── Message handler ─────────────────────────────────────────────────
 
 const protocolState: RenderProtocolState = {
@@ -577,6 +552,7 @@ const earthquakeLayer = new EarthquakeLayer(markerVisuals);
 const fireLayer = new FireLayer(markerVisuals);
 const weatherLayer = new WeatherLayer(markerVisuals);
 const cycloneWarningLayer = new CycloneWarningLayer();
+const cycloneLayer = new CycloneLayer();
 renderLayerCatalog.register(aircraftLayer);
 renderLayerCatalog.register(shipLayer);
 renderLayerCatalog.register(fireLayer);
@@ -584,36 +560,23 @@ renderLayerCatalog.register(eventLayer);
 renderLayerCatalog.register(earthquakeLayer);
 renderLayerCatalog.register(cycloneWarningLayer);
 renderLayerCatalog.register(weatherLayer);
+renderLayerCatalog.register(cycloneLayer);
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
-  const state = new RenderDataProtocolState(sessionId);
   const sceneState = new SceneDataProtocolState(sessionId);
   port.onmessage = (event: MessageEvent<unknown>) => {
-    const command = parseRenderDataCommand(event.data);
-    if (command && state.accept(command)) {
-      if (command.type === RenderDataCommandType.Bind) {
-        globalThis.postMessage(
-          createRenderMessage(
-            { type: RenderMessageType.DataChannelReady },
-            sessionId,
-            protocolState.sequence,
-          ),
-        );
-        return;
-      }
-      applyRenderDataCommand(command);
-      scheduleRender();
-      return;
-    }
-
     const sceneCommand = parseSceneDataCommand(event.data);
-    if (
-      !sceneCommand ||
-      !sceneState.accept(sceneCommand) ||
-      sceneCommand.type === SceneDataCommandType.Bind
-    ) {
+    if (!sceneCommand || !sceneState.accept(sceneCommand)) return;
+    if (sceneCommand.type === SceneDataCommandType.Bind) {
+      globalThis.postMessage(
+        createRenderMessage(
+          { type: RenderMessageType.DataChannelReady },
+          sessionId,
+          protocolState.sequence,
+        ),
+      );
       return;
     }
     if (!renderLayerCatalog.apply(sceneCommand)) return;
@@ -710,40 +673,6 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
     ],
   ]);
 }
-function pointHasTimeAnimation(item: RenderPoint): boolean {
-  return item.type === Domain.Cyclones;
-}
-
-
-function rebuildGenericData(): void {
-  const nextData: RenderPoint[] = [];
-  if (_dataBySource) {
-    for (const bucket of Object.values(_dataBySource)) {
-      if (!bucket) continue;
-      for (const item of bucket) nextData.push(item);
-    }
-  }
-  _data = nextData;
-  _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
-  if (_revealCount > nextData.length) _revealCount = nextData.length;
-  if (_revealCount === 0 && nextData.length > 0) {
-    _revealCount = Math.min(REVEAL_CHUNK, nextData.length);
-  }
-}
-
-type RenderDataCommand = NonNullable<
-  ReturnType<typeof parseRenderDataCommand>
->;
-
-/** Legacy cyclone updates, past the bind handshake. */
-function applyRenderDataCommand(command: RenderDataCommand): void {
-  if (command.type !== RenderDataCommandType.PointsRebase) return;
-
-  _dataBySource ??= {};
-  _dataBySource[command.source] = [...command.points];
-  rebuildGenericData();
-}
-
 function selectedCameraPosition(): CameraPosition | null {
   const selected = _presentation?.selectedItem;
   if (!selected) return null;
@@ -961,128 +890,12 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
 // ── Render everything ───────────────────────────────────────────────
 
 
-// ── Per-type point drawing (extracted from the render loop) ─────────
-
-type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
-
-type PointProjector = (item: RenderPoint) => Projected;
-
-const unitVectorByPoint = new WeakMap<RenderPoint, UnitVector>();
-
-function unitVectorForPoint(item: RenderPoint): UnitVector {
-  const cached = unitVectorByPoint.get(item);
-  if (cached) return cached;
-  const unit = geographicToUnitVector(recordLatitude(item), recordLongitude(item));
-  unitVectorByPoint.set(item, unit);
-  return unit;
-}
-
-type FilterCfg = {
-  searchSet: Set<string> | null;
-  isoMode: RenderPresentationPayload["isolateMode"];
-  isoId: string | null;
-  isolatedType: string | null;
-  layers: Readonly<Record<string, boolean | undefined>>;
-  af: AircraftFilter;
-  showForecast: boolean;
-};
-
-/** Does one item survive the search / isolation / layer filters? */
-function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
-  if (c.searchSet && !c.searchSet.has(item.id)) return false;
-  if (c.isoMode === IsolateMode.Solo && item.id !== c.isoId) return false;
-  if (c.isoMode === IsolateMode.Focus && c.isolatedType && item.type !== c.isolatedType) return false;
-  if (item.type === Domain.Aircraft) return matchesAF(item.data, c.af);
-  if (item.type === Domain.CyclonesForecast) return c.layers.cyclones !== false && c.showForecast !== false;
-  return c.layers[item.type] !== false;
-}
-
-/** Projects visible front-facing items in stable layer order. */
-function projectAndFilter(data: ReadonlyArray<RenderPoint>, projectPoint: PointProjector, c: FilterCfg): ProjPoint[] {
-  const pts: ProjPoint[] = [];
-  for (const item of data) {
-    if (!pointPassesFilters(item, c)) continue;
-    const pt = projectPoint(item);
-    if (pt.z <= 0) continue;
-    pts.push({ x: pt.x, y: pt.y, z: pt.z, item });
-  }
-  return orderPointsByLayer(pts);
-}
-function hitGridKey(x: number, y: number): string {
-  const cellX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
-  const cellY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
-  return `${cellX}:${cellY}`;
-}
-
-function rebuildHitGrid(points: readonly ProjPoint[]): void {
-  const next = new Map<string, ProjPoint[]>();
-  for (const point of points) {
-    const key = hitGridKey(point.x, point.y);
-    const cell = next.get(key);
-    if (!cell) {
-      next.set(key, [point]);
-    } else if (
-      cell.length < CAMERA_POLICY.maximumHitCandidates
-    ) {
-      cell.push(point);
-    }
-  }
-  _hitGrid = next;
-}
-
-function hitCandidates(x: number, y: number): ProjPoint[] {
-  const centerX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
-  const centerY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
-  const candidates: ProjPoint[] = [];
-  for (let row = centerY - 1; row <= centerY + 1; row++) {
-    for (let column = centerX - 1; column <= centerX + 1; column++) {
-      const cell = _hitGrid.get(`${column}:${row}`);
-      if (!cell) continue;
-      for (const point of cell) {
-        if (
-          candidates.length >=
-          CAMERA_POLICY.maximumHitCandidates
-        ) {
-          return candidates;
-        }
-        candidates.push(point);
-      }
-    }
-  }
-  return candidates;
-}
-
 type PointHit = CameraPosition &
   Readonly<{
     distance: number;
     kind: SceneHitKind;
     pointType: DataType;
   }>;
-
-function nearestGenericPoint(
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  let closest: PointHit | null = null;
-  let distance = radius;
-  for (const point of hitCandidates(x, y)) {
-    const candidateDistance = Math.hypot(
-      point.x - x,
-      point.y - y,
-    );
-    if (candidateDistance >= distance) continue;
-    const position = positionForItem(point.item);
-    closest = {
-      ...position,
-      distance: candidateDistance,
-      kind: SceneHitKind.Point,
-      pointType: point.item.type,
-    };
-    distance = candidateDistance;
-  }
-  return closest;
-}
 
 function nearestScenePoint(
   x: number,
@@ -1098,12 +911,12 @@ function nearestScenePoint(
   );
   if (!result) return null;
   return {
-    id: result.hit.entityId,
+    id: result.interactionId,
     latitude: result.hit.latitude,
     longitude: result.hit.longitude,
     distance: result.hit.distance,
     kind: result.hit.kind,
-    pointType: pointTypeForSource(result.source),
+    pointType: result.pointType,
   };
 }
 
@@ -1117,12 +930,12 @@ function areaAt(x: number, y: number): PointHit | null {
   );
   if (!result) return null;
   return {
-    id: result.hit.entityId,
+    id: result.interactionId,
     latitude: result.hit.latitude,
     longitude: result.hit.longitude,
     distance: result.hit.distance,
     kind: result.hit.kind,
-    pointType: pointTypeForSource(result.source),
+    pointType: result.pointType,
   };
 }
 
@@ -1131,11 +944,7 @@ function nearestPoint(
   y: number,
   radius: number,
 ): PointHit | null {
-  const generic = nearestGenericPoint(x, y, radius);
-  const scene = nearestScenePoint(x, y, radius);
-  return scene && (!generic || scene.distance < generic.distance)
-    ? scene
-    : generic;
+  return nearestScenePoint(x, y, radius);
 }
 
 function nearestTrailTarget(
@@ -1313,18 +1122,6 @@ function clearTrailTooltip(): void {
     y: 0,
     visible: false,
   });
-}
-
-function positionForItem(item: RenderPoint): CameraPosition {
-  const interpolated =
-    item.type === Domain.Aircraft || item.type === Domain.Ships
-      ? getInterp(item.id)
-      : null;
-  return {
-    id: item.id,
-    latitude: interpolated?.lat ?? recordLatitude(item),
-    longitude: interpolated?.lon ?? recordLongitude(item),
-  };
 }
 
 function resetClickMemory(): void {
@@ -1512,83 +1309,6 @@ function updateTrailTooltip(): void {
 }
 
 
-type PointDrawCtx = {
-  ctx: Ctx;
-  projFn: ProjFn;
-  colorMap: Record<string, string>;
-  accent: string;
-  selId: string | null;
-  t: number;
-  zoomLevel: number;
-  showForecast: boolean;
-  showCone: boolean;
-  showWindField: boolean;
-  showModels: boolean;
-  hiddenModels: ReadonlySet<string>;
-  reducedMotion: boolean;
-};
-
-/** Draw one projected point by its type. Each branch returns after drawing. */
-type PointDraw = Readonly<{
-  x: number;
-  y: number;
-  baseColor: string;
-  depthAlpha: number;
-  isSel: boolean;
-}>;
-
-/**
- * The legacy point path now carries only the cyclone composite.
- */
-function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
-  const { ctx, projFn, colorMap, accent, selId, t } = pc;
-  const { x, y, z, item } = pt;
-  const d: PointDraw = {
-    x,
-    y,
-    baseColor: colorMap[item.type] || accent,
-    depthAlpha: 0.4 + z * 0.6,
-    isSel: item.id === selId,
-  };
-
-  switch (item.type) {
-    case Domain.Cyclones:
-      drawCyclone(
-        ctx,
-        projFn,
-        x,
-        y,
-        item,
-        d.baseColor,
-        d.depthAlpha,
-        t,
-        d.isSel,
-        {
-          showForecast: pc.showForecast,
-          showCone: pc.showCone,
-          showWindField: pc.showWindField,
-          showModels: pc.showModels,
-          hiddenModels: pc.hiddenModels,
-          reducedMotion: pc.reducedMotion,
-        },
-      );
-      return;
-    case Domain.CyclonesForecast:
-      drawCycloneForecastPoint(
-        ctx,
-        x,
-        y,
-        item.data.fcstHour,
-        colorMap.cyclones || d.baseColor,
-        d.depthAlpha,
-        { isSelected: d.isSel, t, reducedMotion: pc.reducedMotion },
-      );
-      return;
-    default:
-      return;
-  }
-}
-
 type StaticLayerCtx = {
   ctx: Ctx;
   projFn: ProjFn;
@@ -1717,21 +1437,18 @@ function sceneProjectionBase(
 }
 
 function drawPointLayers(
-  pointCtx: PointDrawCtx,
-  pts: readonly ProjPoint[],
   drawFireLayer: () => void,
   drawEventLayer: () => void,
   drawEarthquakeLayer: () => void,
   drawWeatherLayer: () => void,
+  drawCycloneLayer: () => void,
 ): void {
   drawMarkerLayerSequence({
     fire: drawFireLayer,
     event: drawEventLayer,
     earthquake: drawEarthquakeLayer,
     weather: drawWeatherLayer,
-    legacy: () => {
-      for (const point of pts) drawPoint(pointCtx, point);
-    },
+    cyclones: drawCycloneLayer,
   });
 }
 
@@ -1840,42 +1557,6 @@ function frameTheme(colors: RenderWorkerColors): FrameTheme {
   };
 }
 
-type CycloneDisplay = Readonly<{
-  showForecast: boolean;
-  showCone: boolean;
-  showWindField: boolean;
-  showWarnings: boolean;
-  showModels: boolean;
-  hiddenModels: Set<string>;
-  reducedMotion: boolean;
-}>;
-
-/** Wind field and models default off; everything else defaults on. */
-function cycloneDisplay(p: RenderPresentationPayload): CycloneDisplay {
-  return {
-    showForecast: p.cyclonesShowForecast !== false,
-    showCone: p.cyclonesShowCone !== false,
-    showWindField: p.cyclonesShowWindField === true,
-    showWarnings: p.cyclonesShowWarnings !== false,
-    showModels: p.cyclonesShowModels === true,
-    hiddenModels: new Set(p.cyclonesHiddenModels ?? []),
-    reducedMotion: p.prefersReducedMotion === true,
-  };
-}
-
-/** Progressive reveal: advance the counter one chunk and slice to it. */
-function advanceReveal(
-  fullData: readonly RenderPoint[],
-): readonly RenderPoint[] {
-  _revealCount =
-    _revealCount < fullData.length
-      ? Math.min(_revealCount + REVEAL_CHUNK, fullData.length)
-      : fullData.length;
-  return _revealCount < fullData.length
-    ? fullData.slice(0, _revealCount)
-    : fullData;
-}
-
 function resizeCanvas(
   target: OffscreenCanvas,
   context: Ctx,
@@ -1923,7 +1604,6 @@ function selectionPassesFilters(v: SelectionVisibility): boolean {
 type FrameInputs = Readonly<{
   canvas: OffscreenCanvas;
   ctx: Ctx;
-  data: RenderPoint[];
   colors: RenderWorkerColors;
   presentation: RenderPresentationPayload;
   viewport: RenderViewportPayload;
@@ -1934,7 +1614,6 @@ function frameInputs(): FrameInputs | null {
   if (
     !canvas ||
     !ctx ||
-    !_data ||
     !_colors ||
     !_presentation ||
     !_viewport
@@ -1944,47 +1623,32 @@ function frameInputs(): FrameInputs | null {
   return {
     canvas,
     ctx,
-    data: _data,
     colors: _colors,
     presentation: _presentation,
     viewport: _viewport,
   };
 }
 
-type Projectors = Readonly<{
-  projectPoint: PointProjector;
-  projFn: ProjFn;
-}>;
-
-/**
- * Aircraft and ships never reach the point projector; they project from their
- * typed scene, which carries its own interpolation.
- */
-function createProjectors(
+function createProjector(
   geometry: SceneGeometry,
   rotationY: number,
   rotationX: number,
-): Projectors {
-  const { fm, centerX, centerY, globeRadius, globeMatrix } = geometry;
+): ProjFn {
+  const { fm, centerX, centerY, globeRadius } = geometry;
   if (fm) {
-    return {
-      projectPoint: (item) =>
-        projFlat(recordLatitude(item), recordLongitude(item), fm.cx, fm.cy, fm.mW, fm.mH),
-      projFn: (lat, lon) => projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH),
-    };
+    return (lat, lon) =>
+      projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
   }
-  return {
-    projectPoint: (item) =>
-      projectUnitVector(
-        unitVectorForPoint(item),
-        globeMatrix,
-        centerX,
-        centerY,
-        globeRadius,
-      ),
-    projFn: (lat, lon) =>
-      projGlobe(lat, lon, centerX, centerY, globeRadius, rotationY, rotationX),
-  };
+  return (lat, lon) =>
+    projGlobe(
+      lat,
+      lon,
+      centerX,
+      centerY,
+      globeRadius,
+      rotationY,
+      rotationX,
+    );
 }
 
 /** Globe rim or flat-map border, drawn after the point clip is released. */
@@ -2013,47 +1677,29 @@ function drawFrameEdge(
 }
 
 type ProjectFrameOptions = Readonly<{
-  data: readonly RenderPoint[];
-  projectPoint: PointProjector;
   project: ProjFn;
   geometry: SceneGeometry;
   presentation: RenderPresentationPayload;
-  showForecast: boolean;
 }>;
 
 type ProjectedFrame = Readonly<{
-  pts: ProjPoint[];
   searchSet: Set<string> | null;
   isolatedType: string | null;
   aircraftSceneFilter: AircraftSceneFilter;
 }>;
 
 /**
- * One pass over the legacy points plus one over each typed scene. Isolation
- * needs the isolated item's type, which only the selection or a lookup knows.
+ * Isolation needs the isolated item's semantic type from the selected
+ * projection that React already owns.
  */
 function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   const p = options.presentation;
   const { isolatedId: isoId, selectedId: selId, isolateMode: isoMode } = p;
   const isolatedType =
     isoId && selId
-      ? p.selectedItem?.type ??
-        options.data.find((candidate) => candidate.id === isoId)?.type ??
-        null
+      ? p.selectedItem?.type ?? null
       : null;
   const searchSet = p.searchMatchIds ? new Set(p.searchMatchIds) : null;
-  const filterCfg: FilterCfg = {
-    searchSet,
-    isoMode,
-    isoId,
-    isolatedType,
-    layers: p.layers,
-    af: p.aircraftFilter,
-    showForecast: options.showForecast,
-  };
-  const pts = projectAndFilter(options.data, options.projectPoint, filterCfg);
-  rebuildHitGrid(pts);
-
   const base = sceneProjectionBase(
     options.geometry,
     options.project,
@@ -2106,8 +1752,17 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     ...sceneVisibility,
   });
 
+  cycloneLayer.project(base, {
+    enabled: p.layers[Domain.Cyclones] !== false,
+    minCategory: p.cyclonesMinCategory,
+    showForecast: p.cyclonesShowForecast !== false,
+    showWindField: p.cyclonesShowWindField === true,
+    showModels: p.cyclonesShowModels === true,
+    hiddenModels: new Set(p.cyclonesHiddenModels),
+    ...sceneVisibility,
+  });
+
   return {
-    pts,
     searchSet,
     isolatedType,
     aircraftSceneFilter,
@@ -2119,18 +1774,10 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
  * typed aircraft scene wins over the legacy point when both resolve.
  */
 function updateSelectedProjection(
-  pts: readonly ProjPoint[],
   selectedId: string | null,
 ): void {
   _hasSelectedProjection = false;
   if (selectedId === null) return;
-
-  const point = pts.find((candidate) => candidate.item.id === selectedId);
-  if (point) {
-    _hasSelectedProjection = true;
-    _selectedProjectionX = point.x;
-    _selectedProjectionDepth = point.z;
-  }
 
   const sceneProjection =
     renderLayerCatalog.selectionAnchor(selectedId);
@@ -2142,18 +1789,16 @@ function updateSelectedProjection(
 }
 
 function scheduleNextFrameIfNeeded(
-  hasRevealWork: boolean,
   reducedMotion: boolean,
   hasSelection: boolean,
   cameraActive: boolean,
 ): void {
   const hasVisualAnimation =
     !reducedMotion &&
-    (_hasAnimatedPoints ||
-      renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
+    (renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
-    hasRevealWork || trailMap.size > 0 || hasVisualAnimation || cameraActive;
+    trailMap.size > 0 || hasVisualAnimation || cameraActive;
   if (!needsFrame || _frameScheduled) return;
   _frameScheduled = true;
   requestAnimationFrame(renderFrame);
@@ -2190,8 +1835,6 @@ function renderFrame(): void {
   const isoMode = p.isolateMode;
   const { layers } = p;
 
-  const fullData = inputs.data;
-  const data = advanceReveal(fullData);
   const selectedItem = p.selectedItem;
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
@@ -2202,8 +1845,6 @@ function renderFrame(): void {
 
   const cx = W / 2;
   const cy = H / 2;
-  const cyclones = cycloneDisplay(p);
-
   const fm = isFlat ? getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY) : null;
   const globeR = Math.min(W, H) * 0.4 * cam.zoomGlobe;
   const geometry: SceneGeometry = {
@@ -2215,7 +1856,7 @@ function renderFrame(): void {
     centerY: cy,
     globeRadius: globeR,
   };
-  const { projectPoint, projFn } = createProjectors(
+  const projFn = createProjector(
     geometry,
     cam.rotY,
     cam.rotX,
@@ -2227,20 +1868,16 @@ function renderFrame(): void {
 
   // ── Project + filter points ───────────────────────────────────
   const projected = projectFrame({
-    data,
-    projectPoint,
     project: projFn,
     geometry,
     presentation: p,
-    showForecast: cyclones.showForecast,
   });
   const {
-    pts,
     searchSet,
     isolatedType,
     aircraftSceneFilter,
   } = projected;
-  updateSelectedProjection(pts, selId);
+  updateSelectedProjection(selId);
 
   drawAreaOverlays({
     context: ctx,
@@ -2277,15 +1914,6 @@ function renderFrame(): void {
   ctx.globalAlpha = 1;
 
   // ── Draw points ───────────────────────────────────────────────
-  const pointCtx: PointDrawCtx = {
-    ctx, projFn, colorMap, accent: colors.accent, selId, t, zoomLevel,
-    showForecast: cyclones.showForecast,
-    showCone: cyclones.showCone,
-    showWindField: cyclones.showWindField,
-    showModels: cyclones.showModels,
-    hiddenModels: cyclones.hiddenModels,
-    reducedMotion: cyclones.reducedMotion,
-  };
   aircraftLayer.draw({
     context: ctx,
     baseColor: colors.aircraft,
@@ -2303,8 +1931,6 @@ function renderFrame(): void {
     zoomLevel,
   });
   drawPointLayers(
-    pointCtx,
-    pts,
     () => {
       fireLayer.draw({
         context: ctx,
@@ -2344,6 +1970,17 @@ function renderFrame(): void {
         zoomLevel,
       });
     },
+    () => {
+      cycloneLayer.draw({
+        context: ctx,
+        project: projFn,
+        color: colorMap[Domain.Cyclones] ?? colors.accent,
+        selectedId: selId,
+        time: t,
+        reducedMotion: p.prefersReducedMotion,
+        showCone: p.cyclonesShowCone,
+      });
+    },
   );
   ctx.globalAlpha = 1;
 
@@ -2357,8 +1994,7 @@ function renderFrame(): void {
   postCameraSummary(now);
 
   scheduleNextFrameIfNeeded(
-    _revealCount < fullData.length,
-    cyclones.reducedMotion,
+    p.prefersReducedMotion,
     p.selectedId !== null,
     cameraActive,
   );

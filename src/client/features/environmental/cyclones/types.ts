@@ -79,9 +79,9 @@ export type ForecastPoint = {
 };
 
 export type CycloneData = {
-  /** NHC storm ID, uppercased — e.g. "AL052026" */
+  /** Uppercase NHC storm ID, such as "AL052026". */
   stormId: string;
-  /** Storm name — "ELENA" */
+  /** Storm name, such as "ELENA". */
   name: string;
   /** Basin: AL=Atlantic, EP=East Pacific, CP=Central Pacific */
   basin: NhcBasin;
@@ -97,7 +97,7 @@ export type CycloneData = {
   movementDir?: number;
   /** Movement speed in knots */
   movementSpeedKt?: number;
-  /** Latest advisory number — e.g. "12A" */
+  /** Latest advisory number, such as "12A". */
   advisoryNumber: string;
   /** ISO time of last advisory */
   lastUpdate: string;
@@ -145,11 +145,8 @@ export type WindRadii = {
   kt64: number[] | null;
 };
 
-// Synthetic per-forecast-point shape — produced by
-// data/synthesizeForecastPoints.ts and rendered as its own DataPoint
-// variant ("cyclones-forecast"). NOT persisted to IndexedDB; recomputed
-// each time the cyclone provider data changes. The parent* fields let
-// the mini-dossier identify the storm without re-walking allData.
+// A forecast scene hit resolves to this bounded UI projection in DataWorker.
+// It is not persisted or sent to RenderWorker.
 export type CycloneForecastPointData = {
   parentStormId: string;
   parentName: string;

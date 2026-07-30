@@ -6,7 +6,7 @@ import {
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 
 export enum SceneDataProtocolVersion {
-  Current = 3,
+  Current = 4,
 }
 
 export enum SceneDataCommandType {
@@ -15,6 +15,13 @@ export enum SceneDataCommandType {
   SourceSearch = "sourceSearch",
 }
 
+export enum SceneGeometryKind {
+  None = 0,
+  Polygon = 1,
+  Polyline = 2,
+}
+
+type TransferUint8Array = Uint8Array<ArrayBuffer>;
 type TransferUint32Array = Uint32Array<ArrayBuffer>;
 type TransferFloat32Array = Float32Array<ArrayBuffer>;
 type TransferFloat64Array = Float64Array<ArrayBuffer>;
@@ -23,6 +30,14 @@ enum SceneProtocolComponentCount {
   Position = 2,
   UnitVector = 3,
 }
+
+type SceneGeometryBuffers = Readonly<{
+  geometryKinds: TransferUint8Array;
+  geometryCoordinates: TransferFloat64Array;
+  geometryPartEnds: TransferUint32Array;
+  geometryGroupEnds: TransferUint32Array;
+  geometryRecordEnds: TransferUint32Array;
+}>;
 
 type ScenePatchBuffers = Readonly<{
   handles: TransferUint32Array;
@@ -37,12 +52,11 @@ type ScenePatchBuffers = Readonly<{
   stringAttributeStride: number;
   dictionaryStart: number;
   dictionaryValues: readonly string[];
-  geometryCoordinates: TransferFloat64Array;
-  geometryRingEnds: TransferUint32Array;
-  geometryPolygonEnds: TransferUint32Array;
-  geometryRecordEnds: TransferUint32Array;
   deletedHandles: TransferUint32Array;
-}>;
+}> &
+  SceneGeometryBuffers;
+
+type GeometryIndexRange = readonly [start: number, end: number];
 
 export type SceneSourcePatch = Readonly<{
   type: SceneDataCommandType.SourcePatch;
@@ -131,6 +145,12 @@ function isTransferUint32Array(
   return value instanceof Uint32Array && value.buffer instanceof ArrayBuffer;
 }
 
+function isTransferUint8Array(
+  value: unknown,
+): value is TransferUint8Array {
+  return value instanceof Uint8Array && value.buffer instanceof ArrayBuffer;
+}
+
 function isTransferFloat32Array(
   value: unknown,
 ): value is TransferFloat32Array {
@@ -188,23 +208,120 @@ function hasValidCumulativeEnds(
   return previous === finalValue;
 }
 
-function hasClosedGeometryRings(
+function geometryKindIsValid(
+  value: number,
+): value is SceneGeometryKind {
+  return (
+    value === SceneGeometryKind.None ||
+    value === SceneGeometryKind.Polygon ||
+    value === SceneGeometryKind.Polyline
+  );
+}
+
+function geometryPartIsClosed(
   coordinates: TransferFloat64Array,
-  ringEnds: TransferUint32Array,
+  pointStart: number,
+  pointEnd: number,
 ): boolean {
-  let pointStart = 0;
-  for (const pointEnd of ringEnds) {
-    const firstOffset =
-      pointStart * SceneProtocolComponentCount.Position;
-    const lastOffset =
-      (pointEnd - 1) * SceneProtocolComponentCount.Position;
-    if (
-      coordinates[firstOffset] !== coordinates[lastOffset] ||
-      coordinates[firstOffset + 1] !== coordinates[lastOffset + 1]
-    ) {
-      return false;
-    }
-    pointStart = pointEnd;
+  const firstOffset =
+    pointStart * SceneProtocolComponentCount.Position;
+  const lastOffset =
+    (pointEnd - 1) * SceneProtocolComponentCount.Position;
+  return (
+    coordinates[firstOffset] === coordinates[lastOffset] &&
+    coordinates[firstOffset + 1] === coordinates[lastOffset + 1]
+  );
+}
+
+function geometryIndexRange(
+  ends: TransferUint32Array,
+  index: number,
+): GeometryIndexRange | null {
+  const end = ends[index];
+  if (end === undefined) return null;
+  const start = index === 0 ? 0 : ends[index - 1];
+  return start === undefined ? null : [start, end];
+}
+
+function geometryGroupCountIsValid(
+  kind: SceneGeometryKind,
+  count: number,
+): boolean {
+  switch (kind) {
+    case SceneGeometryKind.None:
+      return count === 0;
+    case SceneGeometryKind.Polygon:
+      return count > 0;
+    case SceneGeometryKind.Polyline:
+      return count === 1;
+  }
+}
+
+function geometryPartIsValid(
+  value: SceneGeometryBuffers,
+  kind: SceneGeometryKind,
+  partIndex: number,
+): boolean {
+  const range = geometryIndexRange(
+    value.geometryPartEnds,
+    partIndex,
+  );
+  if (!range) return false;
+  const [pointStart, pointEnd] = range;
+  const minimum =
+    kind === SceneGeometryKind.Polygon
+      ? GeoLimit.MinRingPointCount
+      : SceneProtocolComponentCount.Position;
+  return (
+    pointEnd - pointStart >= minimum &&
+    (kind !== SceneGeometryKind.Polygon ||
+      geometryPartIsClosed(
+        value.geometryCoordinates,
+        pointStart,
+        pointEnd,
+      ))
+  );
+}
+
+function geometryGroupIsValid(
+  value: SceneGeometryBuffers,
+  kind: SceneGeometryKind,
+  groupIndex: number,
+): boolean {
+  const range = geometryIndexRange(
+    value.geometryGroupEnds,
+    groupIndex,
+  );
+  if (!range || range[0] === range[1]) return false;
+  for (
+    let partIndex = range[0];
+    partIndex < range[1];
+    partIndex += 1
+  ) {
+    if (!geometryPartIsValid(value, kind, partIndex)) return false;
+  }
+  return true;
+}
+
+function hasValidGeometryRecord(
+  value: SceneGeometryBuffers,
+  recordIndex: number,
+): boolean {
+  const kind = value.geometryKinds[recordIndex];
+  if (kind === undefined || !geometryKindIsValid(kind)) return false;
+  const range = geometryIndexRange(
+    value.geometryRecordEnds,
+    recordIndex,
+  );
+  if (!range || !geometryGroupCountIsValid(kind, range[1] - range[0])) {
+    return false;
+  }
+  for (
+    let groupIndex = range[0];
+    groupIndex < range[1];
+    groupIndex += 1
+  ) {
+    if (!geometryGroupIsValid(value, kind, groupIndex)) return false;
   }
   return true;
 }
@@ -213,45 +330,52 @@ function hasValidGeometryBuffers(
   value: Readonly<Record<string, unknown>>,
   recordCount: number,
 ): value is Readonly<Record<string, unknown>> &
-  Pick<
-    ScenePatchBuffers,
-    | "geometryCoordinates"
-    | "geometryRingEnds"
-    | "geometryPolygonEnds"
-    | "geometryRecordEnds"
-  > {
+  SceneGeometryBuffers {
   if (
+    !isTransferUint8Array(value.geometryKinds) ||
     !isTransferFloat64Array(value.geometryCoordinates) ||
-    !isTransferUint32Array(value.geometryRingEnds) ||
-    !isTransferUint32Array(value.geometryPolygonEnds) ||
-    !isTransferUint32Array(value.geometryRecordEnds) ||
+    !isTransferUint32Array(value.geometryPartEnds) ||
+    !isTransferUint32Array(value.geometryGroupEnds) ||
+    !isTransferUint32Array(value.geometryRecordEnds)
+  ) {
+    return false;
+  }
+  if (
+    value.geometryKinds.length !== recordCount ||
     value.geometryRecordEnds.length !== recordCount ||
     !hasValidCoordinatePairs(value.geometryCoordinates)
   ) {
     return false;
   }
+  const geometry = {
+    geometryKinds: value.geometryKinds,
+    geometryCoordinates: value.geometryCoordinates,
+    geometryPartEnds: value.geometryPartEnds,
+    geometryGroupEnds: value.geometryGroupEnds,
+    geometryRecordEnds: value.geometryRecordEnds,
+  };
   const pointCount =
-    value.geometryCoordinates.length /
+    geometry.geometryCoordinates.length /
     SceneProtocolComponentCount.Position;
   return (
     hasValidCumulativeEnds(
-      value.geometryRingEnds,
+      geometry.geometryPartEnds,
       pointCount,
-      GeoLimit.MinRingPointCount,
-    ) &&
-    hasClosedGeometryRings(
-      value.geometryCoordinates,
-      value.geometryRingEnds,
+      0,
     ) &&
     hasValidCumulativeEnds(
-      value.geometryPolygonEnds,
-      value.geometryRingEnds.length,
+      geometry.geometryGroupEnds,
+      geometry.geometryPartEnds.length,
       1,
     ) &&
     hasValidCumulativeEnds(
-      value.geometryRecordEnds,
-      value.geometryPolygonEnds.length,
+      geometry.geometryRecordEnds,
+      geometry.geometryGroupEnds.length,
       0,
+    ) &&
+    geometry.geometryKinds.every(geometryKindIsValid) &&
+    geometry.geometryRecordEnds.every((_end, recordIndex) =>
+      hasValidGeometryRecord(geometry, recordIndex),
     )
   );
 }
@@ -400,9 +524,10 @@ export function parseSceneDataCommand(
     stringAttributeStride: value.stringAttributeStride,
     dictionaryStart: value.dictionaryStart,
     dictionaryValues: value.dictionaryValues,
+    geometryKinds: value.geometryKinds,
     geometryCoordinates: value.geometryCoordinates,
-    geometryRingEnds: value.geometryRingEnds,
-    geometryPolygonEnds: value.geometryPolygonEnds,
+    geometryPartEnds: value.geometryPartEnds,
+    geometryGroupEnds: value.geometryGroupEnds,
     geometryRecordEnds: value.geometryRecordEnds,
     deletedHandles: value.deletedHandles,
   };
@@ -422,9 +547,10 @@ export function sceneDataTransfers(
     command.timestamps.buffer,
     command.attributes.buffer,
     command.stringAttributes.buffer,
+    command.geometryKinds.buffer,
     command.geometryCoordinates.buffer,
-    command.geometryRingEnds.buffer,
-    command.geometryPolygonEnds.buffer,
+    command.geometryPartEnds.buffer,
+    command.geometryGroupEnds.buffer,
     command.geometryRecordEnds.buffer,
     command.deletedHandles.buffer,
   ];

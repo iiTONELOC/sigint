@@ -16,6 +16,9 @@ import type { EventPoint } from "@/features/intel/events/data/codec";
 import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
 import type { ShipPoint } from "@/features/tracking/ships/data/codec";
 import type { DataPoint } from "@/features/base/dataPoints";
+import {
+  isCycloneSourceEntity,
+} from "@/features/environmental/cyclones/data/forecastProjection";
 import type {
   PointUiQueries,
   PointUiQuery,
@@ -68,7 +71,7 @@ const QUERIES: {
 };
 
 export type QueryableSourceCodec<TId extends QueryableSourceId> = Readonly<{
-  parseEntity: (value: unknown) => QueryableSourceEntities[TId] | null;
+  parseEntity: (value: unknown) => DataPoint | null;
   parseResult: (
     value: unknown,
   ) => PointUiQueryResult<QueryableSourceEntities[TId]> | null;
@@ -100,9 +103,11 @@ type QueryableSourceCodecs = {
 function codecFor<TId extends QueryableSourceId>(
   source: TId,
   queries: PointUiQueries<QueryableSourceEntities[TId]>,
+  parseEntity: (value: unknown) => DataPoint | null =
+    queries.descriptor.parseEntity,
 ): QueryableSourceCodec<TId> {
   return {
-    parseEntity: queries.descriptor.parseEntity,
+    parseEntity,
     parseResult: queries.parseResult,
     buildQueryCommand: (envelope, rawQuery) => {
       const query = queries.parseQuery(rawQuery);
@@ -125,7 +130,7 @@ function codecFor<TId extends QueryableSourceId>(
           value: null,
         };
       }
-      const value = queries.descriptor.parseEntity(rawValue);
+      const value = parseEntity(rawValue);
       return value
         ? {
             ...envelope,
@@ -153,7 +158,11 @@ function codecFor<TId extends QueryableSourceId>(
 
 export const QUERYABLE_SOURCE_CODECS: QueryableSourceCodecs = {
   [Domain.Aircraft]: codecFor(Domain.Aircraft, QUERIES.aircraft),
-  [Domain.Cyclones]: codecFor(Domain.Cyclones, QUERIES.cyclones),
+  [Domain.Cyclones]: codecFor(
+    Domain.Cyclones,
+    QUERIES.cyclones,
+    (value) => (isCycloneSourceEntity(value) ? value : null),
+  ),
   [Domain.CycloneWarnings]: codecFor(
     Domain.CycloneWarnings,
     QUERIES.cycloneWarnings,
@@ -230,15 +239,18 @@ export type SourceAnswers = Readonly<{
 export function createSourceAnswers<TId extends QueryableSourceId>(
   source: TId,
   owner: QueryableOwner<QueryableSourceEntities[TId]>,
+  resolveEntity: (id: string) => DataPoint | null = (id) =>
+    owner.get(id),
 ): SourceAnswers {
   const codec = QUERYABLE_SOURCE_CODECS[source];
   return {
-    entity: (envelope, id) =>
-      codec.buildEntityEvent(
-        envelope,
-        owner.snapshot().version,
-        owner.get(id),
-      ),
+    entity: (envelope, id) => ({
+      ...envelope,
+      type: DataWorkerMessageType.SourceEntity,
+      source,
+      sourceVersion: owner.snapshot().version,
+      value: resolveEntity(id),
+    }),
     query: (envelope, query) =>
       codec.buildQueryEvent(
         envelope,

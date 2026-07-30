@@ -2,49 +2,56 @@ import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import {
   SceneDataCommandType,
+  SceneGeometryKind,
   SceneDataProtocolVersion,
   type SceneSearchCommand,
   type SceneSourceCommand,
 } from "@/workers/render/sceneProtocol";
-import type { RenderSceneView } from "@/workers/render/sceneStore";
-import type { GeoMultiPolygon } from "@shared/geo";
+import type {
+  RenderSceneGeometry,
+  RenderSceneView,
+} from "@/workers/render/sceneStore";
 
 enum TestGeometryComponentCount {
   Position = 2,
 }
 
 type TestGeometryBuffers = Readonly<{
+  geometryKinds: Uint8Array<ArrayBuffer>;
   geometryCoordinates: Float64Array<ArrayBuffer>;
-  geometryRingEnds: Uint32Array<ArrayBuffer>;
-  geometryPolygonEnds: Uint32Array<ArrayBuffer>;
+  geometryPartEnds: Uint32Array<ArrayBuffer>;
+  geometryGroupEnds: Uint32Array<ArrayBuffer>;
   geometryRecordEnds: Uint32Array<ArrayBuffer>;
 }>;
 
 function testGeometryBuffers(
-  geometries: readonly (GeoMultiPolygon | null)[],
+  geometries: readonly (RenderSceneGeometry | null)[],
 ): TestGeometryBuffers {
+  const kinds: number[] = [];
   const coordinates: number[] = [];
-  const ringEnds: number[] = [];
-  const polygonEnds: number[] = [];
+  const partEnds: number[] = [];
+  const groupEnds: number[] = [];
   const recordEnds: number[] = [];
   for (const geometry of geometries) {
+    kinds.push(geometry?.kind ?? SceneGeometryKind.None);
     if (geometry) {
-      for (const polygon of geometry) {
-        for (const ring of polygon) {
-          for (const point of ring) coordinates.push(...point);
-          ringEnds.push(
+      for (const group of geometry.groups) {
+        for (const part of group) {
+          for (const point of part) coordinates.push(...point);
+          partEnds.push(
             coordinates.length / TestGeometryComponentCount.Position,
           );
         }
-        polygonEnds.push(ringEnds.length);
+        groupEnds.push(partEnds.length);
       }
     }
-    recordEnds.push(polygonEnds.length);
+    recordEnds.push(groupEnds.length);
   }
   return {
+    geometryKinds: new Uint8Array(kinds),
     geometryCoordinates: new Float64Array(coordinates),
-    geometryRingEnds: new Uint32Array(ringEnds),
-    geometryPolygonEnds: new Uint32Array(polygonEnds),
+    geometryPartEnds: new Uint32Array(partEnds),
+    geometryGroupEnds: new Uint32Array(groupEnds),
     geometryRecordEnds: new Uint32Array(recordEnds),
   };
 }

@@ -6,7 +6,7 @@ enum DrawOrder {
   Event = 2,
   Earthquake = 3,
   Weather = 4,
-  Legacy = 5,
+  Cyclones = 5,
 }
 
 describe("marker layer sequence", () => {
@@ -18,7 +18,7 @@ describe("marker layer sequence", () => {
       event: () => observed.push(DrawOrder.Event),
       earthquake: () => observed.push(DrawOrder.Earthquake),
       weather: () => observed.push(DrawOrder.Weather),
-      legacy: () => observed.push(DrawOrder.Legacy),
+      cyclones: () => observed.push(DrawOrder.Cyclones),
     });
 
     expect(observed).toEqual([
@@ -26,7 +26,7 @@ describe("marker layer sequence", () => {
       DrawOrder.Event,
       DrawOrder.Earthquake,
       DrawOrder.Weather,
-      DrawOrder.Legacy,
+      DrawOrder.Cyclones,
     ]);
   });
 });

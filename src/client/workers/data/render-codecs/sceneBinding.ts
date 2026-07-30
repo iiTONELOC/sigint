@@ -20,12 +20,15 @@ export type SceneSearchBindingOptions = Readonly<{
   ) => void;
 }>;
 
-export class SceneBinding<TEntity extends DatasetEntity> {
-  private readonly codec: ScenePatchCodec<TEntity>;
+export class SceneBinding<
+  TEntity extends DatasetEntity,
+  TRecord extends DatasetEntity = TEntity,
+> {
+  private readonly codec: ScenePatchCodec<TEntity, TRecord>;
   private readonly publishScene: SceneCommandPublisher;
 
   constructor(
-    codec: ScenePatchCodec<TEntity>,
+    codec: ScenePatchCodec<TEntity, TRecord>,
     publishScene: SceneCommandPublisher,
   ) {
     this.codec = codec;

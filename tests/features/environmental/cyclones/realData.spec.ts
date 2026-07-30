@@ -25,16 +25,12 @@ import {
   __resetCycloneDossierCacheForTests,
 } from "../../../../src/server/api/cyclonesDossierCache";
 import { unzipSingleEntryKmz } from "../../../../src/server/api/zipReader";
-import {
-  synthesizeForecastPoints,
-  __resetForecastSynthesisForTests,
-} from "@/features/environmental/cyclones/data/synthesizeForecastPoints";
 
-// ── Real-data cyclone suite ──────────────────────────────────────────
+// Real-data cyclone suite.
 // Built ENTIRELY on bytes captured once from live NHC (EP01 2026, Amanda)
 // under tests/fixtures/cyclones-real/. No network. These assert the REAL
 // data contract the fabricated fixtures got wrong:
-//   - CurrentStorms.json has NO inline forecast — it lives in TRACK.kmz
+//   - CurrentStorms.json has NO inline forecast; it lives in TRACK.kmz
 //   - advisory number is publicAdvisory.advNum (not forecastTrack.advisoryNumber)
 //   - the cone is a real multi-hundred-vertex polygon from CONE.kmz
 // Every test here was RED before the fix (forecast: [], frozen hash) and is
@@ -49,14 +45,14 @@ async function realBytes(name: string): Promise<Uint8Array> {
   return new Uint8Array(await Bun.file(resolve(REAL, name)).arrayBuffer());
 }
 
-// ── TRACK.kmz → forecast points ─────────────────────────────────────
+// TRACK.kmz to forecast points.
 
-describe("parseTrackKml — real TRACK.kmz", () => {
+describe("parseTrackKml with real TRACK.kmz", () => {
   test("extracts the forecast Point placemarks (not the LineStrings)", async () => {
     const kml = await unzipSingleEntryKmz(await realBytes("ep012026-track.kmz"));
     const pts = parseTrackKml(kml);
     // Amanda adv 8: 12/24/36/48/60/72/96/120h forecast points (8 total;
-    // the initial eye position is excluded — it is not a forecast).
+    // the initial eye position is excluded because it is not a forecast).
     expect(pts).toHaveLength(8);
     expect(pts[0]!.fcstHour).toBe(12);
     expect(pts[pts.length - 1]!.fcstHour).toBe(120);
@@ -77,9 +73,9 @@ describe("parseTrackKml — real TRACK.kmz", () => {
   });
 });
 
-// ── Advisory hash — the refresh-freeze fix ──────────────────────────
+// Advisory hash for the refresh-freeze fix.
 
-describe("computeAdvisoryHash — real shape (advNum)", () => {
+describe("computeAdvisoryHash with real shape (advNum)", () => {
   test("reads publicAdvisory.advNum and changes when a new advisory arrives", async () => {
     const cs = JSON.parse(await realText("CurrentStorms.json")) as {
       activeStorms: Record<string, unknown>[];
@@ -90,13 +86,13 @@ describe("computeAdvisoryHash — real shape (advNum)", () => {
     const next = JSON.parse(JSON.stringify(cs)) as typeof cs;
     (next.activeStorms[0]!.publicAdvisory as { advNum: string }).advNum = "009";
     const h9 = computeAdvisoryHash(next.activeStorms);
-    expect(h9).not.toBe(h8); // not frozen — a new advisory refreshes
+    expect(h9).not.toBe(h8); // A new advisory refreshes the hash.
   });
 });
 
-// ── Full server enrichment chain (replay real bytes, no network) ────
+// Full server enrichment chain with replayed real bytes and no network.
 
-describe("fetchCyclones — server enriches forecast + cone before cache write", () => {
+describe("fetchCyclones enriches forecast and cone before cache write", () => {
   let realFetch: typeof globalThis.fetch;
 
   beforeEach(async () => {
@@ -131,9 +127,9 @@ describe("fetchCyclones — server enriches forecast + cone before cache write",
   });
 });
 
-// ── enrichStorms is non-fatal when products fail ────────────────────
+// enrichStorms is non-fatal when products fail.
 
-describe("enrichStorms — degrades gracefully", () => {
+describe("enrichStorms degrades gracefully", () => {
   let realFetch: typeof globalThis.fetch;
   beforeEach(() => {
     realFetch = globalThis.fetch;
@@ -154,9 +150,9 @@ describe("enrichStorms — degrades gracefully", () => {
   });
 });
 
-// ── Dossier text products: parse + survive a sweep (#4) ─────────────
+// Dossier text products parse and survive a sweep.
 
-describe("cyclone dossier — real text products", () => {
+describe("cyclone dossier with real text products", () => {
   test("parseProductHtml extracts a real advisory + discussion body", async () => {
     const adv = parseProductHtml(await realText("ep012026-public.html"), "advisory");
     const dis = parseProductHtml(
@@ -218,59 +214,5 @@ describe("cyclone dossier — real text products", () => {
       const after = await getCycloneDossier("EP012026");
       expect(after.dossier?.advisory?.body.length ?? 0).toBeGreaterThan(500);
     });
-  });
-});
-
-// ── Identity stability (responsiveness) ─────────────────────────────
-
-describe("synthesizeForecastPoints — identity stability", () => {
-  beforeEach(() => __resetForecastSynthesisForTests());
-
-  function storm(advNum: string) {
-    return {
-      id: "CYEP012026",
-      type: Domain.Cyclones as const,
-      lat: 12.5,
-      lon: -130.5,
-      timestamp: "t",
-      data: {
-        stormId: "EP012026",
-        name: "Amanda",
-        basin: "EP",
-        classification: "TS",
-        saffirSimpson: 0,
-        maxWindKt: 35,
-        advisoryNumber: advNum,
-        lastUpdate: "t",
-        forecast: [
-          { fcstHour: 12, validTime: "v", lat: 13, lon: -131.5, maxWindKt: 40, category: "TS", errorRadiusNm: 26 },
-        ],
-      },
-    };
-  }
-
-  test("unchanged content returns the SAME array and SAME object references", () => {
-    const a = synthesizeForecastPoints([storm("008") as any]);
-    const b = synthesizeForecastPoints([storm("008") as any]);
-    expect(a).toBe(b);
-    expect(a[0]).toBe(b[0]);
-    expect(a).toHaveLength(1);
-  });
-
-  test("a new advisory produces fresh references (so the render updates)", () => {
-    const a = synthesizeForecastPoints([storm("008") as any]);
-    const c = synthesizeForecastPoints([storm("009") as any]);
-    expect(a).not.toBe(c);
-    expect(a[0]).not.toBe(c[0]);
-  });
-
-  test("forecast points carry parentStormId so they resolve to their storm", () => {
-    const a = synthesizeForecastPoints([storm("008") as any]);
-    expect(a[0]!.type).toBe(Domain.CyclonesForecast);
-    expect((a[0]!.data as { parentStormId: string }).parentStormId).toBe("EP012026");
-    // resolver key alignment: `CY${parentStormId}` === storm DataPoint id
-    expect(`CY${(a[0]!.data as { parentStormId: string }).parentStormId}`).toBe(
-      "CYEP012026",
-    );
   });
 });

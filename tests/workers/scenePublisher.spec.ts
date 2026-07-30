@@ -2,7 +2,10 @@ import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import { ScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
-import { SceneDataCommandType } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+  SceneGeometryKind,
+} from "@/workers/render/sceneProtocol";
 
 describe("scene publisher", () => {
   test("binds and transfers typed source patches in sequence", () => {
@@ -33,9 +36,10 @@ describe("scene publisher", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryKinds: new Uint8Array([SceneGeometryKind.None]),
       geometryCoordinates: new Float64Array(),
-      geometryRingEnds: new Uint32Array(),
-      geometryPolygonEnds: new Uint32Array(),
+      geometryPartEnds: new Uint32Array(),
+      geometryGroupEnds: new Uint32Array(),
       geometryRecordEnds: new Uint32Array([0]),
       deletedHandles: new Uint32Array(),
     });
@@ -59,7 +63,7 @@ describe("scene publisher", () => {
       sequence: 2,
       sessionId: "session-a",
     });
-    expect(transfers[1]).toHaveLength(11);
+    expect(transfers[1]).toHaveLength(12);
     expect(messages[2]).toMatchObject({
       type: SceneDataCommandType.SourceSearch,
       source: Domain.Aircraft,

@@ -17,6 +17,7 @@ export function geoPointsEqual(left: GeoPoint, right: GeoPoint): boolean {
   return left[0] === right[0] && left[1] === right[1];
 }
 export type GeoRing = readonly GeoPoint[];
+export type GeoLineString = readonly GeoPoint[];
 export type GeoPolygon = readonly GeoRing[];
 export type GeoMultiPolygon = readonly GeoPolygon[];
 
@@ -58,6 +59,7 @@ export enum TurnDeg {
 }
 
 export enum GeoMeasurement {
+  NauticalMilesPerDegree = 60,
   MetersPerKilometer = 1_000,
   EarthRadiusKilometers = 6_371,
   EarthRadiusMeters = 6_371_000,

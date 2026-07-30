@@ -8,6 +8,7 @@ import type {
   RenderLayer,
 } from "@/workers/render/scene/sceneLayer";
 import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
+import type { DataType } from "@/features/base/dataPoints";
 
 export enum RenderLayerCatalogErrorKind {
   DuplicateSource = "The render layer source is already registered",
@@ -31,6 +32,8 @@ export class RenderLayerCatalogError extends Error {
 export type RenderLayerHit = Readonly<{
   source: RenderSourceId;
   hit: SceneHit;
+  interactionId: string;
+  pointType: DataType;
 }>;
 
 export class RenderLayerCatalog {
@@ -77,7 +80,12 @@ export class RenderLayerCatalog {
         hit &&
         (!closest || hit.distance < closest.hit.distance)
       ) {
-        closest = { source: layer.source, hit };
+        closest = {
+          source: layer.source,
+          hit,
+          interactionId: layer.interactionId(hit),
+          pointType: layer.interactionPointType(hit),
+        };
       }
     }
     return closest;

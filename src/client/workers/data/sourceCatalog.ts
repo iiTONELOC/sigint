@@ -56,6 +56,7 @@ export class SourceCatalog {
     source: TId,
     owner: CatalogSource<QueryableSourceEntities[TId]>,
     publishRenderRebase: () => void,
+    resolveEntity?: (id: string) => DataPoint | null,
   ): void {
     if (this.registrations.has(source)) {
       throw new SourceCatalogError(
@@ -64,7 +65,11 @@ export class SourceCatalog {
       );
     }
     this.registrations.set(source, {
-      answers: createSourceAnswers(source, owner),
+      answers: createSourceAnswers(
+        source,
+        owner,
+        resolveEntity,
+      ),
       hydrate: () => owner.hydrate(),
       publishRenderRebase,
       refresh: () => owner.refresh(),

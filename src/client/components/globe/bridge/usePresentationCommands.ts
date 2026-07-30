@@ -22,6 +22,7 @@ import {
   type SelectedRenderItem,
 } from "@/workers/render/protocol";
 import { MilFilter } from "@shared/domain/aircraft";
+import { SaffirSimpson } from "@/features/environmental/cyclones/types";
 
 type PresentationCommandOptions = Readonly<{
   host: HTMLElement | null;
@@ -105,6 +106,8 @@ export function usePresentationCommands({
           ? Array.from(searchMatchIds)
           : null,
         selectedItem,
+        cyclonesMinCategory:
+          cyclone?.minCategory ?? SaffirSimpson.None,
         cyclonesShowForecast: cyclone?.showForecast ?? true,
         cyclonesShowCone: cyclone?.showCone ?? true,
         cyclonesShowWindField: cyclone?.showWindField ?? false,

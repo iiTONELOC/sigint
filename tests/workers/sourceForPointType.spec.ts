@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
-import { type SourceId } from "@shared/source";
 import {
   POINT_SOURCE_DEFINITIONS,
   sourceForPointType,
@@ -30,8 +29,9 @@ describe("sourceForPointType", () => {
   test("an unowned or absent point type resolves to null", () => {
     expect(sourceForPointType(null)).toBeNull();
     expect(sourceForPointType("not-a-layer")).toBeNull();
-    // cyclones-forecast is synthesized for hit testing, not published by a
-    // source, so it stays unowned.
-    expect(sourceForPointType("cyclones-forecast")).toBeNull();
+  });
+
+  test("forecast interactions resolve through the cyclone source", () => {
+    expect(sourceForPointType(Domain.CyclonesForecast)).toBe(Domain.Cyclones);
   });
 });

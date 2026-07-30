@@ -9,6 +9,7 @@ import { SceneStore } from "@/workers/render/sceneStore";
 import {
   createSceneDataCommand,
   SceneDataCommandType,
+  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 
 describe("projected scene layer", () => {
@@ -31,9 +32,10 @@ describe("projected scene layer", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryKinds: new Uint8Array([SceneGeometryKind.None]),
       geometryCoordinates: new Float64Array(),
-      geometryRingEnds: new Uint32Array(),
-      geometryPolygonEnds: new Uint32Array(),
+      geometryPartEnds: new Uint32Array(),
+      geometryGroupEnds: new Uint32Array(),
       geometryRecordEnds: new Uint32Array([0]),
       deletedHandles: new Uint32Array(),
     }, "session-a", 1));

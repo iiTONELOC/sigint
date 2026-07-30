@@ -39,6 +39,14 @@ class ProbeLayer implements RenderLayer {
     return false;
   }
 
+  interactionId(hit: SceneHit): string {
+    return hit.entityId;
+  }
+
+  interactionPointType(): Domain.Aircraft | Domain.Ships {
+    return this.source;
+  }
+
   nearest(kind: SceneHitKind): SceneHit {
     return {
       kind,

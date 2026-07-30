@@ -16,6 +16,7 @@ import {
 import {
   ScenePatchCodec,
   sceneTimestamp,
+  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
@@ -167,6 +168,7 @@ export class AircraftSceneBinding extends SceneBinding<AircraftPoint> {
         attributeStride: AircraftSceneSchema.AttributeStride,
         stringAttributeStride:
           AircraftSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {

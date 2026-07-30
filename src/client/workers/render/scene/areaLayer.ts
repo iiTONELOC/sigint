@@ -14,6 +14,7 @@ import {
   type SceneLayerProjectionFrame,
 } from "@/workers/render/scene/sceneLayer";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import { AreaKind } from "@/workers/render/protocol";
 import {
   multiPolygonContainsPoint,
@@ -193,11 +194,11 @@ export abstract class SceneAreaLayer<TFilter> extends SceneLayer<TFilter> {
     if (!view || !projection) return;
     for (const index of this.includedIndices) {
       const geometry = view.geometries[index];
-      if (!geometry) continue;
+      if (geometry?.kind !== SceneGeometryKind.Polygon) continue;
       const appearance = paint(view, index);
       drawSceneGeometry(
         context,
-        geometry,
+        geometry.groups,
         projection,
         appearance.color,
         appearance.alpha,
@@ -213,8 +214,8 @@ export abstract class SceneAreaLayer<TFilter> extends SceneLayer<TFilter> {
     for (const index of this.includedIndices) {
       const geometry = view.geometries[index];
       if (
-        geometry &&
-        multiPolygonContainsPoint(point, geometry)
+        geometry?.kind === SceneGeometryKind.Polygon &&
+        multiPolygonContainsPoint(point, geometry.groups)
       ) {
         return areaHit(view, index);
       }

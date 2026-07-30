@@ -28,11 +28,11 @@ import {
   WeatherSceneBinding,
 } from "@/features/environmental/weather/source";
 import {
-  CYCLONE_SOURCE,
-  createCycloneSourceRuntime,
+  CycloneSource,
 } from "@/workers/data/sources/cyclones";
 import { ScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import { EventSceneBinding } from "@/workers/data/render-codecs/eventSceneBinding";
+import { CycloneSceneBinding } from "@/workers/data/render-codecs/cycloneSceneBinding";
 import {
   TRAIL_RECORDER_POLICY,
   createTrailRecorder,
@@ -63,12 +63,6 @@ import {
   type DataWorkerEvent,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
-import {
-  createRenderDataCommand,
-  RenderDataCommandType,
-  type LegacyPointSourceId,
-} from "@/workers/render/dataChannel";
-import type { DataPoint } from "@/features/base/dataPoints";
 import {
   CorrelationDataCommandType,
   createCorrelationDataCommand,
@@ -110,9 +104,10 @@ const cycloneWarningSceneBinding = new CycloneWarningSceneBinding(
     scenePublisher.publish(command);
   },
 );
+const cycloneSceneBinding = new CycloneSceneBinding((command) => {
+  scenePublisher.publish(command);
+});
 let renderPort: MessagePort | null = null;
-let renderSessionId: string | null = null;
-let renderSequence = 0;
 let correlationPort: MessagePort | null = null;
 let correlationSessionId: string | null = null;
 let correlationSequence = 0;
@@ -190,18 +185,6 @@ aircraftOwner.attach({
     aircraftSceneBinding.publish(patch);
   },
 });
-
-function postRenderData(
-  body: Parameters<typeof createRenderDataCommand>[0],
-  transfer: readonly Transferable[] = [],
-): void {
-  if (!renderPort || !renderSessionId) return;
-  renderSequence++;
-  renderPort.postMessage(
-    createRenderDataCommand(body, renderSessionId, renderSequence),
-    Array.from(transfer),
-  );
-}
 
 const earthquakeOwner = new EarthquakeSource();
 const earthquakeSearch = new SceneSearchBinding({
@@ -295,17 +278,6 @@ eventOwner.attach({
   },
 });
 
-function rebasePoints(
-  source: LegacyPointSourceId,
-  points: readonly DataPoint[],
-): void {
-  postRenderData({
-    type: RenderDataCommandType.PointsRebase,
-    source,
-    points,
-  });
-}
-
 const weatherOwner = new WeatherAlertSource();
 weatherOwner.attach({
   readCache: (key) => store.get(key),
@@ -318,14 +290,15 @@ weatherOwner.attach({
   },
 });
 
-const cycloneOwner = createCycloneSourceRuntime({
-  readCache: () => store.get(CYCLONE_SOURCE.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(CYCLONE_SOURCE.cacheKey, snapshot);
+const cycloneOwner = new CycloneSource();
+cycloneOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPoints: (points) => {
-    rebasePoints(CYCLONE_SOURCE.id, points);
+  publishPatch: (patch) => {
+    cycloneSceneBinding.publish(patch);
   },
 });
 
@@ -355,6 +328,7 @@ sourceCatalog.register(
   Domain.Cyclones,
   cycloneOwner,
   () => cycloneOwner.publishRebase(),
+  (id) => cycloneOwner.resolveEntity(id),
 );
 sourceCatalog.register(
   Domain.Earthquake,
@@ -443,11 +417,8 @@ function handleConnectRender(
 ): void {
   renderPort?.close();
   renderPort = command.port;
-  renderSessionId = command.renderSessionId;
-  renderSequence = 0;
   renderPort.start();
-  postRenderData({ type: RenderDataCommandType.Bind });
-  scenePublisher.connect(renderPort, renderSessionId);
+  scenePublisher.connect(renderPort, command.renderSessionId);
   sourceCatalog.publishRenderRebases();
   complete(command.requestId);
 }

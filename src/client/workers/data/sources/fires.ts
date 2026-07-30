@@ -14,6 +14,7 @@ import {
 import {
   ScenePatchCodec,
   sceneTimestamp,
+  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
@@ -141,6 +142,7 @@ export class FireSceneBinding extends SceneBinding<FirePoint> {
         source: Domain.Fire,
         attributeStride: FireSceneSchema.AttributeStride,
         stringAttributeStride: FireSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {

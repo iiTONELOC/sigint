@@ -10,7 +10,9 @@ import {
 } from "@/workers/data/render-codecs/sceneBinding";
 import {
   ScenePatchCodec,
+  scenePolygonGeometry,
   sceneTimestamp,
+  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
 import { recordPosition } from "@/workers/data/source-model/position";
 import type {
@@ -89,9 +91,13 @@ export class WeatherSceneBinding extends SceneBinding<WeatherPoint> {
         attributeStride: WeatherSceneSchema.AttributeStride,
         stringAttributeStride:
           WeatherSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
-        geometry: (point) => point.data.geometry,
+        geometry: (point) =>
+          point.data.geometry
+            ? scenePolygonGeometry(point.data.geometry)
+            : null,
         writeAttributes: (point, target, offset) => {
           target[offset + WeatherSceneAttribute.Severity] =
             weatherSeverityRank(point.data.severity);

@@ -7,6 +7,7 @@ import type {
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
 import type { MilFilter } from "@shared/domain/aircraft";
+import type { MinCategory } from "@/features/environmental/cyclones/types";
 
 export enum RenderProtocolVersion {
   Current = 2,
@@ -174,6 +175,7 @@ export type RenderPresentationPayload = Readonly<{
   fireMinConfidence: number;
   searchMatchIds: readonly string[] | null;
   selectedItem: SelectedRenderItem | null;
+  cyclonesMinCategory: MinCategory;
   cyclonesShowForecast: boolean;
   cyclonesShowCone: boolean;
   cyclonesShowWindField: boolean;

@@ -235,13 +235,13 @@ describe("weather scene publication", () => {
     expect(patches).toHaveLength(4);
     expect(patches[0]?.kind).toBe(DatasetPatchKind.Rebase);
     expect(patches[0]?.source).toBe(Domain.Weather);
-    expect(Array.from(patches[0]?.geometryRingEnds ?? [])).toEqual([
+    expect(Array.from(patches[0]?.geometryPartEnds ?? [])).toEqual([
       4,
     ]);
     expect(
       patches[0]?.attributes[WeatherSceneAttribute.Severity],
     ).toBeGreaterThan(0);
-    expect(Array.from(patches[1]?.geometryPolygonEnds ?? [])).toEqual([
+    expect(Array.from(patches[1]?.geometryGroupEnds ?? [])).toEqual([
       1,
       2,
     ]);

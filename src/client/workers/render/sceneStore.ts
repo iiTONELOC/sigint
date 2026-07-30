@@ -4,14 +4,13 @@ import type {
 } from "@/workers/render/sceneProtocol";
 import {
   SceneDataCommandType,
+  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import type {
-  GeoMultiPolygon,
+  GeoLineString,
   GeoPoint,
-  GeoPolygon,
-  GeoRing,
 } from "@shared/geo";
 
 enum SceneStoragePolicy {
@@ -72,7 +71,12 @@ export type RenderSceneRecord = Readonly<{
   unitZ: number;
   timestamp: number;
   attributes: readonly number[];
-  geometry: GeoMultiPolygon | null;
+  geometry: RenderSceneGeometry | null;
+}>;
+
+export type RenderSceneGeometry = Readonly<{
+  kind: SceneGeometryKind.Polygon | SceneGeometryKind.Polyline;
+  groups: readonly (readonly GeoLineString[])[];
 }>;
 
 export type RenderSceneView = Readonly<{
@@ -88,7 +92,7 @@ export type RenderSceneView = Readonly<{
   stringAttributes: Uint32Array<ArrayBuffer>;
   stringAttributeStride: number;
   dictionary: readonly string[];
-  geometries: readonly (GeoMultiPolygon | null)[];
+  geometries: readonly (RenderSceneGeometry | null)[];
 }>;
 
 export function sceneNumericAttribute(
@@ -112,7 +116,7 @@ type SceneStorage = {
   timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
   stringAttributes: Uint32Array<ArrayBuffer>;
-  geometries: (GeoMultiPolygon | null)[];
+  geometries: (RenderSceneGeometry | null)[];
 };
 
 function copyIdentityLane(
@@ -125,8 +129,8 @@ function copyIdentityLane(
 }
 
 function copyGeometryLane(
-  target: (GeoMultiPolygon | null)[],
-  source: readonly (GeoMultiPolygon | null)[],
+  target: (RenderSceneGeometry | null)[],
+  source: readonly (RenderSceneGeometry | null)[],
 ): void {
   for (const [index, geometry] of source.entries()) {
     target[index] = geometry;
@@ -184,7 +188,7 @@ function createStorage(
     timestamps,
     attributes,
     stringAttributes,
-    geometries: new Array<GeoMultiPolygon | null>(capacity).fill(null),
+    geometries: new Array<RenderSceneGeometry | null>(capacity).fill(null),
   };
   if (previous) copyStorage(storage, previous);
   return storage;
@@ -208,17 +212,17 @@ function cumulativeStart(
   return index === 0 ? 0 : (ends[index - 1] ?? 0);
 }
 
-function geometryRing(
+function geometryPart(
   patch: SceneSourcePatch,
-  ringIndex: number,
-): GeoRing | null {
+  partIndex: number,
+): GeoLineString | null {
   const pointStart = cumulativeStart(
-    patch.geometryRingEnds,
-    ringIndex,
+    patch.geometryPartEnds,
+    partIndex,
   );
-  const pointEnd = patch.geometryRingEnds[ringIndex];
+  const pointEnd = patch.geometryPartEnds[partIndex];
   if (pointEnd === undefined) return null;
-  const ring: GeoPoint[] = [];
+  const part: GeoPoint[] = [];
   for (
     let pointIndex = pointStart;
     pointIndex < pointEnd;
@@ -233,58 +237,65 @@ function geometryRing(
       offset + ScenePositionOffset.Latitude
     ];
     if (longitude === undefined || latitude === undefined) return null;
-    ring.push([longitude, latitude]);
+    part.push([longitude, latitude]);
   }
-  return ring;
+  return part;
 }
 
-function geometryPolygon(
+function geometryGroup(
   patch: SceneSourcePatch,
-  polygonIndex: number,
-): GeoPolygon | null {
-  const ringStart = cumulativeStart(
-    patch.geometryPolygonEnds,
-    polygonIndex,
+  groupIndex: number,
+): readonly GeoLineString[] | null {
+  const partStart = cumulativeStart(
+    patch.geometryGroupEnds,
+    groupIndex,
   );
-  const ringEnd = patch.geometryPolygonEnds[polygonIndex];
-  if (ringEnd === undefined) return null;
-  const rings: GeoRing[] = [];
+  const partEnd = patch.geometryGroupEnds[groupIndex];
+  if (partEnd === undefined) return null;
+  const parts: GeoLineString[] = [];
   for (
-    let ringIndex = ringStart;
-    ringIndex < ringEnd;
-    ringIndex += 1
+    let partIndex = partStart;
+    partIndex < partEnd;
+    partIndex += 1
   ) {
-    const ring = geometryRing(patch, ringIndex);
-    if (!ring) return null;
-    rings.push(ring);
+    const part = geometryPart(patch, partIndex);
+    if (!part) return null;
+    parts.push(part);
   }
-  return rings;
+  return parts;
 }
 
 function geometryForRecord(
   patch: SceneSourcePatch,
   recordIndex: number,
-): GeoMultiPolygon | null {
-  const polygonStart = cumulativeStart(
+): RenderSceneGeometry | null {
+  const groupStart = cumulativeStart(
     patch.geometryRecordEnds,
     recordIndex,
   );
-  const polygonEnd = patch.geometryRecordEnds[recordIndex];
-  if (polygonEnd === undefined || polygonEnd === polygonStart) {
+  const groupEnd = patch.geometryRecordEnds[recordIndex];
+  const kind = patch.geometryKinds[recordIndex];
+  if (
+    groupEnd === undefined ||
+    groupEnd === groupStart ||
+    kind === undefined ||
+    (kind !== SceneGeometryKind.Polygon &&
+      kind !== SceneGeometryKind.Polyline)
+  ) {
     return null;
   }
 
-  const polygons: GeoPolygon[] = [];
+  const groups: (readonly GeoLineString[])[] = [];
   for (
-    let polygonIndex = polygonStart;
-    polygonIndex < polygonEnd;
-    polygonIndex += 1
+    let groupIndex = groupStart;
+    groupIndex < groupEnd;
+    groupIndex += 1
   ) {
-    const polygon = geometryPolygon(patch, polygonIndex);
-    if (!polygon) return null;
-    polygons.push(polygon);
+    const group = geometryGroup(patch, groupIndex);
+    if (!group) return null;
+    groups.push(group);
   }
-  return polygons;
+  return { kind, groups };
 }
 
 export class SceneStore {

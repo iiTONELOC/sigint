@@ -6,6 +6,7 @@ import {
   parseSceneDataCommand,
   SceneDataCommandType,
   SceneDataProtocolVersion,
+  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 
 enum MalformedSceneCommandType {
@@ -32,12 +33,13 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.Polygon]),
         geometryCoordinates: new Float64Array([
           0, 0, 10, 0, 10, 10, 0, 10, 0, 0,
           2, 2, 2, 4, 4, 4, 4, 2, 2, 2,
         ]),
-        geometryRingEnds: new Uint32Array([5, 10]),
-        geometryPolygonEnds: new Uint32Array([2]),
+        geometryPartEnds: new Uint32Array([5, 10]),
+        geometryGroupEnds: new Uint32Array([2]),
         geometryRecordEnds: new Uint32Array([1]),
         deletedHandles: new Uint32Array(),
       },
@@ -67,9 +69,10 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.None]),
         geometryCoordinates: new Float64Array(),
-        geometryRingEnds: new Uint32Array(),
-        geometryPolygonEnds: new Uint32Array(),
+        geometryPartEnds: new Uint32Array(),
+        geometryGroupEnds: new Uint32Array(),
         geometryRecordEnds: new Uint32Array([0]),
         deletedHandles: new Uint32Array(),
       },
@@ -108,11 +111,12 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.Polygon]),
         geometryCoordinates: new Float64Array([
           0, 0, 10, 0, 10, 10, 0, 0,
         ]),
-        geometryRingEnds: new Uint32Array([4]),
-        geometryPolygonEnds: new Uint32Array([2]),
+        geometryPartEnds: new Uint32Array([4]),
+        geometryGroupEnds: new Uint32Array([2]),
         geometryRecordEnds: new Uint32Array([1]),
         deletedHandles: new Uint32Array(),
       },
@@ -142,11 +146,12 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.Polygon]),
         geometryCoordinates: new Float64Array([
           0, 0, 10, 0, 10, 10, 0, 10, 1, 1,
         ]),
-        geometryRingEnds: new Uint32Array([5]),
-        geometryPolygonEnds: new Uint32Array([1]),
+        geometryPartEnds: new Uint32Array([5]),
+        geometryGroupEnds: new Uint32Array([1]),
         geometryRecordEnds: new Uint32Array([1]),
         deletedHandles: new Uint32Array(),
       },
@@ -155,6 +160,41 @@ describe("scene data protocol", () => {
     );
 
     expect(parseSceneDataCommand(command)).toBeNull();
+  });
+
+  test("accepts an open polyline with two points", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SourcePatch,
+        source: Domain.Cyclones,
+        sourceVersion: 1,
+        kind: DatasetPatchKind.Rebase,
+        handles: new Uint32Array([1]),
+        sceneIds: ["cyclone-path"],
+        entityIds: ["cyclone"],
+        positions: new Float64Array([-75, 25]),
+        unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
+        attributes: new Float32Array(),
+        attributeStride: 0,
+        stringAttributes: new Uint32Array(),
+        stringAttributeStride: 0,
+        dictionaryStart: 0,
+        dictionaryValues: [],
+        geometryKinds: new Uint8Array([SceneGeometryKind.Polyline]),
+        geometryCoordinates: new Float64Array([
+          -75, 25, -74, 26,
+        ]),
+        geometryPartEnds: new Uint32Array([2]),
+        geometryGroupEnds: new Uint32Array([1]),
+        geometryRecordEnds: new Uint32Array([1]),
+        deletedHandles: new Uint32Array(),
+      },
+      "session-1",
+      1,
+    );
+
+    expect(parseSceneDataCommand(command)).toEqual(command);
   });
 
   test("accepts unique source search handles", () => {

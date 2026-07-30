@@ -1,5 +1,7 @@
 import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
+import { pointTypeForSource } from "@/workers/data/sources/registry";
+import type { DataType } from "@/features/base/dataPoints";
 import {
   ProjectedSceneLayer,
   SceneHitKind,
@@ -41,6 +43,8 @@ export interface RenderLayer {
   readonly source: RenderSourceId;
   apply(command: SceneLayerCommand): void;
   hasTimeAnimation(reducedMotion: boolean): boolean;
+  interactionId(hit: SceneHit): string;
+  interactionPointType(hit: SceneHit): DataType;
   nearest(
     kind: SceneHitKind,
     x: number,
@@ -95,6 +99,14 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
 
   hasTimeAnimation(_reducedMotion: boolean): boolean {
     return false;
+  }
+
+  interactionId(hit: SceneHit): string {
+    return hit.entityId;
+  }
+
+  interactionPointType(_hit: SceneHit): DataType {
+    return pointTypeForSource(this.source);
   }
 
   protected beginProject(): RenderSceneView {

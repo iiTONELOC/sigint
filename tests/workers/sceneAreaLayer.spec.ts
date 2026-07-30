@@ -25,6 +25,7 @@ import {
   WeatherSceneSchema,
 } from "@/workers/render/scene/weatherSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import {
   areaKindRank,
   AreaKind,
@@ -99,7 +100,10 @@ const WEATHER_VIEW = {
   stringAttributes: new Uint32Array(),
   stringAttributeStride: WeatherSceneSchema.StringAttributeStride,
   dictionary: [],
-  geometries: [AREA_GEOMETRY],
+  geometries: [{
+    kind: SceneGeometryKind.Polygon,
+    groups: AREA_GEOMETRY,
+  }],
 } satisfies RenderSceneView;
 
 const WARNING_VIEW = {

@@ -16,6 +16,7 @@ import {
 
 export type PointSourcePolicy = Readonly<{
   pointType: DataType;
+  interactionPointTypes?: readonly DataType[];
   cacheKey: CacheKey;
   pollIntervalMs: number;
   completeness: SourceCompletenessPolicy;
@@ -59,6 +60,7 @@ const POINT_SOURCE_POLICIES: Readonly<
   },
   [Domain.Cyclones]: {
     pointType: Domain.Cyclones,
+    interactionPointTypes: [Domain.CyclonesForecast],
     cacheKey: CACHE_KEYS.cyclones,
     pollIntervalMs: POLL_INTERVALS.cyclones,
     completeness: SourceCompletenessPolicy.Complete,
@@ -117,10 +119,12 @@ export function pointTypeForSource(source: RenderSourceId): DataType {
 }
 
 const SOURCE_BY_POINT_TYPE: ReadonlyMap<DataType, RenderSourceId> = new Map(
-  POINT_SOURCE_DEFINITIONS.map((definition) => [
-    definition.pointType,
-    definition.id,
-  ]),
+  POINT_SOURCE_DEFINITIONS.flatMap((definition) =>
+    [
+      definition.pointType,
+      ...(definition.interactionPointTypes ?? []),
+    ].map((pointType) => [pointType, definition.id]),
+  ),
 );
 
 /**

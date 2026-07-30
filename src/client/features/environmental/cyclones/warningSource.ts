@@ -10,7 +10,9 @@ import {
 } from "@/workers/data/render-codecs/sceneBinding";
 import {
   ScenePatchCodec,
+  scenePolygonGeometry,
   sceneTimestamp,
+  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
 import { recordPosition } from "@/workers/data/source-model/position";
 import type {
@@ -102,9 +104,10 @@ export class CycloneWarningSceneBinding extends SceneBinding<CycloneWarningPoint
           CycloneWarningSceneSchema.AttributeStride,
         stringAttributeStride:
           CycloneWarningSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
-        geometry: (point) => point.data.geometry,
+        geometry: (point) => scenePolygonGeometry(point.data.geometry),
         writeAttributes: (point, target, offset) => {
           target[offset + CycloneWarningSceneAttribute.Kind] =
             areaKindRank(point.data.kind);

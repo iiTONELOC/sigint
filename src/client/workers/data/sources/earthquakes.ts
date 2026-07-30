@@ -12,6 +12,7 @@ import {
 import {
   ScenePatchCodec,
   sceneTimestamp,
+  singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
@@ -131,6 +132,7 @@ export class EarthquakeSceneBinding extends SceneBinding<EarthquakePoint> {
         attributeStride: EarthquakeSceneSchema.AttributeStride,
         stringAttributeStride:
           EarthquakeSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {

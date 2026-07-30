@@ -6,19 +6,19 @@ import {
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import {
   SceneDataCommandType,
+  SceneGeometryKind,
   type SceneSourcePatch,
   type SceneSourceSearch,
 } from "@/workers/render/sceneProtocol";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
+  GeoLimit,
   geometryPolygons,
   latitudeOf,
   longitudeOf,
-  parseGeoJsonPolygonGeometry,
   type GeoJsonPolygonGeometry,
+  type GeoLineString,
   type GeoPoint,
-  type GeoPolygon,
-  type GeoRing,
 } from "@shared/geo";
 import { SceneHandleAllocator } from "./sceneHandleAllocator";
 
@@ -44,8 +44,11 @@ enum SceneDefault {
 
 export enum SceneCodecErrorKind {
   InvalidAttributeStride = "The scene attribute stride must be a nonnegative integer",
-  InvalidGeometry = "The scene geometry must contain valid polygon topology",
+  DuplicateSceneId = "A scene patch must contain unique scene identifiers",
+  InvalidGeometry = "The scene geometry must contain valid topology",
+  InvalidPatchMembership = "A scene entity cannot be both upserted and deleted",
   InvalidPosition = "The scene position must contain finite coordinates",
+  SceneIdConflict = "A scene identifier cannot belong to multiple entities",
   InvalidTimestamp = "The scene timestamp must be finite",
 }
 
@@ -63,29 +66,56 @@ export class SceneCodecError extends Error {
 
 export type ScenePatchCodecOptions<
   TEntity extends DatasetEntity,
+  TRecord extends DatasetEntity,
 > = Readonly<{
   source: RenderSourceId;
   attributeStride: number;
-  position: (entity: TEntity) => GeoPoint;
-  timestamp: (entity: TEntity) => number;
-  sceneId?: (entity: TEntity) => string;
-  entityId?: (entity: TEntity) => string;
-  geometry?: (
-    entity: TEntity,
-  ) => GeoJsonPolygonGeometry | null | undefined;
+  records: (entity: TEntity) => readonly TRecord[];
+  position: (record: TRecord) => GeoPoint;
+  timestamp: (record: TRecord) => number;
+  geometry?: (record: TRecord) => SceneGeometryInput | null | undefined;
   writeAttributes: (
-    entity: TEntity,
+    record: TRecord,
     target: Float32Array<ArrayBuffer>,
     offset: number,
   ) => void;
   stringAttributeStride?: number;
   writeStringAttributes?: (
-    entity: TEntity,
+    record: TRecord,
     target: Uint32Array<ArrayBuffer>,
     offset: number,
     intern: (value: string) => number,
   ) => void;
 }>;
+
+export type SceneGeometryInput = Readonly<{
+  kind: SceneGeometryKind.Polygon | SceneGeometryKind.Polyline;
+  groups: readonly (readonly GeoLineString[])[];
+}>;
+
+export function singleSceneRecord<TEntity extends DatasetEntity>(
+  entity: TEntity,
+): readonly TEntity[] {
+  return [entity];
+}
+
+export function scenePolygonGeometry(
+  geometry: GeoJsonPolygonGeometry,
+): SceneGeometryInput {
+  return {
+    kind: SceneGeometryKind.Polygon,
+    groups: geometryPolygons(geometry),
+  };
+}
+
+export function scenePolylineGeometry(
+  lines: readonly GeoLineString[],
+): SceneGeometryInput {
+  return {
+    kind: SceneGeometryKind.Polyline,
+    groups: [lines],
+  };
+}
 
 type ScenePatchAllocation = Readonly<{
   handles: Uint32Array<ArrayBuffer>;
@@ -99,18 +129,28 @@ type ScenePatchAllocation = Readonly<{
 }>;
 
 type SceneGeometryBuffers = Readonly<{
+  geometryKinds: Uint8Array<ArrayBuffer>;
   geometryCoordinates: Float64Array<ArrayBuffer>;
-  geometryRingEnds: Uint32Array<ArrayBuffer>;
-  geometryPolygonEnds: Uint32Array<ArrayBuffer>;
+  geometryPartEnds: Uint32Array<ArrayBuffer>;
+  geometryGroupEnds: Uint32Array<ArrayBuffer>;
   geometryRecordEnds: Uint32Array<ArrayBuffer>;
 }>;
 
 type SceneGeometryAllocation = {
+  kinds: number[];
   coordinates: number[];
-  ringEnds: number[];
-  polygonEnds: number[];
+  partEnds: number[];
+  groupEnds: number[];
   recordEnds: number[];
 };
+
+type SceneProjectedRecord<
+  TEntity extends DatasetEntity,
+  TRecord extends DatasetEntity,
+> = Readonly<{
+  entity: TEntity;
+  record: TRecord;
+}>;
 
 export type SceneTimestampedEntity = Readonly<{
   timestamp?: string;
@@ -128,16 +168,19 @@ function validateAttributeStride(value: number): void {
   }
 }
 
-export class ScenePatchCodec<TEntity extends DatasetEntity> {
+export class ScenePatchCodec<
+  TEntity extends DatasetEntity,
+  TRecord extends DatasetEntity = TEntity,
+> {
   private readonly dictionary = new Map<string, number>();
   private readonly dictionaryValues: string[] = [];
   private readonly entityIdBySceneId = new Map<string, string>();
   private readonly handleAllocator = new SceneHandleAllocator();
-  private readonly options: ScenePatchCodecOptions<TEntity>;
+  private readonly options: ScenePatchCodecOptions<TEntity, TRecord>;
   private readonly sceneIdsByEntityId = new Map<string, Set<string>>();
   private readonly stringAttributeStride: number;
 
-  constructor(options: ScenePatchCodecOptions<TEntity>) {
+  constructor(options: ScenePatchCodecOptions<TEntity, TRecord>) {
     validateAttributeStride(options.attributeStride);
     this.stringAttributeStride = options.stringAttributeStride ?? 0;
     validateAttributeStride(this.stringAttributeStride);
@@ -145,16 +188,22 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
   }
 
   encode(patch: DatasetPatch<TEntity>): SceneSourcePatch {
-    const allocation = this.allocate(patch.upserts.length);
-    const geometry = this.encodeGeometry(patch.upserts);
+    this.validatePatchMembership(patch);
+    const projected = this.projectRecords(patch.upserts);
+    this.validateSceneIds(projected);
+    const allocation = this.allocate(projected.length);
+    const geometry = this.encodeGeometry(projected);
     const dictionaryStart =
       patch.kind === DatasetPatchKind.Rebase ? 0 : this.dictionaryValues.length;
 
-    for (const [index, entity] of patch.upserts.entries()) {
-      this.writeEntity(allocation, entity, index);
+    for (const [index, item] of projected.entries()) {
+      this.writeRecord(allocation, item, index);
     }
 
-    const deletedHandles = this.release(patch.deletedIds);
+    const releasedHandles = [
+      ...this.releaseStaleRecords(patch.upserts, projected),
+      ...this.releaseDeletedEntities(patch),
+    ];
     return {
       type: SceneDataCommandType.SourcePatch,
       source: this.options.source,
@@ -169,7 +218,7 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
         patch.kind === DatasetPatchKind.Rebase
           ? this.dictionaryValues.slice()
           : this.dictionaryValues.slice(dictionaryStart),
-      deletedHandles,
+      deletedHandles: new Uint32Array(releasedHandles),
     };
   }
 
@@ -210,81 +259,81 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
   }
 
   private encodeGeometry(
-    entities: readonly TEntity[],
+    projected: readonly SceneProjectedRecord<TEntity, TRecord>[],
   ): SceneGeometryBuffers {
     const allocation: SceneGeometryAllocation = {
+      kinds: [],
       coordinates: [],
-      ringEnds: [],
-      polygonEnds: [],
+      partEnds: [],
+      groupEnds: [],
       recordEnds: [],
     };
-    for (const entity of entities) {
-      this.appendGeometry(allocation, entity);
+    for (const item of projected) {
+      this.appendGeometry(allocation, item.record);
     }
     return {
+      geometryKinds: new Uint8Array(allocation.kinds),
       geometryCoordinates: new Float64Array(allocation.coordinates),
-      geometryRingEnds: new Uint32Array(allocation.ringEnds),
-      geometryPolygonEnds: new Uint32Array(allocation.polygonEnds),
+      geometryPartEnds: new Uint32Array(allocation.partEnds),
+      geometryGroupEnds: new Uint32Array(allocation.groupEnds),
       geometryRecordEnds: new Uint32Array(allocation.recordEnds),
     };
   }
 
   private appendGeometry(
     allocation: SceneGeometryAllocation,
-    entity: TEntity,
+    record: TRecord,
   ): void {
-    const value = this.options.geometry?.(entity);
-    if (value !== undefined && value !== null) {
-      const geometry = parseGeoJsonPolygonGeometry(value);
-      if (!geometry) {
-        throw new SceneCodecError(
-          SceneCodecErrorKind.InvalidGeometry,
-          entity.id,
-        );
-      }
-      for (const polygon of geometryPolygons(geometry)) {
-        this.appendPolygon(allocation, polygon);
-      }
+    const geometry = this.options.geometry?.(record);
+    if (geometry === undefined || geometry === null) {
+      allocation.kinds.push(SceneGeometryKind.None);
+      allocation.recordEnds.push(allocation.groupEnds.length);
+      return;
     }
-    allocation.recordEnds.push(allocation.polygonEnds.length);
+    this.validateGeometry(geometry, record.id);
+    allocation.kinds.push(geometry.kind);
+    for (const group of geometry.groups) {
+      this.appendGeometryGroup(allocation, group);
+    }
+    allocation.recordEnds.push(allocation.groupEnds.length);
   }
 
-  private appendPolygon(
+  private appendGeometryGroup(
     allocation: SceneGeometryAllocation,
-    polygon: GeoPolygon,
+    parts: readonly GeoLineString[],
   ): void {
-    for (const ring of polygon) {
-      this.appendRing(allocation, ring);
+    for (const part of parts) {
+      this.appendGeometryPart(allocation, part);
     }
-    allocation.polygonEnds.push(allocation.ringEnds.length);
+    allocation.groupEnds.push(allocation.partEnds.length);
   }
 
-  private appendRing(
+  private appendGeometryPart(
     allocation: SceneGeometryAllocation,
-    ring: GeoRing,
+    part: GeoLineString,
   ): void {
-    for (const point of ring) {
+    for (const point of part) {
       allocation.coordinates.push(
         longitudeOf(point),
         latitudeOf(point),
       );
     }
-    allocation.ringEnds.push(
+    allocation.partEnds.push(
       allocation.coordinates.length / SceneComponentCount.Position,
     );
   }
 
-  private writeEntity(
+  private writeRecord(
     allocation: ScenePatchAllocation,
-    entity: TEntity,
+    projected: SceneProjectedRecord<TEntity, TRecord>,
     index: number,
   ): void {
-    const sceneId = this.options.sceneId?.(entity) ?? entity.id;
-    const entityId = this.options.entityId?.(entity) ?? entity.id;
-    const position = this.options.position(entity);
+    const sceneId = projected.record.id;
+    const entityId = projected.entity.id;
+    const position = this.options.position(projected.record);
     const longitude = longitudeOf(position);
     const latitude = latitudeOf(position);
-    const timestamp = this.options.timestamp(entity);
+    const timestamp = this.options.timestamp(projected.record);
     this.validateEntity(sceneId, longitude, latitude, timestamp);
 
     allocation.handles[index] = this.handleAllocator.acquire(sceneId);
@@ -294,12 +343,12 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
     this.writePosition(allocation, index, longitude, latitude);
     allocation.timestamps[index] = timestamp;
     this.options.writeAttributes(
-      entity,
+      projected.record,
       allocation.attributes,
       index * this.options.attributeStride,
     );
     this.options.writeStringAttributes?.(
-      entity,
+      projected.record,
       allocation.stringAttributes,
       index * this.stringAttributeStride,
       (text) => this.intern(text),
@@ -341,6 +390,73 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
     }
   }
 
+  private validateGeometry(
+    geometry: SceneGeometryInput,
+    sceneId: string,
+  ): void {
+    if (
+      geometry.groups.length === 0 ||
+      (geometry.kind === SceneGeometryKind.Polyline &&
+        geometry.groups.length !== 1)
+    ) {
+      throw new SceneCodecError(
+        SceneCodecErrorKind.InvalidGeometry,
+        sceneId,
+      );
+    }
+    for (const group of geometry.groups) {
+      if (group.length === 0) {
+        throw new SceneCodecError(
+          SceneCodecErrorKind.InvalidGeometry,
+          sceneId,
+        );
+      }
+      for (const part of group) {
+        this.validateGeometryPart(geometry.kind, part, sceneId);
+      }
+    }
+  }
+
+  private validateGeometryPart(
+    kind: SceneGeometryKind.Polygon | SceneGeometryKind.Polyline,
+    part: GeoLineString,
+    sceneId: string,
+  ): void {
+    const minimum =
+      kind === SceneGeometryKind.Polygon
+        ? GeoLimit.MinRingPointCount
+        : SceneComponentCount.Position;
+    const first = part[0];
+    const last = part.at(-1);
+    if (
+      part.length < minimum ||
+      first === undefined ||
+      last === undefined ||
+      (kind === SceneGeometryKind.Polygon &&
+        (longitudeOf(first) !== longitudeOf(last) ||
+          latitudeOf(first) !== latitudeOf(last))) ||
+      !part.every((point) => this.positionIsValid(point))
+    ) {
+      throw new SceneCodecError(
+        SceneCodecErrorKind.InvalidGeometry,
+        sceneId,
+      );
+    }
+  }
+
+  private positionIsValid(point: GeoPoint): boolean {
+    const longitude = longitudeOf(point);
+    const latitude = latitudeOf(point);
+    return (
+      Number.isFinite(longitude) &&
+      Number.isFinite(latitude) &&
+      longitude >= GeoLimit.MinLongitude &&
+      longitude <= GeoLimit.MaxLongitude &&
+      latitude >= GeoLimit.MinLatitude &&
+      latitude <= GeoLimit.MaxLatitude
+    );
+  }
+
   private intern(value: string): number {
     if (value.length === 0) return 0;
     const current = this.dictionary.get(value);
@@ -352,33 +468,113 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
   }
 
   private registerIdentity(sceneId: string, entityId: string): void {
-    const previousEntityId = this.entityIdBySceneId.get(sceneId);
-    if (previousEntityId && previousEntityId !== entityId) {
-      const previousSceneIds =
-        this.sceneIdsByEntityId.get(previousEntityId);
-      previousSceneIds?.delete(sceneId);
-      if (previousSceneIds?.size === 0) {
-        this.sceneIdsByEntityId.delete(previousEntityId);
-      }
-    }
     this.entityIdBySceneId.set(sceneId, entityId);
     const sceneIds = this.sceneIdsByEntityId.get(entityId) ?? new Set();
     sceneIds.add(sceneId);
     this.sceneIdsByEntityId.set(entityId, sceneIds);
   }
 
-  private release(entityIds: readonly string[]): Uint32Array<ArrayBuffer> {
+  private projectRecords(
+    entities: readonly TEntity[],
+  ): readonly SceneProjectedRecord<TEntity, TRecord>[] {
+    const projected: SceneProjectedRecord<TEntity, TRecord>[] = [];
+    for (const entity of entities) {
+      for (const record of this.options.records(entity)) {
+        projected.push({ entity, record });
+      }
+    }
+    return projected;
+  }
+
+  private validatePatchMembership(patch: DatasetPatch<TEntity>): void {
+    const upsertIds = new Set(patch.upserts.map((entity) => entity.id));
+    if (patch.deletedIds.some((entityId) => upsertIds.has(entityId))) {
+      throw new SceneCodecError(
+        SceneCodecErrorKind.InvalidPatchMembership,
+      );
+    }
+  }
+
+  private validateSceneIds(
+    projected: readonly SceneProjectedRecord<TEntity, TRecord>[],
+  ): void {
+    const sceneIds = new Set<string>();
+    for (const item of projected) {
+      if (sceneIds.has(item.record.id)) {
+        throw new SceneCodecError(
+          SceneCodecErrorKind.DuplicateSceneId,
+          item.record.id,
+        );
+      }
+      const owner = this.entityIdBySceneId.get(item.record.id);
+      if (owner !== undefined && owner !== item.entity.id) {
+        throw new SceneCodecError(
+          SceneCodecErrorKind.SceneIdConflict,
+          item.record.id,
+        );
+      }
+      sceneIds.add(item.record.id);
+    }
+  }
+
+  private releaseStaleRecords(
+    entities: readonly TEntity[],
+    projected: readonly SceneProjectedRecord<TEntity, TRecord>[],
+  ): number[] {
+    const currentByEntityId = new Map<string, Set<string>>();
+    for (const entity of entities) {
+      currentByEntityId.set(entity.id, new Set());
+    }
+    for (const item of projected) {
+      currentByEntityId.get(item.entity.id)?.add(item.record.id);
+    }
+
+    const released: number[] = [];
+    for (const [entityId, currentSceneIds] of currentByEntityId) {
+      const previousSceneIds = this.sceneIdsByEntityId.get(entityId);
+      if (!previousSceneIds) continue;
+      for (const sceneId of previousSceneIds) {
+        if (!currentSceneIds.has(sceneId)) {
+          const handle = this.releaseSceneId(sceneId);
+          if (handle !== null) released.push(handle);
+        }
+      }
+    }
+    return released;
+  }
+
+  private releaseDeletedEntities(patch: DatasetPatch<TEntity>): number[] {
+    const deletedIds = new Set(patch.deletedIds);
+    if (patch.kind === DatasetPatchKind.Rebase) {
+      const retainedIds = new Set(patch.upserts.map((entity) => entity.id));
+      for (const entityId of this.sceneIdsByEntityId.keys()) {
+        if (!retainedIds.has(entityId)) deletedIds.add(entityId);
+      }
+    }
+    return this.releaseEntities(deletedIds);
+  }
+
+  private releaseEntities(entityIds: Iterable<string>): number[] {
     const released: number[] = [];
     for (const entityId of entityIds) {
       const sceneIds = this.sceneIdsByEntityId.get(entityId);
       if (!sceneIds) continue;
-      for (const sceneId of sceneIds) {
-        const handle = this.handleAllocator.release(sceneId);
+      for (const sceneId of Array.from(sceneIds)) {
+        const handle = this.releaseSceneId(sceneId);
         if (handle !== null) released.push(handle);
-        this.entityIdBySceneId.delete(sceneId);
       }
-      this.sceneIdsByEntityId.delete(entityId);
     }
-    return new Uint32Array(released);
+    return released;
+  }
+
+  private releaseSceneId(sceneId: string): number | null {
+    const entityId = this.entityIdBySceneId.get(sceneId);
+    const handle = this.handleAllocator.release(sceneId);
+    this.entityIdBySceneId.delete(sceneId);
+    if (entityId === undefined) return handle;
+    const sceneIds = this.sceneIdsByEntityId.get(entityId);
+    sceneIds?.delete(sceneId);
+    if (sceneIds?.size === 0) this.sceneIdsByEntityId.delete(entityId);
+    return handle;
   }
 }

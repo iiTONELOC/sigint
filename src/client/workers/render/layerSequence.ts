@@ -3,7 +3,7 @@ export type MarkerLayerDrawers = Readonly<{
   event: () => void;
   earthquake: () => void;
   weather: () => void;
-  legacy: () => void;
+  cyclones: () => void;
 }>;
 
 export function drawMarkerLayerSequence(
@@ -13,5 +13,5 @@ export function drawMarkerLayerSequence(
   drawers.event();
   drawers.earthquake();
   drawers.weather();
-  drawers.legacy();
+  drawers.cyclones();
 }

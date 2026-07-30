@@ -1,4 +1,5 @@
 import { isRecord } from "@shared/geo";
+import type { DataPoint } from "@/features/base/dataPoints";
 import { isSourceStatus, SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
 import {
@@ -33,9 +34,11 @@ export type DataWorkerPointSource = SourceId;
 export type DataWorkerQueryableSource = QueryableSourceId;
 
 export type AnySourceEntity =
-  QueryableSourceEntities[QueryableSourceId];
+  DataPoint;
 
-export type AnySourceQueryResult = PointUiQueryResult<AnySourceEntity>;
+export type AnySourceQueryResult = PointUiQueryResult<
+  QueryableSourceEntities[QueryableSourceId]
+>;
 
 type SourceEntityBody = Readonly<{
   type: DataWorkerMessageType.SourceEntity;

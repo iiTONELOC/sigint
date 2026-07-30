@@ -12,7 +12,11 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "./sceneBinding";
-import { ScenePatchCodec, sceneTimestamp } from "./sceneCodec";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+  singleSceneRecord,
+} from "./sceneCodec";
 
 export class EventSceneBinding extends SceneBinding<EventPoint> {
   constructor(publishScene: SceneCommandPublisher) {
@@ -21,6 +25,7 @@ export class EventSceneBinding extends SceneBinding<EventPoint> {
         source: Domain.Events,
         attributeStride: EventSceneSchema.AttributeStride,
         stringAttributeStride: EventSceneSchema.StringAttributeStride,
+        records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
