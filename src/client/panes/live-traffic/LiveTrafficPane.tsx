@@ -1,5 +1,6 @@
 import {
   PanelSide,
+  RenderRotationSpeedPolicy,
   type SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -61,6 +62,7 @@ export function LiveTrafficPane() {
     setFlat,
     autoRotate,
     setAutoRotate,
+    toggleAutoRotate,
     rotationSpeed,
     setRotationSpeed,
     selectedCurrent,
@@ -188,8 +190,8 @@ export function LiveTrafficPane() {
 
   // Stable ref so the memoized globe doesn't re-render on every pane render.
   const handleMiddleClick = useCallback(
-    () => setAutoRotate((v) => !v),
-    [setAutoRotate],
+    () => toggleAutoRotate(),
+    [toggleAutoRotate],
   );
 
   return (
@@ -200,9 +202,6 @@ export function LiveTrafficPane() {
         earthquakeFilter={earthquakeFilter}
         fireFilter={fireFilter}
         cycloneFilter={cycloneFilter}
-        flat={flat}
-        autoRotate={autoRotate}
-        rotationSpeed={rotationSpeed}
         onSelect={handleSelect}
         onIsolateModeChange={handleSetIsolateMode}
         onRawCanvasClick={handleRawCanvasClick}
@@ -406,9 +405,9 @@ export function LiveTrafficPane() {
               type="range"
               aria-label={LiveTrafficLabel.RotationSpeed}
               title={LiveTrafficLabel.RotationSpeed}
-              min={0.01}
-              max={2}
-              step={0.01}
+              min={RenderRotationSpeedPolicy.MinimumAndStep}
+              max={RenderRotationSpeedPolicy.Maximum}
+              step={RenderRotationSpeedPolicy.MinimumAndStep}
               value={rotationSpeed}
               onChange={(e) => setRotationSpeed(Number(e.target.value))}
               className="w-12 md:w-15 cursor-pointer accent-sig-accent touch-none"

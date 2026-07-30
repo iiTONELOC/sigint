@@ -56,15 +56,12 @@ export function usePresentationCommands({
 }: PresentationCommandOptions): void {
   const {
     aircraftFilter,
-    autoRotate = true,
     cycloneFilter,
     earthquakeFilter,
     fireFilter,
-    flat = false,
     isolatedId,
     isolateMode,
     layers,
-    rotationSpeed = 1,
     searchText,
     selected,
     zoomToId,
@@ -114,9 +111,6 @@ export function usePresentationCommands({
     sendRenderSurfaceCommand(host, {
       type: RenderMessageType.Presentation,
       payload: {
-        flat,
-        autoRotate,
-        rotationSpeed,
         isolatedId,
         isolateMode,
         layers,
@@ -144,16 +138,13 @@ export function usePresentationCommands({
     });
   }, [
     aircraftFilter,
-    autoRotate,
     cycloneFilter,
     earthquakeFilter,
     fireFilter,
-    flat,
     host,
     isolatedId,
     isolateMode,
     layers,
-    rotationSpeed,
     selected,
   ]);
 

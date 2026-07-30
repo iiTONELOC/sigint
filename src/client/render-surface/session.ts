@@ -3,6 +3,7 @@ import {
   RenderMessageType,
   RenderProtocolVersion,
   createRenderMessage,
+  isRenderGlobeStateSnapshot,
   type RenderWorkerCommand,
   type RenderWorkerCommandBody,
 } from "@/workers/render/protocol";
@@ -28,6 +29,10 @@ import {
   createBrowserViewportAdapter,
   type ViewportAdapter,
 } from "@/render-surface/viewport";
+import {
+  RenderGlobeStateStore,
+  renderGlobeStateStore,
+} from "@/render-surface/globeStateStore";
 
 enum DatasetState {
   Ready = "true",
@@ -63,6 +68,7 @@ export type RenderSurfaceSessionFactory = () => RenderSurfaceSession;
 export type RenderSurfaceSessionDependencies = Readonly<{
   createWorkerEndpoint?: () => RenderWorkerEndpoint;
   createSessionId?: () => string;
+  globeStateStore?: RenderGlobeStateStore;
 }>;
 
 export function createRenderCommandSender(
@@ -128,6 +134,9 @@ export function createRenderSurfaceSession(
   let input: InputHandlers | null = null;
   let canvas: HTMLCanvasElement | null = null;
   let unsubscribe: (() => void) | null = null;
+  let disconnectGlobeState: (() => void) | null = null;
+  const globeState =
+    dependencies.globeStateStore ?? renderGlobeStateStore;
 
   const send: RenderCommandSender["send"] = (body, transfer = []): void => {
     sender?.send(body, transfer);
@@ -153,6 +162,12 @@ export function createRenderSurfaceSession(
         if (message.type === RenderMessageType.DataChannelReady) {
           nextCanvas.dataset.renderDataChannelReady = DatasetState.Ready;
           emitRenderSignal(host, RENDER_SURFACE_DATA_READY_EVENT);
+          return;
+        }
+        if (message.type === RenderMessageType.GlobeState) {
+          if (isRenderGlobeStateSnapshot(message.payload)) {
+            globeState.accept(message.payload);
+          }
           return;
         }
         if (message.type !== RenderMessageType.Interaction) return;
@@ -183,6 +198,12 @@ export function createRenderSurfaceSession(
           [offscreen],
         );
       }
+      disconnectGlobeState = globeState.connect((command) =>
+        send({
+          type: RenderMessageType.GlobeCommand,
+          payload: command,
+        }),
+      );
 
       viewport = createBrowserViewportAdapter(
         host,
@@ -208,6 +229,8 @@ export function createRenderSurfaceSession(
     stop(): void {
       viewport?.stop();
       viewport = null;
+      disconnectGlobeState?.();
+      disconnectGlobeState = null;
       if (canvas && input) detachInputHandlers(canvas, input);
       input = null;
       if (sender) {

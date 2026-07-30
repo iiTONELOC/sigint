@@ -21,7 +21,7 @@ import type { MinCategory } from "@/features/environmental/cyclones/types";
 import { isRecord } from "@shared/geo";
 
 export enum RenderProtocolVersion {
-  Current = 5,
+  Current = 6,
 }
 
 export enum RenderMessageType {
@@ -29,6 +29,7 @@ export enum RenderMessageType {
   Colors = "colors",
   Viewport = "viewport",
   Presentation = "presentation",
+  GlobeCommand = "globeCommand",
   Input = "input",
   Focus = "focus",
   Selection = "selection",
@@ -38,6 +39,25 @@ export enum RenderMessageType {
   DataChannelReady = "dataChannelReady",
   Interaction = "interaction",
   Camera = "camera",
+  GlobeState = "globeState",
+}
+
+export enum RenderProjectionMode {
+  Globe = "globe",
+  Flat = "flat",
+}
+
+export enum RenderGlobeCommandKind {
+  SetProjection = "setProjection",
+  SetRotationEnabled = "setRotationEnabled",
+  ToggleRotation = "toggleRotation",
+  SetRotationSpeed = "setRotationSpeed",
+}
+
+export enum RenderRotationSpeedPolicy {
+  MinimumAndStep = 0.01,
+  Default = 0.35,
+  Maximum = 2,
 }
 
 export enum RenderFocusKind {
@@ -167,6 +187,29 @@ export type RenderSearchSnapshot = Readonly<{
   text: string | null;
 }>;
 
+export type RenderGlobeStateSnapshot = Readonly<{
+  projection: RenderProjectionMode;
+  rotationEnabled: boolean;
+  rotationSpeed: number;
+}>;
+
+export type RenderGlobeCommand =
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetProjection;
+      projection: RenderProjectionMode;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetRotationEnabled;
+      enabled: boolean;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.ToggleRotation;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetRotationSpeed;
+      speed: number;
+    }>;
+
 export function renderSelectionIdentitiesEqual(
   left: RenderSelectionIdentity | null,
   right: RenderSelectionIdentity | null,
@@ -251,6 +294,50 @@ export function isRenderSearchSnapshot(
   );
 }
 
+export function isRenderRotationSpeed(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= RenderRotationSpeedPolicy.MinimumAndStep &&
+    value <= RenderRotationSpeedPolicy.Maximum
+  );
+}
+
+export function isRenderGlobeStateSnapshot(
+  value: unknown,
+): value is RenderGlobeStateSnapshot {
+  return (
+    isRecord(value) &&
+    (
+      value.projection === RenderProjectionMode.Globe ||
+      value.projection === RenderProjectionMode.Flat
+    ) &&
+    typeof value.rotationEnabled === "boolean" &&
+    isRenderRotationSpeed(value.rotationSpeed)
+  );
+}
+
+export function isRenderGlobeCommand(
+  value: unknown,
+): value is RenderGlobeCommand {
+  if (!isRecord(value)) return false;
+  switch (value.kind) {
+    case RenderGlobeCommandKind.SetProjection:
+      return (
+        value.projection === RenderProjectionMode.Globe ||
+        value.projection === RenderProjectionMode.Flat
+      );
+    case RenderGlobeCommandKind.SetRotationEnabled:
+      return typeof value.enabled === "boolean";
+    case RenderGlobeCommandKind.ToggleRotation:
+      return true;
+    case RenderGlobeCommandKind.SetRotationSpeed:
+      return isRenderRotationSpeed(value.speed);
+    default:
+      return false;
+  }
+}
+
 export type RenderCamera = Readonly<{
   zoomFlat: number;
   zoomGlobe: number;
@@ -283,9 +370,6 @@ export type RenderViewportPayload = Readonly<{
 }>;
 
 export type RenderPresentationPayload = Readonly<{
-  flat: boolean;
-  autoRotate: boolean;
-  rotationSpeed: number;
   isolatedId: string | null;
   isolateMode: SelectedIsolateMode;
   layers: Readonly<Record<string, boolean | undefined>>;
@@ -388,6 +472,10 @@ export type RenderWorkerCommandBody =
       payload: RenderPresentationPayload;
     }>
   | Readonly<{
+      type: RenderMessageType.GlobeCommand;
+      payload: RenderGlobeCommand;
+    }>
+  | Readonly<{
       type: RenderMessageType.Input;
       payload: RenderInputPayload;
     }>
@@ -419,6 +507,10 @@ export type RenderWorkerEventBody =
   | Readonly<{
       type: RenderMessageType.Camera;
       payload: RenderCamera;
+    }>
+  | Readonly<{
+      type: RenderMessageType.GlobeState;
+      payload: RenderGlobeStateSnapshot;
     }>;
 
 export type RenderWorkerEvent = WithEnvelope<RenderWorkerEventBody>;

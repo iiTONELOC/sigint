@@ -43,9 +43,6 @@ export type DragState = {
 };
 
 export type GlobeVisualizationProps = {
-  readonly flat?: boolean;
-  readonly autoRotate?: boolean;
-  readonly rotationSpeed?: number;
   readonly layers: Record<string, boolean>;
   readonly aircraftFilter: AircraftFilter;
   readonly earthquakeFilter: EarthquakeFilter;

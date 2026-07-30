@@ -37,6 +37,7 @@ import {
   RenderInputPhase,
   RenderInteractionKind,
   RenderMessageType,
+  RenderProjectionMode,
   acceptRenderCommand,
   createRenderMessage,
   type RenderAircraftFilter,
@@ -62,6 +63,9 @@ import {
   type RenderSearchSelectionState,
 } from "./render/searchController";
 import { RenderFocusResolver } from "./render/focusResolver";
+import {
+  RenderGlobeStateController,
+} from "./render/globeStateController";
 
 import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
@@ -603,6 +607,7 @@ let dataPort: MessagePort | null = null;
 
 const renderLayerCatalog = new RenderLayerCatalog();
 const focusResolver = new RenderFocusResolver(renderLayerCatalog);
+const globeStateController = new RenderGlobeStateController();
 const selectionController = new RenderSelectionController();
 const searchController = new RenderSearchController();
 const selectionOverlayStore = new SelectionOverlayStore();
@@ -693,6 +698,13 @@ function selectionIdentity(): RenderSelectionIdentity | null {
 
 function selectedInteractionId(): string | null {
   return selectionIdentity()?.interactionId ?? null;
+}
+
+function usesFlatProjection(): boolean {
+  return (
+    globeStateController.snapshot().projection ===
+    RenderProjectionMode.Flat
+  );
 }
 
 function currentIsolateMode(): SelectedIsolateMode {
@@ -909,7 +921,7 @@ function handleCameraInput(payload: RenderInputPayload): void {
   if (!_viewport || !_presentation) return;
   const surface: InputSurface = {
     viewport: { width: _viewport.width, height: _viewport.height },
-    flat: _presentation.flat,
+    flat: usesFlatProjection(),
   };
 
   switch (payload.kind) {
@@ -977,7 +989,7 @@ function handleFocus(
     _cameraTarget,
     position,
     { width: _viewport.width, height: _viewport.height },
-    _presentation.flat,
+    usesFlatProjection(),
     msg.payload.kind,
   );
   scheduleRender();
@@ -1001,6 +1013,16 @@ function handleViewport(payload: RenderViewportPayload): void {
 
 function handlePresentation(payload: RenderPresentationPayload): void {
   _presentation = payload;
+}
+
+function handleGlobeCommand(payload: unknown): void {
+  const snapshot = globeStateController.apply(payload);
+  if (!snapshot) return;
+  postWorkerEvent({
+    type: RenderMessageType.GlobeState,
+    payload: snapshot,
+  });
+  scheduleRender();
 }
 
 function handleSelection(
@@ -1030,6 +1052,9 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
     case RenderMessageType.Presentation:
       handlePresentation(msg.payload);
       break;
+    case RenderMessageType.GlobeCommand:
+      handleGlobeCommand(msg.payload);
+      return;
     case RenderMessageType.Selection:
       handleSelection(msg.payload);
       break;
@@ -1133,7 +1158,7 @@ function currentProjection(): ProjFn | null {
   if (!_viewport || !_presentation) return null;
   const camera = cameraSnapshot(_camera);
   const { width, height } = _viewport;
-  if (_presentation.flat) {
+  if (usesFlatProjection()) {
     const metrics = getFlatMetrics(
       _viewport.width,
       _viewport.height,
@@ -1243,7 +1268,7 @@ function screenGeoPoint(
 ): GeoPoint | null {
   if (!_viewport || !_presentation) return null;
   const camera = cameraSnapshot(_camera);
-  if (_presentation.flat) {
+  if (usesFlatProjection()) {
     const metrics = getFlatMetrics(
       _viewport.width,
       _viewport.height,
@@ -1331,7 +1356,7 @@ function handlePointerClick(click: CameraClick): void {
           width: _viewport.width,
           height: _viewport.height,
         },
-        _presentation.flat,
+        usesFlatProjection(),
         RenderFocusKind.Double,
       );
     }
@@ -1347,7 +1372,7 @@ function handlePointerClick(click: CameraClick): void {
         _camera,
         _cameraTarget,
         point.identity.interactionId,
-        _presentation.flat,
+        usesFlatProjection(),
       );
     }
     _lastClickTime = now;
@@ -1393,7 +1418,7 @@ function handlePointerHover(x: number, y: number): void {
     !cameraContainsPoint(
       _camera,
       viewport,
-      _presentation.flat,
+      usesFlatProjection(),
       x,
       y,
     )
@@ -1937,7 +1962,9 @@ function renderFrame(): void {
 
   const { canvas, ctx, presentation: p, colors, viewport } = inputs;
   const { width: W, height: H } = viewport;
-  const isFlat = p.flat;
+  const globeState = globeStateController.snapshot();
+  const isFlat =
+    globeState.projection === RenderProjectionMode.Flat;
   const now = performance.now();
   const cameraActive = stepCamera(
     _camera,
@@ -1946,8 +1973,8 @@ function renderFrame(): void {
     {
       viewport: { width: W, height: H },
       flat: isFlat,
-      autoRotate: p.autoRotate,
-      rotationSpeed: p.rotationSpeed,
+      autoRotate: globeState.rotationEnabled,
+      rotationSpeed: globeState.rotationSpeed,
       selectedPosition: selectedCameraPosition(),
       deltaMilliseconds: now - _lastFrameAt,
     },

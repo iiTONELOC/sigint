@@ -12,6 +12,14 @@ import { useFreshEntity } from "@/features/base/useFreshEntity";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { getColorMap } from "@/config/theme";
 import { useTheme } from "@/context/ThemeContext";
+import {
+  setRenderProjection,
+  setRenderRotationEnabled,
+  setRenderRotationSpeed,
+  toggleRenderRotation,
+} from "@/render-surface/globeStateStore";
+import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
+import { RenderProjectionMode } from "@/workers/render/protocol";
 
 // ── Context value type ──────────────────────────────────────────────
 
@@ -31,11 +39,12 @@ type UIContextValue = {
 
   // Globe view controls
   flat: boolean;
-  setFlat: React.Dispatch<React.SetStateAction<boolean>>;
+  setFlat: (flat: boolean) => void;
   autoRotate: boolean;
-  setAutoRotate: React.Dispatch<React.SetStateAction<boolean>>;
+  setAutoRotate: (enabled: boolean) => void;
+  toggleAutoRotate: () => void;
   rotationSpeed: number;
-  setRotationSpeed: React.Dispatch<React.SetStateAction<number>>;
+  setRotationSpeed: (speed: number) => void;
 
   // Search
   searchText: string | null;
@@ -70,9 +79,26 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   const { theme } = useTheme();
 
   // ── View controls ───────────────────────────────────────────────
-  const [flat, setFlat] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(false);
-  const [rotationSpeed, setRotationSpeed] = useState(0.35);
+  const globeState = useRenderGlobeState();
+  const flat = globeState.projection === RenderProjectionMode.Flat;
+  const autoRotate = globeState.rotationEnabled;
+  const rotationSpeed = globeState.rotationSpeed;
+  const setFlat = useCallback((enabled: boolean) => {
+    setRenderProjection(
+      enabled
+        ? RenderProjectionMode.Flat
+        : RenderProjectionMode.Globe,
+    );
+  }, []);
+  const setAutoRotate = useCallback((enabled: boolean) => {
+    setRenderRotationEnabled(enabled);
+  }, []);
+  const toggleAutoRotate = useCallback(() => {
+    toggleRenderRotation();
+  }, []);
+  const setRotationSpeed = useCallback((speed: number) => {
+    setRenderRotationSpeed(speed);
+  }, []);
   const [chromeHidden, setChromeHidden] = useState(false);
 
   // ── Selection & isolation ───────────────────────────────────────
@@ -122,6 +148,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       setFlat,
       autoRotate,
       setAutoRotate,
+      toggleAutoRotate,
       rotationSpeed,
       setRotationSpeed,
       searchText,
@@ -142,6 +169,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       chromeHidden,
       flat,
       autoRotate,
+      toggleAutoRotate,
       rotationSpeed,
       searchText,
       handleSearchCommit,
