@@ -12,7 +12,7 @@ import {
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
 import {
   SceneBinding,
-  type ScenePatchPublisher,
+  type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
 import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
 import {
@@ -114,7 +114,7 @@ export class ShipSource extends GeoDataSource<ShipPoint> {
 }
 
 export class ShipSceneBinding extends SceneBinding<ShipPoint> {
-  constructor(publishScene: ScenePatchPublisher) {
+  constructor(publishScene: SceneCommandPublisher) {
     super(
       new ScenePatchCodec<ShipPoint>({
         source: Domain.Ships,

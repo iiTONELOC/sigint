@@ -1,4 +1,3 @@
-import { EARTHQUAKE_SOURCE_POLICY } from "@/features/environmental/earthquake/data/source";
 import { Domain } from "@shared/domain/identity";
 import { FIRE_SOURCE_POLICY } from "@/features/environmental/fires/data/source";
 import {
@@ -13,6 +12,10 @@ import {
   EVENT_SOURCE_POLICY,
   EventSource,
 } from "@/workers/data/sources/events";
+import {
+  EarthquakeSceneBinding,
+  EarthquakeSource,
+} from "@/workers/data/sources/earthquakes";
 import {
   cycloneWarningSource,
   weatherAlertSource,
@@ -39,8 +42,6 @@ import {
   DATA_CACHE_POLICY,
   createDataCacheStore,
 } from "@/workers/data/cacheStore";
-import { packEarthquakeRenderData } from "@/workers/data/earthquakeRenderData";
-import { createEarthquakeSourceOwner } from "@/workers/data/earthquakeSourceOwner";
 import { createFireSourceOwner } from "@/workers/data/fireSourceOwner";
 import { packFireRenderData } from "@/workers/data/fireRenderData";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
@@ -86,6 +87,9 @@ const shipSceneBinding = new ShipSceneBinding((patch) => {
 const eventSceneBinding = new EventSceneBinding((patch) => {
   scenePublisher.publish(patch);
 });
+const earthquakeSceneBinding = new EarthquakeSceneBinding((command) => {
+  scenePublisher.publish(command);
+});
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
@@ -93,6 +97,7 @@ let correlationPort: MessagePort | null = null;
 let correlationSessionId: string | null = null;
 let correlationSequence = 0;
 let earthquakeSearchText: string | null = null;
+let earthquakeSearchRevision = 0;
 let fireSearchText: string | null = null;
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
@@ -182,16 +187,19 @@ function postRenderData(
 }
 
 function publishEarthquakeSearch(): void {
-  postRenderData({
-    type: RenderDataCommandType.EarthquakeSearch,
-    matchingIds: earthquakeSearchText
-      ? findQueryableSearchIds(
-          Domain.Earthquake,
-          earthquakeOwner.values(),
-          earthquakeSearchText,
-        )
-      : null,
-  });
+  if (earthquakeSearchRevision === 0) return;
+  const matchingIds = earthquakeSearchText
+    ? findQueryableSearchIds(
+        Domain.Earthquake,
+        earthquakeOwner.values(),
+        earthquakeSearchText,
+      )
+    : [];
+  earthquakeSceneBinding.publishSearch(
+    matchingIds,
+    earthquakeSearchRevision,
+    earthquakeSearchText !== null,
+  );
 }
 
 function publishFireSearch(): void {
@@ -203,30 +211,17 @@ function publishFireSearch(): void {
   });
 }
 
-function rebaseEarthquakeRender(
-  points: ReturnType<typeof earthquakeOwner.values>,
-): void {
-  if (!renderPort || !renderSessionId) return;
-  const packed = packEarthquakeRenderData(points);
-  postRenderData({
-    type: RenderDataCommandType.EarthquakeRebase,
-    ...packed,
-  }, [
-    packed.positions.buffer,
-    packed.unitVectors.buffer,
-    packed.magnitudes.buffer,
-    packed.timestamps.buffer,
-  ]);
-  publishEarthquakeSearch();
-}
-
-const earthquakeOwner = createEarthquakeSourceOwner({
-  readCache: () => store.get(EARTHQUAKE_SOURCE_POLICY.cacheKey),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(EARTHQUAKE_SOURCE_POLICY.cacheKey, snapshot);
+const earthquakeOwner = new EarthquakeSource();
+earthquakeOwner.attach({
+  readCache: (key) => store.get(key),
+  persistCache: (key, snapshot) => {
+    coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishRebase: rebaseEarthquakeRender,
+  publishPatch: (patch) => {
+    earthquakeSceneBinding.publish(patch);
+    publishEarthquakeSearch();
+  },
 });
 
 function rebaseFireRender(
@@ -358,7 +353,10 @@ sourceCatalog.register(
 sourceCatalog.register(
   Domain.Earthquake,
   earthquakeOwner,
-  () => rebaseEarthquakeRender(earthquakeOwner.values()),
+  () => {
+    earthquakeOwner.publishRebase();
+    publishEarthquakeSearch();
+  },
 );
 sourceCatalog.register(
   Domain.Events,
@@ -532,6 +530,7 @@ function handleSetSourceSearch(
   const text = normalized.length > 0 ? normalized : null;
   if (command.source === Domain.Earthquake) {
     earthquakeSearchText = text;
+    earthquakeSearchRevision += 1;
     publishEarthquakeSearch();
   } else if (command.source === Domain.Fire) {
     fireSearchText = text;

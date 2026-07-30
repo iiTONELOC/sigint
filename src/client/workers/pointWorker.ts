@@ -69,7 +69,6 @@ import {
   parseRenderDataCommand,
   RenderDataProtocolState,
   type LegacyPointSourceId,
-  type PackedEarthquakeRenderData,
   type PackedFireRenderData,
 } from "./render/dataChannel";
 
@@ -86,6 +85,10 @@ import {
   type ShipSceneFilter,
 } from "./render/scene/shipLayer";
 import { EventLayer } from "./render/scene/eventLayer";
+import {
+  EarthquakeLayer,
+  type EarthquakeSceneFilter,
+} from "./render/scene/earthquakeLayer";
 import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
 import { drawSelectionRing } from "./render/primitives/selectionRing";
 import {
@@ -142,16 +145,6 @@ enum PointWorkerError {
 
 enum CanvasLineStyle {
   Round = "round",
-}
-
-enum EarthquakeAnimationPolicy {
-  MagnitudeThreshold = 3,
-  IdRadix = 36,
-  PhaseRate = 0.7,
-}
-
-enum EarthquakeMarkerSize {
-  Maximum = 10,
 }
 
 enum FireAnimationPolicy {
@@ -231,16 +224,6 @@ function ageFactor(ts: string | number | undefined, steps: ReadonlyArray<[number
   return hit ? hit[1] : (steps.at(-1)?.[1] ?? 0.5);
 }
 
-function quakeAgeFactor(timestamp?: string | number): number {
-  return ageFactor(timestamp, [
-    [MS_PER_HOUR, 1],
-    [6 * MS_PER_HOUR, 0.9],
-    [MS_PER_DAY, 0.8],
-    [3 * MS_PER_DAY, 0.65],
-    [Infinity, 0.5],
-  ]);
-}
-
 function fireAgeFactor(timestamp?: string | number): number {
   return ageFactor(timestamp, [
     [MS_PER_HOUR, 1],
@@ -251,21 +234,10 @@ function fireAgeFactor(timestamp?: string | number): number {
   ]);
 }
 
-function quakeColor(age: number, base: string): string {
-  return markerVisuals.fade(base, age);
-}
-
 function fireColor(age: number, base: string): string {
   return markerVisuals.fade(base, age);
 }
 
-function quakeSize(m: number): number {
-  const bands: ReadonlyArray<[number, number]> = [
-    [1, 1.2], [2, 1.5], [3, 2], [4, 3], [5, 4.5], [6, 6], [7, 8],
-  ];
-  return bands.find(([max]) => m < max)?.[1] ??
-    EarthquakeMarkerSize.Maximum;
-}
 function fireSize(frp: number): number {
   const bands: ReadonlyArray<[number, number]> = [
     [1, 0.8], [5, 1], [10, 1.3], [25, 1.8], [50, 2.5], [100, 3.5],
@@ -624,21 +596,10 @@ type PackedProjectionState = {
   hitRows: number;
 };
 
-type EarthquakeRenderState = PackedEarthquakeRenderData & {
-  projected: Float32Array;
-  hitHeads: Int32Array;
-  hitNext: Int32Array;
-  hitColumns: number;
-  hitRows: number;
-};
-
 type FireRenderState = PackedFireRenderData & PackedProjectionState;
 
-let _earthquakes: EarthquakeRenderState | null = null;
-let _earthquakeSearchIds: ReadonlySet<string> | null = null;
 let _fires: FireRenderState | null = null;
 let _fireSearchIds: ReadonlySet<string> | null = null;
-let _hasAnimatedEarthquakes = false;
 let _hasAnimatedFires = false;
 let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
@@ -674,9 +635,11 @@ const renderLayerCatalog = new RenderLayerCatalog();
 const aircraftLayer = new AircraftLayer();
 const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
+const earthquakeLayer = new EarthquakeLayer(markerVisuals);
 renderLayerCatalog.register(aircraftLayer);
 renderLayerCatalog.register(shipLayer);
 renderLayerCatalog.register(eventLayer);
+renderLayerCatalog.register(earthquakeLayer);
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
@@ -828,27 +791,6 @@ function rebuildGenericData(): void {
   }
 }
 
-function handleEarthquakeRebase(
-  packed: PackedEarthquakeRenderData,
-): void {
-  const count = packed.ids.length;
-  _earthquakes = {
-    ...packed,
-    projected: new Float32Array(
-      count * RenderDataLaneComponentCount.UnitVector,
-    ),
-    hitHeads: new Int32Array(0),
-    hitNext: new Int32Array(count),
-    hitColumns: 0,
-    hitRows: 0,
-  };
-  _hasAnimatedEarthquakes = packed.magnitudes.some(
-    (magnitude) =>
-      magnitude > EarthquakeAnimationPolicy.MagnitudeThreshold,
-  );
-  rebuildGenericData();
-}
-
 function handleFireRebase(packed: PackedFireRenderData): void {
   const count = packed.ids.length;
   _fires = {
@@ -906,18 +848,10 @@ function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
 /** Packed source updates from the DataWorker, past the bind handshake. */
 function applyRenderDataCommand(command: RenderDataCommand): void {
   switch (command.type) {
-    case RenderDataCommandType.EarthquakeSearch:
-      _earthquakeSearchIds = command.matchingIds
-        ? new Set(command.matchingIds)
-        : null;
-      return;
     case RenderDataCommandType.FireSearch:
       _fireSearchIds = command.matchingIds
         ? new Set(command.matchingIds)
         : null;
-      return;
-    case RenderDataCommandType.EarthquakeRebase:
-      handleEarthquakeRebase(command);
       return;
     case RenderDataCommandType.FireRebase:
       handleFireRebase(command);
@@ -1161,7 +1095,7 @@ type DotEnv = { ctx: Ctx; t: number; zoomLevel: number };
 
 type PulseGlow = MarkerGlow;
 
-/** Shared pulsing-dot renderer for quakes / events / fires / weather. `shape`
+/** Shared pulsing-dot renderer for fires and weather. `shape`
  *  draws the marker (circle vs diamond). Returns nothing; mutates the canvas. */
 type PulsingDot = Readonly<{
   x: number;
@@ -1227,7 +1161,6 @@ type FilterCfg = {
   isolatedType: string | null;
   layers: Readonly<Record<string, boolean | undefined>>;
   af: AircraftFilter;
-  earthquakeMinMagnitude: number;
   fireMinConfidence: number;
   showForecast: boolean;
 };
@@ -1337,7 +1270,7 @@ function preparePackedHitGrid(
 
 function packedLayerVisible(
   filters: FilterCfg,
-  pointType: Domain.Quakes | Domain.Fires,
+  pointType: Domain.Fires,
 ): boolean {
   if (filters.layers[pointType] === false) return false;
   return !(
@@ -1359,7 +1292,7 @@ function packedIdPasses(
 function projectPackedSource(
   state: PackedProjectionState,
   frame: PackedProjectionFrame,
-  pointType: Domain.Quakes | Domain.Fires,
+  pointType: Domain.Fires,
   searchIds: ReadonlySet<string> | null,
   passesSourceFilter: (index: number) => boolean,
 ): void {
@@ -1470,21 +1403,6 @@ function insertPackedHit(
   state.hitHeads[cell] = index;
 }
 
-function projectEarthquakes(
-  state: EarthquakeRenderState,
-  frame: PackedProjectionFrame,
-): void {
-  projectPackedSource(
-    state,
-    frame,
-    Domain.Quakes,
-    _earthquakeSearchIds,
-    (index) =>
-      (state.magnitudes[index] ?? 0) >=
-      frame.filters.earthquakeMinMagnitude,
-  );
-}
-
 function projectFires(
   state: FireRenderState,
   frame: PackedProjectionFrame,
@@ -1526,7 +1444,7 @@ function nearestGenericPoint(
 
 function nearestPackedPoint(
   state: PackedProjectionState | null,
-  pointType: Domain.Quakes | Domain.Fires,
+  pointType: Domain.Fires,
   x: number,
   y: number,
   radius: number,
@@ -1570,7 +1488,7 @@ type PackedHitSearch = {
 function scanPackedCell(
   state: PackedProjectionState,
   cell: number,
-  pointType: Domain.Quakes | Domain.Fires,
+  pointType: Domain.Fires,
   at: Readonly<{ x: number; y: number }>,
   search: PackedHitSearch,
 ): boolean {
@@ -1592,7 +1510,7 @@ function scanPackedCell(
 function packedHitCandidate(
   state: PackedProjectionState,
   index: number,
-  pointType: Domain.Quakes | Domain.Fires,
+  pointType: Domain.Fires,
   x: number,
   y: number,
 ): PointHit | null {
@@ -1651,7 +1569,6 @@ function nearestPoint(
   let closest = nearestGenericPoint(x, y, radius);
   const specialized = [
     nearestScenePoint(x, y, radius),
-    nearestPackedPoint(_earthquakes, Domain.Quakes, x, y, radius),
     nearestPackedPoint(_fires, Domain.Fires, x, y, radius),
   ];
   for (const candidate of specialized) {
@@ -2064,83 +1981,6 @@ type PointDrawCtx = {
   reducedMotion: boolean;
 };
 
-function drawEarthquakeLayer(
-  pc: PointDrawCtx,
-  state: EarthquakeRenderState,
-): void {
-  const { ctx, colorMap, accent, selId, t, zoomLevel } = pc;
-  const baseColor = colorMap.quakes || accent;
-  const scale = zoomScale(zoomLevel);
-  const pulseIntensity = clampUnit((zoomLevel - 1.3) / 2);
-  for (let index = 0; index < state.ids.length; index++) {
-    const projectedOffset =
-      index * RenderDataLaneComponentCount.UnitVector;
-    const x = state.projected[projectedOffset];
-    const y = state.projected[projectedOffset + 1];
-    const depth = state.projected[projectedOffset + 2];
-    const id = state.ids[index];
-    const magnitude = state.magnitudes[index];
-    const timestamp = state.timestamps[index];
-    if (
-      x === undefined ||
-      y === undefined ||
-      depth === undefined ||
-      depth <= 0 ||
-      id === undefined ||
-      magnitude === undefined ||
-      timestamp === undefined
-    ) {
-      continue;
-    }
-
-    const age = quakeAgeFactor(timestamp);
-    const color = quakeColor(age, baseColor);
-    const selected = id === selId;
-    const size =
-      quakeSize(magnitude) * scale * (selected ? 2 : 1);
-    const fillAlpha = (0.4 + depth * 0.6) * age * 0.8;
-    if (
-      magnitude > EarthquakeAnimationPolicy.MagnitudeThreshold &&
-      pulseIntensity > 0.01
-    ) {
-      const pulseIndex = Math.min(
-        1,
-        (magnitude -
-          EarthquakeAnimationPolicy.MagnitudeThreshold) / 4,
-      );
-      const phase =
-        (Number.parseInt(
-          id.slice(1),
-          EarthquakeAnimationPolicy.IdRadix,
-        ) || 0) * EarthquakeAnimationPolicy.PhaseRate;
-      const pulse =
-        1 +
-        Math.sin(t + phase) *
-          (0.1 + pulseIndex * 0.2);
-      const glowRadius =
-        size * (1.8 + pulseIndex * 1.5) * pulse;
-      markerVisuals.drawGlow(
-        ctx,
-        color,
-        "40",
-        x,
-        y,
-        glowRadius,
-        fillAlpha * pulseIntensity * 0.5,
-      );
-    }
-    ctx.globalAlpha = fillAlpha;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.fill();
-    if (selected) {
-      drawSelectionRing(ctx, x, y, size, color, t);
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
 function drawFireLayer(
   pc: PointDrawCtx,
   state: FireRenderState,
@@ -2257,8 +2097,8 @@ function drawWeatherPoint(
 }
 
 /**
- * The legacy point path. Aircraft, ships, quakes and fires are drawn from
- * their worker-owned scenes and never arrive here.
+ * The legacy point path. Aircraft, ships, and quakes use worker-owned scenes.
+ * Fires use a worker-owned packed lane and never arrive here.
  */
 function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
   const { ctx, projFn, colorMap, accent, selId, t, zoomLevel } = pc;
@@ -2428,17 +2268,14 @@ function drawPointLayers(
   pointCtx: PointDrawCtx,
   pts: readonly ProjPoint[],
   drawEventLayer: () => void,
+  drawEarthquakeLayer: () => void,
 ): void {
   drawMarkerLayerSequence({
     fire: () => {
       if (_fires) drawFireLayer(pointCtx, _fires);
     },
     event: drawEventLayer,
-    earthquake: () => {
-      if (_earthquakes) {
-        drawEarthquakeLayer(pointCtx, _earthquakes);
-      }
-    },
+    earthquake: drawEarthquakeLayer,
     legacy: () => {
       for (const point of pts) drawPoint(pointCtx, point);
     },
@@ -2782,7 +2619,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedType,
     layers: p.layers,
     af: p.aircraftFilter,
-    earthquakeMinMagnitude: p.earthquakeMinMagnitude,
     fireMinConfidence: p.fireMinConfidence,
     showForecast: options.showForecast,
   };
@@ -2815,6 +2651,16 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedId: isoId,
     isolatedType,
   });
+
+  const earthquakeSceneFilter: EarthquakeSceneFilter = {
+    enabled: p.layers[Domain.Quakes] !== false,
+    minimumMagnitude: p.earthquakeMinMagnitude,
+    searchIds: null,
+    isolateMode: isoMode,
+    isolatedId: isoId,
+    isolatedType,
+  };
+  earthquakeLayer.project(base, earthquakeSceneFilter);
 
   return {
     pts,
@@ -2861,7 +2707,6 @@ function scheduleNextFrameIfNeeded(
   const hasVisualAnimation =
     !reducedMotion &&
     (_hasAnimatedPoints ||
-      _hasAnimatedEarthquakes ||
       _hasAnimatedFires ||
       renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
@@ -2980,7 +2825,6 @@ function renderFrame(): void {
     filters: filterCfg,
     selectedId: selId,
   };
-  if (_earthquakes) projectEarthquakes(_earthquakes, packedFrame);
   if (_fires) projectFires(_fires, packedFrame);
 
   // ── Draw trail (only if the selected item passes current filters) ──
@@ -3035,16 +2879,30 @@ function renderFrame(): void {
     time: t,
     zoomLevel,
   });
-  drawPointLayers(pointCtx, pts, () => {
-    eventLayer.draw({
-      context: ctx,
-      color: colorMap.events ?? colors.accent,
-      selectedId: selId,
-      time: t,
-      now: wallTime,
-      zoomLevel,
-    });
-  });
+  drawPointLayers(
+    pointCtx,
+    pts,
+    () => {
+      eventLayer.draw({
+        context: ctx,
+        color: colorMap.events ?? colors.accent,
+        selectedId: selId,
+        time: t,
+        now: wallTime,
+        zoomLevel,
+      });
+    },
+    () => {
+      earthquakeLayer.draw({
+        context: ctx,
+        color: colorMap.quakes ?? colors.accent,
+        selectedId: selId,
+        time: t,
+        now: wallTime,
+        zoomLevel,
+      });
+    },
+  );
   ctx.globalAlpha = 1;
 
   // ── Restore clip and draw rim/border ──────────────────────────

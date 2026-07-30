@@ -12,7 +12,7 @@ import type {
   SceneHit,
   SceneProjection,
 } from "@/workers/render/scene/projectedLayer";
-import type { SceneSourceCommand } from "@/workers/render/sceneProtocol";
+import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
 import { Domain } from "@shared/domain/identity";
 import { sceneRebaseCommand } from "../_support/scene";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
@@ -30,7 +30,7 @@ class ProbeLayer implements RenderLayer {
     this.order = order;
   }
 
-  apply(_patch: SceneSourceCommand): void {
+  apply(_command: SceneLayerCommand): void {
     this.applied += 1;
   }
 

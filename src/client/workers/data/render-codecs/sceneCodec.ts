@@ -7,6 +7,7 @@ import type { RenderSourceId } from "@/workers/data/sourceIds";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
+  type SceneSourceSearch,
 } from "@/workers/render/sceneProtocol";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
@@ -93,8 +94,10 @@ function validateAttributeStride(value: number): void {
 export class ScenePatchCodec<TEntity extends DatasetEntity> {
   private readonly dictionary = new Map<string, number>();
   private readonly dictionaryValues: string[] = [];
+  private readonly entityIdBySceneId = new Map<string, string>();
   private readonly handleAllocator = new SceneHandleAllocator();
   private readonly options: ScenePatchCodecOptions<TEntity>;
+  private readonly sceneIdsByEntityId = new Map<string, Set<string>>();
   private readonly stringAttributeStride: number;
 
   constructor(options: ScenePatchCodecOptions<TEntity>) {
@@ -131,6 +134,27 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
     };
   }
 
+  encodeSearch(
+    entityIds: readonly string[],
+    searchRevision: number,
+    active: boolean,
+  ): SceneSourceSearch {
+    const handles = new Set<number>();
+    for (const entityId of entityIds) {
+      for (const sceneId of this.sceneIdsByEntityId.get(entityId) ?? []) {
+        const handle = this.handleAllocator.handleForSceneId(sceneId);
+        if (handle !== null) handles.add(handle);
+      }
+    }
+    return {
+      type: SceneDataCommandType.SourceSearch,
+      source: this.options.source,
+      searchRevision,
+      active,
+      handles: new Uint32Array(handles),
+    };
+  }
+
   private allocate(count: number): ScenePatchAllocation {
     return {
       handles: new Uint32Array(count),
@@ -162,6 +186,7 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
     allocation.handles[index] = this.handleAllocator.acquire(sceneId);
     allocation.sceneIds[index] = sceneId;
     allocation.entityIds[index] = entityId;
+    this.registerIdentity(sceneId, entityId);
     this.writePosition(allocation, index, longitude, latitude);
     allocation.timestamps[index] = timestamp;
     this.options.writeAttributes(
@@ -222,11 +247,33 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
     return index;
   }
 
-  private release(sceneIds: readonly string[]): Uint32Array<ArrayBuffer> {
+  private registerIdentity(sceneId: string, entityId: string): void {
+    const previousEntityId = this.entityIdBySceneId.get(sceneId);
+    if (previousEntityId && previousEntityId !== entityId) {
+      const previousSceneIds =
+        this.sceneIdsByEntityId.get(previousEntityId);
+      previousSceneIds?.delete(sceneId);
+      if (previousSceneIds?.size === 0) {
+        this.sceneIdsByEntityId.delete(previousEntityId);
+      }
+    }
+    this.entityIdBySceneId.set(sceneId, entityId);
+    const sceneIds = this.sceneIdsByEntityId.get(entityId) ?? new Set();
+    sceneIds.add(sceneId);
+    this.sceneIdsByEntityId.set(entityId, sceneIds);
+  }
+
+  private release(entityIds: readonly string[]): Uint32Array<ArrayBuffer> {
     const released: number[] = [];
-    for (const sceneId of sceneIds) {
-      const handle = this.handleAllocator.release(sceneId);
-      if (handle !== null) released.push(handle);
+    for (const entityId of entityIds) {
+      const sceneIds = this.sceneIdsByEntityId.get(entityId);
+      if (!sceneIds) continue;
+      for (const sceneId of sceneIds) {
+        const handle = this.handleAllocator.release(sceneId);
+        if (handle !== null) released.push(handle);
+        this.entityIdBySceneId.delete(sceneId);
+      }
+      this.sceneIdsByEntityId.delete(entityId);
     }
     return new Uint32Array(released);
   }

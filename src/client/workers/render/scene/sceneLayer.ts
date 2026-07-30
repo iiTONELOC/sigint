@@ -6,7 +6,11 @@ import {
   type SceneProjection,
   type SceneProjectionFrame,
 } from "@/workers/render/scene/projectedLayer";
-import type { SceneSourceCommand } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+  type SceneLayerCommand,
+  type SceneSearchCommand,
+} from "@/workers/render/sceneProtocol";
 import {
   SceneStore,
   type RenderSceneView,
@@ -33,7 +37,7 @@ export type SceneLayerStyle = Readonly<{ context: Ctx }>;
 export interface RenderLayer {
   readonly order: RenderLayerOrder;
   readonly source: RenderSourceId;
-  apply(patch: SceneSourceCommand): void;
+  apply(command: SceneLayerCommand): void;
   hasTimeAnimation(reducedMotion: boolean): boolean;
   nearest(
     x: number,
@@ -55,14 +59,20 @@ export abstract class ScenePointLayer<
   protected readonly projection = new ProjectedSceneLayer();
   protected view: RenderSceneView | null = null;
   private readonly store: SceneStore;
+  private searchHandles: ReadonlySet<number> | null = null;
+  private searchRevision = 0;
 
   protected constructor(source: RenderSourceId) {
     this.source = source;
     this.store = new SceneStore(source);
   }
 
-  apply(patch: SceneSourceCommand): void {
-    this.store.apply(patch);
+  apply(command: SceneLayerCommand): void {
+    if (command.type === SceneDataCommandType.SourcePatch) {
+      this.store.apply(command);
+      return;
+    }
+    this.applySearch(command);
   }
 
   project(
@@ -73,7 +83,9 @@ export abstract class ScenePointLayer<
     this.view = view;
     this.projection.project(view, {
       ...frame,
-      includes: (index) => this.includes(view, index, filter),
+      includes: (index) =>
+        this.searchIncludes(index) &&
+        this.includes(view, index, filter),
     });
   }
 
@@ -92,6 +104,7 @@ export abstract class ScenePointLayer<
     const handle = this.store.handlesForEntityId(entityId)[0] ?? null;
     return (
       handle !== null &&
+      this.searchIncludes(handle - 1) &&
       this.includes(view, handle - 1, filter)
     );
   }
@@ -140,4 +153,19 @@ export abstract class ScenePointLayer<
     index: number,
     style: TStyle,
   ): void;
+
+  private applySearch(command: SceneSearchCommand): void {
+    if (command.searchRevision < this.searchRevision) return;
+    this.searchRevision = command.searchRevision;
+    this.searchHandles = command.active
+      ? new Set(command.handles)
+      : null;
+  }
+
+  private searchIncludes(index: number): boolean {
+    return (
+      this.searchHandles === null ||
+      this.searchHandles.has(index + 1)
+    );
+  }
 }

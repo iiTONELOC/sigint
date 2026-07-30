@@ -77,4 +77,26 @@ describe("scene data protocol", () => {
       }),
     ).toBeNull();
   });
+
+  test("accepts unique source search handles", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SourceSearch,
+        source: Domain.Earthquake,
+        searchRevision: 1,
+        active: true,
+        handles: new Uint32Array([1, 3]),
+      },
+      "session-1",
+      2,
+    );
+
+    expect(parseSceneDataCommand(command)).toEqual(command);
+    expect(
+      parseSceneDataCommand({
+        ...command,
+        handles: new Uint32Array([1, 1]),
+      }),
+    ).toBeNull();
+  });
 });

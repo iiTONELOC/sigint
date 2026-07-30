@@ -25,44 +25,6 @@ describe("render data channel", () => {
     expect(parseRenderDataCommand(command)).toEqual(command);
   });
 
-  test("validates a complete packed earthquake rebase", () => {
-    const command = createRenderDataCommand(
-      {
-        type: RenderDataCommandType.EarthquakeRebase,
-        ids: ["Qone", "Qtwo"],
-        positions: new Float64Array([-122, 47, 10, -20]),
-        unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
-        magnitudes: new Float32Array([2.5, 5]),
-        timestamps: new Float64Array([1_000, 2_000]),
-      },
-      "session-a",
-      2,
-    );
-
-    expect(parseRenderDataCommand(command)).toEqual(command);
-    expect(
-      parseRenderDataCommand({
-        ...command,
-        positions: new Float64Array([-122, 47]),
-      }),
-    ).toBeNull();
-  });
-
-  test("validates a worker-owned earthquake search filter", () => {
-    const command = createRenderDataCommand(
-      {
-        type: RenderDataCommandType.EarthquakeSearch,
-        matchingIds: ["Qone", "Qtwo"],
-      },
-      "session-a",
-      3,
-    );
-    expect(parseRenderDataCommand(command)).toEqual(command);
-    expect(
-      parseRenderDataCommand({ ...command, matchingIds: ["Qone", 2] }),
-    ).toBeNull();
-  });
-
   test("validates a complete packed fire rebase", () => {
     const command = createRenderDataCommand(
       {

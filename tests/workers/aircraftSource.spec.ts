@@ -3,7 +3,10 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { SquawkStatus } from "@shared/domain/aircraft";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
-import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+  type SceneSourcePatch,
+} from "@/workers/render/sceneProtocol";
 import {
   AircraftSceneBinding,
   AircraftSource,
@@ -31,8 +34,10 @@ function aircraft(heading: number): AircraftPoint {
 describe("AircraftSource", () => {
   test("publishes a typed rebase and omits an unchanged refresh", async () => {
     const scenePatches: SceneSourcePatch[] = [];
-    const binding = new AircraftSceneBinding((patch) => {
-      scenePatches.push(patch);
+    const binding = new AircraftSceneBinding((command) => {
+      if (command.type === SceneDataCommandType.SourcePatch) {
+        scenePatches.push(command);
+      }
     });
     const source = new AircraftSource({
       fetchSnapshot: async () => ({

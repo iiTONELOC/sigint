@@ -4,9 +4,6 @@ import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
 export { SourceCompletenessPolicy };
 import {
-  EARTHQUAKE_SOURCE_POLICY,
-} from "@/features/environmental/earthquake/data/source";
-import {
   FIRE_SOURCE_POLICY,
 } from "@/features/environmental/fires/data/source";
 import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
@@ -82,7 +79,7 @@ const POINT_SOURCE_POLICIES: Readonly<
   [Domain.Earthquake]: {
     pointType: Domain.Quakes,
     cacheKey: CACHE_KEYS.earthquake,
-    pollIntervalMs: EARTHQUAKE_SOURCE_POLICY.pollIntervalMs,
+    pollIntervalMs: POLL_INTERVALS.earthquakes,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },

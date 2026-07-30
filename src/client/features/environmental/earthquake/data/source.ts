@@ -1,47 +1,48 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import type { EarthquakeData } from "@/features/environmental/earthquake/types";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { createGeoPoint, isRecord } from "@shared/geo";
+import { MS_PER_MINUTE } from "@shared/time";
 
 export type EarthquakePoint = Extract<DataPoint, { type: Domain.Quakes }>;
 
-export type EarthquakeSourcePolicy = Readonly<{
-  id: Domain.Earthquake;
-  cacheKey: string;
+export type EarthquakeFeedPolicy = Readonly<{
   feedUrl: string;
-  pollIntervalMs: number;
   retryIntervalMs: number;
-  freshDurationMs: number;
   requestTimeoutMs: number;
-  identityRule: "usgs_feature_id";
-  observationTimestampRule: "usgs_origin_time";
-  completenessRule: "successful_feed_replaces_source";
-  deletionRule: "absent_from_complete_feed";
 }>;
 
-const MINUTE_MS = 60_000;
-
-export const EARTHQUAKE_SOURCE_POLICY: EarthquakeSourcePolicy = {
-  id: Domain.Earthquake,
-  cacheKey: CACHE_KEYS.earthquake,
+export const EARTHQUAKE_FEED_POLICY: EarthquakeFeedPolicy = {
   feedUrl:
     "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson",
-  pollIntervalMs: POLL_INTERVALS.earthquakes,
-  retryIntervalMs: MINUTE_MS,
-  freshDurationMs: 30 * MINUTE_MS,
+  retryIntervalMs: MS_PER_MINUTE,
   requestTimeoutMs: 20_000,
-  identityRule: "usgs_feature_id",
-  observationTimestampRule: "usgs_origin_time",
-  completenessRule: "successful_feed_replaces_source",
-  deletionRule: "absent_from_complete_feed",
 };
 
 type EarthquakeFetch = (
   input: string,
   init: RequestInit,
 ) => Promise<Response>;
+
+export enum EarthquakeFeedErrorKind {
+  InvalidResponse = "The USGS response format is invalid",
+  RequestRejected = "The USGS endpoint rejected the request",
+}
+
+export class EarthquakeFeedError extends Error {
+  readonly httpStatus: number | null;
+  readonly kind: EarthquakeFeedErrorKind;
+
+  constructor(
+    kind: EarthquakeFeedErrorKind,
+    httpStatus: number | null = null,
+  ) {
+    super(kind);
+    this.name = EarthquakeFeedError.name;
+    this.kind = kind;
+    this.httpStatus = httpStatus;
+  }
+}
 
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -142,7 +143,9 @@ function parseFeedFeature(value: unknown): EarthquakePoint | null {
 
 export function parseEarthquakeFeed(value: unknown): EarthquakePoint[] {
   if (!isRecord(value) || !Array.isArray(value.features)) {
-    throw new Error("Invalid USGS response format");
+    throw new EarthquakeFeedError(
+      EarthquakeFeedErrorKind.InvalidResponse,
+    );
   }
   const points: EarthquakePoint[] = [];
   for (const feature of value.features) {
@@ -158,15 +161,18 @@ export async function fetchEarthquakes(
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
-    EARTHQUAKE_SOURCE_POLICY.requestTimeoutMs,
+    EARTHQUAKE_FEED_POLICY.requestTimeoutMs,
   );
   try {
     const response = await fetchImpl(
-      EARTHQUAKE_SOURCE_POLICY.feedUrl,
+      EARTHQUAKE_FEED_POLICY.feedUrl,
       { signal: controller.signal },
     );
     if (!response.ok) {
-      throw new Error(`USGS API error: ${response.status}`);
+      throw new EarthquakeFeedError(
+        EarthquakeFeedErrorKind.RequestRejected,
+        response.status,
+      );
     }
     const payload: unknown = await response.json();
     return parseEarthquakeFeed(payload);

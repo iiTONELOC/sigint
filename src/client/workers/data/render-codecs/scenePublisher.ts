@@ -4,7 +4,7 @@ import {
   sceneDataTransfers,
   type SceneDataCommand,
   type SceneDataCommandBody,
-  type SceneSourcePatch,
+  type SceneSourceCommandBody,
 } from "@/workers/render/sceneProtocol";
 
 export type SceneMessagePort = Readonly<{
@@ -26,9 +26,9 @@ export class ScenePublisher {
     this.post({ type: SceneDataCommandType.Bind });
   }
 
-  publish(patch: SceneSourcePatch): boolean {
+  publish(command: SceneSourceCommandBody): boolean {
     if (!this.port || !this.sessionId) return false;
-    this.post(patch);
+    this.post(command);
     return true;
   }
 

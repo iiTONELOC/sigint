@@ -2,8 +2,8 @@ import { Domain } from "@shared/domain/identity";
 import type { DataType } from "@/features/base/dataPoints";
 
 /**
- * Point types the render worker gets straight from the DataWorker: aircraft
- * and ships as typed scene patches, quakes and fires as packed buffers. The
+ * Point types the render worker gets straight from the DataWorker. Aircraft,
+ * ships, and quakes use scene patches. Fires still use packed buffers. The
  * React bridge must not send them, and the worker ignores them if it does.
  *
  * One owner for both ends. A type joins this set the moment its worker source

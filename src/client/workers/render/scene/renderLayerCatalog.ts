@@ -6,7 +6,7 @@ import type {
 import type {
   RenderLayer,
 } from "@/workers/render/scene/sceneLayer";
-import type { SceneSourceCommand } from "@/workers/render/sceneProtocol";
+import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
 
 export enum RenderLayerCatalogErrorKind {
   DuplicateSource = "The render layer source is already registered",
@@ -49,10 +49,10 @@ export class RenderLayerCatalog {
     );
   }
 
-  apply(patch: SceneSourceCommand): boolean {
-    const layer = this.bySource.get(patch.source);
+  apply(command: SceneLayerCommand): boolean {
+    const layer = this.bySource.get(command.source);
     if (!layer) return false;
-    layer.apply(patch);
+    layer.apply(command);
     return true;
   }
 

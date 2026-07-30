@@ -3,15 +3,13 @@ import { Domain } from "@shared/domain/identity";
 import { isRecord, parseGeoPoint } from "@shared/geo";
 
 export enum RenderDataProtocolVersion {
-  Current = 5,
+  Current = 6,
 }
 
 export enum RenderDataCommandType {
   Bind = "bind",
-  EarthquakeSearch = "earthquakeSearch",
   FireSearch = "fireSearch",
   PointsRebase = "pointsRebase",
-  EarthquakeRebase = "earthquakeRebase",
   FireRebase = "fireRebase",
 }
 
@@ -36,14 +34,6 @@ type RenderDataEnvelope = Readonly<{
   sequence: number;
 }>;
 
-export type PackedEarthquakeRenderData = Readonly<{
-  ids: readonly string[];
-  positions: Float64Array;
-  unitVectors: Float32Array;
-  magnitudes: Float32Array;
-  timestamps: Float64Array;
-}>;
-
 export type PackedFireRenderData = Readonly<{
   ids: readonly string[];
   positions: Float64Array;
@@ -56,9 +46,7 @@ export type PackedFireRenderData = Readonly<{
 export type RenderDataCommandBody =
   | Readonly<{ type: RenderDataCommandType.Bind }>
   | Readonly<{
-      type:
-        | RenderDataCommandType.EarthquakeSearch
-        | RenderDataCommandType.FireSearch;
+      type: RenderDataCommandType.FireSearch;
       matchingIds: readonly string[] | null;
     }>
   | Readonly<{
@@ -66,8 +54,6 @@ export type RenderDataCommandBody =
       source: LegacyPointSourceId;
       points: readonly DataPoint[];
     }>
-  | (Readonly<{ type: RenderDataCommandType.EarthquakeRebase }> &
-      PackedEarthquakeRenderData)
   | (Readonly<{ type: RenderDataCommandType.FireRebase }> &
       PackedFireRenderData);
 
@@ -157,9 +143,7 @@ function lanesMatch(
 
 function parseSearch(
   envelope: RenderDataEnvelope,
-  type:
-    | RenderDataCommandType.EarthquakeSearch
-    | RenderDataCommandType.FireSearch,
+  type: RenderDataCommandType.FireSearch,
   value: Readonly<Record<string, unknown>>,
 ): RenderDataCommand | null {
   if (value.matchingIds === null) {
@@ -167,38 +151,6 @@ function parseSearch(
   }
   const matchingIds = parseIds(value.matchingIds);
   return matchingIds ? { ...envelope, type, matchingIds } : null;
-}
-
-function parseEarthquakeRebase(
-  envelope: RenderDataEnvelope,
-  value: Readonly<Record<string, unknown>>,
-): RenderDataCommand | null {
-  const { positions, unitVectors, magnitudes, timestamps } = value;
-  const ids = parseIds(value.ids);
-  if (
-    !ids ||
-    !(positions instanceof Float64Array) ||
-    !(unitVectors instanceof Float32Array) ||
-    !(magnitudes instanceof Float32Array) ||
-    !(timestamps instanceof Float64Array) ||
-    !lanesMatch(ids.length, [
-      [positions, RenderDataLaneComponentCount.Position],
-      [unitVectors, RenderDataLaneComponentCount.UnitVector],
-      [magnitudes, RenderDataLaneComponentCount.Scalar],
-      [timestamps, RenderDataLaneComponentCount.Scalar],
-    ])
-  ) {
-    return null;
-  }
-  return {
-    ...envelope,
-    type: RenderDataCommandType.EarthquakeRebase,
-    ids,
-    positions,
-    unitVectors,
-    magnitudes,
-    timestamps,
-  };
 }
 
 function parseFireRebase(
@@ -307,13 +259,10 @@ export function parseRenderDataCommand(
   switch (value.type) {
     case RenderDataCommandType.Bind:
       return { ...envelope, type: RenderDataCommandType.Bind };
-    case RenderDataCommandType.EarthquakeSearch:
     case RenderDataCommandType.FireSearch:
       return parseSearch(envelope, value.type, value);
     case RenderDataCommandType.PointsRebase:
       return parsePointsRebase(envelope, value);
-    case RenderDataCommandType.EarthquakeRebase:
-      return parseEarthquakeRebase(envelope, value);
     case RenderDataCommandType.FireRebase:
       return parseFireRebase(envelope, value);
     default:

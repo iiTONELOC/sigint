@@ -3,6 +3,7 @@ import type { RenderSourceId } from "@/workers/data/sourceIds";
 import {
   SceneDataCommandType,
   SceneDataProtocolVersion,
+  type SceneSearchCommand,
   type SceneSourceCommand,
 } from "@/workers/render/sceneProtocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
@@ -39,5 +40,23 @@ export function sceneRebaseCommand(
     dictionaryStart: 0,
     dictionaryValues: view.dictionary,
     deletedHandles: new Uint32Array(),
+  };
+}
+
+export function sceneSearchCommand(
+  source: RenderSourceId,
+  handles: readonly number[],
+  searchRevision: number,
+  active = true,
+): SceneSearchCommand {
+  return {
+    type: SceneDataCommandType.SourceSearch,
+    protocolVersion: SceneDataProtocolVersion.Current,
+    sessionId: "scene-layer-test",
+    sequence: 2,
+    source,
+    searchRevision,
+    active,
+    handles: new Uint32Array(handles),
   };
 }

@@ -10,7 +10,7 @@ import {
 import { Domain } from "@shared/domain/identity";
 import {
   SceneBinding,
-  type ScenePatchPublisher,
+  type SceneCommandPublisher,
 } from "./sceneBinding";
 import { ScenePatchCodec } from "./sceneCodec";
 
@@ -27,7 +27,7 @@ function eventTimestamp(point: EventPoint): number {
 }
 
 export class EventSceneBinding extends SceneBinding<EventPoint> {
-  constructor(publishScene: ScenePatchPublisher) {
+  constructor(publishScene: SceneCommandPublisher) {
     super(
       new ScenePatchCodec<EventPoint>({
         source: Domain.Events,

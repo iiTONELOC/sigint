@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+  type SceneSourcePatch,
+} from "@/workers/render/sceneProtocol";
 import {
   ShipSceneBinding,
   ShipSource,
@@ -26,8 +29,10 @@ function ship(heading: number): ShipPoint {
 describe("ShipSource", () => {
   test("publishes a typed rebase and omits an unchanged refresh", async () => {
     const patches: SceneSourcePatch[] = [];
-    const binding = new ShipSceneBinding((patch) => {
-      patches.push(patch);
+    const binding = new ShipSceneBinding((command) => {
+      if (command.type === SceneDataCommandType.SourcePatch) {
+        patches.push(command);
+      }
     });
     const source = new ShipSource({
       fetchSnapshot: async () => ({

@@ -8,10 +8,12 @@ import {
   createPointSourceRuntime,
   type PointSourceFetchSnapshot,
   type PointSourceRuntime,
+  type PointSourceSchedule,
 } from "@/workers/data/sourceRuntime";
 import type { PointUiQueries, TimestampedPoint } from "@/workers/data/uiQuery";
 import type { PointType } from "@shared/domain/pointType";
 import type { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
+import type { SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
 import type { CacheKey } from "@/lib/cache/cacheKeys";
 
@@ -40,6 +42,7 @@ export type SourcePolicy = Readonly<{
   id: SourceId;
   cacheKey: CacheKey;
   pollIntervalMs: number;
+  retryIntervalMs?: number;
   completeness: SourceCompletenessPolicy;
   emptyResultIsComplete: boolean;
 }>;
@@ -66,6 +69,11 @@ export type SourcePatchObserver<TEntity extends SourceRecord> = Readonly<{
   observe: (patch: DatasetPatch<TEntity>) => void;
 }>;
 
+export type DataSourceRuntimeOptions = Readonly<{
+  failureStatus?: (error: unknown) => SourceStatus;
+  schedule?: PointSourceSchedule;
+}>;
+
 export abstract class DataSource<TEntity extends SourceRecord> {
   abstract readonly kind: SourceDomainKind;
   abstract readonly policy: SourcePolicy;
@@ -79,12 +87,15 @@ export abstract class DataSource<TEntity extends SourceRecord> {
 
   protected attachedHost: SourceHost<TEntity> | null = null;
   private readonly patchObservers: readonly SourcePatchObserver<TEntity>[];
+  private readonly runtimeOptions: DataSourceRuntimeOptions;
   private runtime: PointSourceRuntime<TEntity> | null = null;
 
   constructor(
     patchObservers: readonly SourcePatchObserver<TEntity>[] = [],
+    runtimeOptions: DataSourceRuntimeOptions = {},
   ) {
     this.patchObservers = patchObservers;
+    this.runtimeOptions = runtimeOptions;
   }
 
   attach(host: SourceHost<TEntity>): void {
@@ -93,6 +104,9 @@ export abstract class DataSource<TEntity extends SourceRecord> {
       id: this.policy.id,
       cacheKey: this.policy.cacheKey,
       pollIntervalMs: this.policy.pollIntervalMs,
+      ...(this.policy.retryIntervalMs === undefined
+        ? {}
+        : { retryIntervalMs: this.policy.retryIntervalMs }),
       maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
       hasChanged: (previous, next) => this.hasChanged(previous, next),
       readCache: () => host.readCache(this.policy.cacheKey),
@@ -108,6 +122,12 @@ export abstract class DataSource<TEntity extends SourceRecord> {
         }
         host.publishPatch(patch);
       },
+      ...(this.runtimeOptions.failureStatus
+        ? { failureStatus: this.runtimeOptions.failureStatus }
+        : {}),
+      ...(this.runtimeOptions.schedule
+        ? { schedule: this.runtimeOptions.schedule }
+        : {}),
     });
   }
 

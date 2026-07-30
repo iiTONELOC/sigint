@@ -35,8 +35,15 @@ describe("scene publisher", () => {
       dictionaryValues: [],
       deletedHandles: new Uint32Array(),
     });
+    publisher.publish({
+      type: SceneDataCommandType.SourceSearch,
+      source: Domain.Aircraft,
+      searchRevision: 1,
+      active: true,
+      handles: new Uint32Array([1]),
+    });
 
-    expect(messages).toHaveLength(2);
+    expect(messages).toHaveLength(3);
     expect(messages[0]).toMatchObject({
       type: SceneDataCommandType.Bind,
       sequence: 1,
@@ -49,5 +56,12 @@ describe("scene publisher", () => {
       sessionId: "session-a",
     });
     expect(transfers[1]).toHaveLength(7);
+    expect(messages[2]).toMatchObject({
+      type: SceneDataCommandType.SourceSearch,
+      source: Domain.Aircraft,
+      sequence: 3,
+      sessionId: "session-a",
+    });
+    expect(transfers[2]).toHaveLength(1);
   });
 });

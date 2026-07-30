@@ -8,7 +8,10 @@ import {
   eventWindowDurationMs,
 } from "@/workers/data/sources/events";
 import { EventSceneAttribute } from "@/workers/render/scene/eventSchema";
-import type { SceneSourcePatch } from "@/workers/render/sceneProtocol";
+import {
+  SceneDataCommandType,
+  type SceneSourcePatch,
+} from "@/workers/render/sceneProtocol";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { TestInstant } from "../_support";
@@ -35,8 +38,10 @@ describe("event scene source", () => {
       event("event-a", observedAt, EventSeverity.Concern),
     ];
     const scenePatches: SceneSourcePatch[] = [];
-    const binding = new EventSceneBinding((patch) => {
-      scenePatches.push(patch);
+    const binding = new EventSceneBinding((command) => {
+      if (command.type === SceneDataCommandType.SourcePatch) {
+        scenePatches.push(command);
+      }
     });
     const source = new EventSource({
       fetchSnapshot: async () => ({

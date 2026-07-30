@@ -21,6 +21,10 @@ export class SceneHandleAllocator {
   private readonly reusableHandles: number[] = [];
   private nextHandle = 1;
 
+  handleForSceneId(sceneId: string): number | null {
+    return this.handlesBySceneId.get(sceneId) ?? null;
+  }
+
   acquire(sceneId: string): number {
     const current = this.handlesBySceneId.get(sceneId);
     if (current !== undefined) return current;

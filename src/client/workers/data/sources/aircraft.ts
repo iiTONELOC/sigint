@@ -11,7 +11,7 @@ import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries
 import type { AircraftData } from "@/features/tracking/aircraft/types";
 import {
   SceneBinding,
-  type ScenePatchPublisher,
+  type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
 import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
 import {
@@ -163,7 +163,7 @@ export class AircraftSource extends GeoDataSource<AircraftPoint> {
 }
 
 export class AircraftSceneBinding extends SceneBinding<AircraftPoint> {
-  constructor(publishScene: ScenePatchPublisher) {
+  constructor(publishScene: SceneCommandPublisher) {
     super(
       new ScenePatchCodec<AircraftPoint>({
         source: Domain.Aircraft,

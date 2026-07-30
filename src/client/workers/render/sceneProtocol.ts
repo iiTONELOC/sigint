@@ -6,12 +6,13 @@ import {
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 
 export enum SceneDataProtocolVersion {
-  Current = 1,
+  Current = 2,
 }
 
 export enum SceneDataCommandType {
   Bind = "bind",
   SourcePatch = "sourcePatch",
+  SourceSearch = "sourceSearch",
 }
 
 type TransferUint32Array = Uint32Array<ArrayBuffer>;
@@ -42,9 +43,21 @@ export type SceneSourcePatch = Readonly<{
 }> &
   ScenePatchBuffers;
 
+export type SceneSourceSearch = Readonly<{
+  type: SceneDataCommandType.SourceSearch;
+  source: RenderSourceId;
+  searchRevision: number;
+  active: boolean;
+  handles: TransferUint32Array;
+}>;
+
+export type SceneSourceCommandBody =
+  | SceneSourcePatch
+  | SceneSourceSearch;
+
 export type SceneDataCommandBody =
   | Readonly<{ type: SceneDataCommandType.Bind }>
-  | SceneSourcePatch;
+  | SceneSourceCommandBody;
 
 export type SceneDataEnvelope = Readonly<{
   protocolVersion: SceneDataProtocolVersion;
@@ -54,9 +67,15 @@ export type SceneDataEnvelope = Readonly<{
 
 export type SceneSourceCommand = SceneSourcePatch & SceneDataEnvelope;
 
+export type SceneSearchCommand = SceneSourceSearch & SceneDataEnvelope;
+
+export type SceneLayerCommand =
+  | SceneSourceCommand
+  | SceneSearchCommand;
+
 export type SceneDataCommand =
   | (Readonly<{ type: SceneDataCommandType.Bind }> & SceneDataEnvelope)
-  | SceneSourceCommand;
+  | SceneLayerCommand;
 
 export class SceneDataProtocolState {
   readonly sessionId: string;
@@ -207,6 +226,25 @@ export function parseSceneDataCommand(
   }
 
   if (
+    value.type === SceneDataCommandType.SourceSearch &&
+    isRenderSourceId(value.source) &&
+    isPositiveSequence(value.searchRevision) &&
+    typeof value.active === "boolean" &&
+    isTransferUint32Array(value.handles) &&
+    value.handles.every((handle) => handle > 0) &&
+    new Set(value.handles).size === value.handles.length
+  ) {
+    return {
+      ...envelope,
+      type: SceneDataCommandType.SourceSearch,
+      source: value.source,
+      searchRevision: value.searchRevision,
+      active: value.active,
+      handles: value.handles,
+    };
+  }
+
+  if (
     value.type !== SceneDataCommandType.SourcePatch ||
     !isRenderSourceId(value.source) ||
     !isNonNegativeInteger(value.sourceVersion) ||
@@ -245,6 +283,9 @@ export function sceneDataTransfers(
   command: SceneDataCommand,
 ): readonly Transferable[] {
   if (command.type === SceneDataCommandType.Bind) return [];
+  if (command.type === SceneDataCommandType.SourceSearch) {
+    return [command.handles.buffer];
+  }
   return [
     command.handles.buffer,
     command.positions.buffer,
