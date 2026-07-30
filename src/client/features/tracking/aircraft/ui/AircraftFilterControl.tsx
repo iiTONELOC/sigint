@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import { createPortal } from "react-dom";
 import { Plane } from "lucide-react";
 import { type AircraftFilter } from "../types";
@@ -70,7 +71,7 @@ export function AircraftFilterControl({
     };
   }, [open]);
 
-  const toggleSquawk = (code: "7700" | "7600" | "7500" | "other") => {
+  const toggleSquawk = (code: SquawkBucket) => {
     setAircraftFilter((f) => {
       const next = new Set(f.squawks);
       if (next.has(code)) next.delete(code);
@@ -188,25 +189,25 @@ export function AircraftFilterControl({
                     // JIT generates them.
                     [
                       "ALL",
-                      "all",
+                      MilFilter.All,
                       "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
                       "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
                     ],
                     [
                       "MIL",
-                      "military",
+                      MilFilter.Military,
                       "bg-sig-bright/15 border-sig-bright text-sig-bright",
                       "bg-sig-panel/30 border-sig-bright/40 text-sig-bright",
                     ],
                     [
                       "CIV",
-                      "civilian",
+                      MilFilter.Civilian,
                       "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
                       "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
                     ],
                     [
                       "HUNTER",
-                      "recon",
+                      MilFilter.Recon,
                       "bg-sig-recon/15 border-sig-recon text-sig-recon",
                       "bg-sig-panel/30 border-sig-recon/40 text-sig-recon",
                     ],
@@ -237,13 +238,13 @@ export function AircraftFilterControl({
               <div className="flex gap-1 flex-wrap">
                 {(
                   [
-                    ["7700", "EMRG", colors.danger],
-                    ["7600", "RDOF", "#ff8800"],
-                    ["7500", "HJCK", "#cc44ff"],
-                    ["other", "NRML", colors.dim],
+                    [SquawkBucket.Emergency, "EMRG", colors.danger],
+                    [SquawkBucket.RadioFailure, "RDOF", "#ff8800"],
+                    [SquawkBucket.Hijack, "HJCK", "#cc44ff"],
+                    [SquawkBucket.Other, "NRML", colors.dim],
                   ] as const
                 ).map(([code, label, clr]) => {
-                  const on = aircraftFilter.squawks.has(code as any);
+                  const on = aircraftFilter.squawks.has(code);
                   return (
                     <button
                       key={code}

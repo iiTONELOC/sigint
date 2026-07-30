@@ -6,7 +6,10 @@
 // same fires). Parsed into structured records, cached in memory, served via
 // /api/fires/latest.
 
-import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
+import {
+  fetchWithTimeout,
+  FETCH_TIMEOUT_LARGE_MS,
+} from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
@@ -17,9 +20,18 @@ const logger = createLogger({ service: "firms" });
 const FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov";
 // Failover priority order — first feed that returns data wins.
 const FIRMS_BULK_FEEDS = [
-  { label: "NOAA-20", url: `${FIRMS_BASE}/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv` },
-  { label: "S-NPP", url: `${FIRMS_BASE}/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv` },
-  { label: "NOAA-21", url: `${FIRMS_BASE}/data/active_fire/noaa-21-viirs-c2/csv/J2_VIIRS_C2_Global_24h.csv` },
+  {
+    label: "NOAA-20",
+    url: `${FIRMS_BASE}/data/active_fire/noaa-20-viirs-c2/csv/J1_VIIRS_C2_Global_24h.csv`,
+  },
+  {
+    label: "S-NPP",
+    url: `${FIRMS_BASE}/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv`,
+  },
+  {
+    label: "NOAA-21",
+    url: `${FIRMS_BASE}/data/active_fire/noaa-21-viirs-c2/csv/J2_VIIRS_C2_Global_24h.csv`,
+  },
 ] as const;
 const POLL_INTERVAL_MS = 30 * 60_000; // 30 min
 
@@ -46,7 +58,7 @@ type FireRecord = {
   complexFrp?: number;
 };
 
-// ~2 km cells, 8-neighbour connectivity — groups adjacent VIIRS pixels into one
+// ~2 km cells, 8-neighbor connectivity — groups adjacent VIIRS pixels into one
 // "fire complex" so a smear of dots reads as a countable thing.
 const COMPLEX_CELL_DEG = 0.02;
 
@@ -66,7 +78,6 @@ let cache: FirmsCache = {
   error: null,
 };
 
-
 // ── CSV parsing ──────────────────────────────────────────────────────
 
 export function parseFirmsCsv(csv: string): FireRecord[] {
@@ -82,7 +93,8 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
   if (iLat < 0 || iLon < 0) return [];
 
   // VIIRS uses bright_ti4/bright_ti5; MODIS (and the old CSV) brightness/bright_t31.
-  const iBright = idx("bright_ti4") >= 0 ? idx("bright_ti4") : idx("brightness");
+  const iBright =
+    idx("bright_ti4") >= 0 ? idx("bright_ti4") : idx("brightness");
   const iScan = idx("scan");
   const iTrack = idx("track");
   const iAcqDate = idx("acq_date");
@@ -142,7 +154,10 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
 // Fetch + parse one feed. Returns parsed records, or null on any failure so the
 // failover can move to the next feed. A non-CSV body (error/maintenance page)
 // has no header row — guard on that.
-async function fetchOneSource(url: string, label: string): Promise<FireRecord[] | null> {
+async function fetchOneSource(
+  url: string,
+  label: string,
+): Promise<FireRecord[] | null> {
   try {
     const res = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS);
     if (!res.ok) {
@@ -151,12 +166,16 @@ async function fetchOneSource(url: string, label: string): Promise<FireRecord[] 
     }
     const body = await res.text();
     if (!body.toLowerCase().includes("latitude")) {
-      logger.warn(`🔥 FIRMS: ${label} non-CSV response — ${body.slice(0, 120)}`);
+      logger.warn(
+        `🔥 FIRMS: ${label} non-CSV response — ${body.slice(0, 120)}`,
+      );
       return null;
     }
     return parseFirmsCsv(body);
   } catch (err) {
-    logger.warn(`🔥 FIRMS: ${label} fetch failed — ${errorMessage(err, "unknown")}`);
+    logger.warn(
+      `🔥 FIRMS: ${label} fetch failed — ${errorMessage(err, "unknown")}`,
+    );
     return null;
   }
 }
@@ -192,12 +211,17 @@ function clusterFires(records: FireRecord[]): void {
     if (ra !== rb) parent.set(ra, rb);
   };
 
-  const neighbours: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  const neighbors: ReadonlyArray<readonly [number, number]> = [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [1, -1],
+  ];
   for (const k of cellFires.keys()) {
     const [cxs, cys] = k.split(":");
     const cx = Number(cxs);
     const cy = Number(cys);
-    for (const [dx, dy] of neighbours) {
+    for (const [dx, dy] of neighbors) {
       const nk = `${cx + dx}:${cy + dy}`;
       if (cellFires.has(nk)) union(k, nk);
     }
@@ -235,7 +259,12 @@ async function fetchFirms(): Promise<void> {
       const rows = await fetchOneSource(feed.url, feed.label);
       if (rows && rows.length > 0) {
         clusterFires(rows);
-        cache = { data: rows, fetchedAt: Date.now(), fireCount: rows.length, error: null };
+        cache = {
+          data: rows,
+          fetchedAt: Date.now(),
+          fireCount: rows.length,
+          error: null,
+        };
         logger.info(`🔥 FIRMS: ${rows.length} hotspots loaded (${feed.label})`);
         return;
       }
@@ -257,7 +286,9 @@ async function fetchFirms(): Promise<void> {
 const poller = createPoller(fetchFirms, POLL_INTERVAL_MS);
 
 export function startFirmsPolling(_apiKey?: string | undefined): void {
-  logger.info(`🔥 FIRMS: starting poll (merging ${FIRMS_BULK_FEEDS.length} VIIRS bulk feeds, last 24h)...`);
+  logger.info(
+    `🔥 FIRMS: starting poll (merging ${FIRMS_BULK_FEEDS.length} VIIRS bulk feeds, last 24h)...`,
+  );
   poller.start();
 }
 

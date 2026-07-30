@@ -1,3 +1,4 @@
+import { Domain } from "@shared/domain/identity";
 // ── NHC CurrentStorms.json parser ────────────────────────────────────
 // Fetches from the same-origin server proxy (/api/cyclones/latest), never
 // from nhc.noaa.gov directly — the NHC endpoint sends no CORS headers.
@@ -5,31 +6,67 @@
 // guard: no client input flows into any outbound URL).
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import type {
-  CycloneData,
-  ForecastPoint,
+import {
+  ACTIVE_BASINS,
+  CycloneBasin,
+  type NhcBasin,
+} from "@shared/cyclonesSeason";
+import {
   Category,
-  GeoJSONPolygon,
-  WindRadii,
-  PastTrackPoint,
-  ModelTrack,
+  HURRICANE_CATEGORY,
+  SaffirSimpson,
+  type CycloneData,
+  type ForecastPoint,
+  type GeoJSONPolygon,
+  type ModelTrack,
+  type PastTrackPoint,
+  type WindRadii,
 } from "../types";
 import { authenticatedFetch } from "@/lib/net/authService";
 import { saffirSimpson, TS_MIN_KT } from "../classification";
 
 const CYCLONES_URL = "/api/cyclones/latest";
+const SUBTROPICAL_PREFIX = "S";
 
-// NHC 5-year average track error radii in nautical miles, by forecast hour.
+enum NhcForecastHour {
+  H12 = 12,
+  H24 = 24,
+  H36 = 36,
+  H48 = 48,
+  H72 = 72,
+  H96 = 96,
+  H120 = 120,
+}
+
 // Source: https://www.nhc.noaa.gov/verification/verify5.shtml
-const TRACK_ERROR_NM: Record<number, number> = {
-  12: 26,
-  24: 41,
-  36: 55,
-  48: 70,
-  72: 100,
-  96: 138,
-  120: 178,
-};
+enum NhcTrackErrorNm {
+  H12 = 26,
+  H24 = 41,
+  H36 = 55,
+  H48 = 70,
+  H72 = 100,
+  H96 = 138,
+  H120 = 178,
+}
+
+const TRACK_ERROR_NM: ReadonlyMap<NhcForecastHour, NhcTrackErrorNm> = new Map([
+  [NhcForecastHour.H12, NhcTrackErrorNm.H12],
+  [NhcForecastHour.H24, NhcTrackErrorNm.H24],
+  [NhcForecastHour.H36, NhcTrackErrorNm.H36],
+  [NhcForecastHour.H48, NhcTrackErrorNm.H48],
+  [NhcForecastHour.H72, NhcTrackErrorNm.H72],
+  [NhcForecastHour.H96, NhcTrackErrorNm.H96],
+  [NhcForecastHour.H120, NhcTrackErrorNm.H120],
+]);
+
+const NO_PUBLISHED_TRACK_ERROR_NM = 0;
+
+function trackErrorNm(fcstHour: number): number {
+  return (
+    TRACK_ERROR_NM.get(fcstHour as NhcForecastHour) ??
+    NO_PUBLISHED_TRACK_ERROR_NM
+  );
+}
 
 type NhcResponse = { activeStorms?: NhcStorm[] };
 
@@ -81,21 +118,38 @@ type NhcForecastPoint = {
 export function classify(
   classification: string,
   maxWindKt: number,
-): { category: Category; saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5 } {
-  if (classification === "PT") return { category: "PT", saffirSimpson: 0 };
-  const sub = classification.startsWith("S");
-  const ss = saffirSimpson(maxWindKt);
-  if (ss > 0) return { category: `HU${ss}` as Category, saffirSimpson: ss };
-  if (maxWindKt >= TS_MIN_KT)
-    return { category: sub ? "STS" : "TS", saffirSimpson: 0 };
-  return { category: sub ? "STD" : "TD", saffirSimpson: 0 };
+): { category: Category; saffirSimpson: SaffirSimpson } {
+  if (classification === Category.PostTropical) {
+    return {
+      category: Category.PostTropical,
+      saffirSimpson: SaffirSimpson.None,
+    };
+  }
+  const subtropical = classification.startsWith(SUBTROPICAL_PREFIX);
+  const scale = saffirSimpson(maxWindKt);
+  if (scale !== SaffirSimpson.None) {
+    return { category: HURRICANE_CATEGORY[scale], saffirSimpson: scale };
+  }
+  if (maxWindKt >= TS_MIN_KT) {
+    return {
+      category: subtropical
+        ? Category.SubtropicalStorm
+        : Category.TropicalStorm,
+      saffirSimpson: SaffirSimpson.None,
+    };
+  }
+  return {
+    category: subtropical
+      ? Category.SubtropicalDepression
+      : Category.TropicalDepression,
+    saffirSimpson: SaffirSimpson.None,
+  };
 }
 
-export function basinFromId(id: string): "AL" | "EP" | "CP" {
+export function basinFromId(id: string): NhcBasin {
   const prefix = id.slice(0, 2).toUpperCase();
-  if (prefix === "AL") return "AL";
-  if (prefix === "EP") return "EP";
-  return "CP";
+  const basin = ACTIVE_BASINS.find((candidate) => candidate === prefix);
+  return basin ?? CycloneBasin.CentralPacific;
 }
 
 function toForecastPoint(p: NhcForecastPoint): ForecastPoint {
@@ -109,7 +163,7 @@ function toForecastPoint(p: NhcForecastPoint): ForecastPoint {
     maxWindKt: wind,
     minPressureMb: p.minPressure,
     category,
-    errorRadiusNm: TRACK_ERROR_NM[p.fcstHour] ?? 0,
+    errorRadiusNm: trackErrorNm(p.fcstHour),
   };
 }
 
@@ -123,7 +177,7 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
   const maxWindKt = Number.parseFloat(s.intensity);
   if (!Number.isFinite(maxWindKt)) return null;
 
-  const minPressureRaw = s.pressure ? Number.parseFloat(s.pressure) : NaN;
+  const minPressureRaw = s.pressure ? Number.parseFloat(s.pressure) : Number.NaN;
   const minPressureMb = Number.isFinite(minPressureRaw)
     ? minPressureRaw
     : undefined;
@@ -159,7 +213,7 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
 
   return {
     id: `CY${s.id.toUpperCase()}`,
-    type: "cyclones" as const,
+    type: Domain.Cyclones as const,
     lat: s.latitudeNumeric,
     lon: s.longitudeNumeric,
     timestamp: s.lastUpdate,

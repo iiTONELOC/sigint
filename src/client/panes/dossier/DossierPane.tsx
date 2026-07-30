@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { IsolateMode } from "@/workers/render/protocol";
 import { Plane } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -29,12 +30,12 @@ export function DossierPane() {
   }, [setSelected, setIsolateMode]);
 
   const handleFocus = useCallback(() => {
-    const next = isolateMode === "focus" ? null : "focus";
+    const next = isolateMode === IsolateMode.Focus ? null : IsolateMode.Focus;
     setIsolateMode(next);
   }, [isolateMode, setIsolateMode]);
 
   const handleSolo = useCallback(() => {
-    const next = isolateMode === "solo" ? null : "solo";
+    const next = isolateMode === IsolateMode.Solo ? null : IsolateMode.Solo;
     setIsolateMode(next);
   }, [isolateMode, setIsolateMode]);
 

@@ -59,3 +59,4 @@ docs/cyclones.md
 src/server/data/ac-db.sqlite
 .claude
 scratch/
+.codex/

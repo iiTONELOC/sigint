@@ -6,14 +6,41 @@
 
 import { Spline, Circle, Target, GitBranch, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { RenderCycloneLayer } from "@/workers/render/protocol";
 
-const LAYERS = [
-  { key: "showForecast", label: "TRACK", icon: Spline },
-  { key: "showCone", label: "CONE", icon: Circle },
-  { key: "showWindField", label: "WIND FIELD", icon: Target },
-  { key: "showModels", label: "MODELS", icon: GitBranch },
-  { key: "showWarnings", label: "WARNINGS", icon: TriangleAlert },
-] as const;
+type CycloneLayerToggle = Readonly<{
+  key: RenderCycloneLayer;
+  label: string;
+  icon: LucideIcon;
+}>;
+
+const LAYERS: readonly CycloneLayerToggle[] = [
+  {
+    key: RenderCycloneLayer.Forecast,
+    label: "TRACK",
+    icon: Spline,
+  },
+  {
+    key: RenderCycloneLayer.Cone,
+    label: "CONE",
+    icon: Circle,
+  },
+  {
+    key: RenderCycloneLayer.WindField,
+    label: "WIND FIELD",
+    icon: Target,
+  },
+  {
+    key: RenderCycloneLayer.Models,
+    label: "MODELS",
+    icon: GitBranch,
+  },
+  {
+    key: RenderCycloneLayer.Warnings,
+    label: "WARNINGS",
+    icon: TriangleAlert,
+  },
+];
 
 function ToggleBtn({
   active,
@@ -48,7 +75,8 @@ export function CycloneLayerToggles() {
   const { cycloneFilter, toggleCycloneLayer } = useData();
 
   return (
-    <div className="flex flex-wrap gap-1" role="group" aria-label="Cyclone layers">
+    <fieldset className="flex flex-wrap gap-1">
+      <legend className="sr-only">Cyclone layers</legend>
       {LAYERS.map(({ key, label, icon }) => (
         <ToggleBtn
           key={key}
@@ -58,6 +86,6 @@ export function CycloneLayerToggles() {
           onClick={() => toggleCycloneLayer(key)}
         />
       ))}
-    </div>
+    </fieldset>
   );
 }

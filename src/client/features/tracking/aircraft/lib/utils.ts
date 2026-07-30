@@ -1,5 +1,11 @@
 import type { AircraftData, AircraftFilter, SquawkStatus } from "../types";
 import type { BasePoint } from "@/features/base/types";
+import {
+  MilFilter,
+  squawkBucketFor,
+  squawkStatusFor,
+} from "@shared/domain/aircraft";
+import { isEnumValue } from "@shared/types/enum";
 
 /**
  * Normalize an ICAO24 hex address: trim, lowercase, strip quotes,
@@ -16,16 +22,7 @@ export function normalizeIcao24(value: string | undefined): string | null {
 }
 
 export function getSquawkStatus(squawk?: string): SquawkStatus {
-  switch (squawk) {
-    case "7700":
-      return "emergency";
-    case "7600":
-      return "radio_failure";
-    case "7500":
-      return "hijack";
-    default:
-      return "normal";
-  }
+  return squawkStatusFor(squawk);
 }
 
 // Delay-severity → sig token class. Single owner for the on-time/late ramp used
@@ -74,33 +71,61 @@ export function getSquawkStatusLabel(status: SquawkStatus): string {
   }
 }
 
+/** Narrows a filter that crossed a worker boundary as unknown. */
+export function isAircraftFilter(value: unknown): value is AircraftFilter {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<AircraftFilter>;
+  return (
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.showAirborne === "boolean" &&
+    typeof candidate.showGround === "boolean" &&
+    candidate.squawks instanceof Set &&
+    candidate.countries instanceof Set &&
+    isEnumValue(candidate.milFilter, MilFilter)
+  );
+}
+
+function matchesRole(aircraft: AircraftData, milFilter: MilFilter): boolean {
+  if (milFilter === MilFilter.Military) return aircraft?.military === true;
+  if (milFilter === MilFilter.Civilian) return aircraft?.military !== true;
+  if (milFilter === MilFilter.Recon) return aircraft?.recon === true;
+  return true;
+}
+
+function matchesMovement(
+  aircraft: AircraftData,
+  filter: AircraftFilter,
+): boolean {
+  const onGround = aircraft?.onGround === true;
+  return onGround ? filter.showGround : filter.showAirborne;
+}
+
+function matchesSquawk(
+  aircraft: AircraftData,
+  filter: AircraftFilter,
+): boolean {
+  if (filter.squawks.size === 0) return true;
+  return filter.squawks.has(squawkBucketFor(aircraft?.squawk));
+}
+
+function matchesCountry(
+  aircraft: AircraftData,
+  filter: AircraftFilter,
+): boolean {
+  if (filter.countries.size === 0) return true;
+  return filter.countries.has(aircraft?.originCountry ?? "");
+}
+
 export function matchesAircraftFilter(
   item: BasePoint,
-  f: AircraftFilter,
+  filter: AircraftFilter,
 ): boolean {
-  if (!f.enabled) return false;
-  const d = (item as unknown as { data: AircraftData }).data;
-  const onGround: boolean = d?.onGround === true;
-  if (!f.showAirborne && !onGround) return false;
-  if (!f.showGround && onGround) return false;
-  if (f.milFilter === "military" && !d?.military) return false;
-  if (f.milFilter === "civilian" && d?.military) return false;
-  if (f.milFilter === "recon" && !d?.recon) return false;
-  if (f.squawks.size > 0) {
-    const sq: string = d?.squawk ?? "";
-    const bucket =
-      sq === "7700"
-        ? "7700"
-        : sq === "7600"
-          ? "7600"
-          : sq === "7500"
-            ? "7500"
-            : "other";
-    if (!f.squawks.has(bucket as "7700" | "7600" | "7500" | "other"))
-      return false;
-  }
-  if (f.countries.size > 0) {
-    if (!f.countries.has(d?.originCountry ?? "")) return false;
-  }
-  return true;
+  if (!filter.enabled) return false;
+  const aircraft = (item as BasePoint & { data: AircraftData }).data;
+  return (
+    matchesMovement(aircraft, filter) &&
+    matchesRole(aircraft, filter.milFilter) &&
+    matchesSquawk(aircraft, filter) &&
+    matchesCountry(aircraft, filter)
+  );
 }

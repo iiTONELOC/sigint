@@ -1,85 +1,130 @@
-import type { DataPoint } from "@/features/base/dataPoints";
-import { severityMeta } from "../severity";
-import { unwrapNwsText } from "../text";
+import {
+  HOURS_PER_DAY,
+  MINUTES_PER_HOUR,
+  MS_PER_MINUTE,
+} from "@shared/time";
+import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
+import type { WeatherPoint } from "../types";
+import { weatherSeverityInk, weatherSeverityLabel } from "../severity";
+import { unwrapNwsText, weatherAreas } from "../text";
+
+enum Align {
+  Left = "left",
+  Right = "right",
+}
+
+const EXPIRED_TEXT = "expired";
+
+const SHRINKABLE = "min-w-0";
+
+const CLASS = {
+  field: SHRINKABLE,
+  fieldRight: `${SHRINKABLE} text-right`,
+  fieldLabel: "text-(length:--sig-text-xs) tracking-wide text-sig-dim",
+  fieldValue: "text-(length:--sig-text-sm) text-sig-bright truncate",
+  root: "pt-2.5 border-t border-sig-border",
+  header: "flex items-start justify-between gap-2",
+  headerText: SHRINKABLE,
+  event: "text-(length:--sig-text-md) font-bold text-sig-bright leading-snug",
+  eyebrow: "text-(length:--sig-text-xs) text-sig-dim mt-1 truncate",
+  badge:
+    "shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-bg/70 border whitespace-nowrap",
+  facts: "flex flex-col gap-2 mt-3 pt-3 border-t border-sig-border/50",
+  factRow: "flex justify-between gap-4",
+  instruction: "mt-3 pt-3 border-t border-sig-border/50",
+  instructionLabel:
+    "text-(length:--sig-text-xs) tracking-widest font-semibold mb-1",
+  instructionBody:
+    "text-(length:--sig-text-xs) text-sig-bright leading-relaxed line-clamp-5 whitespace-pre-line",
+};
 
 function Field({
   label,
   value,
-  align = "left",
+  align = Align.Left,
 }: {
   readonly label: string;
   readonly value: string;
-  readonly align?: "left" | "right";
+  readonly align?: Align;
 }) {
   return (
-    <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
-      <div className="text-(length:--sig-text-xs) tracking-wide text-sig-dim">{label}</div>
-      <div className="text-(length:--sig-text-sm) text-sig-bright truncate">{value}</div>
+    <div className={align === Align.Right ? CLASS.fieldRight : CLASS.field}>
+      <div className={CLASS.fieldLabel}>{label}</div>
+      <div className={CLASS.fieldValue}>{value}</div>
     </div>
   );
 }
 
 function fmtExpires(expires: string | undefined): string {
-  if (!expires) return "—";
-  const ms = new Date(expires).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return "—";
-  if (ms <= 0) return "expired";
-  const min = Math.round(ms / 60_000);
-  if (min < 60) return `in ${min}m`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h < 24) return m > 0 ? `in ${h}h ${m}m` : `in ${h}h`;
-  return `in ${Math.floor(h / 24)}d`;
+  if (!expires) return NO_VALUE;
+  const remaining = new Date(expires).getTime() - Date.now();
+  if (!Number.isFinite(remaining)) return NO_VALUE;
+  if (remaining <= 0) return EXPIRED_TEXT;
+
+  const minutes = Math.round(remaining / MS_PER_MINUTE);
+  if (minutes < MINUTES_PER_HOUR) return `in ${minutes}m`;
+
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+  const spareMinutes = minutes % MINUTES_PER_HOUR;
+  if (hours < HOURS_PER_DAY) {
+    return spareMinutes > 0 ? `in ${hours}h ${spareMinutes}m` : `in ${hours}h`;
+  }
+  return `in ${Math.floor(hours / HOURS_PER_DAY)}d`;
 }
 
-export function WeatherDetailSummary({ item }: { readonly item: DataPoint }) {
-  const d = (item as { data?: Record<string, unknown> }).data ?? {};
-  const str = (k: string): string | undefined => {
-    const v = d[k];
-    return typeof v === "string" ? v : undefined;
-  };
-  const event = str("event") ?? "Weather Alert";
-  const meta = severityMeta(str("severity"));
-  const urgency = str("urgency");
-  const areaDesc = str("areaDesc");
-  const areaCount = areaDesc ? areaDesc.split(";").filter((a) => a.trim()).length : 0;
-  const instruction = str("instruction");
+export function WeatherDetailSummary({
+  item,
+}: {
+  readonly item: WeatherPoint;
+}) {
+  const data = item.data;
+  const ink = weatherSeverityInk(data.severity);
+  const areaCount = weatherAreas(data.areaDesc).length;
 
   return (
-    <div className="pt-2.5 border-t border-sig-border">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-(length:--sig-text-md) font-bold text-sig-bright leading-snug">{event}</div>
-          <div className="text-(length:--sig-text-xs) text-sig-dim mt-1 truncate">
-            WEATHER ALERT{urgency ? ` · ${urgency}` : ""}
+    <div className={CLASS.root}>
+      <div className={CLASS.header}>
+        <div className={CLASS.headerText}>
+          <div className={CLASS.event}>{data.event ?? "Weather Alert"}</div>
+          <div className={CLASS.eyebrow}>
+            WEATHER ALERT
+            {data.urgency ? ` · ${data.urgency}` : EMPTY_TEXT}
           </div>
         </div>
         <span
-          className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-bg/70 border whitespace-nowrap"
-          style={{ color: meta.ink, borderColor: meta.ink }}
+          className={CLASS.badge}
+          style={{ color: ink, borderColor: ink }}
         >
-          {meta.label}
+          {weatherSeverityLabel(data.severity)}
         </span>
       </div>
 
-      <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-sig-border/50">
-        <div className="flex justify-between gap-4">
-          <Field label="EXPIRES" value={fmtExpires(str("expires"))} />
-          <Field label="CERTAINTY" value={str("certainty") ?? "—"} align="right" />
+      <div className={CLASS.facts}>
+        <div className={CLASS.factRow}>
+          <Field label="EXPIRES" value={fmtExpires(data.expires)} />
+          <Field
+            label="CERTAINTY"
+            value={data.certainty ?? NO_VALUE}
+            align={Align.Right}
+          />
         </div>
-        <div className="flex justify-between gap-4">
-          <Field label="RESPONSE" value={str("response") ?? "—"} />
-          <Field label="AREAS" value={areaCount > 0 ? String(areaCount) : "—"} align="right" />
+        <div className={CLASS.factRow}>
+          <Field label="RESPONSE" value={data.response ?? NO_VALUE} />
+          <Field
+            label="AREAS"
+            value={areaCount > 0 ? String(areaCount) : NO_VALUE}
+            align={Align.Right}
+          />
         </div>
       </div>
 
-      {instruction && (
-        <div className="mt-3 pt-3 border-t border-sig-border/50">
-          <div className="text-(length:--sig-text-xs) tracking-widest font-semibold mb-1" style={{ color: meta.ink }}>
+      {data.instruction && (
+        <div className={CLASS.instruction}>
+          <div className={CLASS.instructionLabel} style={{ color: ink }}>
             PROTECTIVE ACTION
           </div>
-          <div className="text-(length:--sig-text-xs) text-sig-bright leading-relaxed line-clamp-5 whitespace-pre-line">
-            {unwrapNwsText(instruction)}
+          <div className={CLASS.instructionBody}>
+            {unwrapNwsText(data.instruction)}
           </div>
         </div>
       )}

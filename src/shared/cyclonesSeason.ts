@@ -1,30 +1,75 @@
-export type CycloneBasin = "AL" | "EP" | "CP" | "WP" | "IO" | "SH";
+export enum CycloneBasin {
+  Atlantic = "AL",
+  EasternPacific = "EP",
+  CentralPacific = "CP",
+  WesternPacific = "WP",
+  IndianOcean = "IO",
+  SouthernHemisphere = "SH",
+}
+
+/** The basins NHC publishes, which is the runtime scope. */
+export type NhcBasin =
+  | CycloneBasin.Atlantic
+  | CycloneBasin.EasternPacific
+  | CycloneBasin.CentralPacific;
+
+export const BASIN_LABEL: Readonly<Record<NhcBasin, string>> = {
+  [CycloneBasin.Atlantic]: "Atlantic",
+  [CycloneBasin.EasternPacific]: "East Pacific",
+  [CycloneBasin.CentralPacific]: "Central Pacific",
+};
+
+enum SeasonWindowKind {
+  YearRound = "year_round",
+  Bounded = "bounded",
+}
 
 type MonthDay = Readonly<{ month: number; day: number }>;
 type SeasonWindow =
-  | Readonly<{ kind: "year_round" }>
-  | Readonly<{ kind: "bounded"; start: MonthDay; end: MonthDay }>;
+  | Readonly<{ kind: SeasonWindowKind.YearRound }>
+  | Readonly<{ kind: SeasonWindowKind.Bounded; start: MonthDay; end: MonthDay }>;
 
 const MONTH_DAY_RADIX = 100;
 const NORTHERN_START: MonthDay = { month: 5, day: 15 };
 const NORTHERN_END: MonthDay = { month: 12, day: 15 };
 const SOUTHERN_START: MonthDay = { month: 10, day: 15 };
 const SOUTHERN_END: MonthDay = { month: 5, day: 15 };
-const YEAR_ROUND: SeasonWindow = { kind: "year_round" };
+const YEAR_ROUND: SeasonWindow = { kind: SeasonWindowKind.YearRound };
 
-const BASIN_SEASONS: Readonly<Record<CycloneBasin, SeasonWindow>> = {
-  AL: { kind: "bounded", start: NORTHERN_START, end: NORTHERN_END },
-  EP: { kind: "bounded", start: NORTHERN_START, end: NORTHERN_END },
-  CP: { kind: "bounded", start: NORTHERN_START, end: NORTHERN_END },
-  WP: YEAR_ROUND,
-  IO: YEAR_ROUND,
-  SH: { kind: "bounded", start: SOUTHERN_START, end: SOUTHERN_END },
+const NORTHERN_SEASON: SeasonWindow = {
+  kind: SeasonWindowKind.Bounded,
+  start: NORTHERN_START,
+  end: NORTHERN_END,
 };
 
-const ALL_BASINS: readonly CycloneBasin[] = ["AL", "EP", "CP", "WP", "IO", "SH"];
+const BASIN_SEASONS: Readonly<Record<CycloneBasin, SeasonWindow>> = {
+  [CycloneBasin.Atlantic]: NORTHERN_SEASON,
+  [CycloneBasin.EasternPacific]: NORTHERN_SEASON,
+  [CycloneBasin.CentralPacific]: NORTHERN_SEASON,
+  [CycloneBasin.WesternPacific]: YEAR_ROUND,
+  [CycloneBasin.IndianOcean]: YEAR_ROUND,
+  [CycloneBasin.SouthernHemisphere]: {
+    kind: SeasonWindowKind.Bounded,
+    start: SOUTHERN_START,
+    end: SOUTHERN_END,
+  },
+};
+
+const ALL_BASINS: readonly CycloneBasin[] = Object.values(CycloneBasin);
 
 // Runtime scope remains NHC-only until a reliable JTWC source exists.
-export const ACTIVE_BASINS: readonly CycloneBasin[] = ["AL", "EP", "CP"];
+export const ACTIVE_BASINS: readonly NhcBasin[] = [
+  CycloneBasin.Atlantic,
+  CycloneBasin.EasternPacific,
+  CycloneBasin.CentralPacific,
+];
+
+const NHC_BASIN_VALUES: ReadonlySet<string> = new Set(ACTIVE_BASINS);
+
+/** Narrows a raw source field to a basin NHC actually publishes. */
+export function isNhcBasin(value: unknown): value is NhcBasin {
+  return typeof value === "string" && NHC_BASIN_VALUES.has(value);
+}
 
 function monthDayValue(value: MonthDay): number {
   return value.month * MONTH_DAY_RADIX + value.day;
@@ -46,7 +91,7 @@ export function basinSeasonActive(
   now: Date = new Date(),
 ): boolean {
   const window = BASIN_SEASONS[basin];
-  if (window.kind === "year_round") return true;
+  if (window.kind === SeasonWindowKind.YearRound) return true;
   return inWindow(
     { month: now.getUTCMonth() + 1, day: now.getUTCDate() },
     window.start,

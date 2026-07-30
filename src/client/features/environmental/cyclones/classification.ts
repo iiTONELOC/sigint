@@ -4,29 +4,35 @@
 // the intensity curve, the mini-map, and three dossier/detail components.
 
 import { ktToMph } from "@/lib/format/units";
+import { Category, SaffirSimpson } from "./types";
 
 /** Storm classification code → human label (NHC categories). */
-export const CATEGORY_LABEL: Record<string, string> = {
-  TD: "Tropical Depression",
-  TS: "Tropical Storm",
-  HU1: "Hurricane Cat 1",
-  HU2: "Hurricane Cat 2",
-  HU3: "Hurricane Cat 3 (major)",
-  HU4: "Hurricane Cat 4 (major)",
-  HU5: "Hurricane Cat 5 (major)",
-  STD: "Subtropical Depression",
-  STS: "Subtropical Storm",
-  PT: "Post-Tropical",
+export const CATEGORY_LABEL: Readonly<Record<Category, string>> = {
+  [Category.TropicalDepression]: "Tropical Depression",
+  [Category.TropicalStorm]: "Tropical Storm",
+  [Category.Hurricane1]: "Hurricane Cat 1",
+  [Category.Hurricane2]: "Hurricane Cat 2",
+  [Category.Hurricane3]: "Hurricane Cat 3 (major)",
+  [Category.Hurricane4]: "Hurricane Cat 4 (major)",
+  [Category.Hurricane5]: "Hurricane Cat 5 (major)",
+  [Category.SubtropicalDepression]: "Subtropical Depression",
+  [Category.SubtropicalStorm]: "Subtropical Storm",
+  [Category.PostTropical]: "Post-Tropical",
 };
 
 /** Saffir-Simpson scale, descending. `minKt` = sustained-wind floor for the
  *  category; `label` = short band tag; `color` = display hex. */
-export const SAFFIR_SIMPSON = [
-  { cat: 5 as const, minKt: 137, label: "C5", color: "#ff5dff" },
-  { cat: 4 as const, minKt: 113, label: "C4", color: "#ff5d5d" },
-  { cat: 3 as const, minKt: 96, label: "C3", color: "#ff8c42" },
-  { cat: 2 as const, minKt: 83, label: "C2", color: "#ffb142" },
-  { cat: 1 as const, minKt: 64, label: "C1", color: "#ffd24a" },
+export const SAFFIR_SIMPSON: readonly {
+  cat: SaffirSimpson;
+  minKt: number;
+  label: string;
+  color: string;
+}[] = [
+  { cat: 5, minKt: 137, label: "C5", color: "#ff5dff" },
+  { cat: 4, minKt: 113, label: "C4", color: "#ff5d5d" },
+  { cat: 3, minKt: 96, label: "C3", color: "#ff8c42" },
+  { cat: 2, minKt: 83, label: "C2", color: "#ffb142" },
+  { cat: 1, minKt: 64, label: "C1", color: "#ffd24a" },
 ];
 
 export const TS_MIN_KT = 34;
@@ -34,16 +40,18 @@ export const HURRICANE_MIN_KT = SAFFIR_SIMPSON.at(-1)?.minKt ?? 64;
 const TS_COLOR = "#4ad2ff";
 const TD_COLOR = "#8fd3ff";
 
-/** Saffir-Simpson category (1-5) for a sustained wind in knots; 0 = below hurricane. */
-export function saffirSimpson(kt: number): 0 | 1 | 2 | 3 | 4 | 5 {
-  for (const b of SAFFIR_SIMPSON) if (kt >= b.minKt) return b.cat;
-  return 0;
+/** Saffir-Simpson category for a sustained wind in knots. */
+export function saffirSimpson(kt: number): SaffirSimpson {
+  for (const band of SAFFIR_SIMPSON) if (kt >= band.minKt) return band.cat;
+  return SaffirSimpson.None;
 }
 
-/** Short category tag for a sustained wind: "C5"…"C1", "TS", or "TD". */
+/** Short category tag for a sustained wind: a band label, or a storm class. */
 export function categoryShort(kt: number): string {
-  for (const b of SAFFIR_SIMPSON) if (kt >= b.minKt) return b.label;
-  return kt >= TS_MIN_KT ? "TS" : "TD";
+  for (const band of SAFFIR_SIMPSON) if (kt >= band.minKt) return band.label;
+  return kt >= TS_MIN_KT
+    ? Category.TropicalStorm
+    : Category.TropicalDepression;
 }
 
 /** Saffir-Simpson legend rows: label, color, and the wind range (mph) for each

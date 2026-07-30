@@ -2,17 +2,19 @@
 // Shared shape definitions used by every correlation module.
 
 import type { DataPoint } from "@/features/base/dataPoints";
+import type { IntelProductType } from "@shared/domain/correlation";
 import type { NewsArticle } from "@/features/news";
 
 /** A correlated intelligence product — not raw data, derived insight */
 export type IntelProduct = {
   id: string;
-  type: "cluster" | "cross-source" | "anomaly" | "trend" | "news-link";
+  type: IntelProductType;
   priority: number; // 1-10
   title: string;
   summary: string;
   region: string; // country or region name
-  sources: DataPoint[]; // the underlying data points
+  sources: DataPoint[]; // bounded source preview
+  sourceCount?: number;
   newsLinks?: NewsArticle[]; // related news articles
   timestamp: number; // when this product was generated
 };
@@ -25,7 +27,7 @@ export type ScoredAlert = {
   factors: string[]; // human-readable score factors
   /** Number of similar events collapsed into this alert (1 = single) */
   count: number;
-  /** All items in the group (for watch mode cycling) */
+  /** Bounded group preview for watch mode cycling. */
   groupedItems?: DataPoint[];
 };
 

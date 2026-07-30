@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -24,9 +26,12 @@ function pt(
 
 describe("relativeAge", () => {
   let relativeAge: typeof import("@/lib/format/timeFormat").relativeAge;
+  let AgeStyle: typeof import("@/lib/format/timeFormat").AgeStyle;
 
   beforeEach(async () => {
-    relativeAge = (await import("@/lib/format/timeFormat")).relativeAge;
+    const timeFormat = await import("@/lib/format/timeFormat");
+    relativeAge = timeFormat.relativeAge;
+    AgeStyle = timeFormat.AgeStyle;
   });
 
   test("null/undefined returns LIVE (compact)", () => {
@@ -35,7 +40,7 @@ describe("relativeAge", () => {
   });
 
   test("null/undefined returns just now (verbose)", () => {
-    expect(relativeAge(null, "verbose")).toBe("just now");
+    expect(relativeAge(null, AgeStyle.Verbose)).toBe("just now");
   });
 
   test("recent timestamp returns LIVE", () => {
@@ -44,7 +49,7 @@ describe("relativeAge", () => {
 
   test("5 minutes ago", () => {
     expect(relativeAge(Date.now() - 5 * 60_000)).toBe("5m");
-    expect(relativeAge(Date.now() - 5 * 60_000, "verbose")).toBe("5m ago");
+    expect(relativeAge(Date.now() - 5 * 60_000, AgeStyle.Verbose)).toBe("5m ago");
   });
 
   test("2 hours ago", () => {
@@ -68,97 +73,87 @@ describe("relativeAge", () => {
 // ── sourceHealth ────────────────────────────────────────────────────
 
 describe("sourceHealth", () => {
-  let isSourceDown: typeof import("@/lib/net/sourceHealth").isSourceDown;
+  let isSourceDown: typeof import("@shared/domain/sourceStatus").isSourceDown;
+  let isSourceDelivering: typeof import("@shared/domain/sourceStatus").isSourceDelivering;
   let buildSourceStatusMap: typeof import("@/lib/net/sourceHealth").buildSourceStatusMap;
 
   beforeEach(async () => {
-    const mod = await import("@/lib/net/sourceHealth");
-    isSourceDown = mod.isSourceDown;
-    buildSourceStatusMap = mod.buildSourceStatusMap;
+    const statusModule = await import("@shared/domain/sourceStatus");
+    isSourceDown = statusModule.isSourceDown;
+    isSourceDelivering = statusModule.isSourceDelivering;
+    const healthModule = await import("@/lib/net/sourceHealth");
+    buildSourceStatusMap = healthModule.buildSourceStatusMap;
   });
 
-  test("error with 0 count is down", () => {
-    expect(isSourceDown("error", 0)).toBe(true);
+  test("error is down", () => {
+    expect(isSourceDown(SourceStatus.Error)).toBe(true);
   });
 
-  test("unavailable with 0 count is down", () => {
-    expect(isSourceDown("unavailable", 0)).toBe(true);
+  test("unavailable is down", () => {
+    expect(isSourceDown(SourceStatus.Unavailable)).toBe(true);
   });
 
-  test("error with data is NOT down", () => {
-    expect(isSourceDown("error", 5)).toBe(false);
+  test("cached is NOT down, which is how a failed refresh over retained data reads", () => {
+    expect(isSourceDown(SourceStatus.Cached)).toBe(false);
   });
 
   test("empty is NOT down", () => {
-    expect(isSourceDown("empty", 0)).toBe(false);
+    expect(isSourceDown(SourceStatus.Empty)).toBe(false);
   });
 
   test("live is NOT down", () => {
-    expect(isSourceDown("live", 100)).toBe(false);
+    expect(isSourceDown(SourceStatus.Live)).toBe(false);
+  });
+
+  test("loading is NOT down", () => {
+    expect(isSourceDown(SourceStatus.Loading)).toBe(false);
   });
 
   test("undefined status is NOT down", () => {
-    expect(isSourceDown(undefined, 0)).toBe(false);
+    expect(isSourceDown(undefined)).toBe(false);
   });
 
-  test("buildSourceStatusMap creates lookup", () => {
+  test("down never depends on a count the UI failed to fetch", () => {
+    // The regression: a query timeout left the count at 0 and the chip read
+    // offline while the source was live.
+    expect(isSourceDown(SourceStatus.Live)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Live)).toBe(true);
+  });
+
+  test("live and cached are delivering, nothing else is", () => {
+    expect(isSourceDelivering(SourceStatus.Live)).toBe(true);
+    expect(isSourceDelivering(SourceStatus.Cached)).toBe(true);
+    expect(isSourceDelivering(SourceStatus.Empty)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Loading)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Error)).toBe(false);
+    expect(isSourceDelivering(SourceStatus.Unavailable)).toBe(false);
+  });
+
+  test("buildSourceStatusMap keeps the reason a down source published", () => {
     const map = buildSourceStatusMap([
-      { id: "aircraft", label: "AIRCRAFT", status: "live" },
-      { id: "ships", label: "SHIPS", status: "cached" },
+      { id: Domain.Aircraft, status: SourceStatus.Live, error: null },
+      {
+        id: Domain.Ships,
+        status: SourceStatus.Error,
+        error: "Duplicate dataset id: S1",
+      },
     ]);
-    expect(map.get("aircraft")).toBe("live");
-    expect(map.get("ships")).toBe("cached");
-    expect(map.get("fires")).toBeUndefined();
+    expect(map.get(Domain.Aircraft)?.status).toBe(SourceStatus.Live);
+    expect(map.get(Domain.Ships)?.error).toBe("Duplicate dataset id: S1");
+    expect(map.get(Domain.Fires)).toBeUndefined();
   });
 });
 
 // ── spatialIndex ────────────────────────────────────────────────────
 
 describe("spatialIndex", () => {
-  let buildSpatialGrid: typeof import("@/lib/geo/spatialIndex").buildSpatialGrid;
-  let queryNearest: typeof import("@/lib/geo/spatialIndex").queryNearest;
   let screenToLatLonFlat: typeof import("@/lib/geo/spatialIndex").screenToLatLonFlat;
   let screenToLatLonGlobe: typeof import("@/lib/geo/spatialIndex").screenToLatLonGlobe;
 
   beforeEach(async () => {
     const mod = await import("@/lib/geo/spatialIndex");
-    buildSpatialGrid = mod.buildSpatialGrid;
-    queryNearest = mod.queryNearest;
     screenToLatLonFlat = mod.screenToLatLonFlat;
     screenToLatLonGlobe = mod.screenToLatLonGlobe;
-  });
-
-  test("buildSpatialGrid indexes all points", () => {
-    const data = [pt("a", "quakes", 35, 139), pt("b", "quakes", -33, 151)];
-    const grid = buildSpatialGrid(data);
-    expect(grid.size).toBe(2);
-  });
-
-  test("queryNearest finds nearby points", () => {
-    const data = [
-      pt("a", "quakes", 35, 139),
-      pt("b", "quakes", 35.5, 139.5),
-      pt("c", "quakes", -33, 151),
-    ];
-    const grid = buildSpatialGrid(data);
-    const results = queryNearest(grid, 35.2, 139.2, 2);
-    expect(results.length).toBe(2);
-    expect(results.some((r) => r.id === "a")).toBe(true);
-    expect(results.some((r) => r.id === "b")).toBe(true);
-  });
-
-  test("queryNearest excludes distant points", () => {
-    const data = [pt("a", "quakes", 35, 139), pt("b", "quakes", -33, 151)];
-    const grid = buildSpatialGrid(data);
-    const results = queryNearest(grid, 35, 139, 1);
-    expect(results.length).toBe(1);
-    expect(results[0]!.id).toBe("a");
-  });
-
-  test("empty grid returns empty results", () => {
-    const grid = buildSpatialGrid([]);
-    expect(grid.size).toBe(0);
-    expect(queryNearest(grid, 0, 0, 10).length).toBe(0);
   });
 
   test("screenToLatLonFlat returns center at center", () => {
@@ -182,153 +177,72 @@ describe("spatialIndex", () => {
 
 // ── tickerFeed ──────────────────────────────────────────────────────
 
-describe("buildTickerItems", () => {
-  let buildTickerItems: typeof import("@/lib/ui/tickerFeed").buildTickerItems;
+describe("mergeTickerPages", () => {
+  let mergeTickerPages: typeof import("@/lib/ui/tickerFeed").mergeTickerPages;
 
   beforeEach(async () => {
-    buildTickerItems = (await import("@/lib/ui/tickerFeed")).buildTickerItems;
+    mergeTickerPages = (await import("@/lib/ui/tickerFeed")).mergeTickerPages;
   });
 
-  test("returns empty for empty data", () => {
-    const result = buildTickerItems([]);
-    expect(result).toHaveLength(0);
+  function page(items: DataPoint[], priorityCount = 0) {
+    return { items, priorityCount };
+  }
+
+  test("returns empty for no pages", () => {
+    expect(mergeTickerPages([])).toHaveLength(0);
   });
 
-  test("includes airborne aircraft", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false, callsign: "UAL123" }),
-    ];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(1);
+  test("returns empty when every page is empty", () => {
+    expect(mergeTickerPages([page([]), page([])])).toHaveLength(0);
   });
 
-  test("excludes grounded aircraft", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: true, callsign: "UAL123" }),
-    ];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(0);
-  });
-
-  test("excludes moored ships (sog < 0.5)", () => {
-    const data = [pt("s1", "ships", 51, -0.1, { sog: 0.1, name: "TEST" })];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(0);
-  });
-
-  test("includes moving ships", () => {
-    const data = [pt("s1", "ships", 51, -0.1, { sog: 5.0, name: "TEST" })];
-    const result = buildTickerItems(data);
-    expect(result.length).toBe(1);
-  });
-
-  test("emergency aircraft appear first", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false, squawk: "1200" }),
-      pt("a2", "aircraft", 36, 140, { onGround: false, squawk: "7700" }),
-      pt("q1", "quakes", 10, 20, { magnitude: 5.0 }),
-    ];
-    const result = buildTickerItems(data);
+  test("escalated items lead, whatever page they came from", () => {
+    const emergency = pt("a2", "aircraft", 36, 140, { squawk: "7700" });
+    const result = mergeTickerPages([
+      page([pt("q1", "quakes", 10, 20, { magnitude: 5 })]),
+      page([emergency, pt("a1", "aircraft", 35, 139, { squawk: "1200" })], 1),
+    ]);
     expect(result[0]!.id).toBe("a2");
   });
 
   test("caps at 80 items", () => {
-    const data: DataPoint[] = [];
+    const items: DataPoint[] = [];
     for (let i = 0; i < 200; i++) {
-      data.push(pt(`q${i}`, "quakes", i % 90, i % 180, { magnitude: 3 }));
+      items.push(pt(`q${i}`, "quakes", i % 90, i % 180, { magnitude: 3 }));
     }
-    const result = buildTickerItems(data);
-    expect(result.length).toBeLessThanOrEqual(80);
+    expect(mergeTickerPages([page(items)])).toHaveLength(80);
   });
 
-  test("interleaves across types", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false }),
-      pt("a2", "aircraft", 36, 140, { onGround: false }),
-      pt("s1", "ships", 51, -0.1, { sog: 5 }),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const result = buildTickerItems(data);
-    const types = result.map((r) => r.type);
-    // Not all same type in a row
-    expect(new Set(types).size).toBeGreaterThan(1);
-  });
-});
-
-// ── uiSelectors ─────────────────────────────────────────────────────
-
-describe("uiSelectors", () => {
-  let selectLayerCounts: typeof import("@/lib/runtime/uiSelectors").selectLayerCounts;
-  let selectActiveCount: typeof import("@/lib/runtime/uiSelectors").selectActiveCount;
-  let selectAvailableAircraftCountries: typeof import("@/lib/runtime/uiSelectors").selectAvailableAircraftCountries;
-
-  beforeEach(async () => {
-    const mod = await import("@/lib/runtime/uiSelectors");
-    selectLayerCounts = mod.selectLayerCounts;
-    selectActiveCount = mod.selectActiveCount;
-    selectAvailableAircraftCountries = mod.selectAvailableAircraftCountries;
+  test("round-robins across pages so one source cannot flood", () => {
+    const result = mergeTickerPages([
+      page([
+        pt("a1", "aircraft", 35, 139, {}),
+        pt("a2", "aircraft", 36, 140, {}),
+      ]),
+      page([pt("s1", "ships", 51, -0.1, { sog: 5 })]),
+    ]);
+    expect(result).toHaveLength(3);
+    expect(new Set(result.map((item) => item.type)).size).toBe(2);
   });
 
-  test("selectLayerCounts counts per type with filter", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { onGround: false }),
-      pt("a2", "aircraft", 36, 140, { onGround: false }),
-      pt("q1", "quakes", 10, 20, { magnitude: 5 }),
-    ];
-    const filters = {
-      aircraft: {
-        enabled: true,
-        showAirborne: true,
-        showGround: true,
-        squawks: new Set(),
-        countries: new Set(),
-        milFilter: "all",
-      },
-      quakes: { enabled: true, minMagnitude: 0 },
-    };
-    const counts = selectLayerCounts(data, filters);
-    expect(counts.aircraft).toBe(2);
-    expect(counts.quakes).toBe(1);
-  });
-
-  test("selectActiveCount totals all visible", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, {}),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const filters = {
-      aircraft: {
-        enabled: true,
-        showAirborne: true,
-        showGround: true,
-        squawks: new Set(),
-        countries: new Set(),
-        milFilter: "all",
-      },
-      quakes: { enabled: true, minMagnitude: 0 },
-    };
-    const count = selectActiveCount(data, filters);
-    expect(count).toBe(2);
-  });
-
-  test("selectAvailableAircraftCountries sorted by frequency", () => {
-    const data = [
-      pt("a1", "aircraft", 35, 139, { originCountry: "United States" }),
-      pt("a2", "aircraft", 36, 140, { originCountry: "United States" }),
-      pt("a3", "aircraft", 37, 141, { originCountry: "Japan" }),
-      pt("q1", "quakes", 10, 20, {}),
-    ];
-    const countries = selectAvailableAircraftCountries(data);
-    expect(countries[0]).toBe("United States");
-    expect(countries[1]).toBe("Japan");
-    expect(countries.length).toBe(2);
-  });
-
-  test("ignores non-aircraft for countries", () => {
-    const data = [pt("q1", "quakes", 10, 20, { originCountry: "Chile" })];
-    expect(selectAvailableAircraftCountries(data)).toHaveLength(0);
+  test("drains a longer page once the shorter ones run out", () => {
+    const result = mergeTickerPages([
+      page([
+        pt("a1", "aircraft", 35, 139, {}),
+        pt("a2", "aircraft", 36, 140, {}),
+        pt("a3", "aircraft", 37, 141, {}),
+      ]),
+      page([pt("s1", "ships", 51, -0.1, { sog: 5 })]),
+    ]);
+    expect(result.map((item) => item.id).toSorted()).toEqual([
+      "a1",
+      "a2",
+      "a3",
+      "s1",
+    ]);
   });
 });
+
 
 // ── authService (client) ────────────────────────────────────────────
 

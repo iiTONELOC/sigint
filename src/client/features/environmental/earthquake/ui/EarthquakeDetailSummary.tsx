@@ -1,5 +1,9 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 import { formatKmMi } from "@/lib/format/units";
 import { estimateMmi, mmiBand, isShallow } from "../intensity";
 
@@ -61,11 +65,11 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
         {felt != null && felt > 0 && (
           <div className="flex justify-between gap-4">
             <Field label="FELT" value={`${felt} reports`} />
-            <Field label="POSITION" value={`${formatLat(item.lat)}, ${formatLon(item.lon)}`} align="right" />
+            <Field label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} align="right" />
           </div>
         )}
         {(felt == null || felt === 0) && (
-          <Field label="POSITION" value={`${formatLat(item.lat)}, ${formatLon(item.lon)}`} />
+          <Field label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 // ── AircraftRouteMap ─────────────────────────────────────────────────
 // Origin → destination view on an orthographic globe centered on the route.
-// Rendering reuses the globe's own canvas renderers — drawLand (horizon
-// clipping + theme coastFill/coast) and drawGrid — with projGlobe, so the land
+// Rendering reuses the globe's own canvas renderers: drawLand (horizon
+// clipping + theme coastFill/coast) and drawGrid with projGlobe, so the land
 // matches the main globe instead of a hand-rolled copy. Only the route geometry
 // (great-circle math) and the route/aircraft overlay live here.
 
@@ -9,13 +9,32 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getLand, enrichLand } from "@/lib/geo/landService";
 import { getAirport, enrichAirports } from "@/lib/geo/airportService";
-import { projGlobe } from "@/components/globe/projection";
-import { drawLand } from "@/components/globe/landRenderer";
-import { drawGrid } from "@/components/globe/gridRenderer";
+import { projectGeographicPoint as projGlobe } from "@/lib/geo/unitSphere";
+import { drawLand } from "@/lib/geo/render/land";
+import { drawGrid } from "@/lib/geo/render/grid";
+import {
+  CanvasLineStyle,
+  type ProjFn,
+} from "@/lib/geo/render/types";
+import { DomEvent } from "@/lib/runtime/domEvent";
+import { ButtonType } from "@/lib/ui/button";
+import type { ThemeColors } from "@/config/theme";
+import {
+  AircraftRoutePolylineLimit,
+  type AircraftRouteWaypoint,
+} from "@shared/domain/aircraftDossier";
+import { TurnDeg } from "@shared/geo";
 
-const H = 200;
-const PAD = 8;
-const N = 48;
+enum AircraftRouteMapMetric {
+  GreatCircleSegmentCount = 48,
+  HeightPx = 200,
+  PaddingPx = 8,
+  WidthPx = 264,
+}
+
+enum AircraftRouteMapClassName {
+  HudChip = "absolute z-10 bg-sig-bg/55 border border-sig-border rounded px-1.5 py-0.5 backdrop-blur-sm",
+}
 
 const rad = (d: number) => (d * Math.PI) / 180;
 const deg = (r: number) => (r * 180) / Math.PI;
@@ -41,6 +60,457 @@ function gcPoint(aLat: number, aLon: number, bLat: number, bLon: number, f: numb
   return { lat: deg(Math.atan2(z, Math.hypot(x, y))), lon: deg(Math.atan2(y, x)) };
 }
 
+type RouteMapPan = Readonly<{
+  readonly rx: number;
+  readonly ry: number;
+}>;
+
+type RouteMapCamera = Readonly<{
+  readonly radius: number;
+  readonly rotationX: number;
+  readonly rotationY: number;
+}>;
+
+type SplitRoute = Readonly<{
+  readonly flown: readonly AircraftRouteWaypoint[];
+  readonly remaining: readonly AircraftRouteWaypoint[];
+}>;
+
+type PlannedRouteDrawOptions = Readonly<{
+  readonly colors: ThemeColors;
+  readonly context: CanvasRenderingContext2D;
+  readonly destination: AircraftRouteWaypoint;
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly origin: AircraftRouteWaypoint;
+  readonly project: ProjFn;
+  readonly waypoints?: readonly AircraftRouteWaypoint[];
+}>;
+
+type AircraftRouteMapDrawOptions = Readonly<{
+  readonly canvas: HTMLCanvasElement;
+  readonly colors: ThemeColors;
+  readonly destination: AircraftRouteWaypoint | null;
+  readonly destinationCode: string;
+  readonly heading?: number;
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly origin: AircraftRouteWaypoint | null;
+  readonly originCode: string;
+  readonly pan: RouteMapPan;
+  readonly trail?: readonly { lat: number; lon: number }[];
+  readonly waypoints?: readonly AircraftRouteWaypoint[];
+  readonly zoom: number;
+}>;
+
+function routeMapCamera(
+  frameRadius: number,
+  origin: AircraftRouteWaypoint | null,
+  destination: AircraftRouteWaypoint | null,
+  latitude: number,
+  longitude: number,
+  zoom: number,
+  pan: RouteMapPan,
+): RouteMapCamera {
+  if (origin && destination) {
+    const midpoint = gcPoint(
+      origin[0],
+      origin[1],
+      destination[0],
+      destination[1],
+      0.5,
+    );
+    const arcLength = gcDist(
+      origin[0],
+      origin[1],
+      destination[0],
+      destination[1],
+    );
+    return {
+      radius:
+        Math.min(
+          (frameRadius * 0.8) /
+            Math.max(Math.sin(arcLength / 2), 0.05),
+          frameRadius * 9,
+        ) * zoom,
+      rotationX: rad(midpoint.lat) + pan.rx,
+      rotationY:
+        rad(TurnDeg.Quarter) -
+        rad(midpoint.lon + TurnDeg.Half) +
+        pan.ry,
+    };
+  }
+
+  return {
+    radius: frameRadius * 4 * zoom,
+    rotationX: rad(latitude) + pan.rx,
+    rotationY:
+      rad(TurnDeg.Quarter) -
+      rad(longitude + TurnDeg.Half) +
+      pan.ry,
+  };
+}
+
+function generatedRoute(
+  origin: AircraftRouteWaypoint,
+  destination: AircraftRouteWaypoint,
+): AircraftRouteWaypoint[] {
+  const route: AircraftRouteWaypoint[] = [];
+  for (
+    let index = 0;
+    index <= AircraftRouteMapMetric.GreatCircleSegmentCount;
+    index++
+  ) {
+    const point = gcPoint(
+      origin[0],
+      origin[1],
+      destination[0],
+      destination[1],
+      index / AircraftRouteMapMetric.GreatCircleSegmentCount,
+    );
+    route.push([point.lat, point.lon]);
+  }
+  return route;
+}
+
+function completeRoute(
+  origin: AircraftRouteWaypoint,
+  destination: AircraftRouteWaypoint,
+  waypoints: readonly AircraftRouteWaypoint[] | undefined,
+): readonly AircraftRouteWaypoint[] {
+  return waypoints &&
+    waypoints.length >= AircraftRoutePolylineLimit.MinimumWaypointCount
+    ? waypoints
+    : generatedRoute(origin, destination);
+}
+
+function splitRouteAtAircraft(
+  route: readonly AircraftRouteWaypoint[],
+  latitude: number,
+  longitude: number,
+): SplitRoute {
+  let segmentIndex = 0;
+  let segmentFraction = 0;
+  let nearestDistance = Infinity;
+
+  for (let index = 0; index < route.length - 1; index++) {
+    const startLongitude = route[index]![1];
+    const startLatitude = route[index]![0];
+    const longitudeDelta = route[index + 1]![1] - startLongitude;
+    const latitudeDelta = route[index + 1]![0] - startLatitude;
+    const segmentLength =
+      longitudeDelta * longitudeDelta + latitudeDelta * latitudeDelta;
+    const fraction = segmentLength > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((longitude - startLongitude) * longitudeDelta +
+              (latitude - startLatitude) * latitudeDelta) /
+              segmentLength,
+          ),
+        )
+      : 0;
+    const projectedLongitude = startLongitude + fraction * longitudeDelta;
+    const projectedLatitude = startLatitude + fraction * latitudeDelta;
+    const distance =
+      (longitude - projectedLongitude) ** 2 +
+      (latitude - projectedLatitude) ** 2;
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      segmentIndex = index;
+      segmentFraction = fraction;
+    }
+  }
+
+  const splitLatitude =
+    route[segmentIndex]![0] +
+    segmentFraction *
+      (route[segmentIndex + 1]![0] - route[segmentIndex]![0]);
+  const splitLongitude =
+    route[segmentIndex]![1] +
+    segmentFraction *
+      (route[segmentIndex + 1]![1] - route[segmentIndex]![1]);
+  const splitPoint: AircraftRouteWaypoint = [
+    splitLatitude,
+    splitLongitude,
+  ];
+  return {
+    flown: [...route.slice(0, segmentIndex + 1), splitPoint],
+    remaining: [splitPoint, ...route.slice(segmentIndex + 1)],
+  };
+}
+
+function strokeRoute(
+  context: CanvasRenderingContext2D,
+  project: ProjFn,
+  points: readonly AircraftRouteWaypoint[],
+): void {
+  context.beginPath();
+  let penDown = false;
+  for (const [latitude, longitude] of points) {
+    const point = project(latitude, longitude);
+    if (point.z <= 0) {
+      penDown = false;
+      continue;
+    }
+    if (penDown) context.lineTo(point.x, point.y);
+    else context.moveTo(point.x, point.y);
+    penDown = true;
+  }
+  context.stroke();
+}
+
+function drawRouteWaypoints(
+  context: CanvasRenderingContext2D,
+  project: ProjFn,
+  colors: ThemeColors,
+  waypoints: readonly AircraftRouteWaypoint[] | undefined,
+): void {
+  if (
+    !waypoints ||
+    waypoints.length < AircraftRoutePolylineLimit.MinimumWaypointCount
+  ) {
+    return;
+  }
+
+  context.fillStyle = colors.bright;
+  context.globalAlpha = 0.85;
+  for (const [latitude, longitude] of waypoints) {
+    const point = project(latitude, longitude);
+    if (point.z > 0) {
+      context.beginPath();
+      context.arc(point.x, point.y, 1.1, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+  context.globalAlpha = 1;
+}
+
+function drawPlannedRoute(options: PlannedRouteDrawOptions): void {
+  const route = completeRoute(
+    options.origin,
+    options.destination,
+    options.waypoints,
+  );
+  const split = splitRouteAtAircraft(
+    route,
+    options.latitude,
+    options.longitude,
+  );
+
+  options.context.strokeStyle = options.colors.aircraft;
+  options.context.globalAlpha = 0.3;
+  options.context.lineWidth = 1.5;
+  options.context.setLineDash([3, 3]);
+  strokeRoute(options.context, options.project, split.remaining);
+  options.context.setLineDash([]);
+  options.context.globalAlpha = 0.95;
+  options.context.lineWidth = 2;
+  strokeRoute(options.context, options.project, split.flown);
+  options.context.globalAlpha = 1;
+  drawRouteWaypoints(
+    options.context,
+    options.project,
+    options.colors,
+    options.waypoints,
+  );
+}
+
+function drawRecordedTrail(
+  context: CanvasRenderingContext2D,
+  project: ProjFn,
+  colors: ThemeColors,
+  trail: readonly { lat: number; lon: number }[] | undefined,
+): void {
+  if (
+    !trail ||
+    trail.length < AircraftRoutePolylineLimit.MinimumWaypointCount
+  ) {
+    return;
+  }
+
+  context.strokeStyle = colors.aircraft;
+  context.globalAlpha = 0.9;
+  context.lineWidth = 2;
+  strokeRoute(
+    context,
+    project,
+    trail.map(
+      (point): AircraftRouteWaypoint => [point.lat, point.lon],
+    ),
+  );
+  context.globalAlpha = 1;
+}
+
+function drawAircraftMarker(
+  context: CanvasRenderingContext2D,
+  project: ProjFn,
+  colors: ThemeColors,
+  latitude: number,
+  longitude: number,
+  heading: number | undefined,
+): void {
+  const position = project(latitude, longitude);
+  if (position.z <= 0) return;
+
+  const latitudeRadius = Math.max(0.2, Math.cos(rad(latitude)));
+  const headingPoint = project(
+    latitude + Math.cos(rad(heading ?? 0)) * 0.4,
+    longitude + (Math.sin(rad(heading ?? 0)) * 0.4) / latitudeRadius,
+  );
+  const angle = Math.atan2(
+    headingPoint.y - position.y,
+    headingPoint.x - position.x,
+  );
+  context.save();
+  context.translate(position.x, position.y);
+  context.rotate(angle);
+  context.fillStyle = colors.aircraft;
+  context.strokeStyle = colors.oceanDeep;
+  context.lineWidth = 0.75;
+  context.beginPath();
+  context.moveTo(7, 0);
+  context.lineTo(-5, 4.5);
+  context.lineTo(-2, 0);
+  context.lineTo(-5, -4.5);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function drawRouteEndpoint(
+  context: CanvasRenderingContext2D,
+  project: ProjFn,
+  colors: ThemeColors,
+  code: string,
+  coordinate: AircraftRouteWaypoint,
+): void {
+  const point = project(coordinate[0], coordinate[1]);
+  if (point.z <= 0) return;
+  context.fillStyle = colors.dim;
+  context.beginPath();
+  context.arc(point.x, point.y, 3, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = colors.text;
+  context.fillText(code, point.x, point.y - 6);
+}
+
+function drawAircraftRouteMap(
+  options: AircraftRouteMapDrawOptions,
+): number | null {
+  const width =
+    options.canvas.clientWidth || AircraftRouteMapMetric.WidthPx;
+  const height =
+    options.canvas.clientHeight || AircraftRouteMapMetric.HeightPx;
+  const pixelRatio = window.devicePixelRatio || 1;
+  options.canvas.width = Math.round(width * pixelRatio);
+  options.canvas.height = Math.round(height * pixelRatio);
+  const context = options.canvas.getContext("2d");
+  if (!context) return null;
+
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const frameRadius =
+    Math.min(width, height) / 2 - AircraftRouteMapMetric.PaddingPx;
+  const camera = routeMapCamera(
+    frameRadius,
+    options.origin,
+    options.destination,
+    options.latitude,
+    options.longitude,
+    options.zoom,
+    options.pan,
+  );
+  const project: ProjFn = (latitude, longitude) =>
+    projGlobe(
+      latitude,
+      longitude,
+      centerX,
+      centerY,
+      camera.radius,
+      camera.rotationY,
+      camera.rotationX,
+    );
+
+  context.save();
+  context.beginPath();
+  context.arc(centerX, centerY, camera.radius, 0, Math.PI * 2);
+  context.fillStyle = options.colors.oceanDeep;
+  context.fill();
+  context.clip();
+  drawGrid(context, project, {
+    isFlat: false,
+    accentColor: options.colors.grid,
+  });
+  drawLand(context, project, {
+    colors: options.colors,
+    isFlat: false,
+    horizon: {
+      gcx: centerX,
+      gcy: centerY,
+      gr: camera.radius,
+    },
+  });
+  context.lineCap = CanvasLineStyle.Round;
+  context.lineJoin = CanvasLineStyle.Round;
+
+  if (options.origin && options.destination) {
+    drawPlannedRoute({
+      colors: options.colors,
+      context,
+      destination: options.destination,
+      latitude: options.latitude,
+      longitude: options.longitude,
+      origin: options.origin,
+      project,
+      waypoints: options.waypoints,
+    });
+  } else {
+    drawRecordedTrail(context, project, options.colors, options.trail);
+  }
+  drawAircraftMarker(
+    context,
+    project,
+    options.colors,
+    options.latitude,
+    options.longitude,
+    options.heading,
+  );
+  context.restore();
+
+  context.beginPath();
+  context.arc(centerX, centerY, camera.radius, 0, Math.PI * 2);
+  context.strokeStyle = options.colors.coast;
+  context.globalAlpha = 0.4;
+  context.lineWidth = 1;
+  context.stroke();
+  context.globalAlpha = 1;
+
+  if (options.origin && options.destination) {
+    context.font = "700 11px monospace";
+    context.textAlign = "center";
+    drawRouteEndpoint(
+      context,
+      project,
+      options.colors,
+      options.originCode,
+      options.origin,
+    );
+    drawRouteEndpoint(
+      context,
+      project,
+      options.colors,
+      options.destinationCode,
+      options.destination,
+    );
+  }
+  return camera.radius;
+}
+
 type RouteHud = {
   readonly mach?: string;
   readonly tas?: string;
@@ -63,7 +533,7 @@ export function AircraftRouteMap({
   readonly lat: number;
   readonly lon: number;
   readonly heading?: number;
-  readonly waypoints?: [number, number][];
+  readonly waypoints?: readonly AircraftRouteWaypoint[];
   readonly trail?: readonly { lat: number; lon: number }[];
   readonly hud?: RouteHud;
 }) {
@@ -94,197 +564,23 @@ export function AircraftRouteMap({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const draw = () => {
-      const cssW = canvas.clientWidth || 264;
-      const cssH = canvas.clientHeight || H;
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(cssW * dpr);
-      canvas.height = Math.round(cssH * dpr);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, cssW, cssH);
-
-      const cx = cssW / 2;
-      const cy = cssH / 2;
-      const frameR = Math.min(cssW, cssH) / 2 - PAD;
-
-      // With a flight plan: frame the origin→dest arc. Without one: centre on
-      // the aircraft itself at a fixed close-in zoom so every track still gets
-      // a real basemap.
-      let ry: number;
-      let rx: number;
-      let r: number;
-      if (o && d) {
-        const mid = gcPoint(o[0], o[1], d[0], d[1], 0.5);
-        ry = Math.PI / 2 - rad(mid.lon + 180) + panRef.current.ry;
-        rx = rad(mid.lat) + panRef.current.rx;
-        const arcLen = gcDist(o[0], o[1], d[0], d[1]);
-        r =
-          Math.min(
-            (frameR * 0.8) / Math.max(Math.sin(arcLen / 2), 0.05),
-            frameR * 9,
-          ) * zoom;
-      } else {
-        ry = Math.PI / 2 - rad(lon + 180) + panRef.current.ry;
-        rx = rad(lat) + panRef.current.rx;
-        r = frameR * 4 * zoom;
-      }
-      dimsRef.current.r = r;
-      const proj = (la: number, lo: number) =>
-        projGlobe(la, lo, cx, cy, r, ry, rx);
-
-      // Ocean disc — clip everything that follows to the globe.
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = colors.oceanDeep;
-      ctx.fill();
-      ctx.clip();
-
-      drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
-      drawLand(ctx, proj, colors, false, cx, cy, r);
-
-      // Route: real waypoints if present, else a great circle. Split flown
-      // (solid, aircraft color) from remaining (dashed, dim) at the nearest
-      // route point to the aircraft.
-      const stroke = (pts: [number, number][]) => {
-        ctx.beginPath();
-        let pen = false;
-        for (const [la, lo] of pts) {
-          const p = proj(la, lo);
-          if (p.z > 0) {
-            if (pen) ctx.lineTo(p.x, p.y);
-            else { ctx.moveTo(p.x, p.y); pen = true; }
-          } else pen = false;
-        }
-        ctx.stroke();
-      };
-
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      if (o && d) {
-        let routeFull: [number, number][];
-        if (waypoints && waypoints.length >= 2) {
-          routeFull = waypoints;
-        } else {
-          routeFull = [];
-          for (let i = 0; i <= N; i++) {
-            const g = gcPoint(o[0], o[1], d[0], d[1], i / N);
-            routeFull.push([g.lat, g.lon]);
-          }
-        }
-
-        let segI = 0;
-        let segT = 0;
-        let best = Infinity;
-        for (let i = 0; i < routeFull.length - 1; i++) {
-          const ax = routeFull[i]![1];
-          const ay = routeFull[i]![0];
-          const dx = routeFull[i + 1]![1] - ax;
-          const dy = routeFull[i + 1]![0] - ay;
-          const len2 = dx * dx + dy * dy;
-          let t = len2 > 0 ? ((lon - ax) * dx + (lat - ay) * dy) / len2 : 0;
-          t = Math.max(0, Math.min(1, t));
-          const cxp = ax + t * dx;
-          const cyp = ay + t * dy;
-          const dd = (lon - cxp) ** 2 + (lat - cyp) ** 2;
-          if (dd < best) { best = dd; segI = i; segT = t; }
-        }
-        const splitLat = routeFull[segI]![0] + segT * (routeFull[segI + 1]![0] - routeFull[segI]![0]);
-        const splitLon = routeFull[segI]![1] + segT * (routeFull[segI + 1]![1] - routeFull[segI]![1]);
-        const flown: [number, number][] = [...routeFull.slice(0, segI + 1), [splitLat, splitLon]];
-        const remaining: [number, number][] = [[splitLat, splitLon], ...routeFull.slice(segI + 1)];
-
-        ctx.strokeStyle = colors.aircraft;
-        ctx.globalAlpha = 0.3;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 3]);
-        stroke(remaining);
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 0.95;
-        ctx.lineWidth = 2;
-        stroke(flown);
-        ctx.globalAlpha = 1;
-
-        if (waypoints && waypoints.length >= 2) {
-          ctx.fillStyle = colors.bright;
-          ctx.globalAlpha = 0.85;
-          for (const [la, lo] of waypoints) {
-            const p = proj(la, lo);
-            if (p.z > 0) {
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, 1.1, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          }
-          ctx.globalAlpha = 1;
-        }
-      } else if (trail && trail.length >= 2) {
-        // No flight plan: draw the recorded track as the flown line.
-        ctx.strokeStyle = colors.aircraft;
-        ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 2;
-        stroke(trail.map((p) => [p.lat, p.lon] as [number, number]));
-        ctx.globalAlpha = 1;
-      }
-
-      // Aircraft — triangle pointed along heading (screen-space tangent).
-      const pa = proj(lat, lon);
-      if (pa.z > 0) {
-        const coslat = Math.max(0.2, Math.cos(rad(lat)));
-        const ah = proj(
-          lat + Math.cos(rad(heading ?? 0)) * 0.4,
-          lon + (Math.sin(rad(heading ?? 0)) * 0.4) / coslat,
-        );
-        const ang = Math.atan2(ah.y - pa.y, ah.x - pa.x);
-        ctx.save();
-        ctx.translate(pa.x, pa.y);
-        ctx.rotate(ang);
-        ctx.fillStyle = colors.aircraft;
-        ctx.strokeStyle = colors.oceanDeep;
-        ctx.lineWidth = 0.75;
-        ctx.beginPath();
-        ctx.moveTo(7, 0);
-        ctx.lineTo(-5, 4.5);
-        ctx.lineTo(-2, 0);
-        ctx.lineTo(-5, -4.5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
-      ctx.restore();
-
-      // Globe rim.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = colors.coast;
-      ctx.globalAlpha = 0.4;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // Endpoints + labels — only with a flight plan (outside the clip so
-      // labels aren't cut at the rim).
-      if (o && d) {
-        ctx.font = "700 11px monospace";
-        ctx.textAlign = "center";
-        for (const [code, coord] of [
-          [originCode, o] as const,
-          [destCode, d] as const,
-        ]) {
-          const p = proj(coord[0], coord[1]);
-          if (p.z <= 0) continue;
-          ctx.fillStyle = colors.dim;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = colors.text;
-          ctx.fillText(code, p.x, p.y - 6);
-        }
-      }
+    const draw = (): void => {
+      const radius = drawAircraftRouteMap({
+        canvas,
+        colors,
+        destination: d,
+        destinationCode: destCode,
+        heading,
+        latitude: lat,
+        longitude: lon,
+        origin: o,
+        originCode,
+        pan: panRef.current,
+        trail,
+        waypoints,
+        zoom,
+      });
+      if (radius !== null) dimsRef.current.r = radius;
     };
 
     // Drag to pan (rotate the little globe).
@@ -318,16 +614,16 @@ export function AircraftRouteMap({
     draw();
     const ro = new ResizeObserver(draw);
     ro.observe(canvas);
-    canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
+    canvas.addEventListener(DomEvent.PointerDown, onDown);
+    canvas.addEventListener(DomEvent.PointerMove, onMove);
+    canvas.addEventListener(DomEvent.PointerUp, onUp);
+    canvas.addEventListener(DomEvent.PointerCancel, onUp);
     return () => {
       ro.disconnect();
-      canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener(DomEvent.PointerDown, onDown);
+      canvas.removeEventListener(DomEvent.PointerMove, onMove);
+      canvas.removeEventListener(DomEvent.PointerUp, onUp);
+      canvas.removeEventListener(DomEvent.PointerCancel, onUp);
     };
   }, [o, d, lat, lon, heading, waypoints, trail, land, colors, loaded, originCode, destCode, zoom]);
 
@@ -339,7 +635,7 @@ export function AircraftRouteMap({
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full block rounded border border-sig-border touch-none cursor-grab active:cursor-grabbing"
-        aria-label="Route map — aircraft position and track over coastline"
+        aria-label="Route map: aircraft position and track over coastline"
       />
 
       {hud && (
@@ -352,7 +648,7 @@ export function AircraftRouteMap({
       )}
       <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
         <button
-          type="button"
+          type={ButtonType.Button}
           className={zoomBtn}
           aria-label="Zoom in"
           onClick={() => setZoom((z) => Math.min(8, z * 1.4))}
@@ -360,7 +656,7 @@ export function AircraftRouteMap({
           +
         </button>
         <button
-          type="button"
+          type={ButtonType.Button}
           className={zoomBtn}
           aria-label="Zoom out"
           onClick={() => setZoom((z) => Math.max(0.5, z / 1.4))}
@@ -383,7 +679,7 @@ function HudChip({
 }) {
   return (
     <div
-      className={`absolute z-10 bg-sig-bg/55 border border-sig-border rounded px-1.5 py-0.5 backdrop-blur-sm ${className}`}
+      className={`${AircraftRouteMapClassName.HudChip} ${className}`}
     >
       <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim leading-none">
         {label}

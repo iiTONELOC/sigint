@@ -1,3 +1,4 @@
+import { SourceCompleteness, SourceErrorCode, SourceFreshness, SourcePhase, type SourceId } from "@shared/source";
 import {
   describe,
   test,
@@ -38,7 +39,7 @@ describe("AIRCRAFT_TILES", () => {
     // restrictions in 3 Beijing-region tiles) and added 1 (Hawaii,
     // previously uncovered Pacific hub). Net: 113 → 108. See
     // scripts/probe-aircraft-tiles.ts for the audit method.
-    expect(AIRCRAFT_TILES.length).toBe(108);
+    expect(AIRCRAFT_TILES).toHaveLength(108);
   });
 
   test("every tile has a valid (lat, lon) pair", () => {
@@ -133,7 +134,7 @@ describe("dedupByHex", () => {
       { hex: "def", note: "other" },
       { hex: "abc", note: "later wins" },
     ]);
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
     const found = result.find(
       (r) => (r as { hex: string }).hex.toLowerCase() === "abc",
     );
@@ -142,12 +143,12 @@ describe("dedupByHex", () => {
 
   test("dedupes case-insensitively (AbC and abc are the same aircraft)", () => {
     const result = dedupByHex([{ hex: "AbC" }, { hex: "abc" }]);
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
   });
 
   test("drops records with no hex", () => {
     const result = dedupByHex([{ hex: "abc" }, {}, { hex: "" }, { hex: null }]);
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
   });
 
   test("preserves records with distinct hex", () => {
@@ -157,7 +158,7 @@ describe("dedupByHex", () => {
       { hex: "c3" },
       { hex: "d4" },
     ]);
-    expect(result.length).toBe(4);
+    expect(result).toHaveLength(4);
   });
 });
 
@@ -248,7 +249,7 @@ describe("shuffleTiles", () => {
       [3, 3],
     ];
     const out = shuffleTiles(input);
-    expect(out.length).toBe(input.length);
+    expect(out).toHaveLength(input.length);
     const inputSet = new Set(input.map((t) => `${t[0]},${t[1]}`));
     const outSet = new Set(out.map((t) => `${t[0]},${t[1]}`));
     expect(outSet).toEqual(inputSet);
@@ -359,7 +360,7 @@ describe("fetchTileWithRetry", () => {
     expect(calls).toBe(2);
     expect(result.kind).toBe("failed");
     if (result.kind !== "failed") throw new Error("Expected tile failure");
-    expect(result.error.code).toBe("rate_limited");
+    expect(result.error.code).toBe(SourceErrorCode.RateLimited);
   });
 
   test("reports an HTTP failure without retrying", async () => {
@@ -377,7 +378,7 @@ describe("fetchTileWithRetry", () => {
     expect(sleeps).toEqual([]);
     expect(result.kind).toBe("failed");
     if (result.kind !== "failed") throw new Error("Expected tile failure");
-    expect(result.error.code).toBe("http_error");
+    expect(result.error.code).toBe(SourceErrorCode.HttpError);
   });
 
   test("reports malformed success payloads as failures", async () => {
@@ -390,7 +391,7 @@ describe("fetchTileWithRetry", () => {
     const result = await fetchTileWithRetry(40, -100);
     expect(result.kind).toBe("failed");
     if (result.kind !== "failed") throw new Error("Expected tile failure");
-    expect(result.error.code).toBe("invalid_payload");
+    expect(result.error.code).toBe(SourceErrorCode.InvalidPayload);
   });
 });
 
@@ -427,7 +428,7 @@ describe("sweepTiles", () => {
         : {
             kind: "failed" as const,
             error: {
-              code: "network_error" as const,
+              code: SourceErrorCode.NetworkError,
               message: "offline",
             },
           };
@@ -442,7 +443,7 @@ describe("sweepTiles", () => {
     expect(result.records).toEqual([{ hex: "tile-1" }]);
     expect(result.successfulScopes).toBe(1);
     expect(result.failedScopes).toBe(1);
-    expect(result.error?.code).toBe("network_error");
+    expect(result.error?.code).toBe(SourceErrorCode.NetworkError);
   });
 });
 
@@ -554,7 +555,7 @@ describe("finalizeSweep", () => {
 
     // This sweep only saw the third one
     ingestTile(state, [{ hex: "seen-this-sweep" }, { hex: "new-1" }]);
-    finalizeSweep(state, "complete");
+    finalizeSweep(state, SourceCompleteness.Complete);
 
     expect(state.completed.has("stale-1")).toBe(false);
     expect(state.completed.has("stale-2")).toBe(false);
@@ -566,17 +567,17 @@ describe("finalizeSweep", () => {
     const state = createSweepState();
     state.completed.set("warm-1", { hex: "warm-1" });
     state.completed.set("warm-2", { hex: "warm-2" });
-    finalizeSweep(state, "unknown");
+    finalizeSweep(state, SourceCompleteness.Unknown);
     expect(state.completed.size).toBe(2);
   });
 
   test("resets current for the next sweep so prior tiles do not pollute prune", () => {
     const state = createSweepState();
     ingestTile(state, [{ hex: "a" }, { hex: "b" }]);
-    finalizeSweep(state, "complete");
+    finalizeSweep(state, SourceCompleteness.Complete);
     expect(state.current.size).toBe(0);
     ingestTile(state, [{ hex: "a" }]);
-    finalizeSweep(state, "complete");
+    finalizeSweep(state, SourceCompleteness.Complete);
     expect(state.completed.has("a")).toBe(true);
     expect(state.completed.has("b")).toBe(false);
   });
@@ -611,8 +612,8 @@ describe("runSweep source state", () => {
     const cache = getAircraftCache();
     expect(cache.body).toEqual({ ac: [] });
     expect(cache.aircraftCount).toBe(0);
-    expect(cache.source.phase).toBe("ready");
-    expect(cache.source.completeness).toBe("complete");
+    expect(cache.source.phase).toBe(SourcePhase.Ready);
+    expect(cache.source.completeness).toBe(SourceCompleteness.Complete);
     expect(cache.source.successfulScopes).toBe(AIRCRAFT_TILES.length);
     expect(cache.source.failedScopes).toBe(0);
   });
@@ -636,7 +637,7 @@ describe("runSweep source state", () => {
           : {
               kind: "failed",
               error: {
-                code: "network_error",
+                code: SourceErrorCode.NetworkError,
                 message: "offline",
               },
             };
@@ -647,11 +648,11 @@ describe("runSweep source state", () => {
 
     const cache = getAircraftCache();
     expect(cache.aircraftCount).toBe(1);
-    expect(cache.source.phase).toBe("degraded");
-    expect(cache.source.completeness).toBe("partial");
+    expect(cache.source.phase).toBe(SourcePhase.Degraded);
+    expect(cache.source.completeness).toBe(SourceCompleteness.Partial);
     expect(cache.source.successfulScopes).toBe(1);
     expect(cache.source.failedScopes).toBe(AIRCRAFT_TILES.length - 1);
-    expect(cache.source.error?.code).toBe("network_error");
+    expect(cache.source.error?.code).toBe(SourceErrorCode.NetworkError);
   });
 
   test("an unavailable sweep retains the warm snapshot without inferring absence", async () => {
@@ -668,7 +669,7 @@ describe("runSweep source state", () => {
       async () => ({
         kind: "failed",
         error: {
-          code: "rate_limited",
+          code: SourceErrorCode.RateLimited,
           message: "limited",
         },
       }),
@@ -678,8 +679,8 @@ describe("runSweep source state", () => {
 
     const cache = getAircraftCache();
     expect(cache.aircraftCount).toBe(1);
-    expect(cache.source.phase).toBe("unavailable");
-    expect(cache.source.completeness).toBe("unknown");
+    expect(cache.source.phase).toBe(SourcePhase.Unavailable);
+    expect(cache.source.completeness).toBe(SourceCompleteness.Unknown);
     expect(cache.source.successfulScopes).toBe(0);
     expect(cache.source.failedScopes).toBe(AIRCRAFT_TILES.length);
   });
@@ -693,8 +694,8 @@ describe("getAircraftCache", () => {
     expect(c.fetchedAt).toBe(0);
     expect(c.aircraftCount).toBe(0);
     expect(c.error).toBeNull();
-    expect(c.source.phase).toBe("cold");
-    expect(c.source.freshness).toBe("expired");
-    expect(c.source.completeness).toBe("unknown");
+    expect(c.source.phase).toBe(SourcePhase.Cold);
+    expect(c.source.freshness).toBe(SourceFreshness.Expired);
+    expect(c.source.completeness).toBe(SourceCompleteness.Unknown);
   });
 });

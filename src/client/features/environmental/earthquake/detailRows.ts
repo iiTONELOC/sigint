@@ -1,4 +1,8 @@
-import { relativeAge, formatTimestamp } from "@/lib/format/timeFormat";
+import {
+  AgeStyle,
+  formatTimestamp,
+  relativeAge,
+} from "@/lib/format/timeFormat";
 import type { EarthquakeData } from "./types";
 
 export function buildEarthquakeDetailRows(
@@ -45,7 +49,10 @@ export function buildEarthquakeDetailRows(
 
   if (timestamp) {
     const ts = new Date(timestamp).getTime();
-    rows.push(["Time", `${formatTimestamp(timestamp)} (${relativeAge(ts, "verbose")})`]);
+    rows.push([
+      "Time",
+      `${formatTimestamp(timestamp)} (${relativeAge(ts, AgeStyle.Verbose)})`,
+    ]);
   }
 
   // ── Intel links ─────────────────────────────────────────────────

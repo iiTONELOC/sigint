@@ -6,9 +6,10 @@ import {
   applyColorOverrides,
   getColorMap,
 } from "@/config/theme";
+import { Domain } from "@shared/domain/identity";
 
 // ── WCAG contrast helpers (Hard Rule 15) ───────────────────────────
-// Inline — not added to production code. Computes WCAG 2.x relative
+// Inline, not added to production code. Computes WCAG 2.x relative
 // luminance and the contrast ratio between two sRGB hex colors.
 
 function relativeLuminance(hex: string): number {
@@ -64,8 +65,8 @@ describe("theme config", () => {
   });
 
   test("all color values are valid hex strings", () => {
-    for (const mode of ["dark", "light"] as const) {
-      for (const [key, value] of Object.entries(themes[mode].colors)) {
+    for (const theme of Object.values(themes)) {
+      for (const [key, value] of Object.entries(theme.colors)) {
         expect(value).toMatch(/^#[0-9a-fA-F]{6}$/);
       }
     }
@@ -73,13 +74,13 @@ describe("theme config", () => {
 
   test("LAYER_COLOR_KEYS has 7 entries (adds cyclones in step 2)", () => {
     expect(LAYER_COLOR_KEYS.length).toBe(7);
-    expect(LAYER_COLOR_KEYS).toContain("aircraft");
-    expect(LAYER_COLOR_KEYS).toContain("ships");
-    expect(LAYER_COLOR_KEYS).toContain("events");
-    expect(LAYER_COLOR_KEYS).toContain("quakes");
-    expect(LAYER_COLOR_KEYS).toContain("fires");
-    expect(LAYER_COLOR_KEYS).toContain("weather");
-    expect(LAYER_COLOR_KEYS).toContain("cyclones");
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Aircraft);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Ships);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Events);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Quakes);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Fires);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Weather);
+    expect(LAYER_COLOR_KEYS).toContain(Domain.Cyclones);
   });
 
   test("every layer key has a label", () => {
@@ -123,7 +124,7 @@ describe("theme config", () => {
 
   test("cyclone color uses hurricane red, distinct from events magenta", () => {
     // Original spec used magenta (#ff66cc / #a31a6a) but it collided with
-    // events (#dd44aa / #e62e8a) — only 2-9° hue separation. Hurricane red
+    // events (#dd44aa / #e62e8a), only 2-9° hue separation. Hurricane red
     // gives ~150° separation and matches the meteorological convention for
     // tropical cyclones on radar/satellite displays.
     expect(themes.dark.colors.cyclones).toBe("#ff2b3d");

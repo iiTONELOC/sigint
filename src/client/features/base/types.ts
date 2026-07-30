@@ -1,3 +1,4 @@
+import { type PointType } from "@shared/domain/pointType";
 import type { SourceState } from "@shared/source";
 
 // ── Provider type ────────────────────────────────────────────────
@@ -45,7 +46,7 @@ export type DataProvider<TEntity> = {
 
 export type BasePoint = {
   id: string;
-  type: string;
+  type: PointType;
   lat: number;
   lon: number;
   timestamp?: string;
@@ -53,15 +54,37 @@ export type BasePoint = {
 
 // ── Feature rendering contracts ──────────────────────────────────────
 
+export enum IconStrokeWidth {
+  None = 0,
+  Standard = 2.5,
+}
+
+enum IconFill {
+  Current = "currentColor",
+}
+
+export const STROKED_ICON_PROPS = {
+  strokeWidth: IconStrokeWidth.Standard,
+} as const;
+
+export const FILLED_ICON_PROPS = {
+  fill: IconFill.Current,
+  strokeWidth: IconStrokeWidth.None,
+} as const;
+
 export type TickerRendererProps = {
   data: unknown;
   textColor: string;
   dimColor: string;
 };
 
-export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
+export type FeatureDefinition<
+  TData = unknown,
+  TFilter = unknown,
+  TType extends PointType = PointType,
+> = {
   /** Unique key matching the DataPoint type discriminator */
-  id: string;
+  id: TType;
 
   /** Display metadata */
   label: string;
@@ -69,15 +92,6 @@ export type FeatureDefinition<TData = unknown, TFilter = unknown> = {
 
   /** Icon rendering props — filled icons (aircraft, events) vs stroked */
   iconProps: Record<string, unknown>;
-
-  /** Does this item match the given filter? */
-  matchesFilter: (
-    item: BasePoint & { data: TData },
-    filter: TFilter,
-  ) => boolean;
-
-  /** Default filter state */
-  defaultFilter: TFilter;
 
   /** Build detail panel rows from entity data */
   buildDetailRows: (data: TData, timestamp?: string) => [string, string][];

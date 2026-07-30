@@ -1,4 +1,8 @@
-import { relativeAge, formatTimestamp } from "@/lib/format/timeFormat";
+import {
+  AgeStyle,
+  formatTimestamp,
+  relativeAge,
+} from "@/lib/format/timeFormat";
 import { rampBand, type Band } from "@/lib/format/rampLookup";
 import type { EventData } from "./types";
 
@@ -61,7 +65,10 @@ export function buildEventDetailRows(
 
   if (timestamp) {
     const ts = new Date(timestamp).getTime();
-    rows.push(["Time", `${formatTimestamp(timestamp)} (${relativeAge(ts, "verbose")})`]);
+    rows.push([
+      "Time",
+      `${formatTimestamp(timestamp)} (${relativeAge(ts, AgeStyle.Verbose)})`,
+    ]);
   }
 
   // ── Intel links ─────────────────────────────────────────────────

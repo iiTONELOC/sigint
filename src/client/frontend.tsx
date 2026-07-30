@@ -11,21 +11,16 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./context/ThemeContext";
 import { cacheInit } from "./lib/cache/storageService";
 import { initBaseline } from "./lib/correlation";
-import { initTrails } from "./lib/geo/trailService";
 import { initLand } from "./lib/geo/landService";
 import { initAirports } from "./lib/geo/airportService";
 import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
 import { ensureAuthCookie } from "./lib/net/authService";
+import { registerRenderSurfaceElement } from "./render-surface/registration";
+
+registerRenderSurfaceElement();
 
 // Singleton providers
-import { shipProvider } from "./features/tracking/ships/data/provider";
-import { gdeltProvider } from "./features/intel/events/data/provider";
-import { fireProvider } from "./features/environmental/fires/data/provider";
-import { weatherProvider } from "./features/environmental/weather/data/provider";
-import { earthquakeProvider } from "./features/environmental/earthquake/data/provider";
 import { newsProvider } from "./features/news";
-import { aircraftProvider } from "./features/tracking/aircraft/hooks/useAircraftData";
-import { cycloneProvider } from "./features/environmental/cyclones";
 
 // Fire cacheInit NOW — runs while the rest of the module parses.
 // By the time we await it below, IDB is likely already open.
@@ -70,17 +65,10 @@ if (import.meta.hot) {
   createRoot(elem).render(app);
 }
 
-// Provider list — typed via the shared DataProvider contract, no cast needed.
-const providers = [
-  shipProvider,
-  gdeltProvider,
-  fireProvider,
-  weatherProvider,
-  earthquakeProvider,
-  newsProvider,
-  aircraftProvider,
-  cycloneProvider,
-] as const;
+// News is the last feed React still fetches: it is articles, not points, so
+// it has no DataWorker source. Every point source hydrates and polls in the
+// worker and never appears here.
+const providers = [newsProvider] as const;
 
 type HydrateResult = Awaited<ReturnType<(typeof providers)[number]["hydrate"]>>;
 
@@ -96,21 +84,23 @@ function needsRefresh(result: HydrateResult): boolean {
 // NOT gate hydrate/first paint (hydrate is local IDB, no auth).
 const authReady = ensureAuthCookie().catch(() => {});
 
-// Non-blocking background work — independent of the data feeds.
-Promise.all([initBaseline(), initTrails(), initLand(), initAirports()]).catch(
-  () => {},
-);
+// Started here and awaited at the end of the module, so the three run
+// concurrently and nothing downstream waits on them. Trails are hydrated and
+// recorded by the DataWorker.
+const backgroundReady = Promise.allSettled([
+  initBaseline(),
+  initLand(),
+  initAirports(),
+]);
 
-void cacheReady.then(() => {
-  for (const p of providers) {
-    void (async () => {
-      const hydrated = await p.hydrate().catch(() => null);
-      if (!needsRefresh(hydrated)) return; // fresh cache — already notified
-      await authReady;
-      await p.refresh().catch(() => {});
-    })();
-  }
-});
+async function streamProvider(
+  provider: (typeof providers)[number],
+): Promise<void> {
+  const hydrated = await provider.hydrate().catch(() => null);
+  if (!needsRefresh(hydrated)) return;
+  await authReady;
+  await provider.refresh().catch(() => {});
+}
 
 // Register SW
 registerSW({
@@ -141,3 +131,9 @@ registerSW({
     });
   },
 });
+
+// Last in the module, so nothing above waits on them. providers.map starts
+// every feed at once: no batch barrier, so a slow feed cannot hold a fast one.
+await cacheReady;
+await Promise.allSettled(providers.map(streamProvider));
+await backgroundReady;

@@ -2,6 +2,8 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
+import type { ThemeMode } from "@/config/theme";
+import { Domain } from "@shared/domain/identity";
 
 // ── ThemeContext tests ───────────────────────────────────────────────
 
@@ -117,7 +119,7 @@ describe("ThemeContext", () => {
     });
 
     act(() => {
-      ctx!.setLayerColor("aircraft", "#ff0000");
+      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
     });
 
     expect(ctx!.colorOverrides.dark.aircraft).toBe("#ff0000");
@@ -149,12 +151,12 @@ describe("ThemeContext", () => {
     });
 
     act(() => {
-      ctx!.setLayerColor("aircraft", "#ff0000");
-      ctx!.setLayerColor("ships", "#00ff00");
+      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
+      ctx!.setLayerColor(Domain.Ships, "#00ff00");
     });
 
     act(() => {
-      ctx!.resetLayerColor("aircraft");
+      ctx!.resetLayerColor(Domain.Aircraft);
     });
 
     expect(ctx!.colorOverrides.dark.aircraft).toBeUndefined();
@@ -186,7 +188,7 @@ describe("ThemeContext", () => {
     });
 
     act(() => {
-      ctx!.setLayerColor("aircraft", "#ff0000");
+      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
     });
 
     act(() => {
@@ -321,7 +323,8 @@ describe("ThemeContext", () => {
       );
     });
 
-    for (const m of ["dark", "light", "auto"] as const) {
+    const modes: ThemeMode[] = ["dark", "light", "auto"];
+    for (const m of modes) {
       act(() => {
         ctx!.setMode(m);
       });
@@ -360,7 +363,7 @@ describe("ThemeContext", () => {
     });
 
     act(() => {
-      ctx!.setLayerColor("aircraft", "#ff0000");
+      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
     });
 
     // Override should be on the resolved mode's bucket

@@ -3,7 +3,10 @@ import {
   assessLandfall,
   createLandfallIndex,
 } from "@/features/environmental/cyclones/data/landfall";
-import type { ForecastPoint } from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  type ForecastPoint,
+} from "@/features/environmental/cyclones/types";
 import type { GeoMultiPolygon } from "@shared/geo";
 
 const LAND: GeoMultiPolygon = [
@@ -33,7 +36,7 @@ function forecast(
     lat: latitude,
     lon: longitude,
     maxWindKt: 40,
-    category: "TS",
+    category: Category.TropicalStorm,
     errorRadiusNm: 20,
   };
 }

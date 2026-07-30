@@ -1,3 +1,4 @@
+import { ThemeCssVar } from "@/config/theme";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -64,13 +65,13 @@ const COLOR_KEYWORDS: [RegExp, string][] = [
   [/\bweather\b/gi, "var(--sigint-weather)"],
   [/\bGDELT\b/g, "var(--sigint-events)"],
   [/\bevent(?:s)?\b/gi, "var(--sigint-events)"],
-  [/\bNEWS FEED\b/g, "var(--sigint-accent)"],
-  [/\bALERTS\b/g, "var(--sigint-danger)"],
-  [/\bVIEWS\b/g, "var(--sigint-accent)"],
+  [/\bNEWS FEED\b/g, ThemeCssVar.Accent],
+  [/\bALERTS\b/g, ThemeCssVar.Danger],
+  [/\bVIEWS\b/g, ThemeCssVar.Accent],
   [/\bsave icon\b/gi, "var(--sigint-warn)"],
   [/\bbookmark icon\b/gi, "#e040fb"],
   [/\bVIDEO FEED\b/g, "var(--sigint-warn)"],
-  [/\bINTEL FEED\b/g, "var(--sigint-accent)"],
+  [/\bINTEL FEED\b/g, ThemeCssVar.Accent],
 ];
 
 function colorizeDescription(text: string): React.ReactNode {
