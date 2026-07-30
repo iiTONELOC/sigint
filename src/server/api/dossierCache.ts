@@ -150,78 +150,109 @@ function isHexDbAirport(value: unknown): value is HexDbAirport {
 
 // ── FlightAware types ────────────────────────────────────────────────
 
+type FAflightTimes = {
+  scheduled?: number | null;
+  estimated?: number | null;
+  actual?: number | null;
+};
+
 type FAairport = {
-  iata?: string;
-  icao?: string;
-  friendlyName?: string;
-  friendlyLocation?: string;
-  gate?: string;
+  iata?: string | null;
+  icao?: string | null;
+  friendlyName?: string | null;
+  friendlyLocation?: string | null;
+  gate?: string | null;
 };
 
 type FAflightData = {
   origin: FAairport;
   destination: FAairport;
-  flightStatus?: string;
-  takeoffTimes?: { scheduled?: number; estimated?: number; actual?: number };
-  landingTimes?: { scheduled?: number; estimated?: number; actual?: number };
-  gateDepartureTimes?: { scheduled?: number; estimated?: number; actual?: number };
-  gateArrivalTimes?: { scheduled?: number; estimated?: number; actual?: number };
+  flightStatus?: string | null;
+  takeoffTimes?: FAflightTimes | null;
+  landingTimes?: FAflightTimes | null;
+  gateDepartureTimes?: FAflightTimes | null;
+  gateArrivalTimes?: FAflightTimes | null;
   flightPlan?: {
-    speed?: number;
-    altitude?: number;
-    route?: string;
-    directDistance?: number;
-    plannedDistance?: number;
-    ete?: number;
-  };
-  distance?: { elapsed?: number; remaining?: number; actual?: number };
-  airline?: { fullName?: string; shortName?: string; icao?: string; iata?: string };
-  waypoints?: readonly unknown[];
+    speed?: number | null;
+    altitude?: number | null;
+    route?: string | null;
+    directDistance?: number | null;
+    plannedDistance?: number | null;
+    ete?: number | null;
+  } | null;
+  distance?: {
+    elapsed?: number | null;
+    remaining?: number | null;
+    actual?: number | null;
+  } | null;
+  airline?: {
+    fullName?: string | null;
+    shortName?: string | null;
+    icao?: string | null;
+    iata?: string | null;
+  } | null;
+  waypoints?: readonly unknown[] | null;
 };
+
+function isOptionalFlightAwareString(value: unknown): boolean {
+  return value === undefined ||
+    value === null ||
+    typeof value === "string";
+}
+
+function isOptionalFlightAwareNumber(value: unknown): boolean {
+  return value === undefined ||
+    value === null ||
+    (typeof value === "number" && Number.isFinite(value));
+}
 
 function isFlightTimeSet(value: unknown): boolean {
   return value === undefined ||
+    value === null ||
     (isRecord(value) &&
-      isOptionalNumber(value.scheduled) &&
-      isOptionalNumber(value.estimated) &&
-      isOptionalNumber(value.actual));
+      isOptionalFlightAwareNumber(value.scheduled) &&
+      isOptionalFlightAwareNumber(value.estimated) &&
+      isOptionalFlightAwareNumber(value.actual));
 }
 
 function isFlightAwareAirport(value: unknown): value is FAairport {
   return isRecord(value) &&
-    isOptionalString(value.iata) &&
-    isOptionalString(value.icao) &&
-    isOptionalString(value.friendlyName) &&
-    isOptionalString(value.friendlyLocation) &&
-    isOptionalString(value.gate);
+    isOptionalFlightAwareString(value.iata) &&
+    isOptionalFlightAwareString(value.icao) &&
+    isOptionalFlightAwareString(value.friendlyName) &&
+    isOptionalFlightAwareString(value.friendlyLocation) &&
+    isOptionalFlightAwareString(value.gate);
 }
 
 function isFlightPlan(value: unknown): boolean {
   return value === undefined ||
+    value === null ||
     (isRecord(value) &&
-      isOptionalNumber(value.speed) &&
-      isOptionalNumber(value.altitude) &&
-      isOptionalString(value.route) &&
-      isOptionalNumber(value.directDistance) &&
-      isOptionalNumber(value.plannedDistance) &&
-      isOptionalNumber(value.ete));
+      isOptionalFlightAwareNumber(value.speed) &&
+      isOptionalFlightAwareNumber(value.altitude) &&
+      isOptionalFlightAwareString(value.route) &&
+      isOptionalFlightAwareNumber(value.directDistance) &&
+      isOptionalFlightAwareNumber(value.plannedDistance) &&
+      isOptionalFlightAwareNumber(value.ete));
 }
 
 function isFlightDistance(value: unknown): boolean {
   return value === undefined ||
+    value === null ||
     (isRecord(value) &&
-      isOptionalNumber(value.elapsed) &&
-      isOptionalNumber(value.remaining) &&
-      isOptionalNumber(value.actual));
+      isOptionalFlightAwareNumber(value.elapsed) &&
+      isOptionalFlightAwareNumber(value.remaining) &&
+      isOptionalFlightAwareNumber(value.actual));
 }
 
 function isFlightAirline(value: unknown): boolean {
   return value === undefined ||
+    value === null ||
     (isRecord(value) &&
-      isOptionalString(value.fullName) &&
-      isOptionalString(value.shortName) &&
-      isOptionalString(value.icao) &&
-      isOptionalString(value.iata));
+      isOptionalFlightAwareString(value.fullName) &&
+      isOptionalFlightAwareString(value.shortName) &&
+      isOptionalFlightAwareString(value.icao) &&
+      isOptionalFlightAwareString(value.iata));
 }
 
 function isFlightAwareData(value: unknown): value is FAflightData {
@@ -236,7 +267,11 @@ function isFlightAwareData(value: unknown): value is FAflightData {
     isFlightPlan(value.flightPlan) &&
     isFlightDistance(value.distance) &&
     isFlightAirline(value.airline) &&
-    (value.waypoints === undefined || Array.isArray(value.waypoints));
+    (
+      value.waypoints === undefined ||
+      value.waypoints === null ||
+      Array.isArray(value.waypoints)
+    );
 }
 
 // ── FlightAware scraper ──────────────────────────────────────────────
@@ -285,10 +320,10 @@ function flightAwareWaypoints(
 }
 
 function flightDelay(
-  scheduled: number | undefined,
-  actual: number | undefined,
+  scheduled: number | null | undefined,
+  actual: number | null | undefined,
 ): string | undefined {
-  if (scheduled === undefined || actual === undefined) return undefined;
+  if (scheduled == null || actual == null) return undefined;
   const difference = actual - scheduled;
   return difference > AircraftDossierDelay.MinimumLateSeconds
     ? formatDelay(difference)
@@ -321,17 +356,17 @@ function flightAwareRoute(flight: FAflightData): AircraftRoute {
   return {
     source: AircraftRouteSource.FlightAware,
     origin: {
-      iata: flight.origin.iata,
-      icao: flight.origin.icao,
-      name: flight.origin.friendlyName,
-      city: flight.origin.friendlyLocation,
+      iata: flight.origin.iata ?? undefined,
+      icao: flight.origin.icao ?? undefined,
+      name: flight.origin.friendlyName ?? undefined,
+      city: flight.origin.friendlyLocation ?? undefined,
       gate: flight.origin.gate ?? undefined,
     },
     destination: {
-      iata: flight.destination.iata,
-      icao: flight.destination.icao,
-      name: flight.destination.friendlyName,
-      city: flight.destination.friendlyLocation,
+      iata: flight.destination.iata ?? undefined,
+      icao: flight.destination.icao ?? undefined,
+      name: flight.destination.friendlyName ?? undefined,
+      city: flight.destination.friendlyLocation ?? undefined,
       gate: flight.destination.gate ?? undefined,
     },
     status: flight.flightStatus || undefined,

@@ -17,6 +17,7 @@ import {
 enum AircraftDossierFixture {
   FlightAwareHost = "flightaware.com",
   HexDbHost = "hexdb.io",
+  HexDbRoutePath = "/api/v1/route/icao/",
 }
 
 const originalFetch = globalThis.fetch;
@@ -41,16 +42,46 @@ function flightAwareHtml(): string {
           iata: "JFK",
           icao: "KJFK",
           friendlyName: "John F Kennedy International",
+          friendlyLocation: null,
+          gate: null,
         },
         destination: {
           iata: "LAX",
           icao: "KLAX",
           friendlyName: "Los Angeles International",
+          friendlyLocation: null,
+          gate: null,
         },
         flightStatus: "en route",
         takeoffTimes: {
           scheduled: 1_000,
+          estimated: null,
           actual: 2_000,
+        },
+        landingTimes: {
+          scheduled: 5_000,
+          estimated: null,
+          actual: null,
+        },
+        gateDepartureTimes: null,
+        flightPlan: {
+          speed: 453,
+          altitude: 330,
+          route: "DCT",
+          directDistance: null,
+          plannedDistance: 2_150,
+          ete: null,
+        },
+        distance: {
+          elapsed: null,
+          remaining: 1_800,
+          actual: null,
+        },
+        airline: {
+          fullName: "Example Air",
+          shortName: null,
+          icao: "UAL",
+          iata: null,
         },
         waypoints: [
           [-73.7, 40.6],
@@ -89,10 +120,15 @@ describe("aircraft dossier validation", () => {
 
 describe("aircraft dossier route", () => {
   test("normalizes the provider route through the shared contract", async () => {
+    let staleRouteRequestCount = 0;
     setFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes(AircraftDossierFixture.FlightAwareHost)) {
         return new Response(flightAwareHtml());
+      }
+      if (url.includes(AircraftDossierFixture.HexDbRoutePath)) {
+        staleRouteRequestCount++;
+        return Response.json({ route: "KMCI-KPHX" });
       }
       if (url.includes(AircraftDossierFixture.HexDbHost)) {
         return Response.json({});
@@ -110,5 +146,6 @@ describe("aircraft dossier route", () => {
       [33.9, -118.4],
     ]);
     expect(dossier?.route?.delays?.departure).toBe("17m late");
+    expect(staleRouteRequestCount).toBe(0);
   });
 });
