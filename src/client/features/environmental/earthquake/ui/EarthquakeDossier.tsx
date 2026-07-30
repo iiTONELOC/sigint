@@ -1,12 +1,7 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Activity } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import { estimateMmi, mmiInk } from "../intensity";
 import { useTsunamiAlerts } from "../hooks/useTsunamiAlerts";
 import { QuakeIdentityCard } from "./QuakeIdentityCard";
@@ -18,7 +13,7 @@ import { TsunamiPhysics } from "./TsunamiPhysics";
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: SelectedIsolateMode;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -71,8 +66,8 @@ export function EarthquakeDossier({
             mmi={mmi}
             depthKm={depth}
             location={place}
-            lat={recordLatitude(item)}
-            lon={recordLongitude(item)}
+            lat={item.lat}
+            lon={item.lon}
             felt={felt}
             significance={significance}
             timestamp={item.timestamp}
@@ -92,7 +87,7 @@ export function EarthquakeDossier({
 
           <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
             <Section title="SEISMOGRAM">
-              <Seismogram lat={recordLatitude(item)} lon={recordLongitude(item)} originTimeIso={item.timestamp} mmi={mmi} />
+              <Seismogram lat={item.lat} lon={item.lon} originTimeIso={item.timestamp} mmi={mmi} />
             </Section>
           </section>
 

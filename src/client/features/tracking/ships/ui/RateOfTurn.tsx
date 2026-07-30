@@ -1,7 +1,7 @@
 import { rotLabel } from "../shipMeta";
 
 // Classic bridge rate-of-turn indicator: horizontal scale, port left / stbd
-// right, needle off-center = turning. Raw AIS ROT: -128 unavailable, 0 steady,
+// right, needle off-centre = turning. Raw AIS ROT: -128 unavailable, 0 steady,
 // sign = direction, ±127 = hard (>5°/30s ≈ off-scale).
 const X0 = 30;
 const X1 = 290;

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  RenderMessageType,
-  RenderProtocolVersion,
+  RENDER_PROTOCOL_VERSION,
   acceptRenderHeader,
-  createRenderMessage,
+  createRenderCommand,
   type RenderProtocolHeader,
   type RenderProtocolState,
 } from "@/workers/render/protocol";
@@ -12,7 +11,7 @@ function header(
   overrides: Partial<RenderProtocolHeader> = {},
 ): RenderProtocolHeader {
   return {
-    protocolVersion: RenderProtocolVersion.Current,
+    protocolVersion: RENDER_PROTOCOL_VERSION,
     sessionId: "session-a",
     sequence: 1,
     startsSession: false,
@@ -22,15 +21,9 @@ function header(
 
 describe("render worker protocol", () => {
   test("creates commands from the canonical versioned envelope", () => {
-    expect(
-      createRenderMessage(
-        { type: RenderMessageType.Dispose },
-        "session-a",
-        7,
-      ),
-    ).toEqual({
-      type: RenderMessageType.Dispose,
-      protocolVersion: RenderProtocolVersion.Current,
+    expect(createRenderCommand({ type: "dispose" }, "session-a", 7)).toEqual({
+      type: "dispose",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
       sessionId: "session-a",
       sequence: 7,
     });
@@ -69,10 +62,7 @@ describe("render worker protocol", () => {
     expect(
       acceptRenderHeader(
         state,
-        header({
-          protocolVersion: RenderProtocolVersion.Current + 1,
-          sequence: 5,
-        }),
+        header({ protocolVersion: RENDER_PROTOCOL_VERSION + 1, sequence: 5 }),
       ),
     ).toBe(false);
     expect(

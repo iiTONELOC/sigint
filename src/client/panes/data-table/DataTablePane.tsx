@@ -1,22 +1,15 @@
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import { useState, useMemo, useCallback, useEffect } from "react";
-import type { AriaAttributes } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import type { DataPoint, DataType } from "@/features/base/dataPoints";
+import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry, featureList } from "@/features/registry";
 import { Filter, ArrowUpDown, ArrowUp, ArrowDown, Locate } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
 import { isMobileWidth } from "@/config/breakpoints";
-import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
-import { useSourceTables } from "@/features/base/useSourceTables";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -27,17 +20,8 @@ type SortDir = "asc" | "desc";
 
 const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
-const INITIAL_QUERY_LIMIT = OVERSCAN * 2;
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-type AriaSort = NonNullable<AriaAttributes["aria-sort"]>;
-
-/** Screen readers announce the sort state of the column they land on. */
-function sortDirectionLabel(active: boolean, ascending: boolean): AriaSort {
-  if (!active) return "none";
-  return ascending ? "ascending" : "descending";
-}
 
 function getName(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
@@ -71,7 +55,7 @@ function getValue1(item: DataPoint): string {
     case "events":
       return (d.category as string) || "";
     case "quakes":
-      return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
+      return d.magnitude != null ? `M${d.magnitude}` : "";
     case "fires":
       return (d.confidence as string)?.toUpperCase() || "";
     case "weather":
@@ -155,31 +139,6 @@ function getAge(item: DataPoint): number {
   return Date.now() - new Date(item.timestamp).getTime();
 }
 
-function compareDataPoints(
-  left: DataPoint,
-  right: DataPoint,
-  sortKey: SortKey,
-  sortDir: SortDir,
-): number {
-  let comparison = 0;
-  if (sortKey === "type") comparison = left.type.localeCompare(right.type);
-  else if (sortKey === "name") comparison = getName(left).localeCompare(getName(right));
-  else if (sortKey === "lat")
-    comparison = recordLatitude(left) - recordLatitude(right);
-  else if (sortKey === "lon")
-    comparison = recordLongitude(left) - recordLongitude(right);
-  else if (sortKey === "value1") {
-    comparison =
-      getValue1Num(left) - getValue1Num(right) ||
-      getValue1(left).localeCompare(getValue1(right));
-  } else if (sortKey === "value2") {
-    comparison = getValue2Num(left) - getValue2Num(right);
-  } else {
-    comparison = getAge(left) - getAge(right);
-  }
-  return comparison * (sortDir === "asc" ? 1 : -1);
-}
-
 // ── Column definitions ──────────────────────────────────────────────
 
 const COLUMNS: {
@@ -250,46 +209,70 @@ const COLUMNS: {
 
 export function DataTablePane() {
   const {
+    allData,
+    filters,
     selectedCurrent,
     setSelected,
     selectAndZoom,
     setRevealId,
     colorMap,
-    earthquakeFilter,
-    fireFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [sortKey, setSortKey] = useState<SortKey>("type");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [typeFilter, setTypeFilter] = useState<DataType | null>(null);
-  const [sourcePrefixLimit, setSourcePrefixLimit] =
-    useState(INITIAL_QUERY_LIMIT);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
-  // ── Bounded pages, one per source, computed in the DataWorker ────
+  // ── Filter ──────────────────────────────────────────────────────
 
-  const minValues = useMemo(
-    () => ({
-      earthquake: earthquakeFilter.minMagnitude,
-      fire: fireFilter.minConfidence,
-    }),
-    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
-  );
-  const disabled = useMemo(
-    () => ({
-      earthquake: !earthquakeFilter.enabled,
-      fire: !fireFilter.enabled,
-    }),
-    [earthquakeFilter.enabled, fireFilter.enabled],
-  );
-  const { prefixes, totals, itemCount } = useSourceTables({
-    sortKey,
-    sortDirection: sortDir,
-    limit: sourcePrefixLimit,
-    pointType: typeFilter,
-    minValues,
-    disabled,
-  });
+  const filteredData = useMemo(() => {
+    let items = allData.filter((item) => {
+      const feature = featureRegistry.get(item.type);
+      if (!feature) return false;
+      const filter = filters[item.type];
+      if (filter == null) return false;
+      return feature.matchesFilter(item as any, filter);
+    });
+    if (typeFilter) items = items.filter((item) => item.type === typeFilter);
+    return items;
+  }, [allData, filters, typeFilter]);
+
+  // ── Sort ────────────────────────────────────────────────────────
+
+  const sortedData = useMemo(() => {
+    const sorted = [...filteredData];
+    const dir = sortDir === "asc" ? 1 : -1;
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "type":
+          cmp = a.type.localeCompare(b.type);
+          break;
+        case "name":
+          cmp = getName(a).localeCompare(getName(b));
+          break;
+        case "lat":
+          cmp = a.lat - b.lat;
+          break;
+        case "lon":
+          cmp = a.lon - b.lon;
+          break;
+        case "value1":
+          cmp =
+            getValue1Num(a) - getValue1Num(b) ||
+            getValue1(a).localeCompare(getValue1(b));
+          break;
+        case "value2":
+          cmp = getValue2Num(a) - getValue2Num(b);
+          break;
+        case "age":
+          cmp = getAge(a) - getAge(b);
+          break;
+      }
+      return cmp * dir;
+    });
+    return sorted;
+  }, [filteredData, sortKey, sortDir]);
 
   // ── Virtual scroll ──────────────────────────────────────────────
 
@@ -302,46 +285,38 @@ export function DataTablePane() {
     onScroll,
     scrollToIndex,
   } = useVirtualScroll({
-    itemCount,
+    itemCount: sortedData.length,
     rowHeight: ROW_HEIGHT,
     overscan: OVERSCAN,
   });
 
-  useEffect(() => {
-    if (endIdx > sourcePrefixLimit) setSourcePrefixLimit(endIdx);
-  }, [endIdx, sourcePrefixLimit]);
-
   const visibleItems = useMemo(
-    () =>
-      mergeSortedPrefixes(
-        prefixes,
-        (left, right) => compareDataPoints(left, right, sortKey, sortDir),
-        endIdx,
-      ).slice(startIdx, endIdx),
-    [prefixes, sortKey, sortDir, startIdx, endIdx],
+    () => sortedData.slice(startIdx, endIdx),
+    [sortedData, startIdx, endIdx],
   );
 
   // ── Auto-scroll to selected item ─────────────────────────────────
 
   useEffect(() => {
     if (!selectedCurrent) return;
-    const prefix = mergeSortedPrefixes(
-      prefixes,
-      (left, right) => compareDataPoints(left, right, sortKey, sortDir),
-      sourcePrefixLimit,
-    );
-    const index = prefix.findIndex((item) => item.id === selectedCurrent.id);
-    if (index >= 0) scrollToIndex(index);
-  }, [
-    selectedCurrent?.id,
-    prefixes,
-    sortKey,
-    sortDir,
-    sourcePrefixLimit,
-    scrollToIndex,
-  ]);
+    const idx = sortedData.findIndex((d) => d.id === selectedCurrent.id);
+    if (idx >= 0) scrollToIndex(idx);
+  }, [selectedCurrent?.id, sortedData, scrollToIndex]);
 
-  const featureCounts = totals;
+  // ── Feature counts ──────────────────────────────────────────────
+
+  const featureCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of allData) {
+      const feature = featureRegistry.get(item.type);
+      if (!feature) continue;
+      const filter = filters[item.type];
+      if (filter == null) continue;
+      if (!feature.matchesFilter(item as any, filter)) continue;
+      counts[item.type] = (counts[item.type] ?? 0) + 1;
+    }
+    return counts;
+  }, [allData, filters]);
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -356,11 +331,8 @@ export function DataTablePane() {
     });
   }, []);
 
-  const {
-    handleClick: handleRowClick,
-    handleZoom: handleZoomTo,
-    handleKeyDown: handleRowKeyDown,
-  } = useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
+  const { handleClick: handleRowClick, handleZoom: handleZoomTo } =
+    useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
 
   const isMobileTable =
     typeof window !== "undefined" && isMobileWidth(window.innerWidth);
@@ -423,56 +395,45 @@ export function DataTablePane() {
         })}
         <div className="flex-1" />
         <span className="text-sig-dim text-(length:--sig-text-sm)">
-          {itemCount} items
+          {sortedData.length} items
         </span>
       </div>
 
-      <table className="shrink-0 w-full border-b border-sig-border/40 bg-sig-panel/40 select-none">
-        <thead>
-          <tr
-            className="grid items-center px-2 py-1"
-            style={{ gridTemplateColumns: gridTemplate }}
-          >
-            {visibleColumns.map((col) => {
-              const active = sortKey === col.key;
-              const ascending = active && sortDir === "asc";
-              return (
-                <th
-                  key={col.key}
-                  scope="col"
-                  aria-sort={sortDirectionLabel(active, ascending)}
-                  className={
-                    col.align === "right" ? "text-right" : "text-left"
-                  }
-                >
-                  <Tooltip content={col.tooltip} placement="bottom">
-                    <button
-                      onClick={() => handleSort(col.key)}
-                      className={`w-full flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
-                        active ? "text-sig-accent" : "text-sig-dim"
-                      } ${col.align === "right" ? "justify-end" : "justify-start"}`}
-                    >
-                      {col.shortLabel}
-                      {!active && (
-                        <ArrowUpDown
-                          size={9}
-                          strokeWidth={2}
-                          className="opacity-30"
-                        />
-                      )}
-                      {ascending && <ArrowUp size={10} strokeWidth={2.5} />}
-                      {active && !ascending && (
-                        <ArrowDown size={10} strokeWidth={2.5} />
-                      )}
-                    </button>
-                  </Tooltip>
-                </th>
-              );
-            })}
-            {!isMobileTable && <th scope="col" aria-label="Actions" />}
-          </tr>
-        </thead>
-      </table>
+      {/* Column headers */}
+      <div
+        className="shrink-0 grid items-center px-2 py-1 border-b border-sig-border/40 bg-sig-panel/40 select-none"
+        style={{ gridTemplateColumns: gridTemplate }}
+      >
+        {visibleColumns.map((col) => {
+          const active = sortKey === col.key;
+          return (
+            <Tooltip key={col.key} content={col.tooltip} placement="bottom">
+              <button
+                onClick={() => handleSort(col.key)}
+                className={`flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
+                  active ? "text-sig-accent" : "text-sig-dim"
+                } ${col.align === "right" ? "justify-end" : "justify-start"}`}
+              >
+                {col.shortLabel}
+                {active ? (
+                  sortDir === "asc" ? (
+                    <ArrowUp size={10} strokeWidth={2.5} />
+                  ) : (
+                    <ArrowDown size={10} strokeWidth={2.5} />
+                  )
+                ) : (
+                  <ArrowUpDown
+                    size={9}
+                    strokeWidth={2}
+                    className="opacity-30"
+                  />
+                )}
+              </button>
+            </Tooltip>
+          );
+        })}
+        {!isMobileTable && <div />}
+      </div>
 
       {/* Virtual scrolling rows */}
       <div
@@ -480,15 +441,11 @@ export function DataTablePane() {
         onScroll={onScroll}
         className="flex-1 overflow-y-auto sigint-scroll"
       >
-        <table className="w-full">
-          <tbody
-            style={{
-              display: "block",
-              height: totalHeight,
-              position: "relative",
-            }}
+        <div style={{ height: totalHeight, position: "relative" }}>
+          <div
+            style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
           >
-            {visibleItems.map((item, index) => {
+            {visibleItems.map((item) => {
               const color = colorMap[item.type] ?? theme.colors.dim;
               const isSelected = selectedCurrent?.id === item.id;
               const feature = featureRegistry.get(item.type);
@@ -496,11 +453,9 @@ export function DataTablePane() {
               const Icon = feature.icon;
 
               return (
-                <tr
+                <div
                   key={item.id}
-                  tabIndex={0}
                   onClick={() => handleRowClick(item)}
-                  onKeyDown={(e) => handleRowKeyDown(item, e)}
                   className={`grid items-center px-2 border-b border-sig-border/20 cursor-pointer transition-colors ${
                     isSelected
                       ? "bg-sig-accent/15 border-l-2 border-l-sig-accent"
@@ -509,13 +464,9 @@ export function DataTablePane() {
                   style={{
                     gridTemplateColumns: gridTemplate,
                     height: ROW_HEIGHT,
-                    position: "absolute",
-                    top: offsetY + index * ROW_HEIGHT,
-                    left: 0,
-                    right: 0,
                   }}
                 >
-                  <td className="flex items-center gap-1 overflow-hidden">
+                  <div className="flex items-center gap-1 overflow-hidden">
                     <Icon
                       size={11}
                       strokeWidth={2.5}
@@ -528,31 +479,31 @@ export function DataTablePane() {
                     >
                       {typeAbbr[item.type] ?? item.type}
                     </span>
-                  </td>
-                  <td className="truncate text-sig-bright text-(length:--sig-text-md)">
+                  </div>
+                  <div className="truncate text-sig-bright text-(length:--sig-text-md)">
                     {getName(item)}
-                  </td>
+                  </div>
                   {!isMobileTable && (
-                    <td className="truncate text-sig-text text-(length:--sig-text-sm)">
+                    <div className="truncate text-sig-text text-(length:--sig-text-sm)">
                       {getValue1(item)}
-                    </td>
+                    </div>
                   )}
-                  <td className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
+                  <div className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
                     {getValue2(item)}
-                  </td>
-                  <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
-                    {recordLatitude(item).toFixed(2)}
-                  </td>
+                  </div>
+                  <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
+                    {item.lat.toFixed(2)}
+                  </div>
                   {!isMobileTable && (
-                    <td className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
-                      {recordLongitude(item).toFixed(2)}
-                    </td>
+                    <div className="text-right text-sig-dim text-(length:--sig-text-sm) tabular-nums">
+                      {item.lon.toFixed(2)}
+                    </div>
                   )}
-                  <td className="text-right text-sig-dim text-(length:--sig-text-sm)">
+                  <div className="text-right text-sig-dim text-(length:--sig-text-sm)">
                     {relativeAge(item.timestamp)}
-                  </td>
+                  </div>
                   {!isMobileTable && (
-                    <td className="flex justify-center">
+                    <div className="flex justify-center">
                       <button
                         onClick={(e) => handleZoomTo(item, e)}
                         className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
@@ -560,14 +511,14 @@ export function DataTablePane() {
                       >
                         <Locate size={11} strokeWidth={2.5} />
                       </button>
-                    </td>
+                    </div>
                   )}
-                </tr>
+                </div>
               );
             })}
-          </tbody>
-        </table>
-        {itemCount === 0 && (
+          </div>
+        </div>
+        {sortedData.length === 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
             No data matching filters
           </div>

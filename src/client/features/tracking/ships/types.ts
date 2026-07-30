@@ -1,11 +1,3 @@
-export enum AisHeading {
-  Unavailable = 511,
-}
-
-export enum ShipDataLabel {
-  Unknown = "Unknown",
-}
-
 export type ShipData = {
   mmsi?: number;
   imo?: number;

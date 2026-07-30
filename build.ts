@@ -2,7 +2,7 @@
 import path from "path";
 import { existsSync } from "fs";
 import plugin from "bun-plugin-tailwind";
-import { rm } from "fs/promises";
+import { copyFile, mkdir, rm } from "fs/promises";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(`
@@ -153,7 +153,7 @@ const workerResult = await Bun.build({
     path.resolve("src/client/workers/dataWorker.ts"),
     path.resolve("src/client/workers/pointWorker.ts"),
   ],
-  outdir: path.join(outdir, "workers"),
+  outdir: path.resolve("public/workers"),
   naming: "[name].js",
   target: "browser",
   format: "esm",

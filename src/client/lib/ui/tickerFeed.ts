@@ -1,66 +1,131 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { featureRegistry } from "@/features/registry";
 
-export const TICKER_ITEM_LIMIT = 80;
-
-export type TickerPage = Readonly<{
-  items: readonly DataPoint[];
-  priorityCount: number;
-}>;
-
-function collectPriority(pages: readonly TickerPage[]): DataPoint[] {
-  const leading: DataPoint[] = [];
-  for (const page of pages) {
-    for (const item of page.items.slice(0, page.priorityCount)) {
-      if (leading.length >= TICKER_ITEM_LIMIT) return leading;
-      leading.push(item);
-    }
-  }
-  return leading;
+function isEmergencyAircraft(item: DataPoint): boolean {
+  if (item.type !== "aircraft") return false;
+  const sq = (item.data as any)?.squawk ?? "";
+  return sq === "7700" || sq === "7600" || sq === "7500";
 }
 
-function interleaveRemainder(
-  pages: readonly TickerPage[],
-  result: DataPoint[],
-): void {
-  const cursors = pages.map((page) => page.priorityCount);
-  let added = true;
-  while (added && result.length < TICKER_ITEM_LIMIT) {
-    added = false;
-    for (const [index, page] of pages.entries()) {
-      if (result.length >= TICKER_ITEM_LIMIT) return;
-      const cursor = cursors[index] ?? 0;
-      const item = page.items[cursor];
-      if (!item) continue;
+function isMoving(item: DataPoint): boolean {
+  if (item.type === "aircraft") {
+    // Emergency aircraft always show regardless
+    if (isEmergencyAircraft(item)) return true;
+    return (item.data as any)?.onGround !== true;
+  }
+  if (item.type === "ships") {
+    const sog = (item.data as any)?.sog ?? 0;
+    return sog >= 0.5;
+  }
+  // Events and quakes always show
+  return true;
+}
+
+function getTimestamp(item: DataPoint): number {
+  if (item.timestamp) {
+    const t = new Date(item.timestamp).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+const TICKER_SIZE = 80;
+const TYPE_ORDER = [
+  "aircraft",
+  "ships",
+  "events",
+  "quakes",
+  "fires",
+  "weather",
+  "cyclones",
+];
+
+/**
+ * Build ticker items — newest first, interleaved across all active types.
+ * Emergency aircraft always lead. Then round-robin newest from each type.
+ * Grounded aircraft and moored ships (sog < 0.5) are excluded.
+ */
+export function buildTickerItems(allData: DataPoint[]): DataPoint[] {
+  // Bucket by type, sorted by recency within each bucket
+  const byType = new Map<string, DataPoint[]>();
+  for (const type of TYPE_ORDER) byType.set(type, []);
+
+  for (const item of allData) {
+    if (!featureRegistry.has(item.type)) continue;
+    if (!isMoving(item)) continue;
+    byType.get(item.type)?.push(item);
+  }
+
+  // Parse each timestamp ONCE. byRecency used to call new Date() inside the
+  // sort comparator — O(n log n) date parses per bucket, ~1M for 35k fires,
+  // synchronous on every poll. Cache the number, then sort on it.
+  const tsOf = new Map<DataPoint, number>();
+  for (const items of byType.values()) {
+    for (const item of items) tsOf.set(item, getTimestamp(item));
+  }
+  for (const items of byType.values()) {
+    items.sort((a, b) => tsOf.get(b)! - tsOf.get(a)!);
+  }
+
+  const result: DataPoint[] = [];
+  const usedIds = new Set<string>();
+
+  // Emergency aircraft always first
+  const aircraft = byType.get("aircraft") ?? [];
+  for (const item of aircraft) {
+    if (isEmergencyAircraft(item) && result.length < TICKER_SIZE) {
       result.push(item);
-      cursors[index] = cursor + 1;
+      usedIds.add(item.id);
+    }
+  }
+
+  // Build index per type (skip already-used emergencies)
+  const indices = new Map<string, number>();
+  for (const type of TYPE_ORDER) {
+    if (type === "aircraft") {
+      // Find first non-emergency
+      const list = byType.get(type) ?? [];
+      let startIdx = 0;
+      while (startIdx < list.length && usedIds.has(list[startIdx]!.id)) {
+        startIdx++;
+      }
+      indices.set(type, startIdx);
+    } else {
+      indices.set(type, 0);
+    }
+  }
+
+  // Round-robin: take one from each type that has data, repeat
+  while (result.length < TICKER_SIZE) {
+    let added = false;
+    for (const type of TYPE_ORDER) {
+      if (result.length >= TICKER_SIZE) break;
+      const queue = byType.get(type);
+      if (!queue) continue;
+      let idx = indices.get(type) ?? 0;
+
+      // Skip used items
+      while (idx < queue.length && usedIds.has(queue[idx]!.id)) idx++;
+      if (idx >= queue.length) continue;
+
+      result.push(queue[idx]!);
+      usedIds.add(queue[idx]!.id);
+      indices.set(type, idx + 1);
       added = true;
     }
+    // All queues exhausted
+    if (!added) break;
   }
-}
 
-function randomBelow(bound: number): number {
-  const draw = new Uint32Array(1);
-  crypto.getRandomValues(draw);
-  return (draw[0] ?? 0) % bound;
-}
-
-function shuffleInPlace(items: DataPoint[]): void {
-  for (let index = items.length - 1; index > 0; index--) {
-    const swapIndex = randomBelow(index + 1);
-    const current = items[index];
-    const swap = items[swapIndex];
-    if (!current || !swap) continue;
-    items[index] = swap;
-    items[swapIndex] = current;
+  // Shuffle non-emergency items so the feed feels varied each refresh
+  // Keep emergencies at the front
+  const emergencyCount = result.findIndex((item) => !isEmergencyAircraft(item));
+  const start = emergencyCount < 0 ? result.length : emergencyCount;
+  const rest = result.slice(start);
+  // Fisher-Yates shuffle
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
   }
-}
-
-export function mergeTickerPages(pages: readonly TickerPage[]): DataPoint[] {
-  const leading = collectPriority(pages);
-  const result = [...leading];
-  interleaveRemainder(pages, result);
-
-  const tail = result.slice(leading.length);
-  shuffleInPlace(tail);
-  return [...leading, ...tail];
+  return [...result.slice(0, start), ...rest];
 }

@@ -12,7 +12,6 @@ import {
   stepCamera,
 } from "@/workers/render/camera";
 import { CAMERA_POLICY } from "@/workers/render/policy";
-import { RenderFocusKind } from "@/workers/render/protocol";
 
 const viewport = { width: 1_000, height: 700 };
 
@@ -40,14 +39,12 @@ describe("render worker camera", () => {
       camera,
       target,
       pointer,
-      {
-        viewport,
-        flat: false,
-        autoRotate: false,
-        rotationSpeed: 1,
-        selectedPosition: null,
-        deltaMilliseconds: CAMERA_POLICY.nominalFrameMs,
-      },
+      viewport,
+      false,
+      false,
+      1,
+      null,
+      CAMERA_POLICY.nominalFrameMs,
     )).toBe(true);
     expect(camera.velocityY).toBeLessThan(velocity);
   });
@@ -86,33 +83,11 @@ describe("render worker camera", () => {
       position,
       viewport,
       false,
-      RenderFocusKind.Focus,
+      "focus",
     );
 
     expect(target.lockedId).toBe(position.id);
     expect(target.zoom).toBe(CAMERA_POLICY.globeFocusZoom);
-    expect(target.active).toBe(true);
-  });
-
-  it("reveals without locking the camera", () => {
-    const camera = createWorkerCameraState();
-    const target = createWorkerCameraTarget();
-
-    focusCamera(
-      camera,
-      target,
-      {
-        id: "storm",
-        latitude: 28.6,
-        longitude: -86,
-      },
-      viewport,
-      false,
-      RenderFocusKind.Reveal,
-    );
-
-    expect(target.lockedId).toBeNull();
-    expect(target.zoom).toBe(CAMERA_POLICY.revealGlobeZoom);
     expect(target.active).toBe(true);
   });
 
@@ -125,14 +100,12 @@ describe("render worker camera", () => {
       camera,
       target,
       pointer,
-      {
-        viewport,
-        flat: false,
-        autoRotate: false,
-        rotationSpeed: 1,
-        selectedPosition: null,
-        deltaMilliseconds: CAMERA_POLICY.nominalFrameMs,
-      },
+      viewport,
+      false,
+      false,
+      1,
+      null,
+      CAMERA_POLICY.nominalFrameMs,
     )).toBe(false);
   });
 });

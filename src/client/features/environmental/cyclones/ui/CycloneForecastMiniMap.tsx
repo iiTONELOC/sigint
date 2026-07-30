@@ -9,9 +9,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getLand, enrichLand } from "@/lib/geo/landService";
-import { projectGeographicPoint as projGlobe } from "@/lib/geo/unitSphere";
-import { drawLand } from "@/lib/geo/render/land";
-import { drawGrid } from "@/lib/geo/render/grid";
+import { projGlobe } from "@/components/globe/projection";
+import { drawLand } from "@/components/globe/landRenderer";
+import { drawGrid } from "@/components/globe/gridRenderer";
 import type { ForecastPoint, PastTrackPoint, WindRadii, ModelTrack } from "../types";
 import { windColor, modelColor, categoryShort, SAFFIR_LEGEND } from "../classification";
 import {
@@ -57,7 +57,7 @@ export function CycloneForecastMiniMap({
   const [zoom, setZoom] = useState(1);
   const colors = theme.colors;
 
-  // Frame the whole track (past + forecast) so it fits, recentered on its midpoint.
+  // Frame the whole track (past + forecast) so it fits, recentred on its midpoint.
   const all = [
     ...(pastTrack ?? []).map((p) => ({ lat: p.lat, lon: p.lon })),
     { lat: current.lat, lon: current.lon },
@@ -114,11 +114,7 @@ export function CycloneForecastMiniMap({
       ctx.clip();
 
       drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
-      drawLand(ctx, proj, {
-        colors,
-        isFlat: false,
-        horizon: { gcx: cx, gcy: cy, gr: r },
-      });
+      drawLand(ctx, proj, colors, false, cx, cy, r);
 
       // Cone + track use the storm's Saffir-Simpson category color (matches the
       // rest of the dossier), not the generic cyclones-layer red.

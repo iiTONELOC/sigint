@@ -1,23 +1,8 @@
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useCallback,
-  useReducer,
-  useRef,
-} from "react";
-import { Domain } from "@shared/domain/identity";
-import { MS_PER_SECOND } from "@shared/time";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { useData } from "@/context/DataContext";
 import { cacheGet } from "@/lib/cache/storageService";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { DomEvent } from "@/lib/runtime/domEvent";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { useUnitsMode } from "@/lib/ui/userPreferences";
 
 import type { DataPoint } from "@/features/base/dataPoints";
@@ -29,42 +14,18 @@ type TickerProps = {
   readonly compact?: boolean;
 };
 
-/** The slider policy: bounds, step, label thresholds, and the default. */
-export enum TickerSpeedPolicy {
-  Stopped = 0,
-  SliderStep = 5,
-  Default = 10,
-  SlowMax = 25,
-  NormalMax = 60,
-  Max = 100,
-}
+// ── Config ──────────────────────────────────────────────────────────
 
-enum TickerPolicy {
-  ItemWidthDesktopPx = 280,
-  ItemWidthMobilePx = 220,
-  GapPx = 8,
-  StoppedSwapMs = 8000,
-  SpeedPollMs = 1000,
-  AgeRefreshMs = 30000,
-  MobileMaxWidthPx = 640,
-  FallbackViewportPx = 1200,
-  CompactIconPx = 11,
-}
-
-enum TickerBuffer {
-  FallbackCount = 8,
-  SlackCount = 2,
-}
-
-const SUMMARY_SEPARATOR = " · ";
-const SUMMARY_COORD_DECIMALS = 2;
-const UNKNOWN_LABEL = "Unknown";
-const COMPACT_SUMMARY_PARTS = 2;
+const ITEM_WIDTH_DESKTOP = 280;
+const ITEM_WIDTH_MOBILE = 220;
+const GAP = 8;
+const STOPPED_SWAP_MS = 8000; // when speed=0, swap visible set every 8s
 
 // ── Speed setting (persisted to IndexedDB) ──────────────────────────
+// 0 = stopped, 25 = slow, 50 = normal, 100 = fast
 
 function useTickerSpeed(): number {
-  const [speed, setSpeed] = useState<number>(TickerSpeedPolicy.Default);
+  const [speed, setSpeed] = useState(10);
 
   // Load from cache + poll for external changes
   useEffect(() => {
@@ -76,7 +37,7 @@ function useTickerSpeed(): number {
       const saved = await cacheGet<number>(CACHE_KEYS.tickerSpeed);
       if (mounted && typeof saved === "number" && saved !== speed)
         setSpeed(saved);
-    }, TickerPolicy.SpeedPollMs);
+    }, 1000);
     return () => {
       mounted = false;
       clearInterval(iv);
@@ -88,52 +49,40 @@ function useTickerSpeed(): number {
 
 // ── Summary text ────────────────────────────────────────────────────
 
-function summaryLead(item: DataPoint): string[] {
-  switch (item.type) {
-    case Domain.Aircraft: {
-      const lead = [
-        item.data.callsign?.trim() || item.data.icao24 || UNKNOWN_LABEL,
-      ];
-      if (item.data.acType && item.data.acType !== UNKNOWN_LABEL) {
-        lead.push(item.data.acType);
-      }
-      if (item.data.originCountry) lead.push(item.data.originCountry);
-      return lead;
-    }
-    case Domain.Ships:
-      return [item.data.name || "Unknown vessel"];
-    case Domain.Events:
-      return [item.data.headline || "Event"];
-    case Domain.Quakes: {
-      const lead = [item.data.location || "Quake"];
-      if (item.data.magnitude != null) lead.push(`M${item.data.magnitude}`);
-      return lead;
-    }
-    case Domain.Fires: {
-      const lead = ["Fire hotspot"];
-      if (item.data.frp != null) lead.push(`FRP ${item.data.frp} MW`);
-      return lead;
-    }
-    case Domain.Weather:
-      return [item.data.event || "Weather alert"];
-    default:
-      return [];
-  }
-}
-
 function tickerSummary(item: DataPoint): string {
-  return [
-    ...summaryLead(item),
-    `${formatLat(recordLatitude(item), SUMMARY_COORD_DECIMALS)}, ${formatLon(recordLongitude(item), SUMMARY_COORD_DECIMALS)}`,
-  ].join(SUMMARY_SEPARATOR);
+  const d = item.data as Record<string, unknown>;
+  const parts: string[] = [];
+  if (item.type === "aircraft") {
+    parts.push(
+      (d.callsign as string)?.trim() || (d.icao24 as string) || "Unknown",
+    );
+    if (d.acType && d.acType !== "Unknown") parts.push(d.acType as string);
+    if (d.originCountry) parts.push(d.originCountry as string);
+  } else if (item.type === "ships") {
+    parts.push((d.name as string) || "Unknown vessel");
+  } else if (item.type === "events") {
+    parts.push((d.headline as string) || "Event");
+  } else if (item.type === "quakes") {
+    parts.push((d.location as string) || "Quake");
+    if (d.magnitude != null) parts.push(`M${d.magnitude}`);
+  } else if (item.type === "fires") {
+    parts.push("Fire hotspot");
+    if (d.frp != null) parts.push(`FRP ${d.frp} MW`);
+  } else if (item.type === "weather") {
+    parts.push((d.event as string) || "Weather alert");
+  }
+  parts.push(
+    `${Math.abs(item.lat).toFixed(2)}°${item.lat >= 0 ? "N" : "S"}, ${Math.abs(item.lon).toFixed(2)}°${item.lon >= 0 ? "E" : "W"}`,
+  );
+  return parts.join(" · ");
 }
 
 // ── Age refresh ─────────────────────────────────────────────────────
 
 function useAgeRefresh() {
-  const [, refresh] = useReducer((count: number) => count + 1, 0);
+  const [, setTick] = useState(0);
   useEffect(() => {
-    const iv = setInterval(refresh, TickerPolicy.AgeRefreshMs);
+    const iv = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(iv);
   }, []);
 }
@@ -143,17 +92,16 @@ function useAgeRefresh() {
 function useItemWidth(): number {
   const getW = useCallback(
     () =>
-      typeof window !== "undefined" &&
-      window.innerWidth < TickerPolicy.MobileMaxWidthPx
-        ? TickerPolicy.ItemWidthMobilePx
-        : TickerPolicy.ItemWidthDesktopPx,
+      typeof window !== "undefined" && window.innerWidth < 640
+        ? ITEM_WIDTH_MOBILE
+        : ITEM_WIDTH_DESKTOP,
     [],
   );
-  const [w, setW] = useState<number>(getW);
+  const [w, setW] = useState(getW);
   useEffect(() => {
     const onResize = () => setW(getW());
-    window.addEventListener(`${DomEvent.Resize}`, onResize);
-    return () => window.removeEventListener(`${DomEvent.Resize}`, onResize);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, [getW]);
   return w;
 }
@@ -166,20 +114,18 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const { theme } = useTheme();
   const C = theme.colors;
   const baseItemWidth = useItemWidth();
-  const itemWidth = compact ? TickerPolicy.ItemWidthMobilePx : baseItemWidth;
+  const itemWidth = compact ? ITEM_WIDTH_MOBILE : baseItemWidth;
   const speed = useTickerSpeed();
   useUnitsMode(); // re-render ticker items when the units pref flips
 
   useAgeRefresh();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const step = itemWidth + TickerPolicy.GapPx;
+  const step = itemWidth + GAP;
 
   // Track container width so bufferCount updates when viewport resizes
-  const [containerWidth, setContainerWidth] = useState<number>(
-    typeof window !== "undefined"
-      ? window.innerWidth
-      : TickerPolicy.FallbackViewportPx,
+  const [containerWidth, setContainerWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1200,
   );
   useEffect(() => {
     const el = containerRef.current;
@@ -193,13 +139,13 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     return () => obs.disconnect();
   }, []);
 
-  // How many items fill the container + slack
+  // How many items fill the container + 2 buffer
   const bufferCount = useMemo(() => {
-    if (containerWidth <= 0) return TickerBuffer.FallbackCount;
-    return Math.ceil(containerWidth / step) + TickerBuffer.SlackCount;
+    if (containerWidth <= 0) return 8;
+    return Math.ceil(containerWidth / step) + 2;
   }, [step, containerWidth]);
 
-  // Stable ref to items, prevents a jump on data refresh
+  // Stable ref to items — prevents spaz on data refresh
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -207,7 +153,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const offsetRef = useRef(0);
   const [offset, setOffset] = useState(0);
 
-  // Scroll position: ref for rAF, state for render
+  // Scroll position — use ref for rAF, state for render
   const scrollXRef = useRef(0);
   const [scrollX, setScrollX] = useState(0);
 
@@ -223,12 +169,12 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
 
     const tick = (now: number) => {
       if (lastTimeRef.current === 0) lastTimeRef.current = now;
-      const dt = (now - lastTimeRef.current) / MS_PER_SECOND;
+      const dt = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
 
       const currentSpeed = speedRef.current;
 
-      if (!pausedRef.current && currentSpeed > TickerSpeedPolicy.Stopped) {
+      if (!pausedRef.current && currentSpeed > 0) {
         scrollXRef.current += currentSpeed * dt;
 
         // Recycle when first item exits left
@@ -251,9 +197,9 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     };
   }, [items.length, step]);
 
-  // ── Stopped mode: swap the visible set periodically ─────────────
+  // ── Stopped mode (speed === 0): swap visible set periodically ───
   useEffect(() => {
-    if (speed !== TickerSpeedPolicy.Stopped || items.length === 0) return;
+    if (speed !== 0 || items.length === 0) return;
 
     // Reset scroll position when stopping
     scrollXRef.current = 0;
@@ -262,7 +208,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     const iv = setInterval(() => {
       offsetRef.current += bufferCount;
       setOffset(offsetRef.current);
-    }, TickerPolicy.StoppedSwapMs);
+    }, STOPPED_SWAP_MS);
     return () => clearInterval(iv);
   }, [speed, items.length, bufferCount]);
 
@@ -275,7 +221,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     lastTimeRef.current = 0;
   }, []);
 
-  // Build visible items from itemsRef.current so data refreshes
+  // Build visible items — uses itemsRef.current so data refreshes
   // don't cause a layout jump (offset stays stable)
   const visible = useMemo(() => {
     const pool = itemsRef.current;
@@ -298,7 +244,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
         className="flex"
         style={{
           transform: `translate3d(-${scrollX}px, 0, 0)`,
-          gap: TickerPolicy.GapPx,
+          gap: GAP,
           willChange: "transform",
         }}
       >
@@ -312,12 +258,11 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
           const isSelected = selectedId && item.id === selectedId;
 
           return (
-            <button
-              type="button"
+            <div
               key={slotKey}
               onClick={() => selectAndZoom(item)}
               title={tickerSummary(item)}
-              className={`shrink-0 rounded overflow-hidden border cursor-pointer text-left ${
+              className={`shrink-0 rounded overflow-hidden border cursor-pointer ${
                 isSelected
                   ? "bg-sig-accent/15 border-sig-accent/50"
                   : "bg-sig-panel/80 border-sig-border hover:bg-sig-panel hover:border-sig-accent/30 hover:shadow-[0_0_8px_rgba(0,212,240,0.08)]"
@@ -330,7 +275,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
               {/* Compact single-line mode */}
               <div className={compact ? "flex items-center gap-1.5 px-2 py-1 min-h-8" : "md:hidden flex items-center gap-1.5 px-2 py-1 min-h-8"}>
                 <Icon
-                  size={TickerPolicy.CompactIconPx}
+                  size={11}
                   style={{ color }}
                   className="shrink-0"
                   {...feature.iconProps}
@@ -339,10 +284,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                   className="text-(length:--sig-text-sm) font-semibold tracking-wider truncate"
                   style={{ color }}
                 >
-                  {tickerSummary(item)
-                    .split(SUMMARY_SEPARATOR)
-                    .slice(0, COMPACT_SUMMARY_PARTS)
-                    .join(SUMMARY_SEPARATOR)}
+                  {tickerSummary(item).split(" · ").slice(0, 2).join(" · ")}
                 </span>
                 <span className="ml-auto text-sig-dim text-(length:--sig-text-xs) shrink-0">
                   {relativeAge(item.timestamp)}
@@ -366,13 +308,13 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                 </div>
 
                 <TickerContent
-                  data={item.data}
+                  data={(item as any).data ?? {}}
                   textColor={C.text}
                   dimColor={C.dim}
                 />
               </div>
               )}
-            </button>
+            </div>
           );
         })}
       </div>

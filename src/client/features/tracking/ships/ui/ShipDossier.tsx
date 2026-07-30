@@ -1,127 +1,49 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Ship, ExternalLink, LocateFixed } from "lucide-react";
 import type { CSSProperties } from "react";
-import type {
-  ShipPoint,
-} from "@/features/tracking/ships/data/codec";
+import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatKtMph } from "@/lib/format/units";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
-import { useTrail } from "@/features/base/useTrail";
-import { Domain } from "@shared/domain/identity";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
+import { relativeAge } from "@/lib/format/timeFormat";
+import { getTrail } from "@/lib/geo/trailService";
 import { DossierToolbar, mmsiCountry, useDossierFocus } from "@/panes/dossier/DossierAtoms";
-import { DossierFallback } from "@/panes/dossier/dossierFallback";
 import { SectionLabel, Card, StatCell, Field, Label } from "@/features/tracking/aircraft/ui/dossierKit";
-import {
-  AisHeading,
-  ShipDataLabel,
-  type ShipData,
-} from "../types";
+import type { ShipData } from "../types";
 import { navStatusMeta, setDrift, shipAnomalies } from "../shipMeta";
 import { VesselSilhouette } from "./VesselSilhouette";
 import { EcdisScope } from "./EcdisScope";
 import { RateOfTurn } from "./RateOfTurn";
 import { ShipMiniMap } from "./ShipMiniMap";
 
-enum ShipDossierClassName {
-  Monospace = "font-mono",
-}
-
 type Props = {
-  readonly item: ShipPoint;
-  readonly isolateMode: SelectedIsolateMode;
+  readonly item: DataPoint;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
   readonly onClose: () => void;
 };
 
-function driftText(drift: number | null): string {
-  if (drift === null) return DossierFallback.Unavailable;
-  if (Math.abs(drift) < 1) return "none";
-  const side = drift > 0 ? "stbd" : "port";
-  return `${Math.abs(Math.round(drift))}° ${side}`;
-}
-
-function headingText(heading: number | undefined): string {
-  return heading != null && heading !== AisHeading.Unavailable
-    ? `${Math.round(heading)}°`
-    : DossierFallback.Unavailable;
-}
-
-function vesselTypeLine(
-  vesselType: string | undefined,
-  country: string | null,
-): string {
-  const type =
-    vesselType && vesselType !== ShipDataLabel.Unknown
-      ? vesselType
-      : null;
-  return [type, country].filter(Boolean).join(" · ");
-}
-
-function imoText(imo: number | undefined): number | string {
-  return imo != null && imo > 0
-    ? imo
-    : DossierFallback.Unavailable;
-}
-
-function courseText(course: number | undefined): string {
-  return course != null
-    ? `${Math.round(course)}°`
-    : DossierFallback.Unavailable;
-}
-
-function speedText(speed: number | undefined): string {
-  return speed != null
-    ? formatKtMph(Math.round(speed))
-    : DossierFallback.Unavailable;
-}
-
-function draughtText(draught: number | undefined): string {
-  return draught != null && draught > 0
-    ? `${draught.toFixed(1)} m`
-    : DossierFallback.Unavailable;
-}
-
-function intelLinks(
-  mmsi: number | undefined,
-  imo: number | undefined,
-): Array<readonly [string, string]> {
-  const links: Array<readonly [string, string]> = [
-    ["MarineTraffic", `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${mmsi}`],
-    ["VesselFinder", `https://www.vesselfinder.com/vessels?mmsi=${mmsi}`],
-  ];
-  if (imo != null && imo > 0) {
-    links.push([
-      "Equasis",
-      `https://www.equasis.org/EquasisWeb/restricted/ShipInfo?fs=Search&P_IMO=${imo}`,
-    ]);
-  }
-  return links;
-}
-
 export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onClose }: Props) {
-  const d: ShipData = item.data;
+  const d = (item.data as ShipData) ?? {};
   const { name, mmsi, imo, callSign, vesselType, navStatus, sog, cog, heading, rot, destination, draught, eta } = d;
   const country = mmsi ? mmsiCountry(mmsi) : null;
   const nav = navStatusMeta(navStatus);
   const anomalies = shipAnomalies(navStatus, sog);
   const drift = setDrift(heading, cog);
   const closeBtnRef = useDossierFocus(item.id);
-  const recordedTrail = useTrail(item.id, Domain.Ships);
-  const typeLine = vesselTypeLine(vesselType, country);
-  const age = item.timestamp
-    ? relativeAge(new Date(item.timestamp).getTime(), AgeStyle.Verbose)
-    : null;
-  const driftTxt = driftText(drift);
-  const headingTxt = headingText(heading);
-  const trail = recordedTrail.map((p) => ({ lat: p.lat, lon: p.lon }));
-  const links = intelLinks(mmsi, imo);
+  const typeLine = [vesselType && vesselType !== "Unknown" ? vesselType : null, country].filter(Boolean).join(" · ");
+  const age = item.timestamp ? relativeAge(new Date(item.timestamp).getTime(), "verbose") : null;
+  const driftTxt = drift == null ? "—" : Math.abs(drift) < 1 ? "none" : `${Math.abs(Math.round(drift))}° ${drift > 0 ? "stbd" : "port"}`;
+  const headingTxt = heading != null && heading !== 511 ? `${Math.round(heading)}°` : "—";
+  const trail = getTrail(item.id).map((p) => ({ lat: p.lat, lon: p.lon }));
+
+  const links: ReadonlyArray<readonly [string, string]> = [
+    ["MarineTraffic", `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${mmsi}`],
+    ["VesselFinder", `https://www.vesselfinder.com/vessels?mmsi=${mmsi}`],
+    ...(imo != null && imo > 0
+      ? ([["Equasis", `https://www.equasis.org/EquasisWeb/restricted/ShipInfo?fs=Search&P_IMO=${imo}`]] as const)
+      : []),
+  ];
 
   return (
     <div className="@container/dossier h-full flex flex-col" style={{ "--dossier-accent": "var(--sigint-ships)" } as CSSProperties}>
@@ -139,7 +61,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
       <div className="flex-1 min-h-0 overflow-auto sigint-scroll p-3 flex flex-col gap-3">
         <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 @min-[76rem]/dossier:grid-cols-4 gap-2 items-start @min-[40rem]/dossier:items-stretch">
 
-          {/* Identity fills the first column on large dossiers. */}
+          {/* IDENTITY — full width (med), col1/row1 (large) */}
           <section className="min-w-0 flex flex-col @min-[40rem]/dossier:col-start-1 @min-[40rem]/dossier:row-start-1 @min-[76rem]/dossier:col-start-1 @min-[76rem]/dossier:row-start-1">
             <SectionLabel>IDENTITY</SectionLabel>
             <Card className="relative overflow-hidden flex-1">
@@ -155,15 +77,15 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3">
-                  <StatCell label="MMSI" value={mmsi ?? DossierFallback.Unavailable} valueClass={ShipDossierClassName.Monospace} />
-                  <StatCell label="IMO" value={imoText(imo)} valueClass={ShipDossierClassName.Monospace} />
-                  <StatCell label="CALL" value={callSign || DossierFallback.Unavailable} valueClass={ShipDossierClassName.Monospace} />
+                  <StatCell label="MMSI" value={mmsi ?? "—"} valueClass="font-mono" />
+                  <StatCell label="IMO" value={imo != null && imo > 0 ? imo : "—"} valueClass="font-mono" />
+                  <StatCell label="CALL" value={callSign || "—"} valueClass="font-mono" />
                 </div>
                 {anomalies.length > 0 && (
                   <div className="mt-3 flex flex-col gap-1 rounded-lg border border-sig-warn/30 bg-sig-warn/8 px-2.5 py-2">
                     {anomalies.map((a) => (
                       <div key={a} className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-warn">
-                        <span aria-hidden={true}>⚠</span>
+                        <span aria-hidden="true">⚠</span>
                         <span>{a}</span>
                       </div>
                     ))}
@@ -174,16 +96,16 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
             </Card>
           </section>
 
-          {/* Navigation spans both rows on large dossiers. */}
+          {/* NAVIGATION — row2/col1 (med), col2 spanning both rows (large) */}
           <section className="min-w-0 flex flex-col order-2 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-1 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-start-2 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
             <SectionLabel>NAVIGATION</SectionLabel>
             <Card className="p-3 flex-1 flex flex-col gap-2.5">
               <EcdisScope heading={heading} cog={cog} sog={sog} />
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <Field label="HEADING" value={headingTxt} valueClass={ShipDossierClassName.Monospace} />
-                <Field label="COG" value={courseText(cog)} valueClass={ShipDossierClassName.Monospace} />
-                <Field label="SOG" value={speedText(sog)} valueClass={ShipDossierClassName.Monospace} />
-                <Field label="SET / DRIFT" value={driftTxt} valueClass={ShipDossierClassName.Monospace} />
+                <Field label="HEADING" value={headingTxt} valueClass="font-mono" />
+                <Field label="COG" value={cog != null ? `${Math.round(cog)}°` : "—"} valueClass="font-mono" />
+                <Field label="SOG" value={sog != null ? formatKtMph(Math.round(sog)) : "—"} valueClass="font-mono" />
+                <Field label="SET / DRIFT" value={driftTxt} valueClass="font-mono" />
               </div>
               <div>
                 <Label className="mb-1">RATE OF TURN</Label>
@@ -192,29 +114,29 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
             </Card>
           </section>
 
-          {/* The chart fills the right side on large dossiers. */}
+          {/* CHART — full-width below nav+vessel (med), cols 3-4 / 2x (large) */}
           <section className="min-w-0 flex flex-col order-3 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-span-2 @min-[76rem]/dossier:col-start-3 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
             <SectionLabel>CHART</SectionLabel>
             <div className="aspect-4/3 @min-[40rem]/dossier:aspect-auto @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-64">
-              <ShipMiniMap lat={recordLatitude(item)} lon={recordLongitude(item)} heading={heading} cog={cog} sog={sog} trail={trail} />
+              <ShipMiniMap lat={item.lat} lon={item.lon} heading={heading} cog={cog} sog={sog} trail={trail} />
             </div>
             <div className="flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5 mt-2">
               <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
-                <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden={true} /> POSITION
+                <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden="true" /> POSITION
               </span>
-              <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">{formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}</span>
+              <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">{formatLat(item.lat)} · {formatLon(item.lon)}</span>
             </div>
           </section>
 
-          {/* Vessel details sit below identity on large dossiers. */}
+          {/* VESSEL — row2/col2 (med), under identity in col1 (large) */}
           <section className="min-w-0 flex flex-col order-1 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-1 @min-[76rem]/dossier:col-start-1 @min-[76rem]/dossier:row-start-2">
             <SectionLabel>VESSEL</SectionLabel>
             <Card className="p-3 flex-1 flex flex-col gap-3">
               <VesselSilhouette dimA={d.dimA} dimB={d.dimB} dimC={d.dimC} dimD={d.dimD} length={d.length} width={d.width} draught={draught} />
               <div className="grid grid-cols-2 gap-2">
-                <StatCell label="DESTINATION" value={destination || DossierFallback.Unavailable} />
-                <StatCell label="ETA" value={eta || DossierFallback.Unavailable} />
-                <StatCell label="DRAUGHT" value={draughtText(draught)} />
+                <StatCell label="DESTINATION" value={destination || "—"} />
+                <StatCell label="ETA" value={eta || "—"} />
+                <StatCell label="DRAUGHT" value={draught != null && draught > 0 ? `${draught.toFixed(1)} m` : "—"} />
                 <StatCell label="STATUS" value={nav.label} />
               </div>
             </Card>
@@ -234,7 +156,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
                 className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
               >
                 <span className="truncate">{label}</span>
-                <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden={true} />
+                <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden="true" />
               </a>
             ))}
           </div>

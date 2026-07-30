@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { Sun, Moon } from "lucide-react";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatPixelKm } from "@/lib/format/units";
 import { frpBand, confidenceMeta, DELTA_T_DETECT_K } from "../intensity";
@@ -37,9 +37,7 @@ export function FireIdentityCard({
   const band = frpBand(frp ?? 0);
   const conf = confidenceMeta(confidence);
   const deltaT = fireK != null && bgK != null ? fireK - bgK : undefined;
-  const age = timestamp
-    ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
-    : null;
+  const age = timestamp ? relativeAge(new Date(timestamp).getTime(), "verbose") : null;
   const isNight = daynight === "N";
   const PassIcon = isNight ? Moon : Sun;
   const source = [satellite, instrument].filter(Boolean).join(" · ");

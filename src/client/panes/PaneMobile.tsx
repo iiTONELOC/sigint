@@ -22,8 +22,6 @@ import type {
 } from "./paneTree";
 import { FULL_WIDTH_ONLY } from "./paneTree";
 import { useData } from "@/context/DataContext";
-import { isSourceDelivering } from "@shared/domain/sourceStatus";
-import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
 import { ResizeHandle } from "./ResizeHandle";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { SplitMenu } from "./SplitMenu";
@@ -52,7 +50,7 @@ type PaneMobileProps = {
   readonly activeMobilePane: number;
   readonly setActiveMobilePane: (idx: number) => void;
   readonly activeCount: number;
-  readonly dataSources: readonly SourceStatusEntry[];
+  readonly dataSources: { status: string }[];
   readonly counts: Record<string, number>;
   readonly paneMeta: Record<PaneType, { label: string; icon: typeof Globe }>;
   readonly paneComponents: Record<PaneType, React.ComponentType>;
@@ -933,8 +931,8 @@ export function PaneMobile({
             <span className="text-sig-dim text-(length:--sig-text-sm)">
               ·{" "}
               {
-                dataSources.filter((source) =>
-                  isSourceDelivering(source.status),
+                dataSources.filter(
+                  (s) => s.status === "live" || s.status === "cached",
                 ).length
               }
               /{dataSources.length} LIVE

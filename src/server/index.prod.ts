@@ -26,6 +26,7 @@ const authGuards = createAuthGuards(config, security);
 const apiRoutes = createApiRoutes({ authGuards, security });
 
 const distDir = resolve(import.meta.dir, "../../dist");
+const publicDir = resolve(import.meta.dir, "../../public");
 
 const serveDistFile = async (filePath: string): Promise<Response> => {
   const file = Bun.file(filePath);
@@ -41,7 +42,7 @@ const server = serve({
   idleTimeout: 30,
   maxRequestBodySize: 1024 * 1024,
   routes: {
-    ...createStaticRoutes(distDir, security, { buildWorkersFromSource: false }),
+    ...createStaticRoutes(publicDir, security),
     ...apiRoutes,
     "/*": async (req) => {
       const { pathname } = new URL(req.url);

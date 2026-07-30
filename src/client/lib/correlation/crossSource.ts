@@ -2,242 +2,165 @@
 // Spatial-temporal matching across data types using the 2° grid index.
 // Each rule is O(n) — query points check ~9 neighboring cells.
 
+import type { DataPoint } from "@/features/base/dataPoints";
 import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
-import type { DataPoint, DataType } from "@/features/base/dataPoints";
-import {
-  WeatherSeverity,
-  weatherSeverityRank,
-} from "@/features/environmental/weather/severity";
-import { Domain } from "@shared/domain/identity";
-import { haversineKm } from "@shared/geo";
-import { EMPTY_TEXT } from "@shared/text";
-import {
-  CorrelationRadiusKm,
+  CROSS_SOURCE_RADIUS_KM,
   CROSS_SOURCE_TIME_WINDOW,
-  CorrelationQueryDeg,
+  MIL_QUERY_RADIUS_DEG,
+  QUERY_RADIUS_DEG,
   buildGrid,
   getTs,
   gridQuery,
+  haversineKm,
 } from "./shared";
-
-enum CrossSourceThreshold {
-  ConflictSeverity = 3,
-  DamagingMagnitude = 4.5,
-}
-
-enum CrossSourceMinimum {
-  ShipCluster = 3,
-}
-
-const SEVERE_WEATHER_MIN_RANK = weatherSeverityRank(WeatherSeverity.Severe);
-const PLURAL_SUFFIX = "s";
-
-type PointOfType<TType extends DataType> = Extract<DataPoint, { type: TType }>;
-type PointGrid = Map<number, DataPoint[]>;
 
 export type CrossCorrelation = {
   primary: DataPoint;
   correlated: DataPoint[];
-  types: ReadonlySet<DataType>;
+  types: Set<string>;
   description: string;
 };
-
-function pointsOfType<TType extends DataType>(
-  items: readonly DataPoint[],
-  type: TType,
-): PointOfType<TType>[] {
-  return items.filter((item): item is PointOfType<TType> => item.type === type);
-}
-
-function buildGridFor(items: readonly DataPoint[]): PointGrid | null {
-  return items.length > 0 ? buildGrid([...items]) : null;
-}
-
-function queryNear(
-  grid: PointGrid,
-  origin: DataPoint,
-  radiusDeg: CorrelationQueryDeg,
-): DataPoint[] {
-  return gridQuery(
-    grid,
-    recordLatitude(origin),
-    recordLongitude(origin),
-    radiusDeg,
-  );
-}
-
-function isWithinKm(from: DataPoint, to: DataPoint, radiusKm: number): boolean {
-  return (
-    haversineKm(
-      recordLatitude(from),
-      recordLongitude(from),
-      recordLatitude(to),
-      recordLongitude(to),
-    ) < radiusKm
-  );
-}
-
-function plural(count: number): string {
-  return count > 1 ? PLURAL_SUFFIX : EMPTY_TEXT;
-}
-
-function correlateConflictWithFires(
-  events: readonly PointOfType<Domain.Events>[],
-  fireGrid: PointGrid,
-  now: number,
-): CrossCorrelation[] {
-  const results: CrossCorrelation[] = [];
-  for (const event of events) {
-    const severity = event.data.severity ?? 0;
-    if (severity < CrossSourceThreshold.ConflictSeverity) continue;
-    const eventTime = getTs(event);
-    if (now - eventTime > CROSS_SOURCE_TIME_WINDOW) continue;
-
-    const nearby = queryNear(
-      fireGrid,
-      event,
-      CorrelationQueryDeg.Standard,
-    ).filter(
-      (fire) =>
-        Math.abs(eventTime - getTs(fire)) <= CROSS_SOURCE_TIME_WINDOW &&
-        isWithinKm(event, fire, CorrelationRadiusKm.CrossSource),
-    );
-    if (nearby.length === 0) continue;
-
-    results.push({
-      primary: event,
-      correlated: nearby,
-      types: new Set([Domain.Events, Domain.Fires]),
-      description: `Conflict event with ${nearby.length} fire detection${plural(nearby.length)} within ${CorrelationRadiusKm.CrossSource}km`,
-    });
-  }
-  return results;
-}
-
-function correlateQuakeWithFires(
-  quakes: readonly PointOfType<Domain.Quakes>[],
-  fireGrid: PointGrid,
-  now: number,
-): CrossCorrelation[] {
-  const results: CrossCorrelation[] = [];
-  for (const quake of quakes) {
-    const magnitude = quake.data.magnitude ?? 0;
-    if (magnitude < CrossSourceThreshold.DamagingMagnitude) continue;
-    const quakeTime = getTs(quake);
-    if (now - quakeTime > CROSS_SOURCE_TIME_WINDOW) continue;
-
-    // A fire that predates the shock was not started by it.
-    const nearby = queryNear(
-      fireGrid,
-      quake,
-      CorrelationQueryDeg.Standard,
-    ).filter((fire) => {
-      const fireTime = getTs(fire);
-      return (
-        fireTime >= quakeTime &&
-        fireTime - quakeTime <= CROSS_SOURCE_TIME_WINDOW &&
-        isWithinKm(quake, fire, CorrelationRadiusKm.CrossSource)
-      );
-    });
-    if (nearby.length === 0) continue;
-
-    results.push({
-      primary: quake,
-      correlated: nearby,
-      types: new Set([Domain.Quakes, Domain.Fires]),
-      description: `M${magnitude.toFixed(1)} earthquake with ${nearby.length} subsequent fire detection${plural(nearby.length)} nearby`,
-    });
-  }
-  return results;
-}
-
-function correlateWeatherWithShips(
-  alerts: readonly PointOfType<Domain.Weather>[],
-  shipGrid: PointGrid,
-): CrossCorrelation[] {
-  const results: CrossCorrelation[] = [];
-  for (const alert of alerts) {
-    const severity = alert.data.severity;
-    if (weatherSeverityRank(severity) < SEVERE_WEATHER_MIN_RANK) continue;
-
-    const nearby = queryNear(
-      shipGrid,
-      alert,
-      CorrelationQueryDeg.Standard,
-    ).filter((ship) =>
-      isWithinKm(alert, ship, CorrelationRadiusKm.CrossSource),
-    );
-    if (nearby.length < CrossSourceMinimum.ShipCluster) continue;
-
-    results.push({
-      primary: alert,
-      correlated: nearby,
-      types: new Set([Domain.Weather, Domain.Ships]),
-      description: `${severity} weather alert with ${nearby.length} vessels in affected area`,
-    });
-  }
-  return results;
-}
-
-function correlateMilitaryWithConflict(
-  aircraft: readonly PointOfType<Domain.Aircraft>[],
-  eventGrid: PointGrid,
-): CrossCorrelation[] {
-  const results: CrossCorrelation[] = [];
-  for (const item of aircraft) {
-    if (item.data.military !== true) continue;
-
-    const nearby = queryNear(
-      eventGrid,
-      item,
-      CorrelationQueryDeg.Military,
-    ).filter((event) => {
-      const severity =
-        event.type === Domain.Events ? (event.data.severity ?? 0) : 0;
-      return (
-        severity >= CrossSourceThreshold.ConflictSeverity &&
-        isWithinKm(item, event, CorrelationRadiusKm.Military)
-      );
-    });
-    if (nearby.length === 0) continue;
-
-    results.push({
-      primary: item,
-      correlated: nearby,
-      types: new Set([Domain.Aircraft, Domain.Events]),
-      description: `Military aircraft operating near ${nearby.length} conflict event${plural(nearby.length)}`,
-    });
-  }
-  return results;
-}
 
 export function findCrossSourceCorrelations(
   items: DataPoint[],
 ): CrossCorrelation[] {
+  const results: CrossCorrelation[] = [];
   const now = Date.now();
-  const fires = pointsOfType(items, Domain.Fires);
-  const ships = pointsOfType(items, Domain.Ships);
-  const events = pointsOfType(items, Domain.Events);
-  const fireGrid = buildGridFor(fires);
-  const shipGrid = buildGridFor(ships);
-  const eventGrid = buildGridFor(events);
 
-  return [
-    ...(fireGrid ? correlateConflictWithFires(events, fireGrid, now) : []),
-    ...(fireGrid
-      ? correlateQuakeWithFires(pointsOfType(items, Domain.Quakes), fireGrid, now)
-      : []),
-    ...(shipGrid
-      ? correlateWeatherWithShips(pointsOfType(items, Domain.Weather), shipGrid)
-      : []),
-    ...(eventGrid
-      ? correlateMilitaryWithConflict(
-          pointsOfType(items, Domain.Aircraft),
-          eventGrid,
-        )
-      : []),
-  ];
+  const byType = new Map<string, DataPoint[]>();
+  for (const item of items) {
+    let arr = byType.get(item.type);
+    if (!arr) {
+      arr = [];
+      byType.set(item.type, arr);
+    }
+    arr.push(item);
+  }
+
+  const events = byType.get("events") ?? [];
+  const fires = byType.get("fires") ?? [];
+  const quakes = byType.get("quakes") ?? [];
+  const weather = byType.get("weather") ?? [];
+  const ships = byType.get("ships") ?? [];
+  const aircraft = byType.get("aircraft") ?? [];
+
+  const fireGrid = fires.length > 0 ? buildGrid(fires) : null;
+  const shipGrid = ships.length > 0 ? buildGrid(ships) : null;
+  const eventGrid = events.length > 0 ? buildGrid(events) : null;
+
+  // GDELT conflict + nearby fire
+  if (fireGrid) {
+    for (const evt of events) {
+      const evtSev = ((evt.data as any).severity as number) ?? 0;
+      if (evtSev < 3) continue;
+      const evtTs = getTs(evt);
+      if (now - evtTs > CROSS_SOURCE_TIME_WINDOW) continue;
+
+      const candidates = gridQuery(
+        fireGrid,
+        evt.lat,
+        evt.lon,
+        QUERY_RADIUS_DEG,
+      );
+      const nearby = candidates.filter((f) => {
+        const fTs = getTs(f);
+        if (Math.abs(evtTs - fTs) > CROSS_SOURCE_TIME_WINDOW) return false;
+        return (
+          haversineKm(evt.lat, evt.lon, f.lat, f.lon) < CROSS_SOURCE_RADIUS_KM
+        );
+      });
+
+      if (nearby.length > 0) {
+        results.push({
+          primary: evt,
+          correlated: nearby,
+          types: new Set(["events", "fires"]),
+          description: `Conflict event with ${nearby.length} fire detection${nearby.length > 1 ? "s" : ""} within ${CROSS_SOURCE_RADIUS_KM}km`,
+        });
+      }
+    }
+  }
+
+  // Earthquake + subsequent fire
+  if (fireGrid) {
+    for (const eq of quakes) {
+      const mag = ((eq.data as any).magnitude as number) ?? 0;
+      if (mag < 4.5) continue;
+      const eqTs = getTs(eq);
+      if (now - eqTs > CROSS_SOURCE_TIME_WINDOW) continue;
+
+      const candidates = gridQuery(fireGrid, eq.lat, eq.lon, QUERY_RADIUS_DEG);
+      const nearby = candidates.filter((f) => {
+        const fTs = getTs(f);
+        if (fTs < eqTs) return false;
+        if (fTs - eqTs > CROSS_SOURCE_TIME_WINDOW) return false;
+        return (
+          haversineKm(eq.lat, eq.lon, f.lat, f.lon) < CROSS_SOURCE_RADIUS_KM
+        );
+      });
+
+      if (nearby.length > 0) {
+        results.push({
+          primary: eq,
+          correlated: nearby,
+          types: new Set(["quakes", "fires"]),
+          description: `M${mag.toFixed(1)} earthquake with ${nearby.length} subsequent fire detection${nearby.length > 1 ? "s" : ""} nearby`,
+        });
+      }
+    }
+  }
+
+  // Severe weather + ship density
+  if (shipGrid) {
+    for (const wx of weather) {
+      const sev = (wx.data as any).severity as string;
+      if (sev !== "Extreme" && sev !== "Severe") continue;
+
+      const candidates = gridQuery(shipGrid, wx.lat, wx.lon, QUERY_RADIUS_DEG);
+      const nearby = candidates.filter(
+        (s) =>
+          haversineKm(wx.lat, wx.lon, s.lat, s.lon) < CROSS_SOURCE_RADIUS_KM,
+      );
+
+      if (nearby.length >= 3) {
+        results.push({
+          primary: wx,
+          correlated: nearby,
+          types: new Set(["weather", "ships"]),
+          description: `${sev} weather alert with ${nearby.length} vessels in affected area`,
+        });
+      }
+    }
+  }
+
+  // Military aircraft in conflict zone
+  if (eventGrid) {
+    const milAircraft = aircraft.filter(
+      (a) => (a.data as any).military === true,
+    );
+    for (const ac of milAircraft) {
+      const candidates = gridQuery(
+        eventGrid,
+        ac.lat,
+        ac.lon,
+        MIL_QUERY_RADIUS_DEG,
+      );
+      const nearby = candidates.filter((evt) => {
+        const evtSev = ((evt.data as any).severity as number) ?? 0;
+        if (evtSev < 3) return false;
+        return haversineKm(ac.lat, ac.lon, evt.lat, evt.lon) < 200;
+      });
+
+      if (nearby.length > 0) {
+        results.push({
+          primary: ac,
+          correlated: nearby,
+          types: new Set(["aircraft", "events"]),
+          description: `Military aircraft operating near ${nearby.length} conflict event${nearby.length > 1 ? "s" : ""}`,
+        });
+      }
+    }
+  }
+
+  return results;
 }

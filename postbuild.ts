@@ -1,101 +1,61 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
-import { cp, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import {
-  collectArtifactPaths,
-  createBuildId,
-  createPrecacheUrls,
-  selectIdentityArtifacts,
-} from "./scripts/pwaBuild";
+// ── Post-build: inject hashed asset URLs into service worker ─────────
+// Run after build.ts: bun run build.ts && bun run postbuild.ts
+//
+// Reads dist/ output, finds hashed JS/CSS chunks, and prepends
+// self.__PRECACHE_MANIFEST to the SW file so it knows what to cache.
+
+import { readdir, readFile, writeFile, copyFile, mkdir } from "fs/promises";
+import { join, resolve } from "path";
+import { existsSync } from "fs";
 
 const distDir = resolve(import.meta.dir, "dist");
 const publicDir = resolve(import.meta.dir, "public");
-const serviceWorkerEntry = resolve(
-  import.meta.dir,
-  "src/client/workers/serviceWorker.ts",
-);
-const serviceWorkerOutput = join(distDir, "sw.js");
-const buildMetadataOutput = join(distDir, "build-meta.json");
-const STATIC_ARTIFACTS = [
-  "data",
-  "fonts",
-  "fonts.css",
-  "icons",
-  "manifest.json",
-] as const;
-const REQUIRED_BUILD_ARTIFACTS = [
-  "index.html",
-  "workers/correlationWorker.js",
-  "workers/dataWorker.js",
-  "workers/pointWorker.js",
-] as const;
+const swSrc = join(publicDir, "sw.js");
+const swDest = join(distDir, "sw.js");
 
-type BuildMetadata = {
-  buildId: string;
-  artifacts: readonly string[];
-  precacheUrls: readonly string[];
-};
-
-function fail(message: string): never {
-  console.error(message);
+if (!existsSync(distDir)) {
+  console.error("❌ dist/ not found — run build.ts first");
   process.exit(1);
 }
 
-if (!existsSync(distDir)) fail("dist/ not found. Run build.ts first.");
-if (!existsSync(serviceWorkerEntry)) {
-  fail("Production service-worker source is missing.");
+// Find hashed assets in dist/
+const files = await readdir(distDir);
+const hashedAssets = files.filter(
+  (f) =>
+    (f.endsWith(".js") || f.endsWith(".css") || f.endsWith(".svg")) &&
+    f !== "sw.js" &&
+    !f.endsWith(".map"),
+);
+
+console.log(`📦 Found ${hashedAssets.length} hashed assets to precache:`);
+for (const f of hashedAssets) console.log(`   /${f}`);
+
+// Build the manifest injection
+const manifest = hashedAssets.map((f) => `"/${f}"`).join(", ");
+const injection = `self.__PRECACHE_MANIFEST = [${manifest}];\n`;
+
+// Read SW source, prepend manifest, write to dist/
+const swSource = await readFile(swSrc, "utf-8");
+await writeFile(swDest, injection + swSource, "utf-8");
+console.log(`✅ Wrote ${swDest} with ${hashedAssets.length} precache entries`);
+
+// Copy manifest.json and icons to dist/ so prod server can serve from either location
+const manifestSrc = join(publicDir, "manifest.json");
+if (existsSync(manifestSrc)) {
+  await copyFile(manifestSrc, join(distDir, "manifest.json"));
+  console.log("✅ Copied manifest.json to dist/");
 }
 
-for (const artifact of STATIC_ARTIFACTS) {
-  const source = join(publicDir, artifact);
-  if (!existsSync(source)) fail(`Required public artifact is missing: ${artifact}`);
-  await cp(source, join(distDir, artifact), { recursive: true, force: true });
-}
-
-for (const artifact of REQUIRED_BUILD_ARTIFACTS) {
-  if (!existsSync(join(distDir, artifact))) {
-    fail(`Required build artifact is missing: ${artifact}`);
+const iconsSrc = join(publicDir, "icons");
+if (existsSync(iconsSrc)) {
+  const iconsDistDir = join(distDir, "icons");
+  if (!existsSync(iconsDistDir)) await mkdir(iconsDistDir, { recursive: true });
+  const icons = await readdir(iconsSrc);
+  for (const icon of icons) {
+    await copyFile(join(iconsSrc, icon), join(iconsDistDir, icon));
   }
+  console.log(`✅ Copied ${icons.length} icons to dist/icons/`);
 }
 
-const artifactPaths = await collectArtifactPaths(distDir);
-const identityArtifacts = selectIdentityArtifacts(artifactPaths);
-const buildId = await createBuildId(distDir, identityArtifacts);
-const precacheUrls = createPrecacheUrls(identityArtifacts);
-
-const serviceWorkerBuild = await Bun.build({
-  entrypoints: [serviceWorkerEntry],
-  outdir: distDir,
-  naming: "sw.js",
-  target: "browser",
-  format: "iife",
-  minify: true,
-  define: {
-    __SIGINT_BUILD_ID__: JSON.stringify(buildId),
-    __SIGINT_PRECACHE_URLS__: JSON.stringify(precacheUrls),
-  },
-});
-
-if (!serviceWorkerBuild.success) {
-  for (const log of serviceWorkerBuild.logs) console.error(log);
-  fail("Production service-worker build failed.");
-}
-if (!existsSync(serviceWorkerOutput)) {
-  fail("Production service-worker output is missing.");
-}
-
-const metadata: BuildMetadata = {
-  buildId,
-  artifacts: identityArtifacts,
-  precacheUrls,
-};
-await writeFile(
-  buildMetadataOutput,
-  `${JSON.stringify(metadata, null, 2)}\n`,
-  "utf8",
-);
-
-console.log(
-  `PWA build ${buildId} contains ${precacheUrls.length} offline assets.`,
-);
+console.log("\n🎉 PWA post-build complete\n");

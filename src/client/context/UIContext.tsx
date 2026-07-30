@@ -1,27 +1,16 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import {
   createContext,
   useContext,
   useState,
   useMemo,
+  useRef,
   useCallback,
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { useFreshEntity } from "@/features/base/useFreshEntity";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { getColorMap } from "@/config/theme";
 import { useTheme } from "@/context/ThemeContext";
-import {
-  readRenderGlobeState,
-  setRenderIsolation,
-  setRenderProjection,
-  setRenderRotationEnabled,
-  setRenderRotationSpeed,
-  toggleRenderRotation,
-} from "@/render-surface/globeStateStore";
-import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
-import { RenderProjectionMode } from "@/workers/render/protocol";
 
 // ── Context value type ──────────────────────────────────────────────
 
@@ -32,8 +21,8 @@ type UIContextValue = {
   setSelected: React.Dispatch<React.SetStateAction<DataPoint | null>>;
 
   // Isolation
-  isolateMode: SelectedIsolateMode;
-  setIsolateMode: React.Dispatch<React.SetStateAction<SelectedIsolateMode>>;
+  isolateMode: null | "solo" | "focus";
+  setIsolateMode: React.Dispatch<React.SetStateAction<null | "solo" | "focus">>;
 
   // Chrome visibility
   chromeHidden: boolean;
@@ -41,16 +30,15 @@ type UIContextValue = {
 
   // Globe view controls
   flat: boolean;
-  setFlat: (flat: boolean) => void;
+  setFlat: React.Dispatch<React.SetStateAction<boolean>>;
   autoRotate: boolean;
-  setAutoRotate: (enabled: boolean) => void;
-  toggleAutoRotate: () => void;
+  setAutoRotate: React.Dispatch<React.SetStateAction<boolean>>;
   rotationSpeed: number;
-  setRotationSpeed: (speed: number) => void;
+  setRotationSpeed: React.Dispatch<React.SetStateAction<number>>;
 
   // Search
-  searchText: string | null;
-  handleSearchCommit: (text: string | null) => void;
+  searchMatchIds: Set<string> | null;
+  handleSearchMatchIds: (ids: Set<string> | null) => void;
   handleSearchSelect: (item: DataPoint) => void;
   handleSearchZoomTo: (item: DataPoint) => void;
 
@@ -65,63 +53,48 @@ type UIContextValue = {
   /** Select an item and zoom the globe to it */
   selectAndZoom: (item: DataPoint) => void;
 
-  /** Color map keyed by feature id, derived from theme. */
+  /** Color map keyed by feature id — derived from theme */
   colorMap: Record<string, string>;
 };
-
-export enum UIContextError {
-  MissingProvider = "useUI must be used within UIProvider",
-}
 
 const UIContext = createContext<UIContextValue | undefined>(undefined);
 
 // ── Provider ────────────────────────────────────────────────────────
 
-export function UIProvider({ children }: { readonly children: ReactNode }) {
+export function UIProvider({
+  children,
+  idMap,
+}: {
+  children: ReactNode;
+  /** ID map from DataContext — used to resolve selectedCurrent */
+  idMap: Map<string, DataPoint>;
+}) {
   const { theme } = useTheme();
+  const stashedSelectionRef = useRef<DataPoint | null>(null);
+  const stashedIsolateModeRef = useRef<null | "solo" | "focus">(null);
 
   // ── View controls ───────────────────────────────────────────────
-  const globeState = useRenderGlobeState();
-  const flat = globeState.projection === RenderProjectionMode.Flat;
-  const autoRotate = globeState.rotationEnabled;
-  const rotationSpeed = globeState.rotationSpeed;
-  const isolateMode = globeState.isolateMode;
-  const setFlat = useCallback((enabled: boolean) => {
-    setRenderProjection(
-      enabled
-        ? RenderProjectionMode.Flat
-        : RenderProjectionMode.Globe,
-    );
-  }, []);
-  const setAutoRotate = useCallback((enabled: boolean) => {
-    setRenderRotationEnabled(enabled);
-  }, []);
-  const toggleAutoRotate = useCallback(() => {
-    toggleRenderRotation();
-  }, []);
-  const setRotationSpeed = useCallback((speed: number) => {
-    setRenderRotationSpeed(speed);
-  }, []);
-  const setIsolateMode = useCallback<
-    React.Dispatch<React.SetStateAction<SelectedIsolateMode>>
-  >((update) => {
-    const current = readRenderGlobeState().isolateMode;
-    const next =
-      typeof update === "function" ? update(current) : update;
-    setRenderIsolation(next);
-  }, []);
+  const [flat, setFlat] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [rotationSpeed, setRotationSpeed] = useState(0.35);
   const [chromeHidden, setChromeHidden] = useState(false);
 
   // ── Selection & isolation ───────────────────────────────────────
   const [selected, setSelected] = useState<DataPoint | null>(null);
+  const [isolateMode, setIsolateMode] = useState<null | "solo" | "focus">(null);
 
   // ── Search & zoom ──────────────────────────────────────────────
   const [zoomToId, setZoomToId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState<string | null>(null);
+  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(
+    null,
+  );
 
-  // ── Derived: selectedCurrent (refreshed from the DataWorker) ───
-  const selectedCurrent = useFreshEntity(selected);
+  // ── Derived: selectedCurrent (refreshed from latest data) ──────
+  const selectedCurrent = useMemo(() => {
+    if (!selected) return null;
+    return idMap.get(selected.id) ?? selected;
+  }, [idMap, selected]);
 
   // ── Handlers ───────────────────────────────────────────────────
 
@@ -138,9 +111,30 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
     zoomToThenClear(setZoomToId, item.id);
   }, []);
 
-  const handleSearchCommit = useCallback((text: string | null) => {
-    setSearchText(text?.trim() || null);
-  }, []);
+  const handleSearchMatchIds = useCallback(
+    (ids: Set<string> | null) => {
+      setSearchMatchIds(ids);
+      if (ids) {
+        setSelected((prev) => {
+          if (prev && !ids.has(prev.id)) {
+            stashedSelectionRef.current = prev;
+            stashedIsolateModeRef.current = isolateMode;
+            setIsolateMode(null);
+            return null;
+          }
+          return prev;
+        });
+      } else {
+        if (stashedSelectionRef.current) {
+          setSelected(stashedSelectionRef.current);
+          setIsolateMode(stashedIsolateModeRef.current);
+          stashedSelectionRef.current = null;
+          stashedIsolateModeRef.current = null;
+        }
+      }
+    },
+    [isolateMode],
+  );
 
   const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
@@ -158,11 +152,10 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       setFlat,
       autoRotate,
       setAutoRotate,
-      toggleAutoRotate,
       rotationSpeed,
       setRotationSpeed,
-      searchText,
-      handleSearchCommit,
+      searchMatchIds,
+      handleSearchMatchIds,
       handleSearchSelect,
       handleSearchZoomTo,
       zoomToId,
@@ -179,10 +172,9 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       chromeHidden,
       flat,
       autoRotate,
-      toggleAutoRotate,
       rotationSpeed,
-      searchText,
-      handleSearchCommit,
+      searchMatchIds,
+      handleSearchMatchIds,
       handleSearchSelect,
       handleSearchZoomTo,
       zoomToId,
@@ -200,7 +192,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
 export function useUI(): UIContextValue {
   const context = useContext(UIContext);
   if (!context) {
-    throw new Error(UIContextError.MissingProvider);
+    throw new Error("useUI must be used within UIProvider");
   }
   return context;
 }

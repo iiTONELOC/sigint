@@ -4,37 +4,26 @@
 
 import { useEffect, useState } from "react";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
-import { SourceStatus } from "@shared/domain/sourceStatus";
 import { newsProvider, type NewsArticle } from "./newsProvider";
+
+type NewsDataSource = "loading" | "live" | "cached" | "error" | "empty";
 
 type UseNewsDataResult = {
   data: NewsArticle[];
   loading: boolean;
   error: Error | null;
-  dataSource: SourceStatus;
+  dataSource: NewsDataSource;
 };
-
-function statusFor(
-  articleCount: number,
-  error: Error | null | undefined,
-): SourceStatus {
-  if (error) {
-    return articleCount > 0 ? SourceStatus.Cached : SourceStatus.Error;
-  }
-  return articleCount > 0 ? SourceStatus.Live : SourceStatus.Empty;
-}
 
 export function useNewsData(): UseNewsDataResult {
   const [data, setData] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [dataSource, setDataSource] = useState<SourceStatus>(
-    SourceStatus.Loading,
-  );
+  const [dataSource, setDataSource] = useState<NewsDataSource>("loading");
 
   useEffect(() => {
     let isMounted = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let intervalId: NodeJS.Timeout | null = null;
 
     // Subscribe to background refresh completions (boot sequence + intervals)
     newsProvider.onChange(() => {
@@ -43,7 +32,11 @@ export function useNewsData(): UseNewsDataResult {
       setData([...snapshot.items]);
       setLoading(false);
       setError(snapshot.error ?? null);
-      setDataSource(statusFor(snapshot.items.length, snapshot.error));
+      if (snapshot.error) {
+        setDataSource(snapshot.items.length > 0 ? "cached" : "error");
+      } else {
+        setDataSource(snapshot.items.length > 0 ? "live" : "empty");
+      }
     });
 
     // Sync read: if provider already has data, show it
@@ -52,7 +45,7 @@ export function useNewsData(): UseNewsDataResult {
       setData([...snap.items]);
       setLoading(false);
       setError(snap.error ?? null);
-      setDataSource(statusFor(snap.items.length, snap.error));
+      setDataSource(snap.error ? "cached" : "live");
     }
 
     // Poll interval — subsequent refreshes after boot.
@@ -64,14 +57,18 @@ export function useNewsData(): UseNewsDataResult {
         setData([...result]);
         setLoading(false);
         setError(snapshot.error ?? null);
-        setDataSource(statusFor(result.length, snapshot.error));
+        if (snapshot.error) {
+          setDataSource(result.length > 0 ? "cached" : "error");
+        } else {
+          setDataSource(result.length > 0 ? "live" : "empty");
+        }
       } catch (err) {
         if (!isMounted) return;
         setError(
           err instanceof Error ? err : new Error("Unknown error occurred"),
         );
         setLoading(false);
-        setDataSource(SourceStatus.Error);
+        setDataSource("error");
       }
     }, POLL_INTERVALS.news);
 

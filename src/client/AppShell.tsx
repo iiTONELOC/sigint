@@ -13,49 +13,12 @@ import {
   type WalkthroughLaunchMode,
 } from "@/lib/runtime/layoutSignals";
 import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { cacheGetEnum } from "@/lib/cache/cacheEnum";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { GripHorizontal } from "lucide-react";
 
-enum TickerMode {
-  Full = "full",
-  Compact = "compact",
-  Collapsed = "collapsed",
-}
-
-enum AppShellTiming {
-  WalkthroughDelayMs = 2_500,
-}
-
-enum TickerIconSize {
-  Grip = 10,
-}
-
-enum TickerClassName {
-  Surface = "border-t border-sig-border bg-sig-panel/95",
-  ModeLabel = "text-[9px] tracking-widest font-semibold",
-}
-
-enum TickerSafeAreaPadding {
-  Expanded = "max(0.25rem, env(safe-area-inset-bottom))",
-  Collapsed = "env(safe-area-inset-bottom)",
-}
-
-/** Desktop steps through all three heights; the table is the whole cycle. */
-const DESKTOP_TICKER_CYCLE: Readonly<Record<TickerMode, TickerMode>> = {
-  [TickerMode.Full]: TickerMode.Compact,
-  [TickerMode.Compact]: TickerMode.Collapsed,
-  [TickerMode.Collapsed]: TickerMode.Full,
-};
-
-function mobileTickerMode(previous: TickerMode): TickerMode {
-  return previous === TickerMode.Collapsed
-    ? TickerMode.Compact
-    : TickerMode.Collapsed;
-}
-
 export function AppShell() {
   const {
+    allData,
     layers,
     toggleLayer,
     counts,
@@ -67,7 +30,7 @@ export function AppShell() {
     dataSources,
     handleSearchSelect,
     handleSearchZoomTo,
-    handleSearchCommit,
+    handleSearchMatchIds,
   } = useData();
 
   const isMobileLayout = useIsMobileLayout();
@@ -100,7 +63,7 @@ export function AppShell() {
       if (!done) {
         timer = setTimeout(() => {
           if (mounted) setShowWalkthrough(true);
-        }, AppShellTiming.WalkthroughDelayMs);
+        }, 2500);
       }
     });
     return () => {
@@ -110,26 +73,33 @@ export function AppShell() {
   }, []);
 
   // ── Ticker height mode ──────────────────────────────────────────
-  const [tickerMode, setTickerMode] = useState<TickerMode>(
-    TickerMode.Collapsed,
-  );
+  type TickerMode = "full" | "compact" | "collapsed";
+  const [tickerMode, setTickerMode] = useState<TickerMode>("collapsed");
 
   useEffect(() => {
-    cacheGetEnum(CACHE_KEYS.tickerHeight, TickerMode).then((saved) => {
-      if (saved) {
+    cacheGet<TickerMode>(CACHE_KEYS.tickerHeight).then((saved) => {
+      if (saved === "full" || saved === "compact" || saved === "collapsed") {
         setTickerMode(saved);
       } else if (isMobileLayout) {
-        setTickerMode(TickerMode.Collapsed);
+        setTickerMode("collapsed");
       }
     });
   }, [isMobileLayout]);
 
   const cycleTickerMode = () => {
     setTickerMode((prev) => {
-      // Mobile only toggles show/hide, so it is always compact when visible.
-      const next = isMobileLayout
-        ? mobileTickerMode(prev)
-        : DESKTOP_TICKER_CYCLE[prev];
+      let next: TickerMode;
+      if (isMobileLayout) {
+        // Mobile: just toggle show/hide (always compact when visible)
+        next = prev === "collapsed" ? "compact" : "collapsed";
+      } else {
+        next =
+          prev === "full"
+            ? "compact"
+            : prev === "compact"
+              ? "collapsed"
+              : "full";
+      }
       cacheSet(CACHE_KEYS.tickerHeight, next);
       return next;
     });
@@ -159,9 +129,10 @@ export function AppShell() {
           availableCountries={availableCountries}
           searchSlot={
             <Search
+              data={allData}
               onSelect={handleSearchSelect}
               onZoomTo={handleSearchZoomTo}
-              onCommit={handleSearchCommit}
+              onMatchingIdsChange={handleSearchMatchIds}
             />
           }
         />
@@ -176,16 +147,16 @@ export function AppShell() {
       {!chromeHidden && (
         <>
           {/* Ticker content */}
-          {tickerMode !== TickerMode.Collapsed ? (
+          {tickerMode !== "collapsed" ? (
             <div
               data-tour="ticker"
-              className={`shrink-0 px-2 md:px-3 ${TickerClassName.Surface} ${
-                tickerMode === TickerMode.Compact
+              className={`shrink-0 px-2 md:px-3 border-t border-sig-border bg-sig-panel/95 ${
+                tickerMode === "compact"
                   ? "py-0.5"
                   : "pt-0.5 md:pt-1 pb-1 md:pb-2"
               }`}
               style={{
-                paddingBottom: TickerSafeAreaPadding.Expanded,
+                paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
               }}
             >
               <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
@@ -198,37 +169,32 @@ export function AppShell() {
                   className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim/50 hover:text-sig-accent/60 transition-colors cursor-pointer bg-transparent border-none group touch-target"
                 >
                   <GripHorizontal
-                    size={TickerIconSize.Grip}
+                    size={10}
                     className="group-hover:text-sig-accent/60"
                   />
-                  <span className={TickerClassName.ModeLabel}>
-                    {tickerMode === TickerMode.Full ? "COMPACT" : "HIDE"}
+                  <span className="text-[9px] tracking-widest font-semibold">
+                    {tickerMode === "full" ? "COMPACT" : "HIDE"}
                   </span>
                 </button>
               </div>
-              <Ticker
-                items={tickerItems}
-                compact={tickerMode === TickerMode.Compact}
-              />
+              <Ticker items={tickerItems} compact={tickerMode === "compact"} />
             </div>
           ) : (
-            <button
-              type="button"
-              title="Show live feed"
-              className={`w-full shrink-0 ${TickerClassName.Surface} cursor-pointer hover:bg-sig-accent/5 transition-colors`}
+            <div
+              className="shrink-0 border-t border-sig-border bg-sig-panel/95 cursor-pointer hover:bg-sig-accent/5 transition-colors"
               style={{
-                paddingBottom: TickerSafeAreaPadding.Collapsed,
+                paddingBottom: "env(safe-area-inset-bottom)",
               }}
               onClick={cycleTickerMode}
             >
               <div className="flex items-center justify-center gap-1.5 py-0.5 text-sig-dim/50 hover:text-sig-accent/60">
-                <GripHorizontal size={TickerIconSize.Grip} />
-                <span className={TickerClassName.ModeLabel}>
+                <GripHorizontal size={10} />
+                <span className="text-[9px] tracking-widest font-semibold">
                   SHOW LIVE FEED
                 </span>
-                <GripHorizontal size={TickerIconSize.Grip} />
+                <GripHorizontal size={10} />
               </div>
-            </button>
+            </div>
           )}
         </>
       )}

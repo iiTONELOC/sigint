@@ -1,8 +1,7 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Zap, ArrowRight } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { relativeAge } from "@/lib/format/timeFormat";
 import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
 import type { EventData } from "../types";
 
@@ -38,7 +37,7 @@ function Metric({ label, value }: { readonly label: string; readonly value: stri
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: SelectedIsolateMode;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -68,9 +67,7 @@ export function EventDossier({
     url,
     imageUrl,
   } = d;
-  const age = item.timestamp
-    ? relativeAge(new Date(item.timestamp).getTime(), AgeStyle.Verbose)
-    : null;
+  const age = item.timestamp ? relativeAge(new Date(item.timestamp).getTime(), "verbose") : null;
   const closeBtnRef = useDossierFocus(item.id);
 
   return (

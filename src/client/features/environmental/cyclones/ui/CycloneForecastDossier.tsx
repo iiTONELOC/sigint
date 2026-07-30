@@ -1,6 +1,4 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Wind } from "lucide-react";
-import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import { formatKtMph, nmToKm } from "@/lib/format/units";
@@ -17,10 +15,10 @@ import { CATEGORY_LABEL } from "../classification";
 
 type Props = {
   readonly item: DataPoint & {
-    type: Domain.CyclonesForecast;
+    type: "cyclones-forecast";
     data: CycloneForecastPointData;
   };
-  readonly isolateMode: SelectedIsolateMode;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;

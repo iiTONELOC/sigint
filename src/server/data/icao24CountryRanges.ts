@@ -16,7 +16,7 @@
 // they account for >99 % of global ADS-B traffic. The long tail of
 // micro-states with sub-1024 address blocks (Tonga, Kiribati, etc.)
 // is not yet enumerated — those hexes fall through to "" (same as
-// today's behavior for every aircraft) so this commit is strictly
+// today's behaviour for every aircraft) so this commit is strictly
 // additive. A future ticket can fill the tail.
 //
 // Data correctness: each entry comes directly from ICAO's published

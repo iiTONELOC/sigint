@@ -1,9 +1,5 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import { formatPixelKm } from "@/lib/format/units";
 import { frpBand, confidenceMeta, DELTA_T_DETECT_K } from "../intensity";
 
@@ -63,7 +59,7 @@ export function FireDetailSummary({ item }: { readonly item: DataPoint }) {
           <Field label="FOOTPRINT" value={scan != null && track != null ? formatPixelKm(scan, track) : "—"} />
           <Field label="PASS" value={isNight ? "night" : "day"} align="right" />
         </div>
-        <Field label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />
+        <Field label="POSITION" value={`${formatLat(item.lat)}, ${formatLon(item.lon)}`} />
       </div>
     </div>
   );

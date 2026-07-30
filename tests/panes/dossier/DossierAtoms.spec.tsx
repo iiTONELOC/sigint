@@ -8,7 +8,6 @@ import {
   Row,
   LinkRow,
 } from "@/panes/dossier/DossierAtoms";
-import { IsolateMode } from "@/workers/render/protocol";
 
 function noop(): void {
   // intentionally empty — DossierToolbar handlers
@@ -153,7 +152,7 @@ describe("DossierToolbar", () => {
       <DossierToolbar
         icon={Plane}
         title="x"
-        isolateMode={IsolateMode.Focus}
+        isolateMode="focus"
         onLocate={noop}
         onFocus={noop}
         onSolo={noop}
@@ -174,7 +173,7 @@ describe("DossierToolbar", () => {
       <DossierToolbar
         icon={Plane}
         title="x"
-        isolateMode={IsolateMode.Solo}
+        isolateMode="solo"
         onLocate={noop}
         onFocus={noop}
         onSolo={noop}

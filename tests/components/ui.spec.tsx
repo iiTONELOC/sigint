@@ -1,7 +1,4 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Domain } from "@shared/domain/identity";
-import { SourceStatus } from "@shared/domain/sourceStatus";
-import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -173,16 +170,14 @@ describe("Header", () => {
         },
         toggleLayer: () => {},
         counts: { aircraft: 10, ships: 5 },
-        dataSources: [
-          { id: Domain.Aircraft, status: SourceStatus.Live, error: null },
-        ],
+        dataSources: [{ id: "aircraft", label: "AIRCRAFT", status: "live" }],
         aircraftFilter: {
           enabled: true,
           showAirborne: true,
           showGround: true,
-          squawks: new Set<SquawkBucket>(),
+          squawks: new Set<string>(),
           countries: new Set<string>(),
-          milFilter: MilFilter.All,
+          milFilter: "all" as const,
         },
         setAircraftFilter: () => {},
         availableCountries: [],
@@ -202,15 +197,29 @@ describe("Search", () => {
     const { Search } = await import("@/components/Search");
     const { container, unmount } = renderWithTheme(
       React.createElement(Search, {
+        data: [pt("a1", "aircraft", 35, 139, { callsign: "UAL123" })],
         onSelect: () => {},
         onZoomTo: () => {},
-        onCommit: () => {},
+        onMatchingIdsChange: () => {},
       }),
     );
     expect(container.innerHTML.length).toBeGreaterThan(0);
     unmount();
   });
 
+  test("renders with empty data", async () => {
+    const { Search } = await import("@/components/Search");
+    const { container, unmount } = renderWithTheme(
+      React.createElement(Search, {
+        data: [],
+        onSelect: () => {},
+        onZoomTo: () => {},
+        onMatchingIdsChange: () => {},
+      }),
+    );
+    expect(container.innerHTML.length).toBeGreaterThan(0);
+    unmount();
+  });
 });
 
 // ── DetailPanel ─────────────────────────────────────────────────────

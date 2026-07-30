@@ -1,4 +1,3 @@
-import { GeoJsonGeometryType } from "../../shared/geo";
 // ── Cyclones cone cache ──────────────────────────────────────────────
 // Per-storm cache of NHC's official 5-day cone polygon, served as
 // GeoJSON. Mirrors cyclonesDossierCache.ts shape — Map<stormId,
@@ -29,7 +28,7 @@ export const CONE_CACHE_TTL_MS = 60 * 60_000;
 // ── Types ────────────────────────────────────────────────────────────
 
 export type GeoJSONPolygon = {
-  type: GeoJsonGeometryType.Polygon;
+  type: "Polygon";
   coordinates: number[][][];
 };
 
@@ -62,7 +61,7 @@ export function parseKmlConeToGeoJSON(kml: string): GeoJSONPolygon | null {
     ring.push([lon, lat]);
   }
   if (ring.length < 4) return null;
-  return { type: GeoJsonGeometryType.Polygon, coordinates: [ring] };
+  return { type: "Polygon", coordinates: [ring] };
 }
 
 // ── Single-storm cone fetch ─────────────────────────────────────────

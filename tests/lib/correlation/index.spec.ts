@@ -1,8 +1,4 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { Domain } from "@shared/domain/identity";
-import { MS_PER_HOUR } from "@shared/time";
-import { WeatherSeverity } from "@/features/environmental/weather/severity";
-import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
 
@@ -21,16 +17,16 @@ const { computeCorrelations, initBaseline } = await import(
 
 // ── Test data factories ─────────────────────────────────────────────
 
-
+const HOUR = 3600_000;
 let _idCounter = 0;
 
 function makeEvent(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `evt-${++_idCounter}`,
-    type: Domain.Events,
+    type: "events",
     lat: overrides.lat ?? 35.0,
     lon: overrides.lon ?? 45.0,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
     data: {
       severity: overrides.severity ?? 4,
       sourceCountry: overrides.country ?? "Iraq",
@@ -43,10 +39,10 @@ function makeEvent(overrides: Record<string, any> = {}): DataPoint {
 function makeQuake(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `eq-${++_idCounter}`,
-    type: Domain.Quakes,
+    type: "quakes",
     lat: overrides.lat ?? 35.7,
     lon: overrides.lon ?? 139.7,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
     data: {
       magnitude: overrides.magnitude ?? 5.2,
       location: overrides.location ?? "10 km SE of Tokyo, Japan",
@@ -59,10 +55,10 @@ function makeQuake(overrides: Record<string, any> = {}): DataPoint {
 function makeFire(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `fire-${++_idCounter}`,
-    type: Domain.Fires,
+    type: "fires",
     lat: overrides.lat ?? 35.1,
     lon: overrides.lon ?? 45.1,
-    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
+    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
     data: {
       frp: overrides.frp ?? 50,
       ...(overrides.data ?? {}),
@@ -73,7 +69,7 @@ function makeFire(overrides: Record<string, any> = {}): DataPoint {
 function makeAircraft(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ac-${++_idCounter}`,
-    type: Domain.Aircraft,
+    type: "aircraft",
     lat: overrides.lat ?? 40.0,
     lon: overrides.lon ?? -74.0,
     timestamp:
@@ -91,11 +87,12 @@ function makeAircraft(overrides: Record<string, any> = {}): DataPoint {
 function makeWeather(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `wx-${++_idCounter}`,
-    type: Domain.Weather,
-    position: [overrides.lon ?? -90.0, overrides.lat ?? 30.0],
-    timestamp: overrides.timestamp ?? new Date(Date.now() - MS_PER_HOUR).toISOString(),
+    type: "weather",
+    lat: overrides.lat ?? 30.0,
+    lon: overrides.lon ?? -90.0,
+    timestamp: overrides.timestamp ?? new Date(Date.now() - HOUR).toISOString(),
     data: {
-      severity: overrides.severity ?? WeatherSeverity.Severe,
+      severity: overrides.severity ?? "Severe",
       event: overrides.event ?? "Tornado Warning",
       ...(overrides.data ?? {}),
     },
@@ -105,7 +102,7 @@ function makeWeather(overrides: Record<string, any> = {}): DataPoint {
 function makeShip(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ship-${++_idCounter}`,
-    type: Domain.Ships,
+    type: "ships",
     lat: overrides.lat ?? 30.0,
     lon: overrides.lon ?? -90.0,
     timestamp:
@@ -303,7 +300,7 @@ describe("alert scoring", () => {
   });
 
   test("extreme weather generates alert", () => {
-    const wx = makeWeather({ severity: WeatherSeverity.Extreme, event: "Tornado" });
+    const wx = makeWeather({ severity: "Extreme", event: "Tornado" });
     const result = computeCorrelations([wx], []);
     const alert = result.alerts.find((a) => a.item.id === wx.id);
     expect(alert).toBeDefined();
@@ -311,7 +308,7 @@ describe("alert scoring", () => {
   });
 
   test("moderate weather does NOT generate alert", () => {
-    const wx = makeWeather({ severity: WeatherSeverity.Minor });
+    const wx = makeWeather({ severity: "Minor" });
     const result = computeCorrelations([wx], []);
     const alert = result.alerts.find((a) => a.item.id === wx.id);
     expect(alert).toBeUndefined();
@@ -343,10 +340,10 @@ describe("alert scoring", () => {
   test("old data (>24h) does NOT generate alerts", () => {
     const old = makeEvent({
       severity: 5,
-      timestamp: new Date(Date.now() - 25 * MS_PER_HOUR).toISOString(),
+      timestamp: new Date(Date.now() - 25 * HOUR).toISOString(),
     });
     const result = computeCorrelations([old], []);
-    expect(result.alerts).toHaveLength(0);
+    expect(result.alerts.length).toBe(0);
   });
 });
 
@@ -379,16 +376,16 @@ describe("alert deduplication", () => {
     const e1 = makeEvent({
       severity: 4,
       country: "Iraq",
-      timestamp: new Date(now - MS_PER_HOUR).toISOString(),
+      timestamp: new Date(now - HOUR).toISOString(),
     });
     const e2 = makeEvent({
       severity: 4,
       country: "Syria",
-      timestamp: new Date(now - MS_PER_HOUR).toISOString(),
+      timestamp: new Date(now - HOUR).toISOString(),
     });
     const result = computeCorrelations([e1, e2], []);
     // Each should be its own alert
-    expect(result.alerts).toHaveLength(2);
+    expect(result.alerts.length).toBe(2);
   });
 });
 
@@ -409,7 +406,7 @@ describe("cross-source correlation", () => {
     const fire = makeFire({ lat: 10.0, lon: 10.0 }); // thousands of km away
     const result = computeCorrelations([evt, fire], []);
     const xsrc = result.products.filter((p) => p.type === "cross-source");
-    expect(xsrc).toHaveLength(0);
+    expect(xsrc.length).toBe(0);
   });
 
   test("large earthquake near fire produces cross-source product", () => {
@@ -512,6 +509,6 @@ describe("baseline tracking", () => {
     const result = computeCorrelations([evt], []);
     const win = result.baseline.countries["TestCountry"];
     expect(win).toBeDefined();
-    expect(win!.buckets).toHaveLength(168);
+    expect(win!.buckets.length).toBe(168);
   });
 });

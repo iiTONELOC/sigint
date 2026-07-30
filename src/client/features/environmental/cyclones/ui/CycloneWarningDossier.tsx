@@ -1,7 +1,7 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { TriangleAlert } from "lucide-react";
-import { CycloneWarningField, type CycloneWarningPoint } from "../types";
-import { buildWarningDossierRows } from "../warningDetailRows";
+import type { DataPoint } from "@/features/base/dataPoints";
+import type { CycloneWarning } from "../data/warnings";
+import { buildWarningDetailRows } from "../data/warningPoint";
 import {
   DossierToolbar,
   Section,
@@ -9,9 +9,12 @@ import {
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
 
+// Read-only dossier for a clicked watch/warning area. The event + severity are
+// the title/badge, so the detail rows drop those to avoid repeating them.
+
 type Props = {
-  readonly item: CycloneWarningPoint;
-  readonly isolateMode: SelectedIsolateMode;
+  readonly item: DataPoint & { type: "cyclones-warning"; data: CycloneWarning };
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -28,15 +31,17 @@ export function CycloneWarningDossier({
 }: Props) {
   const w = item.data;
   const closeBtnRef = useDossierFocus(item.id);
-  const headline = w[CycloneWarningField.Headline];
-  const rows = buildWarningDossierRows(w);
+  const isWarn = w.kind === "warning";
+  const rows = buildWarningDetailRows(w).filter(
+    ([k]) => k !== "Alert" && k !== "Severity",
+  );
 
   return (
     <div className="h-full flex flex-col">
       <DossierToolbar
         icon={TriangleAlert}
-        title={w[CycloneWarningField.Alert]}
-        subtitle={w.kind.toUpperCase()}
+        title={w.event}
+        subtitle={isWarn ? "WARNING" : "WATCH"}
         isolateMode={isolateMode}
         onLocate={onLocate}
         onFocus={onFocus}
@@ -51,10 +56,10 @@ export function CycloneWarningDossier({
               <Row key={k} label={k} value={v} />
             ))}
           </Section>
-          {headline && (
+          {w.headline && (
             <Section title="DETAILS">
               <p className="text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap">
-                {headline}
+                {w.headline}
               </p>
             </Section>
           )}

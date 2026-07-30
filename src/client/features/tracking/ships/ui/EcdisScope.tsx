@@ -1,7 +1,7 @@
-// North-up ECDIS/radar scope: own-ship at center, a bright HEADING line (bow),
+// North-up ECDIS/radar scope: own-ship at centre, a bright HEADING line (bow),
 // a dashed COURSE vector (COG, length ∝ SOG), range rings + compass ticks. The
 // angle between heading line and course vector is the set/drift, shown the way a
-// bridge display shows it. Accent rides the ships layer color (--dossier-accent).
+// bridge display shows it. Accent rides the ships layer colour (--dossier-accent).
 
 const C = 160;
 const R = 148;

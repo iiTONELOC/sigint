@@ -1,6 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { Domain } from "@shared/domain/identity";
-import { type PointType } from "@shared/domain/pointType";
 
 // Test the pure search logic (getPrimaryLabel, getSecondaryLabel, searchItems)
 // without rendering the full Search component
@@ -55,7 +53,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "1",
-        type: Domain.Aircraft,
+        type: "aircraft",
         data: { callsign: "UAL123", icao24: "abc" },
         lat: 0,
         lon: 0,
@@ -66,7 +64,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "1",
-        type: Domain.Aircraft,
+        type: "aircraft",
         data: { icao24: "abc123" },
         lat: 0,
         lon: 0,
@@ -77,7 +75,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "1",
-        type: Domain.Ships,
+        type: "ships",
         data: { name: "EVER GIVEN" },
         lat: 0,
         lon: 0,
@@ -88,7 +86,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "1",
-        type: Domain.Events,
+        type: "events",
         data: { headline: "Crisis in X" },
         lat: 0,
         lon: 0,
@@ -99,7 +97,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "1",
-        type: Domain.Quakes,
+        type: "quakes",
         data: { location: "Tokyo" },
         lat: 0,
         lon: 0,
@@ -110,7 +108,7 @@ describe("getPrimaryLabel", () => {
     expect(
       getPrimaryLabel({
         id: "fallback",
-        type: Domain.Aircraft,
+        type: "aircraft",
         data: {},
         lat: 0,
         lon: 0,
@@ -123,7 +121,7 @@ describe("getSecondaryLabel", () => {
   test("aircraft joins type, country, operator", () => {
     const label = getSecondaryLabel({
       id: "1",
-      type: Domain.Aircraft,
+      type: "aircraft",
       data: { acType: "B738", originCountry: "US", operator: "Delta" },
       lat: 0,
       lon: 0,
@@ -133,7 +131,7 @@ describe("getSecondaryLabel", () => {
   test("aircraft skips Unknown type", () => {
     const label = getSecondaryLabel({
       id: "1",
-      type: Domain.Aircraft,
+      type: "aircraft",
       data: { acType: "Unknown", originCountry: "US" },
       lat: 0,
       lon: 0,
@@ -143,7 +141,7 @@ describe("getSecondaryLabel", () => {
   test("ships joins vesselType and flag", () => {
     const label = getSecondaryLabel({
       id: "1",
-      type: Domain.Ships,
+      type: "ships",
       data: { vesselType: "Cargo", flag: "PA" },
       lat: 0,
       lon: 0,
@@ -154,7 +152,7 @@ describe("getSecondaryLabel", () => {
     expect(
       getSecondaryLabel({
         id: "1",
-        type: Domain.Quakes,
+        type: "quakes",
         data: { magnitude: 5.2 },
         lat: 0,
         lon: 0,
@@ -165,7 +163,7 @@ describe("getSecondaryLabel", () => {
     expect(
       getSecondaryLabel({
         id: "1",
-        type: Domain.Aircraft,
+        type: "aircraft",
         data: {},
         lat: 0,
         lon: 0,

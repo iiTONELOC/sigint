@@ -1,160 +1,103 @@
-import {
-  useMemo,
-  useState,
-  useCallback,
-  type CSSProperties,
-} from "react";
+import { useMemo, useState, useCallback, type JSX } from "react";
 import { useData } from "@/context/DataContext";
 import { Terminal, Copy, Check } from "lucide-react";
 
-const JSON_PUNCTUATION_CLASS = "text-sig-dim";
-const JSON_KEY_CLASS = "text-sig-accent";
-const JSON_STRING_CLASS = "text-sig-bright";
-const JSON_NULL_CLASS = "text-sig-dim italic";
-const JSON_NUMBER_STYLE: CSSProperties = { color: "var(--sigint-fires)" };
-const JSON_BOOLEAN_STYLE: CSSProperties = { color: "var(--sigint-warn)" };
-const JSON_NULL_LITERAL = "null";
-
-const STRING_SOURCE = String.raw`"(?:\\.|[^"\\])*"`;
-const COLON_SOURCE = String.raw`\s*:`;
-const NUMBER_SOURCE = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
-const LITERAL_SOURCE = String.raw`\b(?:true|false|null)\b`;
-
-type JsonToken = Readonly<{
-  text: string;
-  className?: string;
-  style?: CSSProperties;
-}>;
-
-type JsonLexer = Readonly<{
-  string: RegExp;
-  colon: RegExp;
-  number: RegExp;
-  literal: RegExp;
-}>;
-
-type JsonRead = Readonly<{ tokens: readonly JsonToken[]; next: number }>;
-
-function createLexer(): JsonLexer {
-  return {
-    string: new RegExp(STRING_SOURCE, "y"),
-    colon: new RegExp(COLON_SOURCE, "y"),
-    number: new RegExp(NUMBER_SOURCE, "y"),
-    literal: new RegExp(LITERAL_SOURCE, "y"),
-  };
-}
-
-function literalToken(text: string): JsonToken {
-  return text === JSON_NULL_LITERAL
-    ? { text, className: JSON_NULL_CLASS }
-    : { text, style: JSON_BOOLEAN_STYLE };
-}
-
-function readQuoted(
-  lexer: JsonLexer,
-  json: string,
-  start: number,
-): JsonRead | null {
-  lexer.string.lastIndex = start;
-  const quoted = lexer.string.exec(json);
-  if (!quoted) return null;
-
-  const afterString = lexer.string.lastIndex;
-  lexer.colon.lastIndex = afterString;
-  const colon = lexer.colon.exec(json);
-  if (!colon) {
-    return {
-      tokens: [{ text: quoted[0], className: JSON_STRING_CLASS }],
-      next: afterString,
-    };
-  }
-  return {
-    tokens: [
-      { text: quoted[0], className: JSON_KEY_CLASS },
-      { text: colon[0], className: JSON_PUNCTUATION_CLASS },
-    ],
-    next: lexer.colon.lastIndex,
-  };
-}
-
-function readToken(
-  lexer: JsonLexer,
-  json: string,
-  start: number,
-): JsonRead | null {
-  const quoted = readQuoted(lexer, json, start);
-  if (quoted) return quoted;
-
-  lexer.number.lastIndex = start;
-  const numeric = lexer.number.exec(json);
-  if (numeric) {
-    return {
-      tokens: [{ text: numeric[0], style: JSON_NUMBER_STYLE }],
-      next: lexer.number.lastIndex,
-    };
-  }
-
-  lexer.literal.lastIndex = start;
-  const literal = lexer.literal.exec(json);
-  if (literal) {
-    return { tokens: [literalToken(literal[0])], next: lexer.literal.lastIndex };
-  }
-  return null;
-}
-
-function tokenizeJson(json: string): JsonToken[] {
-  const lexer = createLexer();
-  const tokens: JsonToken[] = [];
-  let punctuationStart = 0;
-  let index = 0;
-
-  while (index < json.length) {
-    const read = readToken(lexer, json, index);
-    if (!read) {
-      index++;
-      continue;
-    }
-    if (index > punctuationStart) {
-      tokens.push({
-        text: json.slice(punctuationStart, index),
-        className: JSON_PUNCTUATION_CLASS,
-      });
-    }
-    tokens.push(...read.tokens);
-    index = read.next;
-    punctuationStart = index;
-  }
-
-  if (json.length > punctuationStart) {
-    tokens.push({
-      text: json.slice(punctuationStart),
-      className: JSON_PUNCTUATION_CLASS,
-    });
-  }
-  return tokens;
-}
+// ── JSON syntax highlighter ─────────────────────────────────────────
+// Uses SIGINT theme CSS vars for consistent coloring across themes.
+//
+// Color mapping:
+//   keys     → sig-accent  (cyan in dark, teal in light)
+//   strings  → sig-bright  (white-ish)
+//   numbers  → --sigint-fires via inline style (orange)
+//   booleans → --sigint-warn via inline style  (yellow)
+//   null     → sig-dim     (gray)
+//   brackets → sig-dim     (gray)
 
 function HighlightedJson({ json }: { readonly json: string }) {
-  const tokens = useMemo(() => tokenizeJson(json), [json]);
-  return (
-    <>
-      {tokens.map((token, index) => (
-        <span
-          key={`${index}-${token.text}`}
-          className={token.className}
-          style={token.style}
-        >
-          {token.text}
-        </span>
-      ))}
-    </>
-  );
+  const parts = useMemo(() => {
+    const result: JSX.Element[] = [];
+    const regex =
+      /("(?:\\.|[^"\\])*")\s*(:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let i = 0;
+
+    while ((match = regex.exec(json)) !== null) {
+      // Brackets, commas, whitespace before match
+      if (match.index > lastIndex) {
+        result.push(
+          <span key={i++} className="text-sig-dim">
+            {json.slice(lastIndex, match.index)}
+          </span>,
+        );
+      }
+
+      if (match[1] !== undefined) {
+        if (match[2]) {
+          // Key
+          result.push(
+            <span key={i++} className="text-sig-accent">
+              {match[1]}
+            </span>,
+          );
+          result.push(
+            <span key={i++} className="text-sig-dim">
+              {match[2]}
+            </span>,
+          );
+        } else {
+          // String value
+          result.push(
+            <span key={i++} className="text-sig-bright">
+              {match[1]}
+            </span>,
+          );
+        }
+      } else if (match[3] !== undefined) {
+        // Number — use fires color (orange)
+        result.push(
+          <span key={i++} style={{ color: "var(--sigint-fires)" }}>
+            {match[3]}
+          </span>,
+        );
+      } else if (match[4] !== undefined) {
+        // Boolean — use warn color (yellow)
+        result.push(
+          <span key={i++} style={{ color: "var(--sigint-warn)" }}>
+            {match[4]}
+          </span>,
+        );
+      } else if (match[5] !== undefined) {
+        // Null
+        result.push(
+          <span key={i++} className="text-sig-dim italic">
+            {match[5]}
+          </span>,
+        );
+      }
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Remaining
+    if (lastIndex < json.length) {
+      result.push(
+        <span key={i++} className="text-sig-dim">
+          {json.slice(lastIndex)}
+        </span>,
+      );
+    }
+
+    return result;
+  }, [json]);
+
+  return <>{parts}</>;
 }
 
 // ── Component ───────────────────────────────────────────────────────
 
 export function RawConsolePane() {
-  const { selectedCurrent, counts, activeCount } = useData();
+  const { selectedCurrent, allData } = useData();
   const [copied, setCopied] = useState(false);
 
   const jsonStr = useMemo(() => {
@@ -185,19 +128,21 @@ export function RawConsolePane() {
     }
   }, [selectedCurrent]);
 
-  const statsStr = useMemo(
-    () =>
-      JSON.stringify(
-        {
-          totalPoints: activeCount,
-          byType: counts,
-          timestamp: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
-    [counts, activeCount],
-  );
+  const statsStr = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of allData) {
+      counts[item.type] = (counts[item.type] ?? 0) + 1;
+    }
+    return JSON.stringify(
+      {
+        totalPoints: allData.length,
+        byType: counts,
+        timestamp: new Date().toISOString(),
+      },
+      null,
+      2,
+    );
+  }, [allData]);
 
   const displayStr = displayJsonStr ?? statsStr;
   const copyStr = jsonStr ?? statsStr;

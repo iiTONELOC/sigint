@@ -90,7 +90,7 @@ let cachedDb: Database | null = null;
 let cachedSelect: Statement<DbRow, [string]> | null = null;
 // Sticky flag — once we've determined the SQLite file is missing,
 // stop re-checking on every lookup. Mirrors the old Map-based path's
-// "warn once, fall through" behavior.
+// "warn once, fall through" behaviour.
 let dbMissing = false;
 
 async function initializeDb(): Promise<void> {

@@ -1,48 +1,37 @@
-import { isEnumValue } from "@shared/types/enum";
+// Single owner for NWS alert severity → numeric rank. Pure (no imports) so both
+// the weather feature definition and the globe render worker consume it without
+// pulling in React/icon code.
 
-export enum WeatherSeverity {
-  Unknown = "Unknown",
-  Minor = "Minor",
-  Moderate = "Moderate",
-  Severe = "Severe",
-  Extreme = "Extreme",
-}
-
-export enum WeatherInk {
-  Slate = "#6b7a8d",
-  Blue = "#5c7cfa",
-  Violet = "#9775fa",
-  Magenta = "#cc5de8",
-  Pink = "#e64980",
-}
-
-const SEVERITY_ORDER: readonly WeatherSeverity[] =
-  Object.values(WeatherSeverity);
-
-const SEVERITY_INK: Readonly<Record<WeatherSeverity, string>> = {
-  [WeatherSeverity.Unknown]: WeatherInk.Slate,
-  [WeatherSeverity.Minor]: WeatherInk.Blue,
-  [WeatherSeverity.Moderate]: WeatherInk.Violet,
-  [WeatherSeverity.Severe]: WeatherInk.Magenta,
-  [WeatherSeverity.Extreme]: WeatherInk.Pink,
+export const WEATHER_SEVERITY_RANK: Record<string, number> = {
+  Extreme: 4,
+  Severe: 3,
+  Moderate: 2,
+  Minor: 1,
+  Unknown: 0,
 };
 
-export function parseWeatherSeverity(value: unknown): WeatherSeverity {
-  return isEnumValue(value, WeatherSeverity) ? value : WeatherSeverity.Unknown;
+/** Rank for an NWS severity string; 0 for unknown/missing. */
+export function weatherSeverityRank(severity: string | undefined): number {
+  return WEATHER_SEVERITY_RANK[severity ?? "Unknown"] ?? 0;
 }
 
-export function weatherSeverityRank(severity: WeatherSeverity): number {
-  return SEVERITY_ORDER.indexOf(severity);
-}
+export type SeverityMeta = {
+  rank: number;
+  label: string;
+  /** Text/accent tone, legible on both light and dark panels. */
+  ink: string;
+};
 
-export function weatherSeverityFromRank(rank: number): WeatherSeverity {
-  return SEVERITY_ORDER[rank] ?? WeatherSeverity.Unknown;
-}
+// Violet→magenta ramp — the weather layer's own identity (purple family),
+// deliberately distinct from the fire heat ramp (orange/amber) and cyclone red.
+const SEVERITY_META: Record<string, SeverityMeta> = {
+  Extreme: { rank: 4, label: "EXTREME", ink: "#e64980" },
+  Severe: { rank: 3, label: "SEVERE", ink: "#cc5de8" },
+  Moderate: { rank: 2, label: "MODERATE", ink: "#9775fa" },
+  Minor: { rank: 1, label: "MINOR", ink: "#5c7cfa" },
+  Unknown: { rank: 0, label: "UNKNOWN", ink: "#6b7a8d" },
+};
 
-export function weatherSeverityLabel(severity: WeatherSeverity): string {
-  return severity.toUpperCase();
-}
-
-export function weatherSeverityInk(severity: WeatherSeverity): string {
-  return SEVERITY_INK[severity];
+export function severityMeta(severity: string | undefined): SeverityMeta {
+  return SEVERITY_META[severity ?? "Unknown"] ?? SEVERITY_META.Unknown!;
 }

@@ -1,33 +1,15 @@
-export enum GeoJsonGeometryType {
-  Polygon = "Polygon",
-  MultiPolygon = "MultiPolygon",
-}
-
 export type GeoPoint = readonly [longitude: number, latitude: number];
-
-export function longitudeOf(point: GeoPoint): number {
-  return point[0];
-}
-
-export function latitudeOf(point: GeoPoint): number {
-  return point[1];
-}
-
-export function geoPointsEqual(left: GeoPoint, right: GeoPoint): boolean {
-  return left[0] === right[0] && left[1] === right[1];
-}
 export type GeoRing = readonly GeoPoint[];
-export type GeoLineString = readonly GeoPoint[];
 export type GeoPolygon = readonly GeoRing[];
 export type GeoMultiPolygon = readonly GeoPolygon[];
 
 export type GeoJsonPolygon = Readonly<{
-  type: GeoJsonGeometryType.Polygon;
+  type: "Polygon";
   coordinates: GeoPolygon;
 }>;
 
 export type GeoJsonMultiPolygon = Readonly<{
-  type: GeoJsonGeometryType.MultiPolygon;
+  type: "MultiPolygon";
   coordinates: GeoMultiPolygon;
 }>;
 
@@ -40,61 +22,13 @@ export type GeoBounds = Readonly<{
   maxLatitude: number;
 }>;
 
-export enum GeoLimit {
-  MinLongitude = -180,
-  MaxLongitude = 180,
-  MinLatitude = -90,
-  MaxLatitude = 90,
-  MinRingPointCount = 4,
-  FullLongitudeSpan = 360,
-  NullIslandDegrees = 0,
-}
-
-const HALF_LONGITUDE_SPAN = GeoLimit.FullLongitudeSpan / 2;
-
-export enum TurnDeg {
-  Quarter = 90,
-  Half = 180,
-  Full = 360,
-}
-
-export enum GeoMeasurement {
-  NauticalMilesPerDegree = 60,
-  FeetPerFlightLevel = 100,
-  MetersPerKilometer = 1_000,
-  EarthRadiusKilometers = 6_371,
-  EarthRadiusMeters = 6_371_000,
-}
-
-export enum AngleConversion {
-  RadiansPerDegree = 0.017453292519943295,
-}
-
-export const METERS_PER_KM = GeoMeasurement.MetersPerKilometer;
-export const EARTH_RADIUS_KM = GeoMeasurement.EarthRadiusKilometers;
-export const EARTH_RADIUS_METERS = GeoMeasurement.EarthRadiusMeters;
-export const DEGREES_TO_RADIANS =
-  AngleConversion.RadiansPerDegree;
-
-export function haversineKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const dLat = (lat2 - lat1) * AngleConversion.RadiansPerDegree;
-  const dLon = (lon2 - lon1) * AngleConversion.RadiansPerDegree;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * AngleConversion.RadiansPerDegree) *
-      Math.cos(lat2 * AngleConversion.RadiansPerDegree) *
-      Math.sin(dLon / 2) ** 2;
-  return (
-    GeoMeasurement.EarthRadiusKilometers *
-    2 *
-    Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  );
-}
+const MIN_LONGITUDE = -180;
+const MAX_LONGITUDE = 180;
+const MIN_LATITUDE = -90;
+const MAX_LATITUDE = 90;
+const MIN_RING_POINT_COUNT = 4;
+const FULL_LONGITUDE_SPAN = 360;
+const HALF_LONGITUDE_SPAN = FULL_LONGITUDE_SPAN / 2;
 
 export function isRecord(
   value: unknown,
@@ -107,8 +41,8 @@ export function createGeoPoint(
   latitude: number,
 ): GeoPoint | null {
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
-  if (longitude < GeoLimit.MinLongitude || longitude > GeoLimit.MaxLongitude) return null;
-  if (latitude < GeoLimit.MinLatitude || latitude > GeoLimit.MaxLatitude) return null;
+  if (longitude < MIN_LONGITUDE || longitude > MAX_LONGITUDE) return null;
+  if (latitude < MIN_LATITUDE || latitude > MAX_LATITUDE) return null;
   return [longitude, latitude];
 }
 
@@ -128,14 +62,7 @@ export function parseGeoRing(value: unknown): GeoRing | null {
     if (!point) return null;
     points.push(point);
   }
-  const first = points[0];
-  const last = points.at(-1);
-  return points.length >= GeoLimit.MinRingPointCount &&
-    first !== undefined &&
-    last !== undefined &&
-    geoPointsEqual(first, last)
-    ? points
-    : null;
+  return points.length >= MIN_RING_POINT_COUNT ? points : null;
 }
 
 export function parseGeoPolygonCoordinates(value: unknown): GeoPolygon | null {
@@ -166,17 +93,13 @@ export function parseGeoJsonPolygonGeometry(
   value: unknown,
 ): GeoJsonPolygonGeometry | null {
   if (!isRecord(value)) return null;
-  if (value.type === GeoJsonGeometryType.Polygon) {
+  if (value.type === "Polygon") {
     const coordinates = parseGeoPolygonCoordinates(value.coordinates);
-    return coordinates
-      ? { type: GeoJsonGeometryType.Polygon, coordinates }
-      : null;
+    return coordinates ? { type: "Polygon", coordinates } : null;
   }
-  if (value.type === GeoJsonGeometryType.MultiPolygon) {
+  if (value.type === "MultiPolygon") {
     const coordinates = parseGeoMultiPolygonCoordinates(value.coordinates);
-    return coordinates
-      ? { type: GeoJsonGeometryType.MultiPolygon, coordinates }
-      : null;
+    return coordinates ? { type: "MultiPolygon", coordinates } : null;
   }
   return null;
 }
@@ -184,77 +107,9 @@ export function parseGeoJsonPolygonGeometry(
 export function geometryPolygons(
   geometry: GeoJsonPolygonGeometry,
 ): GeoMultiPolygon {
-  return geometry.type === GeoJsonGeometryType.Polygon
+  return geometry.type === "Polygon"
     ? [geometry.coordinates]
     : geometry.coordinates;
-}
-
-function geoRingsEqual(left: GeoRing, right: GeoRing): boolean {
-  return (
-    left.length === right.length &&
-    left.every((point, index) => {
-      const other = right[index];
-      return other !== undefined && geoPointsEqual(point, other);
-    })
-  );
-}
-
-function geoPolygonsEqual(
-  left: GeoPolygon,
-  right: GeoPolygon,
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((ring, index) => {
-      const other = right[index];
-      return other !== undefined && geoRingsEqual(ring, other);
-    })
-  );
-}
-
-export function geoPolygonGeometryEqual(
-  left: GeoJsonPolygonGeometry | undefined,
-  right: GeoJsonPolygonGeometry | undefined,
-): boolean {
-  if (left === undefined || right === undefined) return left === right;
-  const leftPolygons = geometryPolygons(left);
-  const rightPolygons = geometryPolygons(right);
-  return (
-    leftPolygons.length === rightPolygons.length &&
-    leftPolygons.every((polygon, index) => {
-      const other = rightPolygons[index];
-      return other !== undefined && geoPolygonsEqual(polygon, other);
-    })
-  );
-}
-
-function ringCentroid(ring: GeoRing): GeoPoint | null {
-  if (ring.length === 0) return null;
-  let longitudeTotal = 0;
-  let latitudeTotal = 0;
-  for (const point of ring) {
-    longitudeTotal += longitudeOf(point);
-    latitudeTotal += latitudeOf(point);
-  }
-  return createGeoPoint(
-    longitudeTotal / ring.length,
-    latitudeTotal / ring.length,
-  );
-}
-
-export function geometryCentroid(
-  geometry: GeoJsonPolygonGeometry,
-): GeoPoint | null {
-  const [firstPolygon] = geometryPolygons(geometry);
-  const [outerRing] = firstPolygon ?? [];
-  return outerRing ? ringCentroid(outerRing) : null;
-}
-
-export function isNullIsland(point: GeoPoint): boolean {
-  return (
-    longitudeOf(point) === GeoLimit.NullIslandDegrees &&
-    latitudeOf(point) === GeoLimit.NullIslandDegrees
-  );
 }
 
 export function unwrapLongitude(
@@ -264,10 +119,10 @@ export function unwrapLongitude(
   // Keep antimeridian neighbors in one local longitude frame.
   let unwrapped = longitude;
   while (unwrapped - referenceLongitude > HALF_LONGITUDE_SPAN) {
-    unwrapped -= GeoLimit.FullLongitudeSpan;
+    unwrapped -= FULL_LONGITUDE_SPAN;
   }
   while (unwrapped - referenceLongitude < -HALF_LONGITUDE_SPAN) {
-    unwrapped += GeoLimit.FullLongitudeSpan;
+    unwrapped += FULL_LONGITUDE_SPAN;
   }
   return unwrapped;
 }
@@ -352,7 +207,7 @@ export function interpolateGeoPoint(
   // Interpolate across the shortest longitude span at the antimeridian.
   const endLongitude = unwrapLongitude(end[0], start[0]);
   let longitude = start[0] + (endLongitude - start[0]) * ratio;
-  if (longitude > GeoLimit.MaxLongitude) longitude -= GeoLimit.FullLongitudeSpan;
-  if (longitude < GeoLimit.MinLongitude) longitude += GeoLimit.FullLongitudeSpan;
+  if (longitude > MAX_LONGITUDE) longitude -= FULL_LONGITUDE_SPAN;
+  if (longitude < MIN_LONGITUDE) longitude += FULL_LONGITUDE_SPAN;
   return [longitude, start[1] + (end[1] - start[1]) * ratio];
 }

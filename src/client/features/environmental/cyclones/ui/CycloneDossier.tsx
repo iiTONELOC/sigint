@@ -1,6 +1,4 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Wind, ExternalLink } from "lucide-react";
-import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useData } from "@/context/DataContext";
 import type { CycloneData } from "../types";
@@ -26,8 +24,8 @@ import { CycloneWindRose } from "./CycloneWindRose";
 import { CycloneAssets } from "./CycloneAssets";
 
 type Props = {
-  readonly item: DataPoint & { type: Domain.Cyclones; data: CycloneData };
-  readonly isolateMode: SelectedIsolateMode;
+  readonly item: DataPoint & { type: "cyclones"; data: CycloneData };
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -76,7 +74,7 @@ export function CycloneDossier({
         closeButtonRef={closeBtnRef}
       />
       <div className="@container/dossier flex-1 min-w-0 overflow-y-auto sigint-scroll p-3">
-        {/* Content caps at a readable width + centers so it doesn't stretch into
+        {/* Content caps at a readable width + centres so it doesn't stretch into
             giant blocks on very large screens (TVs). The @container is on the
             scroll div above, so breakpoints still fire on the real pane width. */}
         <div className="w-full max-w-275 mx-auto flex flex-col gap-3">

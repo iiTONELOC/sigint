@@ -2,10 +2,6 @@
 // Groups events by country + type within a rolling time window. The
 // resulting Cluster[] is consumed by the product builder (index.ts).
 
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { CLUSTER_TIME_WINDOW, getCountry, getTs } from "./shared";
 
@@ -46,8 +42,8 @@ export function clusterByRegion(items: DataPoint[]): Cluster[] {
     let sumLon = 0;
     let maxSev = 0;
     for (const item of recent) {
-      sumLat += recordLatitude(item);
-      sumLon += recordLongitude(item);
+      sumLat += item.lat;
+      sumLon += item.lon;
       const d = item.data as Record<string, unknown>;
       const sev =
         (d.severity as number) ??

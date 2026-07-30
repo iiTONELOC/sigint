@@ -1,23 +1,11 @@
-import {
-  geographicToUnitVector,
-  type UnitVector,
-} from "@/lib/geo/unitSphere";
-
-const STATION_URL = "https://service.earthscope.org/fdsnws/station/1/query";
-const AVAILABILITY_URL = "https://service.earthscope.org/fdsnws/availability/1/query?nodata=204";
+const STATION_URL = "https://service.iris.edu/fdsnws/station/1/query";
 const TIMESERIES_URL = "https://service.iris.edu/irisws/timeseries/1/query";
 const SEARCH_RADII_DEG = [3, 8, 20, 40];
-const CHANNEL_QUERY = "BHZ,HHZ,EHZ,SHZ,LHZ";
 const WINDOW_SEC = 240;
 const PRE_ROLL_SEC = 20;
 const MAX_PLOT_POINTS = 600;
-const CHANNEL_RANK: Readonly<Record<string, number>> = {
-  BHZ: 0,
-  HHZ: 1,
-  EHZ: 2,
-  SHZ: 3,
-  LHZ: 4,
-};
+const MAX_CANDIDATES = 2;
+const CHANNEL_RANK: Record<string, number> = { BHZ: 0, HHZ: 1, EHZ: 2, SHZ: 3 };
 
 export type Waveform = {
   station: string;
@@ -28,27 +16,6 @@ export type Waveform = {
   sampleRate: number;
 };
 
-export type WaveformUnavailableReason =
-  | "invalid-event-time"
-  | "station-service-unavailable"
-  | "availability-service-unavailable"
-  | "no-active-station"
-  | "no-recorded-trace";
-
-export type WaveformResult =
-  | { status: "ready"; waveform: Waveform }
-  | { status: "unavailable"; reason: WaveformUnavailableReason };
-
-export type WaveformFetcher = (
-  url: string,
-  init?: RequestInit,
-) => Promise<Response>;
-
-export type FetchWaveformOptions = Readonly<{
-  fetcher?: WaveformFetcher;
-  signal?: AbortSignal;
-}>;
-
 type Channel = {
   network: string;
   station: string;
@@ -58,30 +25,10 @@ type Channel = {
   lon: number;
 };
 
-type RankedChannel = Channel & {
-  distanceSquared: number;
-};
-
-type TraceWindow = Readonly<{
-  start: string;
-  end: string;
-}>;
-
-type ChannelSearchResult =
-  | { status: "ready"; channels: Channel[] }
-  | { status: "failed" };
-
-type AvailabilitySearchResult =
-  | { status: "ready"; channelKeys: ReadonlySet<string> }
-  | { status: "failed" };
-
-function squaredChordDistance(origin: UnitVector, channel: Channel): number {
-  const candidate = geographicToUnitVector(channel.lat, channel.lon);
-  return (
-    (candidate.x - origin.x) ** 2 +
-    (candidate.y - origin.y) ** 2 +
-    (candidate.z - origin.z) ** 2
-  );
+function haversineDeg(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const dLat = bLat - aLat;
+  const dLon = (bLon - aLon) * Math.cos(((aLat + bLat) / 2) * (Math.PI / 180));
+  return Math.hypot(dLat, dLon);
 }
 
 function parseChannels(text: string): Channel[] {
@@ -92,7 +39,9 @@ function parseChannels(text: string): Channel[] {
     if (cols.length < 6) continue;
     const lat = Number.parseFloat(cols[4] ?? "");
     const lon = Number.parseFloat(cols[5] ?? "");
+    const endTime = (cols.at(-1) ?? "").trim();
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    if (endTime.length > 0) continue;
     const rawLoc = (cols[2] ?? "").trim();
     out.push({
       network: (cols[0] ?? "").trim(),
@@ -106,140 +55,28 @@ function parseChannels(text: string): Channel[] {
   return out;
 }
 
-function serviceTime(timestamp: number): string {
-  return new Date(timestamp).toISOString().replace(/\.\d+Z$/, "");
-}
-
-function traceWindow(originTimeIso: string): TraceWindow | null {
-  const originTimestamp = Date.parse(originTimeIso);
-  if (!Number.isFinite(originTimestamp)) return null;
-  const startTimestamp = originTimestamp - PRE_ROLL_SEC * 1000;
-  return {
-    start: serviceTime(startTimestamp),
-    end: serviceTime(startTimestamp + WINDOW_SEC * 1000),
-  };
-}
-
-function stationUrl(
-  latitude: number,
-  longitude: number,
-  radius: number,
-  window: TraceWindow,
-): string {
-  const url = new URL(STATION_URL);
-  url.searchParams.set("latitude", String(latitude));
-  url.searchParams.set("longitude", String(longitude));
-  url.searchParams.set("maxradius", String(radius));
-  url.searchParams.set("channel", CHANNEL_QUERY);
-  url.searchParams.set("starttime", window.start);
-  url.searchParams.set("endtime", window.end);
-  url.searchParams.set("includerestricted", "false");
-  url.searchParams.set("level", "channel");
-  url.searchParams.set("format", "text");
-  return url.toString();
-}
-
-async function nearbyChannels(
-  latitude: number,
-  longitude: number,
-  radius: number,
-  window: TraceWindow,
-  fetcher: WaveformFetcher,
-  signal: AbortSignal | undefined,
-): Promise<ChannelSearchResult> {
-  try {
-    const response = await fetcher(
-      stationUrl(latitude, longitude, radius, window),
-      { signal },
-    );
-    if (response.status === 204 || response.status === 404) {
-      return { status: "ready", channels: [] };
+async function nearbyChannels(lat: number, lon: number): Promise<Channel[]> {
+  for (const radius of SEARCH_RADII_DEG) {
+    const url = `${STATION_URL}?latitude=${lat}&longitude=${lon}&maxradius=${radius}&channel=BHZ,HHZ,EHZ,SHZ&level=channel&format=text`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const channels = parseChannels(await res.text());
+      if (channels.length === 0) continue;
+      return channels
+        .slice()
+        .sort((a, b) => {
+          const da = haversineDeg(lat, lon, a.lat, a.lon);
+          const db = haversineDeg(lat, lon, b.lat, b.lon);
+          if (Math.abs(da - db) > 0.5) return da - db;
+          return (CHANNEL_RANK[a.channel] ?? 9) - (CHANNEL_RANK[b.channel] ?? 9);
+        })
+        .slice(0, MAX_CANDIDATES);
+    } catch {
+      continue;
     }
-    if (!response.ok) return { status: "failed" };
-    return { status: "ready", channels: parseChannels(await response.text()) };
-  } catch {
-    return { status: "failed" };
   }
-}
-
-function rankChannels(
-  latitude: number,
-  longitude: number,
-  channels: readonly Channel[],
-): RankedChannel[] {
-  const origin = geographicToUnitVector(latitude, longitude);
-  const uniqueChannels = new Map<string, Channel>();
-  for (const channel of channels) {
-    uniqueChannels.set(channelKey(channel), channel);
-  }
-  return [...uniqueChannels.values()]
-    .map((channel) => ({
-      ...channel,
-      distanceSquared: squaredChordDistance(origin, channel),
-    }))
-    .sort(
-      (left, right) =>
-        left.distanceSquared - right.distanceSquared ||
-        (CHANNEL_RANK[left.channel] ?? Number.MAX_SAFE_INTEGER) -
-          (CHANNEL_RANK[right.channel] ?? Number.MAX_SAFE_INTEGER) ||
-        left.network.localeCompare(right.network) ||
-        left.station.localeCompare(right.station) ||
-        left.loc.localeCompare(right.loc),
-    );
-}
-
-function channelKey(channel: Channel): string {
-  return `${channel.network}.${channel.station}.${channel.loc}.${channel.channel}`;
-}
-
-function availabilityRequestBody(
-  channels: readonly Channel[],
-  window: TraceWindow,
-): string {
-  return [
-    "format=text",
-    ...channels.map(
-      (channel) =>
-        `${channel.network} ${channel.station} ${channel.loc} ${channel.channel} ${window.start} ${window.end}`,
-    ),
-  ].join("\n");
-}
-
-function parseAvailableChannelKeys(text: string): ReadonlySet<string> {
-  const keys = new Set<string>();
-  for (const line of text.split("\n")) {
-    if (!line || line.startsWith("#")) continue;
-    const [network, station, location, channel] = line.trim().split(/\s+/);
-    if (!network || !station || !location || !channel) continue;
-    keys.add(`${network}.${station}.${location}.${channel}`);
-  }
-  return keys;
-}
-
-async function availableChannelKeys(
-  channels: readonly Channel[],
-  window: TraceWindow,
-  fetcher: WaveformFetcher,
-  signal: AbortSignal | undefined,
-): Promise<AvailabilitySearchResult> {
-  try {
-    const response = await fetcher(AVAILABILITY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: availabilityRequestBody(channels, window),
-      signal,
-    });
-    if (response.status === 204) {
-      return { status: "ready", channelKeys: new Set<string>() };
-    }
-    if (!response.ok) return { status: "failed" };
-    return {
-      status: "ready",
-      channelKeys: parseAvailableChannelKeys(await response.text()),
-    };
-  } catch {
-    return { status: "failed" };
-  }
+  return [];
 }
 
 function parseTimeseries(text: string): { samples: number[]; sampleRate: number } | null {
@@ -254,7 +91,7 @@ function parseTimeseries(text: string): { samples: number[]; sampleRate: number 
     const v = Number.parseFloat(parts.at(-1) ?? "");
     if (Number.isFinite(v)) values.push(v);
   }
-  if (values.length < 2 || sampleRate <= 0) return null;
+  if (values.length < 2) return null;
   return { samples: values, sampleRate };
 }
 
@@ -269,29 +106,17 @@ function downsample(samples: number[]): number[] {
   return out;
 }
 
-async function tryTrace(
-  channel: Channel,
-  start: string,
-  fetcher: WaveformFetcher,
-  signal: AbortSignal | undefined,
-): Promise<Waveform | null> {
-  const url = new URL(TIMESERIES_URL);
-  url.searchParams.set("net", channel.network);
-  url.searchParams.set("sta", channel.station);
-  url.searchParams.set("loc", channel.loc);
-  url.searchParams.set("cha", channel.channel);
-  url.searchParams.set("starttime", start);
-  url.searchParams.set("duration", String(WINDOW_SEC));
-  url.searchParams.set("output", "ascii2");
+async function tryTrace(ch: Channel, start: string): Promise<Waveform | null> {
+  const url = `${TIMESERIES_URL}?net=${ch.network}&sta=${ch.station}&loc=${ch.loc}&cha=${ch.channel}&starttime=${start}&duration=${WINDOW_SEC}&output=ascii2`;
   try {
-    const res = await fetcher(url.toString(), { signal });
+    const res = await fetch(url);
     if (!res.ok) return null;
     const parsed = parseTimeseries(await res.text());
     if (!parsed) return null;
     return {
-      station: channel.station,
-      network: channel.network,
-      channel: channel.channel,
+      station: ch.station,
+      network: ch.network,
+      channel: ch.channel,
       samples: downsample(parsed.samples),
       rawSamples: parsed.samples,
       sampleRate: parsed.sampleRate,
@@ -305,69 +130,15 @@ export async function fetchWaveform(
   lat: number,
   lon: number,
   originTimeIso: string,
-  options: FetchWaveformOptions = {},
-): Promise<WaveformResult> {
-  const window = traceWindow(originTimeIso);
-  if (!window) {
-    return { status: "unavailable", reason: "invalid-event-time" };
+): Promise<Waveform | null> {
+  const channels = await nearbyChannels(lat, lon);
+  if (channels.length === 0) return null;
+  const start = new Date(new Date(originTimeIso).getTime() - PRE_ROLL_SEC * 1000)
+    .toISOString()
+    .replace(/\.\d+Z$/, "");
+  for (const ch of channels) {
+    const wave = await tryTrace(ch, start);
+    if (wave) return wave;
   }
-  const fetcher: WaveformFetcher =
-    options.fetcher ?? ((url, init) => globalThis.fetch(url, init));
-  const attemptedChannels = new Set<string>();
-  let stationServiceResponded = false;
-  let activeStationFound = false;
-  let availabilityRequested = false;
-  let availabilityServiceResponded = false;
-
-  for (const radius of SEARCH_RADII_DEG) {
-    const result = await nearbyChannels(
-      lat,
-      lon,
-      radius,
-      window,
-      fetcher,
-      options.signal,
-    );
-    if (result.status === "failed") continue;
-    stationServiceResponded = true;
-    const channels = rankChannels(lat, lon, result.channels);
-    if (channels.length > 0) activeStationFound = true;
-    if (channels.length === 0) continue;
-    availabilityRequested = true;
-    const availability = await availableChannelKeys(
-      channels,
-      window,
-      fetcher,
-      options.signal,
-    );
-    if (availability.status === "failed") continue;
-    availabilityServiceResponded = true;
-    for (const channel of channels.filter((candidate) =>
-      availability.channelKeys.has(channelKey(candidate)),
-    )) {
-      const key = channelKey(channel);
-      if (attemptedChannels.has(key)) continue;
-      attemptedChannels.add(key);
-      const waveform = await tryTrace(
-        channel,
-        window.start,
-        fetcher,
-        options.signal,
-      );
-      if (waveform) return { status: "ready", waveform };
-    }
-  }
-  if (!stationServiceResponded) {
-    return { status: "unavailable", reason: "station-service-unavailable" };
-  }
-  if (!activeStationFound) {
-    return { status: "unavailable", reason: "no-active-station" };
-  }
-  if (availabilityRequested && !availabilityServiceResponded) {
-    return {
-      status: "unavailable",
-      reason: "availability-service-unavailable",
-    };
-  }
-  return { status: "unavailable", reason: "no-recorded-trace" };
+  return null;
 }

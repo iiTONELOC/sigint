@@ -1,41 +1,37 @@
-// The worker holds the records: the DataWorker rebases every source to it over
-// a direct port. A request carries only news, which is not a DataWorker source,
-// and the baseline. Nothing here structured-clones a record set.
-
+import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
 import type { CorrelationResult, RegionBaseline } from "../correlation";
 import { computeCorrelations } from "../correlation";
-import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
-import {
-  CorrelationWorkerLocation,
-  CorrelationWorkerMessageType,
-  type CorrelationWorkerResponse,
-} from "@/workers/correlation/protocol";
 
 type Job = {
   requestId: number;
   resolve: (r: CorrelationResult) => void;
+  allData: DataPoint[];
   news: NewsArticle[];
   baseline: RegionBaseline;
 };
 
+type WorkerResponse = {
+  type: "result";
+  requestId: number;
+  result: CorrelationResult;
+};
+
 export type CorrelationClient = Readonly<{
   request(
+    allData: DataPoint[],
     news: NewsArticle[],
     baseline: RegionBaseline,
   ): Promise<CorrelationResult>;
   terminate(): void;
 }>;
 
-/**
- * Without the worker there is no data port either, so this correlates news
- * against an empty record set rather than silently reporting a stale one.
- */
 function inlineCompute(
+  allData: DataPoint[],
   news: NewsArticle[],
   baseline: RegionBaseline,
 ): Promise<CorrelationResult> {
-  return Promise.resolve(computeCorrelations([], news, baseline));
+  return Promise.resolve(computeCorrelations(allData, news, baseline));
 }
 
 function inlineFallback(): CorrelationClient {
@@ -46,6 +42,8 @@ function inlineFallback(): CorrelationClient {
     },
   });
 }
+
+const WORKER_URL = "/workers/correlationWorker.js";
 
 export function createCorrelationClient(): CorrelationClient {
   if (typeof Worker === "undefined") return inlineFallback();
@@ -58,28 +56,9 @@ export function createCorrelationClient(): CorrelationClient {
 
   let worker: Worker;
   try {
-    worker = new Worker(CorrelationWorkerLocation.Script, {
-      type: "module",
-    });
+    worker = new Worker(WORKER_URL, { type: "module" });
   } catch {
     return inlineFallback();
-  }
-
-  const dataClient = getDataWorkerClient();
-  if (dataClient && typeof MessageChannel !== "undefined") {
-    const channel = new MessageChannel();
-    const correlationSessionId = globalThis.crypto.randomUUID();
-    worker.postMessage(
-      {
-        type: CorrelationWorkerMessageType.BindData,
-        port: channel.port2,
-        correlationSessionId,
-      },
-      [channel.port2],
-    );
-    void dataClient
-      .connectCorrelation(channel.port1, correlationSessionId)
-      .catch(() => undefined);
   }
 
   const pending = new Map<number, Job>();
@@ -90,14 +69,16 @@ export function createCorrelationClient(): CorrelationClient {
   function fallback(): void {
     workerFailed = true;
     for (const job of pending.values()) {
-      void inlineCompute(job.news, job.baseline).then(job.resolve);
+      void inlineCompute(job.allData, job.news, job.baseline).then(
+        job.resolve,
+      );
     }
     pending.clear();
   }
 
-  worker.onmessage = (e: MessageEvent<CorrelationWorkerResponse>) => {
+  worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
     const msg = e.data;
-    if (msg?.type !== CorrelationWorkerMessageType.Result) return;
+    if (msg?.type !== "result") return;
     const job = pending.get(msg.requestId);
     if (!job) return;
     pending.delete(msg.requestId);
@@ -109,23 +90,30 @@ export function createCorrelationClient(): CorrelationClient {
   worker.onmessageerror = fallback;
 
   return Object.freeze({
-    request(news, baseline) {
-      if (workerFailed) return inlineCompute(news, baseline);
+    request(allData, news, baseline) {
+      if (workerFailed) return inlineCompute(allData, news, baseline);
       const requestId = nextId++;
       latestRequestId = requestId;
       return new Promise<CorrelationResult>((resolve) => {
-        pending.set(requestId, { requestId, resolve, news, baseline });
+        pending.set(requestId, {
+          requestId,
+          resolve,
+          allData,
+          news,
+          baseline,
+        });
         try {
           worker.postMessage({
-            type: CorrelationWorkerMessageType.Compute,
+            type: "compute",
             requestId,
+            allData,
             news,
             baseline,
           });
         } catch {
           pending.delete(requestId);
           fallback();
-          void inlineCompute(news, baseline).then(resolve);
+          void inlineCompute(allData, news, baseline).then(resolve);
         }
       });
     },

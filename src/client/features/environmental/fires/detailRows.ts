@@ -1,8 +1,4 @@
-import {
-  AgeStyle,
-  formatTimestamp,
-  relativeAge,
-} from "@/lib/format/timeFormat";
+import { relativeAge, formatTimestamp } from "@/lib/format/timeFormat";
 import type { FireData } from "./types";
 
 export function buildFireDetailRows(
@@ -48,10 +44,7 @@ export function buildFireDetailRows(
 
   if (timestamp) {
     const ts = new Date(timestamp).getTime();
-    rows.push([
-      "Detected",
-      `${formatTimestamp(timestamp)} (${relativeAge(ts, AgeStyle.Verbose)})`,
-    ]);
+    rows.push(["Detected", `${formatTimestamp(timestamp)} (${relativeAge(ts, "verbose")})`]);
   }
 
   return rows;

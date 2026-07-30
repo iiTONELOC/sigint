@@ -1,13 +1,6 @@
 /// <reference lib="webworker" />
 // Owns the transferred canvas and all Canvas2D drawing.
-import { Domain } from "@shared/domain/identity";
-import {
-  MilFilter,
-  squawkBucketFor,
-} from "@shared/domain/aircraft";
-import {
-  MS_PER_SECOND,
-} from "@shared/time";
+import { drawCyclone, drawCycloneForecastPoint } from "./render/cyclones";
 import { CAMERA_POLICY, RENDER_POLICY } from "./render/policy";
 import {
   applyCameraKey,
@@ -31,85 +24,33 @@ import {
   type CameraPosition,
 } from "./render/camera";
 import {
-  RenderCursor,
-  RenderFocusKind,
-  RenderGlobeCommandKind,
-  RenderInputKind,
-  RenderInputPhase,
-  RenderInteractionKind,
-  RenderMessageType,
-  RenderProjectionMode,
+  RENDER_PROTOCOL_VERSION,
   acceptRenderCommand,
-  createRenderMessage,
   type RenderAircraftFilter,
   type RenderCamera,
-  type RenderGlobeStateSnapshot,
   type RenderInputPayload,
   type RenderInteractionPayload,
-  type RenderSelectionIdentity,
+  type RenderPresentationPayload,
   type RenderViewportPayload,
   type RenderProtocolState,
+  type RenderPoint,
   type RenderWorkerCommand,
   type RenderWorkerColors,
-  type RenderWorkerEventBody,
-  type SelectedIsolateMode,
-  PanelSide,
+  type RenderWorkerEvent,
+  type SelectedRenderItem,
 } from "./render/protocol";
-import {
-  RenderSelectionController,
-} from "./render/selectionController";
-import {
-  RenderSearchController,
-  type RenderSearchSelectionState,
-} from "./render/searchController";
-import { RenderFocusResolver } from "./render/focusResolver";
-import {
-  RenderGlobeStateController,
-} from "./render/globeStateController";
 
-import { drawMarkerLayerSequence } from "./render/layerSequence";
-import type { AircraftData } from "@/features/tracking/aircraft/types";
 import {
-  AircraftLayer,
-  type AircraftSceneFilter,
-} from "./render/scene/aircraftLayer";
-import {
-  ShipLayer,
-} from "./render/scene/shipLayer";
-import { EventLayer } from "./render/scene/eventLayer";
-import {
-  EarthquakeLayer,
-  type EarthquakeSceneFilter,
-} from "./render/scene/earthquakeLayer";
-import {
-  FireLayer,
-  type FireSceneFilter,
-} from "./render/scene/fireLayer";
-import {
-  WeatherLayer,
-} from "./render/scene/weatherLayer";
-import {
-  CycloneWarningLayer,
-} from "./render/scene/cycloneWarningLayer";
-import type {
-  SceneAreaProjectionFrame,
-} from "./render/scene/areaLayer";
-import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
-import type {
-  SceneVisibilitySettings,
-} from "./render/scene/visibility";
-import { MarkerVisuals } from "./render/primitives/markerVisuals";
-import {
-  parseSceneDataCommand,
-  SceneDataCommandType,
-  SceneProtocolState,
-} from "./render/sceneProtocol";
-import {
-  SceneHitKind,
-} from "./render/scene/projectedLayer";
-import {
-  CycloneLayer,
-} from "./render/scene/cycloneLayer";
+  acceptRenderDataCommand,
+  parseRenderDataCommand,
+  type RenderDataProtocolState,
+} from "./render/dataChannel";
+
+import { orderPointsByLayer } from "./render/layerOrder";
+import { drawWarnings, type WarningFeature } from "./render/warnings";
+import { zoomScale } from "./render/workerMath";
+import { weatherSeverityRank } from "@/features/environmental/weather/severity";
+import { pointInPolygon } from "@/lib/geo/pointInPolygon";
 import {
   screenToLatLonFlat,
   screenToLatLonGlobe,
@@ -117,88 +58,64 @@ import {
 import type { Ctx, Projected, ProjFn } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   advanceGeographicMotion,
+  advanceUnitMotion,
   createGeographicMotion,
   createGlobeRotationMatrix,
   geographicToUnitVector,
   projectGeographicPoint as projGlobe,
+  projectUnitVector,
   projectUnitVectorInto,
+  type GeographicMotion,
   type GlobeRotationMatrix,
   type UnitVector,
 } from "@/lib/geo/unitSphere";
-import {
-  createGeoPoint,
-  GeoLimit,
-  type GeoPoint,
-  type GeoRing,
-} from "@shared/geo";
+import type { GeoRing } from "@shared/geo";
 import { parseLandGeoJson } from "@shared/land";
-import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
-import { drawGrid } from "@/lib/geo/render/grid";
-import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
-import {
-  CanvasLineStyle,
-  type HorizonCircle,
-  type LandColors,
-} from "@/lib/geo/render/types";
-import type {
-  TrackMotion,
-  TrailPoint,
-} from "@/lib/geo/trails/trailStore";
-import {
-  SceneInterestPublisher,
-} from "@/workers/render/sceneInterestPublisher";
-import type {
-  RenderSourceId,
-} from "@/workers/data/sourceIds";
-import {
-  SelectionOverlayStore,
-} from "@/workers/render/selectionOverlayStore";
-import {
-  AircraftRoutePolylineLimit,
-  type AircraftRouteWaypoint,
-} from "@shared/domain/aircraftDossier";
-import {
-  selectionIsVisible,
-} from "@/workers/render/selectionVisibility";
 
-enum PointWorkerError {
-  LandGeometryRequestFailed = "Land geometry request failed",
+// ── Projection ──────────────────────────────────────────────────────
+
+
+function projFlat(
+  lat: number,
+  lon: number,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+): Projected {
+  return { x: cx + (lon / 180) * (w / 2), y: cy - (lat / 90) * (h / 2), z: 1 };
 }
 
-enum SceneProjectionPolicy {
-  CullMarginPixels = 24,
-  HorizonInsetPixels = 0.5,
-}
-
-enum FlatLabelLayout {
-  MinimumPixels = 8,
-  ViewportScale = 0.015,
-  BottomOffsetPixels = 13,
-  SideOffsetPixels = 5,
-  BaselineOffsetPixels = 3,
-}
-
-enum FlatCoordinateLabel {
-  LongitudeStepDegrees = 60,
-  LongitudeLimitDegrees = 120,
-  LatitudeStepDivisor = 2,
+function getFlatMetrics(W: number, H: number, zoom: number, panX: number, panY: number) {
+  const mW = W * 0.92 * zoom;
+  const mH = H * 0.84 * zoom;
+  return {
+    mW,
+    mH,
+    mx: (W - mW) / 2 + panX,
+    my: (H - mH) / 2 + panY,
+    cx: W / 2 + panX,
+    cy: H / 2 + panY,
+  };
 }
 
 // ── Interpolation ───────────────────────────────────────────────────
 
-type SelectedMotion = Readonly<{
-  source: Domain.Aircraft | Domain.Ships;
-  motion: TrackMotion;
+type TrailEntry = Readonly<{
+  timestamp: number;
+  speedMetersPerSecond: number;
+  motion: GeographicMotion;
 }>;
 
-const markerVisuals = new MarkerVisuals();
+let trailMap = new Map<string, TrailEntry>();
 
 function interpolationSeconds(
-  selected: SelectedMotion,
+  id: string,
+  entry: TrailEntry,
 ): number | null {
-  if (selected.motion.speedMps <= 0) return null;
-  const elapsedMilliseconds = Date.now() - selected.motion.ts;
-  const limit = selected.source === Domain.Ships
+  if (entry.speedMetersPerSecond <= 0) return null;
+  const elapsedMilliseconds = Date.now() - entry.timestamp;
+  const limit = id.startsWith("S")
     ? RENDER_POLICY.shipInterpolationLimitMs
     : RENDER_POLICY.aircraftInterpolationLimitMs;
   if (
@@ -207,89 +124,171 @@ function interpolationSeconds(
   ) {
     return null;
   }
-  return elapsedMilliseconds / MS_PER_SECOND;
+  return elapsedMilliseconds / 1_000;
 }
 
-function selectedInterpolation(): { lat: number; lon: number } | null {
-  const identity = selectionController.snapshot().identity;
-  const motion = selectionOverlayStore.snapshot()?.motion ?? null;
-  if (!identity || !motion || (
-    identity.source !== Domain.Aircraft &&
-    identity.source !== Domain.Ships
-  )) {
-    return null;
-  }
-  const selected: SelectedMotion = {
-    source: identity.source,
-    motion,
-  };
-  const elapsedSeconds = interpolationSeconds(selected);
+function getInterp(id: string): { lat: number; lon: number } | null {
+  const entry = trailMap.get(id);
+  if (!entry) return null;
+  const elapsedSeconds = interpolationSeconds(id, entry);
   if (elapsedSeconds === null) return null;
-  const geographicMotion = createGeographicMotion(
-    motion.lat,
-    motion.lon,
-    motion.headingDeg,
-    motion.speedMps,
-  );
-  const position = advanceGeographicMotion(
-    geographicMotion,
-    elapsedSeconds,
-  );
+  const position = advanceGeographicMotion(entry.motion, elapsedSeconds);
   return { lat: position.latitude, lon: position.longitude };
+}
+
+function getInterpUnit(id: string): UnitVector | null {
+  const entry = trailMap.get(id);
+  if (!entry) return null;
+  const elapsedSeconds = interpolationSeconds(id, entry);
+  return elapsedSeconds === null
+    ? null
+    : advanceUnitMotion(entry.motion, elapsedSeconds);
 }
 
 // ── Theme detection ─────────────────────────────────────────────────
 
 function isLightTheme(colors: { bg?: string }): boolean {
-  return markerVisuals.isLight(colors.bg);
+  // Light themes have bright backgrounds.
+  const [r, g, b] = parseHex(colors.bg || "#080a0f");
+  return (r + g + b) / 3 > 128;
+}
+
+// ── Generic color fading — derives aged variants from the theme base ─
+
+function parseHex(hex: string): [number, number, number] {
+  return [
+    Number.parseInt(hex.slice(1, 3), 16) || 0,
+    Number.parseInt(hex.slice(3, 5), 16) || 0,
+    Number.parseInt(hex.slice(5, 7), 16) || 0,
+  ];
+}
+
+function toHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return "#" + ((1 << 24) + (clamp(r) << 16) + (clamp(g) << 8) + clamp(b)).toString(16).slice(1);
+}
+
+function fadeColor(base: string, factor: number): string {
+  if (factor >= 0.95) return base;
+  const [r, g, b] = parseHex(base);
+  return toHex(r * factor, g * factor, b * factor);
+}
+
+// ── Age/size helpers ────────────────────────────────────────────────
+
+const HR = 3600000;
+const DY = 86400000;
+
+/** Age (ms since `ts`) → opacity factor down a stepped ramp. `steps` is
+ *  [thresholdMs, factor] descending; the first threshold not exceeded wins. */
+function ageFactor(ts: string | number | undefined, steps: ReadonlyArray<[number, number]>): number {
+  if (!ts) return 0.5;
+  const a = Date.now() - new Date(ts).getTime();
+  const hit = steps.find(([threshold]) => a < threshold);
+  return hit ? hit[1] : (steps.at(-1)?.[1] ?? 0.5);
+}
+
+const quakeAgeFactor = (ts?: string | number) =>
+  ageFactor(ts, [[HR, 1], [6 * HR, 0.9], [DY, 0.8], [3 * DY, 0.65], [Infinity, 0.5]]);
+const eventAgeFactor = (ts?: string | number) =>
+  ageFactor(ts, [[HR, 1], [6 * HR, 0.9], [DY, 0.75], [3 * DY, 0.6], [Infinity, 0.45]]);
+const fireAgeFactor = (ts?: string | number) =>
+  ageFactor(ts, [[HR, 1], [3 * HR, 0.9], [6 * HR, 0.8], [12 * HR, 0.65], [Infinity, 0.5]]);
+
+const quakeColor = (af: number, base: string) => fadeColor(base, af);
+const eventColor = (af: number, base: string) => fadeColor(base, af);
+const fireColor = (af: number, base: string) => fadeColor(base, af);
+
+function quakeSize(m: number): number {
+  const bands: ReadonlyArray<[number, number]> = [
+    [1, 1.2], [2, 1.5], [3, 2], [4, 3], [5, 4.5], [6, 6], [7, 8],
+  ];
+  return bands.find(([max]) => m < max)?.[1] ?? 10;
+}
+function eventSize(s: number): number {
+  const bands: ReadonlyArray<[number, number]> = [[1, 1], [2, 1.3], [3, 1.8], [4, 2.5]];
+  return bands.find(([max]) => s <= max)?.[1] ?? 3.5;
+}
+function fireSize(frp: number): number {
+  const bands: ReadonlyArray<[number, number]> = [
+    [1, 0.8], [5, 1], [10, 1.3], [25, 1.8], [50, 2.5], [100, 3.5],
+  ];
+  return bands.find(([max]) => frp < max)?.[1] ?? 4.5;
+}
+
+// Glow baked into a per-(color,alpha) sprite once, then blitted per point —
+// avoids a createRadialGradient allocation per point per frame.
+const GLOW_SPRITE_PX = 128;
+const glowSpriteCache = new Map<string, OffscreenCanvas>();
+
+function getGlowSprite(color: string, alphaHex: string): OffscreenCanvas {
+  const key = color + alphaHex;
+  const cached = glowSpriteCache.get(key);
+  if (cached) return cached;
+  if (glowSpriteCache.size > 512) glowSpriteCache.clear();
+  const c = new OffscreenCanvas(GLOW_SPRITE_PX, GLOW_SPRITE_PX);
+  const g = c.getContext("2d");
+  if (!g) return c;
+  const r = GLOW_SPRITE_PX / 2;
+  const grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0, color + alphaHex);
+  grad.addColorStop(1, color + "00");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, GLOW_SPRITE_PX, GLOW_SPRITE_PX);
+  glowSpriteCache.set(key, c);
+  return c;
+}
+
+function drawGlow(
+  ctx: OffscreenCanvasRenderingContext2D,
+  color: string,
+  alphaHex: string,
+  x: number,
+  y: number,
+  gr: number,
+  alpha: number,
+): void {
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(getGlowSprite(color, alphaHex), x - gr, y - gr, gr * 2, gr * 2);
+}
+
+// ── Weather severity helpers ────────────────────────────────────
+
+function weatherSize(sev: string): number {
+  const r = weatherSeverityRank(sev);
+  return r >= 4 ? 6 : r >= 3 ? 4.5 : r >= 2 ? 3 : r >= 1 ? 2 : 1.5;
+}
+function weatherAlpha(sev: string): number {
+  const r = weatherSeverityRank(sev);
+  return r >= 4 ? 1 : r >= 3 ? 0.9 : r >= 2 ? 0.75 : 0.6;
 }
 
 // ── Aircraft filter ─────────────────────────────────────────────────
 
+type AircraftData = Extract<
+  RenderPoint,
+  { type: "aircraft" }
+>["data"];
 type AircraftFilter = RenderAircraftFilter;
 
-function matchesAltitudeBand(
-  d: AircraftData,
-  f: AircraftFilter,
-): boolean {
-  const onGround = d.onGround === true;
-  return onGround ? f.showGround : f.showAirborne;
-}
-
-function matchesRole(d: AircraftData, f: AircraftFilter): boolean {
-  switch (f.milFilter) {
-    case MilFilter.Military:
-      return d.military === true;
-    case MilFilter.Civilian:
-      return d.military !== true;
-    case MilFilter.Recon:
-      return d.recon === true;
-    default:
-      return true;
-  }
-}
-
-function matchesSquawk(d: AircraftData, f: AircraftFilter): boolean {
-  if (f.squawks.length === 0) return true;
-  const bucket = squawkBucketFor(d.squawk);
-  return f.squawks.includes(bucket);
-}
-
-function matchesCountry(d: AircraftData, f: AircraftFilter): boolean {
-  return (
-    f.countries.length === 0 ||
-    f.countries.includes(d.originCountry || "")
-  );
-}
-
 function matchesAF(d: AircraftData, f: AircraftFilter): boolean {
-  return (
-    f.enabled &&
-    matchesAltitudeBand(d, f) &&
-    matchesRole(d, f) &&
-    matchesSquawk(d, f) &&
-    matchesCountry(d, f)
-  );
+  if (!f.enabled) return false;
+  const onGround = d.onGround === true;
+  if (!f.showAirborne && !onGround) return false;
+  if (!f.showGround && onGround) return false;
+  const mf = f.milFilter || "all";
+  if (mf === "military" && !d.military) return false;
+  if (mf === "civilian" && d.military) return false;
+  if (mf === "recon" && !d.recon) return false;
+  if (f.squawks.length > 0) {
+    const sq = d.squawk || "";
+    const bucket = ["7700", "7600", "7500"].includes(sq) ? sq : "other";
+    if (!f.squawks.includes(bucket)) return false;
+  }
+  if (f.countries.length > 0 && !f.countries.includes(d.originCountry || "")) {
+    return false;
+  }
+  return true;
 }
 
 // ── Land data ───────────────────────────────────────────────────────
@@ -322,9 +321,7 @@ function parseLandGeoJSON(value: unknown): LandRing[] {
 function fetchLandData(): void {
   void fetch(RENDER_POLICY.landGeometryUrl)
     .then((response) => {
-      if (!response.ok) {
-        throw new Error(PointWorkerError.LandGeometryRequestFailed);
-      }
+      if (!response.ok) throw new Error("Land geometry request failed");
       return response.json();
     })
     .then((value: unknown) => {
@@ -334,29 +331,149 @@ function fetchLandData(): void {
     .catch(() => undefined);
 }
 
-type WorkerLandOptions = Readonly<{
-  matrix: GlobeRotationMatrix;
-  colors: LandColors;
-  isFlat: boolean;
-  horizon: HorizonCircle;
-  alpha: number;
-}>;
+// ── Land renderer (inlined from landRenderer.ts) ────────────────────
+
+type Pt = { x: number; y: number };
+
+function edgeLerp(a: Projected, b: Projected): Pt {
+  const t = a.z / (a.z - b.z);
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+function arcPts(cx: number, cy: number, r: number, a1: number, a2: number, n = 12): Pt[] {
+  let diff = a2 - a1;
+  if (diff > Math.PI) diff -= 2 * Math.PI;
+  if (diff < -Math.PI) diff += 2 * Math.PI;
+  return Array.from({ length: n }, (_, i) => {
+    const a = a1 + (diff * (i + 1)) / n;
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  });
+}
+
+function findReentryPoint(pts: Projected[], startIndex: number): Pt | null {
+  const n = pts.length;
+  for (let j = 1; j < n; j++) {
+    const prev = pts[(startIndex + j) % n];
+    const next = pts[(startIndex + j + 1) % n];
+    if (prev && next && prev.z <= 0 && next.z > 0) return edgeLerp(prev, next);
+  }
+  return null;
+}
+
+function fillStrokePath(
+  ctx: Ctx,
+  path: ReadonlyArray<Pt>,
+  fillColor: string,
+  strokeColor: string,
+  landAlpha: number,
+): void {
+  if (path.length < 3) return;
+  ctx.beginPath();
+  path.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.globalAlpha = landAlpha;
+  ctx.fill();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 0.7;
+  ctx.globalAlpha = landAlpha + 0.1;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawClippedPoly(
+  ctx: Ctx,
+  pts: Projected[],
+  gcx: number,
+  gcy: number,
+  gr: number,
+  fillColor: string,
+  strokeColor: string,
+  landAlpha: number,
+): void {
+  const n = pts.length;
+  const path: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const curr = pts[i];
+    const next = pts[(i + 1) % n];
+    if (!curr || !next) continue;
+    const cVis = curr.z > 0;
+    const nVis = next.z > 0;
+    if (cVis) path.push({ x: curr.x, y: curr.y });
+    if (cVis === nVis) continue;
+    if (cVis) {
+      const exit = edgeLerp(curr, next);
+      path.push(exit);
+      const reentry = findReentryPoint(pts, i);
+      if (reentry) {
+        const ea = Math.atan2(exit.y - gcy, exit.x - gcx);
+        const ra = Math.atan2(reentry.y - gcy, reentry.x - gcx);
+        path.push(...arcPts(gcx, gcy, gr, ea, ra), reentry);
+      }
+    } else {
+      const re = edgeLerp(curr, next);
+      const last = path.at(-1) ?? null;
+      if (!last || Math.abs(last.x - re.x) > 1 || Math.abs(last.y - re.y) > 1) {
+        path.push(re);
+      }
+    }
+  }
+  fillStrokePath(ctx, path, fillColor, strokeColor, landAlpha);
+}
+
+function simpleDraw(
+  ctx: Ctx,
+  pts: ReadonlyArray<Pt>,
+  fillColor: string,
+  strokeColor: string,
+  landAlpha: number,
+): void {
+  fillStrokePath(ctx, pts, fillColor, strokeColor, landAlpha);
+}
+
+type LandColors = { coastFill: string; coast: string };
+
+function drawLandFlatRing(
+  ctx: Ctx,
+  projFn: ProjFn,
+  ring: LandRing,
+  colors: LandColors,
+  landAlpha: number,
+): void {
+  const segments: Projected[][] = [];
+  let segment: Projected[] = [];
+  let previousLongitude: number | null = null;
+  for (const [longitude, latitude] of ring.coordinates) {
+    if (
+      previousLongitude !== null &&
+      Math.abs(longitude - previousLongitude) > 120
+    ) {
+      if (segment.length >= 3) segments.push(segment);
+      segment = [];
+    }
+    segment.push(projFn(latitude, longitude));
+    previousLongitude = longitude;
+  }
+  if (segment.length >= 3) segments.push(segment);
+  for (const points of segments) {
+    simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
+  }
+}
 
 function drawLand(
   ctx: Ctx,
   projFn: ProjFn,
-  options: WorkerLandOptions,
+  matrix: GlobeRotationMatrix,
+  colors: LandColors,
+  isFlat: boolean,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  landAlpha: number,
 ): void {
-  const { horizon } = options;
   for (const ring of landRings) {
-    if (options.isFlat) {
-      drawFlatLandRing(
-        ctx,
-        ring.coordinates,
-        projFn,
-        options.colors,
-        options.alpha,
-      );
+    if (isFlat) {
+      drawLandFlatRing(ctx, projFn, ring, colors, landAlpha);
       continue;
     }
     const points = ring.projected;
@@ -365,31 +482,108 @@ function drawLand(
       if (!point) continue;
       projectUnitVectorInto(
         unit,
-        options.matrix,
-        horizon.gcx,
-        horizon.gcy,
-        horizon.gr,
+        matrix,
+        centerX,
+        centerY,
+        radius,
         point,
       );
     }
-    drawProjectedLandRing(ctx, points, options.colors, options.alpha, horizon);
+    if (points.length < 3 || !points.some((point) => point.z > 0)) continue;
+    if (points.every((point) => point.z > 0)) {
+      simpleDraw(ctx, points, colors.coastFill, colors.coast, landAlpha);
+    } else {
+      drawClippedPoly(
+        ctx,
+        points,
+        centerX,
+        centerY,
+        radius,
+        colors.coastFill,
+        colors.coast,
+        landAlpha,
+      );
+    }
   }
 }
 
+// ── Grid renderer (inlined from gridRenderer.ts) ────────────────────
+
+type GridCfg = {
+  accentColor?: string;
+  gridAlpha?: number;
+  isFlat?: boolean;
+  cx?: number;
+  cy?: number;
+  mW?: number;
+  mH?: number;
+  mx?: number;
+  my?: number;
+};
+
+/** Stroke a globe meridian/parallel, breaking the path where it dips behind. */
+function strokeGlobeLine(ctx: Ctx, projFn: ProjFn, sample: (v: number) => Projected): void {
+  ctx.beginPath();
+  let on = false;
+  for (let v = -180; v <= 180; v += 3) {
+    const p = sample(v);
+    if (p.z > 0) {
+      if (on) ctx.lineTo(p.x, p.y);
+      else { ctx.moveTo(p.x, p.y); on = true; }
+    } else on = false;
+  }
+  ctx.stroke();
+}
+
+function drawGrid(ctx: Ctx, projFn: ProjFn, cfg: GridCfg): void {
+  ctx.strokeStyle = cfg.accentColor || "#000";
+  ctx.globalAlpha = cfg.gridAlpha || 0.11;
+  ctx.lineWidth = 0.4;
+  if (cfg.isFlat) {
+    const { cx = 0, cy = 0, mW = 0, mH = 0, mx = 0, my = 0 } = cfg;
+    for (let lat = -80; lat <= 80; lat += 20) {
+      const y = cy - (lat / 90) * (mH / 2);
+      ctx.beginPath();
+      ctx.moveTo(mx, y);
+      ctx.lineTo(mx + mW, y);
+      ctx.stroke();
+    }
+    for (let lon = -180; lon < 180; lon += 30) {
+      const x = cx + (lon / 180) * (mW / 2);
+      ctx.beginPath();
+      ctx.moveTo(x, my);
+      ctx.lineTo(x, my + mH);
+      ctx.stroke();
+    }
+  } else {
+    for (let lat = -80; lat <= 80; lat += 20) {
+      strokeGlobeLine(ctx, projFn, (lon) => projFn(lat, lon));
+    }
+    for (let lon = -180; lon < 180; lon += 30) {
+      // Sample range is lat −90..90; reuse the −180..180 stepper by remapping.
+      ctx.beginPath();
+      let on = false;
+      for (let lat = -90; lat <= 90; lat += 3) {
+        const p = projFn(lat, lon);
+        if (p.z > 0) {
+          if (on) ctx.lineTo(p.x, p.y);
+          else { ctx.moveTo(p.x, p.y); on = true; }
+        } else on = false;
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ── Trail drawing ───────────────────────────────────────────────────
 
-type WorkerTrailPoint = TrailPoint;
+type WorkerTrailPoint = SelectedRenderItem["trail"][number];
 type ProjTrail = { x: number; y: number; z: number; point: WorkerTrailPoint };
 type TrailHitTarget = Readonly<{
   x: number;
   y: number;
   point: WorkerTrailPoint;
-}>;
-
-type TrailColors = Readonly<{
-  accent: string;
-  bright: string;
 }>;
 
 function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: number, span: number, color: string): void {
@@ -410,11 +604,11 @@ function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: 
 function drawTrail(
   ctx: Ctx,
   projFn: ProjFn,
-  selectedId: string | null,
-  trail: readonly TrailPoint[],
-  colors: TrailColors,
+  selectedItem: SelectedRenderItem | null,
+  colors: { accent: string },
 ): TrailHitTarget[] {
-  if (!selectedId || trail.length < 1) return [];
+  const trail = selectedItem?.trail;
+  if (!selectedItem || !trail || trail.length < 1) return [];
   const coords: WorkerTrailPoint[] = trail.map((p) => ({
     lat: p.lat,
     lon: p.lon,
@@ -423,7 +617,7 @@ function drawTrail(
     speed: p.speed,
     heading: p.heading,
   }));
-  const interp = selectedInterpolation();
+  const interp = getInterp(selectedItem.id);
   if (interp) coords.push({ lat: interp.lat, lon: interp.lon, ts: Date.now() });
   if (coords.length < 2) return [];
 
@@ -434,13 +628,13 @@ function drawTrail(
   if (projected.length < 2) return [];
 
   ctx.save();
-  ctx.lineJoin = CanvasLineStyle.Round;
-  ctx.lineCap = CanvasLineStyle.Round;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   strokeTrailPass(ctx, projected, 6, 0.05, 0.15, colors.accent); // glow pass
   strokeTrailPass(ctx, projected, 2.5, 0.3, 0.7, colors.accent); // main line
 
   const hitTargets: TrailHitTarget[] = [];
-  ctx.fillStyle = colors.bright;
+  ctx.fillStyle = "#ffffff";
   projected.slice(0, -1).forEach((p, i) => {
     ctx.globalAlpha = 0.4 + (i / projected.length) * 0.6;
     ctx.beginPath();
@@ -456,26 +650,17 @@ function drawTrail(
 // selected aircraft. Split at the plane's projected point ON the route (not the
 // nearest waypoint, which can sit ahead of the plane): flown is thick + solid,
 // the leg ahead is thin + dashed (mirrors the dossier route map).
-type RouteColors = Readonly<{
-  cyclones: string;
-  accent: string;
-  bright: string;
-}>;
+type RouteColors = { cyclones?: string; accent: string; bright?: string };
 
 function drawRoute(
   ctx: Ctx,
   projFn: ProjFn,
-  route: readonly AircraftRouteWaypoint[] | null | undefined,
+  route: ReadonlyArray<readonly [number, number]> | null | undefined,
   planeLat: number,
   planeLon: number,
   colors: RouteColors,
 ): void {
-  if (
-    !route ||
-    route.length < AircraftRoutePolylineLimit.MinimumWaypointCount
-  ) {
-    return;
-  }
+  if (!route || route.length < 2) return;
 
   // Closest point on the polyline to the plane → segment index + fraction.
   let segI = 0;
@@ -503,21 +688,12 @@ function drawRoute(
   const a0 = route[segI];
   const a1 = route[segI + 1];
   if (!a0 || !a1) return;
-  const split: AircraftRouteWaypoint = [
-    a0[0] + segT * (a1[0] - a0[0]),
-    a0[1] + segT * (a1[1] - a0[1]),
-  ];
+  const split: [number, number] = [a0[0] + segT * (a1[0] - a0[0]), a0[1] + segT * (a1[1] - a0[1])];
 
-  const flown: AircraftRouteWaypoint[] = [
-    ...route.slice(0, segI + 1),
-    split,
-  ];
-  const ahead: AircraftRouteWaypoint[] = [
-    split,
-    ...route.slice(segI + 1),
-  ];
+  const flown: Array<readonly [number, number]> = [...route.slice(0, segI + 1), split];
+  const ahead: Array<readonly [number, number]> = [split, ...route.slice(segI + 1)];
 
-  const strokePts = (pts: readonly AircraftRouteWaypoint[]) => {
+  const strokePts = (pts: ReadonlyArray<readonly [number, number]>) => {
     ctx.beginPath();
     let pen = false;
     for (const [lat, lon] of pts) {
@@ -531,22 +707,22 @@ function drawRoute(
   };
 
   ctx.save();
-  ctx.lineJoin = CanvasLineStyle.Round;
-  ctx.lineCap = CanvasLineStyle.Round;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   ctx.strokeStyle = colors.cyclones || colors.accent;
-  // Ahead: thin and dashed.
+  // Ahead — thin, dashed.
   ctx.globalAlpha = 0.6;
   ctx.lineWidth = 1.25;
   ctx.setLineDash([6, 4]);
   strokePts(ahead);
-  // Flown: thick and solid.
+  // Flown — thick, solid.
   ctx.setLineDash([]);
   ctx.globalAlpha = 0.95;
   ctx.lineWidth = 2.75;
   strokePts(flown);
 
   // Waypoint markers.
-  ctx.fillStyle = colors.bright;
+  ctx.fillStyle = colors.bright || "#ffffff";
   ctx.globalAlpha = 0.95;
   for (const [lat, lon] of route) {
     const wp = projFn(lat, lon);
@@ -566,33 +742,50 @@ function drawRoute(
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
+let _data: RenderPoint[] | null = null;
+let _colors: RenderWorkerColors | null = null;
+let _dataBySource: Record<string, RenderPoint[] | null> | null = null;
+let _pendingBuckets: Record<string, RenderPoint[] | null> | null = null;
+let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
 const _cameraTarget = createWorkerCameraTarget();
 const _pointer = createWorkerPointerState();
 let _lastFrameAt = performance.now();
+let _hasAnimatedPoints = false;
+let _projectedPoints: ProjPoint[] = [];
+let _hitGrid = new Map<string, ProjPoint[]>();
 let _trailHitTargets: TrailHitTarget[] = [];
-let _activeTrailPoint: WorkerTrailPoint | null = null;
+let _activeTrailPoint: TrailHitTarget["point"] | null = null;
 let _lastClickTime = 0;
 let _lastClickId: string | null = null;
-let _lastClickPosition: CameraPosition | null = null;
-type CursorInteraction = Extract<
-  RenderInteractionPayload,
-  { kind: RenderInteractionKind.Cursor }
->;
-
-let _lastCursor: CursorInteraction = {
-  kind: RenderInteractionKind.Cursor,
-  cursor: RenderCursor.Default,
+let _lastCursor: RenderInteractionPayload & { kind: "cursor" } = {
+  kind: "cursor",
+  cursor: "default",
 };
-let _lastSelectedSide: PanelSide = PanelSide.Right;
+let _lastSelectedSide: "left" | "right" = "right";
 let _lastCameraSummary: RenderCamera | null = null;
 let _lastCameraSummaryAt = 0;
 let _frameScheduled = false;
 
-let _hasSelectedProjection = false;
-let _selectedProjectionX = 0;
-let _selectedProjectionDepth = -1;
+// Tropical watch/warning polygons + their fill colours, set by the "warnings"
+// message and drawn each frame under the showWarnings toggle.
+let _warnings: WarningFeature[] | null = null;
+let _warnColor = "#ff1a6e";
+let _watchColor = "#ffb300";
+
+// NWS weather-alert polygons + severity fill colours, set by the "wxAlerts"
+// message and drawn each frame under the weather layer toggle. Defaults are the
+// weather violet/magenta palette so an unset frame never flashes off-palette.
+let _wxAlerts: WarningFeature[] | null = null;
+let _wxWarnColor = "#e64980";
+let _wxWatchColor = "#9775fa";
+
+// Progressive reveal: the main thread hands the full data array once per change;
+// the worker reveals it in chunks across its own render ticks. Preserved across
+// same-length updates so the ramp doesn't restart.
+const REVEAL_CHUNK = RENDER_POLICY.revealChunkSize;
+let _revealCount = 0;
 
 // ── Message handler ─────────────────────────────────────────────────
 
@@ -603,169 +796,40 @@ const protocolState: RenderProtocolState = {
 
 let dataPort: MessagePort | null = null;
 
-const renderLayerCatalog = new RenderLayerCatalog();
-const focusResolver = new RenderFocusResolver(renderLayerCatalog);
-const globeStateController = new RenderGlobeStateController();
-const selectionController = new RenderSelectionController();
-const searchController = new RenderSearchController();
-const selectionOverlayStore = new SelectionOverlayStore();
-const sceneInterestPublisher = new SceneInterestPublisher();
-const aircraftLayer = new AircraftLayer();
-const shipLayer = new ShipLayer();
-const eventLayer = new EventLayer(markerVisuals);
-const earthquakeLayer = new EarthquakeLayer(markerVisuals);
-const fireLayer = new FireLayer(markerVisuals);
-const weatherLayer = new WeatherLayer(markerVisuals);
-const cycloneWarningLayer = new CycloneWarningLayer();
-const cycloneLayer = new CycloneLayer();
-renderLayerCatalog.register(aircraftLayer);
-renderLayerCatalog.register(shipLayer);
-renderLayerCatalog.register(fireLayer);
-renderLayerCatalog.register(eventLayer);
-renderLayerCatalog.register(earthquakeLayer);
-renderLayerCatalog.register(cycloneWarningLayer);
-renderLayerCatalog.register(weatherLayer);
-renderLayerCatalog.register(cycloneLayer);
-
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
-  const sceneState = new SceneProtocolState(sessionId);
-  sceneInterestPublisher.connect(port, sessionId);
+  const state: RenderDataProtocolState = {
+    sessionId,
+    sequence: 0,
+  };
   port.onmessage = (event: MessageEvent<unknown>) => {
-    const sceneCommand = parseSceneDataCommand(event.data);
-    if (!sceneCommand || !sceneState.accept(sceneCommand)) return;
-    if (sceneCommand.type === SceneDataCommandType.Bind) {
-      sceneInterestPublisher.publishSelection(
-        selectionController.snapshot(),
-      );
-      const search = searchController.snapshot();
-      if (search) sceneInterestPublisher.publishSearch(search);
-      globalThis.postMessage(
-        createRenderMessage(
-          { type: RenderMessageType.DataChannelReady },
-          sessionId,
-          protocolState.sequence,
-        ),
-      );
-      return;
-    }
-    if (
-      sceneCommand.type === SceneDataCommandType.SelectionOverlay
-    ) {
-      if (
-        selectionOverlayStore.apply(
-          sceneCommand,
-          selectionController.snapshot(),
-        )
-      ) {
-        scheduleRender();
-      }
-      return;
-    }
-    if (!renderLayerCatalog.apply(sceneCommand)) return;
-    if (sceneCommand.type === SceneDataCommandType.SourceSearch) {
-      reconcileSearchSelection(
-        sceneCommand.source,
-        sceneCommand.searchRevision,
-      );
-    }
-    scheduleRender();
+    const command = parseRenderDataCommand(event.data);
+    if (!command || !acceptRenderDataCommand(state, command)) return;
+    const ready: RenderWorkerEvent = {
+      type: "dataChannelReady",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
+      sessionId,
+      sequence: protocolState.sequence,
+    };
+    globalThis.postMessage(ready);
   };
   port.start();
 }
 
-function postWorkerEvent(body: RenderWorkerEventBody): void {
-  const sessionId = protocolState.sessionId;
-  if (!sessionId) return;
-  globalThis.postMessage(
-    createRenderMessage(body, sessionId, protocolState.sequence),
-  );
-}
-
 function postInteraction(payload: RenderInteractionPayload): void {
-  postWorkerEvent({
-    type: RenderMessageType.Interaction,
+  if (!protocolState.sessionId) return;
+  const event: RenderWorkerEvent = {
+    type: "interaction",
+    protocolVersion: RENDER_PROTOCOL_VERSION,
+    sessionId: protocolState.sessionId,
+    sequence: protocolState.sequence,
     payload,
-  });
+  };
+  globalThis.postMessage(event);
 }
 
-function selectionIdentity(): RenderSelectionIdentity | null {
-  return selectionController.snapshot().identity;
-}
-
-function selectedInteractionId(): string | null {
-  return selectionIdentity()?.interactionId ?? null;
-}
-
-function usesFlatProjection(): boolean {
-  return (
-    globeStateController.snapshot().projection ===
-    RenderProjectionMode.Flat
-  );
-}
-
-function currentIsolateMode(): SelectedIsolateMode {
-  return globeStateController.snapshot().isolateMode;
-}
-
-function updateSelection(
-  identity: RenderSelectionIdentity | null,
-): boolean {
-  if (!selectionController.set(identity)) return false;
-  if (identity === null) updateIsolation(null);
-  selectionOverlayStore.clear();
-  sceneInterestPublisher.publishSelection(
-    selectionController.snapshot(),
-  );
-  scheduleRender();
-  return true;
-}
-
-function postSelectionInteraction(): void {
-  postInteraction({
-    kind: RenderInteractionKind.Selection,
-    selection: selectionController.snapshot(),
-  });
-}
-
-function commitCanvasSelection(
-  identity: RenderSelectionIdentity | null,
-): void {
-  if (!updateSelection(identity)) return;
-  postSelectionInteraction();
-}
-
-function restoreSearchSelection(
-  state: RenderSearchSelectionState,
-): void {
-  if (!updateSelection(state.identity)) return;
-  updateIsolation(state.isolateMode);
-  postSelectionInteraction();
-}
-
-function reconcileSearchSelection(
-  source: RenderSourceId,
-  searchRevision: number,
-): void {
-  const identity = selectionIdentity();
-  const hidden = searchController.hideSelection(
-    source,
-    searchRevision,
-    identity
-      ? renderLayerCatalog.searchIncludesEntity(
-          source,
-          identity.entityId,
-        )
-      : false,
-    identity,
-    currentIsolateMode(),
-  );
-  if (!hidden || !updateSelection(null)) return;
-  postSelectionInteraction();
-}
-
-function postCursor(cursor: CursorInteraction): void {
+function postCursor(cursor: RenderInteractionPayload & { kind: "cursor" }): void {
   if (_lastCursor.cursor === cursor.cursor) return;
   _lastCursor = cursor;
   postInteraction(cursor);
@@ -781,7 +845,8 @@ function postCameraSummary(now: number): void {
   const snapshot = cameraSnapshot(_camera);
   const previous = _lastCameraSummary;
   if (
-    previous?.rotY === snapshot.rotY &&
+    previous &&
+    previous.rotY === snapshot.rotY &&
     previous.rotX === snapshot.rotX &&
     previous.zoomGlobe === snapshot.zoomGlobe &&
     previous.zoomFlat === snapshot.zoomFlat &&
@@ -790,72 +855,136 @@ function postCameraSummary(now: number): void {
   ) {
     return;
   }
+  if (!protocolState.sessionId) return;
   _lastCameraSummary = snapshot;
   _lastCameraSummaryAt = now;
-  postWorkerEvent({
-    type: RenderMessageType.Camera,
+  const event: RenderWorkerEvent = {
+    type: "camera",
+    protocolVersion: RENDER_PROTOCOL_VERSION,
+    sessionId: protocolState.sessionId,
+    sequence: protocolState.sequence,
     payload: snapshot,
-  });
+  };
+  globalThis.postMessage(event);
 }
 
 
 function scheduleRender(): void {
-  if (_frameScheduled || !_viewport) return;
+  const hasState = _presentation !== null && _viewport !== null;
+  if (_frameScheduled || !hasState) return;
   _frameScheduled = true;
   requestAnimationFrame(renderFrame);
 }
 
+function handleTrails(msg: Extract<RenderWorkerCommand, { type: "trails" }>): void {
+  const { ids, values, timestamps } = msg;
+  const nextTrails = new Map<string, TrailEntry>();
+  for (const [index, id] of ids.entries()) {
+    const offset = index * 4;
+    const latitude = values[offset];
+    const longitude = values[offset + 1];
+    const heading = values[offset + 2];
+    const speedMetersPerSecond = values[offset + 3];
+    const timestamp = timestamps[index];
+    if (
+      latitude === undefined ||
+      longitude === undefined ||
+      heading === undefined ||
+      speedMetersPerSecond === undefined ||
+      timestamp === undefined
+    ) {
+      continue;
+    }
+    nextTrails.set(id, {
+      timestamp,
+      speedMetersPerSecond,
+      motion: createGeographicMotion(
+        latitude,
+        longitude,
+        heading,
+        speedMetersPerSecond,
+      ),
+    });
+  }
+  trailMap = nextTrails;
+}
+function pointHasTimeAnimation(item: RenderPoint): boolean {
+  if (item.type === "cyclones") return true;
+  if (item.type === "quakes") return (item.data.magnitude ?? 0) > 3;
+  if (item.type === "events") return (item.data.severity ?? 1) >= 3;
+  if (item.type === "fires") return (item.data.frp ?? 0) > 15;
+  if (item.type === "weather") {
+    return weatherSeverityRank(item.data.severity || "Unknown") >= 3;
+  }
+  return false;
+}
+
+
+function handleData(
+  payload: Extract<RenderWorkerCommand, { type: "data" }>["payload"],
+): boolean {
+  _colors = payload.colors;
+  _dataBySource ??= {};
+  _pendingBuckets ??= {};
+  const source = payload.source;
+  if (payload.reset) _pendingBuckets[source] = [];
+  const pending = _pendingBuckets[source] ?? (_pendingBuckets[source] = []);
+  for (const item of payload.data) pending.push(item);
+  if (!payload.done) return false;
+
+  _dataBySource[source] = pending;
+  _pendingBuckets[source] = null;
+  const nextData: RenderPoint[] = [];
+  for (const bucket of Object.values(_dataBySource)) {
+    if (!bucket) continue;
+    for (const item of bucket) nextData.push(item);
+  }
+  _data = nextData;
+  _hasAnimatedPoints = nextData.some(pointHasTimeAnimation);
+  if (_revealCount > nextData.length) _revealCount = nextData.length;
+  if (_revealCount === 0 && nextData.length > 0) {
+    _revealCount = Math.min(REVEAL_CHUNK, nextData.length);
+  }
+  return true;
+}
 function selectedCameraPosition(): CameraPosition | null {
-  const identity = selectionIdentity();
-  if (!identity) return null;
-  const target = renderLayerCatalog.selectionTarget(
-    identity.source,
-    identity.interactionId,
-  );
-  if (!target) return null;
-  const interpolated = selectedInterpolation();
+  const selected = _presentation?.selectedItem;
+  if (!selected) return null;
+  const interpolated = getInterp(selected.id);
   return {
-    id: identity.interactionId,
-    latitude:
-      interpolated?.lat ?? target.latitude,
-    longitude:
-      interpolated?.lon ?? target.longitude,
+    id: selected.id,
+    latitude: interpolated?.lat ?? selected.lat,
+    longitude: interpolated?.lon ?? selected.lon,
   };
 }
 
-type InputSurface = Readonly<{
-  viewport: Readonly<{ width: number; height: number }>;
-  flat: boolean;
-}>;
+function handleCameraInput(payload: RenderInputPayload): void {
+  if (!_viewport || !_presentation) return;
+  const viewport = {
+    width: _viewport.width,
+    height: _viewport.height,
+  };
+  const flat = _presentation.flat;
 
-type PointerInput = Extract<
-  RenderInputPayload,
-  { kind: RenderInputKind.Pointer }
->;
-type PinchInput = Extract<
-  RenderInputPayload,
-  { kind: RenderInputKind.Pinch }
->;
-
-function handlePointerInput(
-  payload: PointerInput,
-  surface: InputSurface,
-): void {
-  const { viewport, flat } = surface;
-  switch (payload.phase) {
-    case RenderInputPhase.Hover:
+  if (payload.kind === "pointer") {
+    if (payload.phase === "hover") {
       handlePointerHover(payload.x, payload.y);
       return;
-    case RenderInputPhase.Start:
-      beginCameraPointer(_camera, _pointer, viewport, flat, payload.x, payload.y);
+    }
+    if (payload.phase === "start") {
+      beginCameraPointer(
+        _camera,
+        _pointer,
+        viewport,
+        flat,
+        payload.x,
+        payload.y,
+      );
       postCursor({
-        kind: RenderInteractionKind.Cursor,
-        cursor: _pointer.interactive
-          ? RenderCursor.Grabbing
-          : RenderCursor.Default,
+        kind: "cursor",
+        cursor: _pointer.interactive ? "grabbing" : "default",
       });
-      break;
-    case RenderInputPhase.Move:
+    } else if (payload.phase === "move") {
       moveCameraPointer(
         _camera,
         _cameraTarget,
@@ -865,72 +994,59 @@ function handlePointerInput(
         payload.x,
         payload.y,
       );
-      break;
-    case RenderInputPhase.End: {
+    } else if (payload.phase === "end") {
       const click = endCameraPointer(_pointer);
       if (click) handlePointerClick(click);
-      postCursor({
-        kind: RenderInteractionKind.Cursor,
-        cursor: RenderCursor.Default,
-      });
-      break;
-    }
-    default:
+      postCursor({ kind: "cursor", cursor: "default" });
+    } else {
       cancelCameraPointer(_pointer);
-      postCursor({
-        kind: RenderInteractionKind.Cursor,
-        cursor: RenderCursor.Default,
-      });
+      postCursor({ kind: "cursor", cursor: "default" });
+    }
+    scheduleRender();
+    return;
   }
-  scheduleRender();
-}
 
-function handlePinchInput(payload: PinchInput, surface: InputSurface): void {
-  if (payload.phase === RenderInputPhase.Start) {
-    beginCameraPinch(_pointer, payload.distance);
-  } else if (payload.phase === RenderInputPhase.Move) {
-    moveCameraPinch(
-      _camera,
-      _cameraTarget,
-      _pointer,
-      surface.viewport,
-      surface.flat,
-      payload,
-    );
-  } else {
-    endCameraPinch(_pointer);
-  }
-  scheduleRender();
-}
-
-function handleCameraInput(payload: RenderInputPayload): void {
-  if (!_viewport) return;
-  const surface: InputSurface = {
-    viewport: { width: _viewport.width, height: _viewport.height },
-    flat: usesFlatProjection(),
-  };
-
-  switch (payload.kind) {
-    case RenderInputKind.Pointer:
-      handlePointerInput(payload, surface);
-      return;
-    case RenderInputKind.Pinch:
-      handlePinchInput(payload, surface);
-      return;
-    case RenderInputKind.Wheel:
-      applyCameraWheel(
+  if (payload.kind === "pinch") {
+    if (payload.phase === "start") {
+      beginCameraPinch(_pointer, payload.distance);
+    } else if (payload.phase === "move") {
+      moveCameraPinch(
         _camera,
         _cameraTarget,
-        surface.viewport,
-        surface.flat,
-        payload.x,
-        payload.y,
-        payload.deltaY,
+        _pointer,
+        viewport,
+        flat,
+        payload.centerX,
+        payload.centerY,
+        payload.distance,
       );
-      break;
-    default:
-      applyCameraKey(_camera, surface.viewport, surface.flat, payload.code);
+    } else {
+      endCameraPinch(_pointer);
+    }
+    scheduleRender();
+    return;
   }
+
+  if (payload.kind === "wheel") {
+    applyCameraWheel(
+      _camera,
+      _cameraTarget,
+      viewport,
+      flat,
+      payload.x,
+      payload.y,
+      payload.deltaY,
+    );
+    scheduleRender();
+    return;
+  }
+
+  applyCameraKey(
+    _camera,
+    viewport,
+    flat,
+    payload.code,
+  );
   scheduleRender();
 }
 
@@ -938,183 +1054,246 @@ function handleCameraInput(payload: RenderInputPayload): void {
 globalThis.onmessage = (e: MessageEvent<RenderWorkerCommand>) => {
   const msg = e.data;
   if (!acceptRenderCommand(protocolState, msg)) return;
-  dispatchRenderCommand(msg);
-};
-
-function handleInit(
-  msg: Extract<RenderWorkerCommand, { type: RenderMessageType.Init }>,
-): void {
-  canvas = msg.canvas;
-  ctx = canvas.getContext("2d");
-  if (msg.dataPort) bindDataPort(msg.dataPort, msg.sessionId);
-  globalThis.postMessage(
-    createRenderMessage(
-      { type: RenderMessageType.Ready },
-      msg.sessionId,
-      msg.sequence,
-    ),
-  );
-  if (landRings.length === 0) fetchLandData();
-}
-
-function handleFocus(
-  msg: Extract<
-    RenderWorkerCommand,
-    { type: RenderMessageType.Focus }
-  >,
-): void {
-  if (!_viewport) return;
-  const position = focusResolver.resolve(
-    msg.payload,
-    selectionIdentity(),
-    selectedCameraPosition(),
-  );
-  if (!position) return;
-  focusCamera(
-    _camera,
-    _cameraTarget,
-    position,
-    { width: _viewport.width, height: _viewport.height },
-    usesFlatProjection(),
-    msg.payload.kind,
-  );
-  scheduleRender();
-}
-
-function handleDispose(): void {
-  dataPort?.close();
-  dataPort = null;
-  sceneInterestPublisher.disconnect();
-  selectionOverlayStore.clear();
-  canvas = null;
-  ctx = null;
-  _viewport = null;
-  _frameScheduled = false;
-}
-
-function handleViewport(payload: RenderViewportPayload): void {
-  _viewport = payload;
-}
-
-function handleGlobeCommand(payload: unknown): void {
-  const snapshot = globeStateController.apply(payload);
-  if (!snapshot) return;
-  postWorkerEvent({
-    type: RenderMessageType.GlobeState,
-    payload: snapshot,
-  });
-  scheduleRender();
-}
-
-function updateIsolation(mode: SelectedIsolateMode): void {
-  handleGlobeCommand({
-    kind: RenderGlobeCommandKind.SetIsolation,
-    mode,
-  });
-}
-
-function handleSelection(
-  identity: RenderSelectionIdentity | null,
-): void {
-  updateSelection(identity);
-}
-
-function handleSearch(text: string | null): void {
-  const update = searchController.update(text);
-  if (!update) return;
-  sceneInterestPublisher.publishSearch(update.search);
-  if (update.restore) restoreSearchSelection(update.restore);
-}
-
-function dispatchRenderCommand(msg: RenderWorkerCommand): void {
-  switch (msg.type) {
-    case RenderMessageType.Init:
-      handleInit(msg);
-      return;
-    case RenderMessageType.Viewport:
-      handleViewport(msg.payload);
-      break;
-    case RenderMessageType.GlobeCommand:
-      handleGlobeCommand(msg.payload);
-      return;
-    case RenderMessageType.Selection:
-      handleSelection(msg.payload);
-      break;
-    case RenderMessageType.Search:
-      handleSearch(msg.payload);
-      break;
-    case RenderMessageType.Focus:
-      handleFocus(msg);
-      return;
-    case RenderMessageType.Input:
-      handleCameraInput(msg.payload);
-      return;
-    case RenderMessageType.Dispose:
-      handleDispose();
-      return;
-    default:
-      return;
+  if (msg.type === "init") {
+    canvas = msg.canvas;
+    ctx = canvas.getContext("2d");
+    if (msg.dataPort) bindDataPort(msg.dataPort, msg.sessionId);
+    const ready: RenderWorkerEvent = {
+      type: "ready",
+      protocolVersion: RENDER_PROTOCOL_VERSION,
+      sessionId: msg.sessionId,
+      sequence: msg.sequence,
+    };
+    globalThis.postMessage(ready);
+    if (landRings.length === 0) fetchLandData();
+    return;
   }
-  scheduleRender();
-}
+  if (msg.type === "trails") {
+    handleTrails(msg);
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "warnings") {
+    _warnings = [...msg.payload.features];
+    _warnColor = msg.payload.warningColor;
+    _watchColor = msg.payload.watchColor;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "weatherAlerts") {
+    _wxAlerts = [...msg.payload.features];
+    _wxWarnColor = msg.payload.warningColor;
+    _wxWatchColor = msg.payload.watchColor;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "viewport") {
+    _viewport = msg.payload;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "presentation") {
+    _presentation = msg.payload;
+    scheduleRender();
+    return;
+  }
+  if (msg.type === "focus") {
+    if (_viewport && _presentation) {
+      focusCamera(
+        _camera,
+        _cameraTarget,
+        {
+          id: msg.payload.id,
+          latitude: msg.payload.latitude,
+          longitude: msg.payload.longitude,
+        },
+        {
+          width: _viewport.width,
+          height: _viewport.height,
+        },
+        _presentation.flat,
+        msg.payload.kind,
+      );
+      scheduleRender();
+    }
+    return;
+  }
+  if (msg.type === "input") {
+    handleCameraInput(msg.payload);
+    return;
+  }
+  if (msg.type === "dispose") {
+    dataPort?.close();
+    dataPort = null;
+    canvas = null;
+    ctx = null;
+    _presentation = null;
+    _viewport = null;
+    _frameScheduled = false;
+    return;
+  }
+  if (msg.type === "data") {
+    if (handleData(msg.payload)) scheduleRender();
+    return;
+  }
+};
 
 // ── Render everything ───────────────────────────────────────────────
 
 
-type PointHit = Readonly<{
-  distance: number;
-  identity: RenderSelectionIdentity;
-  kind: SceneHitKind;
-  latitude: number;
-  longitude: number;
-}>;
+// ── Per-type point drawing (extracted from the render loop) ─────────
 
-function nearestScenePoint(
-  x: number,
-  y: number,
-  radius: number,
-): PointHit | null {
-  const result = renderLayerCatalog.nearest(
-    SceneHitKind.Point,
-    x,
-    y,
-    radius,
-    CAMERA_POLICY.maximumHitCandidates,
-  );
-  if (!result) return null;
-  return {
-    identity: result.identity,
-    latitude: result.hit.latitude,
-    longitude: result.hit.longitude,
-    distance: result.hit.distance,
-    kind: result.hit.kind,
-  };
+type DotEnv = { ctx: Ctx; t: number; zoomLevel: number };
+
+/** Selection ring shared by every point type. */
+function drawSelectionRing(ctx: Ctx, x: number, y: number, s: number, color: string, t: number): void {
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, s * 2.5 + Math.sin(t * 2) * 2, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
-function areaAt(x: number, y: number): PointHit | null {
-  const result = renderLayerCatalog.nearest(
-    SceneHitKind.Area,
-    x,
-    y,
-    CAMERA_POLICY.pointHitRadiusPx,
-    CAMERA_POLICY.maximumHitCandidates,
-  );
-  if (!result) return null;
-  return {
-    identity: result.identity,
-    latitude: result.hit.latitude,
-    longitude: result.hit.longitude,
-    distance: result.hit.distance,
-    kind: result.hit.kind,
-  };
+type PulseGlow = { idSliceFrom: number; rate: number; baseAmp: number; ampGain: number; radBase: number; radGain: number; alphaHex: string; glowMul: number };
+
+/** Shared pulsing-dot renderer for quakes / events / fires / weather. `shape`
+ *  draws the marker (circle vs diamond). Returns nothing; mutates the canvas. */
+function drawPulsingDot(
+  env: DotEnv,
+  x: number,
+  y: number,
+  s: number,
+  color: string,
+  fillAlpha: number,
+  isSel: boolean,
+  glow: { intensity: number; pulseIndex: number; id: string; cfg: PulseGlow } | null,
+  shape: (s: number) => void,
+): void {
+  const { ctx, t } = env;
+  if (glow && glow.intensity > 0.01) {
+    const { pulseIndex: pi, id, cfg } = glow;
+    const pulse = 1 + Math.sin(t + (Number.parseInt(id.slice(cfg.idSliceFrom), 36) || 0) * cfg.rate) * (cfg.baseAmp + pi * cfg.ampGain);
+    const gr = s * (cfg.radBase + pi * cfg.radGain) * pulse;
+    drawGlow(ctx, color, cfg.alphaHex, x, y, gr, fillAlpha * glow.intensity * cfg.glowMul);
+  }
+  ctx.globalAlpha = fillAlpha;
+  ctx.fillStyle = color;
+  shape(s);
+  ctx.fill();
+  if (isSel) drawSelectionRing(ctx, x, y, s, color, t);
+  ctx.globalAlpha = 1;
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
+
+type PointProjector = (item: RenderPoint) => Projected;
+
+const unitVectorByPoint = new WeakMap<RenderPoint, UnitVector>();
+
+function unitVectorForPoint(item: RenderPoint): UnitVector {
+  const cached = unitVectorByPoint.get(item);
+  if (cached) return cached;
+  const unit = geographicToUnitVector(item.lat, item.lon);
+  unitVectorByPoint.set(item, unit);
+  return unit;
+}
+
+type FilterCfg = {
+  searchSet: Set<string> | null;
+  isoMode: RenderPresentationPayload["isolateMode"];
+  isoId: string | null;
+  isolatedType: string | null;
+  layers: Readonly<Record<string, boolean | undefined>>;
+  af: AircraftFilter;
+  showForecast: boolean;
+};
+
+/** Does one item survive the search / isolation / layer filters? */
+function pointPassesFilters(item: RenderPoint, c: FilterCfg): boolean {
+  if (c.searchSet && !c.searchSet.has(item.id)) return false;
+  if (c.isoMode === "solo" && item.id !== c.isoId) return false;
+  if (c.isoMode === "focus" && c.isolatedType && item.type !== c.isolatedType) return false;
+  if (item.type === "aircraft") return matchesAF(item.data, c.af);
+  if (item.type === "cyclones-forecast") return c.layers.cyclones !== false && c.showForecast !== false;
+  return c.layers[item.type] !== false;
+}
+
+/** Projects visible front-facing items in stable layer order. */
+function projectAndFilter(data: ReadonlyArray<RenderPoint>, projectPoint: PointProjector, c: FilterCfg): ProjPoint[] {
+  const pts: ProjPoint[] = [];
+  for (const item of data) {
+    if (!pointPassesFilters(item, c)) continue;
+    const pt = projectPoint(item);
+    if (pt.z <= 0) continue;
+    pts.push({ x: pt.x, y: pt.y, z: pt.z, item });
+  }
+  return orderPointsByLayer(pts);
+}
+function hitGridKey(x: number, y: number): string {
+  const cellX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
+  const cellY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
+  return `${cellX}:${cellY}`;
+}
+
+function rebuildHitGrid(points: readonly ProjPoint[]): void {
+  const next = new Map<string, ProjPoint[]>();
+  for (const point of points) {
+    const key = hitGridKey(point.x, point.y);
+    const cell = next.get(key);
+    if (!cell) {
+      next.set(key, [point]);
+    } else if (
+      cell.length < CAMERA_POLICY.maximumHitCandidates
+    ) {
+      cell.push(point);
+    }
+  }
+  _hitGrid = next;
+}
+
+function hitCandidates(x: number, y: number): ProjPoint[] {
+  const centerX = Math.floor(x / CAMERA_POLICY.hitCellSizePx);
+  const centerY = Math.floor(y / CAMERA_POLICY.hitCellSizePx);
+  const candidates: ProjPoint[] = [];
+  for (let row = centerY - 1; row <= centerY + 1; row++) {
+    for (let column = centerX - 1; column <= centerX + 1; column++) {
+      const cell = _hitGrid.get(`${column}:${row}`);
+      if (!cell) continue;
+      for (const point of cell) {
+        if (
+          candidates.length >=
+          CAMERA_POLICY.maximumHitCandidates
+        ) {
+          return candidates;
+        }
+        candidates.push(point);
+      }
+    }
+  }
+  return candidates;
 }
 
 function nearestPoint(
   x: number,
   y: number,
   radius: number,
-): PointHit | null {
-  return nearestScenePoint(x, y, radius);
+): RenderPoint | null {
+  let closest: RenderPoint | null = null;
+  let distance = radius;
+  for (const point of hitCandidates(x, y)) {
+    const candidateDistance = Math.hypot(
+      point.x - x,
+      point.y - y,
+    );
+    if (candidateDistance < distance) {
+      closest = point.item;
+      distance = candidateDistance;
+    }
+  }
+  return closest;
 }
 
 function nearestTrailTarget(
@@ -1137,10 +1316,10 @@ function nearestTrailTarget(
 }
 
 function currentProjection(): ProjFn | null {
-  if (!_viewport) return null;
+  if (!_viewport || !_presentation) return null;
   const camera = cameraSnapshot(_camera);
   const { width, height } = _viewport;
-  if (usesFlatProjection()) {
+  if (_presentation.flat) {
     const metrics = getFlatMetrics(
       _viewport.width,
       _viewport.height,
@@ -1204,15 +1383,9 @@ function segmentDistance(
 }
 
 function selectedRouteContains(x: number, y: number): boolean {
-  const route = selectionOverlayStore.snapshot()?.route;
+  const route = _presentation?.selectedItem?.route;
   const project = currentProjection();
-  if (
-    !route ||
-    route.length < AircraftRoutePolylineLimit.MinimumWaypointCount ||
-    !project
-  ) {
-    return false;
-  }
+  if (!route || route.length < 2 || !project) return false;
   let previous: Projected | null = null;
   for (const [latitude, longitude] of route) {
     const point = project(latitude, longitude);
@@ -1244,13 +1417,13 @@ function selectedRouteContains(x: number, y: number): boolean {
   return false;
 }
 
-function screenGeoPoint(
+function screenCoordinate(
   x: number,
   y: number,
-): GeoPoint | null {
-  if (!_viewport) return null;
+): { lat: number; lon: number } | null {
+  if (!_viewport || !_presentation) return null;
   const camera = cameraSnapshot(_camera);
-  if (usesFlatProjection()) {
+  if (_presentation.flat) {
     const metrics = getFlatMetrics(
       _viewport.width,
       _viewport.height,
@@ -1258,7 +1431,7 @@ function screenGeoPoint(
       camera.panX,
       camera.panY,
     );
-    const coordinate = screenToLatLonFlat(
+    return screenToLatLonFlat(
       x,
       y,
       metrics.cx,
@@ -1266,15 +1439,12 @@ function screenGeoPoint(
       metrics.mW,
       metrics.mH,
     );
-    return coordinate
-      ? createGeoPoint(coordinate.lon, coordinate.lat)
-      : null;
   }
   const radius =
     Math.min(_viewport.width, _viewport.height) *
     CAMERA_POLICY.globeRadiusRatio *
     camera.zoomGlobe;
-  const coordinate = screenToLatLonGlobe(
+  return screenToLatLonGlobe(
     x,
     y,
     _viewport.width / 2,
@@ -1283,16 +1453,31 @@ function screenGeoPoint(
     camera.rotY,
     camera.rotX,
   );
-  return coordinate
-    ? createGeoPoint(coordinate.lon, coordinate.lat)
-    : null;
+}
+
+function warningIdAt(x: number, y: number): string | null {
+  const coordinate = screenCoordinate(x, y);
+  if (!coordinate || !_warnings) return null;
+  for (const warning of _warnings) {
+    if (
+      warning.id &&
+      pointInPolygon(
+        coordinate.lat,
+        coordinate.lon,
+        warning.geometry,
+      )
+    ) {
+      return warning.id;
+    }
+  }
+  return null;
 }
 
 function clearTrailTooltip(): void {
   if (!_activeTrailPoint) return;
   _activeTrailPoint = null;
   postInteraction({
-    kind: RenderInteractionKind.TrailTooltip,
+    kind: "trailTooltip",
     point: null,
     x: 0,
     y: 0,
@@ -1300,17 +1485,26 @@ function clearTrailTooltip(): void {
   });
 }
 
+function positionForItem(item: RenderPoint): CameraPosition {
+  const interpolated =
+    item.type === "aircraft" || item.type === "ships"
+      ? getInterp(item.id)
+      : null;
+  return {
+    id: item.id,
+    latitude: interpolated?.lat ?? item.lat,
+    longitude: interpolated?.lon ?? item.lon,
+  };
+}
+
 function resetClickMemory(): void {
   _lastClickTime = 0;
   _lastClickId = null;
-  _lastClickPosition = null;
 }
 
 function handlePointerClick(click: CameraClick): void {
   if (!click.interactive) {
-    postInteraction({
-      kind: RenderInteractionKind.RawCanvasClick,
-    });
+    postInteraction({ kind: "rawCanvasClick" });
     resetClickMemory();
     return;
   }
@@ -1328,18 +1522,20 @@ function handlePointerClick(click: CameraClick): void {
 
   if (isDoubleClick) {
     clearTrailTooltip();
-    const target = _lastClickPosition;
-    if (target && _viewport) {
+    const target = _data?.find(
+      (item) => item.id === _lastClickId,
+    );
+    if (target && _viewport && _presentation) {
       focusCamera(
         _camera,
         _cameraTarget,
-        target,
+        positionForItem(target),
         {
           width: _viewport.width,
           height: _viewport.height,
         },
-        usesFlatProjection(),
-        RenderFocusKind.Double,
+        _presentation.flat,
+        "double",
       );
     }
     resetClickMemory();
@@ -1348,27 +1544,24 @@ function handlePointerClick(click: CameraClick): void {
 
   if (point && !trailTarget) {
     clearTrailTooltip();
-    commitCanvasSelection(point.identity);
-    lockCamera(
-      _camera,
-      _cameraTarget,
-      point.identity.interactionId,
-      usesFlatProjection(),
-    );
+    postInteraction({ kind: "selection", id: point.id });
+    if (_presentation) {
+      lockCamera(
+        _camera,
+        _cameraTarget,
+        point.id,
+        _presentation.flat,
+      );
+    }
     _lastClickTime = now;
-    _lastClickId = point.identity.interactionId;
-    _lastClickPosition = {
-      id: point.identity.interactionId,
-      latitude: point.latitude,
-      longitude: point.longitude,
-    };
+    _lastClickId = point.id;
     return;
   }
 
   if (trailTarget) {
     _activeTrailPoint = trailTarget.point;
     postInteraction({
-      kind: RenderInteractionKind.TrailTooltip,
+      kind: "trailTooltip",
       point: trailTarget.point,
       x: trailTarget.x,
       y: trailTarget.y,
@@ -1379,17 +1572,17 @@ function handlePointerClick(click: CameraClick): void {
   }
 
   clearTrailTooltip();
-  const area = areaAt(click.x, click.y);
-  if (area) {
-    commitCanvasSelection(area.identity);
+  const warningId = warningIdAt(click.x, click.y);
+  if (warningId) {
+    postInteraction({ kind: "selection", id: warningId });
   } else if (!selectedRouteContains(click.x, click.y)) {
-    commitCanvasSelection(null);
+    postInteraction({ kind: "selection", id: null });
   }
   resetClickMemory();
 }
 
 function handlePointerHover(x: number, y: number): void {
-  if (!_viewport || _pointer.active) return;
+  if (!_viewport || !_presentation || _pointer.active) return;
   const viewport = {
     width: _viewport.width,
     height: _viewport.height,
@@ -1398,59 +1591,48 @@ function handlePointerHover(x: number, y: number): void {
     !cameraContainsPoint(
       _camera,
       viewport,
-      usesFlatProjection(),
+      _presentation.flat,
       x,
       y,
     )
   ) {
-    postCursor({
-      kind: RenderInteractionKind.Cursor,
-      cursor: RenderCursor.Default,
-    });
+    postCursor({ kind: "cursor", cursor: "default" });
     return;
   }
   const hasTrail = nearestTrailTarget(x, y) !== null;
   const hasPoint =
     nearestPoint(x, y, CAMERA_POLICY.hoverHitRadiusPx) !== null;
-  const hasArea = areaAt(x, y) !== null;
+  const hasWarning = warningIdAt(x, y) !== null;
   postCursor({
-    kind: RenderInteractionKind.Cursor,
+    kind: "cursor",
     cursor:
-      hasTrail || hasPoint || hasArea
-        ? RenderCursor.Pointer
-        : RenderCursor.Grab,
+      hasTrail || hasPoint || hasWarning ? "pointer" : "grab",
   });
 }
 
 function updateSelectedSide(): void {
-  const selectedId = selectedInteractionId();
-  if (
-    !selectedId ||
-    !_viewport ||
-    !_hasSelectedProjection ||
-    _selectedProjectionDepth <= 0
-  ) {
-    return;
-  }
-  const ratio = _selectedProjectionX / _viewport.width;
+  const selectedId = _presentation?.selectedId;
+  if (!selectedId || !_viewport) return;
+  const point = _projectedPoints.find(
+    (candidate) => candidate.item.id === selectedId,
+  );
+  if (!point || point.z <= 0) return;
+  const ratio = point.x / _viewport.width;
   let next = _lastSelectedSide;
   if (
-    next === PanelSide.Right &&
+    next === "right" &&
     ratio > CAMERA_POLICY.selectedSideRightRatio
   ) {
-    next = PanelSide.Left;
+    next = "left";
   } else if (
-    next === PanelSide.Left &&
+    next === "left" &&
     ratio < CAMERA_POLICY.selectedSideLeftRatio
   ) {
-    next = PanelSide.Right;
+    next = "right";
   }
   if (next === _lastSelectedSide) return;
   _lastSelectedSide = next;
-  postInteraction({
-    kind: RenderInteractionKind.SelectedSide,
-    side: next,
-  });
+  postInteraction({ kind: "selectedSide", side: next });
 }
 
 function updateTrailTooltip(): void {
@@ -1462,7 +1644,7 @@ function updateTrailTooltip(): void {
       candidate.point.lon === _activeTrailPoint?.lon,
   );
   postInteraction({
-    kind: RenderInteractionKind.TrailTooltip,
+    kind: "trailTooltip",
     point: _activeTrailPoint,
     x: target?.x ?? 0,
     y: target?.y ?? 0,
@@ -1470,6 +1652,160 @@ function updateTrailTooltip(): void {
   });
 }
 
+
+type PointDrawCtx = {
+  ctx: Ctx;
+  projFn: ProjFn;
+  colorMap: Record<string, string>;
+  accent: string;
+  selId: string | null;
+  t: number;
+  zoomLevel: number;
+  milColor: string;
+  reconColor: string;
+  showForecast: boolean;
+  showCone: boolean;
+  showWindField: boolean;
+  showModels: boolean;
+  hiddenModels: ReadonlySet<string>;
+  reducedMotion: boolean;
+};
+
+/** Draw one projected point by its type. Each branch returns after drawing. */
+function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
+  const { ctx, projFn, colorMap, accent, selId, t, zoomLevel, milColor, reconColor } = pc;
+  const { x, y, z, item } = pt;
+  const baseColor = colorMap[item.type] || accent;
+  const depthAlpha = 0.4 + z * 0.6;
+  const isSel = item.id === selId;
+  const id = item.id;
+  const ts = item.timestamp;
+  const env: DotEnv = { ctx, t, zoomLevel };
+  const circle = (s: number) => { ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); };
+
+  if (item.type === "quakes") {
+    const mag = item.data.magnitude ?? 0;
+    const af2 = quakeAgeFactor(ts);
+    const color = quakeColor(af2, baseColor);
+    const s = quakeSize(mag) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
+    drawPulsingDot(env, x, y, s, color, depthAlpha * af2 * 0.8, isSel,
+      mag > 3 ? { intensity: clamp01((zoomLevel - 1.3) / 2), pulseIndex: Math.min(1, (mag - 3) / 4), id, cfg: { idSliceFrom: 1, rate: 0.7, baseAmp: 0.1, ampGain: 0.2, radBase: 1.8, radGain: 1.5, alphaHex: "40", glowMul: 0.5 } } : null,
+      circle);
+    return;
+  }
+
+  if (item.type === "events") {
+    const sev = item.data.severity ?? 1;
+    const af2 = eventAgeFactor(ts);
+    const color = eventColor(af2, baseColor);
+    const s = eventSize(sev) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
+    drawPulsingDot(env, x, y, s, color, depthAlpha * af2 * 0.75, isSel,
+      sev >= 3 ? { intensity: clamp01((zoomLevel - 1.3) / 2), pulseIndex: Math.min(1, (sev - 2) / 3), id, cfg: { idSliceFrom: 2, rate: 0.5, baseAmp: 0.1, ampGain: 0.2, radBase: 1.8, radGain: 1.2, alphaHex: "30", glowMul: 0.4 } } : null,
+      circle);
+    return;
+  }
+
+  if (item.type === "fires") {
+    const frp = item.data.frp ?? 0;
+    const af2 = fireAgeFactor(ts);
+    const color = fireColor(af2, baseColor);
+    const s = fireSize(frp) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
+    drawPulsingDot(env, x, y, s, color, depthAlpha * af2 * 0.5, isSel,
+      frp > 15 ? { intensity: clamp01((zoomLevel - 1.5) / 2.5), pulseIndex: Math.min(1, (frp - 15) / 85), id, cfg: { idSliceFrom: 2, rate: 0.6, baseAmp: 0.05, ampGain: 0.15, radBase: 1.5, radGain: 1.5, alphaHex: "30", glowMul: 0.35 } } : null,
+      circle);
+    return;
+  }
+
+  if (item.type === "weather") {
+    const wsev = item.data.severity || "Unknown";
+    const wrank = weatherSeverityRank(wsev);
+    const s = weatherSize(wsev) * zoomScale(zoomLevel) * (isSel ? 2 : 1);
+    const diamond = (sz: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x, y - sz * 1.2);
+      ctx.lineTo(x + sz * 0.8, y);
+      ctx.lineTo(x, y + sz * 1.2);
+      ctx.lineTo(x - sz * 0.8, y);
+      ctx.closePath();
+    };
+    drawPulsingDot(env, x, y, s, baseColor, depthAlpha * weatherAlpha(wsev) * 0.8, isSel,
+      wrank >= 3 ? { intensity: clamp01((zoomLevel - 1.3) / 2), pulseIndex: Math.min(1, (wrank - 2) / 2), id, cfg: { idSliceFrom: 2, rate: 0.5, baseAmp: 0.1, ampGain: 0.2, radBase: 1.8, radGain: 1.5, alphaHex: "30", glowMul: 0.4 } } : null,
+      diamond);
+    return;
+  }
+
+  if (item.type === "cyclones") {
+    drawCyclone(ctx, projFn, x, y, item, baseColor, depthAlpha, t, isSel, {
+      showForecast: pc.showForecast,
+      showCone: pc.showCone,
+      showWindField: pc.showWindField,
+      showModels: pc.showModels,
+      hiddenModels: pc.hiddenModels,
+      reducedMotion: pc.reducedMotion,
+    });
+    return;
+  }
+
+  if (item.type === "cyclones-forecast") {
+    drawCycloneForecastPoint(ctx, x, y, item.data.fcstHour,
+      colorMap.cyclones || baseColor, depthAlpha,
+      { isSelected: isSel, t, reducedMotion: pc.reducedMotion });
+    return;
+  }
+
+  if (item.type === "ships") {
+    const shipAlpha = Math.min(0.85, 0.35 + Math.max(0, (zoomLevel - 1) / 2) * 0.5);
+    const s = 2.5 * zoomScale(zoomLevel) * (isSel ? 2 : 1);
+    const a = ((item.data.heading ?? 0) * Math.PI) / 180;
+    const hw = s * 0.7;
+    ctx.globalAlpha = depthAlpha * shipAlpha;
+    ctx.fillStyle = baseColor;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.sin(a) * s * 1.4, y - Math.cos(a) * s * 1.4);
+    ctx.lineTo(x + Math.sin(a + Math.PI / 2) * hw, y - Math.cos(a + Math.PI / 2) * hw);
+    ctx.lineTo(x + Math.sin(a + Math.PI) * s * 0.8, y - Math.cos(a + Math.PI) * s * 0.8);
+    ctx.lineTo(x + Math.sin(a - Math.PI / 2) * hw, y - Math.cos(a - Math.PI / 2) * hw);
+    ctx.closePath();
+    ctx.fill();
+    if (isSel) drawSelectionRing(ctx, x, y, s, baseColor, t);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  if (item.type !== "aircraft") return;
+
+  // Aircraft. Recon (Hurricane Hunter) outranks military.
+  const isMil = Boolean(item.data.military);
+  const isRecon = Boolean(item.data.recon);
+  let acAlpha = Math.min(0.8, 0.2 + Math.max(0, (zoomLevel - 1) / 5) * 0.6);
+  if (isMil) acAlpha = Math.min(0.9, acAlpha + 0.15);
+  if (isRecon) acAlpha = Math.min(1, Math.max(acAlpha, 0.75) + 0.1);
+  let acSize = Math.min(4, 1 + Math.max(0, (zoomLevel - 1) * 0.5));
+  if (isMil) acSize = Math.min(5, acSize * 1.2);
+  if (isRecon) acSize = Math.max(acSize, 2.2) * 1.2;
+  if (isSel) acSize *= 2;
+  const status = item.data.squawkStatus;
+  const isEmergency = status === "emergency" || status === "radio_failure" || status === "hijack";
+  ctx.globalAlpha = isEmergency ? depthAlpha : depthAlpha * acAlpha;
+  // Colour precedence: emergency → recon → military → base.
+  const acColor =
+    status === "emergency" ? "#ff3333"
+      : status === "radio_failure" ? "#ff8800"
+        : status === "hijack" ? "#cc44ff"
+          : isRecon ? reconColor
+            : isMil ? milColor
+              : baseColor;
+  ctx.fillStyle = acColor;
+  const a = ((item.data.heading ?? 0) * Math.PI) / 180;
+  const s = acSize;
+  ctx.beginPath();
+  ctx.moveTo(x + Math.sin(a) * s * 1.6, y - Math.cos(a) * s * 1.6);
+  ctx.lineTo(x + Math.sin(a + 2.4) * s, y - Math.cos(a + 2.4) * s);
+  ctx.lineTo(x + Math.sin(a - 2.4) * s, y - Math.cos(a - 2.4) * s);
+  ctx.closePath();
+  ctx.fill();
+  if (isSel) drawSelectionRing(ctx, x, y, s, isMil ? milColor : baseColor, t);
+}
 
 type StaticLayerCtx = {
   ctx: Ctx;
@@ -1512,13 +1848,7 @@ function drawStaticLayer(s: StaticLayerCtx): void {
     ctx.beginPath();
     ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
     ctx.clip();
-    drawLand(ctx, projFn, {
-      matrix: s.globeMatrix,
-      colors,
-      isFlat: false,
-      horizon: { gcx: cx, gcy: cy, gr: r - 0.5 },
-      alpha: landAlpha,
-    });
+    drawLand(ctx, projFn, s.globeMatrix, colors, false, cx, cy, r - 0.5, landAlpha);
     drawGrid(ctx, projFn, { isFlat: false, accentColor: colors.grid || colors.accent, gridAlpha });
     return;
   }
@@ -1530,630 +1860,257 @@ function drawStaticLayer(s: StaticLayerCtx): void {
   ctx.beginPath();
   ctx.rect(fm.mx, fm.my, fm.mW, fm.mH);
   ctx.clip();
-  drawLand(ctx, projFn, {
-    matrix: s.globeMatrix,
-    colors,
-    isFlat: true,
-    horizon: { gcx: 0, gcy: 0, gr: 0 },
-    alpha: landAlpha,
-  });
+  drawLand(ctx, projFn, s.globeMatrix, colors, true, 0, 0, 0, landAlpha);
   drawGrid(ctx, projFn, {
     isFlat: true, cx, cy, mW: fm.mW, mH: fm.mH, mx: fm.mx, my: fm.my,
     accentColor: colors.grid || colors.accent, gridAlpha,
   });
 }
 
-type FlatMetrics = ReturnType<typeof getFlatMetrics>;
-
-type SceneGeometry = Readonly<{
-  width: number;
-  height: number;
-  fm: FlatMetrics | null;
-  globeMatrix: GlobeRotationMatrix;
-  centerX: number;
-  centerY: number;
-  globeRadius: number;
-}>;
-
-/** Flat and globe projection inputs, identical for every typed scene layer. */
-function sceneProjectionBase(
-  geometry: SceneGeometry,
-  project: ProjFn,
-): SceneAreaProjectionFrame {
-  const { fm } = geometry;
-  return {
-    width: geometry.width,
-    height: geometry.height,
-    hitCellSize: CAMERA_POLICY.hitCellSizePx,
-    cullMargin: SceneProjectionPolicy.CullMarginPixels,
-    flat: fm
-      ? {
-          centerX: fm.cx,
-          centerY: fm.cy,
-          mapWidth: fm.mW,
-          mapHeight: fm.mH,
-        }
-      : null,
-    globe: fm
-      ? null
-      : {
-          matrix: geometry.globeMatrix,
-          centerX: geometry.centerX,
-          centerY: geometry.centerY,
-          radius: geometry.globeRadius,
-        },
-    areaProjection: {
-      project,
-      horizon: fm
-        ? null
-        : {
-            gcx: geometry.centerX,
-            gcy: geometry.centerY,
-            gr:
-              geometry.globeRadius -
-              SceneProjectionPolicy.HorizonInsetPixels,
-          },
-    },
-    screenPoint: screenGeoPoint,
-  };
-}
-
-function drawPointLayers(
-  drawFireLayer: () => void,
-  drawEventLayer: () => void,
-  drawEarthquakeLayer: () => void,
-  drawWeatherLayer: () => void,
-  drawCycloneLayer: () => void,
-): void {
-  drawMarkerLayerSequence({
-    fire: drawFireLayer,
-    event: drawEventLayer,
-    earthquake: drawEarthquakeLayer,
-    weather: drawWeatherLayer,
-    cyclones: drawCycloneLayer,
-  });
-}
-
-type AreaOverlayOptions = Readonly<{
-  context: Ctx;
-  selectedId: string | null;
-  time: number;
-  warningColor: string;
-  watchColor: string;
-}>;
-
-/** Tropical watch/warning and NWS alert polygons, under every marker. */
-function drawAreaOverlays(options: AreaOverlayOptions): void {
-  cycloneWarningLayer.drawAreas({
-    context: options.context,
-    selectedId: options.selectedId,
-    time: options.time,
-    warningColor: options.warningColor,
-    watchColor: options.watchColor,
-  });
-  weatherLayer.drawAreas({
-    context: options.context,
-    selectedId: options.selectedId,
-    time: options.time,
-  });
-}
-
-/** Map border plus the degree labels down its outer edges. */
-function drawFlatFrame(
-  ctx: Ctx,
-  fm: FlatMetrics,
-  colors: RenderWorkerColors,
-  viewport: Readonly<{ width: number; height: number }>,
-  light: boolean,
-): void {
-  ctx.strokeStyle = colors.accent + (light ? "25" : "1a");
-  ctx.lineWidth = 1;
-  ctx.strokeRect(fm.mx, fm.my, fm.mW, fm.mH);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = colors.dim || colors.accent;
-  const fontSize = Math.max(
-    FlatLabelLayout.MinimumPixels,
-    Math.min(viewport.width, viewport.height) *
-      FlatLabelLayout.ViewportScale,
-  );
-  ctx.font = `${fontSize}px 'JetBrains Mono', monospace`;
-  ctx.textAlign = "center";
-  for (
-    let lon = -FlatCoordinateLabel.LongitudeLimitDegrees;
-    lon <= FlatCoordinateLabel.LongitudeLimitDegrees;
-    lon += FlatCoordinateLabel.LongitudeStepDegrees
-  ) {
-    ctx.fillText(
-      `${Math.abs(lon)}°${lon >= 0 ? "E" : "W"}`,
-      fm.cx +
-        (lon / GeoLimit.MaxLongitude) * (fm.mW / 2),
-      fm.my + fm.mH + FlatLabelLayout.BottomOffsetPixels,
-    );
-  }
-  ctx.textAlign = "right";
-  for (
-    let lat = -FlatCoordinateLabel.LongitudeStepDegrees;
-    lat <= FlatCoordinateLabel.LongitudeStepDegrees;
-    lat +=
-      FlatCoordinateLabel.LongitudeStepDegrees /
-      FlatCoordinateLabel.LatitudeStepDivisor
-  ) {
-    ctx.fillText(
-      `${Math.abs(lat)}°${lat >= 0 ? "N" : "S"}`,
-      fm.mx - FlatLabelLayout.SideOffsetPixels,
-      fm.cy -
-        (lat / GeoLimit.MaxLatitude) * (fm.mH / 2) +
-        FlatLabelLayout.BaselineOffsetPixels,
-    );
-  }
-}
-
-type FrameTheme = Readonly<{
-  light: boolean;
-  landAlpha: number;
-  gridAlpha: number;
-  glowAlpha: string;
-  milColor: string;
-  reconColor: string;
-  colorMap: Record<string, string>;
-}>;
-
-function frameTheme(colors: RenderWorkerColors): FrameTheme {
-  const light = isLightTheme(colors);
-  return {
-    light,
-    landAlpha: light ? 0.9 : 0.7,
-    gridAlpha: light ? 0.18 : 0.11,
-    glowAlpha: light ? "08" : "0d",
-    milColor: colors.military,
-    reconColor: colors.recon,
-    colorMap: {
-      ships: colors.ships,
-      aircraft: colors.aircraft,
-      events: colors.events,
-      quakes: colors.quakes,
-      fires: colors.fires,
-      weather: colors.weather,
-      cyclones: colors.cyclones,
-    },
-  };
-}
-
-function resizeCanvas(
-  target: OffscreenCanvas,
-  context: Ctx,
-  viewport: Readonly<{ width: number; height: number; devicePixelRatio: number }>,
-): void {
-  const { width, height, devicePixelRatio: dpr } = viewport;
-  const pixelWidth = Math.round(width * dpr);
-  const pixelHeight = Math.round(height * dpr);
-  if (target.width !== pixelWidth || target.height !== pixelHeight) {
-    target.width = pixelWidth;
-    target.height = pixelHeight;
-  }
-  context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  context.clearRect(0, 0, width, height);
-}
-
-type FrameInputs = Readonly<{
-  canvas: OffscreenCanvas;
-  ctx: Ctx;
-  colors: RenderWorkerColors;
-  globeState: RenderGlobeStateSnapshot;
-  viewport: RenderViewportPayload;
-}>;
-
-/** Everything a frame needs, or null while the worker is still being set up. */
-function frameInputs(): FrameInputs | null {
-  const globeState = globeStateController.snapshot();
+function renderFrame(): void {
+  _frameScheduled = false;
   if (
     !canvas ||
     !ctx ||
-    !globeState.renderTheme ||
+    !_data ||
+    !_colors ||
+    !_presentation ||
     !_viewport
   ) {
-    return null;
-  }
-  return {
-    canvas,
-    ctx,
-    colors: globeState.renderTheme,
-    globeState,
-    viewport: _viewport,
-  };
-}
-
-function createProjector(
-  geometry: SceneGeometry,
-  rotationY: number,
-  rotationX: number,
-): ProjFn {
-  const { fm, centerX, centerY, globeRadius } = geometry;
-  if (fm) {
-    return (lat, lon) =>
-      projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH);
-  }
-  return (lat, lon) =>
-    projGlobe(
-      lat,
-      lon,
-      centerX,
-      centerY,
-      globeRadius,
-      rotationY,
-      rotationX,
-    );
-}
-
-/** Globe rim or flat-map border, drawn after the point clip is released. */
-function drawFrameEdge(
-  ctx: Ctx,
-  geometry: SceneGeometry,
-  colors: RenderWorkerColors,
-  light: boolean,
-): void {
-  const { fm, centerX, centerY, globeRadius } = geometry;
-  if (!fm) {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, globeRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = colors.accent + (light ? "30" : "1f");
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
     return;
   }
-  drawFlatFrame(
-    ctx,
-    fm,
-    colors,
-    { width: geometry.width, height: geometry.height },
-    light,
-  );
-}
 
-type ProjectFrameOptions = Readonly<{
-  project: ProjFn;
-  geometry: SceneGeometry;
-  globeState: RenderGlobeStateSnapshot;
-  selection: RenderSelectionIdentity | null;
-}>;
-
-type ProjectedFrame = Readonly<{
-  isolatedType: string | null;
-  aircraftSceneFilter: AircraftSceneFilter;
-}>;
-
-function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
-  const state = options.globeState;
-  const isoMode = state.isolateMode;
-  const isoId =
-    isoMode === null
-      ? null
-      : options.selection?.interactionId ?? null;
-  const selection = options.selection;
-  const isolatedType =
-    isoId && selection?.interactionId === isoId
-      ? selection.pointType
-      : null;
-  const base = sceneProjectionBase(
-    options.geometry,
-    options.project,
-  );
-  const sceneVisibility: SceneVisibilitySettings = {
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
-  };
-  const aircraftSceneFilter: AircraftSceneFilter = {
-    filter: state.aircraftFilter,
-    ...sceneVisibility,
-  };
-  aircraftLayer.project(base, aircraftSceneFilter);
-
-  shipLayer.project(base, {
-    enabled: state.layers[Domain.Ships],
-    ...sceneVisibility,
-  });
-
-  const fireSceneFilter: FireSceneFilter = {
-    enabled: state.layers[Domain.Fires],
-    minimumConfidence: state.fireMinimumConfidence,
-    ...sceneVisibility,
-  };
-  fireLayer.project(base, fireSceneFilter);
-
-  eventLayer.project(base, {
-    enabled: state.layers[Domain.Events],
-    ...sceneVisibility,
-  });
-
-  const earthquakeSceneFilter: EarthquakeSceneFilter = {
-    enabled: state.layers[Domain.Quakes],
-    minimumMagnitude: state.earthquakeMinimumMagnitude,
-    ...sceneVisibility,
-  };
-  earthquakeLayer.project(base, earthquakeSceneFilter);
-
-  cycloneWarningLayer.project(base, {
-    enabled: state.cycloneFilter.showWarnings,
-    ...sceneVisibility,
-  });
-
-  weatherLayer.project(base, {
-    enabled: state.layers[Domain.Weather],
-    ...sceneVisibility,
-  });
-
-  cycloneLayer.project(base, {
-    enabled: state.layers[Domain.Cyclones],
-    minCategory: state.cycloneFilter.minimumCategory,
-    showForecast: state.cycloneFilter.showForecast,
-    showWindField: state.cycloneFilter.showWindField,
-    showModels: state.cycloneFilter.showModels,
-    hiddenModels: new Set(state.cycloneFilter.hiddenModels),
-    ...sceneVisibility,
-  });
-
-  return {
-    isolatedType,
-    aircraftSceneFilter,
-  };
-}
-
-/** Locate the selected scene record for the side-of-screen readout. */
-function updateSelectedProjection(
-  selection: RenderSelectionIdentity | null,
-): void {
-  _hasSelectedProjection = false;
-  if (selection === null) return;
-
-  const sceneProjection =
-    renderLayerCatalog.selectionAnchor(
-      selection.source,
-      selection.interactionId,
-    );
-  if (sceneProjection) {
-    _hasSelectedProjection = true;
-    _selectedProjectionX = sceneProjection.x;
-    _selectedProjectionDepth = sceneProjection.depth;
-  }
-}
-
-function scheduleNextFrameIfNeeded(
-  reducedMotion: boolean,
-  hasSelection: boolean,
-  cameraActive: boolean,
-): void {
-  const hasVisualAnimation =
-    !reducedMotion &&
-    (renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
-      hasSelection);
-  const needsFrame =
-    (selectionOverlayStore.snapshot()?.motion ?? null) !== null ||
-    hasVisualAnimation ||
-    cameraActive;
-  if (!needsFrame || _frameScheduled) return;
-  _frameScheduled = true;
-  requestAnimationFrame(renderFrame);
-}
-
-function renderFrame(): void {
-  _frameScheduled = false;
-  const inputs = frameInputs();
-  if (!inputs) return;
-
+  const p = _presentation;
   const {
-    canvas,
-    ctx,
-    colors,
-    globeState,
-    viewport,
-  } = inputs;
-  const { width: W, height: H } = viewport;
-  const isFlat =
-    globeState.projection === RenderProjectionMode.Flat;
+    width: W,
+    height: H,
+    devicePixelRatio: dpr,
+  } = _viewport;
+  const isFlat = p.flat;
   const now = performance.now();
   const cameraActive = stepCamera(
     _camera,
     _cameraTarget,
     _pointer,
-    {
-      viewport: { width: W, height: H },
-      flat: isFlat,
-      autoRotate: globeState.rotationEnabled,
-      rotationSpeed: globeState.rotationSpeed,
-      selectedPosition: selectedCameraPosition(),
-      deltaMilliseconds: now - _lastFrameAt,
-    },
+    { width: W, height: H },
+    isFlat,
+    p.autoRotate,
+    p.rotationSpeed,
+    selectedCameraPosition(),
+    now - _lastFrameAt,
   );
   _lastFrameAt = now;
   const cam = cameraSnapshot(_camera);
-  const wallTime = Date.now();
-  const t = wallTime * 0.003;
-  const selection = selectionIdentity();
-  const selId = selection?.interactionId ?? null;
-  const isoMode = globeState.isolateMode;
-  const isoId =
-    isoMode === null ? null : selection?.interactionId ?? null;
+  const t = Date.now() * 0.003;
+  const selId = p.selectedId;
+  const isoId = p.isolatedId;
+  const isoMode = p.isolateMode;
+  const { layers, aircraftFilter: af } = p;
+  const colors = _colors;
 
-  const selectedPosition = selectedCameraPosition();
-  const selectedOverlay = selectionOverlayStore.snapshot();
+  // Progressive reveal: advance the counter each frame and slice to it.
+  const fullData = _data;
+  if (_revealCount < fullData.length) {
+    _revealCount = Math.min(_revealCount + REVEAL_CHUNK, fullData.length);
+  } else if (_revealCount > fullData.length) {
+    _revealCount = fullData.length;
+  }
+  const data = _revealCount < fullData.length ? fullData.slice(0, _revealCount) : fullData;
+  const searchIds = p.searchMatchIds;
+  const selectedItem = p.selectedItem;
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
-  const { light, landAlpha, gridAlpha, glowAlpha, milColor, reconColor, colorMap } =
-    frameTheme(colors);
+  const light = isLightTheme(colors);
+  const landAlpha = light ? 0.9 : 0.7;
+  const gridAlpha = light ? 0.18 : 0.11;
+  const glowAlpha = light ? "08" : "0d";
 
-  resizeCanvas(canvas, ctx, viewport);
+  const cw = Math.round(W * dpr);
+  const ch = Math.round(H * dpr);
+  if (canvas.width !== cw || canvas.height !== ch) {
+    canvas.width = cw;
+    canvas.height = ch;
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
 
   const cx = W / 2;
   const cy = H / 2;
+  const colorMap: Record<string, string> = {
+    ships: colors.ships,
+    aircraft: colors.aircraft,
+    events: colors.events,
+    quakes: colors.quakes,
+    fires: colors.fires || "#ff6600",
+    weather: colors.weather || "#aa66ff",
+    cyclones: colors.cyclones || "#ff66cc",
+  };
+
+  // Cyclone filter + reduced-motion flags from the frame payload.
+  const cyclonesShowForecast = p.cyclonesShowForecast !== false;
+  const cyclonesShowCone = p.cyclonesShowCone !== false;
+  const cyclonesShowWindField = p.cyclonesShowWindField === true; // default off
+  const cyclonesShowWarnings = p.cyclonesShowWarnings !== false;
+  const cyclonesShowModels = p.cyclonesShowModels === true; // default off
+  const cyclonesHiddenModels = new Set(p.cyclonesHiddenModels ?? []);
+  const reducedMotion = p.prefersReducedMotion === true;
+
+  const milColor = light ? "#3a3a3a" : "#e0e0e0";
+  const reconColor = colors.recon || (light ? "#b86b00" : "#ff9500");
+
   const fm = isFlat ? getFlatMetrics(W, H, cam.zoomFlat, cam.panX, cam.panY) : null;
   const globeR = Math.min(W, H) * 0.4 * cam.zoomGlobe;
-  const geometry: SceneGeometry = {
-    width: W,
-    height: H,
-    fm,
-    globeMatrix: createGlobeRotationMatrix(cam.rotY, cam.rotX),
-    centerX: cx,
-    centerY: cy,
-    globeRadius: globeR,
-  };
-  const projFn = createProjector(
-    geometry,
-    cam.rotY,
-    cam.rotX,
-  );
-  const { globeMatrix } = geometry;
+  const globeMatrix = createGlobeRotationMatrix(cam.rotY, cam.rotX);
+  const projectPoint: PointProjector = fm
+    ? (item) => {
+        const interpolated =
+          item.type === "aircraft" || item.type === "ships"
+            ? getInterp(item.id)
+            : null;
+        return projFlat(
+          interpolated?.lat ?? item.lat,
+          interpolated?.lon ?? item.lon,
+          fm.cx,
+          fm.cy,
+          fm.mW,
+          fm.mH,
+        );
+      }
+    : (item) => {
+        const interpolated =
+          item.type === "aircraft" || item.type === "ships"
+            ? getInterpUnit(item.id)
+            : null;
+        return projectUnitVector(
+          interpolated ?? unitVectorForPoint(item),
+          globeMatrix,
+          cx,
+          cy,
+          globeR,
+        );
+      };
+  const projFn: ProjFn = fm
+    ? (lat, lon) => projFlat(lat, lon, fm.cx, fm.cy, fm.mW, fm.mH)
+    : (lat, lon) => projGlobe(lat, lon, cx, cy, globeR, cam.rotY, cam.rotX);
 
   // ── Draw static layer (leaves clip active for the points) ─────
   drawStaticLayer({ ctx, projFn, globeMatrix, colors, isFlat, W, H, cx, cy, globeR, fm, landAlpha, gridAlpha, glowAlpha });
 
-  // ── Project + filter points ───────────────────────────────────
-  const projected = projectFrame({
-    project: projFn,
-    geometry,
-    globeState,
-    selection,
-  });
-  const {
-    isolatedType,
-    aircraftSceneFilter,
-  } = projected;
-  updateSelectedProjection(selection);
+  // ── Tropical watch/warning areas (under the storm marker/track) ──
+  if (cyclonesShowWarnings && _warnings && _warnings.length > 0) {
+    const gr = isFlat ? 0 : globeR - 0.5;
+    drawWarnings(
+      { ctx, proj: projFn, isFlat, gcx: cx, gcy: cy, gr, prims: { simpleDraw, drawClippedPoly } },
+      _warnings,
+      { warn: _warnColor, watch: _watchColor },
+      selId ?? null,
+      t,
+    );
+  }
 
-  drawAreaOverlays({
-    context: ctx,
-    selectedId: selId ?? null,
-    time: t,
-    warningColor: colors.cycWarning,
-    watchColor: colors.cycWatch,
-  });
+  // ── NWS weather-alert areas (under the markers, gated by the layer toggle) ──
+  if (layers.weather !== false && _wxAlerts && _wxAlerts.length > 0) {
+    const gr = isFlat ? 0 : globeR - 0.5;
+    drawWarnings(
+      { ctx, proj: projFn, isFlat, gcx: cx, gcy: cy, gr, prims: { simpleDraw, drawClippedPoly } },
+      _wxAlerts,
+      { warn: _wxWarnColor, watch: _wxWatchColor },
+      selId ?? null,
+      t,
+    );
+  }
+
+  // ── Project + filter points ───────────────────────────────────
+  const isolatedType =
+    isoId && selId ? (data.find((d) => d.id === isoId)?.type ?? null) : null;
+  const searchSet = searchIds ? new Set(searchIds) : null;
+  const filterCfg: FilterCfg = { searchSet, isoMode, isoId, isolatedType, layers, af, showForecast: cyclonesShowForecast };
+  const pts = projectAndFilter(data, projectPoint, filterCfg);
+  _projectedPoints = pts;
+  rebuildHitGrid(pts);
 
   // ── Draw trail (only if the selected item passes current filters) ──
-  const drawSelectedTrail = selectionIsVisible({
-    selection,
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
-    aircraftEntityIsVisible: (entityId) =>
-      aircraftLayer.includesEntity(
-        entityId,
-        aircraftSceneFilter,
-      ),
-    sourceIsVisible: (source) =>
-      globeStateController.sourceIsVisible(source),
-    searchIncludesEntity: (identity) =>
-      renderLayerCatalog.searchIncludesEntity(
-        identity.source,
-        identity.entityId,
-      ),
-  });
+  const selPassesFilters = (): boolean => {
+    if (!selectedItem) return false;
+    if (searchSet && !searchSet.has(selectedItem.id)) return false;
+    if (isoMode === "solo" && selectedItem.id !== isoId) return false;
+    if (isoMode === "focus" && isolatedType && selectedItem.type !== isolatedType) return false;
+    if (selectedItem.type === "aircraft") {
+      const fullItem = data.find((d) => d.id === selectedItem.id);
+      if (!fullItem || fullItem.type !== "aircraft") return false;
+      return matchesAF(fullItem.data, af);
+    }
+    return layers[selectedItem.type] !== false;
+  };
+  const drawSelectedTrail = selPassesFilters();
 
-  const selectedRoute = selectedOverlay?.route;
-  if (drawSelectedTrail && selectedPosition && selectedRoute) {
+  if (drawSelectedTrail && selectedItem?.route) {
+    const routePos = getInterp(selectedItem.id);
     drawRoute(
       ctx,
       projFn,
-      selectedRoute,
-      selectedPosition.latitude,
-      selectedPosition.longitude,
+      selectedItem.route,
+      routePos ? routePos.lat : selectedItem.lat,
+      routePos ? routePos.lon : selectedItem.lon,
       colors,
     );
   }
-  const hitTargets = drawSelectedTrail
-    ? drawTrail(
-        ctx,
-        projFn,
-        selId,
-        selectedOverlay?.trail ?? [],
-        colors,
-      )
-    : [];
+  const hitTargets = drawSelectedTrail ? drawTrail(ctx, projFn, selectedItem ?? null, colors) : [];
   _trailHitTargets = hitTargets;
   ctx.globalAlpha = 1;
 
   // ── Draw points ───────────────────────────────────────────────
-  aircraftLayer.draw({
-    context: ctx,
-    baseColor: colors.aircraft,
-    militaryColor: milColor,
-    reconColor,
-    selectedId: selId,
-    time: t,
-    zoomLevel,
-  });
-  shipLayer.draw({
-    context: ctx,
-    color: colorMap.ships ?? colors.accent,
-    selectedId: selId,
-    time: t,
-    zoomLevel,
-  });
-  drawPointLayers(
-    () => {
-      fireLayer.draw({
-        context: ctx,
-        color: colorMap.fires ?? colors.accent,
-        selectedId: selId,
-        time: t,
-        now: wallTime,
-        zoomLevel,
-      });
-    },
-    () => {
-      eventLayer.draw({
-        context: ctx,
-        color: colorMap.events ?? colors.accent,
-        selectedId: selId,
-        time: t,
-        now: wallTime,
-        zoomLevel,
-      });
-    },
-    () => {
-      earthquakeLayer.draw({
-        context: ctx,
-        color: colorMap.quakes ?? colors.accent,
-        selectedId: selId,
-        time: t,
-        now: wallTime,
-        zoomLevel,
-      });
-    },
-    () => {
-      weatherLayer.draw({
-        context: ctx,
-        color: colorMap.weather ?? colors.accent,
-        selectedId: selId,
-        time: t,
-        zoomLevel,
-      });
-    },
-    () => {
-      cycloneLayer.draw({
-        context: ctx,
-        project: projFn,
-        color: colorMap[Domain.Cyclones] ?? colors.accent,
-        selectedId: selId,
-        time: t,
-        reducedMotion: globeState.reducedMotion,
-        showCone: globeState.cycloneFilter.showCone,
-      });
-    },
-  );
+  const pointCtx: PointDrawCtx = {
+    ctx, projFn, colorMap, accent: colors.accent, selId, t, zoomLevel, milColor, reconColor,
+    showForecast: cyclonesShowForecast, showCone: cyclonesShowCone,
+    showWindField: cyclonesShowWindField, showModels: cyclonesShowModels,
+    hiddenModels: cyclonesHiddenModels, reducedMotion,
+  };
+  for (const pt of pts) drawPoint(pointCtx, pt);
   ctx.globalAlpha = 1;
 
   // ── Restore clip and draw rim/border ──────────────────────────
   ctx.restore();
 
-  drawFrameEdge(ctx, geometry, colors, light);
+  if (!isFlat) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.strokeStyle = colors.accent + (light ? "30" : "1f");
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else if (fm) {
+    ctx.strokeStyle = colors.accent + (light ? "25" : "1a");
+    ctx.lineWidth = 1;
+    ctx.strokeRect(fm.mx, fm.my, fm.mW, fm.mH);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors.dim || colors.accent;
+    const baseFontSize = Math.max(8, Math.min(W, H) * 0.015);
+    ctx.font = `${baseFontSize}px 'JetBrains Mono', monospace`;
+    ctx.textAlign = "center";
+    for (let lon = -120; lon <= 120; lon += 60) {
+      ctx.fillText(`${Math.abs(lon)}\u00B0${lon >= 0 ? "E" : "W"}`, fm.cx + (lon / 180) * (fm.mW / 2), fm.my + fm.mH + 13);
+    }
+    ctx.textAlign = "right";
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.fillText(`${Math.abs(lat)}\u00B0${lat >= 0 ? "N" : "S"}`, fm.mx - 5, fm.cy - (lat / 90) * (fm.mH / 2) + 3);
+    }
+  }
 
   updateSelectedSide();
   updateTrailTooltip();
   postCameraSummary(now);
 
-  scheduleNextFrameIfNeeded(
-    globeState.reducedMotion,
-    selection !== null,
-    cameraActive,
-  );
+  const hasRevealWork = _revealCount < fullData.length;
+  const hasMotion = trailMap.size > 0;
+  const hasVisualAnimation =
+    !p.prefersReducedMotion &&
+    (_hasAnimatedPoints || p.selectedId !== null);
+  if (
+    (hasRevealWork || hasMotion || hasVisualAnimation || cameraActive) &&
+    !_frameScheduled
+  ) {
+    _frameScheduled = true;
+    requestAnimationFrame(renderFrame);
+  }
 }

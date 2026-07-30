@@ -1,19 +1,19 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockSources, installDefaultMocks } from "./helpers/fixtures";
-import { waitForCanvasFirstFrame } from "./helpers/canvas";
+import { waitForCanvasFirstFrame, projectLatLon } from "./helpers/canvas";
 
 // ── AircraftDossier visual + field baseline ─────────────────────────
 // Pins the rendered AircraftDossier so the SQLite-migration of
 // aircraftEnrichment.ts cannot silently regress field surface. The
 // dossier draws from two sources:
-//   1. live `item.data`: the per-record enrichment attached by
+//   1. live `item.data` — the per-record enrichment attached by
 //      enrichRecord (acType, registration, manufacturerName, model,
 //      operator, operatorIcao, categoryDescription, military).
-//   2. /api/dossier/aircraft/:icao24: hexdb-merged aircraft block
+//   2. /api/dossier/aircraft/:icao24 — hexdb-merged aircraft block
 //      (Type, ICAOTypeCode, Manufacturer, Registration, RegisteredOwners).
 //
 // Both are mocked here so the snapshot is deterministic across runs.
-// chromium-mobile is skipped because auth-flow rate-limit flakes are tracked
+// chromium-mobile is skipped — auth-flow rate-limit flakes are tracked
 // separately and the desktop project is the migration's green baseline.
 
 /** Reset the client's IndexedDB cache *and* pre-mark the walkthrough
@@ -52,7 +52,7 @@ async function resetClientCacheAndSuppressWalkthrough(
   });
 }
 
-test.describe("aircraft dossier baseline", () => {
+test.describe("aircraft — dossier baseline", () => {
   test.beforeEach(async ({}, testInfo) => {
     test.skip(
       testInfo.project.name !== "chromium-desktop",
@@ -66,7 +66,7 @@ test.describe("aircraft dossier baseline", () => {
     await installDefaultMocks(page);
     await mockSources(page, { aircraft: "dossier-baseline" });
 
-    // The hexdb path mock has a complete aircraft block, no route, and no
+    // hexdb path mock — fully populated `aircraft` block, no route, no
     // photo. Photo/route are intentionally null so the snapshot doesn't
     // depend on planespotters or FlightAware availability.
     await page.route("**/api/dossier/aircraft/ae5500*", (route) =>
@@ -94,6 +94,16 @@ test.describe("aircraft dossier baseline", () => {
     await page.goto("/");
     await waitForCanvasFirstFrame(page);
 
+    // Wait for the mock to finish hydrating into the canvas hit grid
+    // before driving the click. The track counter in the layer chrome
+    // reads "1 ▾" once exactly one aircraft (our fixture) is loaded;
+    // any other count means the cache hasn't settled yet (stale IDB,
+    // mid-poll, etc.). 10 s ceiling because the AircraftProvider's
+    // refresh path goes through cache → fetch → worker ingest.
+    await expect(
+      page.getByRole("button", { name: /^1 ▾$/ }).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
     // Pin all transitions / animations to instant for the duration of
     // the test. The dossier toolbar buttons (LOCATE/FOCUS/SOLO, MIL
     // badge, pane chrome) carry `transition-colors` + hover states
@@ -105,13 +115,17 @@ test.describe("aircraft dossier baseline", () => {
         "*, *::before, *::after { transition: none !important; animation: none !important; }",
     });
 
-    await page.getByRole("button", { name: /search/i }).click();
-    await page.getByPlaceholder("callsign, type...").fill("MAGIC01");
-    const searchResult = page.getByRole("button", { name: /MAGIC01/i });
-    await expect(searchResult).toBeVisible({ timeout: 10_000 });
-    await searchResult.click();
+    const canvas = page.locator("canvas").first();
+    await expect(canvas).toBeVisible();
 
-    // Wait on the OPEN IN DOSSIER button in the DetailPanel rather
+    // Aircraft is at (20, -50). projectLatLon reads live camera state;
+    // autoRotate defaults to false so the projection is stable across
+    // the click.
+    const proj = await projectLatLon(page, 20, -50);
+    expect(proj.z).toBeGreaterThan(0);
+    await canvas.click({ position: { x: proj.x, y: proj.y } });
+
+    // DetailPanel surfaces — wait on the OPEN IN DOSSIER button rather
     // than the callsign text (the callsign also appears in Ticker
     // entries that scroll off-screen via translateX, which match
     // getByText but report `hidden`).
@@ -123,28 +137,31 @@ test.describe("aircraft dossier baseline", () => {
     // Promote the floating DetailPanel to the full DossierPane.
     await openDossierBtn.click();
 
-    // Resolve the dossier pane container. PaneManager wraps each leaf
+    // Resolve the dossier pane container — PaneManager wraps each leaf
     // in a div carrying data-pane-leaf-id. Scoping all subsequent
     // assertions to this container avoids picking up duplicate text in
     // the Ticker (which scrolls callsigns off-screen via translateX).
     const dossierPane = page
       .locator("[data-pane-leaf-id]")
-      .filter({ has: page.getByRole("button", { name: "Close dossier" }) })
+      .filter({ has: page.getByRole("heading", { name: "IDENTITY" }) })
       .first();
     await expect(dossierPane).toBeVisible({ timeout: 5_000 });
 
     // Sections render.
     await expect(
-      dossierPane.getByRole("heading", { name: "ROUTE" }),
+      dossierPane.getByRole("heading", { name: "IDENTITY" }),
     ).toBeVisible();
     await expect(
-      dossierPane.getByRole("heading", { name: "LIVE TELEMETRY" }),
+      dossierPane.getByRole("heading", { name: "TELEMETRY" }),
+    ).toBeVisible();
+    await expect(
+      dossierPane.getByRole("heading", { name: "POSITION" }),
     ).toBeVisible();
     await expect(
       dossierPane.getByRole("heading", { name: "INTEL LINKS" }),
     ).toBeVisible();
 
-    // Every row sourced from aircraftEnrichment must
+    // Field assertions — every row sourced from aircraftEnrichment must
     // be present. If the SQLite migration drops or mangles a field, the
     // matching expect fails before the screenshot diff runs.
     await expect(dossierPane.getByText("MAGIC01").first()).toBeVisible(); // CALLSIGN
@@ -152,6 +169,7 @@ test.describe("aircraft dossier baseline", () => {
     await expect(
       dossierPane.getByText("F-35A Lightning II").first(),
     ).toBeVisible(); // TYPE
+    await expect(dossierPane.getByText("F35").first()).toBeVisible(); // TYPE CODE
     await expect(dossierPane.getByText("TEST-N99").first()).toBeVisible(); // REG
     await expect(
       dossierPane.getByText("United States Air Force").first(),
@@ -171,15 +189,9 @@ test.describe("aircraft dossier baseline", () => {
     // dossier toolbar, and the resulting hover styling drifts run to
     // run. Parking at (0, 0) eliminates the variance.
     await page.mouse.move(0, 0);
-    await expect
-      .poll(() =>
-        dossierPane
-          .getByRole("button", { name: "Locate on globe" })
-          .evaluate((button) => button.matches(":hover")),
-      )
-      .toBe(false);
+    await page.waitForTimeout(300);
 
-    // The dossier pane snapshot is pinned at 0.5% pixel difference
+    // Visual snapshot of the dossier pane — pinned at 0.5% pixel-diff
     // per migration contract. The per-pixel `threshold` is loosened
     // from the default 0.2 to absorb GPU-rendering noise (subpixel
     // anti-aliasing on small fonts varies a few RGB units between

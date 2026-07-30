@@ -1,41 +1,22 @@
-import type { GeoJsonPolygonGeometry, GeoPoint } from "@shared/geo";
-import type { Domain } from "@shared/domain/identity";
-import type { WeatherSeverity } from "./severity";
-
-export enum WeatherTextField {
-  Event = "event",
-  Urgency = "urgency",
-  Certainty = "certainty",
-  Category = "category",
-  Response = "response",
-  Issuer = "senderName",
-  Area = "areaDesc",
-  Onset = "onset",
-  Expires = "expires",
-  Headline = "headline",
-  Description = "description",
-  Instruction = "instruction",
-  Status = "status",
-  MessageType = "messageType",
-}
-
-export const WEATHER_TEXT_FIELDS: readonly WeatherTextField[] =
-  Object.values(WeatherTextField);
-
-export type WeatherData = Partial<Record<WeatherTextField, string>> & {
-  geometry?: GeoJsonPolygonGeometry;
-  severity: WeatherSeverity;
-};
-
-export type WeatherPoint = {
-  id: string;
-  type: Domain.Weather;
-  position: GeoPoint;
-  timestamp?: string;
-  data: WeatherData;
+export type WeatherData = {
+  event?: string;
+  severity?: string;
+  certainty?: string;
+  urgency?: string;
+  headline?: string;
+  description?: string;
+  instruction?: string;
+  senderName?: string;
+  areaDesc?: string;
+  onset?: string;
+  expires?: string;
+  status?: string;
+  messageType?: string;
+  category?: string;
+  response?: string;
 };
 
 export type WeatherFilter = {
   enabled: boolean;
-  minSeverity: number;
+  minSeverity: number; // 0=all, 1=moderate+, 2=severe+, 3=extreme only
 };

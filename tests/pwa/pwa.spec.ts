@@ -1,108 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import {
-  BUILD_ID_LENGTH,
-  collectArtifactPaths,
-  createBuildId,
-  createPrecacheUrls,
-  selectIdentityArtifacts,
-} from "../../scripts/pwaBuild";
+import { describe, test, expect } from "bun:test";
+import { resolve } from "path";
 
 const projectRoot = resolve(import.meta.dir, "../..");
-const temporaryDirectories: string[] = [];
 
-async function createArtifactDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "sigint-pwa-test-"));
-  temporaryDirectories.push(directory);
-  await mkdir(join(directory, "workers"));
-  await writeFile(join(directory, "index.html"), "shell-a");
-  await writeFile(join(directory, "workers/dataWorker.js"), "worker-a");
-  await writeFile(join(directory, "app.js.map"), "map-a");
-  return directory;
-}
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
-  );
-});
-
-describe("PWA build identity", () => {
-  test("is deterministic for the same artifact set", async () => {
-    const directory = await createArtifactDirectory();
-    const paths = selectIdentityArtifacts(
-      await collectArtifactPaths(directory),
-    );
-
-    const first = await createBuildId(directory, paths);
-    const second = await createBuildId(directory, [...paths].reverse());
-
-    expect(first).toBe(second);
-    expect(first).toHaveLength(BUILD_ID_LENGTH);
-  });
-
-  test("changes when artifact content changes", async () => {
-    const directory = await createArtifactDirectory();
-    const paths = selectIdentityArtifacts(
-      await collectArtifactPaths(directory),
-    );
-    const first = await createBuildId(directory, paths);
-
-    await writeFile(join(directory, "workers/dataWorker.js"), "worker-b");
-    const second = await createBuildId(directory, paths);
-
-    expect(second).not.toBe(first);
-  });
-
-  test("binds the shell and worker URLs into one precache manifest", async () => {
-    const directory = await createArtifactDirectory();
-    const urls = createPrecacheUrls(await collectArtifactPaths(directory));
-
-    expect(urls).toContain("/");
-    expect(urls).toContain("/workers/dataWorker.js");
-    expect(urls).not.toContain("/index.html");
-    expect(urls).not.toContain("/app.js.map");
-  });
-});
-
-describe("production service worker", () => {
-  test("uses an injected build identity and atomic cache install", async () => {
-    const source = await Bun.file(
-      join(projectRoot, "src/client/workers/serviceWorker.ts"),
-    ).text();
-
-    expect(source).toContain("__SIGINT_BUILD_ID__");
-    expect(source).toContain("cache.addAll(PRECACHE_URLS)");
-    expect(source).not.toContain("CACHE_VERSION");
-    expect(source).not.toContain("Promise.allSettled");
-    expect(source).not.toContain("cache.put(");
-  });
-
-  test("activates only the waiting build through a typed command", async () => {
-    const source = await Bun.file(
-      join(projectRoot, "src/client/lib/runtime/swRegistration.ts"),
-    ).text();
-
-    expect(source).toContain("registration?.waiting?.postMessage");
-    expect(source).toContain("SW_ACTIVATE_WAITING");
-    expect(source).not.toContain("controller?.postMessage");
-  });
-
-  test("checks on visibility, connectivity, and a named cadence", async () => {
-    const source = await Bun.file(
-      join(projectRoot, "src/client/lib/runtime/swRegistration.ts"),
-    ).text();
-
-    expect(source).toContain('"visibilitychange"');
-    expect(source).toContain('"online"');
-    expect(source).toContain("UPDATE_CHECK_INTERVAL_MS");
-    expect(source).toContain("updateCheck");
-  });
-});
+let swSource = "";
+try {
+  swSource = await Bun.file(`${projectRoot}/public/sw.js`).text();
+} catch {}
 
 type ManifestIcon = {
   src: string;
@@ -110,34 +14,324 @@ type ManifestIcon = {
   type: string;
   purpose?: string;
 };
-
-type WebManifest = {
-  name?: string;
-  short_name?: string;
-  start_url?: string;
-  display?: string;
-  theme_color?: string;
-  background_color?: string;
-  icons: ManifestIcon[];
+let manifest: Record<string, unknown> & { icons: ManifestIcon[] } = {
+  icons: [],
 };
+try {
+  manifest = (await Bun.file(
+    `${projectRoot}/public/manifest.json`,
+  ).json()) as Record<string, unknown> & { icons: ManifestIcon[] };
+} catch {}
 
-describe("web manifest", () => {
-  test("contains installable metadata and icons", async () => {
-    const manifest: WebManifest = await Bun.file(
-      join(projectRoot, "public/manifest.json"),
-    ).json();
-    const sizes = manifest.icons.map((icon) => icon.sizes);
+let frontendSource = "";
+try {
+  frontendSource = await Bun.file(
+    `${projectRoot}/src/client/frontend.tsx`,
+  ).text();
+} catch {}
 
+// Helper: check source contains string ignoring whitespace differences in chains
+function srcHas(needle: string): boolean {
+  return swSource.includes(needle);
+}
+function srcMatch(pattern: RegExp): boolean {
+  return pattern.test(swSource);
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// SW.JS — CACHE STRATEGY
+// ═════════════════════════════════════════════════════════════════════
+
+describe("sw.js — cache strategy", () => {
+  test("defines CACHE_NAME with version", () => {
+    expect(srcHas("CACHE_NAME")).toBe(true);
+    expect(srcHas("CACHE_VERSION")).toBe(true);
+    expect(srcMatch(/sigint-shell-/)).toBe(true);
+  });
+
+  test("precaches only immutable app shell assets", () => {
+    const precacheBlock = swSource.slice(
+      swSource.indexOf("let PRECACHE_URLS"),
+      swSource.indexOf("// Injected by post-build"),
+    );
+    expect(precacheBlock.includes("/fonts.css")).toBe(true);
+    expect(precacheBlock.includes("/manifest.json")).toBe(true);
+    expect(precacheBlock.includes("/data/ne_50m_land.json")).toBe(true);
+    expect(precacheBlock.includes("/workers/")).toBe(false);
+  });
+
+  test("supports __PRECACHE_MANIFEST injection", () => {
+    expect(srcHas("__PRECACHE_MANIFEST")).toBe(true);
+  });
+
+  test("does NOT skipWaiting during install", () => {
+    const installBlock = swSource.slice(
+      swSource.indexOf('addEventListener("install"'),
+      swSource.indexOf('addEventListener("activate"'),
+    );
+    expect(installBlock.includes("skipWaiting")).toBe(false);
+  });
+
+  test("skipWaiting only on SW_SKIP_WAITING message", () => {
+    expect(srcHas("SW_SKIP_WAITING")).toBe(true);
+    expect(srcHas("skipWaiting")).toBe(true);
+    const msgBlock = swSource.slice(
+      swSource.lastIndexOf('addEventListener("message"'),
+    );
+    expect(msgBlock.includes("skipWaiting")).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// SW.JS — FETCH ROUTING
+// ═════════════════════════════════════════════════════════════════════
+
+describe("sw.js — fetch routing", () => {
+  test("skips non-GET requests", () => {
+    expect(srcMatch(/request\.method\s*!==\s*"GET"/)).toBe(true);
+  });
+
+  test("skips cross-origin requests", () => {
+    expect(srcMatch(/url\.origin\s*!==\s*self\.location\.origin/)).toBe(true);
+  });
+
+  test("workers are network-first with cache fallback", () => {
+    const fetchStart = swSource.indexOf('addEventListener("fetch"');
+    const workerStart = swSource.indexOf(
+      'pathname.startsWith("/workers/")',
+      fetchStart,
+    );
+    const workerEnd = swSource.indexOf(
+      'request.mode === "navigate"',
+      workerStart,
+    );
+    const workerBlock = swSource.slice(workerStart, workerEnd);
+    expect(workerBlock.includes('cache: "no-store"')).toBe(true);
+    expect(workerBlock.indexOf("fetch(request")).toBeLessThan(
+      workerBlock.indexOf("cache.match(request)"),
+    );
+  });
+
+  test("API routes are network-only", () => {
+    expect(srcMatch(/url\.pathname\.startsWith\(\s*"\/api\/"\s*\)/)).toBe(true);
+  });
+
+  test("HTML navigation is cache-first with background refresh", () => {
+    expect(srcMatch(/request\.mode\s*===\s*"navigate"/)).toBe(true);
+    expect(srcHas(".catch(")).toBe(true);
+  });
+
+  test("assets are cache-first with network fallback", () => {
+    expect(srcMatch(/caches\s*\.\s*match\s*\(\s*request\s*\)/)).toBe(true);
+    expect(srcMatch(/fetch\s*\(\s*request\s*\)/)).toBe(true);
+  });
+
+  test("successful network responses are cached", () => {
+    expect(srcMatch(/response\s*\.\s*ok/)).toBe(true);
+    expect(srcMatch(/response\s*\.\s*clone\s*\(\s*\)/)).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// SW.JS — ACTIVATION
+// ═════════════════════════════════════════════════════════════════════
+
+describe("sw.js — activation", () => {
+  test("cleans old caches on activate", () => {
+    expect(srcMatch(/caches[\s\S]{0,20}\.keys\(\)/)).toBe(true);
+    expect(srcMatch(/caches\s*\.\s*delete/)).toBe(true);
+    expect(srcMatch(/key\.startsWith\(\s*"sigint-"\s*\)/)).toBe(true);
+    expect(srcHas("key !== CACHE_NAME")).toBe(true);
+  });
+
+  test("removes cached worker bundles on activation", () => {
+    const activationBlock = swSource.slice(
+      swSource.indexOf('addEventListener("activate"'),
+      swSource.indexOf('addEventListener("fetch"'),
+    );
+    expect(activationBlock.includes('pathname.startsWith("/workers/")')).toBe(true);
+    expect(activationBlock.includes("cache.delete(request)")).toBe(true);
+  });
+
+  test("claims clients on activate", () => {
+    expect(srcMatch(/self\s*\.\s*clients\s*\.\s*claim\s*\(\s*\)/)).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// SW.JS — UPDATE NOTIFICATION
+// ═════════════════════════════════════════════════════════════════════
+
+describe("sw.js — update notification", () => {
+  test("notifies clients during install", () => {
+    expect(srcMatch(/self\s*\.\s*clients\s*\.\s*matchAll/)).toBe(true);
+    expect(srcHas("SW_UPDATE_AVAILABLE")).toBe(true);
+    expect(srcMatch(/client\s*\.\s*postMessage/)).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// MANIFEST.JSON
+// ═════════════════════════════════════════════════════════════════════
+
+describe("manifest.json", () => {
+  test("has required PWA fields", () => {
     expect(manifest.name).toBeDefined();
     expect(manifest.short_name).toBeDefined();
     expect(manifest.start_url).toBe("/");
     expect(manifest.display).toBe("standalone");
+  });
+
+  test("has theme and background colors", () => {
     expect(manifest.theme_color).toMatch(/^#/);
     expect(manifest.background_color).toMatch(/^#/);
+  });
+
+  test("has multiple icon sizes", () => {
+    expect(manifest.icons.length).toBeGreaterThanOrEqual(3);
+    const sizes = manifest.icons.map((i: any) => i.sizes);
     expect(sizes).toContain("192x192");
     expect(sizes).toContain("384x384");
-    expect(
-      manifest.icons.some((icon) => icon.purpose?.includes("maskable")),
-    ).toBe(true);
+  });
+
+  test("has maskable icons for Android", () => {
+    const maskable = manifest.icons.filter((i: any) =>
+      i.purpose?.includes("maskable"),
+    );
+    expect(maskable.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("icons reference valid paths", () => {
+    for (const icon of manifest.icons) {
+      expect(icon.src).toMatch(/^\/icons\//);
+      expect(icon.type).toBe("image/png");
+    }
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// SW REGISTRATION LOGIC
+// ═════════════════════════════════════════════════════════════════════
+
+describe("swRegistration logic", () => {
+  test("update notification dedup prevents double banner", () => {
+    let count = 0;
+    let notified = false;
+    function notify() {
+      if (notified) return;
+      notified = true;
+      count++;
+    }
+    notify();
+    notify();
+    notify();
+    expect(count).toBe(1);
+  });
+
+  test("controllerchange reload guard prevents double reload", () => {
+    let count = 0;
+    let reloading = false;
+    function onChange() {
+      if (reloading) return;
+      reloading = true;
+      count++;
+    }
+    onChange();
+    onChange();
+    expect(count).toBe(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// OFFLINE CACHE COVERAGE
+// ═════════════════════════════════════════════════════════════════════
+
+describe("offline cache coverage", () => {
+  test("precache includes HTML entry point", () => {
+    expect(srcMatch(/PRECACHE_URLS\s*=\s*\[[\s\S]*?"\/"/)).toBe(true);
+  });
+
+  test("precache includes fonts", () => {
+    expect(srcHas("/fonts.css")).toBe(true);
+    expect(srcHas("JetBrainsMono-Regular.woff2")).toBe(true);
+    expect(srcHas("JetBrainsMono-Bold.woff2")).toBe(true);
+  });
+
+  test("precache includes map data", () => {
+    expect(srcHas("ne_50m_land.json")).toBe(true);
+  });
+
+  test("precache includes manifest", () => {
+    expect(srcHas("/manifest.json")).toBe(true);
+  });
+
+  test("runtime caching covers assets via cache-first", () => {
+    expect(srcMatch(/caches[\s\S]{0,20}\.match\s*\(\s*request/)).toBe(true);
+    expect(srcMatch(/cache\s*\.\s*put\s*\(\s*request/)).toBe(true);
+  });
+
+  test("API data NOT cached in SW", () => {
+    expect(srcMatch(/url\.pathname\.startsWith\(\s*"\/api\/"\s*\)/)).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// UPDATE FLOW
+// ═════════════════════════════════════════════════════════════════════
+
+describe("update flow", () => {
+  test("install does NOT auto-activate", () => {
+    const installHandler = swSource.slice(
+      swSource.indexOf('addEventListener("install"'),
+      swSource.indexOf('addEventListener("activate"'),
+    );
+    expect(installHandler.includes("self.skipWaiting()")).toBe(false);
+  });
+
+  test("notifies clients on install", () => {
+    expect(srcHas("SW_UPDATE_AVAILABLE")).toBe(true);
+    expect(srcMatch(/client\s*\.\s*postMessage/)).toBe(true);
+  });
+
+  test("activates on explicit user action only", () => {
+    const msgHandler = swSource.slice(
+      swSource.lastIndexOf('addEventListener("message"'),
+    );
+    expect(msgHandler.includes("SW_SKIP_WAITING")).toBe(true);
+    expect(msgHandler.includes("skipWaiting")).toBe(true);
+  });
+
+  test("cleans old caches on activate", () => {
+    expect(srcMatch(/caches\s*\.\s*delete/)).toBe(true);
+  });
+
+  test("claims clients after activation", () => {
+    expect(srcMatch(/self\s*\.\s*clients\s*\.\s*claim/)).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// UPDATE BANNER
+// ═════════════════════════════════════════════════════════════════════
+
+describe("update banner", () => {
+  test("frontend registers SW with onUpdate callback", () => {
+    expect(frontendSource.includes("registerSW")).toBe(true);
+    expect(frontendSource.includes("onUpdate")).toBe(true);
+  });
+
+  test("update banner has RELOAD button", () => {
+    expect(frontendSource.includes("RELOAD")).toBe(true);
+  });
+
+  test("update banner has dismiss button", () => {
+    expect(frontendSource.includes("sw-dismiss-btn")).toBe(true);
+  });
+
+  test("RELOAD calls applyUpdate not raw reload", () => {
+    expect(frontendSource.includes("applyUpdate")).toBe(true);
+    expect(frontendSource.includes('onclick="window.location.reload()"')).toBe(
+      false,
+    );
   });
 });

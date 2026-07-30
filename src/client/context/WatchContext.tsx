@@ -16,13 +16,7 @@ import { useUI } from "@/context/UIContext";
 
 // ── Types ───────────────────────────────────────────────────────────
 
-export enum WatchSource {
-  Alerts = "alerts",
-  Intel = "intel",
-  All = "all",
-}
-
-type WatchItemSource = WatchSource.Alerts | WatchSource.Intel;
+export type WatchSource = "alerts" | "intel" | "all";
 
 type WatchMode = {
   active: boolean;
@@ -31,29 +25,11 @@ type WatchMode = {
   index: number;
   items: DataPoint[];
   currentId: string | null;
-  /** Identifies the source list for the current item. */
-  currentItemSource: WatchItemSource | null;
+  /** Which list the current item came from — "alerts" or "intel" */
+  currentItemSource: "alerts" | "intel" | null;
 };
 
-type WatchEntry = {
-  readonly item: DataPoint;
-  readonly origin: WatchItemSource;
-};
-
-type ScoredWatchEntry = WatchEntry & {
-  readonly score: number;
-};
-
-enum WatchTiming {
-  CountdownTickMs = 100,
-  DwellMs = 8_000,
-  LayoutRefreshMs = 3_000,
-  ResumeGraceMs = 500,
-}
-
-enum WatchError {
-  ProviderRequired = "useWatch must be used within WatchProvider",
-}
+const WATCH_DWELL_MS = 8000;
 
 // ── Context value type ──────────────────────────────────────────────
 
@@ -73,68 +49,14 @@ type WatchContextValue = {
 
 const WatchContext = createContext<WatchContextValue | undefined>(undefined);
 
-function alertWatchEntries(
-  correlation: CorrelationResult,
-): ScoredWatchEntry[] {
-  return correlation.alerts.map((alert) => ({
-    item: alert.item,
-    origin: WatchSource.Alerts,
-    score: alert.score,
-  }));
-}
-
-function intelWatchEntries(
-  correlation: CorrelationResult,
-): ScoredWatchEntry[] {
-  const entries: ScoredWatchEntry[] = [];
-  for (const product of correlation.products) {
-    const item = product.sources[0];
-    if (item) {
-      entries.push({
-        item,
-        origin: WatchSource.Intel,
-        score: product.priority,
-      });
-    }
-  }
-  return entries;
-}
-
-function uniqueWatchEntries(entries: readonly WatchEntry[]): WatchEntry[] {
-  const seen = new Set<string>();
-  const unique: WatchEntry[] = [];
-  for (const entry of entries) {
-    if (!seen.has(entry.item.id)) {
-      seen.add(entry.item.id);
-      unique.push(entry);
-    }
-  }
-  return unique;
-}
-
-function buildWatchEntries(
-  correlation: CorrelationResult,
-  source: WatchSource,
-): WatchEntry[] {
-  const alerts = alertWatchEntries(correlation);
-  if (source === WatchSource.Alerts) return uniqueWatchEntries(alerts);
-
-  const intel = intelWatchEntries(correlation);
-  if (source === WatchSource.Intel) return uniqueWatchEntries(intel);
-
-  return uniqueWatchEntries(
-    [...alerts, ...intel].sort((left, right) => right.score - left.score),
-  );
-}
-
 // ── Provider ────────────────────────────────────────────────────────
 
 export function WatchProvider({
   children,
   correlation,
 }: {
-  readonly children: ReactNode;
-  readonly correlation: CorrelationResult;
+  children: ReactNode;
+  correlation: CorrelationResult;
 }) {
   const {
     selectedCurrent,
@@ -146,17 +68,58 @@ export function WatchProvider({
   const [watchState, setWatchState] = useState<WatchMode>({
     active: false,
     paused: false,
-    source: WatchSource.Alerts,
+    source: "alerts",
     index: 0,
     items: [],
     currentId: null,
     currentItemSource: null,
   });
 
-  const watchEntries = useMemo(
-    () => buildWatchEntries(correlation, watchState.source),
-    [correlation, watchState.source],
-  );
+  // Build the watch item list with origin tracking
+  type WatchEntry = { item: DataPoint; origin: "alerts" | "intel" };
+  const watchEntries = useMemo<WatchEntry[]>(() => {
+    const seen = new Set<string>();
+    const entries: WatchEntry[] = [];
+
+    const addUnique = (dp: DataPoint, origin: "alerts" | "intel") => {
+      if (!seen.has(dp.id)) {
+        seen.add(dp.id);
+        entries.push({ item: dp, origin });
+      }
+    };
+
+    const src = watchState.source;
+
+    if (src === "all") {
+      type Scored = {
+        item: DataPoint;
+        score: number;
+        origin: "alerts" | "intel";
+      };
+      const merged: Scored[] = [];
+      for (const a of correlation.alerts) {
+        merged.push({ item: a.item, score: a.score, origin: "alerts" });
+      }
+      for (const p of correlation.products) {
+        if (p.sources.length > 0) {
+          merged.push({
+            item: p.sources[0]!,
+            score: p.priority,
+            origin: "intel",
+          });
+        }
+      }
+      merged.sort((a, b) => b.score - a.score);
+      for (const m of merged) addUnique(m.item, m.origin);
+    } else if (src === "alerts") {
+      for (const a of correlation.alerts) addUnique(a.item, "alerts");
+    } else {
+      for (const p of correlation.products) {
+        if (p.sources.length > 0) addUnique(p.sources[0]!, "intel");
+      }
+    }
+    return entries;
+  }, [correlation, watchState.source]);
 
   const watchItems = useMemo(
     () => watchEntries.map((e) => e.item),
@@ -225,25 +188,22 @@ export function WatchProvider({
       setAutoRotate(true);
       setTimeout(() => {
         resumeGraceRef.current = false;
-      }, WatchTiming.ResumeGraceMs);
+      }, 500);
     }, 0);
   }, [setAutoRotate]);
 
   // Keep watch layout alive during watch
   useEffect(() => {
     if (!watchState.active) return;
-    const id = setInterval(
-      () => requestWatchLayout(),
-      WatchTiming.LayoutRefreshMs,
-    );
+    const id = setInterval(() => requestWatchLayout(), 3000);
     return () => clearInterval(id);
   }, [watchState.active]);
 
   // Watch countdown for progress bar
-  const [watchCountdown, setWatchCountdown] = useState(WatchTiming.DwellMs);
+  const [watchCountdown, setWatchCountdown] = useState(WATCH_DWELL_MS);
   const watchProgress =
     watchState.active && !watchState.paused
-      ? (WatchTiming.DwellMs - watchCountdown) / WatchTiming.DwellMs
+      ? (WATCH_DWELL_MS - watchCountdown) / WATCH_DWELL_MS
       : 0;
 
   // Main watch loop
@@ -261,7 +221,7 @@ export function WatchProvider({
     const currentOrigin = watchEntriesRef.current[idx]?.origin ?? null;
     setSelected(current);
     revealThenClear(setRevealId, current.id);
-    setWatchCountdown(WatchTiming.DwellMs);
+    setWatchCountdown(WATCH_DWELL_MS);
     setWatchState((prev) => ({
       ...prev,
       index: idx,
@@ -271,10 +231,8 @@ export function WatchProvider({
     }));
 
     const tickId = setInterval(() => {
-      setWatchCountdown((prev) =>
-        Math.max(0, prev - WatchTiming.CountdownTickMs),
-      );
-    }, WatchTiming.CountdownTickMs);
+      setWatchCountdown((prev) => Math.max(0, prev - 100));
+    }, 100);
 
     const advanceId = setInterval(() => {
       const currentItems = watchItemsRef.current;
@@ -287,7 +245,7 @@ export function WatchProvider({
       const nextOrigin = currentEntries[nextIdx]?.origin ?? null;
       setSelected(nextItem);
       revealThenClear(setRevealId, nextItem.id);
-      setWatchCountdown(WatchTiming.DwellMs);
+      setWatchCountdown(WATCH_DWELL_MS);
       setWatchState((prev) => ({
         ...prev,
         index: nextIdx,
@@ -295,7 +253,7 @@ export function WatchProvider({
         currentItemSource: nextOrigin,
         items: currentItems,
       }));
-    }, WatchTiming.DwellMs);
+    }, WATCH_DWELL_MS);
 
     return () => {
       clearInterval(tickId);
@@ -345,7 +303,7 @@ export function WatchProvider({
 export function useWatch(): WatchContextValue {
   const context = useContext(WatchContext);
   if (!context) {
-    throw new Error(WatchError.ProviderRequired);
+    throw new Error("useWatch must be used within WatchProvider");
   }
   return context;
 }

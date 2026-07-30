@@ -1,10 +1,6 @@
-import {
-  PanelSide,
-  RenderRotationSpeedPolicy,
-} from "@/workers/render/protocol";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
-import { useData, WatchSource } from "@/context/DataContext";
+import { useData } from "@/context/DataContext";
 import { useLayoutMode } from "@/context/LayoutModeContext";
 import {
   useHasDossier,
@@ -13,12 +9,10 @@ import {
   useWalkthroughStepId,
 } from "@/lib/runtime/layoutSignals";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { useSelectedAircraftRoute } from "@/features/tracking/aircraft/hooks/useSelectedAircraftRoute";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
-import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
-import { IconStrokeWidth } from "@/features/base/types";
-import { DomEvent } from "@/lib/runtime/domEvent";
-import { ButtonType } from "@/lib/ui/button";
+import { Tooltip } from "@/components/Tooltip";
 import {
   Eye,
   Pause,
@@ -31,32 +25,17 @@ import {
   Radio,
 } from "lucide-react";
 
-enum LiveTrafficIconSize {
-  PrimaryPx = 12,
-  SecondaryPx = 11,
-}
-
-enum LiveTrafficLabel {
-  RotationSpeed = "Rotation speed",
-}
-
-enum LiveTrafficClassName {
-  WatchStatus = "text-(length:--sig-text-xs) tracking-wider font-mono bg-sig-panel/75 px-1.5 py-0.5 rounded border",
-}
-
-const WATCH_SOURCE_ICONS = {
-  [WatchSource.Alerts]: Zap,
-  [WatchSource.Intel]: Link2,
-  [WatchSource.All]: Radio,
-};
-
 export function LiveTrafficPane() {
   const {
+    allData,
+    dataVersion,
+    layers,
+    aircraftFilter,
+    filters,
     flat,
     setFlat,
     autoRotate,
     setAutoRotate,
-    toggleAutoRotate,
     rotationSpeed,
     setRotationSpeed,
     selectedCurrent,
@@ -68,7 +47,10 @@ export function LiveTrafficPane() {
     zoomToId,
     setZoomToId,
     revealId,
-    searchText,
+    searchMatchIds,
+    spatialGrid,
+    filteredIds,
+    cycloneWarnings,
     watchActive,
     watchPaused,
     watchMode,
@@ -78,7 +60,7 @@ export function LiveTrafficPane() {
     resumeWatch,
   } = useData();
 
-  const [panelSide, setPanelSide] = useState<PanelSide>(PanelSide.Right);
+  const [panelSide, setPanelSide] = useState<"left" | "right">("right");
   const [watchMenuOpen, setWatchMenuOpen] = useState(false);
   const watchMenuRef = useRef<HTMLDivElement>(null);
   const hasDossier = useHasDossier();
@@ -86,6 +68,10 @@ export function LiveTrafficPane() {
   const walkthroughStepId = useWalkthroughStepId();
   const { isMobile: isMobileLayout, deviceType } = useLayoutMode();
   const isPhone = deviceType === "phone";
+
+  // Publish the selected aircraft's route to the globe on selection (not just
+  // when the dossier is open).
+  useSelectedAircraftRoute(selectedCurrent);
 
   useEffect(() => {
     if (isMobileLayout && selectedCurrent && !hasDossier) requestDossierOpen();
@@ -101,9 +87,16 @@ export function LiveTrafficPane() {
       )
         setWatchMenuOpen(false);
     };
-    document.addEventListener(DomEvent.MouseDown, handler);
-    return () => document.removeEventListener(DomEvent.MouseDown, handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [watchMenuOpen]);
+
+  const handleSetIsolateMode = useCallback(
+    (mode: null | "solo" | "focus") => {
+      setIsolateMode(mode);
+    },
+    [setIsolateMode],
+  );
 
   const handleZoomToSelected = useCallback(() => {
     if (selectedCurrent) {
@@ -177,24 +170,37 @@ export function LiveTrafficPane() {
 
   // Stable ref so the memoized globe doesn't re-render on every pane render.
   const handleMiddleClick = useCallback(
-    () => toggleAutoRotate(),
-    [toggleAutoRotate],
+    () => setAutoRotate((v) => !v),
+    [setAutoRotate],
   );
 
   return (
     <>
       <GlobeVisualization
+        data={allData}
+        dataVersion={dataVersion}
+        layers={layers}
+        aircraftFilter={aircraftFilter}
+        cycloneFilter={filters.cyclones as never}
+        flat={flat}
+        autoRotate={autoRotate}
+        rotationSpeed={rotationSpeed}
         onSelect={handleSelect}
         onRawCanvasClick={handleRawCanvasClick}
         onMiddleClick={handleMiddleClick}
         selected={selectedCurrent}
+        isolatedId={isolateMode ? (selectedCurrent?.id ?? null) : null}
+        isolateMode={isolateMode}
         zoomToId={zoomToId}
         revealId={revealId}
-        searchText={searchText}
+        searchMatchIds={searchMatchIds}
         onSelectedSide={setPanelSide}
+        spatialGrid={spatialGrid}
+        filteredIds={filteredIds}
+        cycloneWarnings={cycloneWarnings}
       />
 
-      {/* View controls in the globe's top-left corner. */}
+      {/* ── View controls — top-left overlay on globe ─────────────── */}
       {!chromeHidden && (
         <div
           data-tour="globe-controls"
@@ -202,28 +208,19 @@ export function LiveTrafficPane() {
         >
           <Tooltip
             content={flat ? "Switch to globe view" : "Switch to flat map"}
-            placement={TooltipPlacement.Bottom}
+            placement="bottom"
           >
             <button
-              type={ButtonType.Button}
               onClick={() => setFlat(!flat)}
               className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-sig-accent text-(length:--sig-text-btn) bg-sig-panel/75 border border-sig-border/50 hover:bg-sig-panel transition-colors flex items-center gap-1"
             >
               {flat ? (
                 <>
-                  <GlobeIcon
-                    size={LiveTrafficIconSize.PrimaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  GLOBE
+                  <GlobeIcon size={12} strokeWidth={2.5} /> GLOBE
                 </>
               ) : (
                 <>
-                  <Map
-                    size={LiveTrafficIconSize.PrimaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  FLAT
+                  <Map size={12} strokeWidth={2.5} /> FLAT
                 </>
               )}
             </button>
@@ -231,11 +228,10 @@ export function LiveTrafficPane() {
 
           <Tooltip
             content={autoRotate ? "Pause rotation" : "Resume rotation"}
-            placement={TooltipPlacement.Bottom}
+            placement="bottom"
             shortcut="Space / Middle-click"
           >
             <button
-              type={ButtonType.Button}
               onClick={() => setAutoRotate(!autoRotate)}
               className={`px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors flex items-center gap-1 ${
                 autoRotate
@@ -245,19 +241,11 @@ export function LiveTrafficPane() {
             >
               {autoRotate ? (
                 <>
-                  <Pause
-                    size={LiveTrafficIconSize.SecondaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  ROT
+                  <Pause size={11} strokeWidth={2.5} /> ROT
                 </>
               ) : (
                 <>
-                  <Play
-                    size={LiveTrafficIconSize.SecondaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  ROT
+                  <Play size={11} strokeWidth={2.5} /> ROT
                 </>
               )}
             </button>
@@ -268,103 +256,79 @@ export function LiveTrafficPane() {
             {!watchActive && (
               <Tooltip
                 content="Auto-tour alerts/intel on globe"
-                placement={TooltipPlacement.Bottom}
+                placement="bottom"
               >
                 <button
-                  type={ButtonType.Button}
                   onClick={() => setWatchMenuOpen((v) => !v)}
                   className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:bg-sig-panel flex items-center gap-1"
                 >
-                  <Eye
-                    size={LiveTrafficIconSize.SecondaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  WATCH
+                  <Eye size={11} strokeWidth={2.5} /> WATCH
                 </button>
               </Tooltip>
             )}
             {watchActive && !watchPaused && (
-              <Tooltip
-                content="Pause watch"
-                placement={TooltipPlacement.Bottom}
-              >
+              <Tooltip content="Pause watch" placement="bottom">
                 <button
-                  type={ButtonType.Button}
                   onClick={pauseWatch}
                   className="px-2 py-1 rounded tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-accent bg-sig-accent/15 border-sig-accent/45 flex items-center gap-1"
                 >
-                  <Pause
-                    size={LiveTrafficIconSize.SecondaryPx}
-                    strokeWidth={IconStrokeWidth.Standard}
-                  />{" "}
-                  WATCH
+                  <Pause size={11} strokeWidth={2.5} /> WATCH
                 </button>
               </Tooltip>
             )}
             {watchActive && watchPaused && (
               <div className="flex items-center gap-0.5">
-                <Tooltip
-                  content="Resume watch"
-                  placement={TooltipPlacement.Bottom}
-                >
+                <Tooltip content="Resume watch" placement="bottom">
                   <button
-                    type={ButtonType.Button}
                     onClick={resumeWatch}
                     className="px-2 py-1 rounded-l tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border border-r-0 transition-colors text-yellow-400 bg-yellow-400/10 border-yellow-400/30 hover:bg-yellow-400/20 flex items-center gap-1"
                   >
-                    <Play
-                      size={LiveTrafficIconSize.SecondaryPx}
-                      strokeWidth={IconStrokeWidth.Standard}
-                    />{" "}
-                    RESUME
+                    <Play size={11} strokeWidth={2.5} /> RESUME
                   </button>
                 </Tooltip>
-                <Tooltip
-                  content="Stop watch"
-                  placement={TooltipPlacement.Bottom}
-                >
+                <Tooltip content="Stop watch" placement="bottom">
                   <button
-                    type={ButtonType.Button}
                     onClick={stopWatch}
                     className="px-2 py-1 rounded-r tracking-wider min-h-9 font-semibold text-(length:--sig-text-btn) border transition-colors text-sig-dim bg-sig-panel/75 border-sig-border/50 hover:text-sig-danger flex items-center justify-center"
                   >
-                    <X
-                      size={LiveTrafficIconSize.PrimaryPx}
-                      strokeWidth={IconStrokeWidth.Standard}
-                    />
+                    <X size={12} strokeWidth={2.5} />
                   </button>
                 </Tooltip>
               </div>
             )}
             {watchMenuOpen && !watchActive && (
               <div className="absolute top-full left-0 mt-1 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-24 z-30">
-                {Object.values(WatchSource).map((source) => {
-                  const Icon = WATCH_SOURCE_ICONS[source];
-                  return (
-                    <button
-                      type={ButtonType.Button}
-                      key={source}
-                      onClick={() => {
-                        startWatch(source);
-                        setWatchMenuOpen(false);
-                      }}
-                      className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider flex items-center gap-1.5"
-                    >
-                      <Icon
-                        size={LiveTrafficIconSize.SecondaryPx}
-                        strokeWidth={IconStrokeWidth.Standard}
-                      />{" "}
-                      {source.toUpperCase()}
-                    </button>
-                  );
-                })}
+                {(["alerts", "intel", "all"] as const).map((src) => (
+                  <button
+                    key={src}
+                    onClick={() => {
+                      startWatch(src);
+                      setWatchMenuOpen(false);
+                    }}
+                    className="w-full px-2.5 py-1 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors text-sig-bright text-(length:--sig-text-md) tracking-wider flex items-center gap-1.5"
+                  >
+                    {src === "alerts" ? (
+                      <>
+                        <Zap size={11} strokeWidth={2.5} /> ALERTS
+                      </>
+                    ) : src === "intel" ? (
+                      <>
+                        <Link2 size={11} strokeWidth={2.5} /> INTEL
+                      </>
+                    ) : (
+                      <>
+                        <Radio size={11} strokeWidth={2.5} /> ALL
+                      </>
+                    )}
+                  </button>
+                ))}
               </div>
             )}
           </div>
 
           {watchActive && (
             <span
-              className={`${LiveTrafficClassName.WatchStatus} ${
+              className={`text-[10px] tracking-wider font-mono bg-sig-panel/75 px-1.5 py-0.5 rounded border ${
                 watchPaused
                   ? "text-yellow-400 border-yellow-400/30"
                   : "text-sig-accent border-sig-accent/30"
@@ -382,11 +346,11 @@ export function LiveTrafficPane() {
             </span>
             <input
               type="range"
-              aria-label={LiveTrafficLabel.RotationSpeed}
-              title={LiveTrafficLabel.RotationSpeed}
-              min={RenderRotationSpeedPolicy.MinimumAndStep}
-              max={RenderRotationSpeedPolicy.Maximum}
-              step={RenderRotationSpeedPolicy.MinimumAndStep}
+              aria-label="Rotation speed"
+              title="Rotation speed"
+              min={0.01}
+              max={2}
+              step={0.01}
               value={rotationSpeed}
               onChange={(e) => setRotationSpeed(Number(e.target.value))}
               className="w-12 md:w-15 cursor-pointer accent-sig-accent touch-none"
@@ -401,7 +365,7 @@ export function LiveTrafficPane() {
           item={selectedCurrent}
           onClose={handleClose}
           isolateMode={isolateMode}
-          onSetIsolateMode={setIsolateMode}
+          onSetIsolateMode={handleSetIsolateMode}
           onZoomTo={handleZoomToSelected}
           side={panelSide}
           onOpenDossier={requestDossierOpen}

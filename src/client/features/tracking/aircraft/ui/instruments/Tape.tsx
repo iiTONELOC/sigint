@@ -1,5 +1,3 @@
-import { PanelSide } from "@/workers/render/protocol";
-
 const VB_W = 64;
 const VB_H = 220;
 const CY = VB_H / 2;
@@ -13,7 +11,7 @@ type Props = {
   /** px per unit — sets how fast the ladder scrolls. */
   readonly pxPer: number;
   /** which edge the value box points toward. */
-  readonly side: PanelSide;
+  readonly side: "left" | "right";
   /** header label (KT / FT) and footer (e.g. mph, x1000). */
   readonly header: string;
   readonly footer?: string;
@@ -41,10 +39,10 @@ export function Tape({
   }
   const yOf = (v: number) => CY + (value - v) * pxPer;
 
-  const bx = side === PanelSide.Left ? 2 : 6;
+  const bx = side === "left" ? 2 : 6;
   const bw = VB_W - 8;
   const chevron =
-    side === PanelSide.Left
+    side === "left"
       ? `M${bx},${CY - 13} L${bx + bw - 8},${CY - 13} L${bx + bw},${CY} L${bx + bw - 8},${CY + 13} L${bx},${CY + 13} Z`
       : `M${bx + bw},${CY - 13} L${bx + 8},${CY - 13} L${bx},${CY} L${bx + 8},${CY + 13} L${bx + bw},${CY + 13} Z`;
 
@@ -64,16 +62,16 @@ export function Tape({
           if (y < 30 || y > VB_H - 34) return null;
           const major = v % labelEvery === 0;
           const len = major ? 16 : 11;
-          const x1 = side === PanelSide.Left ? 0 : VB_W;
-          const x2 = side === PanelSide.Left ? len : VB_W - len;
+          const x1 = side === "left" ? 0 : VB_W;
+          const x2 = side === "left" ? len : VB_W - len;
           return (
             <g key={v}>
               <line x1={x1} y1={y} x2={x2} y2={y} className="stroke-sig-dim" strokeWidth={1} />
               {major && (
                 <text
-                  x={side === PanelSide.Left ? 20 : VB_W - 20}
+                  x={side === "left" ? 20 : VB_W - 20}
                   y={y + 3.5}
-                  textAnchor={side === PanelSide.Left ? "start" : "end"}
+                  textAnchor={side === "left" ? "start" : "end"}
                   className="fill-sig-bright font-mono"
                   fontSize={11}
                 >
@@ -86,7 +84,7 @@ export function Tape({
 
         {selY != null && selY > 6 && selY < VB_H - 6 && (
           <rect
-            x={side === PanelSide.Left ? 0 : VB_W - 5}
+            x={side === "left" ? 0 : VB_W - 5}
             y={selY - 6}
             width={5}
             height={12}

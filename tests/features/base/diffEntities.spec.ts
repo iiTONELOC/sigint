@@ -1,18 +1,15 @@
 import { describe, test, expect } from "bun:test";
-import { Domain } from "@shared/domain/identity";
 import { diffAndApply } from "@/features/base/diffEntities";
 import type { DataPoint } from "@/features/base/dataPoints";
 
-type EventPoint = Extract<DataPoint, { type: Domain.Events }>;
-
-function pt(id: string, lat = 40, lon = -74, data: object = {}): EventPoint {
+function pt(id: string, lat = 40, lon = -74, data: object = {}): DataPoint {
   return {
     id,
-    type: Domain.Events,
+    type: "events" as any,
     lat,
     lon,
     timestamp: new Date(0).toISOString(),
-    data: data as EventPoint["data"],
+    data: data as any,
   };
 }
 
@@ -91,7 +88,7 @@ describe("diffAndApply", () => {
     const incoming = [pt("a", 1, 1, incomingData)];
     const r = diffAndApply(prior, incoming);
     expect(r.identityChanged).toBe(false);
-    expect(Object.is(prior[0]?.data, incomingData)).toBe(true);
+    expect(prior[0]!.data).toBe(incomingData);
   });
 
   test("repeated diff with stable id-set keeps the same array reference indefinitely", () => {

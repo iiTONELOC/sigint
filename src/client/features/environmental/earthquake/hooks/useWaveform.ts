@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  fetchWaveform,
-  type Waveform,
-  type WaveformUnavailableReason,
-} from "../data/waveform";
+import { fetchWaveform, type Waveform } from "../data/waveform";
 
 export type WaveformState =
   | { status: "loading" }
   | { status: "ready"; waveform: Waveform }
-  | { status: "unavailable"; reason: WaveformUnavailableReason };
+  | { status: "empty" };
 
 export function useWaveform(
   lat: number,
@@ -19,21 +15,17 @@ export function useWaveform(
 
   useEffect(() => {
     if (!originTimeIso) {
-      setState({ status: "unavailable", reason: "invalid-event-time" });
+      setState({ status: "empty" });
       return;
     }
-    const controller = new AbortController();
     let cancelled = false;
     setState({ status: "loading" });
-    void fetchWaveform(lat, lon, originTimeIso, {
-      signal: controller.signal,
-    }).then((result) => {
+    void fetchWaveform(lat, lon, originTimeIso).then((waveform) => {
       if (cancelled) return;
-      setState(result);
+      setState(waveform ? { status: "ready", waveform } : { status: "empty" });
     });
     return () => {
       cancelled = true;
-      controller.abort();
     };
   }, [lat, lon, originTimeIso]);
 

@@ -1,13 +1,8 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Flame } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
 import type { FireData } from "../types";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import { frpInk } from "../intensity";
 import { FireIdentityCard } from "./FireIdentityCard";
 import { ThermalSignature } from "./ThermalSignature";
@@ -16,7 +11,7 @@ import { DetectionFootprint } from "./DetectionFootprint";
 
 type Props = {
   readonly item: DataPoint;
-  readonly isolateMode: SelectedIsolateMode;
+  readonly isolateMode: null | "solo" | "focus";
   readonly onLocate: () => void;
   readonly onFocus: () => void;
   readonly onSolo: () => void;
@@ -65,8 +60,8 @@ export function FireDossier({
                 confidence={d.confidence}
                 fireK={fireK}
                 bgK={bgK}
-                lat={recordLatitude(item)}
-                lon={recordLongitude(item)}
+                lat={item.lat}
+                lon={item.lon}
                 scan={d.scan}
                 track={d.track}
                 daynight={d.daynight}
@@ -124,11 +119,11 @@ export function FireDossier({
               <Section title="INTEL LINKS">
                 <LinkRow
                   label="NASA FIRMS Map"
-                  href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${recordLongitude(item)},${recordLatitude(item)},10z`}
+                  href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${item.lon},${item.lat},10z`}
                 />
                 <LinkRow
                   label="Google Maps (Satellite)"
-                  href={`https://www.google.com/maps/@${recordLatitude(item)},${recordLongitude(item)},14z/data=!3m1!1e1`}
+                  href={`https://www.google.com/maps/@${item.lat},${item.lon},14z/data=!3m1!1e1`}
                 />
               </Section>
             </section>

@@ -52,7 +52,7 @@ export function rotLabel(rot?: number): string | null {
   return Math.abs(rot) >= 127 ? `hard to ${dir}` : `turning to ${dir}`;
 }
 
-/** Behavioral anomalies — cross-checking the (crew-set) nav status against the
+/** Behavioural anomalies — cross-checking the (crew-set) nav status against the
  *  (instrument-fed) motion. Mismatches flag AIS errors / spoofing / mislabels;
  *  alert states flag operational distress. Empty when nothing's off. */
 export function shipAnomalies(navStatus?: number, sog?: number): string[] {

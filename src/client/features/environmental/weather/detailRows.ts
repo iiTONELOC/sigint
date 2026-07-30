@@ -1,72 +1,63 @@
-import { AgeStyle, formatTime, relativeAge } from "@/lib/format/timeFormat";
-import { weatherSeverityLabel } from "./severity";
-import { WeatherTextField, type WeatherData } from "./types";
-
-enum WeatherDerivedRow {
-  Severity = "severity",
-  Issued = "issued",
-}
-
-type WeatherRow = WeatherTextField | WeatherDerivedRow;
-
-const ROW_ORDER: readonly WeatherRow[] = [
-  WeatherTextField.Event,
-  WeatherDerivedRow.Severity,
-  WeatherTextField.Urgency,
-  WeatherTextField.Certainty,
-  WeatherTextField.Category,
-  WeatherTextField.Response,
-  WeatherTextField.Issuer,
-  WeatherTextField.Area,
-  WeatherTextField.Onset,
-  WeatherTextField.Expires,
-  WeatherTextField.Headline,
-  WeatherDerivedRow.Issued,
-];
-
-const ROW_LABEL: ReadonlyMap<string, string> = new Map(
-  [
-    ...Object.entries(WeatherTextField),
-    ...Object.entries(WeatherDerivedRow),
-  ].map(([label, row]) => [row, label]),
-);
-
-const TIME_FIELDS: ReadonlySet<WeatherRow> = new Set([
-  WeatherTextField.Onset,
-  WeatherTextField.Expires,
-]);
-
-const AGE_FORMAT = AgeStyle.Verbose;
-
-function issuedText(timestamp: string): string {
-  const issuedAt = new Date(timestamp).getTime();
-  return `${formatTime(timestamp)} (${relativeAge(issuedAt, AGE_FORMAT)})`;
-}
-
-function rowValue(
-  row: WeatherRow,
-  data: WeatherData,
-  timestamp: string | undefined,
-): string | undefined {
-  if (row === WeatherDerivedRow.Severity) {
-    return weatherSeverityLabel(data.severity);
-  }
-  if (row === WeatherDerivedRow.Issued) {
-    return timestamp ? issuedText(timestamp) : undefined;
-  }
-  const value = data[row];
-  if (!value) return undefined;
-  return TIME_FIELDS.has(row) ? formatTime(value) : value;
-}
+import { relativeAge, formatTime } from "@/lib/format/timeFormat";
+import type { WeatherData } from "./types";
 
 export function buildWeatherDetailRows(
   data: WeatherData,
   timestamp?: string,
 ): [string, string][] {
   const rows: [string, string][] = [];
-  for (const row of ROW_ORDER) {
-    const value = rowValue(row, data, timestamp);
-    if (value) rows.push([ROW_LABEL.get(row) ?? row, value]);
+
+  if (data.event) {
+    rows.push(["Event", data.event]);
   }
+
+  if (data.severity) {
+    rows.push(["Severity", data.severity.toUpperCase()]);
+  }
+
+  if (data.urgency) {
+    rows.push(["Urgency", data.urgency]);
+  }
+
+  if (data.certainty) {
+    rows.push(["Certainty", data.certainty]);
+  }
+
+  if (data.category) {
+    rows.push(["Category", data.category]);
+  }
+
+  if (data.response) {
+    rows.push(["Response", data.response]);
+  }
+
+  if (data.senderName) {
+    rows.push(["Issuer", data.senderName]);
+  }
+
+  if (data.areaDesc) {
+    rows.push(["Area", data.areaDesc]);
+  }
+
+  if (data.onset) {
+    rows.push(["Onset", formatTime(data.onset)]);
+  }
+
+  if (data.expires) {
+    rows.push(["Expires", formatTime(data.expires)]);
+  }
+
+  if (data.headline) {
+    rows.push(["Headline", data.headline]);
+  }
+
+  if (timestamp) {
+    const ts = new Date(timestamp).getTime();
+    rows.push([
+      "Issued",
+      `${formatTime(timestamp)} (${relativeAge(ts, "verbose")})`,
+    ]);
+  }
+
   return rows;
 }

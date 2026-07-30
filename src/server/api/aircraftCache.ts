@@ -1,5 +1,3 @@
-import { firstNumber } from "../../shared/types/numbers";
-import { Domain } from "@shared/domain/identity";
 // ── adsb.fi server-side aircraft cache ───────────────────────────────
 // Replaces the inline OpenSky client fetch. The browser never hits
 // opendata.adsb.fi directly — the server runs a tile-based polling
@@ -32,7 +30,13 @@ import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
 import { resolveFixtureOverride, type FixtureOptions, type FixtureOverride } from "../lib/fixtureOverride";
 import { isRecord } from "../../shared/geo";
-import { SourceCompleteness, SourceErrorCode, SourceFreshness, SourcePhase, type SourceError, type SourceState } from "../../shared/source";
+import type {
+  SourceCompleteness,
+  SourceError,
+  SourceFreshness,
+  SourcePhase,
+  SourceState,
+} from "../../shared/source";
 
 const logger = createLogger({ service: "adsbfi" });
 
@@ -117,7 +121,12 @@ function recordObservedAt(
   if (typeof explicit === "number" && Number.isFinite(explicit)) {
     return Math.min(explicit, receivedAt);
   }
-  const positionAge = firstNumber(record.seen_pos, record.seen);
+  const positionAge =
+    typeof record.seen_pos === "number"
+      ? record.seen_pos
+      : typeof record.seen === "number"
+        ? record.seen
+        : 0;
   return receivedAt - Math.max(0, positionAge) * MS_PER_SECOND;
 }
 
@@ -162,7 +171,7 @@ export function finalizeSweep(
   state: SweepState,
   completeness: SourceCompleteness,
 ): void {
-  if (completeness === SourceCompleteness.Complete) {
+  if (completeness === "complete") {
     for (const key of state.completed.keys()) {
       if (!state.current.has(key)) state.completed.delete(key);
     }
@@ -171,8 +180,8 @@ export function finalizeSweep(
 }
 
 const sweepState: SweepState = createSweepState();
-let sourcePhase: SourcePhase = SourcePhase.Cold;
-let sourceCompleteness: SourceCompleteness = SourceCompleteness.Unknown;
+let sourcePhase: SourcePhase = "cold";
+let sourceCompleteness: SourceCompleteness = "unknown";
 let sourceSequence = 0;
 let lastReceivedAt: number | null = null;
 let lastObservedAt: number | null = null;
@@ -250,10 +259,8 @@ export function parseRetryAfter(header: string | null): number | null {
  *  upstream throttles partway through. */
 export function shuffleTiles<T>(tiles: ReadonlyArray<T>): T[] {
   const arr = [...tiles];
-  const draw = new Uint32Array(1);
   for (let i = arr.length - 1; i > 0; i--) {
-    crypto.getRandomValues(draw);
-    const j = (draw[0] ?? 0) % (i + 1);
+    const j = Math.floor(Math.random() * (i + 1));
     // Indices i and j are both in-bounds, so the elements are defined; the
     // temp swap satisfies noUncheckedIndexedAccess without a non-null assert.
     const tmp = arr[i] as T;
@@ -318,8 +325,8 @@ export function __resetFirstSweepForTests(): void {
 export function __resetAircraftCacheForTests(): void {
   sweepState.completed.clear();
   sweepState.current.clear();
-  sourcePhase = SourcePhase.Cold;
-  sourceCompleteness = SourceCompleteness.Unknown;
+  sourcePhase = "cold";
+  sourceCompleteness = "unknown";
   sourceSequence = 0;
   lastReceivedAt = null;
   lastObservedAt = null;
@@ -379,7 +386,7 @@ async function attemptTileFetch(
   } catch (error) {
     const message = errorMessage(error, "fetch error");
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile(SourceErrorCode.NetworkError, message);
+    return failedTile("network_error", message);
   }
 
   if (response.status === 429) {
@@ -398,7 +405,7 @@ async function attemptTileFetch(
   if (!response.ok) {
     const message = `HTTP ${response.status}`;
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile(SourceErrorCode.HttpError, message);
+    return failedTile("http_error", message);
   }
 
   try {
@@ -406,13 +413,13 @@ async function attemptTileFetch(
     if (!normalized) {
       const message = "Invalid adsb.fi payload";
       logger.warn(`✈️  ${label}: ${message}`);
-      return failedTile(SourceErrorCode.InvalidPayload, message);
+      return failedTile("invalid_payload", message);
     }
     return { kind: "complete", records: normalized.ac };
   } catch (error) {
     const message = errorMessage(error, "Invalid adsb.fi payload");
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile(SourceErrorCode.InvalidPayload, message);
+    return failedTile("invalid_payload", message);
   }
 }
 
@@ -437,7 +444,7 @@ export async function fetchTileWithRetry(
 
   const message = `Rate limited twice for tile [${lat},${lon}]`;
   logger.info(`✈️  adsb.fi: ${message}`);
-  return failedTile(SourceErrorCode.RateLimited, message);
+  return failedTile("rate_limited", message);
 }
 
 /** Walk a tile list with RATE_LIMIT_DELAY_MS spacing between tiles
@@ -494,98 +501,12 @@ async function fetchAircraft(): Promise<void> {
  *  `__resetFirstSweepForTests`) walks `PRIORITY_TILES` then the tail in
  *  shuffled order; subsequent calls go straight to a full shuffle. */
 function setFixtureFailure(message: string): void {
-  sourcePhase = sweepState.completed.size > 0 ? SourcePhase.Degraded : SourcePhase.Unavailable;
-  sourceCompleteness = SourceCompleteness.Unknown;
+  sourcePhase = sweepState.completed.size > 0 ? "degraded" : "unavailable";
+  sourceCompleteness = "unknown";
   successfulScopes = 0;
   failedScopes = 1;
   totalScopes = 1;
-  sourceError = { code: SourceErrorCode.FixtureError, message };
-}
-
-/** Returns true when a fixture override served the sweep. */
-async function runFixtureSweep(): Promise<boolean> {
-  const override = await resolveAircraftFixtureOverride();
-  if (!override) return false;
-
-  const normalized = normalizeAdsbPayload(override.body);
-  if (!normalized) {
-    setFixtureFailure("Fixture has invalid shape");
-    logger.warn("✈️  adsb.fi: fixture override rejected");
-    return true;
-  }
-
-  sweepState.completed = new Map();
-  const receivedAt = Date.now();
-  lastObservedAt = ingestTile(sweepState, normalized.ac, receivedAt);
-  finalizeSweep(sweepState, SourceCompleteness.Complete);
-  sourcePhase = SourcePhase.Ready;
-  sourceCompleteness = SourceCompleteness.Complete;
-  sourceSequence++;
-  lastReceivedAt = receivedAt;
-  successfulScopes = 1;
-  totalScopes = 1;
-  logger.info(
-    `✈️  adsb.fi: fixture active (${normalized.ac.length} aircraft)`,
-  );
-  return true;
-}
-
-function recordTileSuccess(
-  records: readonly unknown[],
-  metadataDb: Awaited<ReturnType<typeof loadMetadataDb>>,
-  observedSoFar: number | null,
-): number | null {
-  const receivedAt = Date.now();
-  const enriched = records.map((record) => enrichRecord(record, metadataDb));
-  const observedAt = ingestTile(sweepState, enriched, receivedAt);
-  successfulScopes++;
-  sourceSequence++;
-  lastReceivedAt = receivedAt;
-  sourceCompleteness = SourceCompleteness.Partial;
-  if (observedAt === null) return observedSoFar;
-  return Math.max(observedSoFar ?? observedAt, observedAt);
-}
-
-function recordTileFailure(error: SourceError): void {
-  failedScopes++;
-  sourceError ??= error;
-  sourceCompleteness =
-    successfulScopes > 0
-      ? SourceCompleteness.Partial
-      : SourceCompleteness.Unknown;
-}
-
-function settleSweep(sweepObservedAt: number | null): void {
-  if (failedScopes === 0) {
-    sourceCompleteness = SourceCompleteness.Complete;
-    sourcePhase = SourcePhase.Ready;
-    sourceError = null;
-    lastObservedAt = sweepObservedAt;
-    return;
-  }
-  if (successfulScopes > 0) {
-    sourceCompleteness = SourceCompleteness.Partial;
-    sourcePhase = SourcePhase.Degraded;
-    if (sweepObservedAt !== null) {
-      lastObservedAt = Math.max(
-        lastObservedAt ?? sweepObservedAt,
-        sweepObservedAt,
-      );
-    }
-    return;
-  }
-  sourceCompleteness = SourceCompleteness.Unknown;
-  sourcePhase = SourcePhase.Unavailable;
-}
-
-function beginSweep(): void {
-  sourcePhase = SourcePhase.Loading;
-  sourceCompleteness = SourceCompleteness.Unknown;
-  successfulScopes = 0;
-  failedScopes = 0;
-  totalScopes = AIRCRAFT_TILES.length;
-  sourceError = null;
-  sweepState.current = new Map();
+  sourceError = { code: "fixture_error", message };
 }
 
 export async function runSweep(
@@ -593,10 +514,39 @@ export async function runSweep(
   sleep: SleepFn = defaultSleep,
   shuffle: ShuffleFn = defaultShuffle,
 ): Promise<void> {
-  beginSweep();
+  sourcePhase = "loading";
+  sourceCompleteness = "unknown";
+  successfulScopes = 0;
+  failedScopes = 0;
+  totalScopes = AIRCRAFT_TILES.length;
+  sourceError = null;
+  sweepState.current = new Map();
 
   try {
-    if (await runFixtureSweep()) return;
+    const override = await resolveAircraftFixtureOverride();
+    if (override) {
+      const normalized = normalizeAdsbPayload(override.body);
+      if (!normalized) {
+        setFixtureFailure("Fixture has invalid shape");
+        logger.warn("✈️  adsb.fi: fixture override rejected");
+        return;
+      }
+
+      sweepState.completed = new Map();
+      const receivedAt = Date.now();
+      lastObservedAt = ingestTile(sweepState, normalized.ac, receivedAt);
+      finalizeSweep(sweepState, "complete");
+      sourcePhase = "ready";
+      sourceCompleteness = "complete";
+      sourceSequence++;
+      lastReceivedAt = receivedAt;
+      successfulScopes = 1;
+      totalScopes = 1;
+      logger.info(
+        `✈️  adsb.fi: fixture active (${normalized.ac.length} aircraft)`,
+      );
+      return;
+    }
   } catch (error) {
     setFixtureFailure(errorMessage(error, "Fixture override error"));
     logger.warn("✈️  adsb.fi: fixture override error");
@@ -614,16 +564,26 @@ export async function runSweep(
     const [latitude, longitude] = ordered[index] ?? [0, 0];
     const result = await fetchFn(latitude, longitude);
     if (result.kind === "complete") {
-      sweepObservedAt = recordTileSuccess(
-        result.records,
-        metadataDb,
-        sweepObservedAt,
+      const receivedAt = Date.now();
+      const enriched = result.records.map((record) =>
+        enrichRecord(record, metadataDb),
       );
+      const observedAt = ingestTile(sweepState, enriched, receivedAt);
+      sweepObservedAt =
+        observedAt === null
+          ? sweepObservedAt
+          : Math.max(sweepObservedAt ?? observedAt, observedAt);
+      successfulScopes++;
+      sourceSequence++;
+      lastReceivedAt = receivedAt;
+      sourceCompleteness = "partial";
     } else {
-      recordTileFailure(result.error);
+      failedScopes++;
+      sourceError ??= result.error;
+      sourceCompleteness =
+        successfulScopes > 0 ? "partial" : "unknown";
     }
-    sourcePhase =
-      failedScopes > 0 ? SourcePhase.Degraded : SourcePhase.Loading;
+    sourcePhase = failedScopes > 0 ? "degraded" : "loading";
 
     if (index < ordered.length - 1) {
       await sleep(RATE_LIMIT_DELAY_MS);
@@ -631,7 +591,22 @@ export async function runSweep(
   }
 
   firstSweepDone = true;
-  settleSweep(sweepObservedAt);
+
+  if (failedScopes === 0) {
+    sourceCompleteness = "complete";
+    sourcePhase = "ready";
+    sourceError = null;
+    lastObservedAt = sweepObservedAt;
+  } else if (successfulScopes > 0) {
+    sourceCompleteness = "partial";
+    sourcePhase = "degraded";
+    if (sweepObservedAt !== null) {
+      lastObservedAt = Math.max(lastObservedAt ?? sweepObservedAt, sweepObservedAt);
+    }
+  } else {
+    sourceCompleteness = "unknown";
+    sourcePhase = "unavailable";
+  }
 
   finalizeSweep(sweepState, sourceCompleteness);
   logger.info(
@@ -654,23 +629,21 @@ export function stopAircraftPolling(): void {
 }
 
 function getSourceFreshness(now: number): SourceFreshness {
-  if (lastReceivedAt === null) return SourceFreshness.Expired;
+  if (lastReceivedAt === null) return "expired";
   const age = Math.max(0, now - lastReceivedAt);
-  if (age <= AIRCRAFT_SOURCE_POLICY.freshMs) return SourceFreshness.Fresh;
-  return age <= AIRCRAFT_SOURCE_POLICY.maxStaleMs
-    ? SourceFreshness.Stale
-    : SourceFreshness.Expired;
+  if (age <= AIRCRAFT_SOURCE_POLICY.freshMs) return "fresh";
+  return age <= AIRCRAFT_SOURCE_POLICY.maxStaleMs ? "stale" : "expired";
 }
 
 function buildAircraftSourceState(now: number): SourceState {
   const freshness = getSourceFreshness(now);
   const phase =
-    freshness === SourceFreshness.Expired &&
-    (sourcePhase === SourcePhase.Ready || sourcePhase === SourcePhase.Degraded)
-      ? SourcePhase.Unavailable
+    freshness === "expired" &&
+    (sourcePhase === "ready" || sourcePhase === "degraded")
+      ? "unavailable"
       : sourcePhase;
   return {
-    source: Domain.Aircraft,
+    source: "aircraft",
     phase,
     freshness,
     completeness: sourceCompleteness,
@@ -690,7 +663,7 @@ function buildAircraftSourceState(now: number): SourceState {
 
 export function getAircraftCache(now = Date.now()): AircraftCache {
   const hasSnapshot =
-    sweepState.completed.size > 0 || sourceCompleteness !== SourceCompleteness.Unknown;
+    sweepState.completed.size > 0 || sourceCompleteness !== "unknown";
   return {
     body: hasSnapshot
       ? { ac: Array.from(sweepState.completed.values()) }

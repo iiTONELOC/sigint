@@ -12,7 +12,6 @@ export const CACHE_KEYS = {
   fires: `sigint.firms.fire-cache.${V}`,
   weather: `sigint.noaa.weather-cache.${V}`,
   cyclones: `sigint.nhc.cyclones-cache.${V}`,
-  cycloneWarnings: `sigint.nws.cyclone-warnings.${V}`,
   cycloneDossier: `sigint.nhc.cyclone-dossier-cache.${V}`,
   trails: `sigint.trails.${V}`,
   land: `sigint.land.hd.${V}`,
@@ -59,10 +58,6 @@ export const CACHE_KEY_LABELS: Record<
   [CACHE_KEYS.fires]: { label: "Fire hotspots", group: "Data" },
   [CACHE_KEYS.weather]: { label: "Weather alerts", group: "Data" },
   [CACHE_KEYS.cyclones]: { label: "Tropical cyclones", group: "Data" },
-  [CACHE_KEYS.cycloneWarnings]: {
-    label: "Tropical watches and warnings",
-    group: "Data",
-  },
   [CACHE_KEYS.cycloneDossier]: { label: "Cyclone dossier cache", group: "Data" },
   [CACHE_KEYS.trails]: { label: "Position trails", group: "Data" },
   [CACHE_KEYS.land]: { label: "Coastline geometry", group: "Data" },

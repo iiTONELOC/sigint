@@ -43,7 +43,7 @@ export function frpInk(frp: number): string {
 }
 
 export type ConfidenceMeta = {
-  /** Normalized 0–2 rank (low/nominal/high). */
+  /** Normalised 0–2 rank (low/nominal/high). */
   level: number;
   label: string;
   /** Plain-language meaning from the VIIRS docs. */
@@ -56,7 +56,7 @@ const CONFIDENCE_UNKNOWN: ConfidenceMeta = {
   meaning: "unrated",
 };
 
-/** Normalize a VIIRS confidence string (low/nominal/high or l/n/h) to its rank
+/** Normalise a VIIRS confidence string (low/nominal/high or l/n/h) to its rank
  *  and official meaning. MODIS numeric confidence (0–100) collapses into the
  *  same three buckets. */
 export function confidenceMeta(conf?: string): ConfidenceMeta {

@@ -1,7 +1,4 @@
-import { Domain } from "@shared/domain/identity";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { bandValue, type Band } from "@shared/types/bands";
-import { IntelProductType } from "@shared/domain/correlation";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
@@ -26,53 +23,26 @@ import {
 } from "lucide-react";
 import { relativeAge } from "@/lib/format/timeFormat";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
-import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
-import { useSourceTables } from "@/features/base/useSourceTables";
 
 // ── Types ────────────────────────────────────────────────────────────
 
 type ViewMode = "intel" | "raw";
-type FeedFilter = "all" | Domain.Events | Domain.Quakes | Domain.Fires | Domain.Weather;
+type FeedFilter = "all" | "events" | "quakes" | "fires" | "weather";
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const RAW_ROW_HEIGHT = 68;
 const OVERSCAN = 6;
-const INITIAL_QUERY_LIMIT = OVERSCAN * 2;
 
 // ── Priority badge ──────────────────────────────────────────────────
 
-const PRIORITY_CRITICAL = 8;
-const PRIORITY_ELEVATED = 5;
-const PRIORITY_CLASSES = {
-  critical: "text-red-400 bg-red-400/10 border-red-400/30",
-  elevated: "text-orange-400 bg-orange-400/10 border-orange-400/30",
-  routine: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
-} as const;
-
-function priorityClass(priority: number): string {
-  if (priority >= PRIORITY_CRITICAL) return PRIORITY_CLASSES.critical;
-  if (priority >= PRIORITY_ELEVATED) return PRIORITY_CLASSES.elevated;
-  return PRIORITY_CLASSES.routine;
-}
-
-type ProductRowState = Readonly<{
-  isWatchTarget: boolean;
-  isProductSelected: boolean;
-  isExpanded: boolean;
-}>;
-
-function productRowClass(state: ProductRowState): string {
-  if (state.isWatchTarget) return "bg-sig-accent/15";
-  if (state.isProductSelected) return "bg-sig-accent/10";
-  if (state.isExpanded) {
-    return "bg-sig-accent/5 border-l-2 border-l-sig-accent/30";
-  }
-  return "";
-}
-
 function PriorityBadge({ priority }: { readonly priority: number }) {
-  const cls = priorityClass(priority);
+  const cls =
+    priority >= 8
+      ? "text-red-400 bg-red-400/10 border-red-400/30"
+      : priority >= 5
+        ? "text-orange-400 bg-orange-400/10 border-orange-400/30"
+        : "text-yellow-400 bg-yellow-400/10 border-yellow-400/30";
   return (
     <span
       className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider border shrink-0 ${cls}`}
@@ -112,19 +82,19 @@ function SeverityBadge({ severity }: { readonly severity: number }) {
 // ── Product type icons ──────────────────────────────────────────────
 
 const PRODUCT_ICONS: Record<string, typeof Zap> = {
-  [IntelProductType.CrossSource]: Link2,
-  [IntelProductType.Anomaly]: AlertTriangle,
-  [IntelProductType.Cluster]: Layers,
-  [IntelProductType.Trend]: TrendingUp,
-  [IntelProductType.NewsLink]: Newspaper,
+  "cross-source": Link2,
+  anomaly: AlertTriangle,
+  cluster: Layers,
+  trend: TrendingUp,
+  "news-link": Newspaper,
 };
 
 const PRODUCT_LABELS: Record<string, string> = {
-  [IntelProductType.CrossSource]: "CORRELATION",
-  [IntelProductType.Anomaly]: "ANOMALY",
-  [IntelProductType.Cluster]: "CLUSTER",
-  [IntelProductType.Trend]: "TREND",
-  [IntelProductType.NewsLink]: "NEWS",
+  "cross-source": "CORRELATION",
+  anomaly: "ANOMALY",
+  cluster: "CLUSTER",
+  trend: "TREND",
+  "news-link": "NEWS",
 };
 
 // ── Raw feed helpers ────────────────────────────────────────────────
@@ -136,8 +106,6 @@ const TYPE_ICONS: Record<string, typeof Zap> = {
   weather: CloudAlert,
 };
 
-const FIRE_HOTSPOT_LABEL = "Fire hotspot";
-
 function rawHeadline(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
   switch (item.type) {
@@ -145,11 +113,8 @@ function rawHeadline(item: DataPoint): string {
       return (d.headline as string) || "Unknown event";
     case "quakes":
       return (d.location as string) || "Unknown location";
-    case "fires": {
-      const frp = item.data.frp;
-      if (frp === undefined) return FIRE_HOTSPOT_LABEL;
-      return `${FIRE_HOTSPOT_LABEL}, FRP ${frp.toFixed(1)} MW`;
-    }
+    case "fires":
+      return `Fire hotspot${d.frp ? ` — FRP ${(d.frp as number).toFixed(1)} MW` : ""}`;
     case "weather":
       return (d.event as string) || (d.headline as string) || "Weather Alert";
     default:
@@ -173,84 +138,61 @@ function rawSource(item: DataPoint): string {
   }
 }
 
-const MIN_SEVERITY = 1;
-
-const QUAKE_SEVERITY_BANDS: readonly Band<number>[] = [
-  { floor: 6, value: 5 },
-  { floor: 5, value: 4 },
-  { floor: 4, value: 3 },
-  { floor: 3, value: 2 },
-];
-
-const FIRE_SEVERITY_BANDS: readonly Band<number>[] = [
-  { floor: 100, value: 5 },
-  { floor: 50, value: 4 },
-  { floor: 20, value: 3 },
-  { floor: 5, value: 2 },
-];
-
-const WEATHER_SEVERITIES: Readonly<Record<string, number>> = {
-  Extreme: 5,
-  Severe: 4,
-  Moderate: 3,
-  Minor: 2,
-};
-
 function rawSeverity(item: DataPoint): number {
-  switch (item.type) {
-    case "events":
-      return item.data.severity ?? MIN_SEVERITY;
-    case "quakes":
-      return bandValue(item.data.magnitude ?? 0, QUAKE_SEVERITY_BANDS, MIN_SEVERITY);
-    case "fires":
-      return bandValue(item.data.frp ?? 0, FIRE_SEVERITY_BANDS, MIN_SEVERITY);
-    case "weather":
-      return WEATHER_SEVERITIES[item.data.severity ?? ""] ?? MIN_SEVERITY;
-    default:
-      return MIN_SEVERITY;
+  const d = item.data as Record<string, unknown>;
+  if (item.type === "events") return (d.severity as number) ?? 1;
+  if (item.type === "quakes") {
+    const m = (d.magnitude as number) ?? 0;
+    return m >= 6 ? 5 : m >= 5 ? 4 : m >= 4 ? 3 : m >= 3 ? 2 : 1;
   }
+  if (item.type === "fires") {
+    const f = (d.frp as number) ?? 0;
+    return f >= 100 ? 5 : f >= 50 ? 4 : f >= 20 ? 3 : f >= 5 ? 2 : 1;
+  }
+  if (item.type === "weather") {
+    const s: Record<string, number> = {
+      Extreme: 5,
+      Severe: 4,
+      Moderate: 3,
+      Minor: 2,
+    };
+    return s[(d.severity as string) ?? ""] ?? 1;
+  }
+  return 1;
 }
 
 function rawCategory(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
-  if (item.type === Domain.Events) return (d.category as string) || "";
-  if (item.type === Domain.Quakes)
+  if (item.type === "events") return (d.category as string) || "";
+  if (item.type === "quakes")
     return `M${((d.magnitude as number) ?? 0).toFixed(1)}`;
-  if (item.type === Domain.Fires)
+  if (item.type === "fires")
     return (d.confidence as string)?.toUpperCase() || "";
-  if (item.type === Domain.Weather) return (d.severity as string) || "";
+  if (item.type === "weather") return (d.severity as string) || "";
   return "";
 }
 
 function rawLocation(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
-  if (item.type === Domain.Events) return (d.locationName as string) || "";
-  if (item.type === Domain.Weather)
+  if (item.type === "events") return (d.locationName as string) || "";
+  if (item.type === "weather")
     return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
   return "";
 }
 
 function rawUrl(item: DataPoint): string | null {
   const d = item.data as Record<string, unknown>;
-  if (item.type === Domain.Events || item.type === Domain.Quakes)
+  if (item.type === "events" || item.type === "quakes")
     return (d.url as string) || null;
   return null;
-}
-
-function compareNewestFirst(left: DataPoint, right: DataPoint): number {
-  const leftTimestamp = left.timestamp
-    ? new Date(left.timestamp).getTime()
-    : 0;
-  const rightTimestamp = right.timestamp
-    ? new Date(right.timestamp).getTime()
-    : 0;
-  return rightTimestamp - leftTimestamp;
 }
 
 // ── Component ───────────────────────────────────────────────────────
 
 export function IntelFeedPane() {
   const {
+    allData,
+    newsArticles,
     selectedCurrent,
     setSelected,
     selectAndZoom,
@@ -260,16 +202,12 @@ export function IntelFeedPane() {
     watchActive,
     watchMode,
     watchProgress,
-    earthquakeFilter,
-    fireFilter,
   } = useData();
   const { theme } = useTheme();
 
   const [viewMode, setViewMode] = useState<ViewMode>("intel");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sourcePrefixLimit, setSourcePrefixLimit] =
-    useState(INITIAL_QUERY_LIMIT);
 
   // Is watch targeting intel products?
   const isWatchingIntel =
@@ -288,16 +226,6 @@ export function IntelFeedPane() {
     return product?.id ?? null;
   }, [isIntelActive, watchMode.currentId, correlation.products]);
 
-  const productCounts = useMemo(() => {
-    const counts = { crossSource: 0, anomaly: 0, cluster: 0 };
-    for (const product of correlation.products) {
-      if (product.type === IntelProductType.CrossSource) counts.crossSource++;
-      else if (product.type === IntelProductType.Anomaly) counts.anomaly++;
-      else if (product.type === IntelProductType.Cluster) counts.cluster++;
-    }
-    return counts;
-  }, [correlation.products]);
-
   // Auto-scroll to watch target product (only when source is intel)
   const watchTargetRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -311,65 +239,54 @@ export function IntelFeedPane() {
 
   // ── Raw feed (for raw view) ─────────────────────────────────────
 
-  const minValues = useMemo(
-    () => ({
-      earthquake: earthquakeFilter.minMagnitude,
-      fire: fireFilter.minConfidence,
-    }),
-    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
+  const feedTypes = useMemo(
+    () => new Set(["events", "quakes", "fires", "weather"]),
+    [],
   );
-  const disabled = useMemo(
-    () => ({
-      earthquake: !earthquakeFilter.enabled,
-      fire: !fireFilter.enabled,
-      // The raw feed is environmental and intel only.
-      aircraft: true,
-      ships: true,
-      cyclones: true,
-    }),
-    [earthquakeFilter.enabled, fireFilter.enabled],
-  );
-  const {
-    prefixes: rawPrefixes,
-    totals: typeCounts,
-    itemCount: rawItemCount,
-  } = useSourceTables({
-    sortKey: "age",
-    sortDirection: "asc",
-    limit: sourcePrefixLimit,
-    pointType: feedFilter === "all" ? null : feedFilter,
-    minValues,
-    disabled,
-  });
+
+  const rawItems = useMemo(() => {
+    let items = allData.filter((i) => feedTypes.has(i.type));
+    if (feedFilter !== "all")
+      items = items.filter((i) => i.type === feedFilter);
+    items.sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tb - ta;
+    });
+    return items;
+  }, [allData, feedFilter, feedTypes]);
+
+  const typeCounts = useMemo(() => {
+    const c: Record<string, number> = {
+      events: 0,
+      quakes: 0,
+      fires: 0,
+      weather: 0,
+    };
+    for (const item of allData) {
+      if (feedTypes.has(item.type)) c[item.type] = (c[item.type] ?? 0) + 1;
+    }
+    return c;
+  }, [allData, feedTypes]);
 
   // ── Virtual scroll (raw mode) ───────────────────────────────────
 
   const { scrollRef, totalHeight, offsetY, startIdx, endIdx, onScroll } =
     useVirtualScroll({
-      itemCount: rawItemCount,
+      itemCount: rawItems.length,
       rowHeight: RAW_ROW_HEIGHT,
       overscan: OVERSCAN,
     });
 
-  useEffect(() => {
-    if (endIdx > sourcePrefixLimit) setSourcePrefixLimit(endIdx);
-  }, [endIdx, sourcePrefixLimit]);
-
   const visibleRaw = useMemo(
-    () =>
-      mergeSortedPrefixes(rawPrefixes, compareNewestFirst, endIdx).slice(
-        startIdx,
-        endIdx,
-      ),
-    [rawPrefixes, startIdx, endIdx],
+    () => rawItems.slice(startIdx, endIdx),
+    [rawItems, startIdx, endIdx],
   );
 
   // ── Handlers ────────────────────────────────────────────────────
 
-  const {
-    handleClick: handleItemClick,
-    handleZoom: handleZoomTo,
-  } = useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
+  const { handleClick: handleItemClick, handleZoom: handleZoomTo } =
+    useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -423,7 +340,7 @@ export function IntelFeedPane() {
             >
               ALL
             </button>
-            {([Domain.Events, Domain.Quakes, Domain.Fires, Domain.Weather] as const).map((type) => {
+            {(["events", "quakes", "fires", "weather"] as const).map((type) => {
               const Icon = TYPE_ICONS[type] ?? Zap;
               const color = colorMap[type];
               const active = feedFilter === type;
@@ -457,7 +374,7 @@ export function IntelFeedPane() {
         <span className="text-sig-dim text-(length:--sig-text-sm) shrink-0">
           {viewMode === "intel"
             ? `${correlation.products.length} products`
-            : `${rawItemCount} items`}
+            : `${rawItems.length} items`}
         </span>
       </div>
 
@@ -477,26 +394,42 @@ export function IntelFeedPane() {
           {/* Summary bar */}
           {correlation.products.length > 0 && (
             <div className="px-3 py-2 border-b border-sig-border/30 text-(length:--sig-text-sm) text-sig-dim">
-              {productCounts.crossSource > 0 && (
+              {correlation.products.filter((p) => p.type === "cross-source")
+                .length > 0 && (
                 <span className="mr-3">
                   <Link2 size={10} className="inline mr-1" strokeWidth={2.5} />
-                  {productCounts.crossSource} correlations
+                  {
+                    correlation.products.filter(
+                      (p) => p.type === "cross-source",
+                    ).length
+                  }{" "}
+                  correlations
                 </span>
               )}
-              {productCounts.anomaly > 0 && (
+              {correlation.products.filter((p) => p.type === "anomaly").length >
+                0 && (
                 <span className="mr-3">
                   <AlertTriangle
                     size={10}
                     className="inline mr-1"
                     strokeWidth={2.5}
                   />
-                  {productCounts.anomaly} anomalies
+                  {
+                    correlation.products.filter((p) => p.type === "anomaly")
+                      .length
+                  }{" "}
+                  anomalies
                 </span>
               )}
-              {productCounts.cluster > 0 && (
+              {correlation.products.filter((p) => p.type === "cluster").length >
+                0 && (
                 <span className="mr-3">
                   <Layers size={10} className="inline mr-1" strokeWidth={2.5} />
-                  {productCounts.cluster} clusters
+                  {
+                    correlation.products.filter((p) => p.type === "cluster")
+                      .length
+                  }{" "}
+                  clusters
                 </span>
               )}
             </div>
@@ -508,6 +441,9 @@ export function IntelFeedPane() {
             const typeLabel =
               PRODUCT_LABELS[product.type] ?? product.type.toUpperCase();
             const isExpanded = expandedId === product.id;
+            const hasDetails =
+              product.sources.length > 0 ||
+              (product.newsLinks && product.newsLinks.length > 0);
             const hasGeo = product.sources.length > 0;
             const isWatchTarget = watchTargetProductId === product.id;
             const isProductSelected =
@@ -522,15 +458,20 @@ export function IntelFeedPane() {
                 className={`border-b border-sig-border/20 ${isWatchTarget ? "ring-1 ring-sig-accent/30" : ""}`}
               >
                 {/* Product header */}
-                <button
-                  type="button"
+                <div
                   onClick={() => {
                     toggleExpand(product.id);
                     if (hasGeo) handleItemClick(product.sources[0]!);
                   }}
-                  className={`w-full text-left px-3 py-2 transition-colors cursor-pointer hover:bg-sig-panel/40 bg-transparent border-none ${productRowClass(
-                    { isWatchTarget, isProductSelected, isExpanded },
-                  )}`}
+                  className={`px-3 py-2 transition-colors cursor-pointer hover:bg-sig-panel/40 ${
+                    isWatchTarget
+                      ? "bg-sig-accent/15"
+                      : isProductSelected
+                        ? "bg-sig-accent/10"
+                        : isExpanded
+                          ? "bg-sig-accent/5 border-l-2 border-l-sig-accent/30"
+                          : ""
+                  }`}
                 >
                   <div className="flex items-center gap-2">
                     <Icon
@@ -566,7 +507,7 @@ export function IntelFeedPane() {
                       )}
                     </span>
                   </div>
-                </button>
+                </div>
 
                 {/* Expanded details */}
                 {isExpanded && (
@@ -581,28 +522,22 @@ export function IntelFeedPane() {
                           return (
                             <div
                               key={src.id}
-                              className="flex items-center gap-2 py-0.5 hover:bg-sig-panel/30 rounded px-1 transition-colors"
+                              className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-sig-panel/30 rounded px-1 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleItemClick(src);
+                              }}
                             >
+                              <SrcIcon
+                                size={10}
+                                strokeWidth={2.5}
+                                style={{ color: srcColor }}
+                                className="shrink-0"
+                              />
+                              <span className="text-(length:--sig-text-sm) text-sig-text truncate flex-1">
+                                {rawHeadline(src)}
+                              </span>
                               <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleItemClick(src);
-                                }}
-                                className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer bg-transparent border-none"
-                              >
-                                <SrcIcon
-                                  size={10}
-                                  strokeWidth={2.5}
-                                  style={{ color: srcColor }}
-                                  className="shrink-0"
-                                />
-                                <span className="text-(length:--sig-text-sm) text-sig-text truncate flex-1">
-                                  {rawHeadline(src)}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
                                 onClick={(e) => handleZoomTo(src, e)}
                                 className="p-0.5 rounded text-sig-dim hover:text-sig-accent transition-colors shrink-0"
                                 title="Zoom to"
@@ -612,11 +547,9 @@ export function IntelFeedPane() {
                             </div>
                           );
                         })}
-                        {(product.sourceCount ?? product.sources.length) >
-                          product.sources.length && (
+                        {product.sources.length > 8 && (
                           <div className="text-(length:--sig-text-sm) text-sig-dim px-1">
-                            +{(product.sourceCount ?? product.sources.length) -
-                              product.sources.length} more
+                            +{product.sources.length - 8} more
                           </div>
                         )}
                       </div>
@@ -715,81 +648,76 @@ export function IntelFeedPane() {
                 return (
                   <div
                     key={item.id}
-                    className={`relative border-b border-sig-border/20 transition-colors ${
+                    onClick={() => handleItemClick(item)}
+                    className={`px-3 py-1.5 border-b border-sig-border/20 cursor-pointer transition-colors ${
                       showSelected
                         ? "bg-sig-accent/10"
                         : "bg-transparent hover:bg-sig-panel/40"
                     }`}
                     style={{ height: RAW_ROW_HEIGHT }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => handleItemClick(item)}
-                      className="w-full h-full text-left px-3 py-1.5 cursor-pointer bg-transparent border-none"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon
-                          size={12}
-                          strokeWidth={2.5}
+                    <div className="flex items-center gap-2">
+                      <Icon
+                        size={12}
+                        strokeWidth={2.5}
+                        style={{ color }}
+                        className="shrink-0"
+                      />
+                      <SeverityBadge severity={severity} />
+                      {category && (
+                        <span
+                          className="text-(length:--sig-text-sm) font-semibold tracking-wider truncate"
                           style={{ color }}
-                          className="shrink-0"
-                        />
-                        <SeverityBadge severity={severity} />
-                        {category && (
-                          <span
-                            className="text-(length:--sig-text-sm) font-semibold tracking-wider truncate"
-                            style={{ color }}
-                          >
-                            {category}
-                          </span>
-                        )}
-                        <span className="ml-auto mr-12 text-(length:--sig-text-sm) text-sig-dim shrink-0">
-                          {age}
-                        </span>
-                      </div>
-                      <div className="text-sig-text text-(length:--sig-text-md) mt-0.5 truncate ml-5">
-                        {headline}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5 ml-5">
-                        {source && (
-                          <span className="text-(length:--sig-text-sm) text-sig-dim truncate">
-                            {source}
-                          </span>
-                        )}
-                        {location && (
-                          <span className="text-(length:--sig-text-sm) text-sig-dim truncate">
-                            · {location}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                    <div className="absolute right-3 bottom-1.5 flex items-center gap-1">
-                      {url && (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-0.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
-                          title="Open source"
                         >
-                          <ExternalLink size={11} strokeWidth={2.5} />
-                        </a>
+                          {category}
+                        </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={(e) => handleZoomTo(item, e)}
-                        className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-                        title="Zoom to"
-                      >
-                        <Locate size={11} strokeWidth={2.5} />
-                      </button>
+                      <span className="ml-auto text-(length:--sig-text-sm) text-sig-dim shrink-0">
+                        {age}
+                      </span>
+                    </div>
+                    <div className="text-sig-text text-(length:--sig-text-md) mt-0.5 truncate ml-5">
+                      {headline}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 ml-5">
+                      {source && (
+                        <span className="text-(length:--sig-text-sm) text-sig-dim truncate">
+                          {source}
+                        </span>
+                      )}
+                      {location && (
+                        <span className="text-(length:--sig-text-sm) text-sig-dim truncate">
+                          · {location}
+                        </span>
+                      )}
+                      <div className="ml-auto flex items-center gap-1 shrink-0">
+                        {url && (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-0.5 rounded text-sig-dim hover:text-sig-accent transition-colors"
+                            title="Open source"
+                          >
+                            <ExternalLink size={11} strokeWidth={2.5} />
+                          </a>
+                        )}
+                        <button
+                          onClick={(e) => handleZoomTo(item, e)}
+                          className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+                          title="Zoom to"
+                        >
+                          <Locate size={11} strokeWidth={2.5} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-          {rawItemCount === 0 && (
+          {rawItems.length === 0 && (
             <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
               No intel data available
             </div>

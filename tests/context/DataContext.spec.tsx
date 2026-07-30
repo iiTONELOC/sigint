@@ -1,10 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Domain } from "@shared/domain/identity";
-import { type PointType } from "@shared/domain/pointType";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
-import type { DataPoint } from "@/features/base/dataPoints";
 
 // ── Mock all fetch endpoints ────────────────────────────────────────
 
@@ -20,6 +17,27 @@ const MOCK_AIRCRAFT = {
       squawk: "1200",
       lat: 40.7,
       lon: -73.9,
+    },
+  ],
+};
+const MOCK_USGS = {
+  features: [
+    {
+      id: "q1",
+      properties: {
+        mag: 5.2,
+        place: "Tokyo",
+        time: Date.now(),
+        felt: null,
+        tsunami: 0,
+        alert: null,
+        sig: 450,
+        magType: "mww",
+        type: "earthquake",
+        status: "reviewed",
+        url: "",
+      },
+      geometry: { coordinates: [139.7, 35.7, 30] },
     },
   ],
 };
@@ -60,6 +78,12 @@ function mockAllFetch() {
         ok: true,
         status: 200,
         json: async () => MOCK_AIRCRAFT,
+      } as unknown as Response;
+    if (url.includes("earthquake.usgs.gov"))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => MOCK_USGS,
       } as unknown as Response;
     if (url.includes("api.weather.gov"))
       return {
@@ -110,15 +134,6 @@ function mockAllFetch() {
     } as unknown as Response;
   };
 }
-
-const TEST_POINT: DataPoint = {
-  id: "test-aircraft",
-  type: Domain.Aircraft,
-  lat: 40.7,
-  lon: -73.9,
-  timestamp: new Date().toISOString(),
-  data: { icao24: "abc123", callsign: "UAL123" },
-};
 
 // ── Render helper using ref to always get latest context ────────────
 
@@ -185,12 +200,15 @@ describe("DataContext", () => {
   test("provides context value with all expected keys", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
     const ctx = ref.current;
+    expect(Array.isArray(ctx.allData)).toBe(true);
     expect(Array.isArray(ctx.newsArticles)).toBe(true);
     expect(Array.isArray(ctx.tickerItems)).toBe(true);
     expect(Array.isArray(ctx.dataSources)).toBe(true);
+    expect(ctx.spatialGrid).toBeDefined();
+    expect(ctx.filteredIds).toBeInstanceOf(Set);
     expect(typeof ctx.activeCount).toBe("number");
     expect(typeof ctx.flat).toBe("boolean");
     expect(typeof ctx.autoRotate).toBe("boolean");
@@ -201,12 +219,13 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("exposes no record collection", async () => {
+  test("allData merges all data sources", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
-    expect(ref.current.allData).toBeUndefined();
+    const types = new Set(ref.current.allData.map((d: any) => d.type));
+    expect(types.has("aircraft")).toBe(true);
 
     unmount();
   });
@@ -221,9 +240,9 @@ describe("DataContext", () => {
   test("setSelected updates selection", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
-    const item = TEST_POINT;
+    const item = ref.current.allData[0]!;
     act(() => {
       ref.current.setSelected(item);
     });
@@ -237,9 +256,9 @@ describe("DataContext", () => {
   test("selectedCurrent tracks fresh data", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
-    const item = TEST_POINT;
+    const item = ref.current.allData[0]!;
     act(() => {
       ref.current.setSelected(item);
     });
@@ -349,9 +368,9 @@ describe("DataContext", () => {
   test("selectAndZoom sets selected and zoomToId", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
-    const item = TEST_POINT;
+    const item = ref.current.allData[0]!;
     act(() => {
       ref.current.selectAndZoom(item);
     });
@@ -399,7 +418,7 @@ describe("DataContext", () => {
   test("correlation result has products and alerts", async () => {
     const { ref, waitFor, unmount } = await renderDataContext();
 
-    await waitFor(() => ref.current !== null);
+    await waitFor(() => ref.current.allData.length > 0);
 
     expect(Array.isArray(ref.current.correlation.products)).toBe(true);
     expect(Array.isArray(ref.current.correlation.alerts)).toBe(true);
@@ -409,9 +428,7 @@ describe("DataContext", () => {
   });
 
   test("useData throws outside DataProvider", async () => {
-    const { DataContextError, useData } = await import(
-      "@/context/DataContext"
-    );
+    const { useData } = await import("@/context/DataContext");
     const { ThemeProvider } = await import("@/context/ThemeContext");
 
     function Orphan() {
@@ -437,7 +454,7 @@ describe("DataContext", () => {
       } catch (e) {
         throw e;
       }
-    }).toThrow(DataContextError.MissingProvider);
+    }).toThrow("useData must be used within DataProvider");
 
     act(() => {
       root.unmount();
@@ -453,9 +470,9 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("search text starts null", async () => {
+  test("searchMatchIds starts null", async () => {
     const { ref, unmount } = await renderDataContext();
-    expect(ref.current.searchText).toBeNull();
+    expect(ref.current.searchMatchIds).toBeNull();
     unmount();
   });
 });

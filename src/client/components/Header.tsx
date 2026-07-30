@@ -11,18 +11,17 @@ import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
 import { useAlwaysShowCyclones } from "@/lib/ui/userPreferences";
 import {
+  isSourceDown,
   buildSourceStatusMap,
-  type SourceStatusEntry,
+  type SourceStatus,
 } from "@/lib/net/sourceHealth";
-import { Domain } from "@shared/domain/identity";
-import { isSourceDown, SourceStatus } from "@shared/domain/sourceStatus";
 import { SettingsModal } from "@/components/SettingsModal";
 
 type HeaderProps = {
   readonly layers: Record<string, boolean>;
   readonly toggleLayer: (key: string) => void;
   readonly counts: Record<string, number>;
-  readonly dataSources: readonly SourceStatusEntry[];
+  readonly dataSources: SourceStatus[];
   readonly aircraftFilter: AircraftFilter;
   readonly setAircraftFilter: React.Dispatch<
     React.SetStateAction<AircraftFilter>
@@ -40,7 +39,6 @@ function LayerToggle({
   color,
   count,
   down,
-  reason,
   iconProps,
   onToggle,
 }: {
@@ -50,16 +48,13 @@ function LayerToggle({
   readonly color: string;
   readonly count: number;
   readonly down: boolean;
-  readonly reason: string | null;
   readonly iconProps: Record<string, unknown>;
   readonly onToggle: () => void;
 }) {
-  const downText = reason
-    ? `${label} offline: ${reason}`
-    : `${label} offline`;
-  const tooltipText = down
-    ? downText
-    : `${on ? "Hide" : "Show"} ${label}`;
+  const tooltipText =
+    down && count === 0
+      ? `${label} — source offline`
+      : `${on ? "Hide" : "Show"} ${label}`;
 
   return (
     <Tooltip content={tooltipText} placement="bottom">
@@ -162,8 +157,7 @@ function Toggles({
               // even mid-winter.
               if (alwaysShowCyclones) return true;
               const cyclonesEmpty =
-                sourceStatusMap.get(Domain.Cyclones)?.status ===
-                SourceStatus.Empty;
+                sourceStatusMap.get("cyclones") === "empty";
               if (!shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1)) {
                 return false;
               }
@@ -173,9 +167,9 @@ function Toggles({
           .map((f) => {
             const on = layers[f.id] ?? false;
             const color = colorMap[f.id] ?? C.dim;
-            const entry = sourceStatusMap.get(f.id);
+            const status = sourceStatusMap.get(f.id);
             const count = counts[f.id] ?? 0;
-            const down = isSourceDown(entry?.status);
+            const down = isSourceDown(status, count, f.id);
             return (
               <LayerToggle
                 key={f.id}
@@ -185,7 +179,6 @@ function Toggles({
                 color={color}
                 count={count}
                 down={down}
-                reason={entry?.error ?? null}
                 iconProps={f.iconProps}
                 onToggle={() => toggleLayer(f.id)}
               />

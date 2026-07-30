@@ -1,5 +1,4 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import { Domain } from "@shared/domain/identity";
 import { useData } from "@/context/DataContext";
 import { windColor } from "../classification";
 import { useAssetsInCone } from "../hooks/useAssetsInCone";
@@ -40,7 +39,7 @@ function DetailSection({
 export function CycloneDetailExtras({
   item,
 }: {
-  readonly item: DataPoint & { type: Domain.Cyclones };
+  readonly item: DataPoint & { type: "cyclones" };
 }) {
   const d = item.data;
   const { cycloneFilter, hiddenModels } = useData();

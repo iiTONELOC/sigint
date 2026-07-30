@@ -1,10 +1,4 @@
-import {
-  IsolateMode,
-  PanelSide,
-  type SelectedIsolateMode,
-} from "@/workers/render/protocol";
-import { useRef, useState, useEffect, useCallback, useReducer } from "react";
-import { Domain } from "@shared/domain/identity";
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   Eye,
   Crosshair,
@@ -12,21 +6,13 @@ import {
   ExternalLink,
   FileSearch,
   LocateFixed,
-  type LucideIcon,
 } from "lucide-react";
 import { useHasDossier } from "@/lib/runtime/layoutSignals";
-import { DomEvent } from "@/lib/runtime/domEvent";
 import { useTheme } from "@/context/ThemeContext";
-import { getColorMap, ThemeCssVar } from "@/config/theme";
+import { getColorMap } from "@/config/theme";
 import { windColor } from "@/features/environmental/cyclones/classification";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
 import { useUnitsMode } from "@/lib/ui/userPreferences";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { FeatureDefinition } from "@/features/base/types";
 import { featureRegistry } from "@/features/registry";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
@@ -37,28 +23,23 @@ import { WeatherDetailSummary } from "@/features/environmental/weather/ui/Weathe
 import { EventDetailSummary } from "@/features/intel/events/ui/EventDetailSummary";
 import { ShipDetailSummary } from "@/features/tracking/ships/ui/ShipDetailSummary";
 
-enum UrlScheme {
-  Https = "https://",
-  Http = "http://",
-}
-
 function isUrl(value: string): boolean {
-  return value.startsWith(UrlScheme.Https) || value.startsWith(UrlScheme.Http);
+  return value.startsWith("https://") || value.startsWith("http://");
 }
 
 function getRows(item: DataPoint): [string, string][] {
   const feature = featureRegistry.get(item.type);
   if (!feature) return [];
-  return feature.buildDetailRows(item.data, item.timestamp);
+  return feature.buildDetailRows((item as any).data, item.timestamp);
 }
 
 export type DetailPanelProps = {
   readonly item: DataPoint | null;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onSetIsolateMode: (mode: SelectedIsolateMode) => void;
+  readonly isolateMode: null | "solo" | "focus";
+  readonly onSetIsolateMode: (mode: null | "solo" | "focus") => void;
   readonly onZoomTo?: () => void;
   readonly onClose: () => void;
-  readonly side?: PanelSide;
+  readonly side?: "left" | "right";
   readonly onOpenDossier?: () => void;
 };
 
@@ -92,13 +73,13 @@ function useDrag() {
     const onUp = () => {
       dragState.current.active = false;
     };
-    window.addEventListener(`${DomEvent.PointerMove}`, onMove);
-    window.addEventListener(`${DomEvent.PointerUp}`, onUp);
-    window.addEventListener(`${DomEvent.PointerCancel}`, onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
-      window.removeEventListener(`${DomEvent.PointerMove}`, onMove);
-      window.removeEventListener(`${DomEvent.PointerUp}`, onUp);
-      window.removeEventListener(`${DomEvent.PointerCancel}`, onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, []);
 
@@ -123,49 +104,16 @@ function useDrag() {
 
 // ── Mobile bottom-sheet with snap heights ────────────────────────────
 
-const CLOSE_LABEL = "Close detail panel";
-
-enum ModeLabel {
-  Locate = "LOCATE",
-  Focus = "FOCUS",
-  Solo = "SOLO",
-}
-
-// Heights stop short of the viewport so the selected globe point stays
-// visible. One policy enum: every number the sheet gesture depends on.
-enum SheetPolicy {
-  PeekHeightVh = 18,
-  HalfHeightVh = 38,
-  FullHeightVh = 55,
-  VhPerViewport = 100,
-  OverDragVh = 2,
-  MinDragHeightVh = 10,
-  DismissHeightVh = 12,
-  SnapSeekMarginVh = 5,
-  DismissDragFactor = 0.5,
-  DismissOffsetPx = 400,
-  FlickDismissVelocity = 1.2,
-  FlickExpandVelocity = -0.8,
-  AnimationMs = 200,
-  SnapSettleMs = 250,
-}
-
-const SHEET_OPEN_HEIGHT_VH = SheetPolicy.HalfHeightVh;
-
-const SNAP_HEIGHTS = [
-  SheetPolicy.PeekHeightVh,
-  SheetPolicy.HalfHeightVh,
-  SheetPolicy.FullHeightVh,
-];
+const SNAP_HEIGHTS = [18, 38, 55]; // vh: peek, half, full — capped at 55 so globe point stays visible
 
 function useSheetDismiss(onClose: () => void) {
   const offsetRef = useRef(0);
   const settlingRef = useRef(false);
-  const [heightVh, setHeightVh] = useState<number>(SHEET_OPEN_HEIGHT_VH);
-  const heightRef = useRef<number>(SHEET_OPEN_HEIGHT_VH);
+  const [heightVh, setHeightVh] = useState(SNAP_HEIGHTS[1]!);
+  const heightRef = useRef(SNAP_HEIGHTS[1]!);
   heightRef.current = heightVh;
-  const heightAtDragStart = useRef<number>(SHEET_OPEN_HEIGHT_VH);
-  const [, forceRender] = useReducer((count: number) => count + 1, 0);
+  const heightAtDragStart = useRef(SNAP_HEIGHTS[1]!);
+  const [, forceRender] = useState(0);
   const dragRef = useRef({
     active: false,
     startY: 0,
@@ -178,18 +126,18 @@ function useSheetDismiss(onClose: () => void) {
   const update = useCallback((offset: number, settling: boolean) => {
     offsetRef.current = offset;
     settlingRef.current = settling;
-    forceRender();
+    forceRender((n) => n + 1);
   }, []);
 
   const snapTo = useCallback((vh: number) => {
     settlingRef.current = true;
     setHeightVh(vh);
     if (offsetRef.current !== 0) offsetRef.current = 0;
-    forceRender();
+    forceRender((n) => n + 1);
     setTimeout(() => {
       settlingRef.current = false;
-      forceRender();
-    }, SheetPolicy.SnapSettleMs);
+      forceRender((n) => n + 1);
+    }, 250);
   }, []);
 
   const reset = useCallback(() => {
@@ -200,13 +148,13 @@ function useSheetDismiss(onClose: () => void) {
       lastT: 0,
       velocity: 0,
     };
-    if (heightRef.current !== SHEET_OPEN_HEIGHT_VH) {
-      setHeightVh(SHEET_OPEN_HEIGHT_VH);
+    if (heightRef.current !== SNAP_HEIGHTS[1]!) {
+      setHeightVh(SNAP_HEIGHTS[1]!);
     }
     if (offsetRef.current !== 0 || settlingRef.current) {
       offsetRef.current = 0;
       settlingRef.current = false;
-      forceRender();
+      forceRender((n) => n + 1);
     }
   }, []);
 
@@ -238,28 +186,22 @@ function useSheetDismiss(onClose: () => void) {
       }
       dragRef.current.lastY = touch.clientY;
       dragRef.current.lastT = now;
-      const dvh = (dy / window.innerHeight) * SheetPolicy.VhPerViewport;
+      const dvh = (dy / window.innerHeight) * 100;
       const newH = Math.max(
-        SheetPolicy.MinDragHeightVh,
-        Math.min(
-          SheetPolicy.FullHeightVh + SheetPolicy.OverDragVh,
-          heightAtDragStart.current - dvh,
-        ),
+        10,
+        Math.min(SNAP_HEIGHTS[2]! + 2, heightAtDragStart.current - dvh),
       );
       setHeightVh(newH);
-      if (newH <= SheetPolicy.MinDragHeightVh) {
+      if (newH <= 10) {
         update(
           Math.max(
             0,
-            dy -
-              (heightAtDragStart.current / SheetPolicy.VhPerViewport) *
-                window.innerHeight *
-                SheetPolicy.DismissDragFactor,
+            dy - (heightAtDragStart.current / 100) * window.innerHeight * 0.5,
           ),
           false,
         );
-      } else if (offsetRef.current !== 0) {
-        update(0, false);
+      } else {
+        if (offsetRef.current !== 0) update(0, false);
       }
     },
     [update],
@@ -271,31 +213,31 @@ function useSheetDismiss(onClose: () => void) {
     const vel = dragRef.current.velocity;
     const h = heightRef.current;
 
-    if (vel > SheetPolicy.FlickDismissVelocity) {
-      update(SheetPolicy.DismissOffsetPx, true);
-      setTimeout(onClose, SheetPolicy.AnimationMs);
+    if (vel > 1.2) {
+      update(400, true);
+      setTimeout(onClose, 200);
       return;
     }
-    if (vel < SheetPolicy.FlickExpandVelocity) {
+    if (vel < -0.8) {
       const next =
-        SNAP_HEIGHTS.find((snap) => snap > h + SheetPolicy.SnapSeekMarginVh) ??
-        SNAP_HEIGHTS.at(-1)!;
+        SNAP_HEIGHTS.find((s) => s > h + 5) ??
+        SNAP_HEIGHTS[SNAP_HEIGHTS.length - 1]!;
       snapTo(next);
       return;
     }
-    if (h < SheetPolicy.DismissHeightVh) {
-      update(SheetPolicy.DismissOffsetPx, true);
-      setTimeout(onClose, SheetPolicy.AnimationMs);
+    if (h < 12) {
+      update(400, true);
+      setTimeout(onClose, 200);
       return;
     }
 
-    let best = SheetPolicy.PeekHeightVh;
+    let best = SNAP_HEIGHTS[0]!;
     let bestDist = Infinity;
-    for (const snap of SNAP_HEIGHTS) {
-      const distance = Math.abs(snap - h);
-      if (distance < bestDist) {
-        bestDist = distance;
-        best = snap;
+    for (const s of SNAP_HEIGHTS) {
+      const d = Math.abs(s - h);
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
       }
     }
     snapTo(best);
@@ -323,11 +265,12 @@ export function DetailPanel({
   onSetIsolateMode,
   onZoomTo,
   onClose,
-  side = PanelSide.Right,
+  side = "right",
   onOpenDossier,
 }: DetailPanelProps) {
   const { theme } = useTheme();
   const hasDossier = useHasDossier();
+  const C = theme.colors;
   const colorMap = getColorMap(theme);
   const drag = useDrag();
   const sheet = useSheetDismiss(onClose);
@@ -377,9 +320,9 @@ export function DetailPanel({
 
   return (
     <>
-      {/* Mobile: bottom sheet; pointer-events-none wrapper lets touches pass through edges */}
+      {/* Mobile: bottom sheet — pointer-events-none wrapper lets touches pass through edges */}
       <div className="fixed inset-x-0 bottom-0 z-40 md:hidden pointer-events-none">
-        <div // NOSONAR typescript:S6848,S1082: Click guard only, so a panel tap cannot fall through to the globe. Not a control: focus or keys here would put a non-interactive container in the tab order. SSDLC 8.2 false positive, owner: DetailPanel.
+        <div
           ref={sheet.sheetRef}
           data-detail-sheet
           className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm bg-sig-panel/96 border border-sig-border border-b-0 pt-0 flex flex-col"
@@ -387,7 +330,7 @@ export function DetailPanel({
             height: `${sheet.heightVh}vh`,
             transform: `translateY(${sheet.offsetY}px)`,
             transition: sheet.settling
-              ? `transform ${SheetPolicy.AnimationMs}ms ease-out, height ${SheetPolicy.AnimationMs}ms ease-out`
+              ? "transform 200ms ease-out, height 200ms ease-out"
               : "none",
             willChange: "transform, height",
           }}
@@ -408,7 +351,8 @@ export function DetailPanel({
               }}
               onTouchEnd={(e) => {
                 e.stopPropagation();
-                sheet.onTouchEnd();
+                // @ts-expect-error React TouchEvent passed to DOM-style handler
+                sheet.onTouchEnd(e);
               }}
             >
               <div className="w-12 h-1.5 rounded-full bg-sig-dim/40" />
@@ -438,8 +382,8 @@ export function DetailPanel({
       </div>
 
       {/* Desktop: draggable floating card */}
-      <div // NOSONAR typescript:S6848,S1082: Click guard only, so a panel tap cannot fall through to the globe. Not a control: focus or keys here would put a non-interactive container in the tab order. SSDLC 8.2 false positive, owner: DetailPanel.
-        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll ${side === PanelSide.Left ? "left-3.5" : "right-3.5"}`}
+      <div
+        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll ${side === "left" ? "left-3.5" : "right-3.5"}`}
         style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -471,11 +415,11 @@ function MobileScrollHint({
       setShow(hasOverflow && nearTop);
     };
     check();
-    el.addEventListener(`${DomEvent.Scroll}`, check);
+    el.addEventListener("scroll", check);
     const ob = new ResizeObserver(check);
     ob.observe(el);
     return () => {
-      el.removeEventListener(`${DomEvent.Scroll}`, check);
+      el.removeEventListener("scroll", check);
       ob.disconnect();
     };
   }, [sheetRef]);
@@ -496,20 +440,18 @@ function ModeButton({
   accentColor,
   onClick,
 }: {
-  readonly active: boolean;
-  readonly label: string;
-  readonly icon: LucideIcon;
-  readonly accentColor: string;
-  readonly onClick: () => void;
+  active: boolean;
+  label: string;
+  icon: any;
+  accentColor: string;
+  onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
       title={label}
       className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-[10px] tracking-wide min-h-9 ${
-        active
-          ? "border"
-          : "text-sig-bright border border-sig-border hover:border-sig-grid/40"
+        active ? "border" : "text-sig-bright border border-sig-border hover:border-sig-grid/40"
       }`}
       style={
         active
@@ -527,87 +469,55 @@ function ModeButton({
   );
 }
 
-const SUMMARY_CLASS = {
-  rowList: "pt-2.5 border-t border-sig-border",
-  row: "flex justify-between mb-1.5",
-  rowLabel: "uppercase tracking-wide text-sig-accent text-xs",
-  rowValue: "text-right max-w-38.75 wrap-break-word text-sig-bright text-xs",
-};
-
-const TYPES_WITH_OWN_COORDINATES: ReadonlySet<string> = new Set([
-  Domain.Cyclones,
-  Domain.Quakes,
-  Domain.Fires,
-  Domain.Weather,
-  Domain.Events,
-  Domain.Ships,
-]);
-
-function RowList({ rows }: { readonly rows: readonly [string, string][] }) {
-  return (
-    <div className={SUMMARY_CLASS.rowList}>
-      {rows.map(([label, value]) => (
-        <div key={label} className={SUMMARY_CLASS.row}>
-          <span className={SUMMARY_CLASS.rowLabel}>{label}</span>
-          <span className={SUMMARY_CLASS.rowValue}>{value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DetailSummary({
-  item,
-  dataRows,
-}: {
-  readonly item: DataPoint;
-  readonly dataRows: readonly [string, string][];
-}) {
-  switch (item.type) {
-    case Domain.Aircraft:
-      return <AircraftDetailSummary item={item} />;
-    case Domain.Quakes:
-      return <EarthquakeDetailSummary item={item} />;
-    case Domain.Fires:
-      return <FireDetailSummary item={item} />;
-    case Domain.Weather:
-      return <WeatherDetailSummary item={item} />;
-    case Domain.Events:
-      return <EventDetailSummary item={item} />;
-    case Domain.Ships:
-      return <ShipDetailSummary item={item} />;
-    case Domain.Cyclones:
-      return null;
-    default:
-      return <RowList rows={dataRows} />;
-  }
-}
-
 function PanelBody({
   item,
   rows,
   onOpenDossier,
 }: {
-  readonly item: DataPoint;
-  readonly rows: [string, string][];
-  readonly onOpenDossier?: () => void;
+  item: DataPoint;
+  rows: [string, string][];
+  onOpenDossier?: () => void;
 }) {
   const dataRows = rows.filter(([, v]) => !isUrl(v));
   const linkRows = rows.filter(([, v]) => isUrl(v));
 
   return (
     <>
-      <DetailSummary item={item} dataRows={dataRows} />
+      {item.type === "aircraft" ? (
+        <AircraftDetailSummary item={item} />
+      ) : item.type === "quakes" ? (
+        <EarthquakeDetailSummary item={item} />
+      ) : item.type === "fires" ? (
+        <FireDetailSummary item={item} />
+      ) : item.type === "weather" ? (
+        <WeatherDetailSummary item={item} />
+      ) : item.type === "events" ? (
+        <EventDetailSummary item={item} />
+      ) : item.type === "ships" ? (
+        <ShipDetailSummary item={item} />
+      ) : item.type === "cyclones" ? null : (
+        <div className="pt-2.5 border-t border-sig-border">
+          {dataRows.map(([k, v]) => (
+            <div key={k} className="flex justify-between mb-1.5">
+              <span className="uppercase tracking-wide text-sig-accent text-xs">{k}</span>
+              <span className="text-right max-w-38.75 wrap-break-word text-sig-bright text-xs">
+                {v}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Coordinates */}
-      {!TYPES_WITH_OWN_COORDINATES.has(item.type) && (
+      {item.type !== "cyclones" && item.type !== "quakes" && item.type !== "fires" && item.type !== "weather" && item.type !== "events" && item.type !== "ships" && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
-          {formatLat(recordLatitude(item))}, {formatLon(recordLongitude(item))}
+          {Math.abs(item.lat).toFixed(3)}°{item.lat >= 0 ? "N" : "S"},{" "}
+          {Math.abs(item.lon).toFixed(3)}°{item.lon >= 0 ? "E" : "W"}
         </div>
       )}
 
       {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
-      {item.type === Domain.Cyclones && (
+      {item.type === "cyclones" && (
         <div
           style={
             {
@@ -616,7 +526,9 @@ function PanelBody({
           }
         >
           <CycloneDetailExtras item={item} />
-          <CycloneAdvisoryBlock stormId={item.data.stormId} />
+          <CycloneAdvisoryBlock
+            stormId={(item.data as { stormId?: string })?.stormId}
+          />
         </div>
       )}
 
@@ -664,20 +576,24 @@ function PanelHeader({
   locateActive,
   onClose,
 }: {
-  readonly Icon: LucideIcon;
-  readonly color: string | undefined;
-  readonly feature: FeatureDefinition;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onSetIsolateMode: (mode: SelectedIsolateMode) => void;
-  readonly onZoomTo?: () => void;
-  readonly locateActive?: boolean;
-  readonly onClose: () => void;
+  Icon: any;
+  color: string | undefined;
+  feature: any;
+  isolateMode: null | "solo" | "focus";
+  onSetIsolateMode: (mode: null | "solo" | "focus") => void;
+  onZoomTo?: () => void;
+  locateActive?: boolean;
+  onClose: () => void;
 }) {
   return (
     <div className="mb-2.5">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <Icon size={16} style={{ color }} {...feature.iconProps} />
+          <Icon
+            size={16}
+            style={{ color }}
+            {...feature.iconProps}
+          />
           <span
             className="font-bold tracking-widest text-(length:--sig-text-btn)"
             style={{ color }}
@@ -685,46 +601,40 @@ function PanelHeader({
             {feature.label}
           </span>
         </div>
-        <button
-          type="button"
+        <span
           data-tour="detail-close"
           onClick={onClose}
-          aria-label={CLOSE_LABEL}
           className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
         >
           ✕
-        </button>
+        </span>
       </div>
       <div className="flex items-center gap-1.5">
         {onZoomTo && (
           <ModeButton
             active={locateActive ?? false}
-            label={ModeLabel.Locate}
+            label="LOCATE"
             icon={LocateFixed}
-            accentColor={ThemeCssVar.Accent}
+            accentColor="var(--sigint-accent)"
             onClick={onZoomTo}
           />
         )}
         <ModeButton
-          active={isolateMode === IsolateMode.Focus}
-          label={ModeLabel.Focus}
+          active={isolateMode === "focus"}
+          label="FOCUS"
           icon={Eye}
-          accentColor={ThemeCssVar.Accent}
+          accentColor="var(--sigint-accent)"
           onClick={() =>
-            onSetIsolateMode(
-              isolateMode === IsolateMode.Focus ? null : IsolateMode.Focus,
-            )
+            onSetIsolateMode(isolateMode === "focus" ? null : "focus")
           }
         />
         <ModeButton
-          active={isolateMode === IsolateMode.Solo}
-          label={ModeLabel.Solo}
+          active={isolateMode === "solo"}
+          label="SOLO"
           icon={Crosshair}
-          accentColor={ThemeCssVar.Danger}
+          accentColor="var(--sigint-danger)"
           onClick={() =>
-            onSetIsolateMode(
-              isolateMode === IsolateMode.Solo ? null : IsolateMode.Solo,
-            )
+            onSetIsolateMode(isolateMode === "solo" ? null : "solo")
           }
         />
       </div>
@@ -745,17 +655,17 @@ function PanelContent({
   onClose,
   onOpenDossier,
 }: {
-  readonly Icon: LucideIcon;
-  readonly color: string | undefined;
-  readonly feature: FeatureDefinition;
-  readonly item: DataPoint;
-  readonly rows: [string, string][];
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onSetIsolateMode: (mode: SelectedIsolateMode) => void;
-  readonly onZoomTo?: () => void;
-  readonly locateActive?: boolean;
-  readonly onClose: () => void;
-  readonly onOpenDossier?: () => void;
+  Icon: any;
+  color: string | undefined;
+  feature: any;
+  item: DataPoint;
+  rows: [string, string][];
+  isolateMode: null | "solo" | "focus";
+  onSetIsolateMode: (mode: null | "solo" | "focus") => void;
+  onZoomTo?: () => void;
+  locateActive?: boolean;
+  onClose: () => void;
+  onOpenDossier?: () => void;
 }) {
   return (
     <>

@@ -1,4 +1,3 @@
-import { GeoJsonGeometryType } from "@shared/geo";
 import {
   describe,
   test,
@@ -53,7 +52,7 @@ describe("parseKmlConeToGeoJSON", () => {
 </LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>`;
     const polygon = parseKmlConeToGeoJSON(kml);
     expect(polygon).not.toBeNull();
-    expect(polygon!.type).toBe(GeoJsonGeometryType.Polygon);
+    expect(polygon!.type).toBe("Polygon");
     expect(polygon!.coordinates[0]!.length).toBeGreaterThanOrEqual(4);
     expect(polygon!.coordinates[0]![0]).toEqual([-90.0, 22.4]);
   });
@@ -118,7 +117,7 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
     await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).not.toBeNull();
-    expect(result.cone!.type).toBe(GeoJsonGeometryType.Polygon);
+    expect(result.cone!.type).toBe("Polygon");
     // Real NHC cone is a many-hundred-vertex polygon, not a 4-point stub.
     expect(result.cone!.coordinates[0]!.length).toBeGreaterThan(300);
   });

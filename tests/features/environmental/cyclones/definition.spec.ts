@@ -1,39 +1,25 @@
 import { describe, test, expect } from "bun:test";
-import { Domain } from "@shared/domain/identity";
-import { type PointType } from "@shared/domain/pointType";
-import { CycloneBasin } from "@shared/cyclonesSeason";
-import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
 import { cycloneFeature } from "@/features/environmental/cyclones/definition";
-import {
-  Category,
-  HURRICANE_CATEGORY,
-  SaffirSimpson,
-  type CycloneData,
-  type CycloneFilter,
-} from "@/features/environmental/cyclones/types";
+import type { CycloneData, CycloneFilter } from "@/features/environmental/cyclones/types";
 import type { BasePoint } from "@/features/base/types";
 
 // ── Sample storm helper ────────────────────────────────────────────
 
 function makeStorm(
-  saffirSimpson: SaffirSimpson,
+  saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5,
   maxWindKt = 100,
-): BasePoint & { type: Domain.Cyclones; data: CycloneData } {
-  const classification =
-    saffirSimpson === SaffirSimpson.None
-      ? Category.TropicalStorm
-      : HURRICANE_CATEGORY[saffirSimpson];
+): BasePoint & { data: CycloneData } {
   return {
     id: `CYAL05${saffirSimpson}2026`,
-    type: Domain.Cyclones,
+    type: "cyclones",
     lat: 25,
     lon: -75,
     timestamp: "2026-09-18T00:00:00Z",
     data: {
       stormId: `AL05${saffirSimpson}2026`,
-      name: `STORM_TEST_${classification}`,
-      basin: CycloneBasin.Atlantic,
-      classification,
+      name: `STORM_TEST_${saffirSimpson === 0 ? "TS" : "C" + saffirSimpson}`,
+      basin: "AL",
+      classification: saffirSimpson === 0 ? "TS" : (`HU${saffirSimpson}` as CycloneData["classification"]),
       saffirSimpson,
       maxWindKt,
       advisoryNumber: "1",
@@ -47,7 +33,7 @@ function makeStorm(
 
 describe("cycloneFeature identity", () => {
   test("id matches the DataPoint discriminator", () => {
-    expect(cycloneFeature.id).toBe(Domain.Cyclones);
+    expect(cycloneFeature.id).toBe("cyclones");
   });
 
   test("has a non-empty display label", () => {
@@ -59,9 +45,21 @@ describe("cycloneFeature identity", () => {
   });
 });
 
+// ── Default filter ─────────────────────────────────────────────────
+
+describe("cycloneFeature.defaultFilter", () => {
+  test("matches the documented shape", () => {
+    const filter = cycloneFeature.defaultFilter as CycloneFilter;
+    expect(filter.enabled).toBe(true);
+    expect(filter.minCategory).toBe(0);
+    expect(filter.showForecast).toBe(true);
+    expect(filter.showCone).toBe(true);
+  });
+});
+
 // ── matchesFilter — Saffir-Simpson minCategory gate ────────────────
 
-describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
+describe("cycloneFeature.matchesFilter", () => {
   test("enabled: false rejects every storm", () => {
     const filter: CycloneFilter = {
       enabled: false,
@@ -72,12 +70,8 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       showModels: false,
       showWarnings: true,
     };
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(5), filter),
-    ).toBe(false);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(0), filter),
-    ).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(5), filter)).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(0), filter)).toBe(false);
   });
 
   test("minCategory 0 accepts all storms (incl TD/TS)", () => {
@@ -91,9 +85,7 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4, 5] as const) {
-      expect(
-        CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(cat), filter),
-      ).toBe(true);
+      expect(cycloneFeature.matchesFilter(makeStorm(cat), filter)).toBe(true);
     }
   });
 
@@ -107,15 +99,9 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       showModels: false,
       showWarnings: true,
     };
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(0), filter),
-    ).toBe(false);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(1), filter),
-    ).toBe(true);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(5), filter),
-    ).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(0), filter)).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(1), filter)).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(5), filter)).toBe(true);
   });
 
   test("minCategory 3 (major hurricane filter) rejects HU1/HU2", () => {
@@ -128,24 +114,12 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       showModels: false,
       showWarnings: true,
     };
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(0), filter),
-    ).toBe(false);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(1), filter),
-    ).toBe(false);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(2), filter),
-    ).toBe(false);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(3), filter),
-    ).toBe(true);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(4), filter),
-    ).toBe(true);
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(5), filter),
-    ).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(0), filter)).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(1), filter)).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(2), filter)).toBe(false);
+    expect(cycloneFeature.matchesFilter(makeStorm(3), filter)).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(4), filter)).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(5), filter)).toBe(true);
   });
 
   test("minCategory 5 admits only top-of-scale storms", () => {
@@ -159,13 +133,9 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4] as const) {
-      expect(
-        CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(cat), filter),
-      ).toBe(false);
+      expect(cycloneFeature.matchesFilter(makeStorm(cat), filter)).toBe(false);
     }
-    expect(
-      CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(5), filter),
-    ).toBe(true);
+    expect(cycloneFeature.matchesFilter(makeStorm(5), filter)).toBe(true);
   });
 });
 
@@ -173,11 +143,10 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
 
 describe("cycloneFeature.getSearchText", () => {
   test("includes name, stormId, classification, basin", () => {
-    const storm = makeStorm(SaffirSimpson.Cat5).data;
-    const text = cycloneFeature.getSearchText?.(storm) ?? "";
-    expect(text).toContain(storm.name);
-    expect(text).toContain(storm.stormId);
-    expect(text).toContain(storm.classification);
-    expect(text).toContain(storm.basin);
+    const text = cycloneFeature.getSearchText?.(makeStorm(5).data) ?? "";
+    expect(text).toContain("STORM_TEST_C5");
+    expect(text).toContain("AL05");
+    expect(text).toContain("HU5");
+    expect(text).toContain("AL");
   });
 });
