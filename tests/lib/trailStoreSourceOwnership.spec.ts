@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { Domain } from "../../src/shared/domain/identity";
+import { Domain } from "@shared/domain/identity";
 import { TestInstant } from "../_support";
 import {
   recordTrailPositions,
   type TrailEntry,
   type TrailObservation,
-} from "../../src/client/lib/geo/trails/trailStore";
+} from "@/lib/geo/trails/trailStore";
 
 function ship(index: number): TrailObservation {
   return {

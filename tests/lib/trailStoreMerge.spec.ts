@@ -1,12 +1,3 @@
-// trailService initTrails merge contract
-// Bug fix: `initTrails()` previously did `trails = cached`, replacing
-// the live Map and silently dropping any positions `recordPositions`
-// had already written during the boot race. The new contract MERGES
-// cached history into the live Map so both directions are preserved.
-//
-// These tests target the pure `mergeCachedTrails(live, cached)` helper
-// extracted from initTrails. No async or IDB, only Map to Map math.
-
 import { describe, test, expect } from "bun:test";
 import { Domain } from "../../src/shared/domain/identity";
 import { TestInstant } from "../_support";
@@ -72,7 +63,7 @@ describe("mergeCachedTrails", () => {
     mergeCachedTrails(live, cached);
 
     const merged = live.get("A1")!.points;
-    expect(merged.length).toBe(4);
+    expect(merged).toHaveLength(4);
     expect(merged.map((p) => p.ts)).toEqual([100, 200, 300, 1000]);
   });
 
@@ -107,7 +98,7 @@ describe("mergeCachedTrails", () => {
     mergeCachedTrails(live, cached);
 
     const merged = live.get("A1")!.points;
-    expect(merged.length).toBe(120);
+    expect(merged).toHaveLength(120);
     expect(merged.at(-1)?.ts).toBe(TestInstant.TrailNow);
     expect(merged[0]?.ts).toBe(61 * 100);
   });
@@ -128,7 +119,7 @@ describe("mergeCachedTrails", () => {
 
     mergeCachedTrails(live, cached);
 
-    expect(live.get("S1")!.points.length).toBe(500);
+    expect(live.get("S1")?.points).toHaveLength(500);
   });
 
   test("entries unique to cached are installed (not currently in live data)", () => {
@@ -160,7 +151,7 @@ describe("mergeCachedTrails", () => {
 
     mergeCachedTrails(live, cached);
 
-    expect(live.get("A3")!.points.length).toBe(1);
+    expect(live.get("A3")?.points).toHaveLength(1);
     expect(live.get("A3")!.points[0]?.ts).toBe(700);
   });
 
@@ -177,6 +168,6 @@ describe("mergeCachedTrails", () => {
 
     mergeCachedTrails(live, cached);
 
-    expect(live.get("A1")!.points.length).toBe(2);
+    expect(live.get("A1")?.points).toHaveLength(2);
   });
 });

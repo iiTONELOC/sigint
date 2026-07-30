@@ -62,23 +62,37 @@ export type TrailObservation = {
   speed?: number;
 };
 
-function isTrackSource(value: unknown): value is TrackSource {
+export function isTrackSource(value: unknown): value is TrackSource {
   return value === Domain.Aircraft || value === Domain.Ships;
 }
 
 // ── Parse ────────────────────────────────────────────────────────────
 
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined ||
+    (typeof value === "number" && Number.isFinite(value));
+}
+
+export function isTrailPoint(value: unknown): value is TrailPoint {
+  return (
+    isRecord(value) &&
+    typeof value.lat === "number" &&
+    Number.isFinite(value.lat) &&
+    typeof value.lon === "number" &&
+    Number.isFinite(value.lon) &&
+    typeof value.ts === "number" &&
+    Number.isFinite(value.ts) &&
+    isOptionalFiniteNumber(value.altitude) &&
+    isOptionalFiniteNumber(value.speed) &&
+    isOptionalFiniteNumber(value.heading)
+  );
+}
+
 function isTrailPointArray(value: unknown): value is TrailPoint[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(
-      (point: unknown) =>
-        isRecord(point) &&
-        typeof point.lat === "number" &&
-        typeof point.lon === "number" &&
-        typeof point.ts === "number",
-    )
+    value.every(isTrailPoint)
   );
 }
 
@@ -290,6 +304,22 @@ export type TrackMotion = Readonly<{
   headingDeg: number;
   speedMps: number;
 }>;
+
+export function isTrackMotion(value: unknown): value is TrackMotion {
+  return (
+    isRecord(value) &&
+    typeof value.lat === "number" &&
+    Number.isFinite(value.lat) &&
+    typeof value.lon === "number" &&
+    Number.isFinite(value.lon) &&
+    typeof value.ts === "number" &&
+    Number.isFinite(value.ts) &&
+    typeof value.headingDeg === "number" &&
+    Number.isFinite(value.headingDeg) &&
+    typeof value.speedMps === "number" &&
+    Number.isFinite(value.speedMps)
+  );
+}
 
 export function trackMotion(entry: TrailEntry): TrackMotion | null {
   const last = entry.points.at(-1);

@@ -51,7 +51,6 @@ import {
   type RenderWorkerColors,
   type RenderWorkerEventBody,
   type SelectedRenderItem,
-  IsolateMode,
   PanelSide,
 } from "./render/protocol";
 import {
@@ -93,7 +92,7 @@ import { MarkerVisuals } from "./render/primitives/markerVisuals";
 import {
   parseSceneDataCommand,
   SceneDataCommandType,
-  SceneDataProtocolState,
+  SceneProtocolState,
 } from "./render/sceneProtocol";
 import {
   SceneHitKind,
@@ -113,7 +112,6 @@ import {
   geographicToUnitVector,
   projectGeographicPoint as projGlobe,
   projectUnitVectorInto,
-  type GeographicMotion,
   type GlobeRotationMatrix,
   type UnitVector,
 } from "@/lib/geo/unitSphere";
@@ -128,6 +126,19 @@ import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
 import type { HorizonCircle, LandColors } from "@/lib/geo/render/types";
+import type {
+  TrackMotion,
+  TrailPoint,
+} from "@/lib/geo/trails/trailStore";
+import {
+  SceneInterestPublisher,
+} from "@/workers/render/sceneInterestPublisher";
+import {
+  SelectionOverlayStore,
+} from "@/workers/render/selectionOverlayStore";
+import {
+  selectionIsVisible,
+} from "@/workers/render/selectionVisibility";
 
 enum PointWorkerError {
   LandGeometryRequestFailed = "Land geometry request failed",
@@ -158,22 +169,19 @@ enum FlatCoordinateLabel {
 
 // ── Interpolation ───────────────────────────────────────────────────
 
-type TrailEntry = Readonly<{
+type SelectedMotion = Readonly<{
   source: Domain.Aircraft | Domain.Ships;
-  timestamp: number;
-  speedMetersPerSecond: number;
-  motion: GeographicMotion;
+  motion: TrackMotion;
 }>;
 
 const markerVisuals = new MarkerVisuals();
-let trailMap = new Map<string, TrailEntry>();
 
 function interpolationSeconds(
-  entry: TrailEntry,
+  selected: SelectedMotion,
 ): number | null {
-  if (entry.speedMetersPerSecond <= 0) return null;
-  const elapsedMilliseconds = Date.now() - entry.timestamp;
-  const limit = entry.source === Domain.Ships
+  if (selected.motion.speedMps <= 0) return null;
+  const elapsedMilliseconds = Date.now() - selected.motion.ts;
+  const limit = selected.source === Domain.Ships
     ? RENDER_POLICY.shipInterpolationLimitMs
     : RENDER_POLICY.aircraftInterpolationLimitMs;
   if (
@@ -185,12 +193,31 @@ function interpolationSeconds(
   return elapsedMilliseconds / MS_PER_SECOND;
 }
 
-function getInterp(id: string): { lat: number; lon: number } | null {
-  const entry = trailMap.get(id);
-  if (!entry) return null;
-  const elapsedSeconds = interpolationSeconds(entry);
+function selectedInterpolation(): { lat: number; lon: number } | null {
+  const identity = selectionController.snapshot().identity;
+  const motion = selectionOverlayStore.snapshot()?.motion ?? null;
+  if (!identity || !motion || (
+    identity.source !== Domain.Aircraft &&
+    identity.source !== Domain.Ships
+  )) {
+    return null;
+  }
+  const selected: SelectedMotion = {
+    source: identity.source,
+    motion,
+  };
+  const elapsedSeconds = interpolationSeconds(selected);
   if (elapsedSeconds === null) return null;
-  const position = advanceGeographicMotion(entry.motion, elapsedSeconds);
+  const geographicMotion = createGeographicMotion(
+    motion.lat,
+    motion.lon,
+    motion.headingDeg,
+    motion.speedMps,
+  );
+  const position = advanceGeographicMotion(
+    geographicMotion,
+    elapsedSeconds,
+  );
   return { lat: position.latitude, lon: position.longitude };
 }
 
@@ -335,7 +362,7 @@ function drawLand(
 
 // ── Trail drawing ───────────────────────────────────────────────────
 
-type WorkerTrailPoint = SelectedRenderItem["trail"][number];
+type WorkerTrailPoint = TrailPoint;
 type ProjTrail = { x: number; y: number; z: number; point: WorkerTrailPoint };
 type TrailHitTarget = Readonly<{
   x: number;
@@ -366,11 +393,11 @@ function strokeTrailPass(ctx: Ctx, projected: ProjTrail[], width: number, base: 
 function drawTrail(
   ctx: Ctx,
   projFn: ProjFn,
-  selectedItem: SelectedRenderItem | null,
+  selectedId: string | null,
+  trail: readonly TrailPoint[],
   colors: TrailColors,
 ): TrailHitTarget[] {
-  const trail = selectedItem?.trail;
-  if (!selectedItem || !trail || trail.length < 1) return [];
+  if (!selectedId || trail.length < 1) return [];
   const coords: WorkerTrailPoint[] = trail.map((p) => ({
     lat: p.lat,
     lon: p.lon,
@@ -379,7 +406,7 @@ function drawTrail(
     speed: p.speed,
     heading: p.heading,
   }));
-  const interp = getInterp(selectedItem.id);
+  const interp = selectedInterpolation();
   if (interp) coords.push({ lat: interp.lat, lon: interp.lon, ts: Date.now() });
   if (coords.length < 2) return [];
 
@@ -549,6 +576,8 @@ let dataPort: MessagePort | null = null;
 
 const renderLayerCatalog = new RenderLayerCatalog();
 const selectionController = new RenderSelectionController();
+const selectionOverlayStore = new SelectionOverlayStore();
+const sceneInterestPublisher = new SceneInterestPublisher();
 const aircraftLayer = new AircraftLayer();
 const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
@@ -569,11 +598,15 @@ renderLayerCatalog.register(cycloneLayer);
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
-  const sceneState = new SceneDataProtocolState(sessionId);
+  const sceneState = new SceneProtocolState(sessionId);
+  sceneInterestPublisher.connect(port, sessionId);
   port.onmessage = (event: MessageEvent<unknown>) => {
     const sceneCommand = parseSceneDataCommand(event.data);
     if (!sceneCommand || !sceneState.accept(sceneCommand)) return;
     if (sceneCommand.type === SceneDataCommandType.Bind) {
+      sceneInterestPublisher.publish(
+        selectionController.snapshot(),
+      );
       globalThis.postMessage(
         createRenderMessage(
           { type: RenderMessageType.DataChannelReady },
@@ -581,6 +614,19 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
           protocolState.sequence,
         ),
       );
+      return;
+    }
+    if (
+      sceneCommand.type === SceneDataCommandType.SelectionOverlay
+    ) {
+      if (
+        selectionOverlayStore.apply(
+          sceneCommand,
+          selectionController.snapshot(),
+        )
+      ) {
+        scheduleRender();
+      }
       return;
     }
     if (!renderLayerCatalog.apply(sceneCommand)) return;
@@ -620,15 +666,24 @@ function selectedPresentationItem(): SelectedRenderItem | null {
     : null;
 }
 
+function updateSelection(
+  identity: RenderSelectionIdentity | null,
+): boolean {
+  if (!selectionController.set(identity)) return false;
+  selectionOverlayStore.clear();
+  sceneInterestPublisher.publish(selectionController.snapshot());
+  scheduleRender();
+  return true;
+}
+
 function commitCanvasSelection(
   identity: RenderSelectionIdentity | null,
 ): void {
-  if (!selectionController.set(identity)) return;
+  if (!updateSelection(identity)) return;
   postInteraction({
     kind: RenderInteractionKind.Selection,
     selection: selectionController.snapshot(),
   });
-  scheduleRender();
 }
 
 function postCursor(cursor: CursorInteraction): void {
@@ -672,38 +727,6 @@ function scheduleRender(): void {
   requestAnimationFrame(renderFrame);
 }
 
-/**
- * Only the selected track is ever dead-reckoned, so its motion rides the
- * presentation command. This used to be a per-poll broadcast of every
- * aircraft and ship, packed on the main thread and almost entirely unread.
- */
-function setSelectedMotion(item: SelectedRenderItem | null): void {
-  const motion = item?.motion;
-  if (
-    !item ||
-    !motion ||
-    (item.type !== Domain.Aircraft && item.type !== Domain.Ships)
-  ) {
-    if (trailMap.size > 0) trailMap = new Map();
-    return;
-  }
-  trailMap = new Map([
-    [
-      item.id,
-      {
-        source: item.type,
-        timestamp: motion.ts,
-        speedMetersPerSecond: motion.speedMps,
-        motion: createGeographicMotion(
-          motion.lat,
-          motion.lon,
-          motion.headingDeg,
-          motion.speedMps,
-        ),
-      },
-    ],
-  ]);
-}
 function selectedCameraPosition(): CameraPosition | null {
   const identity = selectionIdentity();
   if (!identity) return null;
@@ -712,10 +735,7 @@ function selectedCameraPosition(): CameraPosition | null {
     identity.interactionId,
   );
   if (!target) return null;
-  const selected = selectedPresentationItem();
-  const interpolated = selected
-    ? getInterp(selected.id)
-    : null;
+  const interpolated = selectedInterpolation();
   return {
     id: identity.interactionId,
     latitude:
@@ -884,6 +904,8 @@ function handleFocus(
 function handleDispose(): void {
   dataPort?.close();
   dataPort = null;
+  sceneInterestPublisher.disconnect();
+  selectionOverlayStore.clear();
   canvas = null;
   ctx = null;
   _presentation = null;
@@ -902,7 +924,7 @@ function handlePresentation(payload: RenderPresentationPayload): void {
 function handleSelection(
   identity: RenderSelectionIdentity | null,
 ): void {
-  selectionController.set(identity);
+  updateSelection(identity);
 }
 
 function dispatchRenderCommand(msg: RenderWorkerCommand): void {
@@ -1610,34 +1632,6 @@ function resizeCanvas(
   context.clearRect(0, 0, width, height);
 }
 
-type SelectionVisibility = Readonly<{
-  selectedItem: RenderPresentationPayload["selectedItem"];
-  searchSet: Set<string> | null;
-  isoMode: RenderPresentationPayload["isolateMode"];
-  isoId: string | null;
-  isolatedType: string | null;
-  layers: RenderPresentationPayload["layers"];
-  aircraftFilter: AircraftSceneFilter;
-}>;
-
-/** The trail and route only draw when the selection survives the filters. */
-function selectionPassesFilters(v: SelectionVisibility): boolean {
-  const item = v.selectedItem;
-  if (!item) return false;
-  if (v.searchSet && !v.searchSet.has(item.id)) return false;
-  if (v.isoMode === IsolateMode.Solo && item.id !== v.isoId) return false;
-  if (
-    v.isoMode === IsolateMode.Focus &&
-    v.isolatedType &&
-    item.type !== v.isolatedType
-  ) {
-    return false;
-  }
-  if (item.type !== Domain.Aircraft) return v.layers[item.type] !== false;
-
-  return aircraftLayer.includesEntity(item.id, v.aircraftFilter);
-}
-
 type FrameInputs = Readonly<{
   canvas: OffscreenCanvas;
   ctx: Ctx;
@@ -1732,10 +1726,10 @@ type ProjectedFrame = Readonly<{
 function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   const p = options.presentation;
   const { isolatedId: isoId, isolateMode: isoMode } = p;
-  const selectedItem = selectedPresentationItem();
+  const selection = selectionIdentity();
   const isolatedType =
-    isoId && selectedItem?.id === isoId
-      ? selectedItem.type
+    isoId && selection?.interactionId === isoId
+      ? selection.pointType
       : null;
   const searchSet = p.searchMatchIds ? new Set(p.searchMatchIds) : null;
   const base = sceneProjectionBase(
@@ -1836,7 +1830,9 @@ function scheduleNextFrameIfNeeded(
     (renderLayerCatalog.hasTimeAnimation(reducedMotion) ||
       hasSelection);
   const needsFrame =
-    trailMap.size > 0 || hasVisualAnimation || cameraActive;
+    (selectionOverlayStore.snapshot()?.motion ?? null) !== null ||
+    hasVisualAnimation ||
+    cameraActive;
   if (!needsFrame || _frameScheduled) return;
   _frameScheduled = true;
   requestAnimationFrame(renderFrame);
@@ -1875,6 +1871,7 @@ function renderFrame(): void {
   const { layers } = p;
 
   const selectedItem = selectedPresentationItem();
+  const selectedOverlay = selectionOverlayStore.snapshot();
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
   const { light, landAlpha, gridAlpha, glowAlpha, milColor, reconColor, colorMap } =
@@ -1927,18 +1924,22 @@ function renderFrame(): void {
   });
 
   // ── Draw trail (only if the selected item passes current filters) ──
-  const drawSelectedTrail = selectionPassesFilters({
-    selectedItem,
-    searchSet,
-    isoMode,
-    isoId,
+  const drawSelectedTrail = selectionIsVisible({
+    selection,
+    searchIds: searchSet,
+    isolateMode: isoMode,
+    isolatedId: isoId,
     isolatedType,
     layers,
-    aircraftFilter: aircraftSceneFilter,
+    aircraftEntityIsVisible: (entityId) =>
+      aircraftLayer.includesEntity(
+        entityId,
+        aircraftSceneFilter,
+      ),
   });
 
   if (drawSelectedTrail && selectedItem?.route) {
-    const routePos = getInterp(selectedItem.id);
+    const routePos = selectedInterpolation();
     drawRoute(
       ctx,
       projFn,
@@ -1948,7 +1949,15 @@ function renderFrame(): void {
       colors,
     );
   }
-  const hitTargets = drawSelectedTrail ? drawTrail(ctx, projFn, selectedItem ?? null, colors) : [];
+  const hitTargets = drawSelectedTrail
+    ? drawTrail(
+        ctx,
+        projFn,
+        selId,
+        selectedOverlay?.trail ?? [],
+        colors,
+      )
+    : [];
   _trailHitTargets = hitTargets;
   ctx.globalAlpha = 1;
 

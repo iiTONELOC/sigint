@@ -29,7 +29,6 @@ import {
 import { useSourceSnapshot } from "@/features/base/useSourceQuery";
 import { useSourceTicker } from "@/features/base/useSourceTicker";
 import { useSourceVersions } from "@/features/base/useSourceVersions";
-import { watchTrail } from "@/lib/geo/trailService";
 import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
 import { SourceStatus } from "@shared/domain/sourceStatus";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
@@ -77,6 +76,14 @@ type DataContextValue = {
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
+export enum DataContextError {
+  MissingProvider = "useData must be used within DataProvider",
+}
+
+enum CorrelationRequestTiming {
+  DebounceMs = 1_000,
+}
+
 function entryFor(
   id: Domain,
   snapshot: DataWorkerSourceSnapshot | null,
@@ -87,9 +94,6 @@ function entryFor(
     error: snapshot?.error ?? null,
   };
 }
-
-/** Collapses a burst of source updates into one correlation request. */
-const CORRELATION_DEBOUNCE_MS = 1_000;
 
 // ── Provider ────────────────────────────────────────────────────────
 // Single component that owns the UI state every pane reads, and nests
@@ -274,7 +278,7 @@ export function DataProvider({
     const id = setTimeout(() => {
       if (cancelled) return;
       void client.request(newsArticles, baselineRef.current).then(applyResult);
-    }, CORRELATION_DEBOUNCE_MS);
+    }, CorrelationRequestTiming.DebounceMs);
     return () => {
       cancelled = true;
       clearTimeout(id);
@@ -318,7 +322,6 @@ export function DataProvider({
   return (
     <UIProvider>
       <DataContext.Provider value={dataValue}>
-        <TrailWatchBridge version={correlationInputVersion} />
         <WatchProvider correlation={correlation}>
           {children}
         </WatchProvider>
@@ -327,33 +330,15 @@ export function DataProvider({
   );
 }
 
-/**
- * The DataWorker records every track's history; the main thread mirrors only
- * the selected one. Re-pulls on each merged update so the dossier polyline
- * keeps extending while an item stays selected.
- */
-function TrailWatchBridge({ version }: Readonly<{ version: number }>) {
-  const { selectedCurrent } = useUI();
-  const id = selectedCurrent?.id ?? null;
-
-  useEffect(() => {
-    watchTrail(id);
-  }, [id, version]);
-
-  return null;
-}
-
 // ── Hooks ────────────────────────────────────────────────────────────
 
 /**
- * Backwards-compatible hook — merges DataContext + UIContext + WatchContext.
- * Existing consumers don't need to change. New code can use useUI() or
- * useWatch() directly for narrower subscriptions.
+ * Combines DataContext, UIContext, and WatchContext for existing consumers.
  */
 export function useData(): DataContextValue & ReturnType<typeof useUI> & ReturnType<typeof useWatch> {
   const dataCtx = useContext(DataContext);
   if (!dataCtx) {
-    throw new Error("useData must be used within DataProvider");
+    throw new Error(DataContextError.MissingProvider);
   }
   const uiCtx = useUI();
   const watchCtx = useWatch();

@@ -4,15 +4,30 @@ import {
   type RenderSourceId,
 } from "@/workers/data/sourceIds";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
+import {
+  isTrackSource,
+  isTrackMotion,
+  isTrailPoint,
+} from "@/lib/geo/trails/trailStore";
+import {
+  isRenderSelectionSnapshot,
+  type RenderSelectionOverlay,
+  type RenderSelectionSnapshot,
+} from "@/workers/render/protocol";
 
-export enum SceneDataProtocolVersion {
-  Current = 4,
+export enum SceneProtocolVersion {
+  Current = 5,
 }
 
 export enum SceneDataCommandType {
   Bind = "bind",
   SourcePatch = "sourcePatch",
   SourceSearch = "sourceSearch",
+  SelectionOverlay = "selectionOverlay",
+}
+
+export enum SceneInterestCommandType {
+  Selection = "selectionInterest",
 }
 
 export enum SceneGeometryKind {
@@ -78,29 +93,46 @@ export type SceneSourceCommandBody =
   | SceneSourcePatch
   | SceneSourceSearch;
 
+export type SceneSelectionOverlay = RenderSelectionOverlay &
+  Readonly<{ type: SceneDataCommandType.SelectionOverlay }>;
+
+export type ScenePublishCommandBody =
+  | SceneSourceCommandBody
+  | SceneSelectionOverlay;
+
 export type SceneDataCommandBody =
   | Readonly<{ type: SceneDataCommandType.Bind }>
-  | SceneSourceCommandBody;
+  | ScenePublishCommandBody;
 
-export type SceneDataEnvelope = Readonly<{
-  protocolVersion: SceneDataProtocolVersion;
+export type SceneProtocolEnvelope = Readonly<{
+  protocolVersion: SceneProtocolVersion;
   sessionId: string;
   sequence: number;
 }>;
 
-export type SceneSourceCommand = SceneSourcePatch & SceneDataEnvelope;
+export type SceneSourceCommand = SceneSourcePatch & SceneProtocolEnvelope;
 
-export type SceneSearchCommand = SceneSourceSearch & SceneDataEnvelope;
+export type SceneSearchCommand = SceneSourceSearch & SceneProtocolEnvelope;
 
 export type SceneLayerCommand =
   | SceneSourceCommand
   | SceneSearchCommand;
 
 export type SceneDataCommand =
-  | (Readonly<{ type: SceneDataCommandType.Bind }> & SceneDataEnvelope)
-  | SceneLayerCommand;
+  | (Readonly<{ type: SceneDataCommandType.Bind }> &
+      SceneProtocolEnvelope)
+  | SceneLayerCommand
+  | (SceneSelectionOverlay & SceneProtocolEnvelope);
 
-export class SceneDataProtocolState {
+export type SceneSelectionInterest = Readonly<{
+  type: SceneInterestCommandType.Selection;
+  selection: RenderSelectionSnapshot;
+}>;
+
+export type SceneInterestCommand =
+  SceneSelectionInterest & SceneProtocolEnvelope;
+
+export class SceneProtocolState {
   readonly sessionId: string;
   private sequence = 0;
 
@@ -108,7 +140,7 @@ export class SceneDataProtocolState {
     this.sessionId = sessionId;
   }
 
-  accept(command: SceneDataCommand): boolean {
+  accept(command: SceneProtocolEnvelope): boolean {
     if (
       command.sessionId !== this.sessionId ||
       command.sequence <= this.sequence
@@ -442,36 +474,88 @@ export function createSceneDataCommand<
   body: TBody,
   sessionId: string,
   sequence: number,
-): TBody & SceneDataEnvelope {
+): TBody & SceneProtocolEnvelope {
   return {
     ...body,
-    protocolVersion: SceneDataProtocolVersion.Current,
+    protocolVersion: SceneProtocolVersion.Current,
     sessionId,
     sequence,
   };
 }
 
-export function parseSceneDataCommand(
-  value: unknown,
-): SceneDataCommand | null {
+export function createSceneInterestCommand(
+  selection: RenderSelectionSnapshot,
+  sessionId: string,
+  sequence: number,
+): SceneInterestCommand {
+  return {
+    type: SceneInterestCommandType.Selection,
+    selection,
+    protocolVersion: SceneProtocolVersion.Current,
+    sessionId,
+    sequence,
+  };
+}
+
+function sceneProtocolEnvelope(
+  value: Readonly<Record<string, unknown>>,
+): SceneProtocolEnvelope | null {
   if (
-    !isRecord(value) ||
-    value.protocolVersion !== SceneDataProtocolVersion.Current ||
+    value.protocolVersion !== SceneProtocolVersion.Current ||
     typeof value.sessionId !== "string" ||
     value.sessionId.length === 0 ||
     !isPositiveSequence(value.sequence)
   ) {
     return null;
   }
-
-  const envelope: SceneDataEnvelope = {
-    protocolVersion: SceneDataProtocolVersion.Current,
+  return {
+    protocolVersion: SceneProtocolVersion.Current,
     sessionId: value.sessionId,
     sequence: value.sequence,
   };
+}
+
+function isSceneSelectionOverlay(
+  value: Readonly<Record<string, unknown>>,
+): value is Readonly<Record<string, unknown>> &
+  RenderSelectionOverlay {
+  if (
+    !isRenderSelectionSnapshot(value.selection) ||
+    !Array.isArray(value.trail) ||
+    !value.trail.every(isTrailPoint) ||
+    (value.motion !== null && !isTrackMotion(value.motion))
+  ) {
+    return false;
+  }
+  const identity = value.selection.identity;
+  if (identity === null || !isTrackSource(identity.source)) {
+    return value.trail.length === 0 && value.motion === null;
+  }
+  return true;
+}
+
+export function parseSceneDataCommand(
+  value: unknown,
+): SceneDataCommand | null {
+  if (!isRecord(value)) return null;
+  const envelope = sceneProtocolEnvelope(value);
+  if (!envelope) return null;
 
   if (value.type === SceneDataCommandType.Bind) {
     return { ...envelope, type: SceneDataCommandType.Bind };
+  }
+
+  if (
+    value.type === SceneDataCommandType.SelectionOverlay &&
+    isSceneSelectionOverlay(value)
+  ) {
+    return {
+      ...envelope,
+      type: SceneDataCommandType.SelectionOverlay,
+      selection: value.selection,
+      trail: value.trail,
+      motion: value.motion,
+    };
   }
 
   if (
@@ -533,10 +617,30 @@ export function parseSceneDataCommand(
   };
 }
 
+export function parseSceneInterestCommand(
+  value: unknown,
+): SceneInterestCommand | null {
+  if (!isRecord(value)) return null;
+  const envelope = sceneProtocolEnvelope(value);
+  if (
+    !envelope ||
+    value.type !== SceneInterestCommandType.Selection ||
+    !isRenderSelectionSnapshot(value.selection)
+  ) {
+    return null;
+  }
+  return {
+    ...envelope,
+    type: SceneInterestCommandType.Selection,
+    selection: value.selection,
+  };
+}
+
 export function sceneDataTransfers(
   command: SceneDataCommand,
 ): readonly Transferable[] {
   if (command.type === SceneDataCommandType.Bind) return [];
+  if (command.type === SceneDataCommandType.SelectionOverlay) return [];
   if (command.type === SceneDataCommandType.SourceSearch) {
     return [command.handles.buffer];
   }

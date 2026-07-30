@@ -6,9 +6,16 @@ import type {
   TrackMotion,
   TrailPoint,
 } from "@/lib/geo/trails/trailStore";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
+import {
+  isRenderSourceId,
+  type RenderSourceId,
+} from "@/workers/data/sourceIds";
+import {
+  sourceForPointType,
+} from "@/workers/data/sources/registry";
 import type { MilFilter } from "@shared/domain/aircraft";
 import type { MinCategory } from "@/features/environmental/cyclones/types";
+import { isRecord } from "@shared/geo";
 
 export enum RenderProtocolVersion {
   Current = 3,
@@ -141,6 +148,62 @@ export type RenderSelectionSnapshot = Readonly<{
   identity: RenderSelectionIdentity | null;
 }>;
 
+export function renderSelectionIdentitiesEqual(
+  left: RenderSelectionIdentity | null,
+  right: RenderSelectionIdentity | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.source === right.source &&
+    left.entityId === right.entityId &&
+    left.interactionId === right.interactionId &&
+    left.pointType === right.pointType
+  );
+}
+
+export type RenderSelectionOverlay = Readonly<{
+  selection: RenderSelectionSnapshot;
+  trail: readonly TrailPoint[];
+  motion: TrackMotion | null;
+}>;
+
+enum RenderSelectionStringLength {
+  Empty = 0,
+}
+
+enum RenderSelectionRevisionBoundary {
+  Minimum = 0,
+}
+
+export function isRenderSelectionIdentity(
+  value: unknown,
+): value is RenderSelectionIdentity {
+  return (
+    isRecord(value) &&
+    isRenderSourceId(value.source) &&
+    typeof value.entityId === "string" &&
+    value.entityId.length > RenderSelectionStringLength.Empty &&
+    typeof value.interactionId === "string" &&
+    value.interactionId.length > RenderSelectionStringLength.Empty &&
+    typeof value.pointType === "string" &&
+    sourceForPointType(value.pointType) === value.source
+  );
+}
+
+export function isRenderSelectionSnapshot(
+  value: unknown,
+): value is RenderSelectionSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.revision === "number" &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= RenderSelectionRevisionBoundary.Minimum &&
+    (value.identity === null ||
+      isRenderSelectionIdentity(value.identity))
+  );
+}
+
 export type RenderCamera = Readonly<{
   zoomFlat: number;
   zoomGlobe: number;
@@ -164,10 +227,7 @@ export type SelectedRenderItem = Readonly<{
   type: DataType;
   lat: number;
   lon: number;
-  trail: readonly TrailPoint[];
   route: readonly (readonly [number, number])[] | null;
-  /** Present when the track is moving; drives dead reckoning between polls. */
-  motion: TrackMotion | null;
 }>;
 
 export type RenderViewportPayload = Readonly<{

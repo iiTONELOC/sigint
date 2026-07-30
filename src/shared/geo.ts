@@ -60,6 +60,7 @@ export enum TurnDeg {
 
 export enum GeoMeasurement {
   NauticalMilesPerDegree = 60,
+  FeetPerFlightLevel = 100,
   MetersPerKilometer = 1_000,
   EarthRadiusKilometers = 6_371,
   EarthRadiusMeters = 6_371_000,

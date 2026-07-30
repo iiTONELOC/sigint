@@ -1,12 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
 import {
-  getTrail,
-  getTrackMotion,
-  subscribeWatchedTrail,
-  watchedTrailRevision,
-} from "@/lib/geo/trailService";
-import {
   getSelectedRoute,
   selectedRouteRevision,
   subscribeSelectedRoute,
@@ -58,11 +52,6 @@ export function usePresentationCommands({
     revealId,
   } = props;
 
-  const trailRevision = useSyncExternalStore(
-    subscribeWatchedTrail,
-    watchedTrailRevision,
-    watchedTrailRevision,
-  );
   const routeRevision = useSyncExternalStore(
     subscribeSelectedRoute,
     selectedRouteRevision,
@@ -96,9 +85,7 @@ export function usePresentationCommands({
           type: selected.type,
           lat: recordLatitude(selected),
           lon: recordLongitude(selected),
-          trail: getTrail(selected.id),
           route: getSelectedRoute(selected.id),
-          motion: getTrackMotion(selected.id),
         }
       : null;
     const prefersReducedMotion =
@@ -152,7 +139,6 @@ export function usePresentationCommands({
     rotationSpeed,
     searchMatchIds,
     selected,
-    trailRevision,
     routeRevision,
   ]);
 

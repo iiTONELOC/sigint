@@ -3,7 +3,7 @@ import type { RenderSourceId } from "@/workers/data/sourceIds";
 import {
   SceneDataCommandType,
   SceneGeometryKind,
-  SceneDataProtocolVersion,
+  SceneProtocolVersion,
   type SceneSearchCommand,
   type SceneSourceCommand,
 } from "@/workers/render/sceneProtocol";
@@ -66,7 +66,7 @@ export function sceneRebaseCommand(
 ): SceneSourceCommand {
   return {
     type: SceneDataCommandType.SourcePatch,
-    protocolVersion: SceneDataProtocolVersion.Current,
+    protocolVersion: SceneProtocolVersion.Current,
     sessionId: "scene-layer-test",
     sequence: 1,
     source,
@@ -100,7 +100,7 @@ export function sceneSearchCommand(
 ): SceneSearchCommand {
   return {
     type: SceneDataCommandType.SourceSearch,
-    protocolVersion: SceneDataProtocolVersion.Current,
+    protocolVersion: SceneProtocolVersion.Current,
     sessionId: "scene-layer-test",
     sequence: 2,
     source,

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { TestInstant } from "../_support";
-import { Domain } from "../../src/shared/domain/identity";
-import { MS_PER_MINUTE } from "../../src/shared/time";
+import { Domain } from "@shared/domain/identity";
+import { MS_PER_MINUTE } from "@shared/time";
 import {
   TRAIL_POLICY,
   recordTrailPositions,
   type TrailEntry,
   type TrailObservation,
   type TrackSource,
-} from "../../src/client/lib/geo/trails/trailStore";
+} from "@/lib/geo/trails/trailStore";
 
 function observation(
   id: string,

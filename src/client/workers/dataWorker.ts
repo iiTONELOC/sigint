@@ -38,6 +38,9 @@ import {
   createTrailRecorder,
 } from "@/workers/data/trails/trailRecorder";
 import { ObservedTrailBinding } from "@/workers/data/trails/observedTrailBinding";
+import {
+  SelectionInterestService,
+} from "@/workers/data/selectionInterestService";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
   findQueryableSearchIds,
@@ -67,6 +70,11 @@ import {
   CorrelationDataCommandType,
   createCorrelationDataCommand,
 } from "@/workers/correlation/dataChannel";
+import {
+  parseSceneInterestCommand,
+  SceneInterestCommandType,
+  SceneProtocolState,
+} from "@/workers/render/sceneProtocol";
 
 type CommandOf<TType extends DataWorkerMessageType> = Extract<
   DataWorkerCommand,
@@ -164,6 +172,15 @@ const trailRecorder = createTrailRecorder({
   persistCache: (value) => {
     coordinator.setDeferred(TRAIL_RECORDER_POLICY.cacheKey, value);
   },
+});
+const selectionInterest = new SelectionInterestService(
+  trailRecorder,
+  (overlay) => {
+    scenePublisher.publish(overlay);
+  },
+);
+trailRecorder.subscribe((source) => {
+  selectionInterest.refresh(source);
 });
 
 const aircraftOwner = new AircraftSource({
@@ -417,6 +434,17 @@ function handleConnectRender(
 ): void {
   renderPort?.close();
   renderPort = command.port;
+  const interestState = new SceneProtocolState(
+    command.renderSessionId,
+  );
+  selectionInterest.connect();
+  renderPort.onmessage = (event: MessageEvent<unknown>) => {
+    const interest = parseSceneInterestCommand(event.data);
+    if (!interest || !interestState.accept(interest)) return;
+    if (interest.type === SceneInterestCommandType.Selection) {
+      selectionInterest.update(interest.selection);
+    }
+  };
   renderPort.start();
   scenePublisher.connect(renderPort, command.renderSessionId);
   sourceCatalog.publishRenderRebases();

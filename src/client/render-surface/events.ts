@@ -2,26 +2,14 @@ import {
   PanelSide,
   RenderCursor,
   RenderInteractionKind,
-  type RenderSelectionIdentity,
   type RenderInteractionPayload,
+  isRenderSelectionSnapshot,
 } from "@/workers/render/protocol";
-import { Domain } from "@shared/domain/identity";
 import { isRecord } from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
 import {
-  isRenderSourceId,
-} from "@/workers/data/sourceIds";
-import {
-  sourceForPointType,
-} from "@/workers/data/sources/registry";
-
-enum SelectionStringLength {
-  Empty = 0,
-}
-
-enum SelectionRevisionBoundary {
-  MinimumRevision = 0,
-}
+  isTrailPoint,
+} from "@/lib/geo/trails/trailStore";
 
 export const RENDER_SURFACE_INTERACTION_EVENT =
   "sigint-render-interaction";
@@ -32,52 +20,6 @@ export const RENDER_SURFACE_READY_EVENT =
 export const RENDER_SURFACE_DATA_READY_EVENT =
   "sigint-render-data-ready";
 
-function isOptionalNumber(value: unknown): boolean {
-  return value === undefined ||
-    (typeof value === "number" && Number.isFinite(value));
-}
-
-function isTrailPoint(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.lat === "number" &&
-    Number.isFinite(value.lat) &&
-    typeof value.lon === "number" &&
-    Number.isFinite(value.lon) &&
-    typeof value.ts === "number" &&
-    Number.isFinite(value.ts) &&
-    isOptionalNumber(value.altitude) &&
-    isOptionalNumber(value.speed) &&
-    isOptionalNumber(value.heading)
-  );
-}
-
-function isSelectionIdentity(
-  value: unknown,
-): value is RenderSelectionIdentity {
-  return (
-    isRecord(value) &&
-    isRenderSourceId(value.source) &&
-    typeof value.entityId === "string" &&
-    value.entityId.length > SelectionStringLength.Empty &&
-    typeof value.interactionId === "string" &&
-    value.interactionId.length > SelectionStringLength.Empty &&
-    isEnumValue(value.pointType, Domain) &&
-    sourceForPointType(value.pointType) === value.source
-  );
-}
-
-function isSelection(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.revision === "number" &&
-    Number.isSafeInteger(value.revision) &&
-    value.revision >= SelectionRevisionBoundary.MinimumRevision &&
-    (value.identity === null ||
-      isSelectionIdentity(value.identity))
-  );
-}
-
 export function isRenderInteraction(
   value: unknown,
 ): value is RenderInteractionPayload {
@@ -87,7 +29,7 @@ export function isRenderInteraction(
     return isEnumValue(value.cursor, RenderCursor);
   }
   if (value.kind === RenderInteractionKind.Selection) {
-    return isSelection(value.selection);
+    return isRenderSelectionSnapshot(value.selection);
   }
   if (value.kind === RenderInteractionKind.RawCanvasClick) return true;
   if (value.kind === RenderInteractionKind.SelectedSide) {

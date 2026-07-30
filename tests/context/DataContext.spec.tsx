@@ -409,7 +409,9 @@ describe("DataContext", () => {
   });
 
   test("useData throws outside DataProvider", async () => {
-    const { useData } = await import("@/context/DataContext");
+    const { DataContextError, useData } = await import(
+      "@/context/DataContext"
+    );
     const { ThemeProvider } = await import("@/context/ThemeContext");
 
     function Orphan() {
@@ -435,7 +437,7 @@ describe("DataContext", () => {
       } catch (e) {
         throw e;
       }
-    }).toThrow("useData must be used within DataProvider");
+    }).toThrow(DataContextError.MissingProvider);
 
     act(() => {
       root.unmount();

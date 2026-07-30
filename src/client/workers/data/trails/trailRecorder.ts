@@ -32,6 +32,9 @@ export type TrailRecorder = Readonly<{
     observations: readonly TrailObservation[],
   ) => void;
   get: (id: string) => TrailEntry | null;
+  subscribe: (
+    listener: (source: TrackSource) => void,
+  ) => () => void;
 }>;
 
 function parseCache(value: unknown): Map<string, TrailEntry> {
@@ -49,6 +52,7 @@ export function createTrailRecorder(
 ): TrailRecorder {
   const now = options.now ?? Date.now;
   const trails = new Map<string, TrailEntry>();
+  const listeners = new Set<(source: TrackSource) => void>();
   let hydrated = false;
   let lastPersist = 0;
 
@@ -74,6 +78,12 @@ export function createTrailRecorder(
       }
       mergeCachedTrails(trails, cached);
       hydrated = true;
+      const hydratedSources = new Set(
+        Array.from(cached.values(), (entry) => entry.type),
+      );
+      for (const source of hydratedSources) {
+        for (const listener of listeners) listener(source);
+      }
     },
 
     observe(
@@ -83,10 +93,18 @@ export function createTrailRecorder(
       const at = now();
       if (!recordTrailPositions(trails, source, observations, at)) return;
       persist(at);
+      for (const listener of listeners) listener(source);
     },
 
     get(id: string): TrailEntry | null {
       return trails.get(id) ?? null;
+    },
+
+    subscribe(listener): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }

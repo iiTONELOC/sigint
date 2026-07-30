@@ -1,11 +1,17 @@
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
+import type {
+  RenderSelectionSnapshot,
+} from "@/workers/render/protocol";
 import {
   createSceneDataCommand,
+  createSceneInterestCommand,
   parseSceneDataCommand,
+  parseSceneInterestCommand,
   SceneDataCommandType,
-  SceneDataProtocolVersion,
+  SceneInterestCommandType,
+  SceneProtocolVersion,
   SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 
@@ -83,7 +89,7 @@ describe("scene data protocol", () => {
     expect(parseSceneDataCommand(malformed)).toBeNull();
     expect(
       parseSceneDataCommand({
-        protocolVersion: SceneDataProtocolVersion.Current,
+        protocolVersion: SceneProtocolVersion.Current,
         sessionId: "session-1",
         sequence: 1,
         type: MalformedSceneCommandType.LegacyData,
@@ -217,5 +223,80 @@ describe("scene data protocol", () => {
         handles: new Uint32Array([1, 1]),
       }),
     ).toBeNull();
+  });
+
+  test("accepts a selected track overlay", () => {
+    const selection: RenderSelectionSnapshot = {
+      revision: 2,
+      identity: {
+        source: Domain.Aircraft,
+        entityId: "aircraft-a",
+        interactionId: "aircraft-a",
+        pointType: Domain.Aircraft,
+      },
+    };
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SelectionOverlay,
+        selection,
+        trail: [{
+          lat: 40,
+          lon: -74,
+          ts: 100,
+        }],
+        motion: {
+          lat: 40,
+          lon: -74,
+          ts: 100,
+          headingDeg: 90,
+          speedMps: 200,
+        },
+      },
+      "session-1",
+      3,
+    );
+
+    expect(parseSceneDataCommand(command)).toEqual(command);
+  });
+
+  test("rejects track data for a non-track selection", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SelectionOverlay,
+        selection: {
+          revision: 2,
+          identity: {
+            source: Domain.Events,
+            entityId: "event-a",
+            interactionId: "event-a",
+            pointType: Domain.Events,
+          },
+        },
+        trail: [{
+          lat: 40,
+          lon: -74,
+          ts: 100,
+        }],
+        motion: null,
+      },
+      "session-1",
+      3,
+    );
+
+    expect(parseSceneDataCommand(command)).toBeNull();
+  });
+
+  test("accepts a selection interest command", () => {
+    const command = createSceneInterestCommand(
+      {
+        revision: 2,
+        identity: null,
+      },
+      "session-1",
+      1,
+    );
+
+    expect(command.type).toBe(SceneInterestCommandType.Selection);
+    expect(parseSceneInterestCommand(command)).toEqual(command);
   });
 });
