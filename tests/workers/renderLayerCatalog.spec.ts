@@ -5,6 +5,9 @@ import {
   RenderLayerCatalogErrorKind,
 } from "@/workers/render/scene/renderLayerCatalog";
 import {
+  RenderFocusResolver,
+} from "@/workers/render/focusResolver";
+import {
   RenderLayerOrder,
   type RenderLayer,
   type RenderLayerSelectionTarget,
@@ -18,6 +21,7 @@ import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
 import { Domain } from "@shared/domain/identity";
 import { sceneRebaseCommand } from "../_support/scene";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { RenderFocusKind } from "@/workers/render/protocol";
 
 class ProbeLayer implements RenderLayer {
   readonly order: RenderLayerOrder;
@@ -170,5 +174,79 @@ describe("RenderLayerCatalog", () => {
         Domain.Aircraft,
       ),
     );
+  });
+});
+
+describe("RenderFocusResolver", () => {
+  test("resolves an identity from the worker scene catalog", () => {
+    const catalog = new RenderLayerCatalog();
+    catalog.register(
+      new ProbeLayer(Domain.Ships, RenderLayerOrder.Ships),
+    );
+    const resolver = new RenderFocusResolver(catalog);
+
+    expect(
+      resolver.resolve(
+        {
+          source: Domain.Ships,
+          entityId: Domain.Ships,
+          kind: RenderFocusKind.Focus,
+        },
+        null,
+        null,
+      ),
+    ).toEqual({
+      id: Domain.Ships,
+      latitude: 0,
+      longitude: 0,
+    });
+  });
+
+  test("prefers the live position for the selected identity", () => {
+    const catalog = new RenderLayerCatalog();
+    catalog.register(
+      new ProbeLayer(Domain.Aircraft, RenderLayerOrder.Aircraft),
+    );
+    const resolver = new RenderFocusResolver(catalog);
+    const selectedPosition = {
+      id: Domain.Aircraft,
+      latitude: 10,
+      longitude: 20,
+    };
+
+    expect(
+      resolver.resolve(
+        {
+          source: Domain.Aircraft,
+          entityId: Domain.Aircraft,
+          kind: RenderFocusKind.Reveal,
+        },
+        {
+          source: Domain.Aircraft,
+          entityId: Domain.Aircraft,
+          interactionId: Domain.Aircraft,
+          pointType: Domain.Aircraft,
+        },
+        selectedPosition,
+      ),
+    ).toBe(selectedPosition);
+  });
+
+  test("rejects an identity absent from the worker scene", () => {
+    const resolver = new RenderFocusResolver(
+      new RenderLayerCatalog(),
+    );
+
+    expect(
+      resolver.resolve(
+        {
+          source: Domain.Events,
+          entityId: Domain.Events,
+          kind: RenderFocusKind.Focus,
+        },
+        null,
+        null,
+      ),
+    ).toBeNull();
   });
 });

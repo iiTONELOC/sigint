@@ -61,6 +61,7 @@ import {
   RenderSearchController,
   type RenderSearchSelectionState,
 } from "./render/searchController";
+import { RenderFocusResolver } from "./render/focusResolver";
 
 import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
@@ -601,6 +602,7 @@ const protocolState: RenderProtocolState = {
 let dataPort: MessagePort | null = null;
 
 const renderLayerCatalog = new RenderLayerCatalog();
+const focusResolver = new RenderFocusResolver(renderLayerCatalog);
 const selectionController = new RenderSelectionController();
 const searchController = new RenderSearchController();
 const selectionOverlayStore = new SelectionOverlayStore();
@@ -964,14 +966,16 @@ function handleFocus(
   >,
 ): void {
   if (!_viewport || !_presentation) return;
+  const position = focusResolver.resolve(
+    msg.payload,
+    selectionIdentity(),
+    selectedCameraPosition(),
+  );
+  if (!position) return;
   focusCamera(
     _camera,
     _cameraTarget,
-    {
-      id: msg.payload.id,
-      latitude: msg.payload.latitude,
-      longitude: msg.payload.longitude,
-    },
+    position,
     { width: _viewport.width, height: _viewport.height },
     _presentation.flat,
     msg.payload.kind,

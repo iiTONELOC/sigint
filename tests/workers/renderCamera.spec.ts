@@ -94,6 +94,28 @@ describe("render worker camera", () => {
     expect(target.active).toBe(true);
   });
 
+  it("reveals without locking the camera", () => {
+    const camera = createWorkerCameraState();
+    const target = createWorkerCameraTarget();
+
+    focusCamera(
+      camera,
+      target,
+      {
+        id: "storm",
+        latitude: 28.6,
+        longitude: -86,
+      },
+      viewport,
+      false,
+      RenderFocusKind.Reveal,
+    );
+
+    expect(target.lockedId).toBeNull();
+    expect(target.zoom).toBe(CAMERA_POLICY.revealGlobeZoom);
+    expect(target.active).toBe(true);
+  });
+
   it("stops scheduling when target and inertia settle", () => {
     const camera = createWorkerCameraState();
     const target = createWorkerCameraTarget();

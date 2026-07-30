@@ -21,7 +21,7 @@ import type { MinCategory } from "@/features/environmental/cyclones/types";
 import { isRecord } from "@shared/geo";
 
 export enum RenderProtocolVersion {
-  Current = 4,
+  Current = 5,
 }
 
 export enum RenderMessageType {
@@ -304,9 +304,8 @@ export type RenderPresentationPayload = Readonly<{
 }>;
 
 export type RenderFocusPayload = Readonly<{
-  id: string;
-  latitude: number;
-  longitude: number;
+  source: RenderSourceId;
+  entityId: string;
   kind: RenderFocusKind.Focus | RenderFocusKind.Reveal;
 }>;
 

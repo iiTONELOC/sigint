@@ -22,8 +22,32 @@ type PresentationCommandOptions = Readonly<{
   props: Readonly<GlobeVisualizationProps>;
 }>;
 
-function findTarget(id: string, props: Readonly<GlobeVisualizationProps>) {
-  return props.selected?.id === id ? props.selected : null;
+type FocusCommandOptions = Readonly<{
+  host: HTMLElement | null;
+  kind: RenderFocusKind.Focus | RenderFocusKind.Reveal;
+  selected: GlobeVisualizationProps["selected"];
+  targetId: string | null | undefined;
+}>;
+
+function useFocusCommand({
+  host,
+  kind,
+  selected,
+  targetId,
+}: FocusCommandOptions): void {
+  useEffect(() => {
+    if (!host || !targetId || selected?.id !== targetId) return;
+    const source = sourceForPointType(selected.type);
+    if (!source) return;
+    sendRenderSurfaceCommand(host, {
+      type: RenderMessageType.Focus,
+      payload: {
+        source,
+        entityId: canonicalEntityId(selected),
+        kind,
+      },
+    });
+  }, [host, kind, selected, targetId]);
 }
 
 export function usePresentationCommands({
@@ -133,33 +157,16 @@ export function usePresentationCommands({
     selected,
   ]);
 
-  useEffect(() => {
-    if (!host || !zoomToId) return;
-    const item = findTarget(zoomToId, props);
-    if (!item) return;
-    sendRenderSurfaceCommand(host, {
-      type: RenderMessageType.Focus,
-      payload: {
-        id: item.id,
-        latitude: recordLatitude(item),
-        longitude: recordLongitude(item),
-        kind: RenderFocusKind.Focus,
-      },
-    });
-  }, [host, props, zoomToId]);
-
-  useEffect(() => {
-    if (!host || !revealId) return;
-    const item = findTarget(revealId, props);
-    if (!item) return;
-    sendRenderSurfaceCommand(host, {
-      type: RenderMessageType.Focus,
-      payload: {
-        id: item.id,
-        latitude: recordLatitude(item),
-        longitude: recordLongitude(item),
-        kind: RenderFocusKind.Reveal,
-      },
-    });
-  }, [host, props, revealId]);
+  useFocusCommand({
+    host,
+    kind: RenderFocusKind.Focus,
+    selected,
+    targetId: zoomToId,
+  });
+  useFocusCommand({
+    host,
+    kind: RenderFocusKind.Reveal,
+    selected,
+    targetId: revealId,
+  });
 }
