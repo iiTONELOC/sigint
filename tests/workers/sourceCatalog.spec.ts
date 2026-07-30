@@ -8,6 +8,7 @@ import {
   SourceCatalog,
   SourceCatalogError,
   SourceCatalogErrorKind,
+  type CatalogRenderBinding,
   type CatalogSource,
 } from "@/workers/data/sourceCatalog";
 import { Domain } from "@shared/domain/identity";
@@ -18,7 +19,7 @@ function aircraft(): AircraftPoint {
     type: Domain.Aircraft,
     lat: 10,
     lon: 20,
-    data: {},
+    data: { callsign: "EAGLE" },
   };
 }
 
@@ -57,14 +58,42 @@ function sourceProbe(): SourceProbe {
   };
 }
 
+type RenderProbe = Readonly<{
+  binding: CatalogRenderBinding;
+  calls: {
+    rebases: number;
+    searches: Array<Readonly<{
+      active: boolean;
+      entityIds: readonly string[];
+      revision: number;
+    }>>;
+  };
+}>;
+
+function renderProbe(): RenderProbe {
+  const calls: RenderProbe["calls"] = {
+    rebases: 0,
+    searches: [],
+  };
+  return {
+    calls,
+    binding: {
+      publishRebase: () => {
+        calls.rebases += 1;
+      },
+      publishSearch: (entityIds, revision, active) => {
+        calls.searches.push({ entityIds, revision, active });
+      },
+    },
+  };
+}
+
 describe("SourceCatalog", () => {
   test("owns lifecycle, lookup, queries, and render rebases", async () => {
     const probe = sourceProbe();
+    const render = renderProbe();
     const catalog = new SourceCatalog();
-    let rebases = 0;
-    catalog.register(Domain.Aircraft, probe.owner, () => {
-      rebases += 1;
-    });
+    catalog.register(Domain.Aircraft, probe.owner, render.binding);
 
     expect(catalog.has(Domain.Aircraft)).toBe(true);
     expect(catalog.has(Domain.News)).toBe(false);
@@ -77,7 +106,7 @@ describe("SourceCatalog", () => {
       refresh: 1,
       start: 1,
     });
-    expect(rebases).toBe(1);
+    expect(render.calls.rebases).toBe(1);
     expect(catalog.values(Domain.Aircraft)).toEqual([aircraft()]);
     expect(
       catalog.entity(
@@ -95,13 +124,34 @@ describe("SourceCatalog", () => {
     });
   });
 
+  test("owns render search revision, refresh, clear, and reset", () => {
+    const source = sourceProbe();
+    const render = renderProbe();
+    const catalog = new SourceCatalog();
+    catalog.register(Domain.Aircraft, source.owner, render.binding);
+
+    catalog.setRenderSearch({ revision: 1, text: "EAGLE" });
+    catalog.refreshRenderSearch(Domain.Aircraft);
+    catalog.setRenderSearch({ revision: 2, text: null });
+    catalog.setRenderSearch({ revision: 1, text: "EAGLE" });
+    catalog.resetRenderSearch();
+    catalog.refreshRenderSearch(Domain.Aircraft);
+
+    expect(render.calls.searches).toEqual([
+      { entityIds: ["A1"], revision: 1, active: true },
+      { entityIds: ["A1"], revision: 1, active: true },
+      { entityIds: [], revision: 2, active: false },
+    ]);
+  });
+
   test("rejects duplicate source registration", () => {
     const probe = sourceProbe();
+    const render = renderProbe();
     const catalog = new SourceCatalog();
-    catalog.register(Domain.Aircraft, probe.owner, () => undefined);
+    catalog.register(Domain.Aircraft, probe.owner, render.binding);
 
     expect(() => {
-      catalog.register(Domain.Aircraft, probe.owner, () => undefined);
+      catalog.register(Domain.Aircraft, probe.owner, render.binding);
     }).toThrow(
       new SourceCatalogError(
         SourceCatalogErrorKind.DuplicateSource,

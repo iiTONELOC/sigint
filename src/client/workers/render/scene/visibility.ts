@@ -3,7 +3,6 @@ import type { RenderSceneView } from "@/workers/render/sceneStore";
 import type { DataType } from "@/features/base/dataPoints";
 
 export type SceneVisibilitySettings = Readonly<{
-  searchIds: ReadonlySet<string> | null;
   isolateMode: SelectedIsolateMode;
   isolatedId: string | null;
   isolatedType: string | null;
@@ -22,7 +21,6 @@ export function sceneRecordIsVisible(
   if (!enabled) return false;
   const entityId = view.entityIds[index];
   if (!entityId) return false;
-  if (settings.searchIds && !settings.searchIds.has(entityId)) return false;
   if (
     settings.isolateMode === IsolateMode.Solo &&
     entityId !== settings.isolatedId

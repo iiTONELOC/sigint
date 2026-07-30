@@ -109,7 +109,7 @@ describe("selection overlay channel", () => {
         channel.port2,
         SelectionOverlayChannelFixture.SessionId,
       );
-      expect(interestPublisher.publish(selected)).toBe(true);
+      expect(interestPublisher.publishSelection(selected)).toBe(true);
 
       await overlayReceived;
 

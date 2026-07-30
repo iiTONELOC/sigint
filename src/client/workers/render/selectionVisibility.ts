@@ -7,12 +7,14 @@ import { Domain } from "@shared/domain/identity";
 
 export type SelectionVisibility = Readonly<{
   selection: RenderSelectionIdentity | null;
-  searchIds: ReadonlySet<string> | null;
   isolateMode: RenderPresentationPayload["isolateMode"];
   isolatedId: string | null;
   isolatedType: string | null;
   layers: RenderPresentationPayload["layers"];
   aircraftEntityIsVisible: (entityId: string) => boolean;
+  searchIncludesEntity: (
+    selection: RenderSelectionIdentity,
+  ) => boolean;
 }>;
 
 export function selectionIsVisible(
@@ -20,12 +22,7 @@ export function selectionIsVisible(
 ): boolean {
   const selection = settings.selection;
   if (!selection) return false;
-  if (
-    settings.searchIds &&
-    !settings.searchIds.has(selection.interactionId)
-  ) {
-    return false;
-  }
+  if (!settings.searchIncludesEntity(selection)) return false;
   if (
     settings.isolateMode === IsolateMode.Solo &&
     selection.interactionId !== settings.isolatedId

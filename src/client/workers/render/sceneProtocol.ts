@@ -14,13 +14,15 @@ import {
   isTrailPoint,
 } from "@/lib/geo/trails/trailStore";
 import {
+  isRenderSearchSnapshot,
   isRenderSelectionSnapshot,
+  type RenderSearchSnapshot,
   type RenderSelectionOverlay,
   type RenderSelectionSnapshot,
 } from "@/workers/render/protocol";
 
 export enum SceneProtocolVersion {
-  Current = 6,
+  Current = 7,
 }
 
 export enum SceneDataCommandType {
@@ -32,6 +34,7 @@ export enum SceneDataCommandType {
 
 export enum SceneInterestCommandType {
   Selection = "selectionInterest",
+  Search = "searchInterest",
 }
 
 export enum SceneGeometryKind {
@@ -133,8 +136,21 @@ export type SceneSelectionInterest = Readonly<{
   selection: RenderSelectionSnapshot;
 }>;
 
+export type SceneSearchInterest = Readonly<{
+  type: SceneInterestCommandType.Search;
+  search: RenderSearchSnapshot;
+}>;
+
+export type SceneInterestCommandBody =
+  | SceneSelectionInterest
+  | SceneSearchInterest;
+
+export type SceneCommandBody =
+  | SceneDataCommandBody
+  | SceneInterestCommandBody;
+
 export type SceneInterestCommand =
-  SceneSelectionInterest & SceneProtocolEnvelope;
+  SceneInterestCommandBody & SceneProtocolEnvelope;
 
 export class SceneProtocolState {
   readonly sessionId: string;
@@ -472,8 +488,8 @@ function hasValidPatchBuffers(
   );
 }
 
-export function createSceneDataCommand<
-  TBody extends SceneDataCommandBody,
+export function createSceneCommand<
+  TBody extends SceneCommandBody,
 >(
   body: TBody,
   sessionId: string,
@@ -481,20 +497,6 @@ export function createSceneDataCommand<
 ): TBody & SceneProtocolEnvelope {
   return {
     ...body,
-    protocolVersion: SceneProtocolVersion.Current,
-    sessionId,
-    sequence,
-  };
-}
-
-export function createSceneInterestCommand(
-  selection: RenderSelectionSnapshot,
-  sessionId: string,
-  sequence: number,
-): SceneInterestCommand {
-  return {
-    type: SceneInterestCommandType.Selection,
-    selection,
     protocolVersion: SceneProtocolVersion.Current,
     sessionId,
     sequence,
@@ -630,18 +632,28 @@ export function parseSceneInterestCommand(
 ): SceneInterestCommand | null {
   if (!isRecord(value)) return null;
   const envelope = sceneProtocolEnvelope(value);
+  if (!envelope) return null;
   if (
-    !envelope ||
-    value.type !== SceneInterestCommandType.Selection ||
-    !isRenderSelectionSnapshot(value.selection)
+    value.type === SceneInterestCommandType.Selection &&
+    isRenderSelectionSnapshot(value.selection)
   ) {
-    return null;
+    return {
+      ...envelope,
+      type: SceneInterestCommandType.Selection,
+      selection: value.selection,
+    };
   }
-  return {
-    ...envelope,
-    type: SceneInterestCommandType.Selection,
-    selection: value.selection,
-  };
+  if (
+    value.type === SceneInterestCommandType.Search &&
+    isRenderSearchSnapshot(value.search)
+  ) {
+    return {
+      ...envelope,
+      type: SceneInterestCommandType.Search,
+      search: value.search,
+    };
+  }
+  return null;
 }
 
 export function sceneDataTransfers(

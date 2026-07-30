@@ -61,6 +61,10 @@ class ProbeLayer implements RenderLayer {
     };
   }
 
+  searchIncludesEntity(entityId: string): boolean {
+    return entityId === this.source;
+  }
+
   selectionAnchor(entityId: string): SceneProjection | null {
     return entityId === this.source
       ? { x: 1, y: 2, depth: 1 }
@@ -133,6 +137,9 @@ describe("RenderLayerCatalog", () => {
     expect(
       catalog.selectionAnchor(Domain.Aircraft, Domain.Ships),
     ).toBeNull();
+    expect(
+      catalog.searchIncludesEntity(Domain.Ships, Domain.Ships),
+    ).toBe(true);
     expect(
       catalog.selectionTarget(Domain.Ships, Domain.Ships),
     ).toEqual({

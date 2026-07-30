@@ -41,7 +41,7 @@ export function usePresentationCommands({
     isolateMode,
     layers,
     rotationSpeed = 1,
-    searchMatchIds,
+    searchText,
     selected,
     zoomToId,
     revealId,
@@ -64,6 +64,14 @@ export function usePresentationCommands({
         : null,
     });
   }, [host, selected]);
+
+  useEffect(() => {
+    if (!host) return;
+    sendRenderSurfaceCommand(host, {
+      type: RenderMessageType.Search,
+      payload: searchText,
+    });
+  }, [host, searchText]);
 
   useEffect(() => {
     if (!host) return;
@@ -98,9 +106,6 @@ export function usePresentationCommands({
         },
         earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
         fireMinConfidence: fireFilter.minConfidence,
-        searchMatchIds: searchMatchIds
-          ? Array.from(searchMatchIds)
-          : null,
         selectedItem,
         cyclonesMinCategory:
           cyclone?.minCategory ?? SaffirSimpson.None,
@@ -125,7 +130,6 @@ export function usePresentationCommands({
     isolateMode,
     layers,
     rotationSpeed,
-    searchMatchIds,
     selected,
   ]);
 

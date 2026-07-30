@@ -5,8 +5,7 @@ import type {
   RenderSelectionSnapshot,
 } from "@/workers/render/protocol";
 import {
-  createSceneDataCommand,
-  createSceneInterestCommand,
+  createSceneCommand,
   parseSceneDataCommand,
   parseSceneInterestCommand,
   SceneDataCommandType,
@@ -21,7 +20,7 @@ enum MalformedSceneCommandType {
 
 describe("scene data protocol", () => {
   test("accepts a versioned transferable source patch", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SourcePatch,
         source: Domain.Aircraft,
@@ -57,7 +56,7 @@ describe("scene data protocol", () => {
   });
 
   test("rejects malformed buffers and legacy object arrays", () => {
-    const malformed = createSceneDataCommand(
+    const malformed = createSceneCommand(
       {
         type: SceneDataCommandType.SourcePatch,
         source: Domain.Aircraft,
@@ -99,7 +98,7 @@ describe("scene data protocol", () => {
   });
 
   test("rejects geometry with broken topology", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SourcePatch,
         source: Domain.Weather,
@@ -134,7 +133,7 @@ describe("scene data protocol", () => {
   });
 
   test("rejects an open geometry ring", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SourcePatch,
         source: Domain.Weather,
@@ -169,7 +168,7 @@ describe("scene data protocol", () => {
   });
 
   test("accepts an open polyline with two points", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SourcePatch,
         source: Domain.Cyclones,
@@ -204,7 +203,7 @@ describe("scene data protocol", () => {
   });
 
   test("accepts unique source search handles", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SourceSearch,
         source: Domain.Earthquake,
@@ -235,7 +234,7 @@ describe("scene data protocol", () => {
         pointType: Domain.Aircraft,
       },
     };
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SelectionOverlay,
         selection,
@@ -264,7 +263,7 @@ describe("scene data protocol", () => {
   });
 
   test("rejects track data for a non-track selection", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SelectionOverlay,
         selection: {
@@ -292,7 +291,7 @@ describe("scene data protocol", () => {
   });
 
   test("rejects an aircraft route for another source", () => {
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       {
         type: SceneDataCommandType.SelectionOverlay,
         selection: {
@@ -319,16 +318,36 @@ describe("scene data protocol", () => {
   });
 
   test("accepts a selection interest command", () => {
-    const command = createSceneInterestCommand(
+    const command = createSceneCommand(
       {
-        revision: 2,
-        identity: null,
+        type: SceneInterestCommandType.Selection,
+        selection: {
+          revision: 2,
+          identity: null,
+        },
       },
       "session-1",
       1,
     );
 
     expect(command.type).toBe(SceneInterestCommandType.Selection);
+    expect(parseSceneInterestCommand(command)).toEqual(command);
+  });
+
+  test("accepts a search interest command", () => {
+    const command = createSceneCommand(
+      {
+        type: SceneInterestCommandType.Search,
+        search: {
+          revision: 3,
+          text: "EAGLE",
+        },
+      },
+      "session-1",
+      1,
+    );
+
+    expect(command.type).toBe(SceneInterestCommandType.Search);
     expect(parseSceneInterestCommand(command)).toEqual(command);
   });
 });

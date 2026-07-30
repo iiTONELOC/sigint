@@ -17,7 +17,10 @@ import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
-import { sceneRebaseCommand } from "../_support/scene";
+import {
+  sceneRebaseCommand,
+  sceneSearchCommand,
+} from "../_support/scene";
 
 const view = {
   capacity: 2,
@@ -46,7 +49,6 @@ function filter(
 ): EventSceneFilter {
   return {
     enabled: true,
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -97,13 +99,9 @@ describe("event scene layer", () => {
     expect(layer.hasTimeAnimation(false)).toBe(true);
     expect(layer.hasTimeAnimation(true)).toBe(false);
 
-    expect(
-      eventSceneIncludes(
-        view,
-        0,
-        filter({ searchIds: new Set(["event-b"]) }),
-      ),
-    ).toBe(false);
+    layer.apply(sceneSearchCommand(Domain.Events, [2], 1));
+    expect(layer.searchIncludesEntity("event-a")).toBe(false);
+    expect(layer.searchIncludesEntity("event-b")).toBe(true);
     expect(
       eventSceneIncludes(
         view,

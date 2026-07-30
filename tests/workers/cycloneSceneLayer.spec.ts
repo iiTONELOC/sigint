@@ -19,7 +19,7 @@ import {
   SceneHitKind,
 } from "@/workers/render/scene/projectedLayer";
 import {
-  createSceneDataCommand,
+  createSceneCommand,
   SceneDataCommandType,
   type SceneSourceCommandBody,
 } from "@/workers/render/sceneProtocol";
@@ -99,7 +99,6 @@ function filter(
     showWindField: true,
     showModels: true,
     hiddenModels: new Set<string>(),
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -160,7 +159,7 @@ describe("cyclone scene layer", () => {
     );
     const layer = new CycloneLayer();
     layer.apply(
-      createSceneDataCommand(sceneCommand(), "session-a", 1),
+      createSceneCommand(sceneCommand(), "session-a", 1),
     );
     layer.project(frame(), filter(true));
 
@@ -211,7 +210,7 @@ describe("cyclone scene layer", () => {
   test("applies forecast visibility and category filters", () => {
     const layer = new CycloneLayer();
     layer.apply(
-      createSceneDataCommand(sceneCommand(), "session-b", 1),
+      createSceneCommand(sceneCommand(), "session-b", 1),
     );
 
     layer.project(frame(), filter(false));

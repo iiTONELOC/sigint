@@ -47,14 +47,13 @@ import {
 } from "@/workers/data/aircraftDossierService";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
-  findQueryableSearchIds,
   QUERYABLE_SOURCE_IDS,
   type QueryableSourceId,
 } from "@/workers/data/queryableSources";
 import {
-  SceneSearchBinding,
-} from "@/workers/data/render-codecs/sceneBinding";
-import { SourceCatalog } from "@/workers/data/sourceCatalog";
+  SourceCatalog,
+  type CatalogRenderBinding,
+} from "@/workers/data/sourceCatalog";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
@@ -79,6 +78,10 @@ import {
   SceneInterestCommandType,
   SceneProtocolState,
 } from "@/workers/render/sceneProtocol";
+import type {
+  DatasetEntity,
+  DatasetPatch,
+} from "@/workers/data/datasetStore";
 
 type CommandOf<TType extends DataWorkerMessageType> = Extract<
   DataWorkerCommand,
@@ -207,76 +210,87 @@ trailRecorder.subscribe((source) => {
   selectionInterest.refresh(source);
 });
 
+type RenderRebasePublisher = Readonly<{
+  publishRebase: () => void;
+}>;
+
+type RenderScenePublisher<TEntity extends DatasetEntity> = Readonly<{
+  publish: (patch: DatasetPatch<TEntity>) => void;
+  publishSearch: (
+    entityIds: readonly string[],
+    revision: number,
+    active: boolean,
+  ) => void;
+}>;
+
+type SourceRenderBinding<TEntity extends DatasetEntity> =
+  CatalogRenderBinding &
+  Readonly<{
+    publishPatch: (patch: DatasetPatch<TEntity>) => void;
+  }>;
+
+function sourceRenderBinding<TEntity extends DatasetEntity>(
+  source: QueryableSourceId,
+  owner: RenderRebasePublisher,
+  scene: RenderScenePublisher<TEntity>,
+): SourceRenderBinding<TEntity> {
+  return {
+    publishPatch: (patch) => {
+      scene.publish(patch);
+      sourceCatalog.refreshRenderSearch(source);
+    },
+    publishRebase: () => {
+      owner.publishRebase();
+    },
+    publishSearch: (entityIds, revision, active) => {
+      scene.publishSearch(entityIds, revision, active);
+    },
+  };
+}
+
+const aircraftRender = sourceRenderBinding(
+  Domain.Aircraft,
+  aircraftOwner,
+  aircraftSceneBinding,
+);
 aircraftOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    aircraftSceneBinding.publish(patch);
-  },
+  publishPatch: aircraftRender.publishPatch,
 });
 
 const earthquakeOwner = new EarthquakeSource();
-const earthquakeSearch = new SceneSearchBinding({
-  findEntityIds: (text) =>
-    findQueryableSearchIds(
-      Domain.Earthquake,
-      earthquakeOwner.values(),
-      text,
-    ),
-  publishSearch: (entityIds, revision, active) => {
-    earthquakeSceneBinding.publishSearch(
-      entityIds,
-      revision,
-      active,
-    );
-  },
-});
+const earthquakeRender = sourceRenderBinding(
+  Domain.Earthquake,
+  earthquakeOwner,
+  earthquakeSceneBinding,
+);
 earthquakeOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    earthquakeSceneBinding.publish(patch);
-    earthquakeSearch.refresh();
-  },
+  publishPatch: earthquakeRender.publishPatch,
 });
 
 const fireOwner = new FireSource();
-const fireSearch = new SceneSearchBinding({
-  findEntityIds: (text) =>
-    findQueryableSearchIds(
-      Domain.Fire,
-      fireOwner.values(),
-      text,
-    ),
-  publishSearch: (entityIds, revision, active) => {
-    fireSceneBinding.publishSearch(entityIds, revision, active);
-  },
-});
+const fireRender = sourceRenderBinding(
+  Domain.Fire,
+  fireOwner,
+  fireSceneBinding,
+);
 fireOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    fireSceneBinding.publish(patch);
-    fireSearch.refresh();
-  },
+  publishPatch: fireRender.publishPatch,
 });
-
-const sceneSearchBindings = new Map<
-  QueryableSourceId,
-  SceneSearchBinding
->([
-  [Domain.Earthquake, earthquakeSearch],
-  [Domain.Fire, fireSearch],
-]);
 
 const shipOwner = new ShipSource({
   patchObservers: [
@@ -287,111 +301,120 @@ const shipOwner = new ShipSource({
     ),
   ],
 });
+const shipRender = sourceRenderBinding(
+  Domain.Ships,
+  shipOwner,
+  shipSceneBinding,
+);
 shipOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    shipSceneBinding.publish(patch);
-  },
+  publishPatch: shipRender.publishPatch,
 });
 
 const eventOwner = new EventSource();
+const eventRender = sourceRenderBinding(
+  Domain.Events,
+  eventOwner,
+  eventSceneBinding,
+);
 eventOwner.attach({
   readCache: () => store.get(EVENT_SOURCE_POLICY.cacheKey),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    eventSceneBinding.publish(patch);
-  },
+  publishPatch: eventRender.publishPatch,
 });
 
 const weatherOwner = new WeatherAlertSource();
+const weatherRender = sourceRenderBinding(
+  Domain.Weather,
+  weatherOwner,
+  weatherSceneBinding,
+);
 weatherOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, value) => {
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    weatherSceneBinding.publish(patch);
-  },
+  publishPatch: weatherRender.publishPatch,
 });
 
 const cycloneOwner = new CycloneSource();
+const cycloneRender = sourceRenderBinding(
+  Domain.Cyclones,
+  cycloneOwner,
+  cycloneSceneBinding,
+);
 cycloneOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, snapshot) => {
     coordinator.setDeferred(key, snapshot);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    cycloneSceneBinding.publish(patch);
-  },
+  publishPatch: cycloneRender.publishPatch,
 });
 
 const cycloneWarningOwner = new CycloneWarningSource();
+const cycloneWarningRender = sourceRenderBinding(
+  Domain.CycloneWarnings,
+  cycloneWarningOwner,
+  cycloneWarningSceneBinding,
+);
 cycloneWarningOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, value) => {
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPatch: (patch) => {
-    cycloneWarningSceneBinding.publish(patch);
-  },
+  publishPatch: cycloneWarningRender.publishPatch,
 });
 
 sourceCatalog.register(
   Domain.Aircraft,
   aircraftOwner,
-  () => aircraftOwner.publishRebase(),
+  aircraftRender,
 );
 sourceCatalog.register(
   Domain.CycloneWarnings,
   cycloneWarningOwner,
-  () => cycloneWarningOwner.publishRebase(),
+  cycloneWarningRender,
 );
 sourceCatalog.register(
   Domain.Cyclones,
   cycloneOwner,
-  () => cycloneOwner.publishRebase(),
+  cycloneRender,
   (id) => cycloneOwner.resolveEntity(id),
 );
 sourceCatalog.register(
   Domain.Earthquake,
   earthquakeOwner,
-  () => {
-    earthquakeOwner.publishRebase();
-    earthquakeSearch.refresh();
-  },
+  earthquakeRender,
 );
 sourceCatalog.register(
   Domain.Events,
   eventOwner,
-  () => eventOwner.publishRebase(),
+  eventRender,
 );
 sourceCatalog.register(
   Domain.Fire,
   fireOwner,
-  () => {
-    fireOwner.publishRebase();
-    fireSearch.refresh();
-  },
+  fireRender,
 );
 sourceCatalog.register(
   Domain.Ships,
   shipOwner,
-  () => shipOwner.publishRebase(),
+  shipRender,
 );
 sourceCatalog.register(
   Domain.Weather,
   weatherOwner,
-  () => weatherOwner.publishRebase(),
+  weatherRender,
 );
 
 type InactiveSourceError = Error & Readonly<{ source: string }>;
@@ -452,13 +475,16 @@ function handleConnectRender(
   const interestState = new SceneProtocolState(
     command.renderSessionId,
   );
+  sourceCatalog.resetRenderSearch();
   selectionInterest.connect();
   renderPort.onmessage = (event: MessageEvent<unknown>) => {
     const interest = parseSceneInterestCommand(event.data);
     if (!interest || !interestState.accept(interest)) return;
     if (interest.type === SceneInterestCommandType.Selection) {
       selectionInterest.update(interest.selection);
+      return;
     }
+    sourceCatalog.setRenderSearch(interest.search);
   };
   renderPort.start();
   scenePublisher.connect(renderPort, command.renderSessionId);
@@ -546,13 +572,6 @@ function handleQuerySource(
   if (event) post(event);
 }
 
-function handleSetSourceSearch(
-  command: CommandOf<DataWorkerMessageType.SetSourceSearch>,
-): void {
-  sceneSearchBindings.get(command.source)?.update(command.text);
-  complete(command.requestId);
-}
-
 function handleGetTrail(
   command: CommandOf<DataWorkerMessageType.GetTrail>,
 ): void {
@@ -628,8 +647,6 @@ async function dispatch(command: DataWorkerCommand): Promise<void> {
       return handleGetSourceEntity(command);
     case DataWorkerMessageType.QuerySource:
       return handleQuerySource(command);
-    case DataWorkerMessageType.SetSourceSearch:
-      return handleSetSourceSearch(command);
     case DataWorkerMessageType.GetTrail:
       return handleGetTrail(command);
     case DataWorkerMessageType.GetAircraftDossier:

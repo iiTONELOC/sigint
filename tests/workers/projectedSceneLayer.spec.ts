@@ -7,7 +7,7 @@ import {
 } from "@/workers/render/scene/projectedLayer";
 import { SceneStore } from "@/workers/render/sceneStore";
 import {
-  createSceneDataCommand,
+  createSceneCommand,
   SceneDataCommandType,
   SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
@@ -15,7 +15,7 @@ import {
 describe("projected scene layer", () => {
   test("projects active records and uses visible hit buckets", () => {
     const store = new SceneStore(Domain.Aircraft);
-    store.apply(createSceneDataCommand({
+    store.apply(createSceneCommand({
       type: SceneDataCommandType.SourcePatch,
       source: Domain.Aircraft,
       sourceVersion: 1,

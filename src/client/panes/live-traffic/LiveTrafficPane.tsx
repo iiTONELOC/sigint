@@ -72,7 +72,7 @@ export function LiveTrafficPane() {
     zoomToId,
     setZoomToId,
     revealId,
-    searchMatchIds,
+    searchText,
     watchActive,
     watchPaused,
     watchMode,
@@ -204,6 +204,7 @@ export function LiveTrafficPane() {
         autoRotate={autoRotate}
         rotationSpeed={rotationSpeed}
         onSelect={handleSelect}
+        onIsolateModeChange={handleSetIsolateMode}
         onRawCanvasClick={handleRawCanvasClick}
         onMiddleClick={handleMiddleClick}
         selected={selectedCurrent}
@@ -211,7 +212,7 @@ export function LiveTrafficPane() {
         isolateMode={isolateMode}
         zoomToId={zoomToId}
         revealId={revealId}
-        searchMatchIds={searchMatchIds}
+        searchText={searchText}
         onSelectedSide={setPanelSide}
       />
 

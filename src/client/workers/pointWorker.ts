@@ -50,12 +50,17 @@ import {
   type RenderWorkerCommand,
   type RenderWorkerColors,
   type RenderWorkerEventBody,
+  type SelectedIsolateMode,
   type SelectedRenderItem,
   PanelSide,
 } from "./render/protocol";
 import {
   RenderSelectionController,
 } from "./render/selectionController";
+import {
+  RenderSearchController,
+  type RenderSearchSelectionState,
+} from "./render/searchController";
 
 import { drawMarkerLayerSequence } from "./render/layerSequence";
 import type { AircraftData } from "@/features/tracking/aircraft/types";
@@ -137,6 +142,9 @@ import type {
 import {
   SceneInterestPublisher,
 } from "@/workers/render/sceneInterestPublisher";
+import type {
+  RenderSourceId,
+} from "@/workers/data/sourceIds";
 import {
   SelectionOverlayStore,
 } from "@/workers/render/selectionOverlayStore";
@@ -594,6 +602,7 @@ let dataPort: MessagePort | null = null;
 
 const renderLayerCatalog = new RenderLayerCatalog();
 const selectionController = new RenderSelectionController();
+const searchController = new RenderSearchController();
 const selectionOverlayStore = new SelectionOverlayStore();
 const sceneInterestPublisher = new SceneInterestPublisher();
 const aircraftLayer = new AircraftLayer();
@@ -622,9 +631,11 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
     const sceneCommand = parseSceneDataCommand(event.data);
     if (!sceneCommand || !sceneState.accept(sceneCommand)) return;
     if (sceneCommand.type === SceneDataCommandType.Bind) {
-      sceneInterestPublisher.publish(
+      sceneInterestPublisher.publishSelection(
         selectionController.snapshot(),
       );
+      const search = searchController.snapshot();
+      if (search) sceneInterestPublisher.publishSearch(search);
       globalThis.postMessage(
         createRenderMessage(
           { type: RenderMessageType.DataChannelReady },
@@ -648,6 +659,12 @@ function bindDataPort(port: MessagePort, sessionId: string): void {
       return;
     }
     if (!renderLayerCatalog.apply(sceneCommand)) return;
+    if (sceneCommand.type === SceneDataCommandType.SourceSearch) {
+      reconcileSearchSelection(
+        sceneCommand.source,
+        sceneCommand.searchRevision,
+      );
+    }
     scheduleRender();
   };
   port.start();
@@ -676,6 +693,10 @@ function selectedInteractionId(): string | null {
   return selectionIdentity()?.interactionId ?? null;
 }
 
+function currentIsolateMode(): SelectedIsolateMode {
+  return _presentation?.isolateMode ?? null;
+}
+
 function selectedPresentationItem(): SelectedRenderItem | null {
   const selectedId = selectedInteractionId();
   const item = _presentation?.selectedItem;
@@ -689,19 +710,58 @@ function updateSelection(
 ): boolean {
   if (!selectionController.set(identity)) return false;
   selectionOverlayStore.clear();
-  sceneInterestPublisher.publish(selectionController.snapshot());
+  sceneInterestPublisher.publishSelection(
+    selectionController.snapshot(),
+  );
   scheduleRender();
   return true;
+}
+
+function postSelectionInteraction(
+  isolateMode: SelectedIsolateMode,
+): void {
+  postInteraction({
+    kind: RenderInteractionKind.Selection,
+    selection: selectionController.snapshot(),
+    isolateMode,
+  });
 }
 
 function commitCanvasSelection(
   identity: RenderSelectionIdentity | null,
 ): void {
   if (!updateSelection(identity)) return;
-  postInteraction({
-    kind: RenderInteractionKind.Selection,
-    selection: selectionController.snapshot(),
-  });
+  postSelectionInteraction(
+    identity === null ? null : currentIsolateMode(),
+  );
+}
+
+function restoreSearchSelection(
+  state: RenderSearchSelectionState,
+): void {
+  if (!updateSelection(state.identity)) return;
+  postSelectionInteraction(state.isolateMode);
+}
+
+function reconcileSearchSelection(
+  source: RenderSourceId,
+  searchRevision: number,
+): void {
+  const identity = selectionIdentity();
+  const hidden = searchController.hideSelection(
+    source,
+    searchRevision,
+    identity
+      ? renderLayerCatalog.searchIncludesEntity(
+          source,
+          identity.entityId,
+        )
+      : false,
+    identity,
+    currentIsolateMode(),
+  );
+  if (!hidden || !updateSelection(null)) return;
+  postSelectionInteraction(null);
 }
 
 function postCursor(cursor: CursorInteraction): void {
@@ -945,6 +1005,13 @@ function handleSelection(
   updateSelection(identity);
 }
 
+function handleSearch(text: string | null): void {
+  const update = searchController.update(text);
+  if (!update) return;
+  sceneInterestPublisher.publishSearch(update.search);
+  if (update.restore) restoreSearchSelection(update.restore);
+}
+
 function dispatchRenderCommand(msg: RenderWorkerCommand): void {
   switch (msg.type) {
     case RenderMessageType.Init:
@@ -961,6 +1028,9 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
       break;
     case RenderMessageType.Selection:
       handleSelection(msg.payload);
+      break;
+    case RenderMessageType.Search:
+      handleSearch(msg.payload);
       break;
     case RenderMessageType.Focus:
       handleFocus(msg);
@@ -1738,7 +1808,6 @@ type ProjectFrameOptions = Readonly<{
 }>;
 
 type ProjectedFrame = Readonly<{
-  searchSet: Set<string> | null;
   isolatedType: string | null;
   aircraftSceneFilter: AircraftSceneFilter;
 }>;
@@ -1755,13 +1824,11 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isoId && selection?.interactionId === isoId
       ? selection.pointType
       : null;
-  const searchSet = p.searchMatchIds ? new Set(p.searchMatchIds) : null;
   const base = sceneProjectionBase(
     options.geometry,
     options.project,
   );
   const sceneVisibility: SceneVisibilitySettings = {
-    searchIds: searchSet,
     isolateMode: isoMode,
     isolatedId: isoId,
     isolatedType,
@@ -1781,7 +1848,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     enabled: p.layers[Domain.Fires] !== false,
     minimumConfidence: p.fireMinConfidence,
     ...sceneVisibility,
-    searchIds: null,
   };
   fireLayer.project(base, fireSceneFilter);
 
@@ -1794,7 +1860,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     enabled: p.layers[Domain.Quakes] !== false,
     minimumMagnitude: p.earthquakeMinMagnitude,
     ...sceneVisibility,
-    searchIds: null,
   };
   earthquakeLayer.project(base, earthquakeSceneFilter);
 
@@ -1819,7 +1884,6 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   });
 
   return {
-    searchSet,
     isolatedType,
     aircraftSceneFilter,
   };
@@ -1933,7 +1997,6 @@ function renderFrame(): void {
     presentation: p,
   });
   const {
-    searchSet,
     isolatedType,
     aircraftSceneFilter,
   } = projected;
@@ -1950,7 +2013,6 @@ function renderFrame(): void {
   // ── Draw trail (only if the selected item passes current filters) ──
   const drawSelectedTrail = selectionIsVisible({
     selection,
-    searchIds: searchSet,
     isolateMode: isoMode,
     isolatedId: isoId,
     isolatedType,
@@ -1959,6 +2021,11 @@ function renderFrame(): void {
       aircraftLayer.includesEntity(
         entityId,
         aircraftSceneFilter,
+      ),
+    searchIncludesEntity: (identity) =>
+      renderLayerCatalog.searchIncludesEntity(
+        identity.source,
+        identity.entityId,
       ),
   });
 

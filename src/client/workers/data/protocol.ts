@@ -107,11 +107,6 @@ export type DataWorkerCommandBody =
       id: string;
     }>
   | QuerySourceCommandBody
-  | Readonly<{
-      type: DataWorkerMessageType.SetSourceSearch;
-      source: DataWorkerQueryableSource;
-      text: string | null;
-    }>
   | Readonly<{ type: DataWorkerMessageType.GetTrail; id: string }>
   | Readonly<{
       type: DataWorkerMessageType.GetAircraftDossier;
@@ -289,18 +284,6 @@ function parseSourceCommand(
       envelope,
       value.query,
     );
-  }
-
-  if (
-    value.type === DataWorkerMessageType.SetSourceSearch &&
-    (value.text === null || typeof value.text === "string")
-  ) {
-    return {
-      ...envelope,
-      type: DataWorkerMessageType.SetSourceSearch,
-      source: value.source,
-      text: value.text,
-    };
   }
 
   return null;

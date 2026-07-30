@@ -9,7 +9,7 @@ import {
 } from "@/workers/render/sceneProtocol";
 
 describe("scene interest publisher", () => {
-  test("publishes selection revisions in its own sequence", () => {
+  test("publishes selection and search in one sequence", () => {
     const messages: unknown[] = [];
     const publisher = new SceneInterestPublisher();
     publisher.connect({
@@ -18,7 +18,7 @@ describe("scene interest publisher", () => {
       },
     }, "session-a");
 
-    expect(publisher.publish({
+    expect(publisher.publishSelection({
       revision: 1,
       identity: {
         source: Domain.Aircraft,
@@ -27,9 +27,9 @@ describe("scene interest publisher", () => {
         pointType: Domain.Aircraft,
       },
     })).toBe(true);
-    expect(publisher.publish({
+    expect(publisher.publishSearch({
       revision: 2,
-      identity: null,
+      text: "EAGLE",
     })).toBe(true);
 
     expect(messages).toEqual([
@@ -49,10 +49,10 @@ describe("scene interest publisher", () => {
         sequence: 1,
       },
       {
-        type: SceneInterestCommandType.Selection,
-        selection: {
+        type: SceneInterestCommandType.Search,
+        search: {
           revision: 2,
-          identity: null,
+          text: "EAGLE",
         },
         protocolVersion: SceneProtocolVersion.Current,
         sessionId: "session-a",

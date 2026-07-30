@@ -204,7 +204,7 @@ describe("Search", () => {
       React.createElement(Search, {
         onSelect: () => {},
         onZoomTo: () => {},
-        onMatchingIdsChange: () => {},
+        onCommit: () => {},
       }),
     );
     expect(container.innerHTML.length).toBeGreaterThan(0);

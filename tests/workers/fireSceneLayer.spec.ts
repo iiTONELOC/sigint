@@ -66,7 +66,6 @@ function filter(
   return {
     enabled: true,
     minimumConfidence: FireConfidenceLevel.Low,
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -174,19 +173,12 @@ describe("fire scene layer", () => {
     expect(markers[1]?.glow).toBeNull();
   });
 
-  test("rejects incompatible schema and bounded search misses", () => {
+  test("rejects an incompatible schema", () => {
     expect(
       fireSceneIncludes(
         { ...view, attributeStride: 1 },
         0,
         filter(),
-      ),
-    ).toBe(false);
-    expect(
-      fireSceneIncludes(
-        view,
-        0,
-        filter({ searchIds: new Set(["FI-low"]) }),
       ),
     ).toBe(false);
   });

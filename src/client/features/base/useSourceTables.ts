@@ -7,15 +7,16 @@ import {
   QUERYABLE_SOURCE_IDS,
   type QueryableSourceId,
 } from "@/workers/data/queryableSources";
-import type {
-  PointUiQuery,
-  TableSortDirection,
-  TableSortKey,
+import {
+  PointUiQueryKind,
+  type PointUiQuery,
+  type TableSortDirectionValue,
+  type TableSortKeyValue,
 } from "@/workers/data/uiQuery";
 
 export type SourceTableOptions = Readonly<{
-  sortKey: TableSortKey;
-  sortDirection: TableSortDirection;
+  sortKey: TableSortKeyValue;
+  sortDirection: TableSortDirectionValue;
   limit: number;
   /** Restrict to one point type, or null for every type. */
   pointType: DataType | null;
@@ -38,7 +39,7 @@ function tableQuery(
 ): PointUiQuery | null {
   if (options.disabled?.[source]) return null;
   return {
-    kind: "table",
+    kind: PointUiQueryKind.Table,
     minValue: options.minValues?.[source] ?? 0,
     sortKey: options.sortKey,
     sortDirection: options.sortDirection,
@@ -94,7 +95,7 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
 
     for (const id of QUERYABLE_SOURCE_IDS) {
       const result = results[id];
-      if (result?.kind !== "table") continue;
+      if (result?.kind !== PointUiQueryKind.Table) continue;
       const pointType = pointTypeForSource(id);
       totals[pointType] = result.total;
       if (options.pointType !== null && options.pointType !== pointType) {

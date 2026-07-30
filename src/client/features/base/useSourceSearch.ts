@@ -2,7 +2,10 @@ import { useMemo } from "react";
 import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
-import type { PointUiQuery } from "@/workers/data/uiQuery";
+import {
+  PointUiQueryKind,
+  type PointUiQuery,
+} from "@/workers/data/uiQuery";
 
 export type SourceSearch = Readonly<{
   /** Best matches across every source, already capped per source. */
@@ -18,7 +21,11 @@ const EMPTY: readonly DataPoint[] = [];
 /** Searches every source in the DataWorker; nothing is scanned on the main thread. */
 export function useSourceSearch(text: string | null): SourceSearch {
   const query = useMemo<PointUiQuery | null>(
-    () => (text && text.length > 0 ? { kind: "search", text } : null),
+    () => (
+      text && text.length > 0
+        ? { kind: PointUiQueryKind.Search, text }
+        : null
+    ),
     [text],
   );
 
@@ -40,7 +47,7 @@ export function useSourceSearch(text: string | null): SourceSearch {
     let total = 0;
     let searched = 0;
     for (const result of answered) {
-      if (result?.kind !== "search") continue;
+      if (result?.kind !== PointUiQueryKind.Search) continue;
       items.push(...result.items);
       total += result.total;
       searched++;

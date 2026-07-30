@@ -358,20 +358,6 @@ describe("createDataWorkerClient", () => {
     });
   });
 
-  test("sets the worker-owned source search filter", async () => {
-    const harness = createWorkerHarness();
-    const client = createDataWorkerClient(harness.transport);
-    const pending = client.setSourceSearch(Domain.Earthquake, "Mexico");
-    const command = latestCommand(harness);
-    expect(command.type).toBe(DataWorkerMessageType.SetSourceSearch);
-    harness.emit(
-      event(command.requestId, {
-        type: DataWorkerMessageType.Complete,
-      }),
-    );
-    await pending;
-  });
-
   test("returns a validated bounded aircraft dossier", async () => {
     const harness = createWorkerHarness();
     const client = createDataWorkerClient(harness.transport);

@@ -9,7 +9,10 @@ import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
-import { sceneRebaseCommand } from "../_support/scene";
+import {
+  sceneRebaseCommand,
+  sceneSearchCommand,
+} from "../_support/scene";
 
 const view = {
   capacity: 1,
@@ -29,7 +32,6 @@ const view = {
 
 const base = {
   enabled: true,
-  searchIds: null,
   isolateMode: null,
   isolatedId: null,
   isolatedType: null,
@@ -63,14 +65,17 @@ describe("ship scene layer", () => {
     expect(layer.includesEntity("S123", base)).toBe(true);
   });
 
-  test("applies source, search, and isolation visibility", () => {
+  test("applies source search handles", () => {
+    const layer = new ShipLayer();
+    layer.apply(sceneRebaseCommand(Domain.Ships, view));
+    layer.apply(sceneSearchCommand(Domain.Ships, [], 1));
+    expect(layer.searchIncludesEntity("S123")).toBe(false);
+    layer.apply(sceneSearchCommand(Domain.Ships, [1], 2));
+    expect(layer.searchIncludesEntity("S123")).toBe(true);
+  });
+
+  test("applies source and isolation visibility", () => {
     expect(shipSceneIncludes(view, 0, base)).toBe(true);
-    expect(
-      shipSceneIncludes(view, 0, {
-        ...base,
-        searchIds: new Set(["other"]),
-      }),
-    ).toBe(false);
     expect(
       shipSceneIncludes(view, 0, {
         ...base,

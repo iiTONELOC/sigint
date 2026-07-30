@@ -97,6 +97,16 @@ export class RenderLayerCatalog {
     return this.bySource.get(source)?.selectionAnchor(entityId) ?? null;
   }
 
+  searchIncludesEntity(
+    source: RenderSourceId,
+    entityId: string,
+  ): boolean {
+    return (
+      this.bySource.get(source)?.searchIncludesEntity(entityId) ??
+      false
+    );
+  }
+
   selectionTarget(
     source: RenderSourceId,
     id: string,

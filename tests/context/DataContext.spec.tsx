@@ -453,9 +453,9 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("searchMatchIds starts null", async () => {
+  test("search text starts null", async () => {
     const { ref, unmount } = await renderDataContext();
-    expect(ref.current.searchMatchIds).toBeNull();
+    expect(ref.current.searchText).toBeNull();
     unmount();
   });
 });

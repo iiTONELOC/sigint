@@ -55,12 +55,13 @@ export type GlobeVisualizationProps = {
   readonly isolatedId: string | null;
   readonly isolateMode: SelectedIsolateMode;
   readonly onSelect: (item: DataPoint | null) => void;
+  readonly onIsolateModeChange: (mode: SelectedIsolateMode) => void;
   readonly onRawCanvasClick?: () => void;
   readonly onMiddleClick?: () => void;
   readonly onSelectedSide?: (side: PanelSide) => void;
   readonly zoomToId?: string | null;
-  /** Gentle reveal — rotate to show point at ISS-level zoom, no lock-on */
+  /** Gentle reveal: rotate to show the point without locking on. */
   readonly revealId?: string | null;
-  readonly searchMatchIds?: Set<string> | null;
+  readonly searchText: string | null;
   /** Tropical watch/warning area polygons (NWS Alerts GeoJSON). */
 };

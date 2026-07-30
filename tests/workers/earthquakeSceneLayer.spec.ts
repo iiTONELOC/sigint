@@ -61,7 +61,6 @@ function filter(
   return {
     enabled: true,
     minimumMagnitude: 0,
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -165,19 +164,12 @@ describe("earthquake scene layer", () => {
     expect(markers[1]?.glow).toBeNull();
   });
 
-  test("rejects incompatible schema and bounded search misses", () => {
+  test("rejects an incompatible schema", () => {
     expect(
       earthquakeSceneIncludes(
         { ...view, attributeStride: 2 },
         0,
         filter(),
-      ),
-    ).toBe(false);
-    expect(
-      earthquakeSceneIncludes(
-        view,
-        0,
-        filter({ searchIds: new Set(["Qlow"]) }),
       ),
     ).toBe(false);
   });

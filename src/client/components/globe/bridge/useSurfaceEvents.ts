@@ -54,7 +54,13 @@ export function useSurfaceEvents({
         ).then(
           (response) => {
             if (request !== selectionRequest.current) return;
-            propsRef.current.onSelect(response.value ?? null);
+            const value = response.value;
+            propsRef.current.onSelect(value ?? null);
+            if (value) {
+              propsRef.current.onIsolateModeChange(
+                interaction.isolateMode,
+              );
+            }
           },
           (error_: unknown) => undefined,
         );

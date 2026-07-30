@@ -92,10 +92,6 @@ export type DataWorkerClient = Readonly<{
   querySource: (
     request: DataWorkerSourceQueryRequest,
   ) => Promise<DataWorkerSourceQueryResult>;
-  setSourceSearch: (
-    source: DataWorkerQueryableSource,
-    text: string | null,
-  ) => Promise<void>;
   getSourceSnapshot: (
     source: DataWorkerPointSource,
   ) => DataWorkerSourceSnapshot | null;
@@ -354,17 +350,6 @@ export function createDataWorkerClient(
         throw unexpectedEvent("source query");
       }
       return event;
-    },
-
-    setSourceSearch(
-      source: DataWorkerQueryableSource,
-      text: string | null,
-    ): Promise<void> {
-      return requireComplete({
-        type: DataWorkerMessageType.SetSourceSearch,
-        source,
-        text,
-      });
     },
 
     getSourceSnapshot(

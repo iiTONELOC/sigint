@@ -35,12 +35,12 @@ function settings(
 ): SelectionVisibility {
   return {
     selection,
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
     layers: enabledLayers,
     aircraftEntityIsVisible: () => true,
+    searchIncludesEntity: () => true,
     ...overrides,
   };
 }
@@ -53,7 +53,9 @@ describe("selectionIsVisible", () => {
   test("rejects a selection outside the search result", () => {
     expect(
       selectionIsVisible(
-        settings(shipSelection, { searchIds: new Set() }),
+        settings(shipSelection, {
+          searchIncludesEntity: () => false,
+        }),
       ),
     ).toBe(false);
   });

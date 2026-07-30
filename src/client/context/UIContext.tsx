@@ -4,7 +4,6 @@ import {
   useContext,
   useState,
   useMemo,
-  useRef,
   useCallback,
   type ReactNode,
 } from "react";
@@ -39,8 +38,8 @@ type UIContextValue = {
   setRotationSpeed: React.Dispatch<React.SetStateAction<number>>;
 
   // Search
-  searchMatchIds: Set<string> | null;
-  handleSearchMatchIds: (ids: Set<string> | null) => void;
+  searchText: string | null;
+  handleSearchCommit: (text: string | null) => void;
   handleSearchSelect: (item: DataPoint) => void;
   handleSearchZoomTo: (item: DataPoint) => void;
 
@@ -55,9 +54,13 @@ type UIContextValue = {
   /** Select an item and zoom the globe to it */
   selectAndZoom: (item: DataPoint) => void;
 
-  /** Color map keyed by feature id — derived from theme */
+  /** Color map keyed by feature id, derived from theme. */
   colorMap: Record<string, string>;
 };
+
+export enum UIContextError {
+  MissingProvider = "useUI must be used within UIProvider",
+}
 
 const UIContext = createContext<UIContextValue | undefined>(undefined);
 
@@ -65,8 +68,6 @@ const UIContext = createContext<UIContextValue | undefined>(undefined);
 
 export function UIProvider({ children }: { readonly children: ReactNode }) {
   const { theme } = useTheme();
-  const stashedSelectionRef = useRef<DataPoint | null>(null);
-  const stashedIsolateModeRef = useRef<SelectedIsolateMode>(null);
 
   // ── View controls ───────────────────────────────────────────────
   const [flat, setFlat] = useState(false);
@@ -81,9 +82,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   // ── Search & zoom ──────────────────────────────────────────────
   const [zoomToId, setZoomToId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
-  const [searchMatchIds, setSearchMatchIds] = useState<Set<string> | null>(
-    null,
-  );
+  const [searchText, setSearchText] = useState<string | null>(null);
 
   // ── Derived: selectedCurrent (refreshed from the DataWorker) ───
   const selectedCurrent = useFreshEntity(selected);
@@ -103,28 +102,9 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
     zoomToThenClear(setZoomToId, item.id);
   }, []);
 
-  const handleSearchMatchIds = useCallback(
-    (ids: Set<string> | null) => {
-      setSearchMatchIds(ids);
-      if (ids) {
-        setSelected((prev) => {
-          if (prev && !ids.has(prev.id)) {
-            stashedSelectionRef.current = prev;
-            stashedIsolateModeRef.current = isolateMode;
-            setIsolateMode(null);
-            return null;
-          }
-          return prev;
-        });
-      } else if (stashedSelectionRef.current) {
-        setSelected(stashedSelectionRef.current);
-        setIsolateMode(stashedIsolateModeRef.current);
-        stashedSelectionRef.current = null;
-        stashedIsolateModeRef.current = null;
-      }
-    },
-    [isolateMode],
-  );
+  const handleSearchCommit = useCallback((text: string | null) => {
+    setSearchText(text?.trim() || null);
+  }, []);
 
   const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
@@ -144,8 +124,8 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       setAutoRotate,
       rotationSpeed,
       setRotationSpeed,
-      searchMatchIds,
-      handleSearchMatchIds,
+      searchText,
+      handleSearchCommit,
       handleSearchSelect,
       handleSearchZoomTo,
       zoomToId,
@@ -163,8 +143,8 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
       flat,
       autoRotate,
       rotationSpeed,
-      searchMatchIds,
-      handleSearchMatchIds,
+      searchText,
+      handleSearchCommit,
       handleSearchSelect,
       handleSearchZoomTo,
       zoomToId,
@@ -182,7 +162,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
 export function useUI(): UIContextValue {
   const context = useContext(UIContext);
   if (!context) {
-    throw new Error("useUI must be used within UIProvider");
+    throw new Error(UIContextError.MissingProvider);
   }
   return context;
 }

@@ -5,72 +5,117 @@ import {
   type PositionedRecord,
 } from "@/workers/data/source-model/position";
 import { isRecord } from "@shared/geo";
+import { isEnumValue } from "@shared/types/enum";
 
-const SEARCH_SCORE = {
-  none: 0,
-  exactPrimary: 100,
-  primaryPrefix: 51,
-  base: 1,
-  wordExact: 30,
-  wordPrefix: 15,
-  positionMax: 10,
-  positionDecay: 0.5,
-} as const;
+enum SearchScore {
+  None = 0,
+  ExactPrimary = 100,
+  PrimaryPrefix = 51,
+  Base = 1,
+  WordExact = 30,
+  WordPrefix = 15,
+  PositionMax = 10,
+  PositionDecay = 0.5,
+}
 
-export const TABLE_SORT_KEYS = [
-  "type",
-  "name",
-  "lat",
-  "lon",
-  "value1",
-  "value2",
-  "age",
-] as const;
+export enum PointUiQueryKind {
+  Search = "search",
+  Table = "table",
+  Ticker = "ticker",
+  BoundingBox = "bbox",
+  Count = "count",
+  Facet = "facet",
+  Correlation = "correlation",
+}
 
-export type TableSortKey = (typeof TABLE_SORT_KEYS)[number];
-export type TableSortDirection = "asc" | "desc";
+export enum TableSortKey {
+  Type = "type",
+  Name = "name",
+  Latitude = "lat",
+  Longitude = "lon",
+  Value1 = "value1",
+  Value2 = "value2",
+  Age = "age",
+}
+
+export enum TableSortDirection {
+  Ascending = "asc",
+  Descending = "desc",
+}
+
+export type TableSortKeyValue = `${TableSortKey}`;
+export type TableSortDirectionValue = `${TableSortDirection}`;
+type SearchQueryKind = `${PointUiQueryKind.Search}`;
+type TableQueryKind = `${PointUiQueryKind.Table}`;
+type TickerQueryKind = `${PointUiQueryKind.Ticker}`;
+type BoundingBoxQueryKind = `${PointUiQueryKind.BoundingBox}`;
+type CountQueryKind = `${PointUiQueryKind.Count}`;
+type FacetQueryKind = `${PointUiQueryKind.Facet}`;
+type CorrelationQueryKind = `${PointUiQueryKind.Correlation}`;
+
+export const TABLE_SORT_KEYS: readonly TableSortKey[] =
+  Object.values(TableSortKey);
 
 export type PointUiQuery =
-  | Readonly<{ kind: "search"; text: string }>
+  | Readonly<{ kind: SearchQueryKind; text: string }>
   | Readonly<{
-      kind: "table";
+      kind: TableQueryKind;
       minValue: number;
-      sortKey: TableSortKey;
-      sortDirection: TableSortDirection;
+      sortKey: TableSortKeyValue;
+      sortDirection: TableSortDirectionValue;
       offset: number;
       limit: number;
     }>
-  | Readonly<{ kind: "ticker"; limit: number }>
+  | Readonly<{ kind: TickerQueryKind; limit: number }>
   | Readonly<{
-      kind: "bbox";
+      kind: BoundingBoxQueryKind;
       minLat: number;
       maxLat: number;
       minLon: number;
       maxLon: number;
       limit: number;
     }>
-  | Readonly<{ kind: "count"; filter: unknown }>
-  | Readonly<{ kind: "facet"; limit: number }>
-  | Readonly<{ kind: "correlation"; since: number }>;
+  | Readonly<{ kind: CountQueryKind; filter: unknown }>
+  | Readonly<{ kind: FacetQueryKind; limit: number }>
+  | Readonly<{ kind: CorrelationQueryKind; since: number }>;
 
 export type PointUiQueryResult<TPoint> =
-  | Readonly<{ kind: "search"; total: number; items: readonly TPoint[] }>
-  | Readonly<{ kind: "table"; total: number; items: readonly TPoint[] }>
   | Readonly<{
-      kind: "ticker";
+      kind: SearchQueryKind;
+      total: number;
+      items: readonly TPoint[];
+    }>
+  | Readonly<{
+      kind: TableQueryKind;
+      total: number;
+      items: readonly TPoint[];
+    }>
+  | Readonly<{
+      kind: TickerQueryKind;
       /** Leading items that must stay ahead of the rest of the feed. */
       priorityCount: number;
       items: readonly TPoint[];
     }>
-  | Readonly<{ kind: "bbox"; total: number; items: readonly TPoint[] }>
-  | Readonly<{ kind: "count"; total: number; items: readonly TPoint[] }>
   | Readonly<{
-      kind: "facet";
+      kind: BoundingBoxQueryKind;
+      total: number;
+      items: readonly TPoint[];
+    }>
+  | Readonly<{
+      kind: CountQueryKind;
+      total: number;
+      items: readonly TPoint[];
+    }>
+  | Readonly<{
+      kind: FacetQueryKind;
       /** Distinct facet values, most frequent first. */
       values: readonly string[];
       items: readonly TPoint[];
     }>
-  | Readonly<{ kind: "correlation"; items: readonly TPoint[] }>;
+  | Readonly<{
+      kind: CorrelationQueryKind;
+      items: readonly TPoint[];
+    }>;
 
 export type TimestampedPoint = Readonly<{
   id: string;
@@ -131,10 +176,14 @@ export function neverTickerPriority(): boolean {
   return false;
 }
 
-const TABLE_SORT_KEY_SET: ReadonlySet<string> = new Set(TABLE_SORT_KEYS);
+const TABLE_SORT_KEY_SET: ReadonlySet<string> =
+  new Set(TABLE_SORT_KEYS);
 
-function isTableSortKey(value: unknown): value is TableSortKey {
-  return typeof value === "string" && TABLE_SORT_KEY_SET.has(value);
+function isTableSortKey(value: unknown): value is TableSortKeyValue {
+  return (
+    typeof value === "string" &&
+    TABLE_SORT_KEY_SET.has(value)
+  );
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -157,21 +206,21 @@ function parseSearchQuery(value: Record<string, unknown>): PointUiQuery | null {
   if (typeof value.text !== "string" || value.text.trim().length === 0) {
     return null;
   }
-  return { kind: "search", text: value.text };
+  return { kind: PointUiQueryKind.Search, text: value.text };
 }
 
 function parseTableQuery(value: Record<string, unknown>): PointUiQuery | null {
   if (
     !isNonNegativeNumber(value.minValue) ||
     !isTableSortKey(value.sortKey) ||
-    (value.sortDirection !== "asc" && value.sortDirection !== "desc") ||
+    !isEnumValue(value.sortDirection, TableSortDirection) ||
     !isNonNegativeInteger(value.offset) ||
     !isPositiveInteger(value.limit)
   ) {
     return null;
   }
   return {
-    kind: "table",
+    kind: PointUiQueryKind.Table,
     minValue: value.minValue,
     sortKey: value.sortKey,
     sortDirection: value.sortDirection,
@@ -182,7 +231,7 @@ function parseTableQuery(value: Record<string, unknown>): PointUiQuery | null {
 
 function parseTickerQuery(value: Record<string, unknown>): PointUiQuery | null {
   return isPositiveInteger(value.limit)
-    ? { kind: "ticker", limit: value.limit }
+    ? { kind: PointUiQueryKind.Ticker, limit: value.limit }
     : null;
 }
 
@@ -199,18 +248,27 @@ function parseBboxQuery(value: Record<string, unknown>): PointUiQuery | null {
   ) {
     return null;
   }
-  return { kind: "bbox", minLat, maxLat, minLon, maxLon, limit };
+  return {
+    kind: PointUiQueryKind.BoundingBox,
+    minLat,
+    maxLat,
+    minLon,
+    maxLon,
+    limit,
+  };
 }
 
 function parseCountQuery(value: Record<string, unknown>): PointUiQuery | null {
   // The filter stays unknown here: only the source's own descriptor knows
   // which shape it should be, and it narrows before reading a field.
-  return "filter" in value ? { kind: "count", filter: value.filter } : null;
+  return "filter" in value
+    ? { kind: PointUiQueryKind.Count, filter: value.filter }
+    : null;
 }
 
 function parseFacetQuery(value: Record<string, unknown>): PointUiQuery | null {
   return isPositiveInteger(value.limit)
-    ? { kind: "facet", limit: value.limit }
+    ? { kind: PointUiQueryKind.Facet, limit: value.limit }
     : null;
 }
 
@@ -218,28 +276,44 @@ function parseCorrelationQuery(
   value: Record<string, unknown>,
 ): PointUiQuery | null {
   return isNonNegativeNumber(value.since)
-    ? { kind: "correlation", since: value.since }
+    ? {
+        kind: PointUiQueryKind.Correlation,
+        since: value.since,
+      }
     : null;
 }
 
 const QUERY_PARSERS: Readonly<
-  Record<string, (value: Record<string, unknown>) => PointUiQuery | null>
+  Record<
+    PointUiQueryKind,
+    (value: Record<string, unknown>) => PointUiQuery | null
+  >
 > = {
-  search: parseSearchQuery,
-  table: parseTableQuery,
-  ticker: parseTickerQuery,
-  bbox: parseBboxQuery,
-  count: parseCountQuery,
-  facet: parseFacetQuery,
-  correlation: parseCorrelationQuery,
+  [PointUiQueryKind.Search]: parseSearchQuery,
+  [PointUiQueryKind.Table]: parseTableQuery,
+  [PointUiQueryKind.Ticker]: parseTickerQuery,
+  [PointUiQueryKind.BoundingBox]: parseBboxQuery,
+  [PointUiQueryKind.Count]: parseCountQuery,
+  [PointUiQueryKind.Facet]: parseFacetQuery,
+  [PointUiQueryKind.Correlation]: parseCorrelationQuery,
 };
 
 export function parsePointUiQuery(
   value: unknown,
   supportsCorrelation: boolean,
 ): PointUiQuery | null {
-  if (!isRecord(value) || typeof value.kind !== "string") return null;
-  if (value.kind === "correlation" && !supportsCorrelation) return null;
+  if (
+    !isRecord(value) ||
+    !isEnumValue(value.kind, PointUiQueryKind)
+  ) {
+    return null;
+  }
+  if (
+    value.kind === PointUiQueryKind.Correlation &&
+    !supportsCorrelation
+  ) {
+    return null;
+  }
   return QUERY_PARSERS[value.kind]?.(value) ?? null;
 }
 
@@ -257,51 +331,66 @@ export function parsePointUiQueryResult<TPoint extends TimestampedPoint>(
   }
 
   if (
-    (value.kind === "search" ||
-      value.kind === "table" ||
-      value.kind === "bbox" ||
-      value.kind === "count") &&
+    (value.kind === PointUiQueryKind.Search ||
+      value.kind === PointUiQueryKind.Table ||
+      value.kind === PointUiQueryKind.BoundingBox ||
+      value.kind === PointUiQueryKind.Count) &&
     isNonNegativeInteger(value.total)
   ) {
     return { kind: value.kind, total: value.total, items };
   }
   if (
-    value.kind === "facet" &&
+    value.kind === PointUiQueryKind.Facet &&
     Array.isArray(value.values) &&
     value.values.every((entry: unknown) => typeof entry === "string")
   ) {
-    return { kind: "facet", values: value.values, items };
+    return {
+      kind: PointUiQueryKind.Facet,
+      values: value.values,
+      items,
+    };
   }
-  if (value.kind === "ticker" && isNonNegativeInteger(value.priorityCount)) {
-    return { kind: "ticker", priorityCount: value.priorityCount, items };
+  if (
+    value.kind === PointUiQueryKind.Ticker &&
+    isNonNegativeInteger(value.priorityCount)
+  ) {
+    return {
+      kind: PointUiQueryKind.Ticker,
+      priorityCount: value.priorityCount,
+      items,
+    };
   }
-  if (value.kind === "correlation") return { kind: "correlation", items };
+  if (value.kind === PointUiQueryKind.Correlation) {
+    return { kind: PointUiQueryKind.Correlation, items };
+  }
   return null;
 }
 
-function scoreSearchMatch(
+export function scorePointSearchMatch(
   query: string,
   searchText: string,
   primary: string,
 ): number {
   const normalizedQuery = query.toLowerCase();
   const words = normalizedQuery.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return SEARCH_SCORE.none;
+  if (words.length === 0) return SearchScore.None;
 
   const normalizedText = searchText.toLowerCase();
   const normalizedPrimary = primary.toLowerCase();
   for (const word of words) {
-    if (!normalizedText.includes(word)) return SEARCH_SCORE.none;
+    if (!normalizedText.includes(word)) return SearchScore.None;
   }
-  if (normalizedPrimary === normalizedQuery) return SEARCH_SCORE.exactPrimary;
+  if (normalizedPrimary === normalizedQuery) {
+    return SearchScore.ExactPrimary;
+  }
 
   let score = normalizedPrimary.startsWith(normalizedQuery)
-    ? SEARCH_SCORE.primaryPrefix
-    : SEARCH_SCORE.base;
+    ? SearchScore.PrimaryPrefix
+    : SearchScore.Base;
   for (const word of words) {
-    if (normalizedPrimary === word) score += SEARCH_SCORE.wordExact;
+    if (normalizedPrimary === word) score += SearchScore.WordExact;
     else if (normalizedPrimary.startsWith(word)) {
-      score += SEARCH_SCORE.wordPrefix;
+      score += SearchScore.WordPrefix;
     }
   }
   for (const word of words) {
@@ -309,7 +398,7 @@ function scoreSearchMatch(
     if (index >= 0) {
       score += Math.max(
         0,
-        SEARCH_SCORE.positionMax - index * SEARCH_SCORE.positionDecay,
+        SearchScore.PositionMax - index * SearchScore.PositionDecay,
       );
     }
   }
@@ -323,12 +412,12 @@ function searchMatches<TPoint extends TimestampedPoint>(
 ): TPoint[] {
   const matches: Array<{ point: TPoint; score: number }> = [];
   for (const point of points) {
-    const score = scoreSearchMatch(
+    const score = scorePointSearchMatch(
       text,
       descriptor.searchText(point),
       descriptor.primaryLabel(point),
     );
-    if (score > SEARCH_SCORE.none) matches.push({ point, score });
+    if (score > SearchScore.None) matches.push({ point, score });
   }
   matches.sort((left, right) => right.score - left.score);
   return matches.map((match) => match.point);
@@ -356,23 +445,27 @@ function pointAge(point: TimestampedPoint, now: number): number {
 function compareTable<TPoint extends TimestampedPoint>(
   left: TPoint,
   right: TPoint,
-  sortKey: TableSortKey,
+  sortKey: TableSortKeyValue,
   descriptor: PointUiQueryDescriptor<TPoint>,
   now: number,
 ): number {
-  if (sortKey === "type") return 0;
-  if (sortKey === "name") {
+  if (sortKey === TableSortKey.Type) return 0;
+  if (sortKey === TableSortKey.Name) {
     return descriptor.nameLabel(left).localeCompare(descriptor.nameLabel(right));
   }
-  if (sortKey === "lat") return recordLatitude(left) - recordLatitude(right);
-  if (sortKey === "lon") return recordLongitude(left) - recordLongitude(right);
-  if (sortKey === "value1") {
+  if (sortKey === TableSortKey.Latitude) {
+    return recordLatitude(left) - recordLatitude(right);
+  }
+  if (sortKey === TableSortKey.Longitude) {
+    return recordLongitude(left) - recordLongitude(right);
+  }
+  if (sortKey === TableSortKey.Value1) {
     return (
       descriptor.value1(left) - descriptor.value1(right) ||
       descriptor.value1Label(left).localeCompare(descriptor.value1Label(right))
     );
   }
-  if (sortKey === "value2") {
+  if (sortKey === TableSortKey.Value2) {
     return descriptor.value2(left) - descriptor.value2(right);
   }
   return pointAge(left, now) - pointAge(right, now);
@@ -384,7 +477,7 @@ function compareTable<TPoint extends TimestampedPoint>(
  */
 function runTickerQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
-  query: Extract<PointUiQuery, { kind: "ticker" }>,
+  query: Extract<PointUiQuery, { kind: TickerQueryKind }>,
   descriptor: PointUiQueryDescriptor<TPoint>,
 ): PointUiQueryResult<TPoint> {
   const eligible = points.filter(descriptor.includeInTicker);
@@ -396,7 +489,7 @@ function runTickerQuery<TPoint extends TimestampedPoint>(
   });
   const items = eligible.slice(0, query.limit);
   return {
-    kind: "ticker",
+    kind: PointUiQueryKind.Ticker,
     priorityCount: items.filter(descriptor.tickerPriority).length,
     items,
   };
@@ -405,7 +498,7 @@ function runTickerQuery<TPoint extends TimestampedPoint>(
 /** Distinct facet values ranked by how many points carry them. */
 function runFacetQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
-  query: Extract<PointUiQuery, { kind: "facet" }>,
+  query: Extract<PointUiQuery, { kind: FacetQueryKind }>,
   descriptor: PointUiQueryDescriptor<TPoint>,
 ): PointUiQueryResult<TPoint> {
   const tally = new Map<string, number>();
@@ -417,12 +510,15 @@ function runFacetQuery<TPoint extends TimestampedPoint>(
     .sort((left, right) => right[1] - left[1])
     .slice(0, query.limit)
     .map(([value]) => value);
-  return { kind: "facet", values, items: [] };
+  return { kind: PointUiQueryKind.Facet, values, items: [] };
 }
 
 function runBboxQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
-  query: Extract<PointUiQuery, { kind: "bbox" }>,
+  query: Extract<
+    PointUiQuery,
+    { kind: BoundingBoxQueryKind }
+  >,
 ): PointUiQueryResult<TPoint> {
   const inside = points.filter((point) => {
     const latitude = recordLatitude(point);
@@ -434,7 +530,11 @@ function runBboxQuery<TPoint extends TimestampedPoint>(
       longitude <= query.maxLon
     );
   });
-  return { kind: "bbox", total: inside.length, items: inside.slice(0, query.limit) };
+  return {
+    kind: PointUiQueryKind.BoundingBox,
+    total: inside.length,
+    items: inside.slice(0, query.limit),
+  };
 }
 
 export function runPointUiQuery<TPoint extends TimestampedPoint>(
@@ -443,50 +543,55 @@ export function runPointUiQuery<TPoint extends TimestampedPoint>(
   descriptor: PointUiQueryDescriptor<TPoint>,
   now: number = Date.now(),
 ): PointUiQueryResult<TPoint> {
-  if (query.kind === "bbox") return runBboxQuery(points, query);
-  if (query.kind === "facet") return runFacetQuery(points, query, descriptor);
+  if (query.kind === PointUiQueryKind.BoundingBox) {
+    return runBboxQuery(points, query);
+  }
+  if (query.kind === PointUiQueryKind.Facet) {
+    return runFacetQuery(points, query, descriptor);
+  }
 
-  if (query.kind === "count") {
+  if (query.kind === PointUiQueryKind.Count) {
     // Count only: the caller wants a number, so no page is carried back.
     return {
-      kind: "count",
+      kind: PointUiQueryKind.Count,
       total: points.filter((point) => descriptor.matchesFilter(point, query.filter))
         .length,
       items: [],
     };
   }
 
-  if (query.kind === "search") {
+  if (query.kind === PointUiQueryKind.Search) {
     const matched = searchMatches(points, query.text, descriptor);
     return {
-      kind: "search",
+      kind: PointUiQueryKind.Search,
       total: matched.length,
       items: matched.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit),
     };
   }
 
-  if (query.kind === "table") {
+  if (query.kind === PointUiQueryKind.Table) {
     const filtered = points.filter((point) =>
       descriptor.includeInTable(point, query.minValue),
     );
-    const direction = query.sortDirection === "asc" ? 1 : -1;
+    const direction =
+      query.sortDirection === TableSortDirection.Ascending ? 1 : -1;
     filtered.sort(
       (left, right) =>
         compareTable(left, right, query.sortKey, descriptor, now) * direction,
     );
     return {
-      kind: "table",
+      kind: PointUiQueryKind.Table,
       total: filtered.length,
       items: filtered.slice(query.offset, query.offset + query.limit),
     };
   }
 
-  if (query.kind === "ticker") {
+  if (query.kind === PointUiQueryKind.Ticker) {
     return runTickerQuery(points, query, descriptor);
   }
 
   return {
-    kind: "correlation",
+    kind: PointUiQueryKind.Correlation,
     items: points.filter(
       (point) => (pointTimestamp(point) || now) > query.since,
     ),

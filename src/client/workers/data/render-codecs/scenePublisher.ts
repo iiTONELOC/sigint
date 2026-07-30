@@ -1,5 +1,5 @@
 import {
-  createSceneDataCommand,
+  createSceneCommand,
   SceneDataCommandType,
   sceneDataTransfers,
   type SceneDataCommand,
@@ -41,7 +41,7 @@ export class ScenePublisher {
   private post(body: SceneDataCommandBody): void {
     if (!this.port || !this.sessionId) return;
     this.sequence += 1;
-    const command = createSceneDataCommand(
+    const command = createSceneCommand(
       body,
       this.sessionId,
       this.sequence,

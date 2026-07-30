@@ -1,9 +1,12 @@
 import type {
+  RenderSearchSnapshot,
   RenderSelectionSnapshot,
 } from "@/workers/render/protocol";
 import {
-  createSceneInterestCommand,
+  createSceneCommand,
+  SceneInterestCommandType,
   type SceneInterestCommand,
+  type SceneInterestCommandBody,
 } from "@/workers/render/sceneProtocol";
 
 enum SceneInterestSequence {
@@ -26,12 +29,26 @@ export class SceneInterestPublisher {
     this.sequence = SceneInterestSequence.Initial;
   }
 
-  publish(selection: RenderSelectionSnapshot): boolean {
+  publishSelection(selection: RenderSelectionSnapshot): boolean {
+    return this.publish({
+      type: SceneInterestCommandType.Selection,
+      selection,
+    });
+  }
+
+  publishSearch(search: RenderSearchSnapshot): boolean {
+    return this.publish({
+      type: SceneInterestCommandType.Search,
+      search,
+    });
+  }
+
+  private publish(body: SceneInterestCommandBody): boolean {
     if (!this.port || !this.sessionId) return false;
     this.sequence += SceneInterestSequence.Increment;
     this.port.postMessage(
-      createSceneInterestCommand(
-        selection,
+      createSceneCommand(
+        body,
         this.sessionId,
         this.sequence,
       ),

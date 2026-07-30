@@ -21,7 +21,7 @@ import type { MinCategory } from "@/features/environmental/cyclones/types";
 import { isRecord } from "@shared/geo";
 
 export enum RenderProtocolVersion {
-  Current = 3,
+  Current = 4,
 }
 
 export enum RenderMessageType {
@@ -32,6 +32,7 @@ export enum RenderMessageType {
   Input = "input",
   Focus = "focus",
   Selection = "selection",
+  Search = "search",
   Dispose = "dispose",
   Ready = "ready",
   DataChannelReady = "dataChannelReady",
@@ -139,6 +140,16 @@ export enum IsolateMode {
 
 export type SelectedIsolateMode = IsolateMode | null;
 
+export function isSelectedIsolateMode(
+  value: unknown,
+): value is SelectedIsolateMode {
+  return (
+    value === null ||
+    value === IsolateMode.Solo ||
+    value === IsolateMode.Focus
+  );
+}
+
 export type RenderSelectionIdentity = Readonly<{
   source: RenderSourceId;
   entityId: string;
@@ -149,6 +160,11 @@ export type RenderSelectionIdentity = Readonly<{
 export type RenderSelectionSnapshot = Readonly<{
   revision: number;
   identity: RenderSelectionIdentity | null;
+}>;
+
+export type RenderSearchSnapshot = Readonly<{
+  revision: number;
+  text: string | null;
 }>;
 
 export function renderSelectionIdentitiesEqual(
@@ -180,6 +196,14 @@ enum RenderSelectionRevisionBoundary {
   Minimum = 0,
 }
 
+enum RenderSearchRevisionBoundary {
+  Minimum = 1,
+}
+
+enum RenderSearchTextLength {
+  Empty = 0,
+}
+
 export function isRenderSelectionIdentity(
   value: unknown,
 ): value is RenderSelectionIdentity {
@@ -205,6 +229,25 @@ export function isRenderSelectionSnapshot(
     value.revision >= RenderSelectionRevisionBoundary.Minimum &&
     (value.identity === null ||
       isRenderSelectionIdentity(value.identity))
+  );
+}
+
+export function isRenderSearchSnapshot(
+  value: unknown,
+): value is RenderSearchSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.revision === "number" &&
+    Number.isSafeInteger(value.revision) &&
+    value.revision >= RenderSearchRevisionBoundary.Minimum &&
+    (
+      value.text === null ||
+      (
+        typeof value.text === "string" &&
+        value.text.length > RenderSearchTextLength.Empty &&
+        value.text === value.text.trim()
+      )
+    )
   );
 }
 
@@ -249,7 +292,6 @@ export type RenderPresentationPayload = Readonly<{
   aircraftFilter: RenderAircraftFilter;
   earthquakeMinMagnitude: number;
   fireMinConfidence: number;
-  searchMatchIds: readonly string[] | null;
   selectedItem: SelectedRenderItem | null;
   cyclonesMinCategory: MinCategory;
   cyclonesShowForecast: boolean;
@@ -304,6 +346,7 @@ export type RenderInteractionPayload =
   | Readonly<{
       kind: RenderInteractionKind.Selection;
       selection: RenderSelectionSnapshot;
+      isolateMode: SelectedIsolateMode;
     }>
   | Readonly<{ kind: RenderInteractionKind.RawCanvasClick }>
   | Readonly<{
@@ -356,6 +399,10 @@ export type RenderWorkerCommandBody =
   | Readonly<{
       type: RenderMessageType.Selection;
       payload: RenderSelectionIdentity | null;
+    }>
+  | Readonly<{
+      type: RenderMessageType.Search;
+      payload: string | null;
     }>
   | Readonly<{ type: RenderMessageType.Dispose }>;
 

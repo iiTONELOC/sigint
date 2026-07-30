@@ -437,7 +437,6 @@ function recordIsVisible(
   const entityId = entityIdAt(view, index);
   const sceneId = sceneIdAt(view, index);
   if (!entityId || !sceneId) return false;
-  if (filter.searchIds && !filter.searchIds.has(entityId)) return false;
   if (
     filter.isolateMode === IsolateMode.Solo &&
     entityId !== filter.isolatedId &&

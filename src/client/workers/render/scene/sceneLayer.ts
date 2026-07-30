@@ -58,6 +58,7 @@ export interface RenderLayer {
     radius: number,
     maximumCandidates: number,
   ): SceneHit | null;
+  searchIncludesEntity(entityId: string): boolean;
   selectionAnchor(entityId: string): SceneProjection | null;
   selectionTarget(id: string): RenderLayerSelectionTarget | null;
 }
@@ -101,6 +102,13 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
       handle !== null &&
       view !== null &&
       this.recordIncludes(view, handle - 1, filter)
+    );
+  }
+
+  searchIncludesEntity(entityId: string): boolean {
+    if (this.searchHandles === null) return true;
+    return this.store.handlesForEntityId(entityId).some(
+      (handle) => this.searchHandles?.has(handle) === true,
     );
   }
 

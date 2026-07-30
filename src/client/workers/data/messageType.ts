@@ -1,5 +1,5 @@
 export enum DataWorkerProtocolVersion {
-  Current = 10,
+  Current = 11,
 }
 
 export enum DataWorkerMessageType {
@@ -10,7 +10,6 @@ export enum DataWorkerMessageType {
   ListSourceEntities = "listSourceEntities",
   GetSourceEntity = "getSourceEntity",
   QuerySource = "querySource",
-  SetSourceSearch = "setSourceSearch",
   GetTrail = "getTrail",
   GetAircraftDossier = "getAircraftDossier",
   Get = "get",

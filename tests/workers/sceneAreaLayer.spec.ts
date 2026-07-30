@@ -119,7 +119,6 @@ const WARNING_VIEW = {
 function filter(): WeatherSceneFilter {
   return {
     enabled: true,
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,

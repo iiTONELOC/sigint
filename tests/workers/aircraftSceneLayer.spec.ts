@@ -17,7 +17,10 @@ import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
-import { sceneRebaseCommand } from "../_support/scene";
+import {
+  sceneRebaseCommand,
+  sceneSearchCommand,
+} from "../_support/scene";
 
 const view = {
   capacity: 3,
@@ -66,7 +69,6 @@ function settings(
 ): AircraftSceneFilter {
   return {
     filter: filter(),
-    searchIds: null,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -167,13 +169,11 @@ describe("aircraft scene layer", () => {
   });
 
   test("matches search and isolation settings", () => {
-    expect(
-      aircraftSceneIncludes(
-        view,
-        0,
-        settings({ searchIds: new Set(["mil-ground"]) }),
-      ),
-    ).toBe(false);
+    const layer = new AircraftLayer();
+    layer.apply(sceneRebaseCommand(Domain.Aircraft, view));
+    layer.apply(sceneSearchCommand(Domain.Aircraft, [2], 1));
+    expect(layer.searchIncludesEntity("civil-air")).toBe(false);
+    expect(layer.searchIncludesEntity("mil-ground")).toBe(true);
     expect(
       aircraftSceneIncludes(
         view,

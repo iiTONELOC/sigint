@@ -3,7 +3,7 @@ import { Domain } from "@shared/domain/identity";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import { SceneStore } from "@/workers/render/sceneStore";
 import {
-  createSceneDataCommand,
+  createSceneCommand,
   SceneDataCommandType,
   SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
@@ -11,7 +11,7 @@ import {
 describe("render scene store", () => {
   test("applies changed handles without rebuilding retained records", () => {
     const store = new SceneStore(Domain.Aircraft);
-    store.apply(createSceneDataCommand({
+    store.apply(createSceneCommand({
       type: SceneDataCommandType.SourcePatch,
       source: Domain.Aircraft,
       sourceVersion: 1,
@@ -41,7 +41,7 @@ describe("render scene store", () => {
       deletedHandles: new Uint32Array(),
     }, "session-a", 1));
 
-    store.apply(createSceneDataCommand({
+    store.apply(createSceneCommand({
       type: SceneDataCommandType.SourcePatch,
       source: Domain.Aircraft,
       sourceVersion: 2,

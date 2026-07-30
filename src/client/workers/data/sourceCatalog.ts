@@ -5,6 +5,7 @@ import type {
 } from "@/workers/data/protocol";
 import {
   createSourceAnswers,
+  findQueryableSearchIds,
   isQueryableSourceId,
   type QueryableOwner,
   type QueryableSourceEntities,
@@ -12,6 +13,11 @@ import {
   type SourceAnswers,
 } from "@/workers/data/queryableSources";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
+import type { RenderSearchSnapshot } from "@/workers/render/protocol";
+
+enum CatalogSearchRevision {
+  Initial = 0,
+}
 
 export enum SourceCatalogErrorKind {
   DuplicateSource = "The source is already registered",
@@ -37,10 +43,20 @@ export type CatalogSource<TEntity> = QueryableOwner<TEntity> &
     start: () => Promise<void>;
   }>;
 
+export type CatalogRenderBinding = Readonly<{
+  publishRebase: () => void;
+  publishSearch: (
+    entityIds: readonly string[],
+    revision: number,
+    active: boolean,
+  ) => void;
+}>;
+
 type SourceRegistration = Readonly<{
   answers: SourceAnswers;
+  findSearchIds: (text: string) => readonly string[];
   hydrate: () => Promise<void>;
-  publishRenderRebase: () => void;
+  render: CatalogRenderBinding;
   refresh: () => Promise<void>;
   start: () => Promise<void>;
   values: () => readonly DataPoint[];
@@ -51,11 +67,13 @@ export class SourceCatalog {
     QueryableSourceId,
     SourceRegistration
   >();
+  private searchRevision = CatalogSearchRevision.Initial;
+  private searchText: string | null = null;
 
   register<TId extends QueryableSourceId>(
     source: TId,
     owner: CatalogSource<QueryableSourceEntities[TId]>,
-    publishRenderRebase: () => void,
+    render: CatalogRenderBinding,
     resolveEntity?: (id: string) => DataPoint | null,
   ): void {
     if (this.registrations.has(source)) {
@@ -70,8 +88,10 @@ export class SourceCatalog {
         owner,
         resolveEntity,
       ),
+      findSearchIds: (text) =>
+        findQueryableSearchIds(source, owner.values(), text),
       hydrate: () => owner.hydrate(),
-      publishRenderRebase,
+      render,
       refresh: () => owner.refresh(),
       start: () => owner.start(),
       values: () => owner.values(),
@@ -120,8 +140,34 @@ export class SourceCatalog {
 
   publishRenderRebases(): void {
     for (const registration of this.registrations.values()) {
-      registration.publishRenderRebase();
+      registration.render.publishRebase();
     }
+  }
+
+  setRenderSearch(search: RenderSearchSnapshot): void {
+    if (search.revision < this.searchRevision) return;
+    this.searchRevision = search.revision;
+    this.searchText = search.text;
+    for (const source of this.registrations.keys()) {
+      this.refreshRenderSearch(source);
+    }
+  }
+
+  refreshRenderSearch(source: QueryableSourceId): void {
+    if (this.searchRevision === CatalogSearchRevision.Initial) return;
+    const registration = this.registration(source);
+    registration.render.publishSearch(
+      this.searchText
+        ? registration.findSearchIds(this.searchText)
+        : [],
+      this.searchRevision,
+      this.searchText !== null,
+    );
+  }
+
+  resetRenderSearch(): void {
+    this.searchRevision = CatalogSearchRevision.Initial;
+    this.searchText = null;
   }
 
   private registration(source: QueryableSourceId): SourceRegistration {
