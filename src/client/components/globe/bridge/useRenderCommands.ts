@@ -2,20 +2,15 @@ import { useEffect } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import {
-  recordLatitude,
-  recordLongitude,
-} from "@/workers/data/source-model/position";
-import {
   RenderFocusKind,
   RenderMessageType,
-  type SelectedRenderItem,
 } from "@/workers/render/protocol";
 import {
   canonicalEntityId,
   sourceForPointType,
 } from "@/workers/data/sources/registry";
 
-type PresentationCommandOptions = Readonly<{
+type RenderCommandOptions = Readonly<{
   host: HTMLElement | null;
   props: Readonly<GlobeVisualizationProps>;
 }>;
@@ -48,10 +43,10 @@ function useFocusCommand({
   }, [host, kind, selected, targetId]);
 }
 
-export function usePresentationCommands({
+export function useRenderCommands({
   host,
   props,
-}: PresentationCommandOptions): void {
+}: RenderCommandOptions): void {
   const {
     searchText,
     selected,
@@ -84,24 +79,6 @@ export function usePresentationCommands({
       payload: searchText,
     });
   }, [host, searchText]);
-
-  useEffect(() => {
-    if (!host) return;
-    const selectedItem: SelectedRenderItem | null = selected
-      ? {
-          id: selected.id,
-          type: selected.type,
-          lat: recordLatitude(selected),
-          lon: recordLongitude(selected),
-        }
-      : null;
-    sendRenderSurfaceCommand(host, {
-      type: RenderMessageType.Presentation,
-      payload: {
-        selectedItem,
-      },
-    });
-  }, [host, selected]);
 
   useFocusCommand({
     host,

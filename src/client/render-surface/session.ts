@@ -13,10 +13,7 @@ import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 import { DomEvent } from "@/lib/runtime/domEvent";
 import { isRecord } from "@shared/geo";
 import {
-  attachInputHandlers,
-  createInputHandlers,
-  detachInputHandlers,
-  type InputHandlers,
+  InputAdapter,
 } from "@/render-surface/input";
 import {
   emitRenderInteraction,
@@ -69,16 +66,13 @@ type RenderSurfaceAdapter = Readonly<{
   stop: () => void;
 }>;
 
-export type RenderSurfaceSession = Readonly<{
-  start: (canvas: HTMLCanvasElement, host: HTMLElement) => void;
-  send: (
-    body: RenderWorkerCommandBody,
-    transfer?: readonly Transferable[],
-  ) => void;
-  stop: () => void;
-}>;
+export type RenderSurfaceSessionHandle = Pick<
+  RenderSurfaceSession,
+  "start" | "send" | "stop"
+>;
 
-export type RenderSurfaceSessionFactory = () => RenderSurfaceSession;
+export type RenderSurfaceSessionFactory =
+  () => RenderSurfaceSessionHandle;
 
 export type RenderSurfaceSessionDependencies = Readonly<{
   createWorkerEndpoint?: () => RenderWorkerEndpoint;
@@ -140,144 +134,172 @@ function acceptsWorkerEvent(
   );
 }
 
+export class RenderSurfaceSession {
+  private endpoint: RenderWorkerEndpoint | null = null;
+  private sender: RenderCommandSender | null = null;
+  private viewport: ViewportAdapter | null = null;
+  private input: InputAdapter | null = null;
+  private unsubscribe: (() => void) | null = null;
+  private disconnectGlobeState: (() => void) | null = null;
+  private browserAdapters: readonly RenderSurfaceAdapter[] = [];
+  private readonly globeState: RenderGlobeStateStore;
+
+  constructor(
+    private readonly dependencies: RenderSurfaceSessionDependencies = {},
+  ) {
+    this.globeState =
+      dependencies.globeStateStore ?? renderGlobeStateStore;
+  }
+
+  start(nextCanvas: HTMLCanvasElement, host: HTMLElement): void {
+    if (this.endpoint) return;
+    const sessionId =
+      this.dependencies.createSessionId?.() ??
+      globalThis.crypto.randomUUID();
+    this.endpoint =
+      this.dependencies.createWorkerEndpoint?.() ??
+      createBrowserWorkerEndpoint();
+    this.sender = createRenderCommandSender(this.endpoint, sessionId);
+    this.unsubscribe = this.endpoint.subscribe((message) => {
+      this.handleWorkerEvent(
+        message,
+        sessionId,
+        nextCanvas,
+        host,
+      );
+    });
+
+    this.initializeWorker(nextCanvas, sessionId);
+    this.startStateAdapters();
+    this.disconnectGlobeState = this.globeState.connect((command) =>
+      this.send({
+        type: RenderMessageType.GlobeCommand,
+        payload: command,
+      }),
+    );
+    this.viewport = createBrowserViewportAdapter(
+      host,
+      (payload) =>
+        this.send({ type: RenderMessageType.Viewport, payload }),
+      RENDER_POLICY.maxDevicePixelRatio,
+    );
+    this.viewport.start();
+    this.input = new InputAdapter({
+      canvas: nextCanvas,
+      sendInput: (payload) =>
+        this.send({ type: RenderMessageType.Input, payload }),
+      onMiddleClick: () => {
+        emitRenderSignal(host, RENDER_SURFACE_MIDDLE_CLICK_EVENT);
+      },
+    });
+    this.input.start();
+  }
+
+  send(
+    body: RenderWorkerCommandBody,
+    transfer: readonly Transferable[] = [],
+  ): void {
+    this.sender?.send(body, transfer);
+  }
+
+  stop(): void {
+    this.input?.stop();
+    this.input = null;
+    this.viewport?.stop();
+    this.viewport = null;
+    for (const adapter of this.browserAdapters) adapter.stop();
+    this.browserAdapters = [];
+    this.disconnectGlobeState?.();
+    this.disconnectGlobeState = null;
+    if (this.sender) {
+      this.sender.send({ type: RenderMessageType.Dispose });
+    }
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.endpoint?.terminate();
+    this.endpoint = null;
+    this.sender = null;
+  }
+
+  private handleWorkerEvent(
+    message: unknown,
+    sessionId: string,
+    canvas: HTMLCanvasElement,
+    host: HTMLElement,
+  ): void {
+    if (!acceptsWorkerEvent(message, sessionId)) return;
+    if (message.type === RenderMessageType.Ready) {
+      canvas.dataset.renderWorkerReady = DatasetState.Ready;
+      emitRenderSignal(host, RENDER_SURFACE_READY_EVENT);
+      return;
+    }
+    if (message.type === RenderMessageType.DataChannelReady) {
+      canvas.dataset.renderDataChannelReady = DatasetState.Ready;
+      emitRenderSignal(host, RENDER_SURFACE_DATA_READY_EVENT);
+      return;
+    }
+    if (message.type === RenderMessageType.GlobeState) {
+      if (isRenderGlobeStateSnapshot(message.payload)) {
+        this.globeState.accept(message.payload);
+      }
+      return;
+    }
+    if (message.type !== RenderMessageType.Interaction) return;
+    const interaction = message.payload;
+    if (!isRenderInteraction(interaction)) return;
+    if (interaction.kind === RenderInteractionKind.Cursor) {
+      canvas.style.cursor = interaction.cursor;
+    }
+    emitRenderInteraction(host, interaction);
+  }
+
+  private initializeWorker(
+    canvas: HTMLCanvasElement,
+    sessionId: string,
+  ): void {
+    const offscreen = canvas.transferControlToOffscreen();
+    const dataClient = getDataWorkerClient();
+    if (dataClient && typeof MessageChannel !== "undefined") {
+      const channel = new MessageChannel();
+      this.send(
+        {
+          type: RenderMessageType.Init,
+          canvas: offscreen,
+          dataPort: channel.port2,
+        },
+        [offscreen, channel.port2],
+      );
+      void dataClient.connectRender(channel.port1, sessionId);
+      return;
+    }
+    this.send(
+      { type: RenderMessageType.Init, canvas: offscreen },
+      [offscreen],
+    );
+  }
+
+  private startStateAdapters(): void {
+    this.browserAdapters = [
+      createBrowserReducedMotionAdapter(
+        (value) => this.globeState.dispatch({
+          kind: RenderGlobeCommandKind.SetReducedMotion,
+          reducedMotion: value,
+        }),
+      ),
+      createBrowserRenderThemeAdapter(
+        (theme) => this.globeState.dispatch({
+          kind: RenderGlobeCommandKind.SetRenderTheme,
+          theme,
+        }),
+      ),
+      createBrowserAircraftFilterUrlAdapter(this.globeState),
+    ];
+    for (const adapter of this.browserAdapters) adapter.start();
+  }
+}
+
 export function createRenderSurfaceSession(
   dependencies: RenderSurfaceSessionDependencies = {},
 ): RenderSurfaceSession {
-  let endpoint: RenderWorkerEndpoint | null = null;
-  let sender: RenderCommandSender | null = null;
-  let viewport: ViewportAdapter | null = null;
-  let input: InputHandlers | null = null;
-  let canvas: HTMLCanvasElement | null = null;
-  let unsubscribe: (() => void) | null = null;
-  let disconnectGlobeState: (() => void) | null = null;
-  let browserAdapters: readonly RenderSurfaceAdapter[] = [];
-  const globeState =
-    dependencies.globeStateStore ?? renderGlobeStateStore;
-
-  const send: RenderCommandSender["send"] = (body, transfer = []): void => {
-    sender?.send(body, transfer);
-  };
-
-  return {
-    start(nextCanvas, host): void {
-      if (endpoint) return;
-      canvas = nextCanvas;
-      const sessionId =
-        dependencies.createSessionId?.() ?? globalThis.crypto.randomUUID();
-      endpoint =
-        dependencies.createWorkerEndpoint?.() ?? createBrowserWorkerEndpoint();
-      sender = createRenderCommandSender(endpoint, sessionId);
-
-      unsubscribe = endpoint.subscribe((message) => {
-        if (!acceptsWorkerEvent(message, sessionId)) return;
-        if (message.type === RenderMessageType.Ready) {
-          nextCanvas.dataset.renderWorkerReady = DatasetState.Ready;
-          emitRenderSignal(host, RENDER_SURFACE_READY_EVENT);
-          return;
-        }
-        if (message.type === RenderMessageType.DataChannelReady) {
-          nextCanvas.dataset.renderDataChannelReady = DatasetState.Ready;
-          emitRenderSignal(host, RENDER_SURFACE_DATA_READY_EVENT);
-          return;
-        }
-        if (message.type === RenderMessageType.GlobeState) {
-          if (isRenderGlobeStateSnapshot(message.payload)) {
-            globeState.accept(message.payload);
-          }
-          return;
-        }
-        if (message.type !== RenderMessageType.Interaction) return;
-        const interaction = message.payload;
-        if (!isRenderInteraction(interaction)) return;
-        if (interaction.kind === RenderInteractionKind.Cursor) {
-          nextCanvas.style.cursor = interaction.cursor;
-        }
-        emitRenderInteraction(host, interaction);
-      });
-
-      const offscreen = nextCanvas.transferControlToOffscreen();
-      const dataClient = getDataWorkerClient();
-      if (dataClient && typeof MessageChannel !== "undefined") {
-        const channel = new MessageChannel();
-        send(
-          {
-            type: RenderMessageType.Init,
-            canvas: offscreen,
-            dataPort: channel.port2,
-          },
-          [offscreen, channel.port2],
-        );
-        void dataClient.connectRender(channel.port1, sessionId);
-      } else {
-        send(
-          { type: RenderMessageType.Init, canvas: offscreen },
-          [offscreen],
-        );
-      }
-
-      browserAdapters = [
-        createBrowserReducedMotionAdapter(
-          (value) => globeState.dispatch({
-            kind: RenderGlobeCommandKind.SetReducedMotion,
-            reducedMotion: value,
-          }),
-        ),
-        createBrowserRenderThemeAdapter(
-          (theme) => globeState.dispatch({
-            kind: RenderGlobeCommandKind.SetRenderTheme,
-            theme,
-          }),
-        ),
-        createBrowserAircraftFilterUrlAdapter(globeState),
-      ];
-      for (const adapter of browserAdapters) adapter.start();
-
-      disconnectGlobeState = globeState.connect((command) =>
-        send({
-          type: RenderMessageType.GlobeCommand,
-          payload: command,
-        }),
-      );
-
-      viewport = createBrowserViewportAdapter(
-        host,
-        (payload) =>
-          send({ type: RenderMessageType.Viewport, payload }),
-        RENDER_POLICY.maxDevicePixelRatio,
-      );
-      viewport.start();
-
-      input = createInputHandlers({
-        canvas: nextCanvas,
-        sendInput: (payload) =>
-          send({ type: RenderMessageType.Input, payload }),
-        onMiddleClick: () => {
-          emitRenderSignal(host, RENDER_SURFACE_MIDDLE_CLICK_EVENT);
-        },
-      });
-      attachInputHandlers(nextCanvas, input);
-    },
-
-    send,
-
-    stop(): void {
-      for (const adapter of browserAdapters) adapter.stop();
-      browserAdapters = [];
-      viewport?.stop();
-      viewport = null;
-      disconnectGlobeState?.();
-      disconnectGlobeState = null;
-      if (canvas && input) detachInputHandlers(canvas, input);
-      input = null;
-      if (sender) {
-        sender.send({ type: RenderMessageType.Dispose });
-      }
-      unsubscribe?.();
-      unsubscribe = null;
-      endpoint?.terminate();
-      endpoint = null;
-      sender = null;
-      canvas = null;
-    },
-  };
+  return new RenderSurfaceSession(dependencies);
 }

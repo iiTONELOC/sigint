@@ -15,12 +15,6 @@ export type ViewportAdapterOptions = Readonly<{
   sendViewport: (viewport: RenderViewportPayload) => void;
 }>;
 
-export type ViewportAdapter = Readonly<{
-  start: () => void;
-  invalidate: () => void;
-  stop: () => void;
-}>;
-
 export function measureRenderViewport(
   host: HTMLElement,
   devicePixelRatio: number,
@@ -36,45 +30,49 @@ export function measureRenderViewport(
   };
 }
 
+export class ViewportAdapter {
+  private observer: ViewportObserver | null = null;
+  private frame = 0;
+
+  constructor(
+    private readonly options: ViewportAdapterOptions,
+  ) {}
+
+  start(): void {
+    if (this.observer) return;
+    this.sendCurrentViewport();
+    this.observer = this.options.createObserver(this.invalidate);
+    this.observer.observe(this.options.host);
+  }
+
+  readonly invalidate = (): void => {
+    if (this.frame !== 0) return;
+    this.frame = this.options.requestFrame(this.sendCurrentViewport);
+  };
+
+  stop(): void {
+    if (this.frame !== 0) this.options.cancelFrame(this.frame);
+    this.frame = 0;
+    this.observer?.disconnect();
+    this.observer = null;
+  }
+
+  private readonly sendCurrentViewport = (): void => {
+    this.frame = 0;
+    const viewport = measureRenderViewport(
+      this.options.host,
+      this.options.readDevicePixelRatio(),
+      this.options.maxDevicePixelRatio,
+    );
+    if (viewport.width === 0 || viewport.height === 0) return;
+    this.options.sendViewport(viewport);
+  };
+}
+
 export function createViewportAdapter(
   options: ViewportAdapterOptions,
 ): ViewportAdapter {
-  let observer: ViewportObserver | null = null;
-  let frame = 0;
-
-  const sendCurrentViewport = (): void => {
-    frame = 0;
-    const viewport = measureRenderViewport(
-      options.host,
-      options.readDevicePixelRatio(),
-      options.maxDevicePixelRatio,
-    );
-    if (viewport.width === 0 || viewport.height === 0) return;
-    options.sendViewport(viewport);
-  };
-
-  const invalidate = (): void => {
-    if (frame !== 0) return;
-    frame = options.requestFrame(sendCurrentViewport);
-  };
-
-  return {
-    start(): void {
-      if (observer) return;
-      sendCurrentViewport();
-      observer = options.createObserver(invalidate);
-      observer.observe(options.host);
-    },
-
-    invalidate,
-
-    stop(): void {
-      if (frame !== 0) options.cancelFrame(frame);
-      frame = 0;
-      observer?.disconnect();
-      observer = null;
-    },
-  };
+  return new ViewportAdapter(options);
 }
 
 export function createBrowserViewportAdapter(

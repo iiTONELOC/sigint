@@ -1,11 +1,11 @@
 import type {
-  RenderSurfaceSession,
+  RenderSurfaceSessionHandle,
   RenderSurfaceSessionFactory,
 } from "@/render-surface/session";
 import type { RenderWorkerCommandBody } from "@/workers/render/protocol";
 
 export type {
-  RenderSurfaceSession,
+  RenderSurfaceSessionHandle,
   RenderSurfaceSessionFactory,
 } from "@/render-surface/session";
 
@@ -13,14 +13,16 @@ export type RenderSurfaceElementOptions = Readonly<{
   createSession: RenderSurfaceSessionFactory;
 }>;
 
-const activeSessions = new WeakMap<HTMLElement, RenderSurfaceSession>();
+const activeSessions = new WeakMap<
+  HTMLElement,
+  RenderSurfaceSessionHandle
+>();
 
 function createCanvas(): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.setAttribute("part", "canvas");
   canvas.style.display = "block";
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
+  canvas.style.width = canvas.style.height = "100%";
   canvas.style.touchAction = "none";
   return canvas;
 }
@@ -42,7 +44,7 @@ export function createRenderSurfaceElementClass(
   return class RenderSurfaceElement extends HTMLElement {
     readonly #root: ShadowRoot;
     #canvas: HTMLCanvasElement | null = null;
-    #session: RenderSurfaceSession | null = null;
+    #session: RenderSurfaceSessionHandle | null = null;
 
     constructor() {
       super();

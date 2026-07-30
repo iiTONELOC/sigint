@@ -46,7 +46,6 @@ import {
   type RenderGlobeStateSnapshot,
   type RenderInputPayload,
   type RenderInteractionPayload,
-  type RenderPresentationPayload,
   type RenderSelectionIdentity,
   type RenderViewportPayload,
   type RenderProtocolState,
@@ -54,7 +53,6 @@ import {
   type RenderWorkerColors,
   type RenderWorkerEventBody,
   type SelectedIsolateMode,
-  type SelectedRenderItem,
   PanelSide,
 } from "./render/protocol";
 import {
@@ -568,7 +566,6 @@ function drawRoute(
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
-let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
 const _cameraTarget = createWorkerCameraTarget();
@@ -712,14 +709,6 @@ function currentIsolateMode(): SelectedIsolateMode {
   return globeStateController.snapshot().isolateMode;
 }
 
-function selectedPresentationItem(): SelectedRenderItem | null {
-  const selectedId = selectedInteractionId();
-  const item = _presentation?.selectedItem;
-  return selectedId !== null && item?.id === selectedId
-    ? item
-    : null;
-}
-
 function updateSelection(
   identity: RenderSelectionIdentity | null,
 ): boolean {
@@ -811,8 +800,7 @@ function postCameraSummary(now: number): void {
 
 
 function scheduleRender(): void {
-  const hasState = _presentation !== null && _viewport !== null;
-  if (_frameScheduled || !hasState) return;
+  if (_frameScheduled || !_viewport) return;
   _frameScheduled = true;
   requestAnimationFrame(renderFrame);
 }
@@ -916,7 +904,7 @@ function handlePinchInput(payload: PinchInput, surface: InputSurface): void {
 }
 
 function handleCameraInput(payload: RenderInputPayload): void {
-  if (!_viewport || !_presentation) return;
+  if (!_viewport) return;
   const surface: InputSurface = {
     viewport: { width: _viewport.width, height: _viewport.height },
     flat: usesFlatProjection(),
@@ -975,7 +963,7 @@ function handleFocus(
     { type: RenderMessageType.Focus }
   >,
 ): void {
-  if (!_viewport || !_presentation) return;
+  if (!_viewport) return;
   const position = focusResolver.resolve(
     msg.payload,
     selectionIdentity(),
@@ -1000,17 +988,12 @@ function handleDispose(): void {
   selectionOverlayStore.clear();
   canvas = null;
   ctx = null;
-  _presentation = null;
   _viewport = null;
   _frameScheduled = false;
 }
 
 function handleViewport(payload: RenderViewportPayload): void {
   _viewport = payload;
-}
-
-function handlePresentation(payload: RenderPresentationPayload): void {
-  _presentation = payload;
 }
 
 function handleGlobeCommand(payload: unknown): void {
@@ -1050,9 +1033,6 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
       return;
     case RenderMessageType.Viewport:
       handleViewport(msg.payload);
-      break;
-    case RenderMessageType.Presentation:
-      handlePresentation(msg.payload);
       break;
     case RenderMessageType.GlobeCommand:
       handleGlobeCommand(msg.payload);
@@ -1157,7 +1137,7 @@ function nearestTrailTarget(
 }
 
 function currentProjection(): ProjFn | null {
-  if (!_viewport || !_presentation) return null;
+  if (!_viewport) return null;
   const camera = cameraSnapshot(_camera);
   const { width, height } = _viewport;
   if (usesFlatProjection()) {
@@ -1268,7 +1248,7 @@ function screenGeoPoint(
   x: number,
   y: number,
 ): GeoPoint | null {
-  if (!_viewport || !_presentation) return null;
+  if (!_viewport) return null;
   const camera = cameraSnapshot(_camera);
   if (usesFlatProjection()) {
     const metrics = getFlatMetrics(
@@ -1349,7 +1329,7 @@ function handlePointerClick(click: CameraClick): void {
   if (isDoubleClick) {
     clearTrailTooltip();
     const target = _lastClickPosition;
-    if (target && _viewport && _presentation) {
+    if (target && _viewport) {
       focusCamera(
         _camera,
         _cameraTarget,
@@ -1369,14 +1349,12 @@ function handlePointerClick(click: CameraClick): void {
   if (point && !trailTarget) {
     clearTrailTooltip();
     commitCanvasSelection(point.identity);
-    if (_presentation) {
-      lockCamera(
-        _camera,
-        _cameraTarget,
-        point.identity.interactionId,
-        usesFlatProjection(),
-      );
-    }
+    lockCamera(
+      _camera,
+      _cameraTarget,
+      point.identity.interactionId,
+      usesFlatProjection(),
+    );
     _lastClickTime = now;
     _lastClickId = point.identity.interactionId;
     _lastClickPosition = {
@@ -1411,7 +1389,7 @@ function handlePointerClick(click: CameraClick): void {
 }
 
 function handlePointerHover(x: number, y: number): void {
-  if (!_viewport || !_presentation || _pointer.active) return;
+  if (!_viewport || _pointer.active) return;
   const viewport = {
     width: _viewport.width,
     height: _viewport.height,
@@ -1772,7 +1750,6 @@ function frameInputs(): FrameInputs | null {
     !canvas ||
     !ctx ||
     !globeState.renderTheme ||
-    !_presentation ||
     !_viewport
   ) {
     return null;
@@ -1998,7 +1975,7 @@ function renderFrame(): void {
   const isoId =
     isoMode === null ? null : selection?.interactionId ?? null;
 
-  const selectedItem = selectedPresentationItem();
+  const selectedPosition = selectedCameraPosition();
   const selectedOverlay = selectionOverlayStore.snapshot();
 
   const zoomLevel = isFlat ? cam.zoomFlat : cam.zoomGlobe;
@@ -2072,14 +2049,13 @@ function renderFrame(): void {
   });
 
   const selectedRoute = selectedOverlay?.route;
-  if (drawSelectedTrail && selectedItem && selectedRoute) {
-    const routePos = selectedInterpolation();
+  if (drawSelectedTrail && selectedPosition && selectedRoute) {
     drawRoute(
       ctx,
       projFn,
       selectedRoute,
-      routePos ? routePos.lat : selectedItem.lat,
-      routePos ? routePos.lon : selectedItem.lon,
+      selectedPosition.latitude,
+      selectedPosition.longitude,
       colors,
     );
   }

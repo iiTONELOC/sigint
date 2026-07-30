@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  RenderSurfaceSession,
   createRenderCommandSender,
+  createRenderSurfaceSession,
   type RenderWorkerEndpoint,
 } from "@/render-surface/session";
 import {
@@ -10,6 +12,13 @@ import {
 import { Domain } from "@shared/domain/identity";
 
 describe("render surface session", () => {
+  test("constructs the lifecycle owner as one session class", () => {
+    const session = createRenderSurfaceSession();
+
+    expect(session).toBeInstanceOf(RenderSurfaceSession);
+    session.stop();
+  });
+
   test("owns one increasing command sequence", () => {
     const messages: unknown[] = [];
     const endpoint: RenderWorkerEndpoint = {

@@ -37,7 +37,6 @@ export enum RenderProtocolVersion {
 export enum RenderMessageType {
   Init = "init",
   Viewport = "viewport",
-  Presentation = "presentation",
   GlobeCommand = "globeCommand",
   Input = "input",
   Focus = "focus",
@@ -616,21 +615,10 @@ export type RenderCamera = Readonly<{
   rotX: number;
 }>;
 
-export type SelectedRenderItem = Readonly<{
-  id: string;
-  type: DataType;
-  lat: number;
-  lon: number;
-}>;
-
 export type RenderViewportPayload = Readonly<{
   width: number;
   height: number;
   devicePixelRatio: number;
-}>;
-
-export type RenderPresentationPayload = Readonly<{
-  selectedItem: SelectedRenderItem | null;
 }>;
 
 export type RenderFocusPayload = Readonly<{
@@ -705,10 +693,6 @@ export type RenderWorkerCommandBody =
   | Readonly<{
       type: RenderMessageType.Viewport;
       payload: RenderViewportPayload;
-    }>
-  | Readonly<{
-      type: RenderMessageType.Presentation;
-      payload: RenderPresentationPayload;
     }>
   | Readonly<{
       type: RenderMessageType.GlobeCommand;

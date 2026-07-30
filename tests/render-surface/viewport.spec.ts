@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ViewportAdapter,
   createViewportAdapter,
   measureRenderViewport,
 } from "@/render-surface/viewport";
@@ -51,6 +52,7 @@ describe("render surface viewport", () => {
       sendViewport: (viewport) => sent.push(viewport),
     });
 
+    expect(adapter).toBeInstanceOf(ViewportAdapter);
     adapter.start();
     expect(observed).toEqual([host]);
     expect(sent).toHaveLength(1);
