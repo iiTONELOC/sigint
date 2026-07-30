@@ -42,6 +42,7 @@ import {
   createRenderMessage,
   type RenderAircraftFilter,
   type RenderCamera,
+  type RenderGlobeStateSnapshot,
   type RenderInputPayload,
   type RenderInteractionPayload,
   type RenderPresentationPayload,
@@ -1834,6 +1835,7 @@ type ProjectFrameOptions = Readonly<{
   project: ProjFn;
   geometry: SceneGeometry;
   presentation: RenderPresentationPayload;
+  globeState: RenderGlobeStateSnapshot;
 }>;
 
 type ProjectedFrame = Readonly<{
@@ -1847,6 +1849,7 @@ type ProjectedFrame = Readonly<{
  */
 function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   const p = options.presentation;
+  const state = options.globeState;
   const { isolatedId: isoId, isolateMode: isoMode } = p;
   const selection = selectionIdentity();
   const isolatedType =
@@ -1863,52 +1866,52 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
     isolatedType,
   };
   const aircraftSceneFilter: AircraftSceneFilter = {
-    filter: p.aircraftFilter,
+    filter: state.aircraftFilter,
     ...sceneVisibility,
   };
   aircraftLayer.project(base, aircraftSceneFilter);
 
   shipLayer.project(base, {
-    enabled: p.layers.ships !== false,
+    enabled: state.layers[Domain.Ships],
     ...sceneVisibility,
   });
 
   const fireSceneFilter: FireSceneFilter = {
-    enabled: p.layers[Domain.Fires] !== false,
-    minimumConfidence: p.fireMinConfidence,
+    enabled: state.layers[Domain.Fires],
+    minimumConfidence: state.fireMinimumConfidence,
     ...sceneVisibility,
   };
   fireLayer.project(base, fireSceneFilter);
 
   eventLayer.project(base, {
-    enabled: p.layers[Domain.Events] !== false,
+    enabled: state.layers[Domain.Events],
     ...sceneVisibility,
   });
 
   const earthquakeSceneFilter: EarthquakeSceneFilter = {
-    enabled: p.layers[Domain.Quakes] !== false,
-    minimumMagnitude: p.earthquakeMinMagnitude,
+    enabled: state.layers[Domain.Quakes],
+    minimumMagnitude: state.earthquakeMinimumMagnitude,
     ...sceneVisibility,
   };
   earthquakeLayer.project(base, earthquakeSceneFilter);
 
   cycloneWarningLayer.project(base, {
-    enabled: p.cyclonesShowWarnings !== false,
+    enabled: state.cycloneFilter.showWarnings,
     ...sceneVisibility,
   });
 
   weatherLayer.project(base, {
-    enabled: p.layers[Domain.Weather] !== false,
+    enabled: state.layers[Domain.Weather],
     ...sceneVisibility,
   });
 
   cycloneLayer.project(base, {
-    enabled: p.layers[Domain.Cyclones] !== false,
-    minCategory: p.cyclonesMinCategory,
-    showForecast: p.cyclonesShowForecast !== false,
-    showWindField: p.cyclonesShowWindField === true,
-    showModels: p.cyclonesShowModels === true,
-    hiddenModels: new Set(p.cyclonesHiddenModels),
+    enabled: state.layers[Domain.Cyclones],
+    minCategory: state.cycloneFilter.minimumCategory,
+    showForecast: state.cycloneFilter.showForecast,
+    showWindField: state.cycloneFilter.showWindField,
+    showModels: state.cycloneFilter.showModels,
+    hiddenModels: new Set(state.cycloneFilter.hiddenModels),
     ...sceneVisibility,
   });
 
@@ -1987,7 +1990,6 @@ function renderFrame(): void {
   const selId = selection?.interactionId ?? null;
   const isoId = p.isolatedId;
   const isoMode = p.isolateMode;
-  const { layers } = p;
 
   const selectedItem = selectedPresentationItem();
   const selectedOverlay = selectionOverlayStore.snapshot();
@@ -2026,6 +2028,7 @@ function renderFrame(): void {
     project: projFn,
     geometry,
     presentation: p,
+    globeState,
   });
   const {
     isolatedType,
@@ -2047,12 +2050,13 @@ function renderFrame(): void {
     isolateMode: isoMode,
     isolatedId: isoId,
     isolatedType,
-    layers,
     aircraftEntityIsVisible: (entityId) =>
       aircraftLayer.includesEntity(
         entityId,
         aircraftSceneFilter,
       ),
+    sourceIsVisible: (source) =>
+      globeStateController.sourceIsVisible(source),
     searchIncludesEntity: (identity) =>
       renderLayerCatalog.searchIncludesEntity(
         identity.source,
@@ -2149,7 +2153,7 @@ function renderFrame(): void {
         selectedId: selId,
         time: t,
         reducedMotion: p.prefersReducedMotion,
-        showCone: p.cyclonesShowCone,
+        showCone: globeState.cycloneFilter.showCone,
       });
     },
   );

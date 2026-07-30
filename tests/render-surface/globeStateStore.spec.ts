@@ -8,6 +8,10 @@ import {
   RenderRotationSpeedPolicy,
   type RenderGlobeCommand,
 } from "@/workers/render/protocol";
+import {
+  createDefaultRenderGlobeState,
+} from "@/workers/render/globeStateController";
+import { Domain } from "@shared/domain/identity";
 
 describe("RenderGlobeStateStore", () => {
   test("owns a disconnected seed without React state", () => {
@@ -39,20 +43,19 @@ describe("RenderGlobeStateStore", () => {
       sent.push(command);
     });
 
-    expect(sent).toEqual([
-      {
-        kind: RenderGlobeCommandKind.SetProjection,
-        projection: RenderProjectionMode.Globe,
-      },
-      {
-        kind: RenderGlobeCommandKind.SetRotationEnabled,
-        enabled: true,
-      },
-      {
-        kind: RenderGlobeCommandKind.SetRotationSpeed,
-        speed: RenderRotationSpeedPolicy.Default,
-      },
-    ]);
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetProjection,
+      projection: RenderProjectionMode.Globe,
+    });
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetRotationEnabled,
+      enabled: true,
+    });
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetLayerVisibility,
+      layer: Domain.Ships,
+      visible: true,
+    });
     disconnect();
   });
 
@@ -81,8 +84,7 @@ describe("RenderGlobeStateStore", () => {
 
     expect(
       store.accept({
-        projection: RenderProjectionMode.Globe,
-        rotationEnabled: false,
+        ...createDefaultRenderGlobeState(),
         rotationSpeed: RenderRotationSpeedPolicy.Maximum,
       }),
     ).toBe(true);
@@ -90,5 +92,16 @@ describe("RenderGlobeStateStore", () => {
       RenderRotationSpeedPolicy.Maximum,
     );
     disconnect();
+  });
+
+  test("dispatches layer commands through the same state owner", () => {
+    const store = new RenderGlobeStateStore();
+
+    store.dispatch({
+      kind: RenderGlobeCommandKind.ToggleLayer,
+      layer: Domain.Ships,
+    });
+
+    expect(store.read().layers[Domain.Ships]).toBe(false);
   });
 });

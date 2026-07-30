@@ -3,10 +3,6 @@ import type {
   SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { AircraftFilter } from "@/features/tracking/aircraft";
-import type { CycloneFilter } from "@/features/environmental/cyclones";
-import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
-import type { FireFilter } from "@/features/environmental/fires/types";
 
 export type CamState = {
   rotY: number;
@@ -43,11 +39,6 @@ export type DragState = {
 };
 
 export type GlobeVisualizationProps = {
-  readonly layers: Record<string, boolean>;
-  readonly aircraftFilter: AircraftFilter;
-  readonly earthquakeFilter: EarthquakeFilter;
-  readonly fireFilter: FireFilter;
-  readonly cycloneFilter?: CycloneFilter;
   readonly selected: DataPoint | null;
   readonly isolatedId: string | null;
   readonly isolateMode: SelectedIsolateMode;

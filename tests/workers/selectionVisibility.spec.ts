@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   IsolateMode,
-  type RenderPresentationPayload,
   type RenderSelectionIdentity,
 } from "@/workers/render/protocol";
 import {
@@ -24,11 +23,6 @@ const shipSelection: RenderSelectionIdentity = {
   pointType: Domain.Ships,
 };
 
-const enabledLayers: RenderPresentationPayload["layers"] = {
-  [Domain.Aircraft]: true,
-  [Domain.Ships]: true,
-};
-
 function settings(
   selection: RenderSelectionIdentity | null,
   overrides: Partial<SelectionVisibility> = {},
@@ -38,8 +32,8 @@ function settings(
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
-    layers: enabledLayers,
     aircraftEntityIsVisible: () => true,
+    sourceIsVisible: () => true,
     searchIncludesEntity: () => true,
     ...overrides,
   };
@@ -96,7 +90,7 @@ describe("selectionIsVisible", () => {
     expect(
       selectionIsVisible(
         settings(shipSelection, {
-          layers: { [Domain.Ships]: false },
+          sourceIsVisible: () => false,
         }),
       ),
     ).toBe(false);

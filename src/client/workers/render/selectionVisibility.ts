@@ -3,6 +3,9 @@ import {
   type RenderPresentationPayload,
   type RenderSelectionIdentity,
 } from "@/workers/render/protocol";
+import type {
+  RenderSourceId,
+} from "@/workers/data/sourceIds";
 import { Domain } from "@shared/domain/identity";
 
 export type SelectionVisibility = Readonly<{
@@ -10,8 +13,8 @@ export type SelectionVisibility = Readonly<{
   isolateMode: RenderPresentationPayload["isolateMode"];
   isolatedId: string | null;
   isolatedType: string | null;
-  layers: RenderPresentationPayload["layers"];
   aircraftEntityIsVisible: (entityId: string) => boolean;
+  sourceIsVisible: (source: RenderSourceId) => boolean;
   searchIncludesEntity: (
     selection: RenderSelectionIdentity,
   ) => boolean;
@@ -39,5 +42,5 @@ export function selectionIsVisible(
   if (selection.pointType === Domain.Aircraft) {
     return settings.aircraftEntityIsVisible(selection.entityId);
   }
-  return settings.layers[selection.pointType] !== false;
+  return settings.sourceIsVisible(selection.source);
 }

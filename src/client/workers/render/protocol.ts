@@ -16,12 +16,22 @@ import {
 import {
   sourceForPointType,
 } from "@/workers/data/sources/registry";
-import type { MilFilter } from "@shared/domain/aircraft";
-import type { MinCategory } from "@/features/environmental/cyclones/types";
+import {
+  MIN_CATEGORY_CHOICES,
+  type MinCategory,
+} from "@shared/domain/cycloneClassification";
+import {
+  MilFilter,
+  SquawkBucket,
+} from "@shared/domain/aircraft";
+import type {
+  AircraftFilterValues,
+} from "@shared/domain/aircraftFilter";
 import { isRecord } from "@shared/geo";
+import { Domain } from "@shared/domain/identity";
 
 export enum RenderProtocolVersion {
-  Current = 6,
+  Current = 1,
 }
 
 export enum RenderMessageType {
@@ -52,6 +62,23 @@ export enum RenderGlobeCommandKind {
   SetRotationEnabled = "setRotationEnabled",
   ToggleRotation = "toggleRotation",
   SetRotationSpeed = "setRotationSpeed",
+  SetLayerVisibility = "setLayerVisibility",
+  ToggleLayer = "toggleLayer",
+  SetAircraftFilter = "setAircraftFilter",
+  SetEarthquakeFilter = "setEarthquakeFilter",
+  SetFireFilter = "setFireFilter",
+  SetCycloneFilter = "setCycloneFilter",
+  ToggleCycloneLayer = "toggleCycloneLayer",
+  ToggleCycloneModel = "toggleCycloneModel",
+  ToggleAllCycloneModels = "toggleAllCycloneModels",
+}
+
+export enum RenderCycloneLayer {
+  Forecast = "showForecast",
+  Cone = "showCone",
+  WindField = "showWindField",
+  Models = "showModels",
+  Warnings = "showWarnings",
 }
 
 export enum RenderRotationSpeedPolicy {
@@ -187,10 +214,53 @@ export type RenderSearchSnapshot = Readonly<{
   text: string | null;
 }>;
 
+export type RenderLayerId =
+  | Domain.Ships
+  | Domain.Events
+  | Domain.Quakes
+  | Domain.Fires
+  | Domain.Weather
+  | Domain.Cyclones;
+
+export const RENDER_LAYER_IDS: readonly RenderLayerId[] = [
+  Domain.Ships,
+  Domain.Events,
+  Domain.Quakes,
+  Domain.Fires,
+  Domain.Weather,
+  Domain.Cyclones,
+];
+
+export type RenderLayerVisibility = Readonly<{
+  [Domain.Ships]: boolean;
+  [Domain.Events]: boolean;
+  [Domain.Quakes]: boolean;
+  [Domain.Fires]: boolean;
+  [Domain.Weather]: boolean;
+  [Domain.Cyclones]: boolean;
+}>;
+
+export type RenderAircraftFilter = AircraftFilterValues;
+
+export type RenderCycloneFilter = Readonly<{
+  minimumCategory: MinCategory;
+  showForecast: boolean;
+  showCone: boolean;
+  showWindField: boolean;
+  showModels: boolean;
+  showWarnings: boolean;
+  hiddenModels: readonly string[];
+}>;
+
 export type RenderGlobeStateSnapshot = Readonly<{
   projection: RenderProjectionMode;
   rotationEnabled: boolean;
   rotationSpeed: number;
+  layers: RenderLayerVisibility;
+  aircraftFilter: RenderAircraftFilter;
+  earthquakeMinimumMagnitude: number;
+  fireMinimumConfidence: number;
+  cycloneFilter: RenderCycloneFilter;
 }>;
 
 export type RenderGlobeCommand =
@@ -208,6 +278,43 @@ export type RenderGlobeCommand =
   | Readonly<{
       kind: RenderGlobeCommandKind.SetRotationSpeed;
       speed: number;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetLayerVisibility;
+      layer: RenderLayerId;
+      visible: boolean;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.ToggleLayer;
+      layer: RenderLayerId;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetAircraftFilter;
+      filter: RenderAircraftFilter;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetEarthquakeFilter;
+      minimumMagnitude: number;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetFireFilter;
+      minimumConfidence: number;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetCycloneFilter;
+      filter: RenderCycloneFilter;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.ToggleCycloneLayer;
+      layer: RenderCycloneLayer;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.ToggleCycloneModel;
+      model: string;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.ToggleAllCycloneModels;
+      models: readonly string[];
     }>;
 
 export function renderSelectionIdentitiesEqual(
@@ -245,6 +352,89 @@ enum RenderSearchRevisionBoundary {
 
 enum RenderSearchTextLength {
   Empty = 0,
+}
+
+export enum RenderFilterBoundary {
+  Minimum = 0,
+}
+
+enum RenderFilterTextLength {
+  Empty = 0,
+}
+
+export function isRenderLayerId(
+  value: unknown,
+): value is RenderLayerId {
+  return RENDER_LAYER_IDS.includes(value as RenderLayerId);
+}
+
+function isFiniteFilterValue(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= RenderFilterBoundary.Minimum
+  );
+}
+
+function isUniqueNonEmptyStrings(
+  value: unknown,
+): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > RenderFilterTextLength.Empty,
+    ) &&
+    new Set(value).size === value.length
+  );
+}
+
+function isRenderLayerVisibility(
+  value: unknown,
+): value is RenderLayerVisibility {
+  return (
+    isRecord(value) &&
+    RENDER_LAYER_IDS.every(
+      (layer) => typeof value[layer] === "boolean",
+    )
+  );
+}
+
+function isRenderAircraftFilter(
+  value: unknown,
+): value is RenderAircraftFilter {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === "boolean" &&
+    typeof value.showAirborne === "boolean" &&
+    typeof value.showGround === "boolean" &&
+    Object.values(MilFilter).includes(value.milFilter as MilFilter) &&
+    Array.isArray(value.squawks) &&
+    value.squawks.every((squawk) =>
+      Object.values(SquawkBucket).includes(squawk as SquawkBucket)
+    ) &&
+    new Set(value.squawks).size === value.squawks.length &&
+    isUniqueNonEmptyStrings(value.countries)
+  );
+}
+
+function isRenderCycloneFilter(
+  value: unknown,
+): value is RenderCycloneFilter {
+  return (
+    isRecord(value) &&
+    typeof value.minimumCategory === "number" &&
+    MIN_CATEGORY_CHOICES.includes(
+      value.minimumCategory as MinCategory,
+    ) &&
+    typeof value.showForecast === "boolean" &&
+    typeof value.showCone === "boolean" &&
+    typeof value.showWindField === "boolean" &&
+    typeof value.showModels === "boolean" &&
+    typeof value.showWarnings === "boolean" &&
+    isUniqueNonEmptyStrings(value.hiddenModels)
+  );
 }
 
 export function isRenderSelectionIdentity(
@@ -313,7 +503,12 @@ export function isRenderGlobeStateSnapshot(
       value.projection === RenderProjectionMode.Flat
     ) &&
     typeof value.rotationEnabled === "boolean" &&
-    isRenderRotationSpeed(value.rotationSpeed)
+    isRenderRotationSpeed(value.rotationSpeed) &&
+    isRenderLayerVisibility(value.layers) &&
+    isRenderAircraftFilter(value.aircraftFilter) &&
+    isFiniteFilterValue(value.earthquakeMinimumMagnitude) &&
+    isFiniteFilterValue(value.fireMinimumConfidence) &&
+    isRenderCycloneFilter(value.cycloneFilter)
   );
 }
 
@@ -333,6 +528,32 @@ export function isRenderGlobeCommand(
       return true;
     case RenderGlobeCommandKind.SetRotationSpeed:
       return isRenderRotationSpeed(value.speed);
+    case RenderGlobeCommandKind.SetLayerVisibility:
+      return (
+        isRenderLayerId(value.layer) &&
+        typeof value.visible === "boolean"
+      );
+    case RenderGlobeCommandKind.ToggleLayer:
+      return isRenderLayerId(value.layer);
+    case RenderGlobeCommandKind.SetAircraftFilter:
+      return isRenderAircraftFilter(value.filter);
+    case RenderGlobeCommandKind.SetEarthquakeFilter:
+      return isFiniteFilterValue(value.minimumMagnitude);
+    case RenderGlobeCommandKind.SetFireFilter:
+      return isFiniteFilterValue(value.minimumConfidence);
+    case RenderGlobeCommandKind.SetCycloneFilter:
+      return isRenderCycloneFilter(value.filter);
+    case RenderGlobeCommandKind.ToggleCycloneLayer:
+      return Object.values(RenderCycloneLayer).includes(
+        value.layer as RenderCycloneLayer,
+      );
+    case RenderGlobeCommandKind.ToggleCycloneModel:
+      return (
+        typeof value.model === "string" &&
+        value.model.length > RenderFilterTextLength.Empty
+      );
+    case RenderGlobeCommandKind.ToggleAllCycloneModels:
+      return isUniqueNonEmptyStrings(value.models);
     default:
       return false;
   }
@@ -345,15 +566,6 @@ export type RenderCamera = Readonly<{
   panY: number;
   rotY: number;
   rotX: number;
-}>;
-
-export type RenderAircraftFilter = Readonly<{
-  enabled: boolean;
-  showAirborne: boolean;
-  showGround: boolean;
-  milFilter: MilFilter;
-  squawks: readonly string[];
-  countries: readonly string[];
 }>;
 
 export type SelectedRenderItem = Readonly<{
@@ -372,18 +584,7 @@ export type RenderViewportPayload = Readonly<{
 export type RenderPresentationPayload = Readonly<{
   isolatedId: string | null;
   isolateMode: SelectedIsolateMode;
-  layers: Readonly<Record<string, boolean | undefined>>;
-  aircraftFilter: RenderAircraftFilter;
-  earthquakeMinMagnitude: number;
-  fireMinConfidence: number;
   selectedItem: SelectedRenderItem | null;
-  cyclonesMinCategory: MinCategory;
-  cyclonesShowForecast: boolean;
-  cyclonesShowCone: boolean;
-  cyclonesShowWindField: boolean;
-  cyclonesShowWarnings: boolean;
-  cyclonesShowModels: boolean;
-  cyclonesHiddenModels: readonly string[];
   prefersReducedMotion: boolean;
 }>;
 

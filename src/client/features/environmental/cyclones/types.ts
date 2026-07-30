@@ -5,7 +5,19 @@ import type {
 } from "@shared/geo";
 import type { NhcBasin } from "@shared/cyclonesSeason";
 import type { Domain } from "@shared/domain/identity";
+import {
+  SaffirSimpson,
+  type HurricaneScale,
+  type MinCategory,
+} from "@shared/domain/cycloneClassification";
 import { AreaKind } from "@/workers/render/protocol";
+
+export {
+  MIN_CATEGORY_CHOICES,
+  SaffirSimpson,
+  type HurricaneScale,
+  type MinCategory,
+} from "@shared/domain/cycloneClassification";
 
 export enum Category {
   TropicalDepression = "TD",
@@ -19,31 +31,6 @@ export enum Category {
   SubtropicalStorm = "STS",
   PostTropical = "PT",
 }
-
-export enum SaffirSimpson {
-  None = 0,
-  Cat1 = 1,
-  Cat2 = 2,
-  Cat3 = 3,
-  Cat4 = 4,
-  Cat5 = 5,
-}
-
-export type HurricaneScale = Exclude<SaffirSimpson, SaffirSimpson.None>;
-
-/** The Saffir-Simpson floors the storm filter offers. */
-export type MinCategory =
-  | SaffirSimpson.None
-  | SaffirSimpson.Cat1
-  | SaffirSimpson.Cat3
-  | SaffirSimpson.Cat5;
-
-export const MIN_CATEGORY_CHOICES: readonly MinCategory[] = [
-  SaffirSimpson.None,
-  SaffirSimpson.Cat1,
-  SaffirSimpson.Cat3,
-  SaffirSimpson.Cat5,
-];
 
 export const HURRICANE_CATEGORY: Readonly<Record<HurricaneScale, Category>> = {
   [SaffirSimpson.Cat1]: Category.Hurricane1,

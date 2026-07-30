@@ -14,8 +14,6 @@ import {
   canonicalEntityId,
   sourceForPointType,
 } from "@/workers/data/sources/registry";
-import { MilFilter } from "@shared/domain/aircraft";
-import { SaffirSimpson } from "@/features/environmental/cyclones/types";
 
 type PresentationCommandOptions = Readonly<{
   host: HTMLElement | null;
@@ -55,13 +53,8 @@ export function usePresentationCommands({
   props,
 }: PresentationCommandOptions): void {
   const {
-    aircraftFilter,
-    cycloneFilter,
-    earthquakeFilter,
-    fireFilter,
     isolatedId,
     isolateMode,
-    layers,
     searchText,
     selected,
     zoomToId,
@@ -96,7 +89,6 @@ export function usePresentationCommands({
 
   useEffect(() => {
     if (!host) return;
-    const cyclone = cycloneFilter;
     const selectedItem: SelectedRenderItem | null = selected
       ? {
           id: selected.id,
@@ -113,38 +105,14 @@ export function usePresentationCommands({
       payload: {
         isolatedId,
         isolateMode,
-        layers,
-        aircraftFilter: {
-          enabled: aircraftFilter.enabled,
-          showAirborne: aircraftFilter.showAirborne,
-          showGround: aircraftFilter.showGround,
-          squawks: Array.from(aircraftFilter.squawks),
-          countries: Array.from(aircraftFilter.countries),
-          milFilter: aircraftFilter.milFilter ?? MilFilter.All,
-        },
-        earthquakeMinMagnitude: earthquakeFilter.minMagnitude,
-        fireMinConfidence: fireFilter.minConfidence,
         selectedItem,
-        cyclonesMinCategory:
-          cyclone?.minCategory ?? SaffirSimpson.None,
-        cyclonesShowForecast: cyclone?.showForecast ?? true,
-        cyclonesShowCone: cyclone?.showCone ?? true,
-        cyclonesShowWindField: cyclone?.showWindField ?? false,
-        cyclonesShowWarnings: cyclone?.showWarnings ?? true,
-        cyclonesShowModels: cyclone?.showModels ?? false,
-        cyclonesHiddenModels: cyclone?.hiddenModels ?? [],
         prefersReducedMotion,
       },
     });
   }, [
-    aircraftFilter,
-    cycloneFilter,
-    earthquakeFilter,
-    fireFilter,
     host,
     isolatedId,
     isolateMode,
-    layers,
     selected,
   ]);
 

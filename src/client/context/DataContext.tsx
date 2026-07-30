@@ -5,6 +5,7 @@ import {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   type ReactNode,
@@ -39,6 +40,22 @@ import {
   type RegionBaseline,
 } from "@/lib/correlation";
 import { createCorrelationClient } from "@/lib/net/correlationClient";
+import {
+  readRenderGlobeState,
+  setRenderAircraftFilter,
+  toggleAllRenderCycloneModels,
+  toggleRenderCycloneLayer,
+  toggleRenderCycloneModel,
+  toggleRenderLayer,
+} from "@/render-surface/globeStateStore";
+import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
+import {
+  RenderCycloneLayer,
+  RenderFilterBoundary,
+  isRenderLayerId,
+  type RenderAircraftFilter,
+  type RenderLayerVisibility,
+} from "@/workers/render/protocol";
 
 import { UIProvider, useUI } from "@/context/UIContext";
 import { WatchProvider, useWatch } from "@/context/WatchContext";
@@ -50,7 +67,7 @@ export { WatchSource } from "@/context/WatchContext";
 
 type DataContextValue = {
   newsArticles: NewsArticle[];
-  layers: Record<string, boolean>;
+  layers: RenderLayerVisibility;
   toggleLayer: (key: string) => void;
   aircraftFilter: AircraftFilter;
   setAircraftFilter: React.Dispatch<React.SetStateAction<AircraftFilter>>;
@@ -66,9 +83,7 @@ type DataContextValue = {
   dataSources: readonly SourceStatusEntry[];
   correlation: CorrelationResult;
   cycloneFilter: CycloneFilter;
-  toggleCycloneLayer: (
-    key: "showForecast" | "showCone" | "showWindField" | "showModels" | "showWarnings",
-  ) => void;
+  toggleCycloneLayer: (layer: RenderCycloneLayer) => void;
   hiddenModels: ReadonlySet<string>;
   toggleModel: (model: string) => void;
   toggleAllModels: (models: readonly string[]) => void;
@@ -82,6 +97,56 @@ export enum DataContextError {
 
 enum CorrelationRequestTiming {
   DebounceMs = 1_000,
+}
+
+function aircraftFilterFromSnapshot(
+  filter: RenderAircraftFilter,
+): AircraftFilter {
+  return {
+    enabled: filter.enabled,
+    showAirborne: filter.showAirborne,
+    showGround: filter.showGround,
+    milFilter: filter.milFilter,
+    squawks: new Set(filter.squawks),
+    countries: new Set(filter.countries),
+  };
+}
+
+function aircraftFilterToSnapshot(
+  filter: AircraftFilter,
+): RenderAircraftFilter {
+  return {
+    enabled: filter.enabled,
+    showAirborne: filter.showAirborne,
+    showGround: filter.showGround,
+    milFilter: filter.milFilter,
+    squawks: [...filter.squawks],
+    countries: [...filter.countries],
+  };
+}
+
+function setsEqual<T>(
+  left: ReadonlySet<T>,
+  right: ReadonlySet<T>,
+): boolean {
+  return (
+    left.size === right.size &&
+    [...left].every((value) => right.has(value))
+  );
+}
+
+function aircraftFiltersEqual(
+  left: AircraftFilter,
+  right: AircraftFilter,
+): boolean {
+  return (
+    left.enabled === right.enabled &&
+    left.showAirborne === right.showAirborne &&
+    left.showGround === right.showGround &&
+    left.milFilter === right.milFilter &&
+    setsEqual(left.squawks, right.squawks) &&
+    setsEqual(left.countries, right.countries)
+  );
 }
 
 function entryFor(
@@ -104,49 +169,53 @@ export function DataProvider({
   children,
 }: Readonly<{ children: ReactNode }>) {
   // ── Layers & filters ───────────────────────────────────────────
-  const [layers, setLayers] = useState<Record<string, boolean>>({
-    ships: true,
-    events: true,
-    quakes: true,
-    fires: true,
-    weather: true,
-    cyclones: true,
-  });
-  const [aircraftFilter, setAircraftFilter] = useState<AircraftFilter>(() =>
-    getInitialAircraftFilter(),
+  const globeState = useRenderGlobeState();
+  const layers = globeState.layers;
+  const aircraftFilter = useMemo(
+    () => aircraftFilterFromSnapshot(globeState.aircraftFilter),
+    [globeState.aircraftFilter],
   );
-  // Cyclone layer toggles live on the cyclone filter (settable from the
-  // dossier + detail pane). Were hardcoded constants before.
-  const [cycloneDisplay, setCycloneDisplay] = useState({
-    showForecast: true,
-    showCone: true,
-    showWindField: false,
-    showModels: false,
-    showWarnings: true,
-  });
+  const initialAircraftFilterRef = useRef<AircraftFilter | null>(null);
+  const initialAircraftFilter =
+    initialAircraftFilterRef.current ?? getInitialAircraftFilter();
+  initialAircraftFilterRef.current = initialAircraftFilter;
+  const aircraftUrlReadyRef = useRef(false);
+  const aircraftSeedSentRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (aircraftSeedSentRef.current) return;
+    aircraftSeedSentRef.current = true;
+    setRenderAircraftFilter(
+      aircraftFilterToSnapshot(initialAircraftFilter),
+    );
+  }, [initialAircraftFilter]);
+
+  const setAircraftFilter = useCallback<
+    React.Dispatch<React.SetStateAction<AircraftFilter>>
+  >((update) => {
+    const current = aircraftFilterFromSnapshot(
+      readRenderGlobeState().aircraftFilter,
+    );
+    const next =
+      typeof update === "function" ? update(current) : update;
+    setRenderAircraftFilter(aircraftFilterToSnapshot(next));
+  }, []);
+
   const toggleCycloneLayer = useCallback(
-    (key: "showForecast" | "showCone" | "showWindField" | "showModels" | "showWarnings") => {
-      setCycloneDisplay((display) => ({
-        ...display,
-        [key]: !display[key],
-      }));
+    (layer: RenderCycloneLayer) => {
+      toggleRenderCycloneLayer(layer);
     },
     [],
   );
-  const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
+  const hiddenModels = useMemo<ReadonlySet<string>>(
+    () => new Set(globeState.cycloneFilter.hiddenModels),
+    [globeState.cycloneFilter.hiddenModels],
+  );
   const toggleModel = useCallback((model: string) => {
-    setHiddenModels((prev) => {
-      const next = new Set(prev);
-      if (next.has(model)) next.delete(model);
-      else next.add(model);
-      return next;
-    });
+    toggleRenderCycloneModel(model);
   }, []);
   const toggleAllModels = useCallback((models: readonly string[]) => {
-    setHiddenModels((prev) => {
-      const anyVisible = models.some((m) => !prev.has(m));
-      return anyVisible ? new Set(models) : new Set();
-    });
+    toggleAllRenderCycloneModels(models);
   }, []);
 
   // ── Data hooks ─────────────────────────────────────────────────
@@ -190,31 +259,47 @@ export function DataProvider({
 
   // ── Filters ────────────────────────────────────────────────────
   const earthquakeFilter = useMemo<EarthquakeFilter>(
-    () => ({ enabled: layers.quakes ?? true, minMagnitude: 0 }),
-    [layers.quakes],
+    () => ({
+      enabled: layers[Domain.Quakes],
+      minMagnitude: globeState.earthquakeMinimumMagnitude,
+    }),
+    [globeState.earthquakeMinimumMagnitude, layers],
   );
   const fireFilter = useMemo<FireFilter>(
-    () => ({ enabled: layers.fires ?? true, minConfidence: 0 }),
-    [layers.fires],
+    () => ({
+      enabled: layers[Domain.Fires],
+      minConfidence: globeState.fireMinimumConfidence,
+    }),
+    [globeState.fireMinimumConfidence, layers],
   );
   const cycloneFilter = useMemo<CycloneFilter>(
     () => ({
-      ...cycloneDisplay,
-      enabled: layers.cyclones ?? true,
-      minCategory: 0,
-      hiddenModels: [...hiddenModels],
+      enabled: layers[Domain.Cyclones],
+      minCategory: globeState.cycloneFilter.minimumCategory,
+      showForecast: globeState.cycloneFilter.showForecast,
+      showCone: globeState.cycloneFilter.showCone,
+      showWindField: globeState.cycloneFilter.showWindField,
+      showModels: globeState.cycloneFilter.showModels,
+      showWarnings: globeState.cycloneFilter.showWarnings,
+      hiddenModels: [...globeState.cycloneFilter.hiddenModels],
     }),
-    [cycloneDisplay, hiddenModels, layers.cyclones],
+    [globeState.cycloneFilter, layers],
   );
   const filters = useMemo<Record<string, unknown>>(
     () => ({
-      aircraft: aircraftFilter,
-      ships: layers.ships ?? true,
-      events: { enabled: layers.events ?? true, minSeverity: 0 },
-      quakes: earthquakeFilter,
-      fires: fireFilter,
-      weather: { enabled: layers.weather ?? true, minSeverity: 0 },
-      cyclones: cycloneFilter,
+      [Domain.Aircraft]: aircraftFilter,
+      [Domain.Ships]: layers[Domain.Ships],
+      [Domain.Events]: {
+        enabled: layers[Domain.Events],
+        minSeverity: RenderFilterBoundary.Minimum,
+      },
+      [Domain.Quakes]: earthquakeFilter,
+      [Domain.Fires]: fireFilter,
+      [Domain.Weather]: {
+        enabled: layers[Domain.Weather],
+        minSeverity: RenderFilterBoundary.Minimum,
+      },
+      [Domain.Cyclones]: cycloneFilter,
     }),
     [aircraftFilter, layers, earthquakeFilter, fireFilter, cycloneFilter],
   );
@@ -234,11 +319,25 @@ export function DataProvider({
   );
 
   // ── URL sync for aircraft filter ───────────────────────────────
-  useEffect(() => { syncAircraftFilterToUrl(aircraftFilter); }, [aircraftFilter]);
+  useEffect(() => {
+    if (!aircraftUrlReadyRef.current) {
+      if (
+        !aircraftFiltersEqual(
+          aircraftFilter,
+          initialAircraftFilter,
+        )
+      ) {
+        return;
+      }
+      aircraftUrlReadyRef.current = true;
+    }
+    syncAircraftFilterToUrl(aircraftFilter);
+  }, [aircraftFilter, initialAircraftFilter]);
 
   // ── Handlers ───────────────────────────────────────────────────
   const toggleLayer = useCallback((key: string) => {
-    setLayers((l) => ({ ...l, [key]: !l[key] }));
+    if (!isRenderLayerId(key)) return;
+    toggleRenderLayer(key);
   }, []);
 
   // ── Correlation engine (Web Worker) ────────────────────────────

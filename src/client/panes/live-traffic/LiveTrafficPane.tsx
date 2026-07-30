@@ -53,11 +53,6 @@ const WATCH_SOURCE_ICONS = {
 
 export function LiveTrafficPane() {
   const {
-    layers,
-    aircraftFilter,
-    earthquakeFilter,
-    fireFilter,
-    cycloneFilter,
     flat,
     setFlat,
     autoRotate,
@@ -197,11 +192,6 @@ export function LiveTrafficPane() {
   return (
     <>
       <GlobeVisualization
-        layers={layers}
-        aircraftFilter={aircraftFilter}
-        earthquakeFilter={earthquakeFilter}
-        fireFilter={fireFilter}
-        cycloneFilter={cycloneFilter}
         onSelect={handleSelect}
         onIsolateModeChange={handleSetIsolateMode}
         onRawCanvasClick={handleRawCanvasClick}

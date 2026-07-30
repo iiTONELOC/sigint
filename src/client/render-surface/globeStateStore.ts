@@ -1,8 +1,12 @@
 import {
+  RenderCycloneLayer,
   RenderGlobeCommandKind,
   RenderProjectionMode,
+  type RenderAircraftFilter,
+  type RenderCycloneFilter,
   type RenderGlobeCommand,
   type RenderGlobeStateSnapshot,
+  type RenderLayerId,
 } from "@/workers/render/protocol";
 import {
   RenderGlobeStateController,
@@ -93,5 +97,73 @@ export function setRenderRotationSpeed(speed: number): void {
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.SetRotationSpeed,
     speed,
+  });
+}
+
+export function toggleRenderLayer(layer: RenderLayerId): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.ToggleLayer,
+    layer,
+  });
+}
+
+export function setRenderAircraftFilter(
+  filter: RenderAircraftFilter,
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.SetAircraftFilter,
+    filter,
+  });
+}
+
+export function setRenderEarthquakeFilter(
+  minimumMagnitude: number,
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.SetEarthquakeFilter,
+    minimumMagnitude,
+  });
+}
+
+export function setRenderFireFilter(
+  minimumConfidence: number,
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.SetFireFilter,
+    minimumConfidence,
+  });
+}
+
+export function setRenderCycloneFilter(
+  filter: RenderCycloneFilter,
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.SetCycloneFilter,
+    filter,
+  });
+}
+
+export function toggleRenderCycloneLayer(
+  layer: RenderCycloneLayer,
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.ToggleCycloneLayer,
+    layer,
+  });
+}
+
+export function toggleRenderCycloneModel(model: string): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.ToggleCycloneModel,
+    model,
+  });
+}
+
+export function toggleAllRenderCycloneModels(
+  models: readonly string[],
+): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.ToggleAllCycloneModels,
+    models,
   });
 }
