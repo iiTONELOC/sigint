@@ -14,7 +14,10 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+} from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
   GeoCarrier,
@@ -60,12 +63,6 @@ function shipChanged(
       (key) => previous.data[key] !== next.data[key],
     )
   );
-}
-
-function shipTimestamp(point: ShipPoint): number {
-  if (!point.timestamp) return 0;
-  const timestamp = Date.parse(point.timestamp);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeSnapshot(
@@ -121,7 +118,7 @@ export class ShipSceneBinding extends SceneBinding<ShipPoint> {
         attributeStride: ShipSceneSchema.AttributeStride,
         stringAttributeStride: ShipSceneSchema.StringAttributeStride,
         position: recordPosition,
-        timestamp: shipTimestamp,
+        timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + ShipSceneAttribute.Heading] =
             point.data.heading ?? 0;

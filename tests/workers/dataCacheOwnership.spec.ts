@@ -7,6 +7,11 @@ describe("DataWorker cache ownership", () => {
     const entries = mainThreadCacheEntries([
       { key: CACHE_KEYS.earthquake, value: { data: ["quake"] } },
       { key: CACHE_KEYS.fires, value: { data: ["fire"] } },
+      { key: CACHE_KEYS.weather, value: { data: ["weather"] } },
+      {
+        key: CACHE_KEYS.cycloneWarnings,
+        value: { data: ["warning"] },
+      },
       { key: CACHE_KEYS.theme, value: "dark" },
     ]);
 

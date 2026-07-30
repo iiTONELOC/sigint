@@ -11,9 +11,14 @@ import {
 } from "@/workers/render/sceneProtocol";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
+  geometryPolygons,
   latitudeOf,
   longitudeOf,
+  parseGeoJsonPolygonGeometry,
+  type GeoJsonPolygonGeometry,
   type GeoPoint,
+  type GeoPolygon,
+  type GeoRing,
 } from "@shared/geo";
 import { SceneHandleAllocator } from "./sceneHandleAllocator";
 
@@ -33,8 +38,13 @@ enum SceneUnitVectorOffset {
   Z = 2,
 }
 
+enum SceneDefault {
+  Timestamp = 0,
+}
+
 export enum SceneCodecErrorKind {
   InvalidAttributeStride = "The scene attribute stride must be a nonnegative integer",
+  InvalidGeometry = "The scene geometry must contain valid polygon topology",
   InvalidPosition = "The scene position must contain finite coordinates",
   InvalidTimestamp = "The scene timestamp must be finite",
 }
@@ -60,6 +70,9 @@ export type ScenePatchCodecOptions<
   timestamp: (entity: TEntity) => number;
   sceneId?: (entity: TEntity) => string;
   entityId?: (entity: TEntity) => string;
+  geometry?: (
+    entity: TEntity,
+  ) => GeoJsonPolygonGeometry | null | undefined;
   writeAttributes: (
     entity: TEntity,
     target: Float32Array<ArrayBuffer>,
@@ -85,6 +98,30 @@ type ScenePatchAllocation = Readonly<{
   stringAttributes: Uint32Array<ArrayBuffer>;
 }>;
 
+type SceneGeometryBuffers = Readonly<{
+  geometryCoordinates: Float64Array<ArrayBuffer>;
+  geometryRingEnds: Uint32Array<ArrayBuffer>;
+  geometryPolygonEnds: Uint32Array<ArrayBuffer>;
+  geometryRecordEnds: Uint32Array<ArrayBuffer>;
+}>;
+
+type SceneGeometryAllocation = {
+  coordinates: number[];
+  ringEnds: number[];
+  polygonEnds: number[];
+  recordEnds: number[];
+};
+
+export type SceneTimestampedEntity = Readonly<{
+  timestamp?: string;
+}>;
+
+export function sceneTimestamp(entity: SceneTimestampedEntity): number {
+  if (!entity.timestamp) return SceneDefault.Timestamp;
+  const timestamp = Date.parse(entity.timestamp);
+  return Number.isFinite(timestamp) ? timestamp : SceneDefault.Timestamp;
+}
+
 function validateAttributeStride(value: number): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new SceneCodecError(SceneCodecErrorKind.InvalidAttributeStride);
@@ -109,6 +146,7 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
 
   encode(patch: DatasetPatch<TEntity>): SceneSourcePatch {
     const allocation = this.allocate(patch.upserts.length);
+    const geometry = this.encodeGeometry(patch.upserts);
     const dictionaryStart =
       patch.kind === DatasetPatchKind.Rebase ? 0 : this.dictionaryValues.length;
 
@@ -123,6 +161,7 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
       sourceVersion: patch.version,
       kind: patch.kind,
       ...allocation,
+      ...geometry,
       attributeStride: this.options.attributeStride,
       stringAttributeStride: this.stringAttributeStride,
       dictionaryStart,
@@ -168,6 +207,71 @@ export class ScenePatchCodec<TEntity extends DatasetEntity> {
         count * this.stringAttributeStride,
       ),
     };
+  }
+
+  private encodeGeometry(
+    entities: readonly TEntity[],
+  ): SceneGeometryBuffers {
+    const allocation: SceneGeometryAllocation = {
+      coordinates: [],
+      ringEnds: [],
+      polygonEnds: [],
+      recordEnds: [],
+    };
+    for (const entity of entities) {
+      this.appendGeometry(allocation, entity);
+    }
+    return {
+      geometryCoordinates: new Float64Array(allocation.coordinates),
+      geometryRingEnds: new Uint32Array(allocation.ringEnds),
+      geometryPolygonEnds: new Uint32Array(allocation.polygonEnds),
+      geometryRecordEnds: new Uint32Array(allocation.recordEnds),
+    };
+  }
+
+  private appendGeometry(
+    allocation: SceneGeometryAllocation,
+    entity: TEntity,
+  ): void {
+    const value = this.options.geometry?.(entity);
+    if (value !== undefined && value !== null) {
+      const geometry = parseGeoJsonPolygonGeometry(value);
+      if (!geometry) {
+        throw new SceneCodecError(
+          SceneCodecErrorKind.InvalidGeometry,
+          entity.id,
+        );
+      }
+      for (const polygon of geometryPolygons(geometry)) {
+        this.appendPolygon(allocation, polygon);
+      }
+    }
+    allocation.recordEnds.push(allocation.polygonEnds.length);
+  }
+
+  private appendPolygon(
+    allocation: SceneGeometryAllocation,
+    polygon: GeoPolygon,
+  ): void {
+    for (const ring of polygon) {
+      this.appendRing(allocation, ring);
+    }
+    allocation.polygonEnds.push(allocation.ringEnds.length);
+  }
+
+  private appendRing(
+    allocation: SceneGeometryAllocation,
+    ring: GeoRing,
+  ): void {
+    for (const point of ring) {
+      allocation.coordinates.push(
+        longitudeOf(point),
+        latitudeOf(point),
+      );
+    }
+    allocation.ringEnds.push(
+      allocation.coordinates.length / SceneComponentCount.Position,
+    );
   }
 
   private writeEntity(

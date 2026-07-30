@@ -3,8 +3,6 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
 export { SourceCompletenessPolicy };
-import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
-import { CYCLONE_WARNING_SOURCE_POLICY } from "@/features/environmental/cyclones/warningSource";
 import {
   CACHE_KEYS,
   type CacheKey,
@@ -54,10 +52,10 @@ const POINT_SOURCE_POLICIES: Readonly<
   },
   [Domain.Weather]: {
     pointType: Domain.Weather,
-    cacheKey: WEATHER_SOURCE_POLICY.cacheKey,
-    pollIntervalMs: WEATHER_SOURCE_POLICY.pollIntervalMs,
-    completeness: WEATHER_SOURCE_POLICY.completeness,
-    emptyResultIsComplete: WEATHER_SOURCE_POLICY.emptyResultIsComplete,
+    cacheKey: CACHE_KEYS.weather,
+    pollIntervalMs: POLL_INTERVALS.weather,
+    completeness: SourceCompletenessPolicy.Complete,
+    emptyResultIsComplete: true,
   },
   [Domain.Cyclones]: {
     pointType: Domain.Cyclones,
@@ -68,10 +66,10 @@ const POINT_SOURCE_POLICIES: Readonly<
   },
   [Domain.CycloneWarnings]: {
     pointType: Domain.CyclonesWarning,
-    cacheKey: CYCLONE_WARNING_SOURCE_POLICY.cacheKey,
-    pollIntervalMs: CYCLONE_WARNING_SOURCE_POLICY.pollIntervalMs,
-    completeness: CYCLONE_WARNING_SOURCE_POLICY.completeness,
-    emptyResultIsComplete: CYCLONE_WARNING_SOURCE_POLICY.emptyResultIsComplete,
+    cacheKey: CACHE_KEYS.cycloneWarnings,
+    pollIntervalMs: POLL_INTERVALS.cycloneWarnings,
+    completeness: SourceCompletenessPolicy.Complete,
+    emptyResultIsComplete: true,
   },
   [Domain.Earthquake]: {
     pointType: Domain.Quakes,

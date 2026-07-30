@@ -20,9 +20,13 @@ import {
   FireSource,
 } from "@/workers/data/sources/fires";
 import {
-  cycloneWarningSource,
-  weatherAlertSource,
-} from "@/workers/data/source-model/registry";
+  CycloneWarningSceneBinding,
+  CycloneWarningSource,
+} from "@/features/environmental/cyclones/warningSource";
+import {
+  WeatherAlertSource,
+  WeatherSceneBinding,
+} from "@/features/environmental/weather/source";
 import {
   CYCLONE_SOURCE,
   createCycloneSourceRuntime,
@@ -98,6 +102,14 @@ const earthquakeSceneBinding = new EarthquakeSceneBinding((command) => {
 const fireSceneBinding = new FireSceneBinding((command) => {
   scenePublisher.publish(command);
 });
+const weatherSceneBinding = new WeatherSceneBinding((command) => {
+  scenePublisher.publish(command);
+});
+const cycloneWarningSceneBinding = new CycloneWarningSceneBinding(
+  (command) => {
+    scenePublisher.publish(command);
+  },
+);
 let renderPort: MessagePort | null = null;
 let renderSessionId: string | null = null;
 let renderSequence = 0;
@@ -283,9 +295,6 @@ eventOwner.attach({
   },
 });
 
-/**
- * Weather and cyclones still carry geometry on the legacy object path.
- */
 function rebasePoints(
   source: LegacyPointSourceId,
   points: readonly DataPoint[],
@@ -297,15 +306,15 @@ function rebasePoints(
   });
 }
 
-const weatherOwner = weatherAlertSource;
+const weatherOwner = new WeatherAlertSource();
 weatherOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, value) => {
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPatch: () => {
-    rebasePoints(Domain.Weather, weatherOwner.values());
+  publishPatch: (patch) => {
+    weatherSceneBinding.publish(patch);
   },
 });
 
@@ -320,18 +329,15 @@ const cycloneOwner = createCycloneSourceRuntime({
   },
 });
 
-const cycloneWarningOwner = cycloneWarningSource;
+const cycloneWarningOwner = new CycloneWarningSource();
 cycloneWarningOwner.attach({
   readCache: (key) => store.get(key),
   persistCache: (key, value) => {
     coordinator.setDeferred(key, value);
   },
   publishStatus: publishSource,
-  publishPatch: () => {
-    rebasePoints(
-      Domain.CycloneWarnings,
-      cycloneWarningOwner.values(),
-    );
+  publishPatch: (patch) => {
+    cycloneWarningSceneBinding.publish(patch);
   },
 });
 

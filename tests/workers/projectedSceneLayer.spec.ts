@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
-import { ProjectedSceneLayer } from "@/workers/render/scene/projectedLayer";
+import {
+  ProjectedSceneLayer,
+  SceneHitKind,
+} from "@/workers/render/scene/projectedLayer";
 import { SceneStore } from "@/workers/render/sceneStore";
 import {
   createSceneDataCommand,
@@ -28,6 +31,10 @@ describe("projected scene layer", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryCoordinates: new Float64Array(),
+      geometryRingEnds: new Uint32Array(),
+      geometryPolygonEnds: new Uint32Array(),
+      geometryRecordEnds: new Uint32Array([0]),
       deletedHandles: new Uint32Array(),
     }, "session-a", 1));
 
@@ -49,6 +56,7 @@ describe("projected scene layer", () => {
 
     expect(Array.from(layer.visibleIndices())).toEqual([0]);
     expect(layer.nearest(120, 90, 20, 10)).toEqual({
+      kind: SceneHitKind.Point,
       handle: 1,
       sceneId: "aircraft-marker-A1",
       entityId: "A1",

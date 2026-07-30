@@ -13,6 +13,7 @@ import {
 } from "@/workers/render/scene/eventLayer";
 import { EventSceneSchema } from "@/workers/render/scene/eventSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
@@ -37,6 +38,7 @@ const view = {
   stringAttributes: new Uint32Array(),
   stringAttributeStride: EventSceneSchema.StringAttributeStride,
   dictionary: [],
+  geometries: [null, null],
 } satisfies RenderSceneView;
 
 function filter(
@@ -79,7 +81,13 @@ describe("event scene layer", () => {
     project(layer);
 
     expect(
-      layer.nearest(120, 90, 20, 10)?.entityId,
+      layer.nearest(
+        SceneHitKind.Point,
+        120,
+        90,
+        20,
+        10,
+      )?.entityId,
     ).toBe("event-a");
     expect(layer.selectionAnchor("event-a")).toEqual({
       x: 120,

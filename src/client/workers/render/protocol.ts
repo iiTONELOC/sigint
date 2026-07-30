@@ -99,15 +99,19 @@ export type RenderWorkerColors = Readonly<{
 }>;
 
 export enum AreaKind {
-  Warning = "warning",
   Watch = "watch",
+  Warning = "warning",
 }
 
 // Ascending urgency, so a rank is the position in the declared order.
-const AREA_KIND_ORDER: readonly AreaKind[] = [AreaKind.Watch, AreaKind.Warning];
+const AREA_KIND_ORDER: readonly AreaKind[] = Object.values(AreaKind);
 
 export function areaKindRank(kind: AreaKind): number {
   return AREA_KIND_ORDER.indexOf(kind);
+}
+
+export function areaKindFromRank(rank: number): AreaKind {
+  return AREA_KIND_ORDER[rank] ?? AreaKind.Watch;
 }
 
 export enum PanelSide {
@@ -121,12 +125,6 @@ export enum IsolateMode {
 }
 
 export type SelectedIsolateMode = IsolateMode | null;
-
-export type RenderAreaFeature = Readonly<{
-  id?: string;
-  kind?: AreaKind;
-  geometry?: unknown;
-}>;
 
 export type RenderCamera = Readonly<{
   zoomFlat: number;

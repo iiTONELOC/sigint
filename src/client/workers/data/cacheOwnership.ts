@@ -1,12 +1,18 @@
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import { EARTHQUAKE_SOURCE } from "@/workers/data/sources/earthquakes";
 import { FIRE_SOURCE } from "@/workers/data/sources/fires";
+import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
+import {
+  CYCLONE_WARNING_SOURCE_POLICY,
+} from "@/features/environmental/cyclones/warningSource";
 import type { DataWorkerCacheEntry } from "@/workers/data/protocol";
 
 const WORKER_OWNED_CACHE_KEYS = new Set<string>([
   CACHE_KEYS.aircraft,
   EARTHQUAKE_SOURCE.cacheKey,
   FIRE_SOURCE.cacheKey,
+  WEATHER_SOURCE_POLICY.cacheKey,
+  CYCLONE_WARNING_SOURCE_POLICY.cacheKey,
 ]);
 
 export function mainThreadCacheEntries(

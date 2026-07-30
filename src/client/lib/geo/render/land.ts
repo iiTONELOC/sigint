@@ -1,6 +1,5 @@
 import { getLand } from "@/lib/geo/landService";
 import {
-  DEFAULT_LAND_ALPHA,
   POLYGON_POLICY,
   drawClippedPoly,
   simpleDraw,
@@ -18,7 +17,7 @@ export function drawProjectedLandRing(
   ctx: RenderContext2D,
   points: readonly Projected[],
   colors: LandColors,
-  alpha: number = DEFAULT_LAND_ALPHA,
+  alpha: number = POLYGON_POLICY.defaultAlpha,
   horizon: HorizonCircle | null = null,
 ): void {
   if (points.length < POLYGON_POLICY.minimumRingPoints) return;
@@ -44,7 +43,7 @@ export function drawFlatLandRing(
   coordinates: readonly (readonly number[])[],
   project: ProjFn,
   colors: LandColors,
-  alpha: number = DEFAULT_LAND_ALPHA,
+  alpha: number = POLYGON_POLICY.defaultAlpha,
 ): void {
   for (const segment of splitAntimeridianSegments(coordinates, project)) {
     simpleDraw(ctx, segment, colors.coastFill, colors.coast, alpha);
@@ -63,7 +62,7 @@ export function drawLand(
   proj: ProjFn,
   options: LandDrawOptions,
 ): void {
-  const alpha = options.alpha ?? DEFAULT_LAND_ALPHA;
+  const alpha = options.alpha ?? POLYGON_POLICY.defaultAlpha;
 
   for (const polygon of getLand()) {
     const ring = polygon[0];

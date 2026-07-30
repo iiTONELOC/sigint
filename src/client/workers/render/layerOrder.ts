@@ -1,7 +1,6 @@
 import { Domain } from "@shared/domain/identity";
 
 export const POINT_LAYER_ORDER: readonly Domain[] = [
-  Domain.Weather,
   Domain.CyclonesForecast,
   Domain.Cyclones,
 ];

@@ -13,7 +13,10 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+} from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
   GeoCarrier,
@@ -104,12 +107,6 @@ function aircraftFlags(data: AircraftData): number {
   );
 }
 
-function aircraftTimestamp(point: AircraftPoint): number {
-  if (!point.timestamp) return 0;
-  const timestamp = Date.parse(point.timestamp);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
 async function fetchLiveAircraft(): Promise<
   PointSourceFetchSnapshot<AircraftPoint>
 > {
@@ -171,7 +168,7 @@ export class AircraftSceneBinding extends SceneBinding<AircraftPoint> {
         stringAttributeStride:
           AircraftSceneSchema.StringAttributeStride,
         position: recordPosition,
-        timestamp: aircraftTimestamp,
+        timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + AircraftSceneAttribute.Heading] =
             point.data.heading ?? 0;

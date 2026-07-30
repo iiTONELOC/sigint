@@ -11,7 +11,7 @@ import {
 import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
 import {
   sceneRecordIsVisible,
-  type SceneVisibilitySettings,
+  type EnabledSceneFilter,
 } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
@@ -37,8 +37,7 @@ enum ShipMarkerAngle {
   QuarterTurnDivisor = 2,
 }
 
-export type ShipSceneFilter = SceneVisibilitySettings &
-  Readonly<{ enabled: boolean }>;
+export type ShipSceneFilter = EnabledSceneFilter;
 
 export type ShipSceneStyle = Readonly<{
   context: Ctx;

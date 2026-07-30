@@ -12,6 +12,7 @@ import {
 } from "@/workers/render/scene/earthquakeLayer";
 import { EarthquakeSceneSchema } from "@/workers/render/scene/earthquakeSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
@@ -37,6 +38,7 @@ const view = {
   stringAttributeStride:
     EarthquakeSceneSchema.StringAttributeStride,
   dictionary: [],
+  geometries: [null, null],
 } satisfies RenderSceneView;
 
 const frame = {
@@ -88,7 +90,10 @@ describe("earthquake scene layer", () => {
     layer.apply(sceneRebaseCommand(Domain.Earthquake, view));
     layer.project(frame, filter({ minimumMagnitude: 4 }));
 
-    expect(layer.nearest(120, 90, 20, 10)?.entityId).toBe(
+    expect(
+      layer.nearest(SceneHitKind.Point, 120, 90, 20, 10)
+        ?.entityId,
+    ).toBe(
       "Qhigh",
     );
     expect(layer.selectionAnchor("Qhigh")).toEqual({
@@ -112,8 +117,13 @@ describe("earthquake scene layer", () => {
     );
     layer.project(frame, filter());
 
-    expect(layer.nearest(80, 110, 20, 10)?.entityId).toBe("Qlow");
-    expect(layer.nearest(120, 90, 20, 10)).toBeNull();
+    expect(
+      layer.nearest(SceneHitKind.Point, 80, 110, 20, 10)
+        ?.entityId,
+    ).toBe("Qlow");
+    expect(
+      layer.nearest(SceneHitKind.Point, 120, 90, 20, 10),
+    ).toBeNull();
 
     layer.apply(
       sceneSearchCommand(Domain.Earthquake, [], 2, false),
@@ -125,7 +135,9 @@ describe("earthquake scene layer", () => {
         isolatedType: Domain.Weather,
       }),
     );
-    expect(layer.nearest(80, 110, 20, 10)).toBeNull();
+    expect(
+      layer.nearest(SceneHitKind.Point, 80, 110, 20, 10),
+    ).toBeNull();
   });
 
   test("preserves age, size, pulse, and selection drawing", () => {

@@ -14,6 +14,7 @@ import {
   AircraftSceneSquawk,
 } from "@/workers/render/scene/aircraftSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import { sceneRebaseCommand } from "../_support/scene";
@@ -43,6 +44,7 @@ const view = {
   stringAttributes: new Uint32Array([1, 2, 1]),
   stringAttributeStride: AircraftSceneSchema.StringAttributeStride,
   dictionary: ["United States", "Canada"],
+  geometries: [null, null, null],
 } satisfies RenderSceneView;
 
 function filter(
@@ -93,7 +95,10 @@ describe("aircraft scene layer", () => {
       settings(),
     );
 
-    expect(layer.nearest(100, 100, 10, 10)?.entityId).toBe(
+    expect(
+      layer.nearest(SceneHitKind.Point, 100, 100, 10, 10)
+        ?.entityId,
+    ).toBe(
       "civil-air",
     );
     expect(layer.includesEntity("mil-ground", settings())).toBe(true);

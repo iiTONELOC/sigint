@@ -7,6 +7,12 @@ import {
 } from "@/workers/render/sceneProtocol";
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
+import type {
+  GeoMultiPolygon,
+  GeoPoint,
+  GeoPolygon,
+  GeoRing,
+} from "@shared/geo";
 
 enum SceneStoragePolicy {
   InitialCapacity = 16,
@@ -16,6 +22,10 @@ enum SceneStoragePolicy {
 enum SceneStorageComponentCount {
   Position = 2,
   UnitVector = 3,
+}
+
+enum SceneValueDefault {
+  Numeric = 0,
 }
 
 enum ScenePositionOffset {
@@ -62,6 +72,7 @@ export type RenderSceneRecord = Readonly<{
   unitZ: number;
   timestamp: number;
   attributes: readonly number[];
+  geometry: GeoMultiPolygon | null;
 }>;
 
 export type RenderSceneView = Readonly<{
@@ -77,7 +88,19 @@ export type RenderSceneView = Readonly<{
   stringAttributes: Uint32Array<ArrayBuffer>;
   stringAttributeStride: number;
   dictionary: readonly string[];
+  geometries: readonly (GeoMultiPolygon | null)[];
 }>;
+
+export function sceneNumericAttribute(
+  view: RenderSceneView,
+  index: number,
+  attribute: number,
+): number {
+  return (
+    view.attributes[index * view.attributeStride + attribute] ??
+    SceneValueDefault.Numeric
+  );
+}
 
 type SceneStorage = {
   capacity: number;
@@ -89,6 +112,7 @@ type SceneStorage = {
   timestamps: Float64Array<ArrayBuffer>;
   attributes: Float32Array<ArrayBuffer>;
   stringAttributes: Uint32Array<ArrayBuffer>;
+  geometries: (GeoMultiPolygon | null)[];
 };
 
 function copyIdentityLane(
@@ -97,6 +121,15 @@ function copyIdentityLane(
 ): void {
   for (const [index, identity] of source.entries()) {
     target[index] = identity;
+  }
+}
+
+function copyGeometryLane(
+  target: (GeoMultiPolygon | null)[],
+  source: readonly (GeoMultiPolygon | null)[],
+): void {
+  for (const [index, geometry] of source.entries()) {
+    target[index] = geometry;
   }
 }
 
@@ -109,6 +142,7 @@ function copyStorage(target: SceneStorage, source: SceneStorage): void {
   target.timestamps.set(source.timestamps);
   target.attributes.set(source.attributes);
   target.stringAttributes.set(source.stringAttributes);
+  copyGeometryLane(target.geometries, source.geometries);
 }
 
 function nextCapacity(current: number, required: number): number {
@@ -150,6 +184,7 @@ function createStorage(
     timestamps,
     attributes,
     stringAttributes,
+    geometries: new Array<GeoMultiPolygon | null>(capacity).fill(null),
   };
   if (previous) copyStorage(storage, previous);
   return storage;
@@ -164,6 +199,92 @@ function maximumHandle(patch: SceneSourcePatch): number {
     maximum = Math.max(maximum, handle);
   }
   return maximum;
+}
+
+function cumulativeStart(
+  ends: Uint32Array<ArrayBuffer>,
+  index: number,
+): number {
+  return index === 0 ? 0 : (ends[index - 1] ?? 0);
+}
+
+function geometryRing(
+  patch: SceneSourcePatch,
+  ringIndex: number,
+): GeoRing | null {
+  const pointStart = cumulativeStart(
+    patch.geometryRingEnds,
+    ringIndex,
+  );
+  const pointEnd = patch.geometryRingEnds[ringIndex];
+  if (pointEnd === undefined) return null;
+  const ring: GeoPoint[] = [];
+  for (
+    let pointIndex = pointStart;
+    pointIndex < pointEnd;
+    pointIndex += 1
+  ) {
+    const offset =
+      pointIndex * SceneStorageComponentCount.Position;
+    const longitude = patch.geometryCoordinates[
+      offset + ScenePositionOffset.Longitude
+    ];
+    const latitude = patch.geometryCoordinates[
+      offset + ScenePositionOffset.Latitude
+    ];
+    if (longitude === undefined || latitude === undefined) return null;
+    ring.push([longitude, latitude]);
+  }
+  return ring;
+}
+
+function geometryPolygon(
+  patch: SceneSourcePatch,
+  polygonIndex: number,
+): GeoPolygon | null {
+  const ringStart = cumulativeStart(
+    patch.geometryPolygonEnds,
+    polygonIndex,
+  );
+  const ringEnd = patch.geometryPolygonEnds[polygonIndex];
+  if (ringEnd === undefined) return null;
+  const rings: GeoRing[] = [];
+  for (
+    let ringIndex = ringStart;
+    ringIndex < ringEnd;
+    ringIndex += 1
+  ) {
+    const ring = geometryRing(patch, ringIndex);
+    if (!ring) return null;
+    rings.push(ring);
+  }
+  return rings;
+}
+
+function geometryForRecord(
+  patch: SceneSourcePatch,
+  recordIndex: number,
+): GeoMultiPolygon | null {
+  const polygonStart = cumulativeStart(
+    patch.geometryRecordEnds,
+    recordIndex,
+  );
+  const polygonEnd = patch.geometryRecordEnds[recordIndex];
+  if (polygonEnd === undefined || polygonEnd === polygonStart) {
+    return null;
+  }
+
+  const polygons: GeoPolygon[] = [];
+  for (
+    let polygonIndex = polygonStart;
+    polygonIndex < polygonEnd;
+    polygonIndex += 1
+  ) {
+    const polygon = geometryPolygon(patch, polygonIndex);
+    if (!polygon) return null;
+    polygons.push(polygon);
+  }
+  return polygons;
 }
 
 export class SceneStore {
@@ -217,6 +338,7 @@ export class SceneStore {
       stringAttributes: this.storage.stringAttributes,
       stringAttributeStride: this.stringAttributeStride ?? 0,
       dictionary: this.dictionary,
+      geometries: this.storage.geometries,
     };
   }
 
@@ -269,6 +391,7 @@ export class SceneStore {
           index * stride + stride,
         ),
       ),
+      geometry: this.storage.geometries[index] ?? null,
     };
   }
 
@@ -336,6 +459,7 @@ export class SceneStore {
     this.storage.active.fill(0);
     this.storage.sceneIds.fill(null);
     this.storage.entityIds.fill(null);
+    this.storage.geometries.fill(null);
     this.handlesBySceneId.clear();
     this.handlesByEntityId.clear();
     this.itemCount = 0;
@@ -352,6 +476,10 @@ export class SceneStore {
       this.writeIdentity(patch, patchIndex, handle, index);
       this.writePosition(patch, patchIndex, index);
       this.writeAttributes(patch, patchIndex, index);
+      this.storage.geometries[index] = geometryForRecord(
+        patch,
+        patchIndex,
+      );
     }
   }
 
@@ -436,6 +564,7 @@ export class SceneStore {
       this.storage.active[index] = 0;
       this.storage.sceneIds[index] = null;
       this.storage.entityIds[index] = null;
+      this.storage.geometries[index] = null;
       this.itemCount -= 1;
     }
   }

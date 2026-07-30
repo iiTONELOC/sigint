@@ -12,19 +12,7 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "./sceneBinding";
-import { ScenePatchCodec } from "./sceneCodec";
-
-enum EventSceneDefault {
-  Timestamp = 0,
-}
-
-function eventTimestamp(point: EventPoint): number {
-  if (!point.timestamp) return EventSceneDefault.Timestamp;
-  const timestamp = Date.parse(point.timestamp);
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : EventSceneDefault.Timestamp;
-}
+import { ScenePatchCodec, sceneTimestamp } from "./sceneCodec";
 
 export class EventSceneBinding extends SceneBinding<EventPoint> {
   constructor(publishScene: SceneCommandPublisher) {
@@ -34,7 +22,7 @@ export class EventSceneBinding extends SceneBinding<EventPoint> {
         attributeStride: EventSceneSchema.AttributeStride,
         stringAttributeStride: EventSceneSchema.StringAttributeStride,
         position: recordPosition,
-        timestamp: eventTimestamp,
+        timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + EventSceneAttribute.Severity] =
             eventSeverity(point.data.severity);

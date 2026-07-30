@@ -1,20 +1,32 @@
 import { describe, test, expect } from "bun:test";
 import { Domain } from "@shared/domain/identity";
-import { GeoJsonGeometryType, type GeoPoint } from "@shared/geo";
+import {
+  GeoJsonGeometryType,
+  type GeoJsonPolygon,
+  type GeoPoint,
+} from "@shared/geo";
 import { parseWeatherCache } from "@/features/environmental/weather/data/codec";
 import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import {
   WeatherAlertSource,
+  WeatherSceneBinding,
   WEATHER_SOURCE_POLICY,
 } from "@/features/environmental/weather/source";
 import {
   WeatherTextField,
   type WeatherPoint,
 } from "@/features/environmental/weather/types";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
+import {
+  SceneDataCommandType,
+  type SceneSourcePatch,
+} from "@/workers/render/sceneProtocol";
+import { WeatherSceneAttribute } from "@/workers/render/scene/weatherSchema";
+import { SourceCompleteness } from "@shared/source";
 
 const ALERT_POSITION: GeoPoint = [-97.5, 35.5];
 
-const ALERT_GEOMETRY = {
+const ALERT_GEOMETRY: GeoJsonPolygon = {
   type: GeoJsonGeometryType.Polygon,
   coordinates: [
     [
@@ -24,7 +36,7 @@ const ALERT_GEOMETRY = {
       [-98, 35],
     ],
   ],
-} as const;
+};
 
 function makeAlert(overrides: Partial<WeatherPoint["data"]> = {}): WeatherPoint {
   return {
@@ -90,6 +102,28 @@ describe("weather cache boundary", () => {
     };
     expect(parseWeatherCache([broken])).toBeNull();
   });
+
+  test("rejects an open polygon ring", () => {
+    const alert = makeAlert();
+    const broken = {
+      ...alert,
+      data: {
+        ...alert.data,
+        geometry: {
+          type: GeoJsonGeometryType.Polygon,
+          coordinates: [
+            [
+              [-98, 35],
+              [-97, 35],
+              [-97, 36],
+              [-98, 36],
+            ],
+          ],
+        },
+      },
+    };
+    expect(parseWeatherCache([broken])).toBeNull();
+  });
 });
 
 describe("weather change detection", () => {
@@ -122,11 +156,98 @@ describe("weather change detection", () => {
     const next = { ...makeAlert(), position: [-97.4, 35.5] as GeoPoint };
     expect(source.changed(makeAlert(), next)).toBe(true);
   });
+
+  test("changed polygon topology publishes at a retained centroid", () => {
+    const next = makeAlert({
+      geometry: {
+        type: GeoJsonGeometryType.Polygon,
+        coordinates: [
+          [
+            [-98, 35],
+            [-96.5, 35],
+            [-97, 36],
+            [-98, 35],
+          ],
+        ],
+      },
+    });
+    expect(source.changed(makeAlert(), next)).toBe(true);
+  });
 });
 
 describe("weather source policy", () => {
   test("declares the weather identity once", () => {
     expect(WEATHER_SOURCE_POLICY.id).toBe(Domain.Weather);
     expect(new WeatherAlertSource().pointType).toBe(Domain.Weather);
+  });
+});
+
+describe("weather scene publication", () => {
+  test("publishes geometry patch, reconnect, and delete semantics", async () => {
+    let entities: readonly WeatherPoint[] = [makeAlert()];
+    let observedAt = 1;
+    const patches: SceneSourcePatch[] = [];
+    const binding = new WeatherSceneBinding((command) => {
+      if (command.type === SceneDataCommandType.SourcePatch) {
+        patches.push(command);
+      }
+    });
+    const source = new WeatherAlertSource({
+      fetchSnapshot: async () => ({
+        completeness: SourceCompleteness.Complete,
+        entities,
+        observedAt,
+      }),
+    });
+    source.attach({
+      readCache: async () => null,
+      persistCache: () => undefined,
+      publishStatus: () => undefined,
+      publishPatch: (patch) => binding.publish(patch),
+    });
+
+    await source.refresh();
+    observedAt += 1;
+    entities = [
+      makeAlert({
+        geometry: {
+          type: GeoJsonGeometryType.MultiPolygon,
+          coordinates: [
+            ALERT_GEOMETRY.coordinates,
+            [
+              [
+                [-96, 34],
+                [-95, 34],
+                [-95, 35],
+                [-96, 34],
+              ],
+            ],
+          ],
+        },
+      }),
+    ];
+    await source.refresh();
+    source.publishRebase();
+    observedAt += 1;
+    entities = [];
+    await source.refresh();
+
+    expect(patches).toHaveLength(4);
+    expect(patches[0]?.kind).toBe(DatasetPatchKind.Rebase);
+    expect(patches[0]?.source).toBe(Domain.Weather);
+    expect(Array.from(patches[0]?.geometryRingEnds ?? [])).toEqual([
+      4,
+    ]);
+    expect(
+      patches[0]?.attributes[WeatherSceneAttribute.Severity],
+    ).toBeGreaterThan(0);
+    expect(Array.from(patches[1]?.geometryPolygonEnds ?? [])).toEqual([
+      1,
+      2,
+    ]);
+    expect(patches[2]?.kind).toBe(DatasetPatchKind.Rebase);
+    expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([
+      1,
+    ]);
   });
 });

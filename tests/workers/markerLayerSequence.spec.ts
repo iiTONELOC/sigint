@@ -5,7 +5,8 @@ enum DrawOrder {
   Fire = 1,
   Event = 2,
   Earthquake = 3,
-  Legacy = 4,
+  Weather = 4,
+  Legacy = 5,
 }
 
 describe("marker layer sequence", () => {
@@ -16,6 +17,7 @@ describe("marker layer sequence", () => {
       fire: () => observed.push(DrawOrder.Fire),
       event: () => observed.push(DrawOrder.Event),
       earthquake: () => observed.push(DrawOrder.Earthquake),
+      weather: () => observed.push(DrawOrder.Weather),
       legacy: () => observed.push(DrawOrder.Legacy),
     });
 
@@ -23,6 +25,7 @@ describe("marker layer sequence", () => {
       DrawOrder.Fire,
       DrawOrder.Event,
       DrawOrder.Earthquake,
+      DrawOrder.Weather,
       DrawOrder.Legacy,
     ]);
   });

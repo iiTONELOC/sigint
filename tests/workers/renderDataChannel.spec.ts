@@ -74,24 +74,54 @@ describe("render data channel", () => {
     expect(state.lastSequence()).toBe(1);
   });
 
-  test("rejects events on the legacy object-array path", () => {
-    expect(
-      parseRenderDataCommand({
-        type: RenderDataCommandType.PointsRebase,
-        protocolVersion: RenderDataProtocolVersion.Current,
-        sessionId: "session-a",
-        sequence: 1,
-        source: Domain.Events,
-        points: [
-          {
-            id: "event-a",
-            type: Domain.Events,
-            lat: 10,
-            lon: 20,
-            data: {},
-          },
-        ],
-      }),
-    ).toBeNull();
+  test("accepts only cyclones on the legacy object-array path", () => {
+    for (const source of [
+      Domain.Events,
+      Domain.Weather,
+      Domain.CycloneWarnings,
+    ]) {
+      expect(
+        parseRenderDataCommand({
+          type: RenderDataCommandType.PointsRebase,
+          protocolVersion: RenderDataProtocolVersion.Current,
+          sessionId: "session-a",
+          sequence: 1,
+          source,
+          points: [
+            {
+              id: "migrated-record",
+              type: Domain.Events,
+              lat: 10,
+              lon: 20,
+              data: {},
+            },
+          ],
+        }),
+      ).toBeNull();
+    }
+
+    const command = {
+      type: RenderDataCommandType.PointsRebase,
+      protocolVersion: RenderDataProtocolVersion.Current,
+      sessionId: "session-a",
+      sequence: 1,
+      source: Domain.Cyclones,
+      points: [
+        {
+          id: "cyclone-a",
+          type: Domain.Cyclones,
+          lat: 10,
+          lon: 20,
+          data: {},
+        },
+      ],
+    };
+    const parsed = parseRenderDataCommand(command);
+    expect(parsed?.type).toBe(RenderDataCommandType.PointsRebase);
+    if (parsed?.type !== RenderDataCommandType.PointsRebase) {
+      return;
+    }
+    expect(parsed.source).toBe(Domain.Cyclones);
+    expect(parsed.points).toHaveLength(1);
   });
 });

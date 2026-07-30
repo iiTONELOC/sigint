@@ -3,7 +3,7 @@ import { Domain } from "@shared/domain/identity";
 import { isRecord, parseGeoPoint } from "@shared/geo";
 
 export enum RenderDataProtocolVersion {
-  Current = 7,
+  Current = 8,
 }
 
 export enum RenderDataCommandType {
@@ -15,10 +15,7 @@ enum RenderDataSequence {
   Minimum = 1,
 }
 
-export type LegacyPointSourceId =
-  | Domain.Weather
-  | Domain.Cyclones
-  | Domain.CycloneWarnings;
+export type LegacyPointSourceId = Domain.Cyclones;
 
 type RenderDataEnvelope = Readonly<{
   protocolVersion: RenderDataProtocolVersion;
@@ -95,11 +92,7 @@ function parseEnvelope(
   };
 }
 
-/**
- * Geometry-rich, low-cardinality sources ride as objects rather than packed
- * lanes. Only the fields the projector reads are checked here; each draw site
- * already guards its own payload.
- */
+/** The final legacy object source remains until its composite scene migration. */
 function hasRenderPosition(
   value: Readonly<Record<string, unknown>>,
 ): boolean {
@@ -126,11 +119,7 @@ function isRenderPoint(value: unknown): value is DataPoint {
 function isLegacyPointSourceId(
   value: unknown,
 ): value is LegacyPointSourceId {
-  return (
-    value === Domain.Weather ||
-    value === Domain.Cyclones ||
-    value === Domain.CycloneWarnings
-  );
+  return value === Domain.Cyclones;
 }
 
 function parsePointsRebase(

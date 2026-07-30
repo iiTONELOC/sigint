@@ -8,21 +8,23 @@ export enum WeatherSeverity {
   Extreme = "Extreme",
 }
 
-const INK_UNKNOWN = "#6b7a8d";
-const INK_MINOR = "#5c7cfa";
-const INK_MODERATE = "#9775fa";
-const INK_SEVERE = "#cc5de8";
-const INK_EXTREME = "#e64980";
+export enum WeatherInk {
+  Slate = "#6b7a8d",
+  Blue = "#5c7cfa",
+  Violet = "#9775fa",
+  Magenta = "#cc5de8",
+  Pink = "#e64980",
+}
 
 const SEVERITY_ORDER: readonly WeatherSeverity[] =
   Object.values(WeatherSeverity);
 
 const SEVERITY_INK: Readonly<Record<WeatherSeverity, string>> = {
-  [WeatherSeverity.Unknown]: INK_UNKNOWN,
-  [WeatherSeverity.Minor]: INK_MINOR,
-  [WeatherSeverity.Moderate]: INK_MODERATE,
-  [WeatherSeverity.Severe]: INK_SEVERE,
-  [WeatherSeverity.Extreme]: INK_EXTREME,
+  [WeatherSeverity.Unknown]: WeatherInk.Slate,
+  [WeatherSeverity.Minor]: WeatherInk.Blue,
+  [WeatherSeverity.Moderate]: WeatherInk.Violet,
+  [WeatherSeverity.Severe]: WeatherInk.Magenta,
+  [WeatherSeverity.Extreme]: WeatherInk.Pink,
 };
 
 export function parseWeatherSeverity(value: unknown): WeatherSeverity {
@@ -31,6 +33,10 @@ export function parseWeatherSeverity(value: unknown): WeatherSeverity {
 
 export function weatherSeverityRank(severity: WeatherSeverity): number {
   return SEVERITY_ORDER.indexOf(severity);
+}
+
+export function weatherSeverityFromRank(rank: number): WeatherSeverity {
+  return SEVERITY_ORDER[rank] ?? WeatherSeverity.Unknown;
 }
 
 export function weatherSeverityLabel(severity: WeatherSeverity): string {

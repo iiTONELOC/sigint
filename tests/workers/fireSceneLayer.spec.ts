@@ -13,6 +13,7 @@ import {
 } from "@/workers/render/scene/fireLayer";
 import { FireSceneSchema } from "@/workers/render/scene/fireSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
@@ -42,6 +43,7 @@ const view = {
   stringAttributes: new Uint32Array(),
   stringAttributeStride: FireSceneSchema.StringAttributeStride,
   dictionary: [],
+  geometries: [null, null],
 } satisfies RenderSceneView;
 
 const frame = {
@@ -96,7 +98,10 @@ describe("fire scene layer", () => {
       filter({ minimumConfidence: FireConfidenceLevel.High }),
     );
 
-    expect(layer.nearest(120, 90, 20, 10)?.entityId).toBe(
+    expect(
+      layer.nearest(SceneHitKind.Point, 120, 90, 20, 10)
+        ?.entityId,
+    ).toBe(
       "FI-high",
     );
     expect(layer.selectionAnchor("FI-high")).toEqual({
@@ -121,10 +126,15 @@ describe("fire scene layer", () => {
     layer.apply(sceneSearchCommand(Domain.Fire, [2], 1));
     layer.project(frame, filter());
 
-    expect(layer.nearest(80, 110, 20, 10)?.entityId).toBe(
+    expect(
+      layer.nearest(SceneHitKind.Point, 80, 110, 20, 10)
+        ?.entityId,
+    ).toBe(
       "FI-low",
     );
-    expect(layer.nearest(120, 90, 20, 10)).toBeNull();
+    expect(
+      layer.nearest(SceneHitKind.Point, 120, 90, 20, 10),
+    ).toBeNull();
 
     layer.apply(sceneSearchCommand(Domain.Fire, [], 2, false));
     layer.project(
@@ -134,7 +144,9 @@ describe("fire scene layer", () => {
         isolatedType: Domain.Weather,
       }),
     );
-    expect(layer.nearest(80, 110, 20, 10)).toBeNull();
+    expect(
+      layer.nearest(SceneHitKind.Point, 80, 110, 20, 10),
+    ).toBeNull();
   });
 
   test("preserves age, size, pulse, and selection drawing", () => {

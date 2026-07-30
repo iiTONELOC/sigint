@@ -9,6 +9,9 @@ export type SceneVisibilitySettings = Readonly<{
   isolatedType: string | null;
 }>;
 
+export type EnabledSceneFilter = SceneVisibilitySettings &
+  Readonly<{ enabled: boolean }>;
+
 export function sceneRecordIsVisible(
   view: RenderSceneView,
   index: number,

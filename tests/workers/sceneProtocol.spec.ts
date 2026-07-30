@@ -32,6 +32,13 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryCoordinates: new Float64Array([
+          0, 0, 10, 0, 10, 10, 0, 10, 0, 0,
+          2, 2, 2, 4, 4, 4, 4, 2, 2, 2,
+        ]),
+        geometryRingEnds: new Uint32Array([5, 10]),
+        geometryPolygonEnds: new Uint32Array([2]),
+        geometryRecordEnds: new Uint32Array([1]),
         deletedHandles: new Uint32Array(),
       },
       "session-1",
@@ -60,6 +67,10 @@ describe("scene data protocol", () => {
         stringAttributeStride: 0,
         dictionaryStart: 0,
         dictionaryValues: [],
+        geometryCoordinates: new Float64Array(),
+        geometryRingEnds: new Uint32Array(),
+        geometryPolygonEnds: new Uint32Array(),
+        geometryRecordEnds: new Uint32Array([0]),
         deletedHandles: new Uint32Array(),
       },
       "session-1",
@@ -76,6 +87,74 @@ describe("scene data protocol", () => {
         data: [],
       }),
     ).toBeNull();
+  });
+
+  test("rejects geometry with broken topology", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SourcePatch,
+        source: Domain.Weather,
+        sourceVersion: 1,
+        kind: DatasetPatchKind.Rebase,
+        handles: new Uint32Array([1]),
+        sceneIds: ["weather-area"],
+        entityIds: ["weather-area"],
+        positions: new Float64Array([5, 5]),
+        unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
+        attributes: new Float32Array(),
+        attributeStride: 0,
+        stringAttributes: new Uint32Array(),
+        stringAttributeStride: 0,
+        dictionaryStart: 0,
+        dictionaryValues: [],
+        geometryCoordinates: new Float64Array([
+          0, 0, 10, 0, 10, 10, 0, 0,
+        ]),
+        geometryRingEnds: new Uint32Array([4]),
+        geometryPolygonEnds: new Uint32Array([2]),
+        geometryRecordEnds: new Uint32Array([1]),
+        deletedHandles: new Uint32Array(),
+      },
+      "session-1",
+      1,
+    );
+
+    expect(parseSceneDataCommand(command)).toBeNull();
+  });
+
+  test("rejects an open geometry ring", () => {
+    const command = createSceneDataCommand(
+      {
+        type: SceneDataCommandType.SourcePatch,
+        source: Domain.Weather,
+        sourceVersion: 1,
+        kind: DatasetPatchKind.Rebase,
+        handles: new Uint32Array([1]),
+        sceneIds: ["weather-area"],
+        entityIds: ["weather-area"],
+        positions: new Float64Array([5, 5]),
+        unitVectors: new Float32Array([1, 0, 0]),
+        timestamps: new Float64Array([1_000]),
+        attributes: new Float32Array(),
+        attributeStride: 0,
+        stringAttributes: new Uint32Array(),
+        stringAttributeStride: 0,
+        dictionaryStart: 0,
+        dictionaryValues: [],
+        geometryCoordinates: new Float64Array([
+          0, 0, 10, 0, 10, 10, 0, 10, 1, 1,
+        ]),
+        geometryRingEnds: new Uint32Array([5]),
+        geometryPolygonEnds: new Uint32Array([1]),
+        geometryRecordEnds: new Uint32Array([1]),
+        deletedHandles: new Uint32Array(),
+      },
+      "session-1",
+      1,
+    );
+
+    expect(parseSceneDataCommand(command)).toBeNull();
   });
 
   test("accepts unique source search handles", () => {

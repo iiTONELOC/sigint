@@ -57,7 +57,13 @@ export type SceneProjectionFrame = Readonly<{
   includes: (index: number) => boolean;
 }>;
 
+export enum SceneHitKind {
+  Point = "point",
+  Area = "area",
+}
+
 export type SceneHit = Readonly<{
+  kind: SceneHitKind;
   handle: number;
   sceneId: string;
   entityId: string;
@@ -326,6 +332,7 @@ export class ProjectedSceneLayer {
       return null;
     }
     return {
+      kind: SceneHitKind.Point,
       handle: index + 1,
       sceneId,
       entityId,

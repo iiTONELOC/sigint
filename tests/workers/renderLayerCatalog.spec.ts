@@ -12,6 +12,7 @@ import type {
   SceneHit,
   SceneProjection,
 } from "@/workers/render/scene/projectedLayer";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import type { SceneLayerCommand } from "@/workers/render/sceneProtocol";
 import { Domain } from "@shared/domain/identity";
 import { sceneRebaseCommand } from "../_support/scene";
@@ -38,8 +39,9 @@ class ProbeLayer implements RenderLayer {
     return false;
   }
 
-  nearest(): SceneHit {
+  nearest(kind: SceneHitKind): SceneHit {
     return {
+      kind,
       handle: 1,
       sceneId: this.source,
       entityId: this.source,
@@ -69,6 +71,7 @@ const EMPTY_VIEW = {
   stringAttributes: new Uint32Array(),
   stringAttributeStride: 0,
   dictionary: [],
+  geometries: [],
 } satisfies RenderSceneView;
 
 describe("RenderLayerCatalog", () => {
@@ -90,7 +93,10 @@ describe("RenderLayerCatalog", () => {
     ).toBe(true);
     expect(aircraft.applied).toBe(1);
     expect(ships.applied).toBe(0);
-    expect(catalog.nearest(0, 0, 10, 10)?.source).toBe(
+    expect(
+      catalog.nearest(SceneHitKind.Point, 0, 0, 10, 10)
+        ?.source,
+    ).toBe(
       Domain.Aircraft,
     );
     expect(catalog.selectionAnchor(Domain.Ships)).toEqual({

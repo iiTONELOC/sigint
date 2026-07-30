@@ -46,6 +46,7 @@ export enum GeoLimit {
   MaxLatitude = 90,
   MinRingPointCount = 4,
   FullLongitudeSpan = 360,
+  NullIslandDegrees = 0,
 }
 
 const HALF_LONGITUDE_SPAN = GeoLimit.FullLongitudeSpan / 2;
@@ -56,10 +57,21 @@ export enum TurnDeg {
   Full = 360,
 }
 
-export const METERS_PER_KM = 1_000;
-export const EARTH_RADIUS_KM = 6_371;
-export const EARTH_RADIUS_METERS = EARTH_RADIUS_KM * METERS_PER_KM;
-export const DEGREES_TO_RADIANS = Math.PI / TurnDeg.Half;
+export enum GeoMeasurement {
+  MetersPerKilometer = 1_000,
+  EarthRadiusKilometers = 6_371,
+  EarthRadiusMeters = 6_371_000,
+}
+
+export enum AngleConversion {
+  RadiansPerDegree = 0.017453292519943295,
+}
+
+export const METERS_PER_KM = GeoMeasurement.MetersPerKilometer;
+export const EARTH_RADIUS_KM = GeoMeasurement.EarthRadiusKilometers;
+export const EARTH_RADIUS_METERS = GeoMeasurement.EarthRadiusMeters;
+export const DEGREES_TO_RADIANS =
+  AngleConversion.RadiansPerDegree;
 
 export function haversineKm(
   lat1: number,
@@ -67,14 +79,18 @@ export function haversineKm(
   lat2: number,
   lon2: number,
 ): number {
-  const dLat = (lat2 - lat1) * DEGREES_TO_RADIANS;
-  const dLon = (lon2 - lon1) * DEGREES_TO_RADIANS;
+  const dLat = (lat2 - lat1) * AngleConversion.RadiansPerDegree;
+  const dLon = (lon2 - lon1) * AngleConversion.RadiansPerDegree;
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * DEGREES_TO_RADIANS) *
-      Math.cos(lat2 * DEGREES_TO_RADIANS) *
+    Math.cos(lat1 * AngleConversion.RadiansPerDegree) *
+      Math.cos(lat2 * AngleConversion.RadiansPerDegree) *
       Math.sin(dLon / 2) ** 2;
-  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return (
+    GeoMeasurement.EarthRadiusKilometers *
+    2 *
+    Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  );
 }
 
 export function isRecord(
@@ -109,7 +125,14 @@ export function parseGeoRing(value: unknown): GeoRing | null {
     if (!point) return null;
     points.push(point);
   }
-  return points.length >= GeoLimit.MinRingPointCount ? points : null;
+  const first = points[0];
+  const last = points.at(-1);
+  return points.length >= GeoLimit.MinRingPointCount &&
+    first !== undefined &&
+    last !== undefined &&
+    geoPointsEqual(first, last)
+    ? points
+    : null;
 }
 
 export function parseGeoPolygonCoordinates(value: unknown): GeoPolygon | null {
@@ -163,6 +186,45 @@ export function geometryPolygons(
     : geometry.coordinates;
 }
 
+function geoRingsEqual(left: GeoRing, right: GeoRing): boolean {
+  return (
+    left.length === right.length &&
+    left.every((point, index) => {
+      const other = right[index];
+      return other !== undefined && geoPointsEqual(point, other);
+    })
+  );
+}
+
+function geoPolygonsEqual(
+  left: GeoPolygon,
+  right: GeoPolygon,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((ring, index) => {
+      const other = right[index];
+      return other !== undefined && geoRingsEqual(ring, other);
+    })
+  );
+}
+
+export function geoPolygonGeometryEqual(
+  left: GeoJsonPolygonGeometry | undefined,
+  right: GeoJsonPolygonGeometry | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  const leftPolygons = geometryPolygons(left);
+  const rightPolygons = geometryPolygons(right);
+  return (
+    leftPolygons.length === rightPolygons.length &&
+    leftPolygons.every((polygon, index) => {
+      const other = rightPolygons[index];
+      return other !== undefined && geoPolygonsEqual(polygon, other);
+    })
+  );
+}
+
 function ringCentroid(ring: GeoRing): GeoPoint | null {
   if (ring.length === 0) return null;
   let longitudeTotal = 0;
@@ -185,12 +247,10 @@ export function geometryCentroid(
   return outerRing ? ringCentroid(outerRing) : null;
 }
 
-const NULL_ISLAND_DEGREES = 0;
-
 export function isNullIsland(point: GeoPoint): boolean {
   return (
-    longitudeOf(point) === NULL_ISLAND_DEGREES &&
-    latitudeOf(point) === NULL_ISLAND_DEGREES
+    longitudeOf(point) === GeoLimit.NullIslandDegrees &&
+    latitudeOf(point) === GeoLimit.NullIslandDegrees
   );
 }
 

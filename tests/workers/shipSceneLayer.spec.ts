@@ -7,6 +7,7 @@ import {
 import { ShipSceneSchema } from "@/workers/render/scene/shipSchema";
 import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import { sceneRebaseCommand } from "../_support/scene";
 
@@ -23,6 +24,7 @@ const view = {
   stringAttributes: new Uint32Array(),
   stringAttributeStride: ShipSceneSchema.StringAttributeStride,
   dictionary: [],
+  geometries: [null],
 } satisfies RenderSceneView;
 
 const base = {
@@ -54,7 +56,10 @@ describe("ship scene layer", () => {
       base,
     );
 
-    expect(layer.nearest(100, 100, 10, 10)?.entityId).toBe("S123");
+    expect(
+      layer.nearest(SceneHitKind.Point, 100, 100, 10, 10)
+        ?.entityId,
+    ).toBe("S123");
     expect(layer.includesEntity("S123", base)).toBe(true);
   });
 

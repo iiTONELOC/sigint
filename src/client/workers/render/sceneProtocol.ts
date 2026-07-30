@@ -1,4 +1,4 @@
-import { isRecord } from "@shared/geo";
+import { GeoLimit, isRecord } from "@shared/geo";
 import {
   isRenderSourceId,
   type RenderSourceId,
@@ -6,7 +6,7 @@ import {
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 
 export enum SceneDataProtocolVersion {
-  Current = 2,
+  Current = 3,
 }
 
 export enum SceneDataCommandType {
@@ -18,6 +18,11 @@ export enum SceneDataCommandType {
 type TransferUint32Array = Uint32Array<ArrayBuffer>;
 type TransferFloat32Array = Float32Array<ArrayBuffer>;
 type TransferFloat64Array = Float64Array<ArrayBuffer>;
+
+enum SceneProtocolComponentCount {
+  Position = 2,
+  UnitVector = 3,
+}
 
 type ScenePatchBuffers = Readonly<{
   handles: TransferUint32Array;
@@ -32,6 +37,10 @@ type ScenePatchBuffers = Readonly<{
   stringAttributeStride: number;
   dictionaryStart: number;
   dictionaryValues: readonly string[];
+  geometryCoordinates: TransferFloat64Array;
+  geometryRingEnds: TransferUint32Array;
+  geometryPolygonEnds: TransferUint32Array;
+  geometryRecordEnds: TransferUint32Array;
   deletedHandles: TransferUint32Array;
 }>;
 
@@ -134,6 +143,119 @@ function isTransferFloat64Array(
   return value instanceof Float64Array && value.buffer instanceof ArrayBuffer;
 }
 
+function hasValidCoordinatePairs(
+  coordinates: TransferFloat64Array,
+): boolean {
+  if (
+    coordinates.length % SceneProtocolComponentCount.Position !==
+    0
+  ) {
+    return false;
+  }
+  for (
+    let offset = 0;
+    offset < coordinates.length;
+    offset += SceneProtocolComponentCount.Position
+  ) {
+    const longitude = coordinates[offset];
+    const latitude = coordinates[offset + 1];
+    if (
+      longitude === undefined ||
+      latitude === undefined ||
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < GeoLimit.MinLongitude ||
+      longitude > GeoLimit.MaxLongitude ||
+      latitude < GeoLimit.MinLatitude ||
+      latitude > GeoLimit.MaxLatitude
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasValidCumulativeEnds(
+  ends: TransferUint32Array,
+  finalValue: number,
+  minimumSpan: number,
+): boolean {
+  let previous = 0;
+  for (const end of ends) {
+    if (end < previous || end - previous < minimumSpan) return false;
+    previous = end;
+  }
+  return previous === finalValue;
+}
+
+function hasClosedGeometryRings(
+  coordinates: TransferFloat64Array,
+  ringEnds: TransferUint32Array,
+): boolean {
+  let pointStart = 0;
+  for (const pointEnd of ringEnds) {
+    const firstOffset =
+      pointStart * SceneProtocolComponentCount.Position;
+    const lastOffset =
+      (pointEnd - 1) * SceneProtocolComponentCount.Position;
+    if (
+      coordinates[firstOffset] !== coordinates[lastOffset] ||
+      coordinates[firstOffset + 1] !== coordinates[lastOffset + 1]
+    ) {
+      return false;
+    }
+    pointStart = pointEnd;
+  }
+  return true;
+}
+
+function hasValidGeometryBuffers(
+  value: Readonly<Record<string, unknown>>,
+  recordCount: number,
+): value is Readonly<Record<string, unknown>> &
+  Pick<
+    ScenePatchBuffers,
+    | "geometryCoordinates"
+    | "geometryRingEnds"
+    | "geometryPolygonEnds"
+    | "geometryRecordEnds"
+  > {
+  if (
+    !isTransferFloat64Array(value.geometryCoordinates) ||
+    !isTransferUint32Array(value.geometryRingEnds) ||
+    !isTransferUint32Array(value.geometryPolygonEnds) ||
+    !isTransferUint32Array(value.geometryRecordEnds) ||
+    value.geometryRecordEnds.length !== recordCount ||
+    !hasValidCoordinatePairs(value.geometryCoordinates)
+  ) {
+    return false;
+  }
+  const pointCount =
+    value.geometryCoordinates.length /
+    SceneProtocolComponentCount.Position;
+  return (
+    hasValidCumulativeEnds(
+      value.geometryRingEnds,
+      pointCount,
+      GeoLimit.MinRingPointCount,
+    ) &&
+    hasClosedGeometryRings(
+      value.geometryCoordinates,
+      value.geometryRingEnds,
+    ) &&
+    hasValidCumulativeEnds(
+      value.geometryPolygonEnds,
+      value.geometryRingEnds.length,
+      1,
+    ) &&
+    hasValidCumulativeEnds(
+      value.geometryRecordEnds,
+      value.geometryPolygonEnds.length,
+      0,
+    )
+  );
+}
+
 function hasValidPatchBuffers(
   value: Readonly<Record<string, unknown>>,
 ): value is Readonly<Record<string, unknown>> & ScenePatchBuffers {
@@ -168,8 +290,10 @@ function hasValidPatchBuffers(
     value.handles.every((handle) => !deleted.has(handle)) &&
     value.sceneIds.length === count &&
     value.entityIds.length === count &&
-    value.positions.length === count * 2 &&
-    value.unitVectors.length === count * 3 &&
+    value.positions.length ===
+      count * SceneProtocolComponentCount.Position &&
+    value.unitVectors.length ===
+      count * SceneProtocolComponentCount.UnitVector &&
     value.timestamps.length === count &&
     value.positions.every(Number.isFinite) &&
     value.timestamps.every(Number.isFinite) &&
@@ -183,7 +307,8 @@ function hasValidPatchBuffers(
     ) &&
     new Set(dictionaryValues).size === dictionaryValues.length &&
     new Set(value.handles).size === count &&
-    new Set(value.sceneIds).size === count
+    new Set(value.sceneIds).size === count &&
+    hasValidGeometryBuffers(value, count)
   );
 }
 
@@ -275,6 +400,10 @@ export function parseSceneDataCommand(
     stringAttributeStride: value.stringAttributeStride,
     dictionaryStart: value.dictionaryStart,
     dictionaryValues: value.dictionaryValues,
+    geometryCoordinates: value.geometryCoordinates,
+    geometryRingEnds: value.geometryRingEnds,
+    geometryPolygonEnds: value.geometryPolygonEnds,
+    geometryRecordEnds: value.geometryRecordEnds,
     deletedHandles: value.deletedHandles,
   };
 }
@@ -293,6 +422,10 @@ export function sceneDataTransfers(
     command.timestamps.buffer,
     command.attributes.buffer,
     command.stringAttributes.buffer,
+    command.geometryCoordinates.buffer,
+    command.geometryRingEnds.buffer,
+    command.geometryPolygonEnds.buffer,
+    command.geometryRecordEnds.buffer,
     command.deletedHandles.buffer,
   ];
 }

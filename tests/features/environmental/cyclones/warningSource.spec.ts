@@ -8,6 +8,7 @@ import {
 import { AreaKind } from "@/workers/render/protocol";
 import { parseCycloneWarningCache } from "@/features/environmental/cyclones/data/warningCodec";
 import {
+  CycloneWarningSceneBinding,
   CycloneWarningSource,
   CYCLONE_WARNING_SOURCE_POLICY,
 } from "@/features/environmental/cyclones/warningSource";
@@ -15,6 +16,15 @@ import {
   CycloneWarningField,
   type CycloneWarningPoint,
 } from "@/features/environmental/cyclones/types";
+import { DatasetPatchKind } from "@/workers/data/datasetStore";
+import {
+  CycloneWarningSceneAttribute,
+} from "@/workers/render/scene/cycloneWarningSchema";
+import {
+  SceneDataCommandType,
+  type SceneSourcePatch,
+} from "@/workers/render/sceneProtocol";
+import { SourceCompleteness } from "@shared/source";
 
 const WARNING_POSITION: GeoPoint = [-80.5, 26.5];
 
@@ -82,6 +92,28 @@ describe("cyclone warning cache boundary", () => {
     expect(parseCycloneWarningCache([broken])).toBeNull();
   });
 
+  test("rejects an open polygon ring", () => {
+    const warning = makeWarning();
+    const broken = {
+      ...warning,
+      data: {
+        ...warning.data,
+        geometry: {
+          type: GeoJsonGeometryType.Polygon,
+          coordinates: [
+            [
+              [-81, 26],
+              [-80, 26],
+              [-80, 27],
+              [-81, 27],
+            ],
+          ],
+        },
+      },
+    };
+    expect(parseCycloneWarningCache([broken])).toBeNull();
+  });
+
   test("rejects a kind outside the declared area vocabulary", () => {
     const warning = makeWarning();
     const broken = { ...warning, data: { ...warning.data, kind: "advisory" } };
@@ -119,11 +151,102 @@ describe("cyclone warning change detection", () => {
     const next = { ...makeWarning(), position: [-80.4, 26.5] as GeoPoint };
     expect(source.changed(makeWarning(), next)).toBe(true);
   });
+
+  test("changed polygon topology publishes at a retained centroid", () => {
+    const next = makeWarning({
+      geometry: {
+        type: GeoJsonGeometryType.Polygon,
+        coordinates: [
+          [
+            [-81, 26],
+            [-79.5, 26],
+            [-80, 27],
+            [-81, 26],
+          ],
+        ],
+      },
+    });
+    expect(source.changed(makeWarning(), next)).toBe(true);
+  });
 });
 
 describe("cyclone warning source policy", () => {
   test("declares the warning identity once", () => {
     expect(CYCLONE_WARNING_SOURCE_POLICY.id).toBe(Domain.CycloneWarnings);
     expect(new CycloneWarningSource().pointType).toBe(Domain.CyclonesWarning);
+  });
+});
+
+describe("cyclone warning scene publication", () => {
+  test("publishes geometry patch, reconnect, and delete semantics", async () => {
+    let entities: readonly CycloneWarningPoint[] = [makeWarning()];
+    let observedAt = 1;
+    const patches: SceneSourcePatch[] = [];
+    const binding = new CycloneWarningSceneBinding((command) => {
+      if (command.type === SceneDataCommandType.SourcePatch) {
+        patches.push(command);
+      }
+    });
+    const source = new CycloneWarningSource({
+      fetchSnapshot: async () => ({
+        completeness: SourceCompleteness.Complete,
+        entities,
+        observedAt,
+      }),
+    });
+    source.attach({
+      readCache: async () => null,
+      persistCache: () => undefined,
+      publishStatus: () => undefined,
+      publishPatch: (patch) => binding.publish(patch),
+    });
+
+    await source.refresh();
+    observedAt += 1;
+    entities = [
+      makeWarning({
+        kind: AreaKind.Warning,
+        geometry: {
+          type: GeoJsonGeometryType.MultiPolygon,
+          coordinates: [
+            WARNING_GEOMETRY.coordinates,
+            [
+              [
+                [-79, 25],
+                [-78, 25],
+                [-78, 26],
+                [-79, 25],
+              ],
+            ],
+          ],
+        },
+      }),
+    ];
+    await source.refresh();
+    source.publishRebase();
+    observedAt += 1;
+    entities = [];
+    await source.refresh();
+
+    expect(patches).toHaveLength(4);
+    expect(patches[0]?.kind).toBe(DatasetPatchKind.Rebase);
+    expect(patches[0]?.source).toBe(Domain.CycloneWarnings);
+    expect(Array.from(patches[0]?.geometryRingEnds ?? [])).toEqual([
+      4,
+    ]);
+    expect(
+      patches[1]?.attributes[CycloneWarningSceneAttribute.Kind],
+    ).toBeGreaterThan(
+      patches[0]?.attributes[CycloneWarningSceneAttribute.Kind] ??
+        0,
+    );
+    expect(Array.from(patches[1]?.geometryPolygonEnds ?? [])).toEqual([
+      1,
+      2,
+    ]);
+    expect(patches[2]?.kind).toBe(DatasetPatchKind.Rebase);
+    expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([
+      1,
+    ]);
   });
 });

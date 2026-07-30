@@ -33,6 +33,10 @@ describe("scene publisher", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryCoordinates: new Float64Array(),
+      geometryRingEnds: new Uint32Array(),
+      geometryPolygonEnds: new Uint32Array(),
+      geometryRecordEnds: new Uint32Array([0]),
       deletedHandles: new Uint32Array(),
     });
     publisher.publish({
@@ -55,7 +59,7 @@ describe("scene publisher", () => {
       sequence: 2,
       sessionId: "session-a",
     });
-    expect(transfers[1]).toHaveLength(7);
+    expect(transfers[1]).toHaveLength(11);
     expect(messages[2]).toMatchObject({
       type: SceneDataCommandType.SourceSearch,
       source: Domain.Aircraft,

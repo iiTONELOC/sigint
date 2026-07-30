@@ -16,7 +16,7 @@ import {
 } from "@/workers/render/scene/sceneLayer";
 import {
   sceneRecordIsVisible,
-  type SceneVisibilitySettings,
+  type EnabledSceneFilter,
 } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
@@ -90,8 +90,7 @@ enum NormalizedScale {
   Maximum = 1,
 }
 
-export type EventSceneFilter = SceneVisibilitySettings &
-  Readonly<{ enabled: boolean }>;
+export type EventSceneFilter = EnabledSceneFilter;
 
 export type EventSceneStyle = Readonly<{
   context: Ctx;

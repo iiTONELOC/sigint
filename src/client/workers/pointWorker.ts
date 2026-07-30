@@ -56,7 +56,6 @@ import {
   type RenderWorkerColors,
   type RenderWorkerEventBody,
   type SelectedRenderItem,
-  AreaKind,
   IsolateMode,
   PanelSide,
 } from "./render/protocol";
@@ -78,7 +77,6 @@ import {
 } from "./render/scene/aircraftLayer";
 import {
   ShipLayer,
-  type ShipSceneFilter,
 } from "./render/scene/shipLayer";
 import { EventLayer } from "./render/scene/eventLayer";
 import {
@@ -89,27 +87,29 @@ import {
   FireLayer,
   type FireSceneFilter,
 } from "./render/scene/fireLayer";
-import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
 import {
-  MarkerVisuals,
-  markerPulseIntensity,
-} from "./render/primitives/markerVisuals";
+  WeatherLayer,
+} from "./render/scene/weatherLayer";
+import {
+  CycloneWarningLayer,
+} from "./render/scene/cycloneWarningLayer";
+import type {
+  SceneAreaProjectionFrame,
+} from "./render/scene/areaLayer";
+import { RenderLayerCatalog } from "./render/scene/renderLayerCatalog";
+import type {
+  SceneVisibilitySettings,
+} from "./render/scene/visibility";
+import { MarkerVisuals } from "./render/primitives/markerVisuals";
 import { pointTypeForSource } from "./data/sources/registry";
-import { drawWarnings, type WarningFeature } from "./render/warnings";
 import {
   parseSceneDataCommand,
   SceneDataCommandType,
   SceneDataProtocolState,
 } from "./render/sceneProtocol";
-import { zoomScale } from "./render/workerMath";
 import {
-  WEATHER_AREA_FILL,
-  weatherAreaKind,
-  weatherMarker,
-  weatherPulse,
-} from "@/features/environmental/weather/render";
-import type { MarkerGlow } from "./render/primitives/markerStyle";
-import { pointInPolygon } from "@/lib/geo/pointInPolygon";
+  SceneHitKind,
+} from "./render/scene/projectedLayer";
 import {
   screenToLatLonFlat,
   screenToLatLonGlobe,
@@ -128,14 +128,15 @@ import {
   type UnitVector,
 } from "@/lib/geo/unitSphere";
 import {
+  createGeoPoint,
   GeoLimit,
+  type GeoPoint,
   type GeoRing,
 } from "@shared/geo";
 import { parseLandGeoJson } from "@shared/land";
 import { getFlatMetrics, projFlat } from "@/lib/geo/render/flatMap";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
-import { drawClippedPoly, simpleDraw } from "@/lib/geo/render/polygon";
 import type { HorizonCircle, LandColors } from "@/lib/geo/render/types";
 
 enum PointWorkerError {
@@ -148,6 +149,7 @@ enum CanvasLineStyle {
 
 enum SceneProjectionPolicy {
   CullMarginPixels = 24,
+  HorizonInsetPixels = 0.5,
 }
 
 enum FlatLabelLayout {
@@ -552,17 +554,6 @@ let _hasSelectedProjection = false;
 let _selectedProjectionX = 0;
 let _selectedProjectionDepth = -1;
 
-// Tropical watch/warning polygons + their fill colors, set by the "warnings"
-// message and drawn each frame under the showWarnings toggle.
-let _warnings: WarningFeature[] | null = null;
-
-// NWS weather-alert polygons + severity fill colors, set by the "wxAlerts"
-// message and drawn each frame under the weather layer toggle. Defaults are the
-// weather violet/magenta palette so an unset frame never flashes off-palette.
-let _wxAlerts: WarningFeature[] | null = null;
-let _wxWarnColor = WEATHER_AREA_FILL[AreaKind.Warning];
-let _wxWatchColor = WEATHER_AREA_FILL[AreaKind.Watch];
-
 // Progressive reveal: the main thread hands the full data array once per change;
 // the worker reveals it in chunks across its own render ticks. Preserved across
 // same-length updates so the ramp doesn't restart.
@@ -584,11 +575,15 @@ const shipLayer = new ShipLayer();
 const eventLayer = new EventLayer(markerVisuals);
 const earthquakeLayer = new EarthquakeLayer(markerVisuals);
 const fireLayer = new FireLayer(markerVisuals);
+const weatherLayer = new WeatherLayer(markerVisuals);
+const cycloneWarningLayer = new CycloneWarningLayer();
 renderLayerCatalog.register(aircraftLayer);
 renderLayerCatalog.register(shipLayer);
 renderLayerCatalog.register(fireLayer);
 renderLayerCatalog.register(eventLayer);
 renderLayerCatalog.register(earthquakeLayer);
+renderLayerCatalog.register(cycloneWarningLayer);
+renderLayerCatalog.register(weatherLayer);
 
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
@@ -716,11 +711,7 @@ function setSelectedMotion(item: SelectedRenderItem | null): void {
   ]);
 }
 function pointHasTimeAnimation(item: RenderPoint): boolean {
-  if (item.type === Domain.Cyclones) return true;
-  if (item.type === Domain.Weather) {
-    return weatherPulse(item.data.severity) !== null;
-  }
-  return false;
+  return item.type === Domain.Cyclones;
 }
 
 
@@ -744,50 +735,12 @@ type RenderDataCommand = NonNullable<
   ReturnType<typeof parseRenderDataCommand>
 >;
 
-/**
- * Alert polygons are derived from the weather points themselves rather than
- * shipped separately: the renderer already has every alert, geometry included.
- */
-function rebuildCycloneWarningAreas(points: readonly RenderPoint[]): void {
-  const features: WarningFeature[] = [];
-  for (const item of points) {
-    if (item.type !== Domain.CyclonesWarning) continue;
-    const geometry = item.data.geometry;
-    if (!geometry) continue;
-    features.push({ id: item.id, kind: item.data.kind, geometry });
-  }
-  _warnings = features;
-}
-
-function rebuildWeatherAreas(points: readonly RenderPoint[]): void {
-  const features: WarningFeature[] = [];
-  for (const item of points) {
-    if (item.type !== Domain.Weather) continue;
-    const geometry = item.data.geometry;
-    if (!geometry) continue;
-    features.push({
-      id: item.id,
-      kind: weatherAreaKind(item.data.severity),
-      geometry,
-    });
-  }
-  _wxAlerts = features;
-  _wxWarnColor = WEATHER_AREA_FILL[AreaKind.Warning];
-  _wxWatchColor = WEATHER_AREA_FILL[AreaKind.Watch];
-}
-
-/** Legacy geometry source updates, past the bind handshake. */
+/** Legacy cyclone updates, past the bind handshake. */
 function applyRenderDataCommand(command: RenderDataCommand): void {
   if (command.type !== RenderDataCommandType.PointsRebase) return;
 
   _dataBySource ??= {};
   _dataBySource[command.source] = [...command.points];
-  if (command.source === Domain.Weather) {
-    rebuildWeatherAreas(command.points);
-  }
-  if (command.source === Domain.CycloneWarnings) {
-    rebuildCycloneWarningAreas(command.points);
-  }
   rebuildGenericData();
 }
 
@@ -1010,51 +963,6 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
 
 // ── Per-type point drawing (extracted from the render loop) ─────────
 
-type DotEnv = { ctx: Ctx; t: number; zoomLevel: number };
-
-type PulseGlow = MarkerGlow;
-
-/** Shared pulsing-dot renderer for fires and weather. `shape`
- *  draws the marker (circle vs diamond). Returns nothing; mutates the canvas. */
-type PulsingDot = Readonly<{
-  x: number;
-  y: number;
-  s: number;
-  color: string;
-  fillAlpha: number;
-  isSel: boolean;
-  glow: PulseGlowState | null;
-  shape: (s: number) => void;
-}>;
-
-type PulseGlowState = Readonly<{
-  intensity: number;
-  pulseIndex: number;
-  id: string;
-  cfg: PulseGlow;
-}>;
-
-function drawPulsingDot(env: DotEnv, dot: PulsingDot): void {
-  const { x, y, s, color, fillAlpha, isSel, glow, shape } = dot;
-  markerVisuals.drawPulsing(env.ctx, env.t, {
-    x,
-    y,
-    size: s,
-    color,
-    fillAlpha,
-    selected: isSel,
-    glow: glow
-      ? {
-          intensity: glow.intensity,
-          pulseIndex: glow.pulseIndex,
-          id: glow.id,
-          config: glow.cfg,
-        }
-      : null,
-    shape,
-  });
-}
-
 type ProjPoint = { x: number; y: number; z: number; item: RenderPoint };
 
 type PointProjector = (item: RenderPoint) => Projected;
@@ -1145,7 +1053,11 @@ function hitCandidates(x: number, y: number): ProjPoint[] {
 }
 
 type PointHit = CameraPosition &
-  Readonly<{ distance: number; pointType: DataType }>;
+  Readonly<{
+    distance: number;
+    kind: SceneHitKind;
+    pointType: DataType;
+  }>;
 
 function nearestGenericPoint(
   x: number,
@@ -1164,6 +1076,7 @@ function nearestGenericPoint(
     closest = {
       ...position,
       distance: candidateDistance,
+      kind: SceneHitKind.Point,
       pointType: point.item.type,
     };
     distance = candidateDistance;
@@ -1177,6 +1090,7 @@ function nearestScenePoint(
   radius: number,
 ): PointHit | null {
   const result = renderLayerCatalog.nearest(
+    SceneHitKind.Point,
     x,
     y,
     radius,
@@ -1188,6 +1102,26 @@ function nearestScenePoint(
     latitude: result.hit.latitude,
     longitude: result.hit.longitude,
     distance: result.hit.distance,
+    kind: result.hit.kind,
+    pointType: pointTypeForSource(result.source),
+  };
+}
+
+function areaAt(x: number, y: number): PointHit | null {
+  const result = renderLayerCatalog.nearest(
+    SceneHitKind.Area,
+    x,
+    y,
+    CAMERA_POLICY.pointHitRadiusPx,
+    CAMERA_POLICY.maximumHitCandidates,
+  );
+  if (!result) return null;
+  return {
+    id: result.hit.entityId,
+    latitude: result.hit.latitude,
+    longitude: result.hit.longitude,
+    distance: result.hit.distance,
+    kind: result.hit.kind,
     pointType: pointTypeForSource(result.source),
   };
 }
@@ -1325,10 +1259,10 @@ function selectedRouteContains(x: number, y: number): boolean {
   return false;
 }
 
-function screenCoordinate(
+function screenGeoPoint(
   x: number,
   y: number,
-): { lat: number; lon: number } | null {
+): GeoPoint | null {
   if (!_viewport || !_presentation) return null;
   const camera = cameraSnapshot(_camera);
   if (_presentation.flat) {
@@ -1339,7 +1273,7 @@ function screenCoordinate(
       camera.panX,
       camera.panY,
     );
-    return screenToLatLonFlat(
+    const coordinate = screenToLatLonFlat(
       x,
       y,
       metrics.cx,
@@ -1347,12 +1281,15 @@ function screenCoordinate(
       metrics.mW,
       metrics.mH,
     );
+    return coordinate
+      ? createGeoPoint(coordinate.lon, coordinate.lat)
+      : null;
   }
   const radius =
     Math.min(_viewport.width, _viewport.height) *
     CAMERA_POLICY.globeRadiusRatio *
     camera.zoomGlobe;
-  return screenToLatLonGlobe(
+  const coordinate = screenToLatLonGlobe(
     x,
     y,
     _viewport.width / 2,
@@ -1361,24 +1298,9 @@ function screenCoordinate(
     camera.rotY,
     camera.rotX,
   );
-}
-
-function warningIdAt(x: number, y: number): string | null {
-  const coordinate = screenCoordinate(x, y);
-  if (!coordinate || !_warnings) return null;
-  for (const warning of _warnings) {
-    if (
-      warning.id &&
-      pointInPolygon(
-        coordinate.lat,
-        coordinate.lon,
-        warning.geometry,
-      )
-    ) {
-      return warning.id;
-    }
-  }
-  return null;
+  return coordinate
+    ? createGeoPoint(coordinate.lon, coordinate.lat)
+    : null;
 }
 
 function clearTrailTooltip(): void {
@@ -1490,12 +1412,12 @@ function handlePointerClick(click: CameraClick): void {
   }
 
   clearTrailTooltip();
-  const warningId = warningIdAt(click.x, click.y);
-  if (warningId) {
+  const area = areaAt(click.x, click.y);
+  if (area) {
     postInteraction({
       kind: RenderInteractionKind.Selection,
-      id: warningId,
-      pointType: Domain.CyclonesWarning,
+      id: area.id,
+      pointType: area.pointType,
     });
   } else if (!selectedRouteContains(click.x, click.y)) {
     postInteraction({
@@ -1531,11 +1453,11 @@ function handlePointerHover(x: number, y: number): void {
   const hasTrail = nearestTrailTarget(x, y) !== null;
   const hasPoint =
     nearestPoint(x, y, CAMERA_POLICY.hoverHitRadiusPx) !== null;
-  const hasWarning = warningIdAt(x, y) !== null;
+  const hasArea = areaAt(x, y) !== null;
   postCursor({
     kind: RenderInteractionKind.Cursor,
     cursor:
-      hasTrail || hasPoint || hasWarning
+      hasTrail || hasPoint || hasArea
         ? RenderCursor.Pointer
         : RenderCursor.Grab,
   });
@@ -1613,50 +1535,13 @@ type PointDraw = Readonly<{
   baseColor: string;
   depthAlpha: number;
   isSel: boolean;
-  env: DotEnv;
 }>;
 
-function drawWeatherPoint(
-  item: Extract<RenderPoint, { type: Domain.Weather }>,
-  d: PointDraw,
-  zoomLevel: number,
-): void {
-  const severity = item.data.severity;
-  const marker = weatherMarker(severity);
-  const pulse = weatherPulse(severity);
-  drawPulsingDot(d.env, {
-    x: d.x,
-    y: d.y,
-    s: marker.size * zoomScale(zoomLevel) * (d.isSel ? 2 : 1),
-    color: d.baseColor,
-    fillAlpha: d.depthAlpha * marker.alpha * 0.8,
-    isSel: d.isSel,
-    glow: pulse
-      ? {
-          intensity: markerPulseIntensity(zoomLevel),
-          pulseIndex: pulse.index,
-          id: item.id,
-          cfg: pulse.glow,
-        }
-      : null,
-    shape: (size) => {
-      const { ctx } = d.env;
-      ctx.beginPath();
-      ctx.moveTo(d.x, d.y - size * 1.2);
-      ctx.lineTo(d.x + size * 0.8, d.y);
-      ctx.lineTo(d.x, d.y + size * 1.2);
-      ctx.lineTo(d.x - size * 0.8, d.y);
-      ctx.closePath();
-    },
-  });
-}
-
 /**
- * The legacy point path. Aircraft, ships, quakes, and fires use worker-owned
- * scenes and never arrive here.
+ * The legacy point path now carries only the cyclone composite.
  */
 function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
-  const { ctx, projFn, colorMap, accent, selId, t, zoomLevel } = pc;
+  const { ctx, projFn, colorMap, accent, selId, t } = pc;
   const { x, y, z, item } = pt;
   const d: PointDraw = {
     x,
@@ -1664,13 +1549,9 @@ function drawPoint(pc: PointDrawCtx, pt: ProjPoint): void {
     baseColor: colorMap[item.type] || accent,
     depthAlpha: 0.4 + z * 0.6,
     isSel: item.id === selId,
-    env: { ctx, t, zoomLevel },
   };
 
   switch (item.type) {
-    case Domain.Weather:
-      drawWeatherPoint(item, d, zoomLevel);
-      return;
     case Domain.Cyclones:
       drawCyclone(
         ctx,
@@ -1793,7 +1674,10 @@ type SceneGeometry = Readonly<{
 }>;
 
 /** Flat and globe projection inputs, identical for every typed scene layer. */
-function sceneProjectionBase(geometry: SceneGeometry) {
+function sceneProjectionBase(
+  geometry: SceneGeometry,
+  project: ProjFn,
+): SceneAreaProjectionFrame {
   const { fm } = geometry;
   return {
     width: geometry.width,
@@ -1816,6 +1700,19 @@ function sceneProjectionBase(geometry: SceneGeometry) {
           centerY: geometry.centerY,
           radius: geometry.globeRadius,
         },
+    areaProjection: {
+      project,
+      horizon: fm
+        ? null
+        : {
+            gcx: geometry.centerX,
+            gcy: geometry.centerY,
+            gr:
+              geometry.globeRadius -
+              SceneProjectionPolicy.HorizonInsetPixels,
+          },
+    },
+    screenPoint: screenGeoPoint,
   };
 }
 
@@ -1825,11 +1722,13 @@ function drawPointLayers(
   drawFireLayer: () => void,
   drawEventLayer: () => void,
   drawEarthquakeLayer: () => void,
+  drawWeatherLayer: () => void,
 ): void {
   drawMarkerLayerSequence({
     fire: drawFireLayer,
     event: drawEventLayer,
     earthquake: drawEarthquakeLayer,
+    weather: drawWeatherLayer,
     legacy: () => {
       for (const point of pts) drawPoint(pointCtx, point);
     },
@@ -1837,50 +1736,27 @@ function drawPointLayers(
 }
 
 type AreaOverlayOptions = Readonly<{
-  ctx: Ctx;
-  projFn: ProjFn;
-  isFlat: boolean;
-  centerX: number;
-  centerY: number;
-  globeRadius: number;
+  context: Ctx;
   selectedId: string | null;
   time: number;
-  showWarnings: boolean;
-  showWeather: boolean;
-  warnColor: string;
+  warningColor: string;
   watchColor: string;
 }>;
 
 /** Tropical watch/warning and NWS alert polygons, under every marker. */
 function drawAreaOverlays(options: AreaOverlayOptions): void {
-  const gr = options.isFlat ? 0 : options.globeRadius - 0.5;
-  const env = {
-    ctx: options.ctx,
-    proj: options.projFn,
-    isFlat: options.isFlat,
-    gcx: options.centerX,
-    gcy: options.centerY,
-    gr,
-    prims: { simpleDraw, drawClippedPoly },
-  };
-  if (options.showWarnings && _warnings && _warnings.length > 0) {
-    drawWarnings(
-      env,
-      _warnings,
-      { warn: options.warnColor, watch: options.watchColor },
-      options.selectedId,
-      options.time,
-    );
-  }
-  if (options.showWeather && _wxAlerts && _wxAlerts.length > 0) {
-    drawWarnings(
-      env,
-      _wxAlerts,
-      { warn: _wxWarnColor, watch: _wxWatchColor },
-      options.selectedId,
-      options.time,
-    );
-  }
+  cycloneWarningLayer.drawAreas({
+    context: options.context,
+    selectedId: options.selectedId,
+    time: options.time,
+    warningColor: options.warningColor,
+    watchColor: options.watchColor,
+  });
+  weatherLayer.drawAreas({
+    context: options.context,
+    selectedId: options.selectedId,
+    time: options.time,
+  });
 }
 
 /** Map border plus the degree labels down its outer edges. */
@@ -2139,6 +2015,7 @@ function drawFrameEdge(
 type ProjectFrameOptions = Readonly<{
   data: readonly RenderPoint[];
   projectPoint: PointProjector;
+  project: ProjFn;
   geometry: SceneGeometry;
   presentation: RenderPresentationPayload;
   showForecast: boolean;
@@ -2177,52 +2054,57 @@ function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
   const pts = projectAndFilter(options.data, options.projectPoint, filterCfg);
   rebuildHitGrid(pts);
 
-  const base = sceneProjectionBase(options.geometry);
-  const aircraftSceneFilter: AircraftSceneFilter = {
-    filter: p.aircraftFilter,
+  const base = sceneProjectionBase(
+    options.geometry,
+    options.project,
+  );
+  const sceneVisibility: SceneVisibilitySettings = {
     searchIds: searchSet,
     isolateMode: isoMode,
     isolatedId: isoId,
     isolatedType,
+  };
+  const aircraftSceneFilter: AircraftSceneFilter = {
+    filter: p.aircraftFilter,
+    ...sceneVisibility,
   };
   aircraftLayer.project(base, aircraftSceneFilter);
 
-  const shipSceneFilter: ShipSceneFilter = {
+  shipLayer.project(base, {
     enabled: p.layers.ships !== false,
-    searchIds: searchSet,
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
-  };
-  shipLayer.project(base, shipSceneFilter);
+    ...sceneVisibility,
+  });
 
   const fireSceneFilter: FireSceneFilter = {
     enabled: p.layers[Domain.Fires] !== false,
     minimumConfidence: p.fireMinConfidence,
+    ...sceneVisibility,
     searchIds: null,
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
   };
   fireLayer.project(base, fireSceneFilter);
 
   eventLayer.project(base, {
     enabled: p.layers[Domain.Events] !== false,
-    searchIds: searchSet,
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
+    ...sceneVisibility,
   });
 
   const earthquakeSceneFilter: EarthquakeSceneFilter = {
     enabled: p.layers[Domain.Quakes] !== false,
     minimumMagnitude: p.earthquakeMinMagnitude,
+    ...sceneVisibility,
     searchIds: null,
-    isolateMode: isoMode,
-    isolatedId: isoId,
-    isolatedType,
   };
   earthquakeLayer.project(base, earthquakeSceneFilter);
+
+  cycloneWarningLayer.project(base, {
+    enabled: p.cyclonesShowWarnings !== false,
+    ...sceneVisibility,
+  });
+
+  weatherLayer.project(base, {
+    enabled: p.layers[Domain.Weather] !== false,
+    ...sceneVisibility,
+  });
 
   return {
     pts,
@@ -2343,25 +2225,11 @@ function renderFrame(): void {
   // ── Draw static layer (leaves clip active for the points) ─────
   drawStaticLayer({ ctx, projFn, globeMatrix, colors, isFlat, W, H, cx, cy, globeR, fm, landAlpha, gridAlpha, glowAlpha });
 
-  drawAreaOverlays({
-    ctx,
-    projFn,
-    isFlat,
-    centerX: cx,
-    centerY: cy,
-    globeRadius: globeR,
-    selectedId: selId ?? null,
-    time: t,
-    showWarnings: cyclones.showWarnings,
-    showWeather: layers.weather !== false,
-    warnColor: colors.cycWarning,
-    watchColor: colors.cycWatch,
-  });
-
   // ── Project + filter points ───────────────────────────────────
   const projected = projectFrame({
     data,
     projectPoint,
+    project: projFn,
     geometry,
     presentation: p,
     showForecast: cyclones.showForecast,
@@ -2373,6 +2241,14 @@ function renderFrame(): void {
     aircraftSceneFilter,
   } = projected;
   updateSelectedProjection(pts, selId);
+
+  drawAreaOverlays({
+    context: ctx,
+    selectedId: selId ?? null,
+    time: t,
+    warningColor: colors.cycWarning,
+    watchColor: colors.cycWatch,
+  });
 
   // ── Draw trail (only if the selected item passes current filters) ──
   const drawSelectedTrail = selectionPassesFilters({
@@ -2456,6 +2332,15 @@ function renderFrame(): void {
         selectedId: selId,
         time: t,
         now: wallTime,
+        zoomLevel,
+      });
+    },
+    () => {
+      weatherLayer.draw({
+        context: ctx,
+        color: colorMap.weather ?? colors.accent,
+        selectedId: selId,
+        time: t,
         zoomLevel,
       });
     },

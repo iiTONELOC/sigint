@@ -1,6 +1,7 @@
 import type { RenderSourceId } from "@/workers/data/sourceIds";
 import type {
   SceneHit,
+  SceneHitKind,
   SceneProjection,
 } from "@/workers/render/scene/projectedLayer";
 import type {
@@ -57,6 +58,7 @@ export class RenderLayerCatalog {
   }
 
   nearest(
+    kind: SceneHitKind,
     x: number,
     y: number,
     radius: number,
@@ -65,6 +67,7 @@ export class RenderLayerCatalog {
     let closest: RenderLayerHit | null = null;
     for (const layer of this.ordered) {
       const hit = layer.nearest(
+        kind,
         x,
         y,
         radius,

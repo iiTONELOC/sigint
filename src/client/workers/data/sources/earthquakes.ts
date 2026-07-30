@@ -9,7 +9,10 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+} from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
   GeoCarrier,
@@ -55,14 +58,6 @@ function parseEarthquakeCache(
     points.push(point);
   }
   return points;
-}
-
-function earthquakeTimestamp(point: EarthquakePoint): number {
-  if (!point.timestamp) return EarthquakeSceneDefault.Numeric;
-  const timestamp = Date.parse(point.timestamp);
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : EarthquakeSceneDefault.Numeric;
 }
 
 function earthquakeChanged(
@@ -137,7 +132,7 @@ export class EarthquakeSceneBinding extends SceneBinding<EarthquakePoint> {
         stringAttributeStride:
           EarthquakeSceneSchema.StringAttributeStride,
         position: recordPosition,
-        timestamp: earthquakeTimestamp,
+        timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + EarthquakeSceneAttribute.Magnitude] =
             point.data.magnitude ?? EarthquakeSceneDefault.Numeric;

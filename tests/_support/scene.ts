@@ -7,6 +7,47 @@ import {
   type SceneSourceCommand,
 } from "@/workers/render/sceneProtocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
+import type { GeoMultiPolygon } from "@shared/geo";
+
+enum TestGeometryComponentCount {
+  Position = 2,
+}
+
+type TestGeometryBuffers = Readonly<{
+  geometryCoordinates: Float64Array<ArrayBuffer>;
+  geometryRingEnds: Uint32Array<ArrayBuffer>;
+  geometryPolygonEnds: Uint32Array<ArrayBuffer>;
+  geometryRecordEnds: Uint32Array<ArrayBuffer>;
+}>;
+
+function testGeometryBuffers(
+  geometries: readonly (GeoMultiPolygon | null)[],
+): TestGeometryBuffers {
+  const coordinates: number[] = [];
+  const ringEnds: number[] = [];
+  const polygonEnds: number[] = [];
+  const recordEnds: number[] = [];
+  for (const geometry of geometries) {
+    if (geometry) {
+      for (const polygon of geometry) {
+        for (const ring of polygon) {
+          for (const point of ring) coordinates.push(...point);
+          ringEnds.push(
+            coordinates.length / TestGeometryComponentCount.Position,
+          );
+        }
+        polygonEnds.push(ringEnds.length);
+      }
+    }
+    recordEnds.push(polygonEnds.length);
+  }
+  return {
+    geometryCoordinates: new Float64Array(coordinates),
+    geometryRingEnds: new Uint32Array(ringEnds),
+    geometryPolygonEnds: new Uint32Array(polygonEnds),
+    geometryRecordEnds: new Uint32Array(recordEnds),
+  };
+}
 
 export function sceneRebaseCommand(
   source: RenderSourceId,
@@ -39,6 +80,7 @@ export function sceneRebaseCommand(
     stringAttributeStride: view.stringAttributeStride,
     dictionaryStart: 0,
     dictionaryValues: view.dictionary,
+    ...testGeometryBuffers(view.geometries),
     deletedHandles: new Uint32Array(),
   };
 }

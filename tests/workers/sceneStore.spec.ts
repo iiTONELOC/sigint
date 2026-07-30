@@ -27,6 +27,12 @@ describe("render scene store", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryCoordinates: new Float64Array([
+        20, 10, 22, 10, 22, 12, 20, 12, 20, 10,
+      ]),
+      geometryRingEnds: new Uint32Array([5]),
+      geometryPolygonEnds: new Uint32Array([1]),
+      geometryRecordEnds: new Uint32Array([1, 1]),
       deletedHandles: new Uint32Array(),
     }, "session-a", 1));
 
@@ -47,6 +53,12 @@ describe("render scene store", () => {
       stringAttributeStride: 0,
       dictionaryStart: 0,
       dictionaryValues: [],
+      geometryCoordinates: new Float64Array([
+        21, 11, 23, 11, 23, 13, 21, 13, 21, 11,
+      ]),
+      geometryRingEnds: new Uint32Array([5]),
+      geometryPolygonEnds: new Uint32Array([1]),
+      geometryRecordEnds: new Uint32Array([1]),
       deletedHandles: new Uint32Array([2]),
     }, "session-a", 2));
 
@@ -62,6 +74,17 @@ describe("render scene store", () => {
       unitZ: 1,
       timestamp: 300,
       attributes: [3],
+      geometry: [
+        [
+          [
+            [21, 11],
+            [23, 11],
+            [23, 13],
+            [21, 13],
+            [21, 11],
+          ],
+        ],
+      ],
     });
     expect(store.handleForSceneId("scene-first")).toBe(1);
     expect(store.handlesForEntityId("first")).toEqual([1]);

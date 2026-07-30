@@ -11,7 +11,10 @@ import {
   SceneBinding,
   type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
-import { ScenePatchCodec } from "@/workers/data/render-codecs/sceneCodec";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+} from "@/workers/data/render-codecs/sceneCodec";
 import {
   EntityLifetime,
   GeoCarrier,
@@ -67,14 +70,6 @@ function parseFireCache(value: unknown): readonly FirePoint[] | null {
     points.push(point);
   }
   return points;
-}
-
-function fireTimestamp(point: FirePoint): number {
-  if (!point.timestamp) return FireSceneDefault.Numeric;
-  const timestamp = Date.parse(point.timestamp);
-  return Number.isFinite(timestamp)
-    ? timestamp
-    : FireSceneDefault.Numeric;
 }
 
 function fireChanged(previous: FirePoint, next: FirePoint): boolean {
@@ -147,7 +142,7 @@ export class FireSceneBinding extends SceneBinding<FirePoint> {
         attributeStride: FireSceneSchema.AttributeStride,
         stringAttributeStride: FireSceneSchema.StringAttributeStride,
         position: recordPosition,
-        timestamp: fireTimestamp,
+        timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + FireSceneAttribute.RadiativePower] =
             point.data.frp ?? FireSceneDefault.Numeric;

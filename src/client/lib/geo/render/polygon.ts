@@ -6,16 +6,29 @@ import type {
   RenderContext2D,
 } from "@/lib/geo/render/types";
 
-export const POLYGON_POLICY = {
+export type PolygonPolicy = Readonly<{
+  minimumRingPoints: number;
+  horizonArcSamples: number;
+  strokeWidth: number;
+  strokeAlphaGain: number;
+  reentryMergeDistance: number;
+  antimeridianJumpDegrees: number;
+  defaultAlpha: number;
+}>;
+
+export const POLYGON_POLICY: PolygonPolicy = {
   minimumRingPoints: 3,
   horizonArcSamples: 12,
   strokeWidth: 0.7,
   strokeAlphaGain: 0.1,
   reentryMergeDistance: 1,
   antimeridianJumpDegrees: 120,
-} as const;
+  defaultAlpha: 0.7,
+};
 
-export const DEFAULT_LAND_ALPHA = 0.7;
+enum PolygonFillRule {
+  EvenOdd = "evenodd",
+}
 
 function edgeLerp(a: Projected, b: Projected): Pt {
   const t = a.z / (a.z - b.z);
@@ -54,23 +67,33 @@ function findReentryPoint(
   return null;
 }
 
-export function fillStrokePath(
+function appendPath(
   ctx: RenderContext2D,
   path: readonly Pt[],
-  fillColor: string,
-  strokeColor: string,
-  alpha: number,
 ): void {
-  if (path.length < POLYGON_POLICY.minimumRingPoints) return;
-  ctx.beginPath();
   path.forEach((point, index) => {
     if (index === 0) ctx.moveTo(point.x, point.y);
     else ctx.lineTo(point.x, point.y);
   });
   ctx.closePath();
+}
+
+export function fillStrokePaths(
+  ctx: RenderContext2D,
+  paths: readonly (readonly Pt[])[],
+  fillColor: string,
+  strokeColor: string,
+  alpha: number,
+): void {
+  const drawable = paths.filter(
+    (path) => path.length >= POLYGON_POLICY.minimumRingPoints,
+  );
+  if (drawable.length === 0) return;
+  ctx.beginPath();
+  for (const path of drawable) appendPath(ctx, path);
   ctx.fillStyle = fillColor;
   ctx.globalAlpha = alpha;
-  ctx.fill();
+  ctx.fill(PolygonFillRule.EvenOdd);
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = POLYGON_POLICY.strokeWidth;
   ctx.globalAlpha = alpha + POLYGON_POLICY.strokeAlphaGain;
@@ -78,12 +101,22 @@ export function fillStrokePath(
   ctx.globalAlpha = 1;
 }
 
+export function fillStrokePath(
+  ctx: RenderContext2D,
+  path: readonly Pt[],
+  fillColor: string,
+  strokeColor: string,
+  alpha: number,
+): void {
+  fillStrokePaths(ctx, [path], fillColor, strokeColor, alpha);
+}
+
 export function simpleDraw(
   ctx: RenderContext2D,
   points: readonly Pt[],
   fillColor: string,
   strokeColor: string,
-  alpha: number = DEFAULT_LAND_ALPHA,
+  alpha: number = POLYGON_POLICY.defaultAlpha,
 ): void {
   fillStrokePath(ctx, points, fillColor, strokeColor, alpha);
 }
@@ -133,8 +166,31 @@ export function drawClippedPoly(
   horizon: HorizonCircle,
   fillColor: string,
   strokeColor: string,
-  alpha: number = DEFAULT_LAND_ALPHA,
+  alpha: number = POLYGON_POLICY.defaultAlpha,
 ): void {
+  fillStrokePath(
+    ctx,
+    projectedRingPath(points, horizon),
+    fillColor,
+    strokeColor,
+    alpha,
+  );
+}
+
+export function projectedRingPath(
+  points: readonly Projected[],
+  horizon: HorizonCircle | null,
+): readonly Pt[] {
+  if (
+    points.length < POLYGON_POLICY.minimumRingPoints ||
+    !points.some((point) => point.z > 0)
+  ) {
+    return [];
+  }
+  if (!horizon || points.every((point) => point.z > 0)) {
+    return points.map((point) => ({ x: point.x, y: point.y }));
+  }
+
   const path: Pt[] = [];
   const count = points.length;
 
@@ -152,8 +208,7 @@ export function drawClippedPoly(
       appendReentryTransition(path, current, next);
     }
   }
-
-  fillStrokePath(ctx, path, fillColor, strokeColor, alpha);
+  return path;
 }
 
 export function splitAntimeridianSegments(
