@@ -33,6 +33,7 @@ import {
 import {
   RenderCursor,
   RenderFocusKind,
+  RenderGlobeCommandKind,
   RenderInputKind,
   RenderInputPhase,
   RenderInteractionKind,
@@ -709,7 +710,7 @@ function usesFlatProjection(): boolean {
 }
 
 function currentIsolateMode(): SelectedIsolateMode {
-  return _presentation?.isolateMode ?? null;
+  return globeStateController.snapshot().isolateMode;
 }
 
 function selectedPresentationItem(): SelectedRenderItem | null {
@@ -724,6 +725,7 @@ function updateSelection(
   identity: RenderSelectionIdentity | null,
 ): boolean {
   if (!selectionController.set(identity)) return false;
+  if (identity === null) updateIsolation(null);
   selectionOverlayStore.clear();
   sceneInterestPublisher.publishSelection(
     selectionController.snapshot(),
@@ -732,13 +734,10 @@ function updateSelection(
   return true;
 }
 
-function postSelectionInteraction(
-  isolateMode: SelectedIsolateMode,
-): void {
+function postSelectionInteraction(): void {
   postInteraction({
     kind: RenderInteractionKind.Selection,
     selection: selectionController.snapshot(),
-    isolateMode,
   });
 }
 
@@ -746,16 +745,15 @@ function commitCanvasSelection(
   identity: RenderSelectionIdentity | null,
 ): void {
   if (!updateSelection(identity)) return;
-  postSelectionInteraction(
-    identity === null ? null : currentIsolateMode(),
-  );
+  postSelectionInteraction();
 }
 
 function restoreSearchSelection(
   state: RenderSearchSelectionState,
 ): void {
   if (!updateSelection(state.identity)) return;
-  postSelectionInteraction(state.isolateMode);
+  updateIsolation(state.isolateMode);
+  postSelectionInteraction();
 }
 
 function reconcileSearchSelection(
@@ -776,7 +774,7 @@ function reconcileSearchSelection(
     currentIsolateMode(),
   );
   if (!hidden || !updateSelection(null)) return;
-  postSelectionInteraction(null);
+  postSelectionInteraction();
 }
 
 function postCursor(cursor: CursorInteraction): void {
@@ -1024,6 +1022,13 @@ function handleGlobeCommand(payload: unknown): void {
     payload: snapshot,
   });
   scheduleRender();
+}
+
+function updateIsolation(mode: SelectedIsolateMode): void {
+  handleGlobeCommand({
+    kind: RenderGlobeCommandKind.SetIsolation,
+    mode,
+  });
 }
 
 function handleSelection(
@@ -1834,8 +1839,8 @@ function drawFrameEdge(
 type ProjectFrameOptions = Readonly<{
   project: ProjFn;
   geometry: SceneGeometry;
-  presentation: RenderPresentationPayload;
   globeState: RenderGlobeStateSnapshot;
+  selection: RenderSelectionIdentity | null;
 }>;
 
 type ProjectedFrame = Readonly<{
@@ -1843,15 +1848,14 @@ type ProjectedFrame = Readonly<{
   aircraftSceneFilter: AircraftSceneFilter;
 }>;
 
-/**
- * Isolation needs the isolated item's semantic type from the selected
- * projection that React already owns.
- */
 function projectFrame(options: ProjectFrameOptions): ProjectedFrame {
-  const p = options.presentation;
   const state = options.globeState;
-  const { isolatedId: isoId, isolateMode: isoMode } = p;
-  const selection = selectionIdentity();
+  const isoMode = state.isolateMode;
+  const isoId =
+    isoMode === null
+      ? null
+      : options.selection?.interactionId ?? null;
+  const selection = options.selection;
   const isolatedType =
     isoId && selection?.interactionId === isoId
       ? selection.pointType
@@ -1988,8 +1992,9 @@ function renderFrame(): void {
   const t = wallTime * 0.003;
   const selection = selectionIdentity();
   const selId = selection?.interactionId ?? null;
-  const isoId = p.isolatedId;
-  const isoMode = p.isolateMode;
+  const isoMode = globeState.isolateMode;
+  const isoId =
+    isoMode === null ? null : selection?.interactionId ?? null;
 
   const selectedItem = selectedPresentationItem();
   const selectedOverlay = selectionOverlayStore.snapshot();
@@ -2027,8 +2032,8 @@ function renderFrame(): void {
   const projected = projectFrame({
     project: projFn,
     geometry,
-    presentation: p,
     globeState,
+    selection,
   });
   const {
     isolatedType,

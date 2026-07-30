@@ -5,6 +5,7 @@ import {
   restoreRenderGlobeStateCommands,
 } from "@/workers/render/globeStateController";
 import {
+  IsolateMode,
   RenderCycloneLayer,
   RenderGlobeCommandKind,
   RenderProjectionMode,
@@ -43,6 +44,7 @@ describe("RenderGlobeStateController", () => {
         showModels: false,
         showWarnings: true,
       },
+      isolateMode: null,
     });
     expect(Object.values(state.layers).every(Boolean)).toBe(true);
   });
@@ -184,6 +186,29 @@ describe("RenderGlobeStateController", () => {
     expect(controller.snapshot().cycloneFilter.hiddenModels).toEqual([]);
   });
 
+  test("owns semantic isolation state", () => {
+    const controller = new RenderGlobeStateController();
+
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetIsolation,
+        mode: IsolateMode.Focus,
+      }),
+    ).toMatchObject({ isolateMode: IsolateMode.Focus });
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetIsolation,
+        mode: IsolateMode.Solo,
+      }),
+    ).toMatchObject({ isolateMode: IsolateMode.Solo });
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetIsolation,
+        mode: null,
+      }),
+    ).toMatchObject({ isolateMode: null });
+  });
+
   test("rejects invalid and unchanged transitions", () => {
     const controller = new RenderGlobeStateController();
 
@@ -239,6 +264,10 @@ describe("RenderGlobeStateController", () => {
     expect(commands).toContainEqual({
       kind: RenderGlobeCommandKind.SetCycloneFilter,
       filter: state.cycloneFilter,
+    });
+    expect(commands).toContainEqual({
+      kind: RenderGlobeCommandKind.SetIsolation,
+      mode: state.isolateMode,
     });
   });
 });

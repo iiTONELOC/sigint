@@ -1,7 +1,6 @@
 import {
   PanelSide,
   RenderRotationSpeedPolicy,
-  type SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
@@ -106,13 +105,6 @@ export function LiveTrafficPane() {
     return () => document.removeEventListener(DomEvent.MouseDown, handler);
   }, [watchMenuOpen]);
 
-  const handleSetIsolateMode = useCallback(
-    (mode: SelectedIsolateMode) => {
-      setIsolateMode(mode);
-    },
-    [setIsolateMode],
-  );
-
   const handleZoomToSelected = useCallback(() => {
     if (selectedCurrent) {
       zoomToThenClear(setZoomToId, selectedCurrent.id);
@@ -193,12 +185,9 @@ export function LiveTrafficPane() {
     <>
       <GlobeVisualization
         onSelect={handleSelect}
-        onIsolateModeChange={handleSetIsolateMode}
         onRawCanvasClick={handleRawCanvasClick}
         onMiddleClick={handleMiddleClick}
         selected={selectedCurrent}
-        isolatedId={isolateMode ? (selectedCurrent?.id ?? null) : null}
-        isolateMode={isolateMode}
         zoomToId={zoomToId}
         revealId={revealId}
         searchText={searchText}
@@ -412,7 +401,7 @@ export function LiveTrafficPane() {
           item={selectedCurrent}
           onClose={handleClose}
           isolateMode={isolateMode}
-          onSetIsolateMode={handleSetIsolateMode}
+          onSetIsolateMode={setIsolateMode}
           onZoomTo={handleZoomToSelected}
           side={panelSide}
           onOpenDossier={requestDossierOpen}

@@ -71,6 +71,7 @@ export enum RenderGlobeCommandKind {
   ToggleCycloneLayer = "toggleCycloneLayer",
   ToggleCycloneModel = "toggleCycloneModel",
   ToggleAllCycloneModels = "toggleAllCycloneModels",
+  SetIsolation = "setIsolation",
 }
 
 export enum RenderCycloneLayer {
@@ -261,6 +262,7 @@ export type RenderGlobeStateSnapshot = Readonly<{
   earthquakeMinimumMagnitude: number;
   fireMinimumConfidence: number;
   cycloneFilter: RenderCycloneFilter;
+  isolateMode: SelectedIsolateMode;
 }>;
 
 export type RenderGlobeCommand =
@@ -315,6 +317,10 @@ export type RenderGlobeCommand =
   | Readonly<{
       kind: RenderGlobeCommandKind.ToggleAllCycloneModels;
       models: readonly string[];
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetIsolation;
+      mode: SelectedIsolateMode;
     }>;
 
 export function renderSelectionIdentitiesEqual(
@@ -508,7 +514,8 @@ export function isRenderGlobeStateSnapshot(
     isRenderAircraftFilter(value.aircraftFilter) &&
     isFiniteFilterValue(value.earthquakeMinimumMagnitude) &&
     isFiniteFilterValue(value.fireMinimumConfidence) &&
-    isRenderCycloneFilter(value.cycloneFilter)
+    isRenderCycloneFilter(value.cycloneFilter) &&
+    isSelectedIsolateMode(value.isolateMode)
   );
 }
 
@@ -554,6 +561,8 @@ export function isRenderGlobeCommand(
       );
     case RenderGlobeCommandKind.ToggleAllCycloneModels:
       return isUniqueNonEmptyStrings(value.models);
+    case RenderGlobeCommandKind.SetIsolation:
+      return isSelectedIsolateMode(value.mode);
     default:
       return false;
   }
@@ -582,8 +591,6 @@ export type RenderViewportPayload = Readonly<{
 }>;
 
 export type RenderPresentationPayload = Readonly<{
-  isolatedId: string | null;
-  isolateMode: SelectedIsolateMode;
   selectedItem: SelectedRenderItem | null;
   prefersReducedMotion: boolean;
 }>;
@@ -630,7 +637,6 @@ export type RenderInteractionPayload =
   | Readonly<{
       kind: RenderInteractionKind.Selection;
       selection: RenderSelectionSnapshot;
-      isolateMode: SelectedIsolateMode;
     }>
   | Readonly<{ kind: RenderInteractionKind.RawCanvasClick }>
   | Readonly<{

@@ -53,8 +53,6 @@ export function usePresentationCommands({
   props,
 }: PresentationCommandOptions): void {
   const {
-    isolatedId,
-    isolateMode,
     searchText,
     selected,
     zoomToId,
@@ -103,18 +101,11 @@ export function usePresentationCommands({
     sendRenderSurfaceCommand(host, {
       type: RenderMessageType.Presentation,
       payload: {
-        isolatedId,
-        isolateMode,
         selectedItem,
         prefersReducedMotion,
       },
     });
-  }, [
-    host,
-    isolatedId,
-    isolateMode,
-    selected,
-  ]);
+  }, [host, selected]);
 
   useFocusCommand({
     host,

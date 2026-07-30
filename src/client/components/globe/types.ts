@@ -1,6 +1,5 @@
 import type {
   PanelSide,
-  SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import type { DataPoint } from "@/features/base/dataPoints";
 
@@ -40,10 +39,7 @@ export type DragState = {
 
 export type GlobeVisualizationProps = {
   readonly selected: DataPoint | null;
-  readonly isolatedId: string | null;
-  readonly isolateMode: SelectedIsolateMode;
   readonly onSelect: (item: DataPoint | null) => void;
-  readonly onIsolateModeChange: (mode: SelectedIsolateMode) => void;
   readonly onRawCanvasClick?: () => void;
   readonly onMiddleClick?: () => void;
   readonly onSelectedSide?: (side: PanelSide) => void;

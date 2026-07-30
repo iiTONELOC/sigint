@@ -7,6 +7,7 @@ import {
   type RenderGlobeCommand,
   type RenderGlobeStateSnapshot,
   type RenderLayerId,
+  type SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import {
   RenderGlobeStateController,
@@ -165,5 +166,12 @@ export function toggleAllRenderCycloneModels(
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.ToggleAllCycloneModels,
     models,
+  });
+}
+
+export function setRenderIsolation(mode: SelectedIsolateMode): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.SetIsolation,
+    mode,
   });
 }

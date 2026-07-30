@@ -1,7 +1,7 @@
 import {
   IsolateMode,
-  type RenderPresentationPayload,
   type RenderSelectionIdentity,
+  type SelectedIsolateMode,
 } from "@/workers/render/protocol";
 import type {
   RenderSourceId,
@@ -10,7 +10,7 @@ import { Domain } from "@shared/domain/identity";
 
 export type SelectionVisibility = Readonly<{
   selection: RenderSelectionIdentity | null;
-  isolateMode: RenderPresentationPayload["isolateMode"];
+  isolateMode: SelectedIsolateMode;
   isolatedId: string | null;
   isolatedType: string | null;
   aircraftEntityIsVisible: (entityId: string) => boolean;

@@ -3,7 +3,6 @@ import {
   RenderCursor,
   RenderInteractionKind,
   type RenderInteractionPayload,
-  isSelectedIsolateMode,
   isRenderSelectionSnapshot,
 } from "@/workers/render/protocol";
 import { isRecord } from "@shared/geo";
@@ -30,10 +29,7 @@ export function isRenderInteraction(
     return isEnumValue(value.cursor, RenderCursor);
   }
   if (value.kind === RenderInteractionKind.Selection) {
-    return (
-      isRenderSelectionSnapshot(value.selection) &&
-      isSelectedIsolateMode(value.isolateMode)
-    );
+    return isRenderSelectionSnapshot(value.selection);
   }
   if (value.kind === RenderInteractionKind.RawCanvasClick) return true;
   if (value.kind === RenderInteractionKind.SelectedSide) {

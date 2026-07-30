@@ -88,6 +88,7 @@ export function createDefaultRenderGlobeState(): RenderGlobeStateSnapshot {
       showWarnings: true,
       hiddenModels: [],
     },
+    isolateMode: null,
   };
 }
 
@@ -130,6 +131,10 @@ export function restoreRenderGlobeStateCommands(
     {
       kind: RenderGlobeCommandKind.SetCycloneFilter,
       filter: copyCycloneFilter(state.cycloneFilter),
+    },
+    {
+      kind: RenderGlobeCommandKind.SetIsolation,
+      mode: state.isolateMode,
     },
   ];
 }
@@ -191,7 +196,8 @@ function renderGlobeStatesEqual(
     left.earthquakeMinimumMagnitude ===
       right.earthquakeMinimumMagnitude &&
     left.fireMinimumConfidence === right.fireMinimumConfidence &&
-    cycloneFiltersEqual(left.cycloneFilter, right.cycloneFilter)
+    cycloneFiltersEqual(left.cycloneFilter, right.cycloneFilter) &&
+    left.isolateMode === right.isolateMode
   );
 }
 
@@ -321,6 +327,11 @@ export class RenderGlobeStateController {
               command.models,
             ),
           },
+        });
+      case RenderGlobeCommandKind.SetIsolation:
+        return this.commit({
+          ...this.state,
+          isolateMode: command.mode,
         });
     }
   }

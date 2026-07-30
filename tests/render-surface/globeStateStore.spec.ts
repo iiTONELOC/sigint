@@ -3,6 +3,7 @@ import {
   RenderGlobeStateStore,
 } from "@/render-surface/globeStateStore";
 import {
+  IsolateMode,
   RenderGlobeCommandKind,
   RenderProjectionMode,
   RenderRotationSpeedPolicy,
@@ -37,6 +38,10 @@ describe("RenderGlobeStateStore", () => {
       kind: RenderGlobeCommandKind.SetRotationEnabled,
       enabled: true,
     });
+    store.dispatch({
+      kind: RenderGlobeCommandKind.SetIsolation,
+      mode: IsolateMode.Focus,
+    });
     const sent: RenderGlobeCommand[] = [];
 
     const disconnect = store.connect((command) => {
@@ -55,6 +60,10 @@ describe("RenderGlobeStateStore", () => {
       kind: RenderGlobeCommandKind.SetLayerVisibility,
       layer: Domain.Ships,
       visible: true,
+    });
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetIsolation,
+      mode: IsolateMode.Focus,
     });
     disconnect();
   });

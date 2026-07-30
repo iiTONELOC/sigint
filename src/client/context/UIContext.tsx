@@ -13,6 +13,8 @@ import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { getColorMap } from "@/config/theme";
 import { useTheme } from "@/context/ThemeContext";
 import {
+  readRenderGlobeState,
+  setRenderIsolation,
   setRenderProjection,
   setRenderRotationEnabled,
   setRenderRotationSpeed,
@@ -83,6 +85,7 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   const flat = globeState.projection === RenderProjectionMode.Flat;
   const autoRotate = globeState.rotationEnabled;
   const rotationSpeed = globeState.rotationSpeed;
+  const isolateMode = globeState.isolateMode;
   const setFlat = useCallback((enabled: boolean) => {
     setRenderProjection(
       enabled
@@ -99,11 +102,18 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   const setRotationSpeed = useCallback((speed: number) => {
     setRenderRotationSpeed(speed);
   }, []);
+  const setIsolateMode = useCallback<
+    React.Dispatch<React.SetStateAction<SelectedIsolateMode>>
+  >((update) => {
+    const current = readRenderGlobeState().isolateMode;
+    const next =
+      typeof update === "function" ? update(current) : update;
+    setRenderIsolation(next);
+  }, []);
   const [chromeHidden, setChromeHidden] = useState(false);
 
   // ── Selection & isolation ───────────────────────────────────────
   const [selected, setSelected] = useState<DataPoint | null>(null);
-  const [isolateMode, setIsolateMode] = useState<SelectedIsolateMode>(null);
 
   // ── Search & zoom ──────────────────────────────────────────────
   const [zoomToId, setZoomToId] = useState<string | null>(null);

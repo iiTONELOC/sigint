@@ -3,7 +3,6 @@ import {
   isRenderInteraction,
 } from "@/render-surface/events";
 import {
-  IsolateMode,
   RenderInteractionKind,
 } from "@/workers/render/protocol";
 import { Domain } from "@shared/domain/identity";
@@ -21,7 +20,6 @@ describe("render surface interactions", () => {
           pointType: Domain.CyclonesForecast,
         },
       },
-      isolateMode: IsolateMode.Focus,
     })).toBe(true);
   });
 
@@ -32,7 +30,6 @@ describe("render surface interactions", () => {
         revision: 2,
         identity: null,
       },
-      isolateMode: null,
     })).toBe(true);
   });
 
@@ -48,7 +45,6 @@ describe("render surface interactions", () => {
           pointType: Domain.CyclonesForecast,
         },
       },
-      isolateMode: null,
     })).toBe(false);
   });
 });
