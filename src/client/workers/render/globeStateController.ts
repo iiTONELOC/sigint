@@ -13,6 +13,7 @@ import type {
 } from "@/workers/data/sourceIds";
 import {
   RENDER_LAYER_IDS,
+  RenderColorKey,
   RenderFilterBoundary,
   RenderGlobeCommandKind,
   RenderProjectionMode,
@@ -25,6 +26,7 @@ import {
   type RenderGlobeCommand,
   type RenderGlobeStateSnapshot,
   type RenderLayerVisibility,
+  type RenderWorkerColors,
 } from "@/workers/render/protocol";
 
 function createDefaultLayerVisibility(): RenderLayerVisibility {
@@ -57,6 +59,12 @@ function copyCycloneFilter(
   };
 }
 
+function copyRenderTheme(
+  theme: RenderWorkerColors,
+): RenderWorkerColors {
+  return { ...theme };
+}
+
 function copyRenderGlobeState(
   state: RenderGlobeStateSnapshot,
 ): RenderGlobeStateSnapshot {
@@ -65,6 +73,9 @@ function copyRenderGlobeState(
     layers: { ...state.layers },
     aircraftFilter: copyAircraftFilter(state.aircraftFilter),
     cycloneFilter: copyCycloneFilter(state.cycloneFilter),
+    renderTheme: state.renderTheme
+      ? copyRenderTheme(state.renderTheme)
+      : null,
   };
 }
 
@@ -89,6 +100,8 @@ export function createDefaultRenderGlobeState(): RenderGlobeStateSnapshot {
       hiddenModels: [],
     },
     isolateMode: null,
+    reducedMotion: false,
+    renderTheme: null,
   };
 }
 
@@ -102,7 +115,7 @@ export function restoreRenderGlobeStateCommands(
       visible: state.layers[layer],
     }),
   );
-  return [
+  const commands: RenderGlobeCommand[] = [
     {
       kind: RenderGlobeCommandKind.SetProjection,
       projection: state.projection,
@@ -136,7 +149,18 @@ export function restoreRenderGlobeStateCommands(
       kind: RenderGlobeCommandKind.SetIsolation,
       mode: state.isolateMode,
     },
+    {
+      kind: RenderGlobeCommandKind.SetReducedMotion,
+      reducedMotion: state.reducedMotion,
+    },
   ];
+  if (state.renderTheme) {
+    commands.push({
+      kind: RenderGlobeCommandKind.SetRenderTheme,
+      theme: copyRenderTheme(state.renderTheme),
+    });
+  }
+  return commands;
 }
 
 function arraysEqual(
@@ -178,6 +202,17 @@ function cycloneFiltersEqual(
   );
 }
 
+function renderThemesEqual(
+  left: RenderWorkerColors | null,
+  right: RenderWorkerColors | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return Object.values(RenderColorKey).every(
+    (key) => left[key] === right[key],
+  );
+}
+
 function renderGlobeStatesEqual(
   left: RenderGlobeStateSnapshot,
   right: RenderGlobeStateSnapshot,
@@ -197,7 +232,9 @@ function renderGlobeStatesEqual(
       right.earthquakeMinimumMagnitude &&
     left.fireMinimumConfidence === right.fireMinimumConfidence &&
     cycloneFiltersEqual(left.cycloneFilter, right.cycloneFilter) &&
-    left.isolateMode === right.isolateMode
+    left.isolateMode === right.isolateMode &&
+    left.reducedMotion === right.reducedMotion &&
+    renderThemesEqual(left.renderTheme, right.renderTheme)
   );
 }
 
@@ -332,6 +369,16 @@ export class RenderGlobeStateController {
         return this.commit({
           ...this.state,
           isolateMode: command.mode,
+        });
+      case RenderGlobeCommandKind.SetReducedMotion:
+        return this.commit({
+          ...this.state,
+          reducedMotion: command.reducedMotion,
+        });
+      case RenderGlobeCommandKind.SetRenderTheme:
+        return this.commit({
+          ...this.state,
+          renderTheme: command.theme,
         });
     }
   }

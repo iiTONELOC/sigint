@@ -5,17 +5,12 @@ import {
   useState,
   useMemo,
   useEffect,
-  useLayoutEffect,
   useRef,
   useCallback,
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { AircraftFilter } from "@/features/tracking/aircraft";
-import {
-  getInitialAircraftFilter,
-  syncAircraftFilterToUrl,
-} from "@/features/tracking/aircraft";
 import { useEarthquakeSourceSnapshot } from "@/features/environmental/earthquake";
 import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
 import { useFireSourceSnapshot } from "@/features/environmental/fires";
@@ -125,30 +120,6 @@ function aircraftFilterToSnapshot(
   };
 }
 
-function setsEqual<T>(
-  left: ReadonlySet<T>,
-  right: ReadonlySet<T>,
-): boolean {
-  return (
-    left.size === right.size &&
-    [...left].every((value) => right.has(value))
-  );
-}
-
-function aircraftFiltersEqual(
-  left: AircraftFilter,
-  right: AircraftFilter,
-): boolean {
-  return (
-    left.enabled === right.enabled &&
-    left.showAirborne === right.showAirborne &&
-    left.showGround === right.showGround &&
-    left.milFilter === right.milFilter &&
-    setsEqual(left.squawks, right.squawks) &&
-    setsEqual(left.countries, right.countries)
-  );
-}
-
 function entryFor(
   id: Domain,
   snapshot: DataWorkerSourceSnapshot | null,
@@ -175,20 +146,6 @@ export function DataProvider({
     () => aircraftFilterFromSnapshot(globeState.aircraftFilter),
     [globeState.aircraftFilter],
   );
-  const initialAircraftFilterRef = useRef<AircraftFilter | null>(null);
-  const initialAircraftFilter =
-    initialAircraftFilterRef.current ?? getInitialAircraftFilter();
-  initialAircraftFilterRef.current = initialAircraftFilter;
-  const aircraftUrlReadyRef = useRef(false);
-  const aircraftSeedSentRef = useRef(false);
-
-  useLayoutEffect(() => {
-    if (aircraftSeedSentRef.current) return;
-    aircraftSeedSentRef.current = true;
-    setRenderAircraftFilter(
-      aircraftFilterToSnapshot(initialAircraftFilter),
-    );
-  }, [initialAircraftFilter]);
 
   const setAircraftFilter = useCallback<
     React.Dispatch<React.SetStateAction<AircraftFilter>>
@@ -317,22 +274,6 @@ export function DataProvider({
     () => Object.values(counts).reduce((sum, count) => sum + count, 0),
     [counts],
   );
-
-  // ── URL sync for aircraft filter ───────────────────────────────
-  useEffect(() => {
-    if (!aircraftUrlReadyRef.current) {
-      if (
-        !aircraftFiltersEqual(
-          aircraftFilter,
-          initialAircraftFilter,
-        )
-      ) {
-        return;
-      }
-      aircraftUrlReadyRef.current = true;
-    }
-    syncAircraftFilterToUrl(aircraftFilter);
-  }, [aircraftFilter, initialAircraftFilter]);
 
   // ── Handlers ───────────────────────────────────────────────────
   const toggleLayer = useCallback((key: string) => {

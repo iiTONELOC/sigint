@@ -19,6 +19,9 @@ import {
   SaffirSimpson,
 } from "@shared/domain/cycloneClassification";
 import { Domain } from "@shared/domain/identity";
+import {
+  createRenderThemeFixture,
+} from "../fixtures/renderTheme";
 
 describe("RenderGlobeStateController", () => {
   test("owns every globe rendering default", () => {
@@ -45,6 +48,8 @@ describe("RenderGlobeStateController", () => {
         showWarnings: true,
       },
       isolateMode: null,
+      reducedMotion: false,
+      renderTheme: null,
     });
     expect(Object.values(state.layers).every(Boolean)).toBe(true);
   });
@@ -209,6 +214,24 @@ describe("RenderGlobeStateController", () => {
     ).toMatchObject({ isolateMode: null });
   });
 
+  test("owns browser-derived motion and render theme state", () => {
+    const controller = new RenderGlobeStateController();
+    const theme = createRenderThemeFixture();
+
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetReducedMotion,
+        reducedMotion: true,
+      }),
+    ).toMatchObject({ reducedMotion: true });
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetRenderTheme,
+        theme,
+      }),
+    ).toMatchObject({ renderTheme: theme });
+  });
+
   test("rejects invalid and unchanged transitions", () => {
     const controller = new RenderGlobeStateController();
 
@@ -228,6 +251,16 @@ describe("RenderGlobeStateController", () => {
       controller.apply({
         kind: RenderGlobeCommandKind.ToggleLayer,
         layer: Domain.Aircraft,
+      }),
+    ).toBeNull();
+    const theme = createRenderThemeFixture();
+    expect(
+      controller.apply({
+        kind: RenderGlobeCommandKind.SetRenderTheme,
+        theme: {
+          ...theme,
+          unexpected: theme.accent,
+        },
       }),
     ).toBeNull();
   });
@@ -268,6 +301,25 @@ describe("RenderGlobeStateController", () => {
     expect(commands).toContainEqual({
       kind: RenderGlobeCommandKind.SetIsolation,
       mode: state.isolateMode,
+    });
+    expect(commands).toContainEqual({
+      kind: RenderGlobeCommandKind.SetReducedMotion,
+      reducedMotion: state.reducedMotion,
+    });
+    expect(commands).not.toContainEqual({
+      kind: RenderGlobeCommandKind.SetRenderTheme,
+      theme: null,
+    });
+
+    const theme = createRenderThemeFixture();
+    expect(
+      restoreRenderGlobeStateCommands({
+        ...state,
+        renderTheme: theme,
+      }),
+    ).toContainEqual({
+      kind: RenderGlobeCommandKind.SetRenderTheme,
+      theme,
     });
   });
 });

@@ -36,7 +36,6 @@ export enum RenderProtocolVersion {
 
 export enum RenderMessageType {
   Init = "init",
-  Colors = "colors",
   Viewport = "viewport",
   Presentation = "presentation",
   GlobeCommand = "globeCommand",
@@ -72,6 +71,8 @@ export enum RenderGlobeCommandKind {
   ToggleCycloneModel = "toggleCycloneModel",
   ToggleAllCycloneModels = "toggleAllCycloneModels",
   SetIsolation = "setIsolation",
+  SetReducedMotion = "setReducedMotion",
+  SetRenderTheme = "setRenderTheme",
 }
 
 export enum RenderCycloneLayer {
@@ -137,28 +138,32 @@ export enum RenderInteractionKind {
 
 export type RenderPoint = DataPoint;
 
-export type RenderWorkerColors = Readonly<{
-  accent: string;
-  aircraft: string;
-  bg: string;
-  bright: string;
-  coast: string;
-  coastFill: string;
-  cycWarning: string;
-  cycWatch: string;
-  cyclones: string;
-  dim: string;
-  events: string;
-  fires: string;
-  grid: string;
-  military: string;
-  ocean: string;
-  oceanDeep: string;
-  quakes: string;
-  recon: string;
-  ships: string;
-  weather: string;
-}>;
+export enum RenderColorKey {
+  Accent = "accent",
+  Aircraft = "aircraft",
+  Background = "bg",
+  Bright = "bright",
+  Coast = "coast",
+  CoastFill = "coastFill",
+  CycloneWarning = "cycWarning",
+  CycloneWatch = "cycWatch",
+  Cyclones = "cyclones",
+  Dim = "dim",
+  Events = "events",
+  Fires = "fires",
+  Grid = "grid",
+  Military = "military",
+  Ocean = "ocean",
+  OceanDeep = "oceanDeep",
+  Quakes = "quakes",
+  Recon = "recon",
+  Ships = "ships",
+  Weather = "weather",
+}
+
+export type RenderWorkerColors = Readonly<
+  Record<RenderColorKey, string>
+>;
 
 export enum AreaKind {
   Watch = "watch",
@@ -263,6 +268,8 @@ export type RenderGlobeStateSnapshot = Readonly<{
   fireMinimumConfidence: number;
   cycloneFilter: RenderCycloneFilter;
   isolateMode: SelectedIsolateMode;
+  reducedMotion: boolean;
+  renderTheme: RenderWorkerColors | null;
 }>;
 
 export type RenderGlobeCommand =
@@ -321,6 +328,14 @@ export type RenderGlobeCommand =
   | Readonly<{
       kind: RenderGlobeCommandKind.SetIsolation;
       mode: SelectedIsolateMode;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetReducedMotion;
+      reducedMotion: boolean;
+    }>
+  | Readonly<{
+      kind: RenderGlobeCommandKind.SetRenderTheme;
+      theme: RenderWorkerColors;
     }>;
 
 export function renderSelectionIdentitiesEqual(
@@ -443,6 +458,21 @@ function isRenderCycloneFilter(
   );
 }
 
+export function isRenderWorkerColors(
+  value: unknown,
+): value is RenderWorkerColors {
+  const keys = Object.values(RenderColorKey);
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every(
+      (key) =>
+        typeof value[key] === "string" &&
+        value[key].trim().length > RenderFilterTextLength.Empty,
+    )
+  );
+}
+
 export function isRenderSelectionIdentity(
   value: unknown,
 ): value is RenderSelectionIdentity {
@@ -515,7 +545,12 @@ export function isRenderGlobeStateSnapshot(
     isFiniteFilterValue(value.earthquakeMinimumMagnitude) &&
     isFiniteFilterValue(value.fireMinimumConfidence) &&
     isRenderCycloneFilter(value.cycloneFilter) &&
-    isSelectedIsolateMode(value.isolateMode)
+    isSelectedIsolateMode(value.isolateMode) &&
+    typeof value.reducedMotion === "boolean" &&
+    (
+      value.renderTheme === null ||
+      isRenderWorkerColors(value.renderTheme)
+    )
   );
 }
 
@@ -563,6 +598,10 @@ export function isRenderGlobeCommand(
       return isUniqueNonEmptyStrings(value.models);
     case RenderGlobeCommandKind.SetIsolation:
       return isSelectedIsolateMode(value.mode);
+    case RenderGlobeCommandKind.SetReducedMotion:
+      return typeof value.reducedMotion === "boolean";
+    case RenderGlobeCommandKind.SetRenderTheme:
+      return isRenderWorkerColors(value.theme);
     default:
       return false;
   }
@@ -592,7 +631,6 @@ export type RenderViewportPayload = Readonly<{
 
 export type RenderPresentationPayload = Readonly<{
   selectedItem: SelectedRenderItem | null;
-  prefersReducedMotion: boolean;
 }>;
 
 export type RenderFocusPayload = Readonly<{
@@ -663,12 +701,6 @@ export type RenderWorkerCommandBody =
       type: RenderMessageType.Init;
       canvas: OffscreenCanvas;
       dataPort?: MessagePort;
-    }>
-  // Points arrive from the DataWorker over the data port. React only still
-  // owns the theme, so that is all it sends about what gets drawn.
-  | Readonly<{
-      type: RenderMessageType.Colors;
-      payload: RenderWorkerColors;
     }>
   | Readonly<{
       type: RenderMessageType.Viewport;

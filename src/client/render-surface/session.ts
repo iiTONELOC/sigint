@@ -1,4 +1,5 @@
 import {
+  RenderGlobeCommandKind,
   RenderInteractionKind,
   RenderMessageType,
   RenderProtocolVersion,
@@ -33,6 +34,15 @@ import {
   RenderGlobeStateStore,
   renderGlobeStateStore,
 } from "@/render-surface/globeStateStore";
+import {
+  createBrowserAircraftFilterUrlAdapter,
+} from "@/render-surface/aircraftFilterUrl";
+import {
+  createBrowserReducedMotionAdapter,
+} from "@/render-surface/reducedMotion";
+import {
+  createBrowserRenderThemeAdapter,
+} from "@/render-surface/renderTheme";
 
 enum DatasetState {
   Ready = "true",
@@ -52,6 +62,11 @@ export type RenderCommandSender = Readonly<{
     body: RenderWorkerCommandBody,
     transfer?: readonly Transferable[],
   ) => void;
+}>;
+
+type RenderSurfaceAdapter = Readonly<{
+  start: () => void;
+  stop: () => void;
 }>;
 
 export type RenderSurfaceSession = Readonly<{
@@ -135,6 +150,7 @@ export function createRenderSurfaceSession(
   let canvas: HTMLCanvasElement | null = null;
   let unsubscribe: (() => void) | null = null;
   let disconnectGlobeState: (() => void) | null = null;
+  let browserAdapters: readonly RenderSurfaceAdapter[] = [];
   const globeState =
     dependencies.globeStateStore ?? renderGlobeStateStore;
 
@@ -198,6 +214,24 @@ export function createRenderSurfaceSession(
           [offscreen],
         );
       }
+
+      browserAdapters = [
+        createBrowserReducedMotionAdapter(
+          (value) => globeState.dispatch({
+            kind: RenderGlobeCommandKind.SetReducedMotion,
+            reducedMotion: value,
+          }),
+        ),
+        createBrowserRenderThemeAdapter(
+          (theme) => globeState.dispatch({
+            kind: RenderGlobeCommandKind.SetRenderTheme,
+            theme,
+          }),
+        ),
+        createBrowserAircraftFilterUrlAdapter(globeState),
+      ];
+      for (const adapter of browserAdapters) adapter.start();
+
       disconnectGlobeState = globeState.connect((command) =>
         send({
           type: RenderMessageType.GlobeCommand,
@@ -227,6 +261,8 @@ export function createRenderSurfaceSession(
     send,
 
     stop(): void {
+      for (const adapter of browserAdapters) adapter.stop();
+      browserAdapters = [];
       viewport?.stop();
       viewport = null;
       disconnectGlobeState?.();

@@ -568,7 +568,6 @@ function drawRoute(
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: Ctx | null = null;
-let _colors: RenderWorkerColors | null = null;
 let _presentation: RenderPresentationPayload | null = null;
 let _viewport: RenderViewportPayload | null = null;
 const _camera = createWorkerCameraState();
@@ -1049,9 +1048,6 @@ function dispatchRenderCommand(msg: RenderWorkerCommand): void {
     case RenderMessageType.Init:
       handleInit(msg);
       return;
-    case RenderMessageType.Colors:
-      _colors = msg.payload;
-      break;
     case RenderMessageType.Viewport:
       handleViewport(msg.payload);
       break;
@@ -1765,16 +1761,17 @@ type FrameInputs = Readonly<{
   canvas: OffscreenCanvas;
   ctx: Ctx;
   colors: RenderWorkerColors;
-  presentation: RenderPresentationPayload;
+  globeState: RenderGlobeStateSnapshot;
   viewport: RenderViewportPayload;
 }>;
 
 /** Everything a frame needs, or null while the worker is still being set up. */
 function frameInputs(): FrameInputs | null {
+  const globeState = globeStateController.snapshot();
   if (
     !canvas ||
     !ctx ||
-    !_colors ||
+    !globeState.renderTheme ||
     !_presentation ||
     !_viewport
   ) {
@@ -1783,8 +1780,8 @@ function frameInputs(): FrameInputs | null {
   return {
     canvas,
     ctx,
-    colors: _colors,
-    presentation: _presentation,
+    colors: globeState.renderTheme,
+    globeState,
     viewport: _viewport,
   };
 }
@@ -1967,9 +1964,14 @@ function renderFrame(): void {
   const inputs = frameInputs();
   if (!inputs) return;
 
-  const { canvas, ctx, presentation: p, colors, viewport } = inputs;
+  const {
+    canvas,
+    ctx,
+    colors,
+    globeState,
+    viewport,
+  } = inputs;
   const { width: W, height: H } = viewport;
-  const globeState = globeStateController.snapshot();
   const isFlat =
     globeState.projection === RenderProjectionMode.Flat;
   const now = performance.now();
@@ -2157,7 +2159,7 @@ function renderFrame(): void {
         color: colorMap[Domain.Cyclones] ?? colors.accent,
         selectedId: selId,
         time: t,
-        reducedMotion: p.prefersReducedMotion,
+        reducedMotion: globeState.reducedMotion,
         showCone: globeState.cycloneFilter.showCone,
       });
     },
@@ -2174,7 +2176,7 @@ function renderFrame(): void {
   postCameraSummary(now);
 
   scheduleNextFrameIfNeeded(
-    p.prefersReducedMotion,
+    globeState.reducedMotion,
     selection !== null,
     cameraActive,
   );

@@ -13,6 +13,9 @@ import {
   createDefaultRenderGlobeState,
 } from "@/workers/render/globeStateController";
 import { Domain } from "@shared/domain/identity";
+import {
+  createRenderThemeFixture,
+} from "../fixtures/renderTheme";
 
 describe("RenderGlobeStateStore", () => {
   test("owns a disconnected seed without React state", () => {
@@ -42,6 +45,15 @@ describe("RenderGlobeStateStore", () => {
       kind: RenderGlobeCommandKind.SetIsolation,
       mode: IsolateMode.Focus,
     });
+    store.dispatch({
+      kind: RenderGlobeCommandKind.SetReducedMotion,
+      reducedMotion: true,
+    });
+    const theme = createRenderThemeFixture();
+    store.dispatch({
+      kind: RenderGlobeCommandKind.SetRenderTheme,
+      theme,
+    });
     const sent: RenderGlobeCommand[] = [];
 
     const disconnect = store.connect((command) => {
@@ -64,6 +76,14 @@ describe("RenderGlobeStateStore", () => {
     expect(sent).toContainEqual({
       kind: RenderGlobeCommandKind.SetIsolation,
       mode: IsolateMode.Focus,
+    });
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetReducedMotion,
+      reducedMotion: true,
+    });
+    expect(sent).toContainEqual({
+      kind: RenderGlobeCommandKind.SetRenderTheme,
+      theme,
     });
     disconnect();
   });

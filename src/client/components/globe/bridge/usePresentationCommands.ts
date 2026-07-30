@@ -95,14 +95,10 @@ export function usePresentationCommands({
           lon: recordLongitude(selected),
         }
       : null;
-    const prefersReducedMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     sendRenderSurfaceCommand(host, {
       type: RenderMessageType.Presentation,
       payload: {
         selectedItem,
-        prefersReducedMotion,
       },
     });
   }, [host, selected]);
