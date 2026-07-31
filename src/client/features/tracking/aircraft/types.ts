@@ -1,3 +1,9 @@
+import type {
+  MilFilter,
+  SquawkBucket,
+  SquawkStatus,
+} from "@shared/domain/aircraft";
+
 export type AircraftHistoryPoint = {
   lat: number;
   lon: number;
@@ -6,9 +12,8 @@ export type AircraftHistoryPoint = {
   timestamp: string;
 };
 
-export type SquawkCode = "7700" | "7600" | "7500" | string;
 export type SquawkLabel = "EMERGENCY" | "RADIO FAILURE" | "HIJACK" | "NORMAL";
-export type SquawkStatus = "normal" | "emergency" | "radio_failure" | "hijack";
+export type { SquawkStatus } from "@shared/domain/aircraft";
 
 export type AircraftData = {
   model?: string;
@@ -77,9 +82,7 @@ export type AircraftFilter = {
   enabled: boolean;
   showAirborne: boolean;
   showGround: boolean;
-  squawks: Set<SquawkCode>;
+  squawks: Set<SquawkBucket>;
   countries: Set<string>;
-  /** "all" = everything, "military" = mil only, "civilian" = civ only,
-   *  "recon" = Hurricane Hunter / reconnaissance aircraft only. */
-  milFilter: "all" | "military" | "civilian" | "recon";
+  milFilter: MilFilter;
 };

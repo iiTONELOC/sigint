@@ -124,6 +124,21 @@ export function isaTempC(altFt: number): number {
   return 15 - 1.98 * (altFt / 1000);
 }
 
+/** Min central pressure, as the dossier and the detail rows show it. */
+export function formatPressureMb(mb: number): string {
+  return `${mb} mb`;
+}
+
+/** A compass bearing in degrees: `290°`. */
+export function formatBearingDeg(deg: number): string {
+  return `${deg}°`;
+}
+
+/** Track error and other nautical distances: `41 nm (76 km)`. */
+export function formatNmKm(nm: number): string {
+  return `${nm} nm (${nmToKm(nm)} km)`;
+}
+
 /** Detail-row style, unit-pref aware: `85 kn (98 mph)` / `85 kn` / `98 mph` /
  *  `157 km/h`. */
 export function formatKtMph(kt: number): string {

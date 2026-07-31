@@ -1,3 +1,6 @@
+import { firstNumber } from "../../shared/types/numbers";
+import { MS_PER_SECOND } from "../../shared/time";
+import { Domain } from "@shared/domain/identity";
 // ── adsb.fi server-side aircraft cache ───────────────────────────────
 // Replaces the inline OpenSky client fetch. The browser never hits
 // opendata.adsb.fi directly — the server runs a tile-based polling
@@ -12,63 +15,40 @@
 //   - No CORS dependency; we proxy a same-origin response that already
 //     went through guardAuth.
 //   - Lets us merge tile responses once and serve the dedup'd result
-//     to N clients without N×37 outbound requests.
+//     to N clients without N times 108 outbound requests.
 //
 // SSRF (OWASP A10): ADSB_BASE_URL is a hardcoded module constant; the
 // only outbound URLs are templated from AIRCRAFT_TILES (also a module
 // constant) and TILE_RADIUS_NM. No client input flows into any fetch.
 //
-// Sweep budget: 37 tiles × 1.1 s = 40.7 s per sweep, well inside the
-// 240 s poll window. The radius (250 nm) was confirmed against the
-// live v3 endpoint during the verification probe (ratio 7.73 over a
-// 100 nm baseline; 500 nm returned 400, server-capped).
+// Sweep budget: 108 tiles with 3 s spacing takes at least 321 s.
+// Sweeps therefore run continuously instead of using an interval.
+// The radius (250 nm) was confirmed against the live v3 endpoint.
 
 import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
 import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
-import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
 import { resolveFixtureOverride, type FixtureOptions, type FixtureOverride } from "../lib/fixtureOverride";
 import { isRecord } from "../../shared/geo";
-import type {
-  SourceCompleteness,
-  SourceError,
-  SourceFreshness,
-  SourcePhase,
-  SourceState,
-} from "../../shared/source";
+import { SourceCompleteness, SourceErrorCode, SourceFreshness, SourcePhase, type SourceError, type SourceState } from "../../shared/source";
 
 const logger = createLogger({ service: "adsbfi" });
 
 export const ADSB_BASE_URL = "https://opendata.adsb.fi/api/v3";
 export const USER_AGENT =
   "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
-// 300 s wake cadence. With 108 tiles × 3 s spacing the full sweep takes
-// ~340 s, which exceeds the wake cadence — that's intentional: streaming
-// writes mean clients see fresh data progressively *during* the sweep,
-// and the sweepInProgress guard skips overlapping kicks rather than
-// launching a parallel sweep that would burn the 1 req/sec/IP budget.
-export const POLL_INTERVAL_MS = 300_000;
-// 3 s spacing — adsb.fi's documented limit is 1 req/sec/IP, but sustained
-// sweeps at 1.1 s and 2 s both produced 429s in production. 200% margin
-// is the level that's held across long-running deploys without hitting
-// the soft ceiling.
-export const RATE_LIMIT_DELAY_MS = 3_000;
-// Default backoff when 429 is returned without a Retry-After header.
-// 30 s is well above the typical aisstream/adsb.fi quiet-down window so
-// we don't immediately re-trip the limiter on retry. One retry per tile,
-// then the tile is skipped for this sweep.
-export const RETRY_DEFAULT_DELAY_MS = 30_000;
 
-type AircraftSourcePolicy = Readonly<{
-  freshMs: number;
-  maxStaleMs: number;
-}>;
+export enum AircraftSourcePolicy {
+  FreshMs = 600_000,
+  MaxStaleMs = 900_000,
+  RateLimitDelayMs = 3_000,
+  RetryDefaultDelayMs = 30_000,
+}
 
-export const AIRCRAFT_SOURCE_POLICY: AircraftSourcePolicy = {
-  freshMs: POLL_INTERVAL_MS * 2,
-  maxStaleMs: 15 * 60_000,
-};
+enum AircraftMessage {
+  SweepFailed = "Aircraft sweep failed",
+}
 
 export {
   AIRCRAFT_TILES,
@@ -111,8 +91,6 @@ export function createSweepState(): SweepState {
   return { current: new Map(), completed: new Map() };
 }
 
-const MS_PER_SECOND = 1_000;
-
 function recordObservedAt(
   record: Readonly<Record<string, unknown>>,
   receivedAt: number,
@@ -121,12 +99,7 @@ function recordObservedAt(
   if (typeof explicit === "number" && Number.isFinite(explicit)) {
     return Math.min(explicit, receivedAt);
   }
-  const positionAge =
-    typeof record.seen_pos === "number"
-      ? record.seen_pos
-      : typeof record.seen === "number"
-        ? record.seen
-        : 0;
+  const positionAge = firstNumber(record.seen_pos, record.seen);
   return receivedAt - Math.max(0, positionAge) * MS_PER_SECOND;
 }
 
@@ -171,7 +144,7 @@ export function finalizeSweep(
   state: SweepState,
   completeness: SourceCompleteness,
 ): void {
-  if (completeness === "complete") {
+  if (completeness === SourceCompleteness.Complete) {
     for (const key of state.completed.keys()) {
       if (!state.current.has(key)) state.completed.delete(key);
     }
@@ -180,8 +153,8 @@ export function finalizeSweep(
 }
 
 const sweepState: SweepState = createSweepState();
-let sourcePhase: SourcePhase = "cold";
-let sourceCompleteness: SourceCompleteness = "unknown";
+let sourcePhase: SourcePhase = SourcePhase.Cold;
+let sourceCompleteness: SourceCompleteness = SourceCompleteness.Unknown;
 let sourceSequence = 0;
 let lastReceivedAt: number | null = null;
 let lastObservedAt: number | null = null;
@@ -189,12 +162,7 @@ let successfulScopes = 0;
 let failedScopes = 0;
 let totalScopes = AIRCRAFT_TILES.length;
 let sourceError: SourceError | null = null;
-
-// Re-entry guard. POLL_INTERVAL_MS (300 s) is shorter than the worst-case
-// sweep duration (~340 s + retries), so without this flag overlapping
-// setInterval kicks would launch parallel sweeps and burn the 1 req/sec
-// budget twice over.
-let sweepInProgress = false;
+let acquisitionController: AbortController | null = null;
 
 // ── Pure helpers (testable) ─────────────────────────────────────────
 
@@ -241,9 +209,15 @@ export function resolveAircraftFixtureOverride(
 // ── Tile fetch ───────────────────────────────────────────────────────
 
 export type SleepFn = (ms: number) => Promise<void>;
+type NowFn = () => number;
 
 const defaultSleep: SleepFn = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+function remainingRequestDelay(startedAt: number, finishedAt: number): number {
+  const elapsedMs = Math.max(0, finishedAt - startedAt);
+  return Math.max(0, AircraftSourcePolicy.RateLimitDelayMs - elapsedMs);
+}
 
 /** Parse an HTTP `Retry-After` header value (integer seconds form only —
  *  RFC 7231 also allows a date form, but adsb.fi always sends seconds).
@@ -254,43 +228,16 @@ export function parseRetryAfter(header: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Fisher-Yates shuffle, returns a fresh array. Used to randomise tile
- *  order each sweep so the same tiles aren't consistently last when the
- *  upstream throttles partway through. */
-export function shuffleTiles<T>(tiles: ReadonlyArray<T>): T[] {
-  const arr = [...tiles];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    // Indices i and j are both in-bounds, so the elements are defined; the
-    // temp swap satisfies noUncheckedIndexedAccess without a non-null assert.
-    const tmp = arr[i] as T;
-    arr[i] = arr[j] as T;
-    arr[j] = tmp;
-  }
-  return arr;
-}
-
-/** Injectable shuffle. Matches `SleepFn` shape — default is the real
- *  Fisher-Yates `shuffleTiles`; tests inject a pure identity shuffle so
- *  ordering assertions become deterministic. */
-export type ShuffleFn = <T>(arr: ReadonlyArray<T>) => T[];
-
-const defaultShuffle: ShuffleFn = shuffleTiles;
-
 /** Build the first-sweep tile order: declared priority entries first
- *  (in their listed order), followed by the remaining tiles shuffled
- *  via the injected `shuffle`. Equality between tuples is structural
- *  on both coordinates — no reference comparison — so a `PRIORITY_TILES`
+ *  in their listed order, followed by the remaining declared tiles.
+ *  Equality between tuples is structural, so a `PRIORITY_TILES`
  *  entry that's a fresh tuple is still recognized in `AIRCRAFT_TILES`.
  *
- *  Pure: no module-state access. Deterministic given an injected
- *  shuffle. The dedup pass tolerates priority entries that don't appear
- *  in `all` (they're emitted regardless) and skips priority duplicates
- *  inside `priority` itself. */
+ *  The dedup pass tolerates priority entries that don't appear in `all`
+ *  and skips priority duplicates inside `priority` itself. */
 export function buildFirstSweepOrder(
   priority: ReadonlyArray<readonly [number, number]>,
   all: ReadonlyArray<readonly [number, number]>,
-  shuffle: ShuffleFn,
 ): Array<readonly [number, number]> {
   const isSame = (
     a: readonly [number, number],
@@ -307,12 +254,11 @@ export function buildFirstSweepOrder(
     if (!head.some((q) => isSame(q, a))) tail.push(a);
   }
 
-  return [...head, ...shuffle(tail)];
+  return [...head, ...tail];
 }
 
 /** Module-level flag flipped after the very first completed sweep
- *  (success OR empty). Subsequent sweeps use the full Fisher-Yates
- *  shuffle. Resettable in tests via `__resetFirstSweepForTests`. */
+ *  (success OR empty). Subsequent sweeps use the declared tile order. */
 let firstSweepDone = false;
 
 /** TEST-ONLY: clear the `firstSweepDone` flag so the next runSweep
@@ -325,8 +271,8 @@ export function __resetFirstSweepForTests(): void {
 export function __resetAircraftCacheForTests(): void {
   sweepState.completed.clear();
   sweepState.current.clear();
-  sourcePhase = "cold";
-  sourceCompleteness = "unknown";
+  sourcePhase = SourcePhase.Cold;
+  sourceCompleteness = SourceCompleteness.Unknown;
   sourceSequence = 0;
   lastReceivedAt = null;
   lastObservedAt = null;
@@ -386,7 +332,7 @@ async function attemptTileFetch(
   } catch (error) {
     const message = errorMessage(error, "fetch error");
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile("network_error", message);
+    return failedTile(SourceErrorCode.NetworkError, message);
   }
 
   if (response.status === 429) {
@@ -397,7 +343,7 @@ async function attemptTileFetch(
       kind: "rate_limited",
       waitMs:
         retryAfterSec === null
-          ? RETRY_DEFAULT_DELAY_MS
+          ? AircraftSourcePolicy.RetryDefaultDelayMs
           : retryAfterSec * MS_PER_SECOND,
     };
   }
@@ -405,7 +351,7 @@ async function attemptTileFetch(
   if (!response.ok) {
     const message = `HTTP ${response.status}`;
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile("http_error", message);
+    return failedTile(SourceErrorCode.HttpError, message);
   }
 
   try {
@@ -413,13 +359,13 @@ async function attemptTileFetch(
     if (!normalized) {
       const message = "Invalid adsb.fi payload";
       logger.warn(`✈️  ${label}: ${message}`);
-      return failedTile("invalid_payload", message);
+      return failedTile(SourceErrorCode.InvalidPayload, message);
     }
     return { kind: "complete", records: normalized.ac };
   } catch (error) {
     const message = errorMessage(error, "Invalid adsb.fi payload");
     logger.warn(`✈️  ${label}: ${message}`);
-    return failedTile("invalid_payload", message);
+    return failedTile(SourceErrorCode.InvalidPayload, message);
   }
 }
 
@@ -444,18 +390,16 @@ export async function fetchTileWithRetry(
 
   const message = `Rate limited twice for tile [${lat},${lon}]`;
   logger.info(`✈️  adsb.fi: ${message}`);
-  return failedTile("rate_limited", message);
+  return failedTile(SourceErrorCode.RateLimited, message);
 }
 
-/** Walk a tile list with RATE_LIMIT_DELAY_MS spacing between tiles
- *  (no trailing sleep). Returns the merged raw aircraft list — caller
- *  is responsible for dedup. Pure-ish: side effects are confined to
- *  the injected fetchFn / sleep, which is what makes the timing and
- *  ordering tests possible without real waits. */
+/** Walk a tile list with rate-limit spacing between tiles.
+ *  The caller owns deduplication of the returned records. */
 export async function sweepTiles(
   tiles: ReadonlyArray<readonly [number, number]>,
   fetchFn: AircraftTileFetch,
   sleep: SleepFn = defaultSleep,
+  now: NowFn = Date.now,
 ): Promise<AircraftSweepResult> {
   const records: unknown[] = [];
   let successfulScopes = 0;
@@ -464,6 +408,7 @@ export async function sweepTiles(
 
   for (let index = 0; index < tiles.length; index++) {
     const [latitude, longitude] = tiles[index] ?? [0, 0];
+    const requestStartedAt = now();
     const result = await fetchFn(latitude, longitude);
     if (result.kind === "complete") {
       successfulScopes++;
@@ -473,7 +418,8 @@ export async function sweepTiles(
       error ??= result.error;
     }
     if (index < tiles.length - 1) {
-      await sleep(RATE_LIMIT_DELAY_MS);
+      const delayMs = remainingRequestDelay(requestStartedAt, now());
+      if (delayMs > 0) await sleep(delayMs);
     }
   }
 
@@ -482,71 +428,117 @@ export async function sweepTiles(
 
 // ── Fetch pipeline ───────────────────────────────────────────────────
 
-async function fetchAircraft(): Promise<void> {
-  if (sweepInProgress) return;
-  sweepInProgress = true;
-  try {
-    await runSweep();
-  } finally {
-    sweepInProgress = false;
-  }
-}
-
 /** Inner sweep — exported for tests so ordering + per-tile behavior
- *  can be exercised without driving the real `setInterval` cadence or
- *  real HTTP. `fetchFn` / `sleep` / `shuffle` default to the real
- *  implementations; tests inject pure stand-ins.
+ *  can be exercised without driving the long-lived acquisition loop or
+ *  real HTTP. Tests inject fetch and sleep stand-ins.
  *
  *  The very first call after process start (or after
- *  `__resetFirstSweepForTests`) walks `PRIORITY_TILES` then the tail in
- *  shuffled order; subsequent calls go straight to a full shuffle. */
+ *  `__resetFirstSweepForTests`) walks `PRIORITY_TILES` then the tail.
+ *  Subsequent calls use the declared tile order. */
 function setFixtureFailure(message: string): void {
-  sourcePhase = sweepState.completed.size > 0 ? "degraded" : "unavailable";
-  sourceCompleteness = "unknown";
+  sourcePhase = sweepState.completed.size > 0 ? SourcePhase.Degraded : SourcePhase.Unavailable;
+  sourceCompleteness = SourceCompleteness.Unknown;
   successfulScopes = 0;
   failedScopes = 1;
   totalScopes = 1;
-  sourceError = { code: "fixture_error", message };
+  sourceError = { code: SourceErrorCode.FixtureError, message };
 }
 
-export async function runSweep(
-  fetchFn: AircraftTileFetch = fetchTileWithRetry,
-  sleep: SleepFn = defaultSleep,
-  shuffle: ShuffleFn = defaultShuffle,
-): Promise<void> {
-  sourcePhase = "loading";
-  sourceCompleteness = "unknown";
+/** Returns true when a fixture override served the sweep. */
+async function runFixtureSweep(): Promise<boolean> {
+  const override = await resolveAircraftFixtureOverride();
+  if (!override) return false;
+
+  const normalized = normalizeAdsbPayload(override.body);
+  if (!normalized) {
+    setFixtureFailure("Fixture has invalid shape");
+    logger.warn("✈️  adsb.fi: fixture override rejected");
+    return true;
+  }
+
+  sweepState.completed = new Map();
+  const receivedAt = Date.now();
+  lastObservedAt = ingestTile(sweepState, normalized.ac, receivedAt);
+  finalizeSweep(sweepState, SourceCompleteness.Complete);
+  sourcePhase = SourcePhase.Ready;
+  sourceCompleteness = SourceCompleteness.Complete;
+  sourceSequence++;
+  lastReceivedAt = receivedAt;
+  successfulScopes = 1;
+  totalScopes = 1;
+  logger.info(
+    `✈️  adsb.fi: fixture active (${normalized.ac.length} aircraft)`,
+  );
+  return true;
+}
+
+function recordTileSuccess(
+  records: readonly unknown[],
+  metadataDb: Awaited<ReturnType<typeof loadMetadataDb>>,
+  observedSoFar: number | null,
+): number | null {
+  const receivedAt = Date.now();
+  const enriched = records.map((record) => enrichRecord(record, metadataDb));
+  const observedAt = ingestTile(sweepState, enriched, receivedAt);
+  successfulScopes++;
+  sourceSequence++;
+  lastReceivedAt = receivedAt;
+  sourceCompleteness = SourceCompleteness.Partial;
+  if (observedAt === null) return observedSoFar;
+  return Math.max(observedSoFar ?? observedAt, observedAt);
+}
+
+function recordTileFailure(error: SourceError): void {
+  failedScopes++;
+  sourceError ??= error;
+  sourceCompleteness =
+    successfulScopes > 0
+      ? SourceCompleteness.Partial
+      : SourceCompleteness.Unknown;
+}
+
+function settleSweep(sweepObservedAt: number | null): void {
+  if (failedScopes === 0) {
+    sourceCompleteness = SourceCompleteness.Complete;
+    sourcePhase = SourcePhase.Ready;
+    sourceError = null;
+    lastObservedAt = sweepObservedAt;
+    return;
+  }
+  if (successfulScopes > 0) {
+    sourceCompleteness = SourceCompleteness.Partial;
+    sourcePhase = SourcePhase.Degraded;
+    if (sweepObservedAt !== null) {
+      lastObservedAt = Math.max(
+        lastObservedAt ?? sweepObservedAt,
+        sweepObservedAt,
+      );
+    }
+    return;
+  }
+  sourceCompleteness = SourceCompleteness.Unknown;
+  sourcePhase = SourcePhase.Unavailable;
+}
+
+function beginSweep(): void {
+  sourcePhase = SourcePhase.Loading;
+  sourceCompleteness = SourceCompleteness.Unknown;
   successfulScopes = 0;
   failedScopes = 0;
   totalScopes = AIRCRAFT_TILES.length;
   sourceError = null;
   sweepState.current = new Map();
+}
+
+export async function runSweep(
+  fetchFn: AircraftTileFetch = fetchTileWithRetry,
+  sleep: SleepFn = defaultSleep,
+  now: NowFn = Date.now,
+): Promise<void> {
+  beginSweep();
 
   try {
-    const override = await resolveAircraftFixtureOverride();
-    if (override) {
-      const normalized = normalizeAdsbPayload(override.body);
-      if (!normalized) {
-        setFixtureFailure("Fixture has invalid shape");
-        logger.warn("✈️  adsb.fi: fixture override rejected");
-        return;
-      }
-
-      sweepState.completed = new Map();
-      const receivedAt = Date.now();
-      lastObservedAt = ingestTile(sweepState, normalized.ac, receivedAt);
-      finalizeSweep(sweepState, "complete");
-      sourcePhase = "ready";
-      sourceCompleteness = "complete";
-      sourceSequence++;
-      lastReceivedAt = receivedAt;
-      successfulScopes = 1;
-      totalScopes = 1;
-      logger.info(
-        `✈️  adsb.fi: fixture active (${normalized.ac.length} aircraft)`,
-      );
-      return;
-    }
+    if (await runFixtureSweep()) return;
   } catch (error) {
     setFixtureFailure(errorMessage(error, "Fixture override error"));
     logger.warn("✈️  adsb.fi: fixture override error");
@@ -555,58 +547,35 @@ export async function runSweep(
 
   const metadataDb = await loadMetadataDb();
   const ordered = firstSweepDone
-    ? shuffle(AIRCRAFT_TILES)
-    : buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES, shuffle);
+    ? AIRCRAFT_TILES
+    : buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
   totalScopes = ordered.length;
   let sweepObservedAt: number | null = null;
 
   for (let index = 0; index < ordered.length; index++) {
     const [latitude, longitude] = ordered[index] ?? [0, 0];
+    const requestStartedAt = now();
     const result = await fetchFn(latitude, longitude);
     if (result.kind === "complete") {
-      const receivedAt = Date.now();
-      const enriched = result.records.map((record) =>
-        enrichRecord(record, metadataDb),
+      sweepObservedAt = recordTileSuccess(
+        result.records,
+        metadataDb,
+        sweepObservedAt,
       );
-      const observedAt = ingestTile(sweepState, enriched, receivedAt);
-      sweepObservedAt =
-        observedAt === null
-          ? sweepObservedAt
-          : Math.max(sweepObservedAt ?? observedAt, observedAt);
-      successfulScopes++;
-      sourceSequence++;
-      lastReceivedAt = receivedAt;
-      sourceCompleteness = "partial";
     } else {
-      failedScopes++;
-      sourceError ??= result.error;
-      sourceCompleteness =
-        successfulScopes > 0 ? "partial" : "unknown";
+      recordTileFailure(result.error);
     }
-    sourcePhase = failedScopes > 0 ? "degraded" : "loading";
+    sourcePhase =
+      failedScopes > 0 ? SourcePhase.Degraded : SourcePhase.Loading;
 
     if (index < ordered.length - 1) {
-      await sleep(RATE_LIMIT_DELAY_MS);
+      const delayMs = remainingRequestDelay(requestStartedAt, now());
+      if (delayMs > 0) await sleep(delayMs);
     }
   }
 
   firstSweepDone = true;
-
-  if (failedScopes === 0) {
-    sourceCompleteness = "complete";
-    sourcePhase = "ready";
-    sourceError = null;
-    lastObservedAt = sweepObservedAt;
-  } else if (successfulScopes > 0) {
-    sourceCompleteness = "partial";
-    sourcePhase = "degraded";
-    if (sweepObservedAt !== null) {
-      lastObservedAt = Math.max(lastObservedAt ?? sweepObservedAt, sweepObservedAt);
-    }
-  } else {
-    sourceCompleteness = "unknown";
-    sourcePhase = "unavailable";
-  }
+  settleSweep(sweepObservedAt);
 
   finalizeSweep(sweepState, sourceCompleteness);
   logger.info(
@@ -616,34 +585,65 @@ export async function runSweep(
 
 // ── Public API ───────────────────────────────────────────────────────
 
-const poller = createPoller(fetchAircraft, POLL_INTERVAL_MS);
+export type AircraftSweepFn = () => Promise<void>;
+
+export async function runAircraftAcquisition(
+  signal: AbortSignal,
+  sweep: AircraftSweepFn = runSweep,
+  sleep: SleepFn = defaultSleep,
+): Promise<void> {
+  while (!signal.aborted) {
+    try {
+      await sweep();
+    } catch (error) {
+      logger.error(
+        `✈️  adsb.fi: aircraft sweep failed: ${errorMessage(
+          error,
+          AircraftMessage.SweepFailed,
+        )}`,
+      );
+    }
+    if (!signal.aborted) {
+      await sleep(AircraftSourcePolicy.RateLimitDelayMs);
+    }
+  }
+}
 
 export function startAircraftPolling(opts?: FixtureOptions): void {
+  if (acquisitionController !== null) return;
   if (opts) aircraftFixtureOptions = opts;
   logger.info("✈️  adsb.fi: starting aircraft poll...");
-  poller.start();
+  const controller = new AbortController();
+  acquisitionController = controller;
+  void runAircraftAcquisition(controller.signal).finally(() => {
+    if (acquisitionController === controller) {
+      acquisitionController = null;
+    }
+  });
 }
 
 export function stopAircraftPolling(): void {
-  poller.stop();
+  acquisitionController?.abort();
 }
 
 function getSourceFreshness(now: number): SourceFreshness {
-  if (lastReceivedAt === null) return "expired";
+  if (lastReceivedAt === null) return SourceFreshness.Expired;
   const age = Math.max(0, now - lastReceivedAt);
-  if (age <= AIRCRAFT_SOURCE_POLICY.freshMs) return "fresh";
-  return age <= AIRCRAFT_SOURCE_POLICY.maxStaleMs ? "stale" : "expired";
+  if (age <= AircraftSourcePolicy.FreshMs) return SourceFreshness.Fresh;
+  return age <= AircraftSourcePolicy.MaxStaleMs
+    ? SourceFreshness.Stale
+    : SourceFreshness.Expired;
 }
 
 function buildAircraftSourceState(now: number): SourceState {
   const freshness = getSourceFreshness(now);
   const phase =
-    freshness === "expired" &&
-    (sourcePhase === "ready" || sourcePhase === "degraded")
-      ? "unavailable"
+    freshness === SourceFreshness.Expired &&
+    (sourcePhase === SourcePhase.Ready || sourcePhase === SourcePhase.Degraded)
+      ? SourcePhase.Unavailable
       : sourcePhase;
   return {
-    source: "aircraft",
+    source: Domain.Aircraft,
     phase,
     freshness,
     completeness: sourceCompleteness,
@@ -653,7 +653,7 @@ function buildAircraftSourceState(now: number): SourceState {
     expiresAt:
       lastReceivedAt === null
         ? null
-        : lastReceivedAt + AIRCRAFT_SOURCE_POLICY.maxStaleMs,
+        : lastReceivedAt + AircraftSourcePolicy.MaxStaleMs,
     successfulScopes,
     failedScopes,
     totalScopes,
@@ -663,7 +663,7 @@ function buildAircraftSourceState(now: number): SourceState {
 
 export function getAircraftCache(now = Date.now()): AircraftCache {
   const hasSnapshot =
-    sweepState.completed.size > 0 || sourceCompleteness !== "unknown";
+    sweepState.completed.size > 0 || sourceCompleteness !== SourceCompleteness.Unknown;
   return {
     body: hasSnapshot
       ? { ac: Array.from(sweepState.completed.values()) }

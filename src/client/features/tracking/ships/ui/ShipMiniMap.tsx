@@ -6,9 +6,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { getLand, enrichLand } from "@/lib/geo/landService";
-import { projGlobe } from "@/components/globe/projection";
-import { drawLand } from "@/components/globe/landRenderer";
-import { drawGrid } from "@/components/globe/gridRenderer";
+import { projectGeographicPoint as projGlobe } from "@/lib/geo/unitSphere";
+import { drawLand } from "@/lib/geo/render/land";
+import { drawGrid } from "@/lib/geo/render/grid";
 
 const PAD = 8;
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -92,7 +92,11 @@ export function ShipMiniMap({
       ctx.clip();
 
       drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
-      drawLand(ctx, proj, colors, false, cx, cy, r);
+      drawLand(ctx, proj, {
+        colors,
+        isFlat: false,
+        horizon: { gcx: cx, gcy: cy, gr: r },
+      });
 
       ctx.lineCap = "round";
       ctx.lineJoin = "round";

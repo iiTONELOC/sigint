@@ -6,7 +6,8 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { cacheGet, cacheSet } from "@/lib/cache/storageService";
 import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import type { CountryWindow, RegionBaseline } from "./types";
-import { BASELINE_BUCKETS, HOUR, getCountry, getTs } from "./shared";
+import { BASELINE_BUCKETS, getCountry, getTs } from "./shared";
+import { MS_PER_HOUR } from "@shared/time";
 
 const BASELINE_KEY = CACHE_KEYS.intelBaseline;
 
@@ -36,7 +37,7 @@ export function persistBaseline(baseline: RegionBaseline): void {
 }
 
 function getBucketIndex(ts: number, bucketStart: number): number {
-  return Math.floor((ts - bucketStart) / HOUR);
+  return Math.floor((ts - bucketStart) / MS_PER_HOUR);
 }
 
 export function ensureCountryWindow(
@@ -48,25 +49,25 @@ export function ensureCountryWindow(
   if (!win) {
     win = {
       buckets: new Array(BASELINE_BUCKETS).fill(0),
-      bucketStart: now - BASELINE_BUCKETS * HOUR,
+      bucketStart: now - BASELINE_BUCKETS * MS_PER_HOUR,
       total: 0,
     };
     baseline.countries[country] = win;
   }
 
   const age = now - win.bucketStart;
-  const shift = Math.floor(age / HOUR) - BASELINE_BUCKETS;
+  const shift = Math.floor(age / MS_PER_HOUR) - BASELINE_BUCKETS;
   if (shift > 0) {
     if (shift >= BASELINE_BUCKETS) {
       win.buckets = new Array(BASELINE_BUCKETS).fill(0);
-      win.bucketStart = now - BASELINE_BUCKETS * HOUR;
+      win.bucketStart = now - BASELINE_BUCKETS * MS_PER_HOUR;
       win.total = 0;
     } else {
       const removed = win.buckets.splice(0, shift);
       const removedSum = removed.reduce((a, b) => a + b, 0);
       win.total -= removedSum;
       for (let i = 0; i < shift; i++) win.buckets.push(0);
-      win.bucketStart += shift * HOUR;
+      win.bucketStart += shift * MS_PER_HOUR;
     }
   }
 

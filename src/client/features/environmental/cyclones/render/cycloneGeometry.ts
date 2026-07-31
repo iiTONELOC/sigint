@@ -7,9 +7,12 @@
 // projGlobe and the mini-map's local projection alike. No canvas calls here —
 // these return point arrays the caller strokes/fills.
 
+import type { ProjFn } from "@/lib/geo/render/types";
+
+export type { Projected } from "@/lib/geo/render/types";
+export type { ProjFn };
+
 export type Ctx = OffscreenCanvasRenderingContext2D;
-export type Projected = { x: number; y: number; z: number };
-export type ProjFn = (lat: number, lon: number) => Projected;
 export type LatLon = { lat: number; lon: number };
 
 export const NM_PER_DEG = 60;
@@ -26,7 +29,7 @@ export function windRadiiBandColor(thresholdKt: number): string {
   return WIND_RADII_BANDS.find((b) => b.kt === thresholdKt)?.color ?? "#4ad2ff";
 }
 
-// Quadrant centre bearings (compass deg, 0=N clockwise): NE, SE, SW, NW.
+// Quadrant center bearings (compass deg, 0=N clockwise): NE, SE, SW, NW.
 const WR_QUAD_CENTER = [45, 135, 225, 315];
 const WR_STEPS = 64;
 

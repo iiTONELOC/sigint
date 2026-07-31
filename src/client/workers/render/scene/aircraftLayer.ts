@@ -1,0 +1,381 @@
+import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
+import type { RenderAircraftFilter } from "@/workers/render/protocol";
+import {
+  AircraftSceneAttribute,
+  AircraftSceneFlag,
+  AircraftSceneSchema,
+  AircraftSceneSquawk,
+  AircraftSceneStringAttribute,
+} from "@/workers/render/scene/aircraftSchema";
+import type { RenderSceneView } from "@/workers/render/sceneStore";
+import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
+import {
+  RenderLayerOrder,
+  ScenePointLayer,
+} from "@/workers/render/scene/sceneLayer";
+import {
+  sceneRecordIsVisible,
+  type SceneVisibilitySettings,
+} from "@/workers/render/scene/visibility";
+import {
+  MovingScenePositionAccessor,
+} from "@/workers/render/scene/movingScenePosition";
+import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
+import {
+  TRAIL_POLICY,
+} from "@/lib/geo/trails/trailStore";
+import { Domain } from "@shared/domain/identity";
+import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
+import { TurnDeg } from "@shared/geo";
+
+enum AircraftMarkerSize {
+  Maximum = 4,
+  ZoomGain = 0.5,
+  MilitaryMaximum = 5,
+  SpecialScale = 1.2,
+  ReconMinimum = 2.2,
+  SelectedScale = 2,
+}
+
+enum AircraftMarkerAlpha {
+  Maximum = 0.8,
+  Base = 0.2,
+  ZoomDivisor = 5,
+  ZoomGain = 0.6,
+  MilitaryMaximum = 0.9,
+  MilitaryGain = 0.15,
+  ReconMinimum = 0.75,
+  ReconGain = 0.1,
+}
+
+enum AircraftMarkerGeometry {
+  TipScale = 1.6,
+  WingAngleRadians = 2.4,
+}
+
+enum AircraftAlertColor {
+  Emergency = "#ff3333",
+  RadioFailure = "#ff8800",
+  Hijack = "#cc44ff",
+}
+
+export type AircraftSceneFilter = SceneVisibilitySettings &
+  Readonly<{ filter: RenderAircraftFilter }>;
+
+export type AircraftSceneStyle = Readonly<{
+  context: Ctx;
+  baseColor: string;
+  militaryColor: string;
+  reconColor: string;
+  selectedId: string | null;
+  time: number;
+  zoomLevel: number;
+}>;
+
+function numericAttribute(
+  view: RenderSceneView,
+  index: number,
+  offset: number,
+): number {
+  return view.attributes[index * view.attributeStride + offset] ?? 0;
+}
+
+function flagsAt(view: RenderSceneView, index: number): number {
+  return numericAttribute(
+    view,
+    index,
+    AircraftSceneAttribute.Flags,
+  );
+}
+
+function hasFlag(flags: number, flag: number): boolean {
+  return (flags & flag) === flag;
+}
+
+function countryAt(view: RenderSceneView, index: number): string {
+  const offset =
+    index * view.stringAttributeStride +
+    AircraftSceneStringAttribute.Country;
+  const dictionaryIndex = view.stringAttributes[offset] ?? 0;
+  if (dictionaryIndex === 0) return "";
+  return view.dictionary[dictionaryIndex - 1] ?? "";
+}
+
+function squawkBucketAt(
+  view: RenderSceneView,
+  index: number,
+): SquawkBucket {
+  const code = numericAttribute(
+    view,
+    index,
+    AircraftSceneAttribute.Squawk,
+  );
+  if (code === AircraftSceneSquawk.Emergency) {
+    return SquawkBucket.Emergency;
+  }
+  if (code === AircraftSceneSquawk.RadioFailure) {
+    return SquawkBucket.RadioFailure;
+  }
+  if (code === AircraftSceneSquawk.Hijack) {
+    return SquawkBucket.Hijack;
+  }
+  return SquawkBucket.Other;
+}
+
+function hasCompatibleSchema(view: RenderSceneView): boolean {
+  return (
+    view.attributeStride === AircraftSceneSchema.AttributeStride &&
+    view.stringAttributeStride ===
+      AircraftSceneSchema.StringAttributeStride
+  );
+}
+
+export function aircraftSceneIncludes(
+  view: RenderSceneView,
+  index: number,
+  settings: AircraftSceneFilter,
+): boolean {
+  if (
+    !hasCompatibleSchema(view) ||
+    !sceneRecordIsVisible(
+      view,
+      index,
+      Domain.Aircraft,
+      settings.filter.enabled,
+      settings,
+    )
+  ) {
+    return false;
+  }
+
+  const flags = flagsAt(view, index);
+  const onGround = hasFlag(flags, AircraftSceneFlag.OnGround);
+  const military = hasFlag(
+    flags,
+    AircraftSceneFlag.Military,
+  );
+  const recon = hasFlag(flags, AircraftSceneFlag.Recon);
+
+  if (!settings.filter.showAirborne && !onGround) return false;
+  if (!settings.filter.showGround && onGround) return false;
+  if (
+    settings.filter.milFilter === MilFilter.Military &&
+    !military
+  ) {
+    return false;
+  }
+  if (
+    settings.filter.milFilter === MilFilter.Civilian &&
+    military
+  ) {
+    return false;
+  }
+  if (settings.filter.milFilter === MilFilter.Recon && !recon) {
+    return false;
+  }
+  if (
+    settings.filter.squawks.length > 0 &&
+    !settings.filter.squawks.includes(
+      squawkBucketAt(view, index),
+    )
+  ) {
+    return false;
+  }
+  return (
+    settings.filter.countries.length === 0 ||
+    settings.filter.countries.includes(countryAt(view, index))
+  );
+}
+
+function markerColor(
+  flags: number,
+  squawk: number,
+  style: AircraftSceneStyle,
+): string {
+  if (squawk === AircraftSceneSquawk.Emergency) {
+    return AircraftAlertColor.Emergency;
+  }
+  if (squawk === AircraftSceneSquawk.RadioFailure) {
+    return AircraftAlertColor.RadioFailure;
+  }
+  if (squawk === AircraftSceneSquawk.Hijack) {
+    return AircraftAlertColor.Hijack;
+  }
+  if (hasFlag(flags, AircraftSceneFlag.Recon)) {
+    return style.reconColor;
+  }
+  if (hasFlag(flags, AircraftSceneFlag.Military)) {
+    return style.militaryColor;
+  }
+  return style.baseColor;
+}
+
+function markerSize(
+  flags: number,
+  selected: boolean,
+  zoomLevel: number,
+): number {
+  const military = hasFlag(
+    flags,
+    AircraftSceneFlag.Military,
+  );
+  const recon = hasFlag(flags, AircraftSceneFlag.Recon);
+  let size = Math.min(
+    AircraftMarkerSize.Maximum,
+    1 + Math.max(0, (zoomLevel - 1) * AircraftMarkerSize.ZoomGain),
+  );
+  if (military) {
+    size = Math.min(
+      AircraftMarkerSize.MilitaryMaximum,
+      size * AircraftMarkerSize.SpecialScale,
+    );
+  }
+  if (recon) {
+    size =
+      Math.max(size, AircraftMarkerSize.ReconMinimum) *
+      AircraftMarkerSize.SpecialScale;
+  }
+  return selected ? size * AircraftMarkerSize.SelectedScale : size;
+}
+
+function markerAlpha(flags: number, zoomLevel: number): number {
+  const military = hasFlag(
+    flags,
+    AircraftSceneFlag.Military,
+  );
+  const recon = hasFlag(flags, AircraftSceneFlag.Recon);
+  let alpha = Math.min(
+    AircraftMarkerAlpha.Maximum,
+    AircraftMarkerAlpha.Base +
+      Math.max(
+        0,
+        (zoomLevel - 1) / AircraftMarkerAlpha.ZoomDivisor,
+      ) *
+        AircraftMarkerAlpha.ZoomGain,
+  );
+  if (military) {
+    alpha = Math.min(
+      AircraftMarkerAlpha.MilitaryMaximum,
+      alpha + AircraftMarkerAlpha.MilitaryGain,
+    );
+  }
+  if (recon) {
+    alpha = Math.min(
+      1,
+      Math.max(alpha, AircraftMarkerAlpha.ReconMinimum) +
+        AircraftMarkerAlpha.ReconGain,
+    );
+  }
+  return alpha;
+}
+
+function drawMarker(
+  view: RenderSceneView,
+  projection: SceneProjection | null,
+  index: number,
+  style: AircraftSceneStyle,
+): void {
+  if (!projection) return;
+  const entityId = view.entityIds[index];
+  if (!entityId) return;
+
+  const attributeOffset = index * view.attributeStride;
+  const heading =
+    view.attributes[
+      attributeOffset + AircraftSceneAttribute.Heading
+    ] ?? 0;
+  const flags =
+    view.attributes[
+      attributeOffset + AircraftSceneAttribute.Flags
+    ] ?? 0;
+  const squawk =
+    view.attributes[
+      attributeOffset + AircraftSceneAttribute.Squawk
+    ] ?? 0;
+  const selected = entityId === style.selectedId;
+  const size = markerSize(flags, selected, style.zoomLevel);
+  const color = markerColor(flags, squawk, style);
+  const emergency = squawk !== AircraftSceneSquawk.Normal;
+  const angle = (heading * Math.PI) / TurnDeg.Half;
+  const context = style.context;
+
+  context.globalAlpha = emergency
+    ? projection.depth
+    : projection.depth * markerAlpha(flags, style.zoomLevel);
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(
+    projection.x +
+      Math.sin(angle) * size * AircraftMarkerGeometry.TipScale,
+    projection.y -
+      Math.cos(angle) * size * AircraftMarkerGeometry.TipScale,
+  );
+  context.lineTo(
+    projection.x +
+      Math.sin(angle + AircraftMarkerGeometry.WingAngleRadians) *
+        size,
+    projection.y -
+      Math.cos(angle + AircraftMarkerGeometry.WingAngleRadians) *
+        size,
+  );
+  context.lineTo(
+    projection.x +
+      Math.sin(angle - AircraftMarkerGeometry.WingAngleRadians) *
+        size,
+    projection.y -
+      Math.cos(angle - AircraftMarkerGeometry.WingAngleRadians) *
+        size,
+  );
+  context.closePath();
+  context.fill();
+  if (selected) {
+    drawSelectionRing(
+      context,
+      projection.x,
+      projection.y,
+      size,
+      color,
+      style.time,
+    );
+  }
+}
+
+export class AircraftLayer extends ScenePointLayer<
+  AircraftSceneFilter,
+  AircraftSceneStyle
+> {
+  readonly order = RenderLayerOrder.Aircraft;
+
+  constructor() {
+    super(
+      Domain.Aircraft,
+      new MovingScenePositionAccessor({
+        attributeOffset: AircraftSceneSchema.MotionAttributeOffset,
+        attributeStride: AircraftSceneSchema.AttributeStride,
+        maximumAgeMs:
+          TRAIL_POLICY[Domain.Aircraft].maxExtrapolationMs,
+      }),
+    );
+  }
+
+  protected includes(
+    view: RenderSceneView,
+    index: number,
+    filter: AircraftSceneFilter,
+  ): boolean {
+    return aircraftSceneIncludes(view, index, filter);
+  }
+
+  protected drawRecord(
+    view: RenderSceneView,
+    index: number,
+    style: AircraftSceneStyle,
+  ): void {
+    drawMarker(
+      view,
+      this.projection.projection(index),
+      index,
+      style,
+    );
+  }
+}

@@ -6,8 +6,51 @@ import { useTheme } from "@/context/ThemeContext";
 import { getColorMap } from "@/config/theme";
 import { featureRegistry } from "@/features/registry";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { useSourceSearch } from "@/features/base/useSourceSearch";
+import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
+import { Domain } from "@shared/domain/identity";
+import { DomEvent } from "@/lib/runtime/domEvent";
+import {
+  scorePointSearchMatch,
+} from "@/workers/data/uiQuery";
 
 // ── Search engine ────────────────────────────────────────────────────
+
+enum SearchScoreBoundary {
+  Match = 0,
+}
+
+enum SearchIconSize {
+  Result = 12,
+  Control = 13,
+}
+
+enum SearchIconStroke {
+  Standard = 2.5,
+}
+
+enum SearchDropdownLayout {
+  Gap = 4,
+  MobileInset = 8,
+  MinimumWidth = 260,
+  MaximumWidth = 360,
+  ViewportRatio = 0.9,
+}
+
+enum SearchColorSuffix {
+  Faint = "10",
+}
+
+enum SearchLabel {
+  Unknown = "Unknown",
+  Separator = " · ",
+}
+
+enum SearchClassName {
+  ResultButton = "w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30",
+  ActiveResult = "bg-sig-accent/10",
+  InactiveResult = "bg-transparent",
+}
 
 type SearchResult = {
   item: DataPoint;
@@ -19,72 +62,51 @@ type SearchResult = {
 function getPrimaryLabel(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
   switch (item.type) {
-    case "aircraft":
+    case Domain.Aircraft:
       return (d.callsign as string) || (d.icao24 as string) || item.id;
-    case "ships":
+    case Domain.Ships:
       return (d.name as string) || item.id;
-    case "events":
+    case Domain.Events:
       return (d.headline as string) || item.id;
-    case "quakes":
+    case Domain.Quakes:
       return (d.location as string) || item.id;
     default:
-      return item?.id || "Unknown";
+      return item.id || SearchLabel.Unknown;
   }
 }
 
 function getSecondaryLabel(item: DataPoint): string {
   const d = item.data as Record<string, unknown>;
   switch (item.type) {
-    case "aircraft": {
+    case Domain.Aircraft: {
       const parts: string[] = [];
-      if (d.acType && d.acType !== "Unknown") parts.push(d.acType as string);
+      if (d.acType && d.acType !== SearchLabel.Unknown) {
+        parts.push(d.acType as string);
+      }
       if (d.originCountry) parts.push(d.originCountry as string);
       if (d.operator) parts.push(d.operator as string);
-      return parts.join(" · ") || "Unknown";
+      return parts.join(SearchLabel.Separator) || SearchLabel.Unknown;
     }
-    case "ships":
-      return [d.vesselType, d.flag].filter(Boolean).join(" · ") || "";
-    case "events":
-      return [d.category, d.source].filter(Boolean).join(" · ") || "";
-    case "quakes":
-      return d.magnitude != null ? `M${d.magnitude}` : "";
+    case Domain.Ships:
+      return [d.vesselType, d.flag]
+        .filter(Boolean)
+        .join(SearchLabel.Separator);
+    case Domain.Events:
+      return [d.category, d.source]
+        .filter(Boolean)
+        .join(SearchLabel.Separator);
+    case Domain.Quakes:
+      return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
     default:
       return "";
   }
 }
 
-function scoreMatch(
+function rankMatches(
   query: string,
-  searchText: string,
-  primary: string,
-): number {
-  const q = query.toLowerCase();
-  const words = q.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 0;
-  const st = searchText.toLowerCase();
-  const pl = primary.toLowerCase();
-  for (const w of words) {
-    if (!st.includes(w)) return 0;
-  }
-  let score = 1;
-  if (pl === q) return 100;
-  if (pl.startsWith(q)) score += 50;
-  for (const w of words) {
-    if (pl === w) score += 30;
-    else if (pl.startsWith(w)) score += 15;
-  }
-  for (const w of words) {
-    const idx = st.indexOf(w);
-    if (idx >= 0) score += Math.max(0, 10 - idx * 0.5);
-  }
-  return score;
-}
-
-function searchData(
-  query: string,
-  data: DataPoint[],
-): { allMatches: SearchResult[]; topResults: SearchResult[] } {
-  if (!query.trim()) return { allMatches: [], topResults: [] };
+  data: readonly DataPoint[],
+): SearchResult[] {
+  if (!query.trim()) return [];
   const allMatches: SearchResult[] = [];
   for (const item of data) {
     const feature = featureRegistry.get(item.type);
@@ -92,8 +114,8 @@ function searchData(
     const searchText = feature.getSearchText(item.data as never);
     if (!searchText) continue;
     const primary = getPrimaryLabel(item);
-    const score = scoreMatch(query, searchText, primary);
-    if (score > 0)
+    const score = scorePointSearchMatch(query, searchText, primary);
+    if (score > SearchScoreBoundary.Match)
       allMatches.push({
         item,
         score,
@@ -101,25 +123,19 @@ function searchData(
         secondary: getSecondaryLabel(item),
       });
   }
-  allMatches.sort((a, b) => b.score - a.score);
-  return { allMatches, topResults: allMatches.slice(0, 15) };
+  allMatches.sort((left, right) => right.score - left.score);
+  return allMatches.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit);
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
 type SearchProps = {
-  readonly data: DataPoint[];
   readonly onSelect: (item: DataPoint) => void;
   readonly onZoomTo: (item: DataPoint) => void;
-  readonly onMatchingIdsChange: (ids: Set<string> | null) => void;
+  readonly onCommit: (text: string | null) => void;
 };
 
-export function Search({
-  data,
-  onSelect,
-  onZoomTo,
-  onMatchingIdsChange,
-}: SearchProps) {
+export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
   const { theme } = useTheme();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
@@ -129,36 +145,38 @@ export function Search({
   const [committedQuery, setCommittedQuery] = useState<string | null>(null);
   const [committedCount, setCommittedCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { allMatches, topResults } = useMemo(
-    () => searchData(query, data),
-    [query, data],
-  );
+  const normalizedQuery = query.trim();
+  const live = useSourceSearch(normalizedQuery || null);
+  const committed = useSourceSearch(committedQuery);
 
-  // Re-run committed filter on data refresh
+  const topResults = useMemo(
+    () => rankMatches(normalizedQuery, live.items),
+    [live.items, normalizedQuery],
+  );
+  const matchingCount = live.total;
+  const searchReady = live.ready;
+
   useEffect(() => {
-    if (committedQuery === null) return;
-    const { allMatches: refreshed } = searchData(committedQuery, data);
-    if (refreshed.length > 0) {
-      onMatchingIdsChange(new Set(refreshed.map((r) => r.item.id)));
-      setCommittedCount(refreshed.length);
-    } else {
-      onMatchingIdsChange(null);
-      setCommittedCount(0);
-    }
-  }, [data, committedQuery, onMatchingIdsChange]);
+    if (committedQuery === null || !committed.ready) return;
+    setCommittedCount(committed.total);
+  }, [committedQuery, committed]);
 
   const commitFilter = useCallback(() => {
-    if (!query.trim() || allMatches.length === 0) return;
-    onMatchingIdsChange(new Set(allMatches.map((r) => r.item.id)));
-    setCommittedQuery(query.trim());
-    setCommittedCount(allMatches.length);
+    if (!normalizedQuery || !searchReady || matchingCount === 0) return;
+    onCommit(normalizedQuery);
+    setCommittedQuery(normalizedQuery);
+    setCommittedCount(matchingCount);
     setOpen(false);
     setActiveIndex(-1);
-  }, [query, allMatches, onMatchingIdsChange]);
+  }, [
+    normalizedQuery,
+    searchReady,
+    matchingCount,
+    onCommit,
+  ]);
 
   const clearFilter = useCallback(() => {
     setOpen(false);
@@ -166,8 +184,8 @@ export function Search({
     setCommittedQuery(null);
     setCommittedCount(0);
     setActiveIndex(-1);
-    onMatchingIdsChange(null);
-  }, [onMatchingIdsChange]);
+    onCommit(null);
+  }, [onCommit]);
 
   // Ref to focus input immediately when transitioning from button to input.
   // iOS Safari requires .focus() to originate from the user gesture call stack.
@@ -196,8 +214,8 @@ export function Search({
         openSearch();
       }
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    document.addEventListener(DomEvent.KeyDown, handler);
+    return () => document.removeEventListener(DomEvent.KeyDown, handler);
   }, [openSearch]);
 
   const grouped = useMemo(() => {
@@ -233,10 +251,9 @@ export function Search({
     [onSelect, onZoomTo, commitFilter],
   );
 
-  // Focus via ref callback — fires the instant the input mounts into the DOM,
+  // The ref callback fires when the input mounts into the DOM.
   // which is still within the same user gesture microtask on iOS Safari.
   const inputRefCallback = useCallback((el: HTMLInputElement | null) => {
-    (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
     if (el && pendingFocusRef.current) {
       pendingFocusRef.current = false;
       el.focus();
@@ -250,15 +267,15 @@ export function Search({
       if (
         containerRef.current &&
         !containerRef.current.contains(target) &&
-        (!dropdownRef.current || !dropdownRef.current.contains(target))
+        !dropdownRef.current?.contains(target)
       )
         closeDropdown();
     };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
+    document.addEventListener(DomEvent.MouseDown, handler);
+    document.addEventListener(DomEvent.TouchStart, handler);
     return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
+      document.removeEventListener(DomEvent.MouseDown, handler);
+      document.removeEventListener(DomEvent.TouchStart, handler);
     };
   }, [open, closeDropdown]);
 
@@ -301,7 +318,10 @@ export function Search({
           className="flex items-center gap-1 bg-transparent border-none p-0 text-sig-accent text-(length:--sig-text-btn)"
           title="Edit search"
         >
-          <SearchIcon size={12} strokeWidth={2.5} />
+          <SearchIcon
+            size={SearchIconSize.Result}
+            strokeWidth={SearchIconStroke.Standard}
+          />
           <span className="max-w-20 truncate">{committedQuery}</span>
           <span className="text-sig-dim text-(length:--sig-text-sm)">
             ({committedCount})
@@ -312,7 +332,10 @@ export function Search({
           className="text-sig-dim bg-transparent border-none p-0 pl-0.5 touch-target flex items-center justify-center"
           title="Clear filter"
         >
-          <X size={12} strokeWidth={2.5} />
+          <X
+            size={SearchIconSize.Result}
+            strokeWidth={SearchIconStroke.Standard}
+          />
         </button>
       </div>
     );
@@ -326,7 +349,10 @@ export function Search({
         className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border"
         title="Search (Ctrl+K)"
       >
-        <SearchIcon size={13} strokeWidth={2.5} />
+        <SearchIcon
+          size={SearchIconSize.Control}
+          strokeWidth={SearchIconStroke.Standard}
+        />
         <span className="hidden sm:inline">SEARCH</span>
       </button>
     );
@@ -337,8 +363,8 @@ export function Search({
     <div ref={containerRef} className="relative z-60">
       <div className="flex items-center gap-1.5 rounded px-2 py-0.5 bg-sig-panel border border-sig-accent/45 min-w-45">
         <SearchIcon
-          size={13}
-          strokeWidth={2.5}
+          size={SearchIconSize.Control}
+          strokeWidth={SearchIconStroke.Standard}
           className="text-sig-accent shrink-0"
         />
         <input
@@ -350,9 +376,9 @@ export function Search({
           placeholder="callsign, type..."
           className="bg-transparent outline-none flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) caret-sig-accent"
         />
-        {query.trim() && allMatches.length > 0 && (
+        {normalizedQuery && matchingCount > 0 && (
           <span className="shrink-0 tracking-wider text-sig-accent text-(length:--sig-text-sm)">
-            {allMatches.length}
+            {matchingCount}
           </span>
         )}
         <button
@@ -360,7 +386,10 @@ export function Search({
           onClick={closeDropdown}
           className="shrink-0 text-sig-dim bg-transparent border-none p-0"
         >
-          <X size={13} strokeWidth={2.5} />
+          <X
+            size={SearchIconSize.Control}
+            strokeWidth={SearchIconStroke.Standard}
+          />
         </button>
       </div>
 
@@ -374,21 +403,31 @@ export function Search({
               isMobileWidth(window.innerWidth)
                 ? {
                     top:
-                      containerRef.current.getBoundingClientRect().bottom + 4,
-                    left: 8,
-                    right: 8,
+                      containerRef.current.getBoundingClientRect().bottom +
+                      SearchDropdownLayout.Gap,
+                    left: SearchDropdownLayout.MobileInset,
+                    right: SearchDropdownLayout.MobileInset,
                   }
                 : {
                     top:
-                      containerRef.current.getBoundingClientRect().bottom + 4,
+                      containerRef.current.getBoundingClientRect().bottom +
+                      SearchDropdownLayout.Gap,
                     left: Math.min(
                       containerRef.current.getBoundingClientRect().left,
                       window.innerWidth -
-                        Math.min(360, window.innerWidth * 0.9),
+                        Math.min(
+                          SearchDropdownLayout.MaximumWidth,
+                          window.innerWidth *
+                            SearchDropdownLayout.ViewportRatio,
+                        ),
                     ),
-                    minWidth: 260,
+                    minWidth: SearchDropdownLayout.MinimumWidth,
                     width: "max-content",
-                    maxWidth: Math.min(360, window.innerWidth * 0.9),
+                    maxWidth: Math.min(
+                      SearchDropdownLayout.MaximumWidth,
+                      window.innerWidth *
+                        SearchDropdownLayout.ViewportRatio,
+                    ),
                   }
             }
           >
@@ -406,7 +445,11 @@ export function Search({
                   <div key={type}>
                     <div
                       className="px-3 py-1 tracking-wider text-(length:--sig-text-sm) border-b border-sig-border"
-                      style={{ color, background: `${color}10` }}
+                      style={{
+                        color,
+                        background:
+                          `${color}${SearchColorSuffix.Faint}`,
+                      }}
                     >
                       {feature.label}
                     </div>
@@ -417,16 +460,18 @@ export function Search({
                         <button
                           key={result.item.id}
                           onClick={() => selectResult(result)}
-                          className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30 ${
-                            isActive ? "bg-sig-accent/10" : "bg-transparent"
+                          className={`${SearchClassName.ResultButton} ${
+                            isActive
+                              ? SearchClassName.ActiveResult
+                              : SearchClassName.InactiveResult
                           }`}
                           onMouseEnter={() => setActiveIndex(flatIdx)}
                         >
                           <Icon
-                            size={12}
+                            size={SearchIconSize.Result}
                             style={{ color }}
                             className="shrink-0"
-                            strokeWidth={2.5}
+                            strokeWidth={SearchIconStroke.Standard}
                           />
                           <div className="min-w-0 flex-1 overflow-hidden">
                             <div className="truncate text-sig-bright text-(length:--sig-text-md)">

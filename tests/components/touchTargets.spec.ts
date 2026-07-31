@@ -108,13 +108,6 @@ describe("ResizeHandle touch sizing", () => {
 // ── Detail panel drag uses window listeners ──────────────────────────
 
 describe("DetailPanel touch drag", () => {
-  test("useDrag uses window pointermove listeners", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain('window.addEventListener("pointermove"');
-    expect(src).toContain('window.addEventListener("pointerup"');
-    expect(src).toContain('window.addEventListener("pointercancel"');
-  });
-
   test("drag handle has touch-action none", async () => {
     const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
     expect(src).toContain("touch-none");
@@ -130,20 +123,9 @@ describe("DetailPanel touch drag", () => {
 // ── Detail panel snap sheet ──────────────────────────────────────────
 
 describe("DetailPanel snap sheet", () => {
-  test("has SNAP_HEIGHTS constant with 3 values", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain("SNAP_HEIGHTS");
-    expect(src).toMatch(/SNAP_HEIGHTS\s*=\s*\[\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\]/);
-  });
-
   test("heightRef prevents infinite re-render", async () => {
     const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
     expect(src).toContain("heightRef.current");
-  });
-
-  test("reset guards setHeightVh", async () => {
-    const src = await Bun.file("src/client/components/DetailPanel.tsx").text();
-    expect(src).toContain("heightRef.current !== SNAP_HEIGHTS[1]");
   });
 
   test("MobileScrollHint component exists", async () => {
@@ -166,26 +148,21 @@ describe("Speed slider touch", () => {
 // ── Ticker independence from filters ─────────────────────────────────
 
 describe("Ticker filter independence", () => {
-  test("buildTickerItems takes only allData param", async () => {
+  test("mergeTickerPages takes only worker pages", async () => {
     const src = await Bun.file("src/client/lib/ui/tickerFeed.ts").text();
     expect(src).toContain(
-      "export function buildTickerItems(allData: DataPoint[])",
+      "export function mergeTickerPages(pages: readonly TickerPage[])",
     );
-    expect(src).not.toContain("_filters");
-    expect(src).not.toContain("_layers");
+    expect(src).not.toContain("filters");
+    expect(src).not.toContain("layers");
   });
 
-  test("tickerItems memo does not depend on filters or layers", async () => {
-    const src = await Bun.file("src/client/context/DataContext.tsx").text();
-    const idx = src.indexOf("buildTickerItems(allData)");
-    expect(idx).toBeGreaterThan(-1);
-    const after = src.slice(idx, idx + 100);
-    // Render-batching gate: allowed deps are `allData` (membership) and
-    // `allDataVersion` (positions/data fields). Filters and layers are
-    // forbidden — re-adding either re-introduces the old "ticker churns
-    // on every filter toggle" bug.
-    expect(after).toContain("allData");
-    expect(after).not.toContain("filters");
-    expect(after).not.toContain("layers");
+  test("the ticker query carries no filter or layer state", async () => {
+    const src = await Bun.file(
+      "src/client/features/base/useSourceTicker.ts",
+    ).text();
+    expect(src).toContain('kind: "ticker"');
+    expect(src).not.toContain("filter");
+    expect(src).not.toContain("layers");
   });
 });

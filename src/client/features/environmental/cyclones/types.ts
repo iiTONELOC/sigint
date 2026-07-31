@@ -1,20 +1,52 @@
-import type { GeoJsonPolygon } from "@shared/geo";
+import type {
+  GeoJsonPolygon,
+  GeoJsonPolygonGeometry,
+  GeoPoint,
+} from "@shared/geo";
+import type { NhcBasin } from "@shared/cyclonesSeason";
+import type { Domain } from "@shared/domain/identity";
+import {
+  SaffirSimpson,
+  type HurricaneScale,
+  type MinCategory,
+} from "@shared/domain/cycloneClassification";
+import { AreaKind } from "@/workers/render/protocol";
 
-// ── Cyclone feature types ────────────────────────────────────────────
-// Shape of NHC tropical-cyclone data once parseNhc.ts has normalized it
-// into the SIGINT DataPoint union.
+export {
+  MIN_CATEGORY_CHOICES,
+  SaffirSimpson,
+  type HurricaneScale,
+  type MinCategory,
+} from "@shared/domain/cycloneClassification";
 
-export type Category =
-  | "TD" // tropical depression
-  | "TS" // tropical storm
-  | "HU1"
-  | "HU2"
-  | "HU3"
-  | "HU4"
-  | "HU5"
-  | "STD" // subtropical depression
-  | "STS" // subtropical storm
-  | "PT"; // post-tropical
+export enum Category {
+  TropicalDepression = "TD",
+  TropicalStorm = "TS",
+  Hurricane1 = "HU1",
+  Hurricane2 = "HU2",
+  Hurricane3 = "HU3",
+  Hurricane4 = "HU4",
+  Hurricane5 = "HU5",
+  SubtropicalDepression = "STD",
+  SubtropicalStorm = "STS",
+  PostTropical = "PT",
+}
+
+export const HURRICANE_CATEGORY: Readonly<Record<HurricaneScale, Category>> = {
+  [SaffirSimpson.Cat1]: Category.Hurricane1,
+  [SaffirSimpson.Cat2]: Category.Hurricane2,
+  [SaffirSimpson.Cat3]: Category.Hurricane3,
+  [SaffirSimpson.Cat4]: Category.Hurricane4,
+  [SaffirSimpson.Cat5]: Category.Hurricane5,
+};
+
+const HURRICANE_CATEGORIES: ReadonlySet<Category> = new Set(
+  Object.values(HURRICANE_CATEGORY),
+);
+
+export function isHurricaneCategory(category: Category): boolean {
+  return HURRICANE_CATEGORIES.has(category);
+}
 
 export type ForecastPoint = {
   /** Hours from current advisory time. NHC publishes 12, 24, 36, 48, 72, 96, 120. */
@@ -34,16 +66,16 @@ export type ForecastPoint = {
 };
 
 export type CycloneData = {
-  /** NHC storm ID, uppercased — e.g. "AL052026" */
+  /** Uppercase NHC storm ID, such as "AL052026". */
   stormId: string;
-  /** Storm name — "ELENA" */
+  /** Storm name, such as "ELENA". */
   name: string;
   /** Basin: AL=Atlantic, EP=East Pacific, CP=Central Pacific */
-  basin: "AL" | "EP" | "CP";
+  basin: NhcBasin;
   /** Current classification at advisory time */
   classification: Category;
   /** Saffir-Simpson 1-5 (HU only), 0 for non-HU */
-  saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5;
+  saffirSimpson: SaffirSimpson;
   /** Max sustained winds at current position, in knots */
   maxWindKt: number;
   /** Min central pressure, in mb */
@@ -52,7 +84,7 @@ export type CycloneData = {
   movementDir?: number;
   /** Movement speed in knots */
   movementSpeedKt?: number;
-  /** Latest advisory number — e.g. "12A" */
+  /** Latest advisory number, such as "12A". */
   advisoryNumber: string;
   /** ISO time of last advisory */
   lastUpdate: string;
@@ -100,30 +132,26 @@ export type WindRadii = {
   kt64: number[] | null;
 };
 
-// Synthetic per-forecast-point shape — produced by
-// data/synthesizeForecastPoints.ts and rendered as its own DataPoint
-// variant ("cyclones-forecast"). NOT persisted to IndexedDB; recomputed
-// each time the cyclone provider data changes. The parent* fields let
-// the mini-dossier identify the storm without re-walking allData.
+// A forecast scene hit resolves to this bounded UI projection in DataWorker.
+// It is not persisted or sent to RenderWorker.
 export type CycloneForecastPointData = {
-  parentStormId: string;
+  parentEntityId: string;
   parentName: string;
-  parentBasin: "AL" | "EP" | "CP";
+  parentBasin: NhcBasin;
   fcstHour: number;
   validTime: string;
   maxWindKt: number;
   minPressureMb?: number;
   category: Category;
-  /** Saffir-Simpson copied from parent storm — out-of-scope to derive
-   *  per-fcstHour from maxWindKt at this stage. Future ticket. */
-  saffirSimpson: 0 | 1 | 2 | 3 | 4 | 5;
+  /** Saffir-Simpson copied from parent storm. Deriving it per fcstHour from
+   *  maxWindKt is out of scope at this stage. */
+  saffirSimpson: SaffirSimpson;
   errorRadiusNm: number;
 };
 
 export type CycloneFilter = {
   enabled: boolean;
-  /** Minimum Saffir-Simpson to display. 0 = all (incl TD/TS), 1 = HU1+, 3 = HU3+ (major), 5 = HU5 only */
-  minCategory: 0 | 1 | 3 | 5;
+  minCategory: MinCategory;
   /** Show forecast track polyline + dots */
   showForecast: boolean;
   /** Show synthesized uncertainty cone */
@@ -136,4 +164,56 @@ export type CycloneFilter = {
   hiddenModels?: readonly string[];
   /** Show NWS tropical watch/warning area polygons */
   showWarnings: boolean;
+};
+
+export enum CycloneFeatureLabel {
+  Forecast = "CYCLONE FORECAST",
+  TropicalAlert = "TROPICAL ALERT",
+}
+
+export enum CycloneKicker {
+  MajorHurricane = "HURRICANE · MAJOR",
+  Hurricane = "HURRICANE",
+}
+
+export enum CycloneRowLabel {
+  Name = "Name",
+  Storm = "Storm",
+  StormId = "Storm ID",
+  Basin = "Basin",
+  Forecast = "Forecast",
+  Winds = "Winds",
+  Pressure = "Pressure",
+  Movement = "Movement",
+  Class = "Class",
+  Classification = "Classification",
+  Category = "Category",
+  Advisory = "Advisory",
+  Issued = "Issued",
+  TrackError = "Track error",
+}
+
+export enum CycloneWarningField {
+  Alert = "event",
+  Headline = "headline",
+  Area = "areaDesc",
+  Effective = "effective",
+  Expires = "expires",
+}
+
+export const CYCLONE_WARNING_FIELDS: readonly CycloneWarningField[] =
+  Object.values(CycloneWarningField);
+
+export type CycloneWarningData = Record<CycloneWarningField, string> &
+  Readonly<{
+    kind: AreaKind;
+    geometry: GeoJsonPolygonGeometry;
+  }>;
+
+export type CycloneWarningPoint = {
+  id: string;
+  type: Domain.CyclonesWarning;
+  position: GeoPoint;
+  timestamp?: string;
+  data: CycloneWarningData;
 };

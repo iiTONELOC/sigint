@@ -1,25 +1,48 @@
-import { resolve, relative, normalize, basename } from "path";
+import { basename, normalize, relative, resolve } from "node:path";
 import type { SecurityHeaders } from "./api/securityHeaders";
 
 const WORKER_SRC_DIR = resolve(import.meta.dir, "../client/workers");
+const DEFAULT_STATIC_ROUTE_OPTIONS: StaticRouteOptions = {
+  buildWorkersFromSource: true,
+};
+
+type StaticRouteOptions = {
+  buildWorkersFromSource: boolean;
+};
+
+type StaticFileServer = (pathname: string) => Promise<Response>;
+type StaticRouteHandler = (request: Request) => Promise<Response>;
+
+const WORKER_BUILD_FAILED_STATUS = 500;
+
+function workerScriptResponse(code: string): Response {
+  return new Response(code, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-cache, must-revalidate",
+    },
+  });
+}
 
 async function buildWorkerFromTs(pathname: string): Promise<Response | null> {
   if (!pathname.endsWith(".js")) return null;
   const name = basename(pathname, ".js");
   const entry = resolve(WORKER_SRC_DIR, `${name}.ts`);
   if (!(await Bun.file(entry).exists())) return null;
+
   const built = await Bun.build({
     entrypoints: [entry],
     target: "browser",
     format: "esm",
   });
-  if (!built.success || built.outputs.length === 0) return null;
-  const code = await built.outputs[0]!.text();
-  return new Response(code, {
-    headers: {
-      "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "no-cache, must-revalidate",
-    },
+  const [output] = built.outputs;
+  if (built.success && output) return workerScriptResponse(await output.text());
+
+  const logs = built.logs.map((log) => log.message).join("\n");
+  console.error(`Worker build failed for ${name}.ts\n${logs}`);
+  return new Response(logs, {
+    status: WORKER_BUILD_FAILED_STATUS,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
 
@@ -33,13 +56,13 @@ export function safePath(base: string, urlPath: string): string | null {
   return resolved;
 }
 
-export function createPublicFileServer(
-  publicDir: string,
+export function createStaticFileServer(
+  staticDir: string,
   security: SecurityHeaders,
-) {
+): StaticFileServer {
   const { withSecurityHeaders } = security;
-  return async function servePublicFile(pathname: string): Promise<Response> {
-    const safe = safePath(publicDir, pathname);
+  return async function serveStaticFile(pathname: string): Promise<Response> {
+    const safe = safePath(staticDir, pathname);
     if (!safe) return new Response("Forbidden", { status: 403 });
 
     const file = Bun.file(safe);
@@ -52,42 +75,43 @@ export function createPublicFileServer(
 }
 
 export function createStaticRoutes(
-  publicDir: string,
+  staticDir: string,
   security: SecurityHeaders,
-): Record<string, (req: Request) => Promise<Response>> {
-  const servePublicFile = createPublicFileServer(publicDir, security);
+  options: StaticRouteOptions = DEFAULT_STATIC_ROUTE_OPTIONS,
+): Record<string, StaticRouteHandler> {
+  const serveStaticFile = createStaticFileServer(staticDir, security);
 
   return {
-    "/fonts.css": async () => servePublicFile("/fonts.css"),
+    "/fonts.css": async () => serveStaticFile("/fonts.css"),
 
-    "/fonts/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
+    "/fonts/*": async (request) => {
+      const { pathname } = new URL(request.url);
+      return serveStaticFile(pathname);
     },
 
-    "/data/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
+    "/data/*": async (request) => {
+      const { pathname } = new URL(request.url);
+      return serveStaticFile(pathname);
     },
 
-    "/workers/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      const built = await buildWorkerFromTs(pathname);
-      return built ?? servePublicFile(pathname);
+    "/workers/*": async (request) => {
+      const { pathname } = new URL(request.url);
+      if (!options.buildWorkersFromSource) return serveStaticFile(pathname);
+      return (await buildWorkerFromTs(pathname)) ?? serveStaticFile(pathname);
     },
 
     "/sw.js": async () => {
-      const res = await servePublicFile("/sw.js");
-      res.headers.set("Cache-Control", "no-cache, must-revalidate");
-      res.headers.set("Service-Worker-Allowed", "/");
-      return res;
+      const response = await serveStaticFile("/sw.js");
+      response.headers.set("Cache-Control", "no-cache, must-revalidate");
+      response.headers.set("Service-Worker-Allowed", "/");
+      return response;
     },
 
-    "/manifest.json": async () => servePublicFile("/manifest.json"),
+    "/manifest.json": async () => serveStaticFile("/manifest.json"),
 
-    "/icons/*": async (req) => {
-      const { pathname } = new URL(req.url);
-      return servePublicFile(pathname);
+    "/icons/*": async (request) => {
+      const { pathname } = new URL(request.url);
+      return serveStaticFile(pathname);
     },
   };
 }

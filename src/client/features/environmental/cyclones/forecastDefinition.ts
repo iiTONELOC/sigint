@@ -1,53 +1,63 @@
+import { Domain } from "@shared/domain/identity";
 import { Wind } from "lucide-react";
-import type { FeatureDefinition, BasePoint } from "@/features/base/types";
-import { formatKtMph, nmToKm } from "@/lib/format/units";
-import type { CycloneForecastPointData } from "./types";
+import {
+  STROKED_ICON_PROPS,
+  type FeatureDefinition,
+} from "@/features/base/types";
+import {
+  formatKtMph,
+  formatNmKm,
+  formatPressureMb,
+} from "@/lib/format/units";
+import {
+  CycloneFeatureLabel,
+  CycloneRowLabel,
+  type CycloneForecastPointData,
+} from "./types";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
+import { BLANK_SEPARATOR } from "@shared/text";
 
-// Feature entry for the synthetic "cyclones-forecast" points. Needed so
+const SEARCH_SUFFIX = "forecast";
+const LEAD_TIME_PREFIX = "+";
+const HOUR_SUFFIX = "h";
+
+/** Lead time as the dossier writes it: `+24h`. */
+export function leadTime(fcstHour: number): string {
+  return `${LEAD_TIME_PREFIX}${fcstHour}${HOUR_SUFFIX}`;
+}
+
+// Feature entry for the synthetic Domain.CyclonesForecast points. Needed so
 // featureRegistry.get(type) resolves for the hit-test/detail pipeline.
 // Minimal: forecast points piggyback on the cyclones layer toggle.
 
 export const cycloneForecastFeature: FeatureDefinition<
   CycloneForecastPointData,
-  Record<string, never>
+  Record<string, never>,
+  Domain.CyclonesForecast
 > = {
-  id: "cyclones-forecast",
-  label: "CYCLONE FORECAST",
+  id: Domain.CyclonesForecast,
+  label: CycloneFeatureLabel.Forecast,
   icon: Wind,
-  iconProps: { strokeWidth: 2.5 },
+  iconProps: STROKED_ICON_PROPS,
   TickerContent: CycloneForecastTickerContent,
 
-  // No standalone filter — DataContext.filteredIds adds forecast points
-  // based on parent storm filter status. The base filter pass calls
-  // matchesFilter only when filters[type] != null, and we never set a
-  // filter for "cyclones-forecast", so this never runs in practice.
-  matchesFilter: () => true,
-  defaultFilter: {} as Record<string, never>,
-
-  // Must be [label, value] tuples — DetailPanel destructures each as [k, v].
   buildDetailRows: (data: CycloneForecastPointData) => {
-    const pressureRow: [string, string][] =
+    const pressureRow: [CycloneRowLabel, string][] =
       data.minPressureMb == null
         ? []
-        : [["PRESSURE", `${data.minPressureMb} mb`]];
-    return [
-      ["STORM", data.parentName],
-      ["BASIN", data.parentBasin],
-      ["FORECAST", `+${data.fcstHour}h`],
-      ["WINDS", formatKtMph(data.maxWindKt)],
+        : [[CycloneRowLabel.Pressure, formatPressureMb(data.minPressureMb)]];
+    const rows: [CycloneRowLabel, string][] = [
+      [CycloneRowLabel.Storm, data.parentName],
+      [CycloneRowLabel.Basin, data.parentBasin],
+      [CycloneRowLabel.Forecast, leadTime(data.fcstHour)],
+      [CycloneRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,
-      ["CLASS", data.category],
-      [
-        "TRACK ERROR",
-        `${data.errorRadiusNm} nm (${nmToKm(data.errorRadiusNm)} km)`,
-      ],
+      [CycloneRowLabel.Class, data.category],
+      [CycloneRowLabel.TrackError, formatNmKm(data.errorRadiusNm)],
     ];
+    return rows.map(([label, value]) => [label.toUpperCase(), value]);
   },
 
   getSearchText: (data: CycloneForecastPointData) =>
-    `${data.parentName} +${data.fcstHour}h forecast`,
+    `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}${BLANK_SEPARATOR}${SEARCH_SUFFIX}`,
 };
-
-// Type guard for use in the registry
-export type ForecastBasePoint = BasePoint & { data: CycloneForecastPointData };

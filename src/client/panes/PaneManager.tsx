@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useData } from "@/context/DataContext";
+import { isSourceDelivering } from "@shared/domain/sourceStatus";
 import { useIsMobileLayout } from "@/context/LayoutModeContext";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import { DataTable } from "@/panes/data-table";
@@ -840,8 +841,8 @@ export function PaneManager() {
                     <span className="text-sig-dim hidden sm:inline">
                       ·{" "}
                       {
-                        dataSources.filter(
-                          (s) => s.status === "live" || s.status === "cached",
+                        dataSources.filter((source) =>
+                          isSourceDelivering(source.status),
                         ).length
                       }
                       /{dataSources.length} LIVE

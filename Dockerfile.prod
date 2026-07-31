@@ -33,7 +33,6 @@ COPY --chown=sigint:sigint package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY --from=builder --chown=sigint:sigint /app/dist ./dist
-COPY --from=builder --chown=sigint:sigint /app/public ./public
 COPY --from=builder --chown=sigint:sigint /app/src/server ./src/server
 COPY --from=builder --chown=sigint:sigint /app/src/shared ./src/shared
 COPY --from=builder --chown=sigint:sigint /app/tsconfig.json .
