@@ -9,14 +9,11 @@ import {
 import {
   AIRCRAFT_TILES,
   ADSB_BASE_URL,
-  POLL_INTERVAL_MS,
-  RATE_LIMIT_DELAY_MS,
-  RETRY_DEFAULT_DELAY_MS,
+  AircraftSourcePolicy,
   TILE_RADIUS_NM,
   dedupByHex,
   normalizeAdsbPayload,
   parseRetryAfter,
-  shuffleTiles,
   fetchTileWithRetry,
   sweepTiles,
   resolveAircraftFixtureOverride,
@@ -24,9 +21,11 @@ import {
   createSweepState,
   ingestTile,
   finalizeSweep,
+  runAircraftAcquisition,
   runSweep,
   __resetAircraftCacheForTests,
   type SweepState,
+  type AircraftTileResult,
 } from "../../../src/server/api/aircraftCache";
 import { isRecord } from "../../../src/shared/geo";
 
@@ -68,29 +67,16 @@ describe("constants", () => {
     expect(ADSB_BASE_URL).toBe("https://opendata.adsb.fi/api/v3");
   });
 
-  test("POLL_INTERVAL_MS is 300s (sweep wake cadence, sweep duration may exceed)", () => {
-    expect(POLL_INTERVAL_MS).toBe(300_000);
+  test("aircraft requests retain the production rate-limit margin", () => {
+    expect(AircraftSourcePolicy.RateLimitDelayMs).toBe(3_000);
   });
 
-  test("RATE_LIMIT_DELAY_MS is 3000ms — extended from 2000 after sustained 429s in production", () => {
-    expect(RATE_LIMIT_DELAY_MS).toBe(3_000);
-  });
-
-  test("RETRY_DEFAULT_DELAY_MS is 30s when 429 has no Retry-After header", () => {
-    expect(RETRY_DEFAULT_DELAY_MS).toBe(30_000);
+  test("rate-limit retries retain the default backoff", () => {
+    expect(AircraftSourcePolicy.RetryDefaultDelayMs).toBe(30_000);
   });
 
   test("TILE_RADIUS_NM is at the v3 server cap of 250 (verified probe)", () => {
     expect(TILE_RADIUS_NM).toBe(250);
-  });
-
-  test("sweep duration may exceed POLL_INTERVAL_MS by design (sweepInProgress guard prevents overlap)", () => {
-    const sweepMs = AIRCRAFT_TILES.length * RATE_LIMIT_DELAY_MS;
-    // 108 × 3000 = 324s, still exceeds the 300s wake cadence even
-    // post-audit. The fetchAircraft function must guard against
-    // re-entry so setInterval kicks during an in-flight sweep are
-    // skipped rather than launching a parallel sweep.
-    expect(sweepMs).toBeGreaterThan(POLL_INTERVAL_MS);
   });
 });
 
@@ -238,50 +224,6 @@ describe("parseRetryAfter", () => {
   });
 });
 
-// ── shuffleTiles ─────────────────────────────────────────────────
-
-describe("shuffleTiles", () => {
-  test("preserves length and contents", () => {
-    const input: ReadonlyArray<readonly [number, number]> = [
-      [0, 0],
-      [1, 1],
-      [2, 2],
-      [3, 3],
-    ];
-    const out = shuffleTiles(input);
-    expect(out).toHaveLength(input.length);
-    const inputSet = new Set(input.map((t) => `${t[0]},${t[1]}`));
-    const outSet = new Set(out.map((t) => `${t[0]},${t[1]}`));
-    expect(outSet).toEqual(inputSet);
-  });
-
-  test("does not mutate the input array", () => {
-    const input: ReadonlyArray<readonly [number, number]> = [
-      [0, 0],
-      [1, 1],
-      [2, 2],
-    ];
-    const before = JSON.stringify(input);
-    shuffleTiles(input);
-    expect(JSON.stringify(input)).toBe(before);
-  });
-
-  test("produces different orderings across multiple sweeps", () => {
-    // 113 tiles → 113! permutations; collision probability negligible.
-    // Sample 5 sweeps; require at least two distinct orderings.
-    const tiles = AIRCRAFT_TILES;
-    const orderings = new Set<string>();
-    for (let i = 0; i < 5; i++) {
-      orderings.add(
-        shuffleTiles(tiles)
-          .map(([a, b]) => `${a},${b}`)
-          .join("|"),
-      );
-    }
-    expect(orderings.size).toBeGreaterThan(1);
-  });
-});
-
 // ── fetchTileWithRetry ───────────────────────────────────────────
 
 describe("fetchTileWithRetry", () => {
@@ -395,15 +337,18 @@ describe("fetchTileWithRetry", () => {
   });
 });
 
-// ── sweepTiles ───────────────────────────────────────────────────
-
 describe("sweepTiles", () => {
-  test("spaces tile attempts without a trailing delay", async () => {
+  test("paces request starts without adding response time", async () => {
     const sleeps: number[] = [];
-    const fetchFn = async () => ({
-      kind: "complete" as const,
-      records: [{ hex: "x" }],
-    });
+    let now = 0;
+    const fetchFn = async (): Promise<AircraftTileResult> => {
+      now += 2_000;
+      return {
+        kind: "complete",
+        records: [{ hex: "x" }],
+      };
+    };
+
     await sweepTiles(
       [
         [1, 1],
@@ -413,25 +358,31 @@ describe("sweepTiles", () => {
       fetchFn,
       async (ms) => {
         sleeps.push(ms);
+        now += ms;
       },
+      () => now,
     );
-    expect(sleeps).toEqual([3_000, 3_000]);
+
+    expect(sleeps).toEqual([1_000, 1_000]);
   });
 
   test("keeps records and completeness counts distinct", async () => {
-    const fetchFn = async (latitude: number) =>
+    const fetchFn = async (
+      latitude: number,
+    ): Promise<AircraftTileResult> =>
       latitude === 1
         ? {
-            kind: "complete" as const,
+            kind: "complete",
             records: [{ hex: "tile-1" }],
           }
         : {
-            kind: "failed" as const,
+            kind: "failed",
             error: {
               code: SourceErrorCode.NetworkError,
               message: "offline",
             },
           };
+
     const result = await sweepTiles(
       [
         [1, 1],
@@ -440,10 +391,59 @@ describe("sweepTiles", () => {
       fetchFn,
       async () => {},
     );
+
     expect(result.records).toEqual([{ hex: "tile-1" }]);
     expect(result.successfulScopes).toBe(1);
     expect(result.failedScopes).toBe(1);
     expect(result.error?.code).toBe(SourceErrorCode.NetworkError);
+  });
+});
+
+describe("runAircraftAcquisition", () => {
+  test("runs one sweep at a time with one delay between sweeps", async () => {
+    const controller = new AbortController();
+    const sleeps: number[] = [];
+    let activeSweeps = 0;
+    let maxActiveSweeps = 0;
+    let sweepCount = 0;
+
+    await runAircraftAcquisition(
+      controller.signal,
+      async () => {
+        activeSweeps++;
+        maxActiveSweeps = Math.max(maxActiveSweeps, activeSweeps);
+        await Promise.resolve();
+        activeSweeps--;
+        sweepCount++;
+        if (sweepCount === 2) controller.abort();
+      },
+      async (ms) => {
+        sleeps.push(ms);
+      },
+    );
+
+    expect(sweepCount).toBe(2);
+    expect(maxActiveSweeps).toBe(1);
+    expect(sleeps).toEqual([AircraftSourcePolicy.RateLimitDelayMs]);
+  });
+
+  test("continues after an unexpected sweep failure", async () => {
+    const controller = new AbortController();
+    let sweepCount = 0;
+
+    await runAircraftAcquisition(
+      controller.signal,
+      async () => {
+        sweepCount++;
+        if (sweepCount === 1) {
+          throw new Error("test sweep failure");
+        }
+        controller.abort();
+      },
+      async () => {},
+    );
+
+    expect(sweepCount).toBe(2);
   });
 });
 
@@ -586,10 +586,29 @@ describe("finalizeSweep", () => {
 // ── Initial cache state ──────────────────────────────────────────
 describe("runSweep source state", () => {
   const noSleep = async (): Promise<void> => {};
-  const preserveOrder = <T>(items: ReadonlyArray<T>): T[] => [...items];
 
   afterEach(() => {
     __resetAircraftCacheForTests();
+  });
+
+  test("paces tile starts without adding response latency", async () => {
+    const sleeps: number[] = [];
+    let now = 0;
+
+    await runSweep(
+      async () => {
+        now += 2_000;
+        return { kind: "complete", records: [] };
+      },
+      async (ms) => {
+        sleeps.push(ms);
+        now += ms;
+      },
+      () => now,
+    );
+
+    expect(sleeps).toHaveLength(AIRCRAFT_TILES.length - 1);
+    expect(sleeps.every((delay) => delay === 1_000)).toBe(true);
   });
 
   test("a complete empty sweep authoritatively clears the prior snapshot", async () => {
@@ -599,14 +618,12 @@ describe("runSweep source state", () => {
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
-      preserveOrder,
     );
     expect(getAircraftCache().aircraftCount).toBe(1);
 
     await runSweep(
       async () => ({ kind: "complete", records: [] }),
       noSleep,
-      preserveOrder,
     );
 
     const cache = getAircraftCache();
@@ -625,7 +642,6 @@ describe("runSweep source state", () => {
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
-      preserveOrder,
     );
 
     let calls = 0;
@@ -643,7 +659,6 @@ describe("runSweep source state", () => {
             };
       },
       noSleep,
-      preserveOrder,
     );
 
     const cache = getAircraftCache();
@@ -662,7 +677,6 @@ describe("runSweep source state", () => {
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
-      preserveOrder,
     );
 
     await runSweep(
@@ -674,7 +688,6 @@ describe("runSweep source state", () => {
         },
       }),
       noSleep,
-      preserveOrder,
     );
 
     const cache = getAircraftCache();
