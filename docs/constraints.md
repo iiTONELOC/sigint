@@ -1,214 +1,160 @@
-# Constraints & Gotchas
+# Constraints and Important Rules
 
-[← Back to Docs Index](./README.md)
+[Back to the documentation index](./README.md)
 
-**Related docs**: [Caching](./caching.md) · [Rendering](./rendering.md) · [Data Flow](./data-flow.md)
+Related documents: [Architecture](./architecture.md), [Data flow](./data-flow.md), [Rendering](./rendering.md), and [Caching](./caching.md).
 
----
+## Runtime
 
-## Rate Limits
+- Bun is the application runtime and build tool.
+- React 19 renders the browser interface.
+- The production container has no durable writable file system.
+- Server memory is disposable.
+- IndexedDB is browser persistence.
+- The embedded aircraft SQLite database is read-only.
 
-**adsb.fi (aircraft)**: 1 req/sec/IP enforced; sustained 1–2 s spacing produced 429s in production, 3 s is the empirically-stable rate. The server runs a 108-tile sweep at 3 s spacing (~5 min wall clock per full pass) with a 300 s wake cadence; `sweepInProgress` guards against overlapping sweeps. Per-IP budget is consumed by the server only — clients never hit adsb.fi directly. On HTTP 429 the tile is retried once after `Retry-After` (or 30 s default), then skipped for the sweep rather than failing it. First sweep after process start uses a hand-ordered priority list of 20 high-traffic hubs (CONUS / EU / APAC gateways) before the remainder, so cold-start visitors see the busiest regions populate first.
+## Data ownership
 
-**USGS**: Responses cached server-side for 60 seconds. Feed updates every 5 minutes. Our 420-second poll interval ensures every request gets fresh data. Exceeding limits returns 429.
+The DataWorker owns all geographic source records in the browser. React must not own a merged geographic record array.
 
-**GDELT**: No explicit rate limit on raw export files — they're static files on a CDN, updated every 15 minutes. Our server fetches once per 15-minute interval regardless of client count. The server dedupes by tracking the last export URL fetched.
+Each source must have one source owner. The source owner must use a stable identity rule and a monotonic source version.
 
-**aisstream.io**: WebSocket-based, no traditional rate limit. One persistent connection per server. Messages stream at ~300/sec globally. The server accumulates positions in memory and serves snapshots to clients. Connection is auto-reconnected on drop with a 10-second delay.
+Use complete and partial snapshot semantics.
 
-**NASA FIRMS**: API key required (free). Transaction-based — each global CSV query costs ~5 transactions. Limit resets every 10 minutes. Our server fetches once per 30-minute interval regardless of client count, well within limits. VIIRS NOAA-20 global data can return 30,000–100,000+ records per day.
+- A complete snapshot can infer deletions.
+- A partial snapshot cannot infer deletions.
+- A failed refresh must not clear valid retained data.
 
-**NOAA Weather**: No API key required — only a `User-Agent` header. No explicit rate limit documented but standard courtesy applies. Client polls every 300 seconds. Returns GeoJSON FeatureCollection of active severe weather alerts (US only).
+## Render-data path
 
-**Our API**: All server routes are rate limited at 60 requests per minute per IP via a sliding window in `api/auth.ts`. This includes the token endpoint. Protected routes (aircraft metadata, GDELT events, AIS ships, FIRMS fires) additionally require a valid auth token in the `sigint_token` HttpOnly cookie (`Path=/api`, `SameSite=Strict`). Rate limit state is in-memory — resets on server restart. Stale buckets are purged every 5 minutes. `maxRequestBodySize` is set to 1MB on both dev and prod `Bun.serve()` — all API routes are GET, this is a safety cap.
+Use one path for all geographic render data:
 
-**CSP**: Full Content-Security-Policy applied to every response via `server/api/securityHeaders.ts`. `connect-src` includes `https:` because HLS.js fetches `.m3u8` manifests and `.ts` segments via `fetch()` from arbitrary IPTV CDNs — domains change as iptv-org updates their stream list. Tighten to specific CDN domains if channel list is ever pinned. `media-src` is `'self' blob:` only (no `https:` — HLS.js uses `fetch`, not native `<video>` src). HLS.js is configured with `credentials: "omit"` to prevent sending cookies to CDN origins, breaking the tracking loop. Inbound `Set-Cookie` from CDN responses cannot be blocked at the application layer — this is a web platform limitation.
+```text
+DatasetPatch -> scene codec -> scene publisher -> scene protocol -> scene store
+```
 
----
+Do not add a source-specific render protocol. Do not send complete source arrays through React.
 
-## Client-Side vs Server-Side Fetching
+## Canvas and render ownership
 
-Client-side: USGS, NOAA Weather (no CORS restrictions, no auth, no payload-size concerns).
+The RenderWorker owns the visible canvas context after transfer. It also owns the camera, projection, render filters, selection, hit tests, and frame schedule.
 
-Server-side: adsb.fi (per-IP rate budget consolidated across users + server-side enrichment), GDELT (CORS + large CSV zips), AIS (API key, no browser CORS), FIRMS (API key + large CSV payloads), NHC (no CORS headers), RSS news (varied CORS). See [Architecture](./architecture.md) for pipeline details.
+The render surface must call `transferControlToOffscreen()` one time for each canvas element. A new render session must use a new element and session identifier.
 
----
+The main thread must not perform these operations:
 
-## Canvas vs React
+- Run the globe frame loop
+- Composite worker frames
+- Project source coordinates
+- Build render search sets
+- Build trail geometry
+- Mutate RenderWorker state directly
 
-The globe is pure Canvas 2D. React components (Header, DetailPanel, etc.) are overlaid on top with absolute/fixed positioning. They communicate with the canvas via refs and props, not DOM events on canvas elements.
+## Worker files
 
-The **propsRef pattern**: The animation loop never re-registers. It reads `propsRef.current` each frame, synced from React props on every render. Max 1-frame delay between state change and canvas reflecting it.
+Worker source files are TypeScript files under `src/client/workers/`. The build writes worker entry files under `public/workers/`.
 
----
+Workers can import shared application modules through the build. Do not duplicate filter or projection logic because of the worker boundary.
 
-## Web Worker Rendering
+Each worker protocol must include a version. Session protocols must also include a session identifier and sequence.
 
-Point rendering runs in a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker is plain JavaScript (not TypeScript) because it's served directly from `public/` with no build step.
+## Direct worker channels
 
-**Constraints:**
+The DataWorker sends scene commands directly to the RenderWorker. It sends source rebases directly to the CorrelationWorker.
 
-- Worker code cannot import from the main codebase — all logic (projection, interpolation, filtering, age helpers, aircraft filter matching) is inlined
-- `Set` objects cannot cross `postMessage` — serialized to arrays before sending, used as arrays in worker
-- Trail data is synced periodically (~every 30 frames), not every frame
-- The worker's `matchesAircraftFilter` must exactly match the real one in `features/tracking/aircraft/lib/utils.ts` — if the filter logic changes, the worker must be updated manually
-- OffscreenCanvas must be resized in the worker when viewport dimensions change — the main thread sends W, H, dpr each frame
+React must not relay these record sets.
 
-**IMPORTANT**: The `aisCache.ts` uses `require("ws")` specifically to bypass Bun's native WebSocket TLS issues inside `Bun.serve()` on Heroku. Do NOT change this to `import` or to Bun's native `WebSocket`.
+The direct scene channel also carries selection interest, render search interest, and bounded selection overlays.
 
----
+## React queries
 
-## Server Routes for Static Files
+React can request only the data that a UI surface needs.
 
-Both `index.ts` and `index.prod.ts` serve static files from `public/` via explicit route patterns:
+Permitted query shapes include:
 
-- `/fonts.css` and `/fonts/*` — font files
-- `/data/*` — land geometry JSON
-- `/workers/*` — Web Worker scripts
+- One current entity
+- One bounded table page
+- One bounded ticker page
+- One count
+- One bounded facet list
+- One selected trail
+- One dossier
 
-New static file directories require adding a matching route pattern to both server files.
+Keep the last valid result visible while a replacement query is active.
 
----
+## Trails
 
-## Metadata Enrichment
+The DataWorker records aircraft and ship trails. React must not record trails from source snapshots.
 
-The full aircraft metadata DB (~617k records) is shipped server-side as a read-only SQLite file (`src/server/data/ac-db.sqlite`, ~46 MB) baked into the production image at build time. `src/server/api/aircraftEnrichment.ts` performs per-record lookups during each tile sweep, attaching `acType` / `registration` / `operator` / `manufacturer` / `model` / `military` / `originCountry` to every record before the cache write. The client receives fully enriched records via `/api/aircraft/states` — no client-side metadata DB, no IDB cache to maintain, no UI blocking on enrichment. Stale DB warning fires when `ac-db.sqlite` is older than `AC_DB_STALE_THRESHOLD_MS` (90 days); regenerate via `bun run build:aircraft-db`.
+Trail policy is source-specific. It controls movement thresholds, point limits, stale time, and extrapolation time.
 
----
+The render trail comes from `SelectionInterestService`. A pane trail query is not the render-data path.
 
-## Ship Type Resolution
+## Search
 
-AIS vessel type codes arrive in `ShipStaticData` messages, not in `PositionReport` messages. A vessel that has only sent position reports will show "Unknown" type until a static data message arrives (typically within a few minutes). The server maps AIS type codes (20-90 range) to human-readable labels. The detail panel hides "Unknown" type and "Not defined" nav status to keep the display clean.
+The search interface uses bounded DataWorker queries for result rows.
 
----
+A committed globe search is worker-owned. React sends search text to the RenderWorker. The DataWorker returns scene handles through the direct scene channel.
 
-## Trail Recording
+React must not store the complete globe match set.
 
-Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes. Both aircraft and ships feed the trail service from this single location.
+## News
 
----
+News articles are not geographic scene records. They do not enter `DatasetStore`, the scene protocol, or the RenderWorker.
 
-## Trail Purging
+The React news provider supplies news panes and correlation requests.
 
-Trail retention is type-aware. Aircraft trails are deleted after 8 missed refreshes (~32 minutes absent from data), capped at 50 points. Ship trails survive 60 missed refreshes (~1 hour), capped at 500 points — ships move slowly and need long history. Entries older than 24 hours removed at boot. Type determined by ID prefix (`A` = aircraft, `S` = ship).
+## Correlation
 
----
+The CorrelationWorker receives geographic records directly from the DataWorker. React supplies news and the regional baseline.
 
-## Zoom Limits
+The inline fallback has no direct data port. It must not present stale geographic records as current records.
 
-Globe mode zoom: min 0.55, max 350. Flat mode zoom: min 0.85, max 500.
+## Client and server fetch boundaries
 
-Double-click zoom: progressive — 8x current zoom, min 80, max 500 (flat) / 350 (globe). Globe mode snaps rotation immediately and lerps only zoom. Double-click again to zoom deeper.
+The Bun server must own a source when the source needs one of these controls:
 
-Single-click on a point preserves current zoom level and pans to the point — no zoom reset. Auto-rotate stops permanently on selection (re-enable via ROT button).
+- A protected credential
+- CORS support
+- A shared provider budget
+- Server-side enrichment
+- Large response normalization
+- A persistent server connection
 
----
+An approved browser source can fetch directly in the DataWorker. The source owner still controls validation, freshness, retry, and cache rules.
 
-## Gzip Compression
+## Static files
 
-Both `/api/events/latest` and `/api/ships/latest` gzip-compress responses when the client sends `Accept-Encoding: gzip`. Uses `Bun.gzipSync`. Extracted to a shared `jsonResponse` helper in `api/index.ts`.
+The server must expose explicit routes for static directories. Worker entry files use `/workers/*`. Geographic static data uses `/data/*`.
 
----
+A new static directory requires a server route and a service-worker review.
 
 ## IndexedDB
 
-Auto-migrates from localStorage on first run (one-time). No practical size limit (browser-dependent, typically hundreds of MB to GB). The aircraft cache overwrites itself every 240 seconds. The ship cache overwrites every 300 seconds. The earthquake cache overwrites every 420 seconds. Layout state overwrites on every change.
+The DataWorker owns the `sigint-cache` database. It performs compression, decompression, transactions, and worker-owned cache migrations.
 
----
+A clear or delete operation must invalidate pending deferred writes. A deferred write must not restore deleted data.
 
-## All Providers Cache to IndexedDB
+Transaction completion, not request success, confirms a write.
 
-Non-negotiable pattern. Every live data provider implements:
+## Pane layout
 
-- `hydrate()` — read from IndexedDB on boot, reject if stale
-- `persistCache()` — write after every successful fetch
-- Fallback chain: memory → IndexedDB → empty/mock on error
+Desktop and mobile layouts use different persisted keys. Do not load a desktop split ratio as a mobile layout.
 
-Staleness thresholds must be tighter than or equal to the poll interval so stale cache is rejected and the immediate fetch fires on boot.
+The globe and dossier are independent panes. A selection must not make the globe the owner of dossier layout.
 
-The 5 non-aircraft providers inherit this from `BaseProvider`. New providers should extend `BaseProvider` with a config object rather than duplicating the pattern.
+Lazy panes must not start expensive hidden work.
 
----
+## Service worker
 
-## All Server API Calls Use authenticatedFetch
+The service worker owns application assets and update activation. It must not cache API responses as authoritative source data.
 
-Non-negotiable pattern. Every client-side fetch to our server (`/api/*`) must go through `lib/authService.ts`'s `authenticatedFetch()`. This wraps `fetch()` with `credentials: "same-origin"` so the browser sends the auth cookie automatically. On 401, refreshes the cookie and retries. Never call `fetch()` directly for server API routes.
+The update command must target the waiting worker. It must not target the old active controller.
 
----
+## Security
 
-## Server-Side Stale Cache Retention
+Protected server routes require the application authentication flow. Client code must use the shared authenticated-fetch service.
 
-FIRMS and GDELT server caches retain stale data when upstream returns 0 records (quota exhausted / temporary outage). This prevents the client from seeing an empty layer when the upstream API is temporarily down. The `sourceHealth` module on the client treats `"empty"` as NOT a down state for the same reason. The news cache follows the same pattern — stale articles retained if all RSS feeds fail.
+The server owns credentials. Do not place provider credentials in browser code, worker messages, URLs, or persisted browser data.
 
-**Client-side**: `BaseProvider.refresh()` applies the same stale retention — if the fetch returns 0 records but the cache has data, the cache is kept with a bumped timestamp. On boot, `cacheInit()` purges any poisoned empty caches (entries with `{ data: [] }`) so hydration falls through to a fresh fetch.
-
----
-
-## News and Video Are NOT Geographic Features
-
-Two pane types operate entirely outside the geographic data pipeline:
-
-**RSS News** (`panes/news-feed/`): No lat/lon coordinates. Does NOT go into `DataPoint` union, `allData`, feature registry, globe rendering, spatial index, or ticker feed. Self-contained provider (`NewsProvider` — mirrors BaseProvider contract for `NewsArticle[]`), hook (`useNewsData`), and cache keys. Server-side RSS polling via `newsCache.ts`. However, news IS lifted to `DataContext` — the `useNewsData()` hook is called in the DataProvider, and `newsArticles` is exposed on the context value. This enables the correlation engine to link news articles to active regions, and any pane to access news without duplicate hook instances. `NewsFeedPane` reads from `useData()` — does NOT call `useNewsData()` directly.
-
-**Video Feed** (`panes/video-feed/`): Not a data source at all — plays live HLS video streams from iptv-org. No data pipeline, no provider, no hook, no DataPoint. Self-contained pane with its own channel service (`channelService.ts`), persistence (`videoFeedPersistence.ts`), preset system, and HLS player. Channel list fetched client-side from `iptv-org.github.io`. Depends on `hls.js` (Apache 2.0) — `bun add hls.js` required.
-
----
-
-## Correlation Engine
-
-`lib/correlationEngine.ts` runs synchronously inside a `useMemo` in `DataContext`. It processes all `allData` + `newsArticles` on every data refresh.
-
-**Performance**: Cross-source spatial matching uses a 2° grid index (same approach as `spatialIndex.ts`). Each query point checks ~9 neighboring cells — total cost is O(n) regardless of dataset size. Do NOT revert to naive nested loops (O(n²)) — with 60K+ data points this would block the main thread for seconds.
-
-**Baseline persistence**: Regional baselines are persisted to IndexedDB under `sigint.intel.baseline.v1`. The baseline accumulates over days of use — do not clear it on data refresh. Users can clear it from Settings.
-
-**Alert dedup**: Post-scoring dedup groups alerts by country + type + 1-hour bucket. The representative alert keeps the highest score and merged factors. The `count` field tracks how many events were collapsed. The `groupedItems` array holds all underlying DataPoints.
-
-**Watch mode**: Watch state lives in `DataContext`, not in individual panes. The watch loop uses `setInterval` with refs (`watchItemsRef`, `watchEntriesRef`, `watchStateRef`) to avoid stale closures. The effect is keyed on `[watchState.active, watchState.paused, watchState.source]` — it does NOT restart when data refreshes (that would reset the timer). `currentItemSource` tracks which list ("alerts" or "intel") the current item came from — panes use this to gate highlight/scroll so only one pane lights up at a time during ALL mode.
-
----
-
-## PWA & Offline
-
-### Service Worker (`public/sw.js`)
-
-Cache strategy: precache app shell on install (HTML, fonts, land data, worker, manifest), cache-first for same-origin assets, network-first for HTML navigation (fallback to cached `/` when offline), network-only for `/api/*` routes (data lives in IndexedDB, not SW cache). Cross-origin requests (USGS, NOAA, iptv-org) are not intercepted.
-
-**Update flow**: New SW installs in background but does NOT call `self.skipWaiting()` during install. Instead it posts `SW_UPDATE_AVAILABLE` to all clients. The client shows an update banner. User clicks RELOAD → client posts `SW_SKIP_WAITING` → new SW activates → `controllerchange` fires → page reloads. This prevents silent mid-session code swaps.
-
-**Registration** (`lib/swRegistration.ts`): Calls `navigator.serviceWorker.register()` immediately — no `window.addEventListener("load")` wrapper. Boot is async (awaits cacheInit + provider hydrate), so the load event fires before `registerSW()` runs. Wrapping in load event would silently skip registration. Three update detection paths: (1) `registration.waiting` check on load, (2) `updatefound` + `statechange === "installed"`, (3) `message` listener for `SW_UPDATE_AVAILABLE`. Dedup guard prevents double banners. Reload guard prevents double reload on `controllerchange`.
-
-**`applyUpdate()`**: Gets the registration via `navigator.serviceWorker.getRegistration()` and posts `SW_SKIP_WAITING` to the waiting worker directly. Does NOT post to the controller (which is the OLD worker).
-
-### ConnectionStatus (`components/ConnectionStatus.tsx`)
-
-Renders as the first child in AppShell — always visible regardless of `chromeHidden`.
-
-- **Offline**: Fixed red bar at top (`bg-sig-danger/90`, z-[9999]) with pulsing white dot + "OFFLINE — CACHED DATA ONLY" + RETRY button
-- **RETRY**: Uses `new Image()` probe against `/icons/icon-72x72.png?_=${Date.now()}` — NOT `fetch()`. A failed `fetch()` to an API route can trigger the browser's dinosaur error page (replaces the SPA). Image loads are background requests that can never trigger navigation. If the image loads (server reachable), then reload. If `onerror` fires, reset button.
-- **Pull-to-refresh**: Touch drag down from top of viewport (only when `scrollTop <= 5`). Rubber-band effect (capped at 120px, 0.5x diminishing). At 80px threshold, RefreshCw icon starts spinning. Release triggers `window.location.reload()` ONLY if `navigator.onLine` or `navigator.serviceWorker.controller` exists (cached page available). Never triggers dinosaur.
-- **Reconnected**: Green bar with "RECONNECTED" auto-dismisses after 3 seconds. Only shows if the device was previously offline (`wasOffline` ref).
-
-### Layout Preset Device Isolation
-
-Layout presets use separate cache keys for mobile and desktop: `layoutPresetsDesktop` / `layoutPresetsMobile`. This prevents a 7-pane desktop layout from being loaded on a phone. Legacy presets (from `sigint.layout.presets.v1`) are migrated to desktop only on first load. Mobile starts with no presets. The SettingsModal "RESET LAYOUT" button clears all 6 layout keys (legacy + desktop + mobile).
-
-### SettingsModal
-
-- `paddingTop: env(safe-area-inset-top)` on the full-screen mobile panel so the close button isn't behind the iPhone status bar/Dynamic Island.
-- Close button has 44×44px minimum tap target.
-- Per-key delete buttons in the Storage tab are always visible (no hover-to-reveal — mobile has no hover). `hover:text-sig-danger` for visual feedback on desktop.
-
----
-
-- **Types ONLY, never interfaces** — intellisense populates types better
-- **Tailwind classes preferred** — inline `style=` only for values computed at runtime (dynamic colors, positions, transforms, grid templates, env() safe-area insets). Static properties like `touchAction`, `overscrollBehavior`, `fontSize` with CSS vars must use Tailwind classes or arbitrary value syntax (`[writing-mode:vertical-lr]`).
-- **Async storage** — IndexedDB for all persistence, no localStorage
-- **External links** — `target="_blank" rel="noopener noreferrer"` on every external link
-- **@ts-ignore comments are intentional** — preserve them
-- **No console.log in production code**
-- **Worker code is plain JS** — served from `public/workers/`, no build step
-- **Red reserved for danger/alerts only** — never decorative
-- **Cache is sacred** — don't fetch when cache is fresh, only fetch when stale
-- **Aircraft data goes through the server** — adsb.fi has a 1 req/sec/IP budget; sharing it across users via a single server-side sweep prevents per-user burnout
-- **`require("ws")` stays in aisCache.ts** — bypasses Bun native WebSocket TLS issues
+The server security-header policy applies to development and production responses.

@@ -57,7 +57,7 @@ Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `Curr
 - Storm dossier pane with the full advisory text and forecast table
 - Correlation rules: Hurricane Hunter aircraft proximity, ships sheltering in the lee, GDELT events on the forecast track
 
-Out-of-season returns an empty `activeStorms: []` as a 200, not a 503. Hemisphere-aware: the Atlantic basin gates are skipped between December and May unless the cache already has a non-empty snapshot.
+Out-of-season returns an empty `activeStorms: []` as a 200, not a 503. The three in-scope NHC basin gates are closed from December 16 through May 14 when the cache is empty. A non-empty cache continues to refresh until the active storm clears.
 
 ### Intelligence
 
@@ -78,7 +78,7 @@ Out-of-season returns an empty `activeStorms: []` as a 200, not a 503. Hemispher
 ### Platform
 
 - Dark/light themes
-- Mobile responsive with separate layout presets
+- Mobile responsive with separate live layouts and shared layout presets
 - PWA with offline support, update notifications, pull-to-refresh
 - Offline indicator with connectivity detection
 - Cookie-authenticated API (HMAC-SHA256, HttpOnly)
@@ -97,11 +97,10 @@ Create a `.env` file in the project root with at minimum:
 SIGINT_SERVER_SECRET=<output of openssl rand -hex 32>
 ```
 
-Optionally add keys for ship and fire data:
+Optionally add a key for ship data. NASA FIRMS uses keyless bulk feeds.
 
 ```
 AISSTREAM_API_KEY=<your aisstream.io key>
-FIRMS_MAP_KEY=<your NASA FIRMS key>
 ```
 
 ## Quick Start
@@ -114,7 +113,6 @@ See [Deployment](#deployment) for dev, production, and Heroku options.
 | ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`. Server exits 78 without it.                         |
 | `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data                                                            |
-| `FIRMS_MAP_KEY`                | No       | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/map_key/) key for fire data                                      |
 | `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                            |
 | `PORT`                         | No       | Server port (default: 5500)                                                                                            |
 | `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                  |
@@ -122,26 +120,28 @@ See [Deployment](#deployment) for dev, production, and Heroku options.
 
 ## Data Sources
 
-| Layer    | Source                                                                                              | Poll |
-| -------- | --------------------------------------------------------------------------------------------------- | ---- |
-| Aircraft | [adsb.fi](https://opendata.adsb.fi) (server-side tile sweep, 108 tiles × 250 nm, cold-start hubs)   | 240s |
-| Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                                             | 300s |
-| Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (client-side)                            | 420s |
-| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server-side)                                   | 600s |
-| Weather  | [NOAA](https://api.weather.gov/) (client-side)                                                      | 300s |
-| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone + advisory text products) | 30m  |
-| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                            | 15m  |
-| News     | 6 RSS feeds (server-side)                                                                           | 10m  |
+The browser refresh value is the DataWorker or news-provider request interval. Server collectors can use a different cadence.
+
+| Layer    | Source                                                                                                      | Browser refresh |
+| -------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
+| Aircraft | [adsb.fi](https://opendata.adsb.fi) (continuous server tile acquisition, 108 tiles × 250 nm, priority hubs) | 15s             |
+| Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                                                     | 15s             |
+| Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (direct DataWorker fetch)                        | 420s            |
+| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (keyless server bulk-feed failover)                     | 600s            |
+| Weather  | [NOAA](https://api.weather.gov/) (direct DataWorker fetch)                                                  | 300s            |
+| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone + advisory text products)         | 25m             |
+| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 15m             |
+| News     | 6 RSS feeds (server-side)                                                                                   | 10m             |
 
 ### Aircraft data source — adsb.fi (replaces OpenSky)
 
 Aircraft data is served by [adsb.fi](https://opendata.adsb.fi), a community-supported ADS-B aggregator. Earlier versions of this project used OpenSky Network as the upstream; OpenSky deprecated their free anonymous read tier, so the aircraft path migrated to adsb.fi end-to-end:
 
-- The server runs a 108-tile sweep (250 nm radius each), 3 s spacing, every 300 s, against `https://opendata.adsb.fi/api/v3/lat/{lat}/lon/{lon}/dist/{nm}`. The browser never hits adsb.fi directly — adsb.fi enforces a 1 req/sec/IP cap that a per-user budget would burn instantly.
+- The server runs continuous 108-tile acquisition with a 250 nm radius and at least 3 s between requests. It starts each cold acquisition with 20 priority tiles. The browser never hits adsb.fi directly; adsb.fi enforces a 1 req/sec/IP cap that a per-user budget would burn instantly.
 - Records are enriched against the read-only `ac-db.sqlite` (~617k records) before they hit the cache. The SQLite is built from a one-time export of the OpenSky aircraft metadata database via `scripts/convert-aircraft-csv.ts` and is checked in as the bundled NDJSON source (`src/server/data/ac-db.ndjson` → `ac-db.sqlite` at build time). No live calls to OpenSky remain anywhere in the runtime.
 - The hex-prefix → country mapping in `src/server/data/icao24CountryRanges.ts` is derived from ICAO Annex 10 and replaces the previous OpenSky country field.
 
-Forks: if you're migrating from an older fork that still calls `opensky-network.org` directly, the change is server-only — the `/api/aircraft/states` route shape is unchanged and the client provider (`features/tracking/aircraft/data/provider.ts`) doesn't need updating.
+The current browser path starts in `src/client/workers/data/sources/aircraft.ts`. It calls `src/client/features/tracking/aircraft/data/parseAdsbV2.ts`, which requests `/api/aircraft/states`. The DataWorker does not call adsb.fi or OpenSky directly.
 
 ## Testing
 
@@ -168,8 +168,8 @@ work against a known frozen state. Both are gated on
 
 | Env var            | Source it overrides                                        | Valid labels                                                                                                     |
 | ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `single-cat3`, `single-cat5`, `multi-storm`, `subtropical-example`, `tropical-depression`, `empty-out-of-season` |
-| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | (none shipped — capture via `bun run scripts/capture-fixture.ts aircraft <label>`)                               |
+| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `active-season`, `single-cat3`, `empty-out-of-season`                     |
+| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | `dossier-baseline`, `hunter-near-cyclone`, `test-snapshot`                |
 
 Labels match `/^[a-z0-9-]+$/` (OWASP A01 — strict allowlist before any
 file lookup) and resolve to `tests/fixtures/<source>/<label>.json`.
@@ -177,14 +177,14 @@ Invalid labels throw at startup; missing files throw with the resolved
 path. To use:
 
 ```bash
-CYCLONES_FIXTURE=multi-storm bun run dev
-AIRCRAFT_FIXTURE=conus-snapshot bun run dev
+CYCLONES_FIXTURE=active-season bun run dev
+AIRCRAFT_FIXTURE=test-snapshot bun run dev
 ```
 
 Or via Docker Compose (`docker-compose.dev.yml` passes both through):
 
 ```bash
-CYCLONES_FIXTURE=single-cat5 bun run docker:dev:up
+CYCLONES_FIXTURE=single-cat3 bun run docker:dev:up
 ```
 
 ### Production
@@ -231,7 +231,7 @@ Full technical docs in [`docs/`](./docs/README.md) covering architecture, data f
 
 Dual-licensed:
 
-- **Non-commercial** free under the [SIGINT Non-Commercial License](./LICENSE.md)
+- **Non-commercial** free under the [SIGINT Non-Commercial License](./LICENSE)
 - **Commercial** [contact the author](https://github.com/iiTONELOC) for terms
 
 ## Author

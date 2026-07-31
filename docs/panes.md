@@ -1,372 +1,239 @@
 # Pane System
 
-[← Back to Docs Index](./README.md)
+[Back to the documentation index](./README.md)
 
-**Related docs**: [Architecture](./architecture.md) · [Data Flow](./data-flow.md) · [Caching](./caching.md) · [Rendering](./rendering.md)
+Related documents: [Architecture](./architecture.md), [Data flow](./data-flow.md), and [Rendering](./rendering.md).
 
----
+## Purpose
 
-## Overview
+The pane system controls the application work area. It is independent from globe rendering and source-data ownership.
 
-The application uses a multi-pane layout managed by `PaneManager`. App-level chrome (Header, Ticker) lives outside the pane system in `AppShell`. Each pane is an independent view of the shared data from `DataContext`.
+`PaneManager` owns the pane layout. `AppShell` owns the header and ticker outside the pane layout.
 
----
+## Pane types
 
-## PaneManager
+The application has eight pane types.
 
-`panes/PaneManager.tsx` is the layout engine sitting between AppShell and the pane components.
+| Type | Component | Purpose |
+| --- | --- | --- |
+| `globe` | `LiveTrafficPane` | Globe, map controls, and watch controls |
+| `data-table` | `DataTable` | Bounded source tables |
+| `dossier` | `Dossier` | Current entity details |
+| `intel-feed` | `IntelFeed` | Correlation products |
+| `news-feed` | `NewsFeed` | RSS news articles |
+| `alert-log` | `AlertLog` | Correlation alerts |
+| `raw-console` | `RawConsole` | Selected record or system status |
+| `video-feed` | `VideoFeed` | HLS channel grid |
 
-### Layout — Binary Split Tree
+One pane type can appear one time in the active or minimized layout.
 
-The layout is a recursive binary split tree. Each node is either a leaf (renders a pane) or a split (two children with a direction and ratio):
+## Layout model
 
-```typescript
-type LeafNode = { type: "leaf"; id: string; paneType: PaneType };
-type SplitNode = { type: "split"; id: string; direction: "h" | "v"; ratio: number; children: [LayoutNode, LayoutNode] };
-type LayoutNode = LeafNode | SplitNode;
-type LayoutState = { root: LayoutNode; minimized: { id: string; paneType: PaneType }[] };
+The layout is a binary tree.
+
+```text
+LayoutState
+  root: LayoutNode
+  minimized: MinimizedPane[]
+
+LayoutNode
+  leaf
+    id
+    paneType
+  split
+    id
+    direction
+    ratio
+    children[0]
+    children[1]
 ```
 
-Split nodes render as CSS Grid with `gridTemplateColumns` (horizontal) or `gridTemplateRows` (vertical) using fractional units. A 4px `ResizeHandle` sits between children.
+A horizontal split places its children side by side. A vertical split places one child below the other.
 
-- Default layout: single globe pane, full screen
+The default layout contains one globe leaf.
 
-### Pane Operations
+## Desktop layout
 
-| Operation | Behavior |
-|---|---|
-| **Split H / Split V** | Wraps the current leaf in a split node with a new pane as sibling. If only one type available, splits immediately; otherwise opens a dropdown menu. |
-| **Close** | X button removes the pane via `removeLeaf()`, promotes sibling. Cannot close the last pane — falls back to default layout. |
-| **Minimize** | Minus button records the pane's parent split direction, ratio, side (wasSecond), and sibling ID, then collapses to a tab in the toolbar. Click tab to restore at the exact original position (finds sibling in tree, re-inserts). Falls back to root if sibling was removed. |
-| **Change Type** | Click pane title → dropdown of all other pane types → swaps in place via `replaceNode()`. |
-| **Drag to Move** | Drag grip handle on pane header → drop on another pane. Drop zone determined by cursor position: **center** (inner 50%) swaps pane types in place, **edges** (outer 25%) inserts source beside target in that direction (left/right = horizontal split, top/bottom = vertical split). Ghost overlay shows translucent blue half-fill with directional label (⇄ SWAP, ← → ↑ ↓ INSERT). |
-| **Resize** | Drag the handle between split children. Min ratio 0.1, max 0.9. Visual indicator line during drag. |
-| **Layout Presets** | VIEWS button in PaneManager toolbar (desktop) and PaneMobile tab bar (mobile) opens `LayoutPresetMenu`. Save current layout as a named preset, load a saved preset, update an existing preset (save icon overwrites with current layout), or delete. Presets are device-specific — desktop presets stored under `sigint.layout.presets.desktop.v1`, mobile under `sigint.layout.presets.mobile.v1`. Legacy presets (from `sigint.layout.presets.v1`) are migrated to desktop on first load; mobile starts fresh. |
+The desktop renderer walks the layout tree recursively.
 
-### Pane Types
+- A leaf renders `PaneHeader` and its pane component.
+- A split renders a CSS grid and one `ResizeHandle`.
+- The split ratio controls the two grid tracks.
+- The toolbar shows minimized panes and layout presets.
 
-| Type | Component | Limit | Description |
-|---|---|---|---|
-| `globe` | LiveTrafficPane | 1 | Interactive globe/map with all overlays |
-| `data-table` | DataTablePane | 1 | Virtual-scrolling sortable/filterable table |
-| `dossier` | DossierPane | 1 | Entity dossier — aircraft photos/route, ship details, event/quake/fire info |
-| `intel-feed` | IntelFeedPane | 1 | Scrollable intel feed — GDELT events, quakes, fires with severity badges |
-| `alert-log` | AlertLogPane | 1 | Priority alerts — emergency squawks, high-FRP fires, severe weather, crisis events. Filter by type, sort by time/priority. |
-| `raw-console` | RawConsolePane | 1 | Raw data console — JSON view of incoming data streams |
-| `video-feed` | VideoFeedPane | 1 | Live HLS video streams — iptv-org news channels, grid layout, presets |
-| `news-feed` | NewsFeedPane | 1 | RSS news feed — 6 world news sources, source filters, inline article detail |
+The desktop layout fills the work area. Pane content does not own the application header or ticker.
 
-Each type can only appear once (no duplicate globes).
+## Desktop operations
 
-### Lazy Loading + Error Boundaries
+`PaneManager` supports these operations:
 
-All non-globe panes are lazy-loaded via `React.lazy()` with per-pane `Suspense` boundaries and `ErrorBoundary` wrappers. Each pane directory contains:
+- Split a pane
+- Close a pane
+- Minimize a pane
+- Restore a minimized pane
+- Change a pane type
+- Resize a split
+- Swap two pane types
+- Move a pane beside another pane
+- Save, load, update, and delete a layout preset
 
-- `index.tsx` — exports the lazy wrapper: `ErrorBoundary` → `Suspense` (with skeleton fallback) → lazy-loaded pane component
-- `*Skeleton.tsx` — animate-pulse placeholder matching the pane's layout structure
+A close operation collapses the parent split. The sibling replaces the removed split.
 
-Globe loads eagerly (default pane). If a lazy pane crashes, its `ErrorBoundary` shows a RETRY button with auto-retry (3 attempts, 5s). An app-level `ErrorBoundary` wraps everything as a last resort.
+A minimize operation stores the parent direction, ratio, sibling identifier, and child order. A restore operation first tries to rebuild the original relationship.
 
-### Persistence
+## Desktop move behavior
 
-Layout state (pane configs, split tree, ratios) is persisted with separate keys for mobile and desktop: `sigint.layout.desktop.v1` / `sigint.layout.mobile.v1`. The legacy key `sigint.layout.v1` is checked as a fallback for migration. `isMobile` is determined before layout load in PaneManager. Every layout change triggers a persist to the device-appropriate key. Invalid or corrupt layouts fall back to default (single globe pane).
+Desktop drag uses five target zones.
 
-### Dossier Open Bridge
+- The center zone swaps two pane types.
+- The top zone inserts the source above the target.
+- The bottom zone inserts the source below the target.
+- The left zone inserts the source to the left.
+- The right zone inserts the source to the right.
 
-`lib/layoutSignals.ts` provides a cross-component event system using `useSyncExternalStore`:
+An insert operation removes the source leaf and collapses its old parent. It then creates a new split at the target.
 
-- `setDossierOpen(bool)` — PaneManager signals whether a dossier pane exists in the tree
-- `useHasDossier()` — LiveTrafficPane reads to decide whether to show DetailPanel
-- `requestDossierOpen()` — DetailPanel fires this to ask PaneManager to add a dossier pane
-- `onDossierOpenRequest(cb)` — PaneManager listens and auto-splits the globe pane with a dossier at 75/25 ratio
+## Mobile layout
 
-### Watch Layout Bridge
+`PaneMobile` converts the same layout tree to a vertical block list.
 
-Same event system, separate channel:
+The conversion uses these rules:
 
-- `requestWatchLayout()` — DataContext fires this when watch starts and every 3s during active watch
-- `onWatchLayoutRequest(cb)` — PaneManager listens and ensures dossier + alert-log + intel-feed panes exist. `ensurePane` scans the current tree by pane type on each call. Missing panes are created with defined anchor relationships: dossier right of globe (75/25), alerts below globe (65/35), intel right of alerts (50/50). Closed panes during watch are re-created within 3 seconds.
+- A top-level vertical split becomes separate blocks.
+- A shallow horizontal split with two leaves remains one side-by-side block.
+- A deep horizontal split becomes separate blocks.
+- A single leaf becomes one block.
 
-Both listeners use `setLayout((prev) => ...)` functional form to avoid stale closures.
+The globe and video panes must remain full width on mobile. `FULL_WIDTH_ONLY` enforces this rule.
 
-### Chrome Visibility
+## Mobile block behavior
 
-When `chromeHidden` is true, the PaneManager toolbar and pane headers are hidden alongside Header and Ticker. Only pane content remains visible.
+The mobile work area has a sticky tab bar and a scrollable block column.
 
----
+Each block has a default height. The operator can resize, minimize, move, split, close, or change a block.
 
-## LiveTrafficPane
+`IntersectionObserver` tracks the block in view. The active tab follows that block.
 
-`panes/live-traffic/LiveTrafficPane.tsx` — the globe pane.
+An offscreen block renders a lightweight placeholder instead of its pane component. This rule limits hidden work.
 
-Reads everything from `useData()`. Local state: `panelSide` (which side the detail panel renders on), `watchMenuOpen` (WATCH dropdown visibility).
+A side-by-side mobile split can minimize one child to a narrow vertical tab. A child can also move out to its own block.
 
-Renders:
+## Mobile move behavior
 
-- `GlobeVisualization` — full-size Canvas 2D with Web Worker point rendering
-- **View controls overlay** (top-left): FLAT/GLOBE toggle, ROT toggle (default paused), WATCH button (dropdown: ALERTS/INTEL/ALL, pause/resume/stop states), SPD slider, watch counter
-- `DetailPanel` — auto-positions opposite selected item with 35%/65% hysteresis. LOCATE button zooms to selected entity on demand (no auto-zoom on Focus/Solo toggle). Shows "OPEN IN DOSSIER" button when no dossier pane is open (fires `requestDossierOpen()`); shows intel links when dossier IS open. Two-row toolbar: icon + title + close X on top row, LOCATE/FOCUS/SOLO buttons on second row.
+The operator taps a grip to enter move mode.
 
-### Watch Controls (Globe Overlay)
+Move mode supplies these actions:
 
-Three visual states:
+- Move above
+- Move below
+- Move left
+- Move right
+- Swap
 
-| State | Button | Additional UI |
-|---|---|---|
-| **Inactive** | 👁 WATCH → click opens dropdown (ALERTS / INTEL / ALL) | — |
-| **Active** | ⏸ WATCH → click pauses | Counter badge: "18/116 · ALERTS" |
-| **Paused** | ▶ RESUME + ✕ stop | Yellow "PAUSED 18/116 · ALERTS" badge |
+Left and right actions are not available when either pane must remain full width.
 
-Watch menu closes on outside click. During active watch, globe rotation is enabled automatically.
+## Persistence
 
-Passes `spatialGrid`, `filteredIds`, `revealId` from DataContext to GlobeVisualization.
+Live layouts use device-specific keys.
 
-All overlays are gated on `chromeHidden` except the globe itself.
+| Layout | Cache key |
+| --- | --- |
+| Desktop | `sigint.layout.desktop.v1` |
+| Mobile | `sigint.layout.mobile.v1` |
 
-Selecting a data point stops auto-rotation, unhides chrome if hidden.
+The legacy `sigint.layout.v1` key is a migration input.
 
----
+Named presets use `sigint.layout.presets.shared.v1`. A preset is available on desktop and mobile.
 
-## DataTablePane
+The loader merges legacy preset lists by preset name. It writes the merged list to the shared key.
 
-`panes/data-table/DataTablePane.tsx` — the data table pane.
+## Dossier placement
 
-### Virtual Scrolling
+The dossier is an independent pane. The globe does not render dossier content.
 
-Only renders rows visible in the viewport plus 8 overscan rows. Fixed row height of 28px. Uses `ResizeObserver` to track viewport height. Even with 500+ items, only ~30-40 DOM nodes exist at any time.
+`layoutSignals.ts` supplies a bounded cross-component request. `requestDossierOpen()` asks `PaneManager` to show the dossier.
 
-### Columns
+`PaneManager` performs these operations:
 
-| Column | Key | Content |
-|---|---|---|
-| TYPE | `type` | Feature icon + abbreviation (AC, AIS, EVT, EQ) |
-| NAME | `name` | Callsign, vessel name, headline, or location |
-| CLS | `value1` | Aircraft type, vessel type, category, or magnitude |
-| DTL | `value2` | Altitude, speed, source, or depth |
-| LAT | `lat` | Latitude (2 decimal places) |
-| LON | `lon` | Longitude (2 decimal places) |
-| AGE | `age` | Relative age (LIVE, 5m, 2h, 3d) |
-| — | zoom | Crosshair button — zooms to item on globe |
+1. Return when the dossier is already active.
+2. Restore the dossier when it is minimized.
+3. Split the globe and add the dossier when the globe exists.
+4. Split the root when the globe does not exist.
 
-All columns are sortable (click header to toggle asc/desc). Each column header has a descriptive tooltip.
+On mobile, a current selection requests the dossier pane when the dossier is not open.
 
-### Filtering
+`useHasDossier()` supplies one Boolean projection. `LiveTrafficPane` uses it to suppress the desktop overlay detail panel when the dossier pane is open.
 
-Filter bar at top with per-feature type buttons. Shows counts per type. "ALL" button clears type filter.
+## Watch layout
 
-Data is first filtered through each feature's `matchesFilter()` (respects layer toggles and aircraft filter), then optionally filtered by the selected type button.
+Watch mode sends a layout request through `layoutSignals.ts`.
 
-### Cross-Pane Interaction
+`PaneManager` makes sure that these panes are available:
 
-- Click a row → `setSelected(item)` — selects on globe, opens detail panel
-- Click crosshair button → `setSelected(item)` + `setZoomToId(item.id)` — selects AND zooms to on globe
-- Selected row is highlighted (synced with globe selection)
-- **Auto-scroll**: When selection changes from an external source (ticker click, globe click), the table auto-scrolls to bring the selected row into view. If already visible, no scroll occurs.
+- Dossier
+- Alert log
+- Intelligence feed
 
----
+The manager restores a minimized pane before it creates a new pane. It uses the globe and alert panes as placement anchors when they are available.
 
-## PaneHeader
+## Walkthrough integration
 
-`panes/PaneHeader.tsx` — thin header bar rendered above each pane.
+The walkthrough can request a globe-only layout. `PaneManager` preserves a non-default user layout as a preset before the reset when necessary.
 
-Shows: drag grip handle (GripVertical, left, "Drag to move" tooltip), clickable label with chevron (opens pane type dropdown for in-place swap), split right (Columns2) and split down (Rows2) buttons, minimize button, close button. All buttons have 36px minimum touch targets.
+The walkthrough can also request the removal of an incorrect pane. `PaneManager` publishes a bounded layout snapshot for walkthrough completion checks.
 
----
+These signals do not own the pane tree.
 
-## DossierPane
+## Globe pane
 
-`panes/dossier/DossierPane.tsx` — entity dossier pane.
+`LiveTrafficPane` mounts `GlobeVisualization` and the globe controls.
 
-Shows enriched data for the currently selected entity. Content varies by type:
+The globe pane sends semantic selection, search, focus, reveal, and globe-state commands. It does not send geographic source arrays.
 
-**Aircraft**: Photo from planespotters.net (direct URL per ToS, photographer credit with 8s load timeout), identity (hexdb.io aircraft info), live telemetry (altitude, speed, heading, squawk, V/S), route (hexdb.io callsign→ICAO origin/dest→airport details), intel links (FlightAware, FR24, ADS-B Exchange, Planespotters, JetPhotos).
+The render surface owns the canvas lifecycle. The RenderWorker owns frames. See [Rendering](./rendering.md).
 
-**Ships**: MMSI, IMO, call sign, type, flag (derived from MMSI MID), destination, telemetry (SOG, COG, heading, nav status), dimensions, intel links (MarineTraffic, VesselFinder, Equasis).
+## Data table
 
-**Events**: Headline, category, severity, tone, source, origin country, location, article link.
+The data table requests bounded DataWorker pages. It owns table sort, filter, and view state.
 
-**Earthquakes**: Magnitude, depth, tsunami alert, felt reports, USGS detail link.
+A table selection updates the React selected-record copy and sends a semantic selection command to the RenderWorker.
 
-**Fires**: FRP (fire radiative power), brightness temperature, confidence level, satellite/instrument, detection time (day/night), pixel size, intel links (NASA FIRMS map, Google Maps satellite).
+The table does not own the source dataset.
 
-**Weather**: Severity, event type, area description, onset/expiry, headline.
+## Dossier
 
-Server endpoint for aircraft: `/api/dossier/aircraft/:icao24?callsign=` — hexdb.io for aircraft info + route, planespotters.net for photos. Memory cache (30min text, 12h photos). Client-side IndexedDB cache under `sigint.dossier.cache.v1` (30min TTL, max 200 entries).
+The dossier reads the selected record copy. Hooks can request one fresh entity, one trail, or one dossier from the DataWorker.
 
-Dossier toolbar is two-row responsive: row 1 has icon + title + close X, row 2 has LOCATE/FOCUS/SOLO buttons with full text labels (IsoBtn). LOCATE zooms to the entity on demand. "Open in Dossier" from DetailPanel checks the minimized array first and restores at original position instead of creating a new pane.
+A source version can cause a bounded refresh of current dossier data. The dossier does not subscribe to a full source array.
 
-### Cross-Pane Signal
+## Intelligence and alert panes
 
-Uses `useSyncExternalStore` signal in `lib/layoutSignals.ts` — NOT React context. PaneManager calls `setDossierOpen(bool)` in a `useEffect`. LiveTrafficPane reads via `useHasDossier()`. This hides DetailPanel when dossier pane is open.
+The intelligence and alert panes read correlation results from `DataContext`.
 
----
+Their item actions can select an entity and send a semantic reveal command to the RenderWorker.
 
-## IntelFeedPane
+## News pane
 
-`panes/intel-feed/IntelFeedPane.tsx` — correlated intelligence feed pane.
+The news pane reads `newsArticles` from `DataContext`. News is a non-geographic React provider.
 
-Reads `correlation` from `useData()` context. Two view modes toggled via toolbar: INTEL (correlated products) and RAW (chronological firehose).
+News articles do not enter the DataWorker geographic source catalog or the RenderWorker scene protocol.
 
-### INTEL View
+## Raw console
 
-Shows correlated intelligence products derived from the correlation engine. Products are expandable cards with:
+The raw console shows one selected record or bounded system status. It does not show a React-owned geographic collection.
 
-- **Type badge**: CORRELATION, ANOMALY, CLUSTER, TREND, or NEWS LINK with corresponding icon
-- **Priority badge**: P1-P9 color-coded (red ≥8, orange ≥5, yellow below)
-- **Region**: Country or region identifier
-- **Title + summary**: "Conflict event with 4 fire detections within 75km", "Activity spike in MX — 221 events in 6h vs 36.3 expected"
-- **Expandable details**: Click to see source DataPoints (clickable, with ISS reveal + locate) and linked news articles (external link)
+## Video pane
 
-Summary bar at top shows counts: X correlations, Y anomalies, Z clusters.
+The video pane owns its grid, channels, audio selection, and video presets. It does not participate in geographic source ownership.
 
-### RAW View
+## Pane rules
 
-Chronological feed of GDELT events, quakes, fires, weather — sorted newest-first. Per-type filter buttons with counts. Severity badges (MON/CON/TEN/CRI). Source attribution, location context, external links, zoom-to buttons. Virtual-scrolled (68px row height, 6 row overscan).
-
-### Watch Integration
-
-Reads `watchActive`, `watchMode`, `watchProgress` from context. When watch source is "intel" or "all" AND `currentItemSource === "intel"`:
-- Shows "WATCHING" badge in toolbar
-- Highlights the product containing the current watch target with `bg-sig-accent/15` + `ring-1 ring-sig-accent/30`
-- Auto-scrolls the product into view via `scrollIntoView`
-- Shows progress bar (fills left-to-right over 8s dwell)
-
-During ALL mode watch, selection highlight is suppressed when `currentItemSource` doesn't match "intel" to prevent both panes highlighting simultaneously.
-
-### Cross-Pane Interaction
-
-- Click any item → `setSelected(item)` + `setRevealId(item.id)` — ISS-level reveal on globe
-- Locate button → `selectAndZoom(item)` — full deep zoom
-
----
-
-## AlertLogPane
-
-`panes/alert-log/AlertLogPane.tsx` — context-scored priority alerts pane.
-
-Reads `correlation.alerts` from `useData()` context. Alerts are produced by the correlation engine's alert scorer — composite 1-10 scores with human-readable factor breakdowns. Deduped by country + type + hour.
-
-### Features
-
-- **Filter tabs** at top — per-type buttons with icons and counts. Click to filter, click again for all.
-- **Sort toggle** — ⚡ SCORE (highest score first, default) or ⏱ NEW (newest first)
-- **Score badges** — numeric 1-10 score with color coding (red ≥8, orange ≥5, yellow below)
-- **Score border** — colored left border matches score severity
-- **Factor breakdown** — each alert shows its scoring factors (e.g., "Severity 5/5 · Region elevated (5.0× baseline) · Correlated with other source")
-- **Dedup labels** — "CRISIS EVENT (+4 similar)" when multiple events in the same country/type/hour are collapsed
-- **Dismiss alerts** — X button per alert, persisted to IndexedDB (`sigint.alerts.dismissed.v1`). Dismissed alerts filtered from list and watch cycle. Restore button in toolbar shows count and clears all dismissed.
-- **Virtual scrolling** — ROW_HEIGHT 72px, OVERSCAN 6 rows. Scroll resets on filter/sort change.
-- **Cross-pane interaction** — click uses ISS reveal (`setSelected` + `setRevealId`), locate button does full deep zoom (`selectAndZoom`)
-
-### Watch Integration
-
-No local WATCH button — watch is controlled from the globe overlay. The Alert Log reads shared watch state:
-
-- Shows "WATCHING X/Y" badge when `currentItemSource === "alerts"`
-- Highlights current watch target with `bg-sig-accent/15`
-- Auto-scrolls to current watch target via `scrollToIndex`
-- Shows progress bar (fills left-to-right)
-- During ALL mode, suppresses `isSelected` highlight when `currentItemSource` doesn't match "alerts"
-
----
-
-## VideoFeedPane
-
-`panes/video-feed/VideoFeedPane.tsx` — live HLS video streams.
-
-Uses **HLS.js** (Apache 2.0 license) to play `.m3u8` streams from the **iptv-org** community channel directory (`iptv-org.github.io/api/streams.json` + `channels.json`). No iframes — direct `<video>` element playback.
-
-### Features
-
-- **Grid layouts**: 1×1, 2×1, 2×2, 3×3 toggle via toolbar
-- **Channel picker**: search + region tabs (ALL, ★ TOP, US, AMER, EUR, MENA, ASIA, AFR, OCE)
-- **Virtual-scrolled channel list** — full ~3K channels, no cap
-- **Featured channels** pinned to top: Al Jazeera, Sky News, BBC, CNN, Fox, C-SPAN, PBS, NewsMax, Bloomberg, etc.
-- **Error recovery**: RETRY / CHANGE / CLOSE buttons on stream failure, 15s load timeout, max 2 retries
-- **Focus/unfocus**: In grid mode (2×1, 2×2, 3×3), Minimize2 icon focuses a single channel to 1×1. When focused, the same icon (cyan) appears in the controls bar to restore the previous grid layout.
-- **Audio**: only one slot unmuted at a time
-- **Theme-aware backgrounds**: Video container and `<video>` element use `bg-sig-bg` — follows light/dark theme. Scrims over video content stay dark for readability. Video control tooltips use native `title` attributes (not Tooltip component) to prevent stuck tooltips when `pointer-events` toggles.
-- **Auto-save**: grid layout + channel selections persist to `sigint.videofeed.state.v1`. Restored on mount.
-- **Presets**: bookmark icon in toolbar → save/load/delete named channel configurations. Save icon on each preset overwrites with current grid + channels (no delete + recreate needed). Stored under `sigint.videofeed.presets.v1`.
-
-**Dependency**: `bun add hls.js` required.
-
----
-
-## RawConsolePane
-
-`panes/raw-console/RawConsolePane.tsx` — raw data console pane.
-
-Shows a raw JSON view of the currently selected entity (or system status when nothing is selected). JSON output uses inline syntax highlighting via a regex tokenizer — zero external dependencies. Color mapping uses SIGINT theme CSS variables for automatic dark/light theme support:
-
-| Token | Color | Source |
-|---|---|---|
-| Keys | `text-sig-accent` | Tailwind class |
-| Strings | `text-sig-bright` | Tailwind class |
-| Numbers | `var(--sigint-fires)` | Inline style (not registered in Tailwind) |
-| Booleans | `var(--sigint-warn)` | Inline style (not registered in Tailwind) |
-| Null | `text-sig-dim italic` | Tailwind class |
-| Brackets/punctuation | `text-sig-dim` | Tailwind class |
-
-Long values use horizontal scroll (`whitespace-pre overflow-x-auto`) to preserve JSON indentation — no word wrapping. COPY button copies raw JSON to clipboard.
-
----
-
-## NewsFeedPane
-
-`panes/news-feed/NewsFeedPane.tsx` — RSS news feed pane.
-
-Displays aggregated world news from 6 RSS sources fetched server-side. This is a **non-geographic** data source — it does NOT use DataPoint, allData, DataContext, the feature registry, or the globe. It is entirely self-contained within the pane folder.
-
-### Architecture
-
-- **Server**: `newsCache.ts` polls 6 RSS feeds every 10 minutes, parses XML, deduplicates, caches up to 200 articles in memory. Served via `/api/news/latest` with token auth and gzip.
-- **Client provider**: `features/news/data/newsProvider.ts` mirrors the BaseProvider contract (hydrate/refresh/getData/getSnapshot) for `NewsArticle[]` instead of `DataPoint[]`. IndexedDB persistence under `sigint.news.articles.v1`. 30-minute staleness threshold.
-- **Client hook**: `useNewsData.ts` follows the `useProviderData` pattern — subscribes to `onChange`, reads from `getSnapshot()`, manages poll interval. Does NOT call `getData()` on mount — initial data comes from the boot sequence in `frontend.tsx`. Called once in `DataContext`, exposed as `newsArticles` on context value. `NewsFeedPane` reads from `useData()` — does NOT call the hook directly.
-
-### Features
-
-- **List view**: Virtual-scrolled article list (72px row height, 6 row overscan). Each row shows source name, headline, description snippet, and relative age.
-- **Source filter buttons**: ALL + per-source buttons with counts. Buttons wrap to multiple rows in narrow panels. Source labels shortened for compact display (Reuters, NYT, BBC, etc.).
-- **Inline detail view**: Click article → shows headline, description, source, age. External link button opens full article in new tab. BACK button returns to list.
-- **State persistence**: Selected article ID and source filter persisted to IndexedDB under `sigint.news.state.v1`. Survives drag-to-swap, minimize/restore, and pane type switching. One-time restore on mount (does not re-trigger on BACK).
-
-### Sources
-
-| Source | Feed URL | Type |
-|--------|----------|------|
-| Reuters via Google | `news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US` | RSS |
-| NYT World | `rss.nytimes.com/services/xml/rss/nyt/World.xml` | RSS |
-| BBC World | `feeds.bbci.co.uk/news/world/rss.xml` | RSS |
-| Al Jazeera | `www.aljazeera.com/xml/rss/all.xml` | RSS |
-| The Guardian | `www.theguardian.com/world/rss` | RSS |
-| NPR World | `feeds.npr.org/1004/rss.xml` | RSS |
-
-### Settings
-
-"NEWS FEEDS" tab in SettingsModal shows default source list (informational) and a cache clear button.
-
----
-
-## Mobile Layout
-
-Under 768px, PaneManager switches to mobile mode via `PaneMobile`. Mobile-specific adaptations:
-
-- **Safe area insets** — `AppShell` root div applies `env(safe-area-inset-*)` padding on all four sides. Header clears the iPhone notch/status bar, ticker has `paddingBottom: max(0.25rem, env(safe-area-inset-bottom))` for iPhone home bar. SettingsModal has `paddingTop: env(safe-area-inset-top)` so close button isn't behind status bar/Dynamic Island.
-- **Vertical scrollable column** — blocks from binary split tree. Vertical splits become separate column blocks, horizontal splits stay as one block rendered side-by-side with ResizeHandle.
-- **Sticky tab bar** with IntersectionObserver for active block tracking. Per-block tabs with icons and labels. Minimized panes show as dimmed tabs. `min-h-8` touch targets.
-- **VIEWS button** — in the tab bar with `ml-auto` (pushed to right edge). Opens `LayoutPresetMenu` with device-specific mobile presets. Save icon for overwrite (not pencil).
-- **Per-leaf headers** use `flex-wrap` so action buttons (pop-out, minimize, close) wrap to a second row on narrow H-splits instead of being clipped off-screen. Action buttons grouped in a `shrink-0` div to wrap as a unit.
-- **Per-block height state** with drag resize handle at bottom.
-- **HTML5 drag-to-reorder** between blocks.
-- **IntersectionObserver lazy rendering** (200px rootMargin) — off-screen blocks show placeholder.
-- Single pane fills full viewport height (`calc(100vh - 120px)`).
-- Split H → stays in same block. Split V → new block below. Add pane → splits last block vertically.
-- Close button (X) on active tab when multiple panes open.
-- Layer toggles go icon-only (no count label) below `sm` breakpoint with tighter gaps/padding.
-- On `lg:` and up, Header renders as a single row (logo + search + toggles + aircraft filter + clock). Below `lg`, two-row layout (logo+clock / toggles centered).
-- Detail panel renders as a bottom sheet (`max-h-[40vh]`) with `useSheetDismiss` hook — touch drag to dismiss with velocity detection (>80px or >0.5 px/ms). Snaps back on insufficient drag. Wider drag handle.
-- Detail panel on desktop: `max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll` — scrolls when content exceeds pane height.
-- **Ticker compact mode** — below `sm` (640px), ticker items render as single-line strips instead of full cards. "LIVE FEED" label hidden. Tighter padding.
-- Add-pane button positioned before the flex spacer (always visible, not pushed off-screen).
-- Add-pane dropdown items have 44px minimum touch targets.
+- Keep the pane tree in `PaneManager`.
+- Keep the globe and dossier as independent panes.
+- Keep live desktop and mobile layouts separate.
+- Keep named presets shared.
+- Keep each pane type unique in the layout.
+- Keep hidden mobile blocks lightweight.
+- Use bounded signals for cross-component layout requests.
+- Use bounded DataWorker queries for geographic pane content.
+- Do not make a pane the owner of source records.

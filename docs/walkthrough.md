@@ -1,131 +1,180 @@
 # Walkthrough System
 
-[← Back to Docs Index](./README.md)
+[Back to the documentation index](./README.md)
 
-**Related docs**: [Pane System](./panes.md) · [Rendering](./rendering.md) · [Constraints](./constraints.md)
+Related documents: [Pane system](./panes.md), [Rendering](./rendering.md), and [Constraints](./constraints.md).
 
----
+## Purpose
 
-## Overview
+The walkthrough gives the operator a guided tour of SIGINT. It uses separate desktop and mobile step lists.
 
-`components/Walkthrough.tsx` + `lib/walkthroughSteps.ts` — guided onboarding tour for new users. Two-tier system (essential + advanced) with separate step definitions for desktop and mobile. Renders as a portal overlay with a draggable tooltip, pulsing highlight rings on target elements, and click indicators on the globe.
+`src/client/lib/ui/walkthroughSteps.ts` defines the steps. `src/client/components/Walkthrough.tsx` renders the overlay and detects step completion.
 
----
+## Start and persistence
 
-## Architecture
+`AppShell` checks `sigint.walkthrough.complete.v1` after startup. It starts the walkthrough after 2.5 seconds when the value is not true.
 
-Step definitions live in `walkthroughSteps.ts`; rendering, positioning, and completion detection live in `Walkthrough.tsx`.
+The Settings dialog can start one of these modes:
 
-**Step types**:
-- `"info"` — user reads the tooltip and clicks NEXT to advance
-- `"action"` — user performs an action (select a target, split a pane, save a preset), walkthrough detects completion via `completionCheck()` and auto-advances after 600ms
+- Essential steps
+- Advanced steps
+- Essential and advanced steps
 
-**Highlight rings**: Up to 4 simultaneous pulsing rings per step via `buttonSelector`, `highlightSelector`, `tertiarySelector`, `quaternarySelector`. Each ring tracks its target element via `requestAnimationFrame` and renders as a portaled absolutely-positioned div. Ring colors: cyan (default), warn (yellow), magenta, danger (red).
+The first walkthrough action requests a globe-only pane layout. `PaneManager` preserves a non-default user layout as a preset when necessary.
 
-**Tooltip positioning**: `computeTooltipPos()` uses obstacle avoidance — collects rects from highlight selectors, open menus (`[data-wt-menu]`), click indicators (`[data-wt-indicator]`), and the target cutout. Generates candidate positions (above/below obstacles, viewport corners, directional placement), picks the first non-overlapping position. Search step is special-cased to pin to the absolute bottom of the screen (uses `window.innerHeight` instead of visual viewport to avoid keyboard-shift on mobile). Tooltip is draggable via pointer events.
+The Skip action closes the walkthrough for the current session. The Do Not Show Again action stores the completion value. The Escape key also skips the current session.
 
-**Completion detection**: Action steps use `completionCheck()` which receives `(leafTypes, leafCount, presetCount, selectedId, chromeHidden, videoPresetCount)` from `lib/layoutSignals.ts` signals. When the check returns true, the step auto-advances after 600ms. Wrong pane types trigger `requestWalkthroughUndo()` to remove the incorrect pane.
+## Step contract
 
-**Persistence**: `walkthroughComplete` flag stored in IndexedDB under `sigint.walkthrough.complete.v1`. SKIP dismisses for the session only (shows again next visit). DON'T SHOW AGAIN persists the flag permanently. Re-launchable from Settings in essential, advanced, or both modes.
+Each `WalkthroughStep` contains these fields:
 
----
+- A unique step identifier
+- A target selector
+- A title and short description
+- A tooltip placement
+- An information or action mode
+- An optional completion test
+- An optional expected pane type
+- Up to four highlight selectors
+- Optional highlight colors
 
-## Desktop Steps — Essential (Tier 1, 13 steps)
+An information step advances when the operator selects Next.
 
-Shown automatically on first visit after a 2.5s delay. Mix of info and action steps.
+An action step advances when its completion test returns true. The walkthrough waits 600 milliseconds before it advances.
 
-| # | ID | Type | Title | Action |
-|---|---|---|---|---|
-| 1 | `welcome` | info | Welcome to SIGINT | Introduction, targets header brand |
-| 2 | `layers` | info | Data Layers | Highlights layer toggles |
-| 3 | `globe-select` | action | Select a Target | User clicks a point on the globe. Pulsing click indicator over North America. |
-| 4 | `globe-drag-detail` | info | Move the Detail Panel | Highlights drag handle, shows dashed landing zone on globe |
-| 5 | `globe-deselect` | action | Deselect | User clicks empty space. Click indicator in collision-free position. |
-| 6 | `focus-enter` | action | Enter Focus Mode | User clicks empty space to hide chrome. Yellow click indicator. |
-| 7 | `focus-exit` | action | Exit Focus Mode | User clicks empty space to restore chrome |
-| 8 | `search` | info | Global Search | Highlights search bar, tooltip pinned to screen bottom (avoids keyboard on mobile) |
-| 9 | `split-right` | action | Add a Pane — Split Right | User splits globe right → VIDEO FEED. Rings on split-right button + menu item. |
-| 10 | `split-down` | action | Add Another — Split Down | User splits globe down → ALERTS. Rings on split-down button + menu item (danger color). |
-| 11 | `save-preset` | action | Save Your Layout | User saves a layout preset. Rings on VIEWS button + input + save icon. |
-| 12 | `save-video-preset` | action | Save Video Channels | User saves a video channel preset. Magenta rings on bookmark + input + save. |
-| 13 | `ticker` | info | Live Feed | Highlights ticker at bottom |
+The completion test receives these bounded values:
 
-After essential steps, a transition prompt offers the advanced tier ("NICE WORK — Want to explore advanced features?"). Declining completes the walkthrough permanently.
+- Open pane types
+- Open pane count
+- Layout preset count
+- Selected entity identifier
+- Chrome visibility state
+- Video preset count
 
----
+The walkthrough does not read the pane tree directly. `PaneManager` publishes the bounded layout values through `layoutSignals.ts`.
 
-## Desktop Steps — Advanced (Tier 2, 5 steps)
+## Layout protection
 
-Opt-in only. All info steps.
+An action step can declare the pane type that the operator must add.
 
-| # | ID | Title | Highlights |
-|---|---|---|---|
-| 1 | `aircraft-filter` | Aircraft Filters | Filter control dropdown |
-| 2 | `watch-mode` | Watch Mode | Globe controls area |
-| 3 | `globe-controls` | Globe Controls | Flat/globe toggle, rotation |
-| 4 | `settings` | Settings | Settings button |
-| 5 | `complete` | You're Ready | Final message |
+When the operator adds a different pane type, the walkthrough sends an undo request. `PaneManager` removes the incorrect pane.
 
----
+Preset steps record the preset count when the step starts. An old preset cannot complete a new save step.
 
-## Mobile Steps — Essential (11 steps)
+## Desktop essential steps
 
-Mobile uses a separate step set adapted for touch interaction. No focus mode (disabled on mobile). Bottom sheet instead of drag-to-move. All placements are `"center"`. Action steps render as a compact single-line bar (`[step/total] Title DO THIS [× SKIP]`) instead of a full tooltip.
+The desktop essential phase has 13 steps.
 
-| # | ID | Type | Title | Action |
-|---|---|---|---|---|
-| 1 | `welcome` | info | Welcome to SIGINT | Introduction |
-| 2 | `layers` | info | Data Layers | Highlights layer toggles |
-| 3 | `globe-select` | action | Select a Target | User taps a point on the globe |
-| 4 | `mobile-detail-sheet` | action | Detail Panel | User taps ✕ to close bottom sheet. Danger-colored ring on close button. |
-| 5 | `search` | info | Global Search | Highlights search, tooltip pinned to screen bottom |
-| 6 | `split-down` | action | Add VIDEO FEED | User splits globe down → VIDEO FEED. Ring on split-down button + menu item. |
-| 7 | `save-video-preset` | action | Save Video Channels | Magenta rings on bookmark + input + save icon |
-| 8 | `split-down-alerts` | action | Add ALERTS | User splits VIDEO FEED pane down → ALERTS. Danger-colored ring on menu item. |
-| 9 | `split-right-alerts` | action | Add INTEL FEED | User splits ALERTS pane right → INTEL FEED. Ring on split-right button + menu item. |
-| 10 | `save-preset` | action | Save Your Layout | User saves a layout preset via VIEWS |
-| 11 | `mobile-complete` | info | You're All Set | Final message |
+| Order | Step | Mode | Required result |
+| --- | --- | --- | --- |
+| 1 | `welcome` | Information | Read the introduction |
+| 2 | `layers` | Information | Review the layer controls |
+| 3 | `globe-select` | Action | Select one globe entity |
+| 4 | `globe-drag-detail` | Information | Review the detail-panel drag control |
+| 5 | `globe-deselect` | Action | Clear the selection |
+| 6 | `focus-enter` | Action | Hide the application chrome |
+| 7 | `focus-exit` | Action | Restore the application chrome |
+| 8 | `search` | Information | Review global search |
+| 9 | `split-right` | Action | Add the video-feed pane |
+| 10 | `split-down` | Action | Add the alert-log pane |
+| 11 | `save-preset` | Action | Save one new layout preset |
+| 12 | `save-video-preset` | Action | Save one new video preset |
+| 13 | `ticker` | Information | Review the live ticker |
 
-Mobile has **no advanced tier** — aircraft filters, watch mode, and globe controls don't work well on small screens.
+After the essential phase, the full desktop tour offers the advanced phase. An essential-only launch completes without this prompt.
 
----
+## Desktop advanced steps
 
-## Mobile `data-tour` Selectors
+The desktop advanced phase has five information steps.
 
-Mobile pane headers (`PaneMobile.tsx`) use type-specific `data-tour` attributes for split buttons:
+| Order | Step | Subject |
+| --- | --- | --- |
+| 1 | `aircraft-filter` | Aircraft filters |
+| 2 | `watch-mode` | Watch mode |
+| 3 | `globe-controls` | Projection and rotation controls |
+| 4 | `settings` | Settings |
+| 5 | `complete` | Completion message |
 
-| Pane type | Split-down selector | Split-right selector |
-|---|---|---|
-| Globe | `split-down-btn` (special case) | `split-right-btn` (special case — desktop only via `PaneHeader`) |
-| Video Feed | `split-down-video-feed` | `split-right-video-feed` |
-| Alert Log | `split-down-alert-log` | `split-right-alert-log` |
-| Intel Feed | `split-down-intel-feed` | `split-right-intel-feed` |
-| _(any type)_ | `split-down-{paneType}` | `split-right-{paneType}` |
+## Mobile essential steps
 
-Split menu items use `split-menu-{paneType}` (e.g., `split-menu-video-feed`, `split-menu-alert-log`).
+The mobile essential phase has 11 steps. The mobile walkthrough has no advanced phase.
 
-Desktop `PaneHeader.tsx` only sets `data-tour` on globe pane split buttons (`split-right-btn`, `split-down-btn`). Other pane types on desktop don't have `data-tour` attributes on their split buttons since the desktop walkthrough only splits from the globe.
+| Order | Step | Mode | Required result |
+| --- | --- | --- | --- |
+| 1 | `welcome` | Information | Read the introduction |
+| 2 | `layers` | Information | Review the layer controls |
+| 3 | `globe-select` | Action | Select one globe entity |
+| 4 | `mobile-detail-sheet` | Action | Clear the selection through `detail-close` |
+| 5 | `search` | Information | Review global search |
+| 6 | `split-down` | Action | Add the video-feed pane |
+| 7 | `save-video-preset` | Action | Save one new video preset |
+| 8 | `split-down-alerts` | Action | Add the alert-log pane |
+| 9 | `split-right-alerts` | Action | Add the intelligence-feed pane |
+| 10 | `save-preset` | Action | Save one new layout preset |
+| 11 | `mobile-complete` | Information | Complete the mobile tour |
 
----
+### Current mobile detail mismatch
 
-## Component Features
+The `mobile-detail-sheet` step still targets `[data-tour="detail-close"]`.
 
-- **Colorized descriptions**: Keywords like AIRCRAFT, ALERTS, VIDEO FEED, INTEL FEED are colorized using theme CSS variables via `colorizeDescription()`
-- **Click indicators**: Globe action steps (select, deselect, focus) show a pulsing dot with expanding rings at a computed position on the globe canvas, with a label ("CLICK A POINT" or "CLICK EMPTY SPACE"). Position computed from canvas rect + globe radius, with collision avoidance against detail panel and tooltip.
-- **Landing zone**: The drag-detail step shows a dashed "DROP HERE" zone on the globe. Detects drop via pointer events + position check against the zone rect.
-- **Mobile compact bar**: Action steps on mobile render as a minimal single-line bar instead of the full tooltip — saves screen space for the actual interaction.
-- **Undo protection**: If the user adds the wrong pane type during an action step, `requestWalkthroughUndo()` removes it automatically via `lib/layoutSignals.ts`.
-- **Baseline tracking**: Preset count steps track the baseline count at step entry, so pre-existing presets don't trigger false completion.
-- **Phase transition**: After essential steps complete, a modal prompt offers the advanced tier with YES/NO buttons. Declining persists the `walkthroughComplete` flag.
-- **Escape to skip**: Pressing Escape skips for the session (does not persist).
-- **Back button**: Available on all non-first steps. Going back to `globe-select` automatically deselects so the completion check resets.
+The current `LiveTrafficPane` does not mount `DetailPanel` in a mobile layout. A mobile selection requests the dossier pane instead. Therefore, the expected `detail-close` control is not present in the mobile globe pane.
 
----
+The step definition must change before the expected mobile close action can work. The current product behavior is the dossier-pane path that [Pane system](./panes.md) describes.
 
-## Z-Index Stack
+## Overlay placement
 
-| z-index | Component |
-|---|---|
-| z-[9996] | Click indicator, landing zone |
-| z-[9998] | Highlight rings |
-| z-[9999] | Walkthrough overlay (tooltip, backdrop, cutout) |
+`computeTooltipPos()` uses the current visual viewport. It treats these items as obstacles:
+
+- Highlighted controls
+- Open walkthrough menus
+- Globe click indicators
+- The current target cutout
+
+The function tests positions above and below obstacles. It also tests viewport edges and the requested direction. It uses the first position that does not overlap an obstacle.
+
+The search step uses the full window height. This rule keeps the tooltip below the search area when a mobile keyboard changes the visual viewport.
+
+The operator can drag the tooltip. A step change clears the drag offset.
+
+## Highlight and action aids
+
+The walkthrough can show four pulsing highlight rings. Each ring follows its target with `requestAnimationFrame`.
+
+Globe action steps can show a click indicator. The indicator identifies a point-selection action, a deselection action, or a focus-mode action.
+
+The desktop detail-panel step shows a landing zone. Dropping the panel in this zone advances the step.
+
+Mobile action steps use a compact instruction bar.
+
+## Pane selectors
+
+Mobile pane headers use pane-specific split selectors.
+
+| Pane type | Down selector | Right selector |
+| --- | --- | --- |
+| Globe | `split-down-btn` | `split-right-btn` |
+| Video feed | `split-down-video-feed` | `split-right-video-feed` |
+| Alert log | `split-down-alert-log` | `split-right-alert-log` |
+| Intelligence feed | `split-down-intel-feed` | `split-right-intel-feed` |
+
+Split-menu items use `split-menu-{paneType}`.
+
+Desktop walkthrough steps use only the globe split-button selectors.
+
+## Layer order
+
+| Layer | CSS z-index |
+| --- | --- |
+| Click indicator and landing zone | `9996` |
+| Highlight rings | `9998` |
+| Walkthrough overlay | `9999` |
+
+## Walkthrough rules
+
+- Keep step definitions in `walkthroughSteps.ts`.
+- Keep layout mutation in `PaneManager`.
+- Publish only bounded layout values to the walkthrough.
+- Reset preset baselines when a save step completes.
+- Keep mobile and desktop step lists separate.
+- Verify that each selector exists in the active layout mode.
+- Update a step when the product replaces its target control.
