@@ -16,7 +16,7 @@ import {
   CanvasLineStyle,
   type ProjFn,
 } from "@/lib/geo/render/types";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import { ButtonType } from "@/lib/ui/button";
 import type { ThemeColors } from "@/config/theme";
 import {

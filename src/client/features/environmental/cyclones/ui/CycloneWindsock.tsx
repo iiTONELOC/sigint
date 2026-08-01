@@ -1,23 +1,71 @@
-import type { CSSProperties } from "react";
-import { TS_MIN_KT, HURRICANE_MIN_KT, windColor } from "../classification";
+import { CycloneWindThreshold, windColor } from "../classification";
 
-const LIMP_DEG = 60;
-const EXTENDED_DEG = 0;
-const FULL_EXTENSION_KT = HURRICANE_MIN_KT * 2;
-const SLOW_FLUTTER_S = 1.4;
-const FAST_FLUTTER_S = 0.32;
-const WIDE_SWAY_DEG = 14;
-const TAUT_SWAY_DEG = 1.5;
-const SLOW_STREAK_S = 1.6;
-const FAST_STREAK_S = 0.5;
+enum WindsockAngle {
+  LimpDegrees = 60,
+  ExtendedDegrees = 0,
+  WideSwayDegrees = 14,
+  TautSwayDegrees = 1.5,
+}
+
+enum WindsockTiming {
+  SlowFlutterSeconds = 1.4,
+  FastFlutterSeconds = 0.32,
+  SlowStreakSeconds = 1.6,
+  FastStreakSeconds = 0.5,
+}
+
+enum WindsockFraction {
+  Minimum = 0,
+  Maximum = 1,
+}
+
+enum WindsockPolicy {
+  FullExtensionMultiplier = 2,
+}
+
+enum WindsockOpacity {
+  MinimumStreak = 0.15,
+  MaximumStreak = 0.7,
+}
+
+enum WindsockPrecision {
+  Sway = 1,
+  Timing = 2,
+}
+
+enum WindsockAnimation {
+  Repeat = "indefinite",
+}
+
+enum WindsockGeometry {
+  PivotX = 7,
+  PivotY = 16,
+  StreakDistance = 80,
+}
+
+enum WindsockSvgAttribute {
+  Transform = "transform",
+  Opacity = "opacity",
+}
+
+enum WindsockClassName {
+  MotionReduceHidden = "motion-reduce:hidden",
+}
+
 const STREAKS = [
-  { d: "M0,12 q5,-3 10,0 t10,0", delay: "0s" },
-  { d: "M0,16 h18", delay: "0.3s" },
-  { d: "M0,20 q5,3 10,0 t10,0", delay: "0.6s" },
+  { d: "M0,12 q5,-3 10,0 t10,0", delaySeconds: 0 },
+  { d: "M0,16 h18", delaySeconds: 0.3 },
+  { d: "M0,20 q5,3 10,0 t10,0", delaySeconds: 0.6 },
 ];
 
 function windFraction(maxWindKt: number): number {
-  return Math.min(1, Math.max(0, maxWindKt / FULL_EXTENSION_KT));
+  const fullExtensionKnots =
+    CycloneWindThreshold.HurricaneOne *
+    WindsockPolicy.FullExtensionMultiplier;
+  return Math.min(
+    WindsockFraction.Maximum,
+    Math.max(WindsockFraction.Minimum, maxWindKt / fullExtensionKnots),
+  );
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -25,14 +73,34 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
-  if (maxWindKt < TS_MIN_KT) return null;
+  if (maxWindKt < CycloneWindThreshold.TropicalStorm) return null;
   const color = windColor(maxWindKt);
   const t = windFraction(maxWindKt);
-  const droop = lerp(LIMP_DEG, EXTENDED_DEG, t);
-  const flutter = lerp(SLOW_FLUTTER_S, FAST_FLUTTER_S, t).toFixed(2);
-  const sway = lerp(WIDE_SWAY_DEG, TAUT_SWAY_DEG, t).toFixed(1);
-  const streak = lerp(SLOW_STREAK_S, FAST_STREAK_S, t).toFixed(2);
-  const streakOpacity = lerp(0.15, 0.7, t).toFixed(2);
+  const droop = lerp(
+    WindsockAngle.LimpDegrees,
+    WindsockAngle.ExtendedDegrees,
+    t,
+  );
+  const flutter = lerp(
+    WindsockTiming.SlowFlutterSeconds,
+    WindsockTiming.FastFlutterSeconds,
+    t,
+  ).toFixed(WindsockPrecision.Timing);
+  const sway = lerp(
+    WindsockAngle.WideSwayDegrees,
+    WindsockAngle.TautSwayDegrees,
+    t,
+  ).toFixed(WindsockPrecision.Sway);
+  const streak = lerp(
+    WindsockTiming.SlowStreakSeconds,
+    WindsockTiming.FastStreakSeconds,
+    t,
+  ).toFixed(WindsockPrecision.Timing);
+  const streakOpacity = lerp(
+    WindsockOpacity.MinimumStreak,
+    WindsockOpacity.MaximumStreak,
+    t,
+  ).toFixed(WindsockPrecision.Timing);
 
   return (
     <svg
@@ -43,29 +111,53 @@ export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
     >
       <line x1="7" y1="3" x2="7" y2="38" stroke="currentColor" strokeWidth="2" className="text-sig-dim" />
       <circle cx="7" cy="16" r="2" className="fill-sig-dim" />
-      <g className="origin-[7px_16px]" style={{ transform: `rotate(${droop}deg)` }}>
-        <g
-          className="origin-[7px_16px] motion-reduce:animate-none animate-[windsock-flutter_var(--sock-flutter)_ease-in-out_infinite]"
-          style={{ "--sock-flutter": `${flutter}s`, "--sock-sway": `${sway}deg` } as CSSProperties}
-        >
+      <g
+        transform={`rotate(${droop} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY})`}
+      >
+        <g>
+          <animateTransform
+            attributeName={WindsockSvgAttribute.Transform}
+            type="rotate"
+            values={`-${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY};${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY};-${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY}`}
+            dur={`${flutter}s`}
+            repeatCount={WindsockAnimation.Repeat}
+            className={WindsockClassName.MotionReduceHidden}
+          />
           <polygon points="7,6 19,8 19,24 7,26" fill={color} fillOpacity="0.95" />
           <polygon points="19,8 30,10.5 30,21.5 19,24" fill={color} fillOpacity="0.78" />
           <polygon points="30,10.5 42,13 42,19 30,21.5" fill={color} fillOpacity="0.6" />
         </g>
       </g>
       <g className="text-sig-dim">
-        {STREAKS.map((s) => (
+        {STREAKS.map((streakDefinition) => (
           <path
-            key={s.d}
-            d={s.d}
+            key={streakDefinition.d}
+            d={streakDefinition.d}
             fill="none"
             stroke="currentColor"
             strokeWidth="1.5"
             strokeLinecap="round"
             strokeOpacity={streakOpacity}
-            className="motion-reduce:animate-none animate-[wind-streak_var(--streak-dur)_linear_infinite]"
-            style={{ "--streak-dur": `${streak}s`, animationDelay: s.delay } as CSSProperties}
-          />
+          >
+            <animateTransform
+              attributeName={WindsockSvgAttribute.Transform}
+              type="translate"
+              values={`0 0;${WindsockGeometry.StreakDistance} 0`}
+              dur={`${streak}s`}
+              begin={`${streakDefinition.delaySeconds}s`}
+              repeatCount={WindsockAnimation.Repeat}
+              className={WindsockClassName.MotionReduceHidden}
+            />
+            <animate
+              attributeName={WindsockSvgAttribute.Opacity}
+              values="0;1;1;0"
+              keyTimes="0;0.25;0.75;1"
+              dur={`${streak}s`}
+              begin={`${streakDefinition.delaySeconds}s`}
+              repeatCount={WindsockAnimation.Repeat}
+              className={WindsockClassName.MotionReduceHidden}
+            />
+          </path>
         ))}
       </g>
     </svg>

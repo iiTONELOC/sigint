@@ -1,18 +1,23 @@
 /// <reference lib="webworker" />
 
+import {
+  DomEvent,
+  ServiceWorkerCache,
+  ServiceWorkerMessage,
+  ServiceWorkerPath,
+  ServiceWorkerRequestMethod,
+  ServiceWorkerRequestMode,
+} from "@/runtime";
+
 declare const __SIGINT_BUILD_ID__: string;
 declare const __SIGINT_PRECACHE_URLS__: readonly string[];
 declare const self: ServiceWorkerGlobalScope;
 
-const CACHE_PREFIX = "sigint-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}${__SIGINT_BUILD_ID__}`;
-const NAVIGATION_ENTRY = "/";
-const API_PATH_PREFIX = "/api/";
-const ACTIVATION_MESSAGE = "SW_ACTIVATE_WAITING";
+const CACHE_NAME = `${ServiceWorkerCache.Prefix}${__SIGINT_BUILD_ID__}`;
 const PRECACHE_URLS = [...__SIGINT_PRECACHE_URLS__];
 
 type ActivationCommand = {
-  type: typeof ACTIVATION_MESSAGE;
+  type: ServiceWorkerMessage.ActivateWaiting;
 };
 
 function isActivationCommand(value: unknown): value is ActivationCommand {
@@ -20,17 +25,17 @@ function isActivationCommand(value: unknown): value is ActivationCommand {
     typeof value === "object" &&
     value !== null &&
     "type" in value &&
-    value.type === ACTIVATION_MESSAGE
+    value.type === ServiceWorkerMessage.ActivateWaiting
   );
 }
 
-self.addEventListener("install", (event) => {
+self.addEventListener(DomEvent.Install, (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)),
   );
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener(DomEvent.Activate, (event) => {
   event.waitUntil(
     caches
       .keys()
@@ -38,7 +43,8 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           keys
             .filter(
-              (key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME,
+              (key) =>
+                key.startsWith(ServiceWorkerCache.Prefix) && key !== CACHE_NAME,
             )
             .map((key) => caches.delete(key)),
         ),
@@ -47,18 +53,20 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener(DomEvent.Fetch, (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  if (request.method !== "GET") return;
+  if (request.method !== ServiceWorkerRequestMethod.Get) return;
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith(API_PATH_PREFIX)) return;
+  if (url.pathname.startsWith(ServiceWorkerPath.Api)) return;
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
       const cacheRequest =
-        request.mode === "navigate" ? NAVIGATION_ENTRY : request;
+        request.mode === ServiceWorkerRequestMode.Navigate
+          ? ServiceWorkerPath.Root
+          : request;
       const cached = await cache.match(cacheRequest);
       if (cached) return cached;
       return fetch(request);
@@ -66,8 +74,6 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-self.addEventListener("message", (event) => {
-  if (isActivationCommand(event.data)) void self.skipWaiting();
+self.addEventListener(DomEvent.Message, (event) => {
+  if (isActivationCommand(event.data)) self.skipWaiting();
 });
-
-export {};

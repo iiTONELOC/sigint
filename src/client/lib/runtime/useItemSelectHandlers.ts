@@ -1,17 +1,13 @@
 import { useCallback } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { DomKey } from "@/runtime";
 import { revealThenClear } from "./revealSignals";
 
 type SetId = (id: string | null) => void;
 
-enum RowActivationKey {
-  Enter = "Enter",
-  Space = " ",
-}
-
 function isRowActivationKey(key: string): boolean {
-  return key === RowActivationKey.Enter || key === RowActivationKey.Space;
+  return key === DomKey.Enter || key === DomKey.Space;
 }
 
 export type ItemSelectHandlers = {

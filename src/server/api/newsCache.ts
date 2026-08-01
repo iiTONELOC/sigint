@@ -2,29 +2,58 @@
 // Server-side polling cache for RSS news feeds (CORS bypass).
 // Follows gdeltCache/firmsCache contract:
 //   startNewsPolling() / stopNewsPolling() / getNewsCache()
-// No server-side persistence — memory only, repopulates on restart.
+// No server-side persistence. Memory repopulates on restart.
 
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
 import { decodeHtmlEntities } from "../lib/htmlEntities";
+import { NewsSource } from "@shared/domain/newsSource";
 
 const logger = createLogger({ service: "news" });
 
 const POLL_INTERVAL_MS = 10 * 60_000; // 10 minutes
+
+enum NewsHashPolicy {
+  Radix = 36,
+}
+
+enum NewsMarkupToken {
+  Content = "content",
+  Description = "description",
+  Entry = "entry",
+  Feed = "feed",
+  Href = "href",
+  Item = "item",
+  Link = "link",
+  PubDate = "pubDate",
+  Published = "published",
+  Summary = "summary",
+  Title = "title",
+  Updated = "updated",
+}
+
+enum PromiseResultState {
+  Fulfilled = "fulfilled",
+}
+
+enum NewsRegexFlag {
+  CaseInsensitive = "i",
+  DotAll = "s",
+}
 
 // ── Feed sources ────────────────────────────────────────────────────
 
 type FeedSource = { name: string; url: string };
 
 const FEEDS: FeedSource[] = [
-  { name: "Reuters via Google", url: "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US" },
-  { name: "NYT World", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
-  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
-  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml" },
-  { name: "The Guardian", url: "https://www.theguardian.com/world/rss" },
-  { name: "NPR World", url: "https://feeds.npr.org/1004/rss.xml" },
+  { name: NewsSource.Reuters, url: "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US" },
+  { name: NewsSource.NewYorkTimes, url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
+  { name: NewsSource.Bbc, url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { name: NewsSource.AlJazeera, url: "https://www.aljazeera.com/xml/rss/all.xml" },
+  { name: NewsSource.Guardian, url: "https://www.theguardian.com/world/rss" },
+  { name: NewsSource.Npr, url: "https://feeds.npr.org/1004/rss.xml" },
 ];
 
 // ── News item shape ─────────────────────────────────────────────────
@@ -41,54 +70,70 @@ export type NewsItem = {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function stripHtml(html: string): string {
-  const text = decodeHtmlEntities(html).replace(/<[^>]+>/g, " ");
+  const text = decodeHtmlEntities(html).replace(/<[^<>]*>/g, " ");
   return text.replace(/\s+/g, " ").trim();
 }
 
 function hashUrl(url: string): string {
   let hash = 0;
   for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
+    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0; // NOSONAR: Stable IDs require UTF-16 units and signed 32-bit wrapping.
   }
-  return `NW${Math.abs(hash).toString(36)}`;
+  return `NW${Math.abs(hash).toString(NewsHashPolicy.Radix)}`;
 }
 
 // ── RSS/Atom XML parser ─────────────────────────────────────────────
 
 function extractTag(xml: string, tag: string): string {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
-  const m = xml.match(re);
-  if (m?.[1]) {
-    const val = m[1].trim();
-    const cdata = val.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-    return cdata ? cdata[1]!.trim() : val;
+  const tagPattern = new RegExp(
+    String.raw`<${tag}[^>]*>([\s\S]*?)</${tag}>`,
+    NewsRegexFlag.CaseInsensitive,
+  );
+  const match = tagPattern.exec(xml);
+  if (match?.[1]) {
+    const value = match[1].trim();
+    const cdataPattern = new RegExp(
+      String.raw`^<!\[CDATA\[(.*?)\]\]>$`,
+      NewsRegexFlag.DotAll,
+    );
+    const cdataMatch = cdataPattern.exec(value);
+    return cdataMatch ? cdataMatch[1]!.trim() : value;
   }
   return "";
 }
 
 function extractAttr(xml: string, tag: string, attr: string): string {
-  const re = new RegExp(`<${tag}[^>]*?${attr}\\s*=\\s*["']([^"']*)["']`, "i");
-  return xml.match(re)?.[1] ?? "";
+  const attributePattern = new RegExp(
+    String.raw`<${tag}[^>]*?${attr}\s*=\s*["']([^"']*)["']`,
+    NewsRegexFlag.CaseInsensitive,
+  );
+  return attributePattern.exec(xml)?.[1] ?? "";
 }
 
 function parseRssItems(xml: string, sourceName: string): NewsItem[] {
   const items: NewsItem[] = [];
-  const isAtom = xml.includes("<feed") && xml.includes("<entry");
-  const parts = xml.split(isAtom ? "<entry" : "<item");
+  const isAtom =
+    xml.includes(`<${NewsMarkupToken.Feed}`) &&
+    xml.includes(`<${NewsMarkupToken.Entry}`);
+  const parts = xml.split(
+    isAtom ? `<${NewsMarkupToken.Entry}` : `<${NewsMarkupToken.Item}`,
+  );
 
   for (let i = 1; i < parts.length; i++) {
     const chunk = parts[i]!;
-    const title = stripHtml(extractTag(chunk, "title"));
+    const title = stripHtml(extractTag(chunk, NewsMarkupToken.Title));
     if (!title) continue;
 
-    let url = isAtom ? extractAttr(chunk, "link", "href") : "";
-    if (!url) url = stripHtml(extractTag(chunk, "link"));
+    let url = isAtom
+      ? extractAttr(chunk, NewsMarkupToken.Link, NewsMarkupToken.Href)
+      : "";
+    if (!url) url = stripHtml(extractTag(chunk, NewsMarkupToken.Link));
     if (!url) continue;
 
     const dateStr =
-      extractTag(chunk, "pubDate") ||
-      extractTag(chunk, "published") ||
-      extractTag(chunk, "updated");
+      extractTag(chunk, NewsMarkupToken.PubDate) ||
+      extractTag(chunk, NewsMarkupToken.Published) ||
+      extractTag(chunk, NewsMarkupToken.Updated);
 
     let publishedAt: string;
     try {
@@ -100,9 +145,9 @@ function parseRssItems(xml: string, sourceName: string): NewsItem[] {
     }
 
     const description = stripHtml(
-      extractTag(chunk, "description") ||
-        extractTag(chunk, "summary") ||
-        extractTag(chunk, "content"),
+      extractTag(chunk, NewsMarkupToken.Description) ||
+        extractTag(chunk, NewsMarkupToken.Summary) ||
+        extractTag(chunk, NewsMarkupToken.Content),
     ).slice(0, 500);
 
     items.push({
@@ -157,7 +202,7 @@ async function fetchAllNews(): Promise<void> {
   const results = await Promise.allSettled(FEEDS.map((f) => fetchFeed(f)));
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
-    if (r.status === "fulfilled") allItems.push(...r.value);
+    if (r.status === PromiseResultState.Fulfilled) allItems.push(...r.value);
     else errors.push(`${FEEDS[i]!.name}: ${r.reason}`);
   }
 

@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
-import { ktToMps } from "@/lib/format/units";
+import { ktToMps } from "@/measurements";
 import type { TrailObservation } from "@/lib/geo/trails/trailStore";
 
 export type TrackedPoint = Extract<

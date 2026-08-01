@@ -1,7 +1,10 @@
-import type { CSSProperties } from "react";
 import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import {
+  DossierMetric,
+  DossierMetricValueClass,
+} from "@/dossier";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { formatKmMi } from "@/lib/format/units";
+import { formatKmMi } from "@/measurements";
 import { mmiBand, isShallow } from "../intensity";
 
 export function QuakeIdentityCard({
@@ -33,12 +36,10 @@ export function QuakeIdentityCard({
   const age = timestamp
     ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
     : null;
+  const cardClass = `${band.className} relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel`;
 
   return (
-    <div
-      className="relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel"
-      style={{ "--dossier-accent": band.ink } as CSSProperties}
-    >
+    <div className={cardClass}>
       <div className="absolute inset-0 bg-(--dossier-accent)/6 pointer-events-none" />
       <div className="relative h-1 bg-(--dossier-accent)" />
       <div className="relative px-4 pt-3 pb-3">
@@ -55,42 +56,47 @@ export function QuakeIdentityCard({
         </div>
 
         <div className="flex items-end gap-5 flex-wrap">
-          <div className="leading-none">
-            <div className="text-(length:--sig-text-title) text-sig-bright font-bold">
-              {magnitude.toFixed(1)}
-              {magType && <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">{magType}</span>}
-            </div>
-            <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">MAGNITUDE</div>
-          </div>
+          <DossierMetric
+            label="MAGNITUDE"
+            valueClass={DossierMetricValueClass.Title}
+            value={
+              <>
+                {magnitude.toFixed(1)}
+                {magType && (
+                  <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">
+                    {magType}
+                  </span>
+                )}
+              </>
+            }
+          />
 
           {depthKm != null && (
-            <div className="leading-none">
-              <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{formatKmMi(depthKm)}</div>
-              <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">
-                DEPTH · {isShallow(depthKm) ? "shallow" : "deep"}
-              </div>
-            </div>
+            <DossierMetric
+              value={formatKmMi(depthKm)}
+              label={
+                <>
+                  DEPTH · {isShallow(depthKm) ? "shallow" : "deep"}
+                </>
+              }
+            />
           )}
 
-          <div className="leading-none">
-            <div className="text-(length:--sig-text-md) text-sig-bright font-mono">
-              {formatLat(lat)}, {formatLon(lon)}
-            </div>
-            <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">POSITION</div>
-          </div>
+          <DossierMetric
+            label="POSITION"
+            value={
+              <>
+                {formatLat(lat)}, {formatLon(lon)}
+              </>
+            }
+          />
 
           {significance != null && (
-            <div className="leading-none">
-              <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{significance}</div>
-              <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">SIGNIFICANCE</div>
-            </div>
+            <DossierMetric label="SIGNIFICANCE" value={significance} />
           )}
 
           {felt != null && felt > 0 && (
-            <div className="leading-none">
-              <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{felt}</div>
-              <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">FELT REPORTS</div>
-            </div>
+            <DossierMetric label="FELT REPORTS" value={felt} />
           )}
         </div>
       </div>

@@ -1,3 +1,14 @@
+export enum FirePassLabel {
+  Day = "day",
+  DayTitle = "Day",
+  DayUppercase = "DAY",
+  Daytime = "DAYTIME",
+  Night = "night",
+  NightTitle = "Night",
+  NightUppercase = "NIGHT",
+  Nighttime = "NIGHTTIME",
+}
+
 export type FireData = {
   brightness?: number;
   frp?: number;
@@ -16,5 +27,5 @@ export type FireData = {
 
 export type FireFilter = {
   enabled: boolean;
-  minConfidence: number; // 0 = all, 1 = nominal+high, 2 = high only
+  minConfidence: number;
 };

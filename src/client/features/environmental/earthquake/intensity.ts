@@ -1,54 +1,177 @@
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+export enum MmiBandId {
+  Extreme = 10,
+  Violent = 9,
+  Severe = 8,
+  VeryStrong = 7,
+  Strong = 6,
+  Moderate = 5,
+  Light = 4,
+  Weak = 3,
+  NotFelt = 1,
 }
 
-export type MmiBand = {
+export enum MmiCssColor {
+  Accent = "var(--dossier-accent)",
+  Intensity = "var(--intensity-color)",
+}
+
+enum MmiLevelBoundary {
+  Minimum = 1,
+  Maximum = 10,
+}
+
+enum MmiDepthBoundaryKilometers {
+  Near = 10,
+  ShallowMaximum = 70,
+  Far = 700,
+}
+
+enum MmiEstimateFactor {
+  Magnitude = 1.5,
+  Attenuation = 1.8,
+}
+
+export type MmiBand = Readonly<{
+  id: MmiBandId;
   level: number;
   roman: string;
   label: string;
   damage: string;
-  color: string;
-  ink: string;
-};
+  className: string;
+}>;
 
-const MMI_FLOOR: MmiBand = { level: 1, roman: "I", label: "NOT FELT", damage: "instrumental", color: "#9aa7b8", ink: "#6b7a8d" };
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
 
-export const MMI_SCALE: readonly MmiBand[] = [
-  { level: 10, roman: "X+", label: "EXTREME", damage: "total destruction", color: "#9c1414", ink: "#c01818" },
-  { level: 9, roman: "IX", label: "VIOLENT", damage: "heavy damage", color: "#e02b2b", ink: "#d42424" },
-  { level: 8, roman: "VIII", label: "SEVERE", damage: "moderate-heavy damage", color: "#ff8c1a", ink: "#e07000" },
-  { level: 7, roman: "VII", label: "VERY STRONG", damage: "moderate damage", color: "#ffc400", ink: "#c79400" },
-  { level: 6, roman: "VI", label: "STRONG", damage: "light damage", color: "#ffe000", ink: "#b59700" },
-  { level: 5, roman: "V", label: "MODERATE", damage: "felt by all", color: "#7ad27a", ink: "#3fa83f" },
-  { level: 4, roman: "IV", label: "LIGHT", damage: "felt indoors", color: "#7fc6e6", ink: "#3592c0" },
-  { level: 3, roman: "II–III", label: "WEAK", damage: "felt by some", color: "#8c9ecf", ink: "#6677b0" },
-  MMI_FLOOR,
-];
+function mmiBandDefinition(id: MmiBandId): MmiBand {
+  switch (id) {
+    case MmiBandId.Extreme:
+      return {
+        id,
+        level: id,
+        roman: "X+",
+        label: "EXTREME",
+        damage: "total destruction",
+        className: "[--dossier-accent:#c01818] [--intensity-color:#9c1414]",
+      };
+    case MmiBandId.Violent:
+      return {
+        id,
+        level: id,
+        roman: "IX",
+        label: "VIOLENT",
+        damage: "heavy damage",
+        className: "[--dossier-accent:#d42424] [--intensity-color:#e02b2b]",
+      };
+    case MmiBandId.Severe:
+      return {
+        id,
+        level: id,
+        roman: "VIII",
+        label: "SEVERE",
+        damage: "moderate-heavy damage",
+        className: "[--dossier-accent:#e07000] [--intensity-color:#ff8c1a]",
+      };
+    case MmiBandId.VeryStrong:
+      return {
+        id,
+        level: id,
+        roman: "VII",
+        label: "VERY STRONG",
+        damage: "moderate damage",
+        className: "[--dossier-accent:#c79400] [--intensity-color:#ffc400]",
+      };
+    case MmiBandId.Strong:
+      return {
+        id,
+        level: id,
+        roman: "VI",
+        label: "STRONG",
+        damage: "light damage",
+        className: "[--dossier-accent:#b59700] [--intensity-color:#ffe000]",
+      };
+    case MmiBandId.Moderate:
+      return {
+        id,
+        level: id,
+        roman: "V",
+        label: "MODERATE",
+        damage: "felt by all",
+        className: "[--dossier-accent:#3fa83f] [--intensity-color:#7ad27a]",
+      };
+    case MmiBandId.Light:
+      return {
+        id,
+        level: id,
+        roman: "IV",
+        label: "LIGHT",
+        damage: "felt indoors",
+        className: "[--dossier-accent:#3592c0] [--intensity-color:#7fc6e6]",
+      };
+    case MmiBandId.Weak:
+      return {
+        id,
+        level: id,
+        roman: "II–III",
+        label: "WEAK",
+        damage: "felt by some",
+        className: "[--dossier-accent:#6677b0] [--intensity-color:#8c9ecf]",
+      };
+    default:
+      return {
+        id: MmiBandId.NotFelt,
+        level: MmiBandId.NotFelt,
+        roman: "I",
+        label: "NOT FELT",
+        damage: "instrumental",
+        className: "[--dossier-accent:#6b7a8d] [--intensity-color:#9aa7b8]",
+      };
+  }
+}
 
-const DEPTH_NEAR_KM = 10;
-const DEPTH_FAR_KM = 700;
-const SHALLOW_MAX_KM = 70;
+export function mmiScale(): readonly MmiBand[] {
+  return Object.values(MmiBandId)
+    .filter((value): value is MmiBandId => typeof value === "number")
+    .sort((left, right) => right - left)
+    .map(mmiBandDefinition);
+}
 
 export function mmiBand(level: number): MmiBand {
-  const rounded = clamp(Math.round(level), 1, 10);
-  return MMI_SCALE.find((b) => rounded >= b.level) ?? MMI_FLOOR;
+  const rounded = clamp(
+    Math.round(level),
+    MmiLevelBoundary.Minimum,
+    MmiLevelBoundary.Maximum,
+  );
+  return mmiScale().find((band) => rounded >= band.level) ??
+    mmiBandDefinition(MmiBandId.NotFelt);
 }
 
-export function mmiColor(level: number): string {
-  return mmiBand(level).color;
+export function estimateMmi(
+  magnitude: number,
+  depthKilometers?: number,
+): number {
+  const depth = depthKilometers == null
+    ? MmiDepthBoundaryKilometers.Near
+    : clamp(
+        depthKilometers,
+        MmiDepthBoundaryKilometers.Near,
+        MmiDepthBoundaryKilometers.Far,
+      );
+  const depthPenalty = MmiEstimateFactor.Attenuation *
+    Math.log10(depth / MmiDepthBoundaryKilometers.Near);
+  const estimate =
+    MmiEstimateFactor.Magnitude * magnitude -
+    MmiEstimateFactor.Attenuation -
+    depthPenalty;
+  return clamp(
+    estimate,
+    MmiLevelBoundary.Minimum,
+    MmiLevelBoundary.Maximum,
+  );
 }
 
-export function mmiInk(level: number): string {
-  return mmiBand(level).ink;
-}
-
-export function estimateMmi(magnitude: number, depthKm?: number): number {
-  const depth = depthKm == null ? DEPTH_NEAR_KM : clamp(depthKm, DEPTH_NEAR_KM, DEPTH_FAR_KM);
-  const depthPenalty = 1.8 * Math.log10(depth / DEPTH_NEAR_KM);
-  const raw = 1.5 * magnitude - 1.8 - depthPenalty;
-  return clamp(raw, 1, 10);
-}
-
-export function isShallow(depthKm?: number): boolean {
-  return depthKm != null && depthKm <= SHALLOW_MAX_KM;
+export function isShallow(depthKilometers?: number): boolean {
+  return depthKilometers != null &&
+    depthKilometers <= MmiDepthBoundaryKilometers.ShallowMaximum;
 }

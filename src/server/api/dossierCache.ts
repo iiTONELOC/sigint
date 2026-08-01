@@ -335,12 +335,14 @@ function flightAwareRoute(flight: FAflightData): AircraftRoute {
     ?? flight.takeoffTimes?.actual
     ?? flight.gateDepartureTimes?.estimated
     ?? flight.takeoffTimes?.estimated
-    ?? flight.takeoffTimes?.scheduled;
+    ?? flight.takeoffTimes?.scheduled
+    ?? undefined;
   const arrivalTime = flight.gateArrivalTimes?.actual
     ?? flight.landingTimes?.actual
     ?? flight.gateArrivalTimes?.estimated
     ?? flight.landingTimes?.estimated
-    ?? flight.landingTimes?.scheduled;
+    ?? flight.landingTimes?.scheduled
+    ?? undefined;
   const departureDelay = flightDelay(
     flight.takeoffTimes?.scheduled,
     flight.takeoffTimes?.actual,

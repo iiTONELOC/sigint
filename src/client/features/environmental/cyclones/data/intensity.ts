@@ -5,6 +5,7 @@
 // increase of >= 30 kt within any 24 h window.
 
 import type { CycloneData, PastTrackPoint } from "../types";
+import { MS_PER_HOUR } from "@shared/time";
 
 /** One sample on the intensity curve: lead time (h) + max wind (kt). */
 export type IntensitySample = {
@@ -13,9 +14,10 @@ export type IntensitySample = {
   maxWindKt: number;
 };
 
-/** NHC Rapid Intensification threshold: +30 kt over 24 h. */
-export const RI_THRESHOLD_KT = 30;
-const RI_WINDOW_H = 24;
+export enum CycloneRapidIntensificationPolicy {
+  ThresholdKnots = 30,
+  WindowHours = 24,
+}
 
 /**
  * Build the intensity series: the storm's current wind at hour 0 followed by
@@ -62,7 +64,10 @@ export function detectRapidIntensification(
       const b = series[j];
       if (!b) continue;
       const span = b.fcstHour - a.fcstHour;
-      if (span <= 0 || span > RI_WINDOW_H) continue;
+      if (
+        span <= 0 ||
+        span > CycloneRapidIntensificationPolicy.WindowHours
+      ) continue;
       const gain = b.maxWindKt - a.maxWindKt;
       if (gain > maxGain) {
         maxGain = gain;
@@ -71,7 +76,8 @@ export function detectRapidIntensification(
     }
   }
   return {
-    isRapid: maxGain >= RI_THRESHOLD_KT,
+    isRapid:
+      maxGain >= CycloneRapidIntensificationPolicy.ThresholdKnots,
     maxGain24hKt: maxGain,
     atFcstHour: atHour,
   };
@@ -91,47 +97,110 @@ export function analyzeIntensity(storm: CycloneData): {
   return { series, ri: detectRapidIntensification(series) };
 }
 
-/** Direction of change over the near term. */
-export type Trend = "rising" | "falling" | "steady";
-export type ObservedTrend = Trend | "unknown";
-
-/** Semantic tone for a trend: weakening/filling is good (green), the opposite
- *  is bad (red), no change is dim. NOT directional — meaning, not sign. */
-export type TrendTone = "good" | "bad" | "dim";
-export type TrendLabel = { text: string; tone: TrendTone };
-
-/** Single source for wind/pressure trend display. A weakening storm (falling
- *  wind / rising pressure) is `good`; strengthening is `bad`. */
-export const WIND_TREND_LABEL: Record<ObservedTrend, TrendLabel> = {
-  falling: { text: "↓ weakening", tone: "good" },
-  rising: { text: "↑ strengthening", tone: "bad" },
-  steady: { text: "→ steady", tone: "dim" },
-  unknown: { text: "trend unavailable", tone: "dim" },
-};
-export const PRESS_TREND_LABEL: Record<ObservedTrend, TrendLabel> = {
-  rising: { text: "↑ rising", tone: "good" },
-  falling: { text: "↓ falling", tone: "bad" },
-  steady: { text: "→ steady", tone: "dim" },
-  unknown: { text: "trend unavailable", tone: "dim" },
-};
-
-/** Plain-word wind trend (no arrow) for inline prose. Single source so it
- *  always matches WIND_TREND_LABEL's wording. */
-export const WIND_TREND_WORD: Record<Trend, string> = {
-  falling: "weakening",
-  rising: "strengthening",
-  steady: "steady",
-};
-
-/** Classify a signed wind delta (kt) into a Trend with a ±3kt deadband. */
-export function trendFromWindDelta(deltaKt: number): Trend {
-  if (deltaKt <= -3) return "falling";
-  if (deltaKt >= 3) return "rising";
-  return "steady";
+export enum CycloneTrend {
+  Rising = "rising",
+  Falling = "falling",
+  Steady = "steady",
+  Unknown = "unknown",
 }
 
-const PRESS_STEADY_BAND_MB = 1;
-const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
+export enum CycloneTrendTone {
+  Good = "good",
+  Bad = "bad",
+  Dim = "dim",
+}
+
+export type TrendLabel = {
+  text: string;
+  tone: CycloneTrendTone;
+  observed: boolean;
+};
+
+type TrendMeta = Readonly<{
+  wind: TrendLabel;
+  pressure: TrendLabel;
+  windWord: string | null;
+}>;
+
+const TREND_META: Readonly<Record<CycloneTrend, TrendMeta>> = {
+  [CycloneTrend.Falling]: {
+    wind: {
+      text: "↓ weakening",
+      tone: CycloneTrendTone.Good,
+      observed: true,
+    },
+    pressure: {
+      text: "↓ falling",
+      tone: CycloneTrendTone.Bad,
+      observed: true,
+    },
+    windWord: "weakening",
+  },
+  [CycloneTrend.Rising]: {
+    wind: {
+      text: "↑ strengthening",
+      tone: CycloneTrendTone.Bad,
+      observed: true,
+    },
+    pressure: {
+      text: "↑ rising",
+      tone: CycloneTrendTone.Good,
+      observed: true,
+    },
+    windWord: "strengthening",
+  },
+  [CycloneTrend.Steady]: {
+    wind: {
+      text: "→ steady",
+      tone: CycloneTrendTone.Dim,
+      observed: true,
+    },
+    pressure: {
+      text: "→ steady",
+      tone: CycloneTrendTone.Dim,
+      observed: true,
+    },
+    windWord: "steady",
+  },
+  [CycloneTrend.Unknown]: {
+    wind: {
+      text: "trend unavailable",
+      tone: CycloneTrendTone.Dim,
+      observed: false,
+    },
+    pressure: {
+      text: "trend unavailable",
+      tone: CycloneTrendTone.Dim,
+      observed: false,
+    },
+    windWord: null,
+  },
+};
+
+export function windTrendLabel(trend: CycloneTrend): TrendLabel {
+  return TREND_META[trend].wind;
+}
+
+export function pressureTrendLabel(trend: CycloneTrend): TrendLabel {
+  return TREND_META[trend].pressure;
+}
+
+export function windTrendWord(trend: CycloneTrend): string | null {
+  return TREND_META[trend].windWord;
+}
+
+/** Classify a signed wind delta (kt) into a Trend with a ±3kt deadband. */
+enum TrendPolicy {
+  WindDeadbandKnots = 3,
+  PressureSteadyBandMb = 1,
+}
+
+export function trendFromWindDelta(deltaKt: number): CycloneTrend {
+  if (deltaKt <= -TrendPolicy.WindDeadbandKnots) return CycloneTrend.Falling;
+  if (deltaKt >= TrendPolicy.WindDeadbandKnots) return CycloneTrend.Rising;
+  return CycloneTrend.Steady;
+}
+
 const ATCF_TIMESTAMP = /^(\d{4})(\d{2})(\d{2})(\d{2})$/;
 
 type TimedPastTrackPoint = Readonly<{
@@ -172,11 +241,11 @@ function previousObservedPoint(storm: CycloneData): TimedPastTrackPoint | null {
   return previous;
 }
 
-export function windTrend(storm: CycloneData): ObservedTrend {
+export function windTrend(storm: CycloneData): CycloneTrend {
   const previous = previousObservedPoint(storm);
   return previous
     ? trendFromWindDelta(storm.maxWindKt - previous.point.vmaxKt)
-    : "unknown";
+    : CycloneTrend.Unknown;
 }
 
 type PressureChange = Readonly<{
@@ -201,17 +270,17 @@ function pressureChange(storm: CycloneData): PressureChange | null {
   return {
     currentMb,
     previousMb,
-    elapsedHours: (currentTime - previous.observedAt) / MILLISECONDS_PER_HOUR,
+    elapsedHours: (currentTime - previous.observedAt) / MS_PER_HOUR,
   };
 }
 
-export function pressureTrend(storm: CycloneData): ObservedTrend {
+export function pressureTrend(storm: CycloneData): CycloneTrend {
   const change = pressureChange(storm);
-  if (!change) return "unknown";
+  if (!change) return CycloneTrend.Unknown;
   const delta = change.currentMb - change.previousMb;
-  if (delta >= PRESS_STEADY_BAND_MB) return "rising";
-  if (delta <= -PRESS_STEADY_BAND_MB) return "falling";
-  return "steady";
+  if (delta >= TrendPolicy.PressureSteadyBandMb) return CycloneTrend.Rising;
+  if (delta <= -TrendPolicy.PressureSteadyBandMb) return CycloneTrend.Falling;
+  return CycloneTrend.Steady;
 }
 
 export function pressureRateHpaPerH(storm: CycloneData): number | null {

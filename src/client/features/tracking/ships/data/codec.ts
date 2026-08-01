@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
-import { ktToMps } from "@/lib/format/units";
+import { ktToMps } from "@/measurements";
 import { GeoLimit, isRecord } from "@shared/geo";
 
 export type ShipPoint = Extract<DataPoint, { type: Domain.Ships }>;

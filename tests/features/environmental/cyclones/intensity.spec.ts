@@ -3,11 +3,12 @@ import { CycloneBasin } from "@shared/cyclonesSeason";
 import {
   analyzeIntensity,
   buildIntensitySeries,
+  CycloneRapidIntensificationPolicy,
+  CycloneTrend,
   detectRapidIntensification,
   peakForecastWindKt,
   pressureRateHpaPerH,
   pressureTrend,
-  RI_THRESHOLD_KT,
   windTrend,
 } from "@/features/environmental/cyclones/data/intensity";
 import {
@@ -77,7 +78,9 @@ describe("detectRapidIntensification", () => {
       buildIntensitySeries(storm(40, [fp(24, 55), fp(48, 75)])),
     );
     expect(ri.isRapid).toBe(false);
-    expect(ri.maxGain24hKt).toBeLessThan(RI_THRESHOLD_KT);
+    expect(ri.maxGain24hKt).toBeLessThan(
+      CycloneRapidIntensificationPolicy.ThresholdKnots,
+    );
   });
 
   it("uses the threshold boundary exactly (+30 kt counts)", () => {
@@ -137,8 +140,8 @@ describe("observed intensity trend", () => {
       minPressureMb: 1000,
     };
 
-    expect(windTrend(value)).toBe("rising");
-    expect(pressureTrend(value)).toBe("falling");
+    expect(windTrend(value)).toBe(CycloneTrend.Rising);
+    expect(pressureTrend(value)).toBe(CycloneTrend.Falling);
     expect(pressureRateHpaPerH(value)).toBeCloseTo(-5 / 6, 6);
   });
 
@@ -149,8 +152,8 @@ describe("observed intensity trend", () => {
       minPressureMb: 1000,
     };
 
-    expect(windTrend(value)).toBe("unknown");
-    expect(pressureTrend(value)).toBe("unknown");
+    expect(windTrend(value)).toBe(CycloneTrend.Unknown);
+    expect(pressureTrend(value)).toBe(CycloneTrend.Unknown);
     expect(pressureRateHpaPerH(value)).toBeNull();
   });
 });

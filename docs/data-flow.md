@@ -1,420 +1,241 @@
 # Data Flow
 
-[← Back to Docs Index](./README.md)
+[Back to the documentation index](./README.md)
 
-**Related docs**: [Architecture](./architecture.md) · [Feature System](./features.md) · [Caching](./caching.md) · [Pane System](./panes.md)
+Related documents: [Architecture](./architecture.md), [Rendering](./rendering.md), [Caching](./caching.md), and [Feature system](./features.md).
 
----
+## Purpose
 
-## Shared Data Context
+This document describes browser data ownership. It also describes each path from a source record to the renderer or React.
 
-Application state is split across three focused React contexts, all nested inside `DataProvider`:
+The DataWorker owns all geographic source records. React does not own a merged geographic record array.
 
-| Context | File | Owns |
-|---|---|---|
-| **DataContext** | `context/DataContext.tsx` | Raw data hooks, `allData`, layers, filters, counts, correlation, enrichment, dataSources, ticker |
-| **UIContext** | `context/UIContext.tsx` | `selected`, `selectedCurrent`, `isolateMode`, view controls (`flat`, `autoRotate`, `rotationSpeed`), `chromeHidden`, search, zoom, reveal, `selectAndZoom`, `colorMap` |
-| **WatchContext** | `context/WatchContext.tsx` | Watch mode state machine — `watchActive`, `watchPaused`, `watchProgress`, `startWatch`, `stopWatch`, `pauseWatch`, `resumeWatch` |
+## Ownership
 
-The `useData()` hook merges all three contexts into a single return value — **fully backwards-compatible** with existing consumers. New code can use `useUI()` or `useWatch()` directly for narrower subscriptions and reduced re-render surface.
+| Owner | Data |
+| --- | --- |
+| Bun server | Server poll state, protected credentials, normalized provider responses, and disposable server caches |
+| DataWorker | Geographic source records, source versions, source status, IndexedDB records, trails, aircraft dossiers, render searches, and scene publication |
+| CorrelationWorker | Worker-local copies of geographic records for analysis |
+| RenderWorker | Packed scene records, render selection, search visibility, camera state, and frame state |
+| React | News articles, pane state, controls, bounded query results, and one selected record copy |
 
-Provider nesting order (inside `DataProvider`): `UIProvider` → `DataContext.Provider` → `WatchProvider`. UIProvider receives `idMap` from DataProvider to resolve `selectedCurrent`. WatchProvider receives `correlation` from DataContext and reads `setSelected`/`setAutoRotate`/`setRevealId` from UIContext.
+Each owner publishes a typed projection. A consumer does not mutate the owner data.
 
-### What lives in each context
-
-**DataContext** (raw data + derived):
-
-| Category | State | Purpose |
-|---|---|---|
-| **Raw data** | `allData` | Merged aircraft + ships + earthquake + GDELT event + FIRMS fire + NOAA weather DataPoints |
-| **News** | `newsArticles` | RSS news articles from `useNewsData()` — non-geographic, not in allData. Lifted to context for correlation engine + cross-pane access |
-| **Correlation** | `correlation` | `CorrelationResult` from correlation engine — intel products + scored alerts + regional baseline. Computed once via `useMemo`, shared by all panes |
-| **Layers** | `layers`, `toggleLayer` | Per-feature on/off toggles |
-| **Aircraft filter** | `aircraftFilter`, `setAircraftFilter` | Complex filter (squawks, countries, airborne/ground, military) |
-| **Filters** | `filters` | Unified filter map consumed by uiSelectors |
-| **Derived** | `counts`, `activeCount`, `tickerItems`, `availableCountries`, `dataSources` | Computed via useMemo |
-| **Spatial** | `spatialGrid`, `filteredIds` | Spatial hash for click/hover, pre-computed filter set |
-| **Enrichment** | `requestAircraftEnrichment` | Re-applies local metadata DB on demand (no network) |
-
-**UIContext** (selection + view controls):
-
-| Category | State | Purpose |
-|---|---|---|
-| **Selection** | `selected`, `selectedCurrent`, `setSelected` | Currently selected item (selectedCurrent stays fresh across data refreshes via idMap) |
-| **Isolation** | `isolateMode`, `setIsolateMode` | FOCUS (layer only) or SOLO (single point) |
-| **View controls** | `flat`, `autoRotate`, `rotationSpeed` + setters | Globe-specific but toggled from Header. Default rotation is paused. |
-| **Chrome** | `chromeHidden`, `setChromeHidden` | Toggle all UI overlays |
-| **Search** | `searchMatchIds`, `handleSearchMatchIds`, `handleSearchSelect`, `handleSearchZoomTo` | Search filter + zoom |
-| **Zoom** | `zoomToId`, `setZoomToId` | Triggers camera zoom-to (deep zoom, lock-on) |
-| **Reveal** | `revealId`, `setRevealId` | Triggers gentle ISS-level reveal (rotate to show point at 2.5x zoom, no lock-on). Used by pane clicks. |
-| **Convenience** | `selectAndZoom`, `colorMap` | Select + zoom in one call; theme-derived color map |
-
-**WatchContext** (watch mode):
-
-| Category | State | Purpose |
-|---|---|---|
-| **Watch** | `watchMode`, `watchActive`, `watchPaused`, `watchProgress`, `startWatch`, `stopWatch`, `pauseWatch`, `resumeWatch` | Shared watch mode — auto-tour through alerts/intel/all on globe. See Watch Mode section. |
-
-### Derived values
-
-| Derived | Recomputes when |
-|---|---|
-| `allData` | Any hook's data changes |
-| `newsArticles` | News hook data changes |
-| `correlation` | `allData` or `newsArticles` changes |
-| `dataSources` | Any hook's dataSource status changes (includes news) |
-| `filters` | `aircraftFilter` or `layers` changes |
-| `tickerItems` | Data refresh or filter change |
-| `selectedCurrent` | Data refresh or selection change |
-| `counts` | Data refresh or filter change |
-| `activeCount` | Data refresh or filter change |
-| `availableCountries` | Data refresh |
-| `idMap` | Data refresh |
-| `spatialGrid` | Data refresh |
-| `filteredIds` | Data refresh or filter change |
-| `watchItems` | `correlation` or `watchState.source` changes |
-| `watchProgress` | 100ms tick during active watch |
-
-`selectedCurrent` is notable: when data refreshes, the previously selected item's `DataPoint` object is replaced by a new one with the same `id`. `selectedCurrent` uses `idMap.get()` for O(1) lookup of the updated version so the detail panel always shows fresh data.
-
----
-
-## Boot & Polling Lifecycle
+## Browser topology
 
 ```mermaid
-flowchart TD
-    Boot["Application Boot<br/>cacheInit() fire-and-forget"] --> HydrateAC["AircraftProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateEQ["EarthquakeProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateEV["GdeltProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateSH["ShipProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateFI["FireProvider.hydrate()<br/>(rejects if >30min stale)"]
-    Boot --> HydrateWX["WeatherProvider.hydrate()<br/>(rejects if >30min stale)"]
+flowchart TB
+    U[Upstream providers] --> B[Bun server or approved direct fetch]
+    B --> D[DataWorker]
+    I[(IndexedDB)] <--> D
 
-    HydrateAC -->|"cache hit"| CachedAC["cached aircraft"]
-    HydrateAC -->|"cache miss"| MockFallback["mock aircraft"]
+    D -->|Direct scene channel| R[RenderWorker]
+    R --> C[Transferred canvas]
 
-    HydrateEQ -->|"cache hit"| CachedEQ["cached earthquakeData"]
-    HydrateEQ -->|"cache miss"| EmptyEQ["earthquakeData = []"]
+    D -->|Direct source rebases| K[CorrelationWorker]
+    N[News provider] --> X[React]
+    X -->|News and baseline| K
 
-    HydrateEV -->|"cache hit"| CachedEV["cached eventData"]
-    HydrateEV -->|"cache miss"| EmptyEV["eventData = []"]
-
-    HydrateSH -->|"cache hit"| CachedSH["cached shipData"]
-    HydrateSH -->|"cache miss"| EmptySH["shipData = []"]
-
-    HydrateFI -->|"cache hit"| CachedFI["cached fireData"]
-    HydrateFI -->|"cache miss"| EmptyFI["fireData = []"]
-
-    HydrateWX -->|"cache hit"| CachedWX["cached weatherData"]
-    HydrateWX -->|"cache miss"| EmptyWX["weatherData = []"]
-
-    CachedAC --> AllData["allData = useMemo merge"]
-    MockFallback --> AllData
-    CachedEQ --> AllData
-    EmptyEQ --> AllData
-    CachedEV --> AllData
-    EmptyEV --> AllData
-    CachedSH --> AllData
-    EmptySH --> AllData
-    CachedFI --> AllData
-    EmptyFI --> AllData
-    CachedWX --> AllData
-    EmptyWX --> AllData
-
-    AllData --> PollAC["Aircraft poll() every 240s"]
-    AllData --> PollEQ["Earthquake poll() every 420s"]
-    AllData --> PollEV["Event poll() every 15 min<br/>(fetches from our server)"]
-    AllData --> PollSH["Ship poll() every 300s<br/>(fetches from our server)"]
-    AllData --> PollFI["Fire poll() every 600s<br/>(fetches from our server)"]
-    AllData --> PollWX["Weather poll() every 300s<br/>(client-side fetch from NOAA)"]
-
-    PollAC -->|"success"| PersistAC["persistCache() → IndexedDB"]
-    PollEQ -->|"success"| PersistEQ["persistCache() → IndexedDB"]
-    PollEV -->|"success"| PersistEV["mergeAndPrune() → persistCache() → IndexedDB"]
-    PollSH -->|"success"| PersistSH["persistCache() → IndexedDB"]
-    PollFI -->|"success"| PersistFI["persistCache() → IndexedDB"]
-    PollWX -->|"success"| PersistWX["persistCache() → IndexedDB"]
-
-    PersistAC --> SetState["React state update → re-merge allData"]
-    PersistEQ --> SetState
-    PersistEV --> SetState
-    PersistSH --> SetState
-    PersistFI --> SetState
-    PersistWX --> SetState
+    D -->|Status and bounded queries| X
+    R -->|Globe state and semantic events| X
+    X -->|Semantic commands| R
 ```
 
-Boot is render-first. `cacheInit()` fires at import time (module scope) so IDB opens during JS parse. React renders immediately — empty shell with chrome visible. The boot IIFE then awaits `cacheInit`, hydrates all providers from IDB in one batch (notifications muted), fires a single `notifyChange` per provider (React 18 batches into one render), then checks which providers returned stale/missing data. Only stale providers are refreshed over the network — if all caches are fresh, zero network requests on boot. Aircraft enrichment is now server-side (records are pre-enriched before the cache write), so the client has no metadata-DB load step to gate on. Network refresh results are also batched into a single notification. The globe receives at most two `allData` reference changes: one for cached data, one for fresh data. Progressive rendering streams each batch onto the globe at 1500 points/frame.
+## Boot
 
-Hooks do NOT call `getData()` on mount — they subscribe to `onChange` and read from `getSnapshot()`. The boot sequence in `frontend.tsx` is the single owner of initial hydration and refresh. Poll intervals handle subsequent refreshes.
+`frontend.tsx` starts the React application immediately. It also starts cache initialization.
 
----
+`storageService.ts` requests the shared DataWorker client. The client creates `/workers/dataWorker.js` and sends the initialization command.
 
-## Trail Recording (Centralized)
+The DataWorker performs these operations:
 
-Trail recording is centralized in `DataContext` as a `useEffect` on `allData` changes. When `allData` updates (any source refreshes), the effect filters for moving entity types (aircraft and ships) and calls `recordPositions()` from the trail service. This feeds the interpolation system and trail rendering.
+1. Open the `sigint-cache` IndexedDB database.
+2. Return only main-thread cache entries to `storageService.ts`.
+3. Hydrate the trail recorder.
+4. Hydrate each geographic source from its worker-owned cache.
+5. Publish cached source status and scene rebases when data is available.
+6. Start each source refresh schedule.
 
-Previously trail recording was embedded in `useAircraftData`. It was moved to DataContext when ships became a separate hook to ensure both aircraft and ships feed trails from a single location with no duplication.
+News is not a geographic source. The React news provider still hydrates and refreshes news articles.
 
----
+## Source lifecycle
 
-## The `allData` Array
+Each geographic source attaches to a source runtime. The runtime owns one `DatasetStore`.
 
-`allData` is the **single source of truth** for all renderable points. It is computed via `useState` + `useEffect` with `requestAnimationFrame` debouncing — when multiple providers notify in rapid succession (e.g., boot batch), updates coalesce into one new array reference per frame instead of one per provider:
+The source runtime performs these operations:
 
-```typescript
-const [allData, setAllData] = useState<DataPoint[]>(() => [...]);
+1. Read and parse the source cache.
+2. Fetch and validate a source snapshot.
+3. Apply the snapshot to the `DatasetStore`.
+4. Persist the accepted source records.
+5. Publish a small source-status snapshot to the main thread.
+6. Publish a `DatasetPatch` to the source scene binding.
+7. Schedule the next refresh or retry.
 
-useEffect(() => {
-  cancelAnimationFrame(rafRef.current);
-  rafRef.current = requestAnimationFrame(() => {
-    setAllData([...aircraftData, ...shipData, ...earthquakeData, ...eventData, ...fireData, ...weatherData]);
-  });
-}, [aircraftData, shipData, earthquakeData, eventData, fireData, weatherData]);
+The runtime deduplicates concurrent refresh requests. It retains valid records after a failed refresh.
+
+## Snapshot reconciliation
+
+A source snapshot declares whether it is complete or partial.
+
+- A complete snapshot can delete records that are absent from the new snapshot.
+- A partial snapshot can add or update records. It cannot infer a deletion.
+- An explicit empty complete snapshot clears the source.
+- A failed refresh does not clear retained records.
+
+The `DatasetStore` indexes records by stable entity identifier. It rejects duplicate identifiers and non-increasing versions.
+
+The first accepted snapshot creates a rebase patch. Later snapshots create incremental patches with upserts and deleted identifiers.
+
+## Render-data path
+
+The render-data path does not use React.
+
+```text
+source snapshot
+  -> DatasetStore
+  -> DatasetPatch
+  -> source scene binding
+  -> ScenePatchCodec
+  -> ScenePublisher
+  -> direct MessageChannel
+  -> source render layer
+  -> SceneStore
+  -> Canvas 2D frame
 ```
 
-- **`aircraftData`**: Live aircraft from our server via `/api/aircraft/states` (refreshed every 240s). Server runs a 108-tile sweep against adsb.fi every 300s, dedups by ICAO hex, and enriches each record against `ac-db.sqlite` before the cache write. Falls back to mock aircraft on fetch failure.
-- **`shipData`**: Live AIS vessels from our server (refreshed every 300s). Server streams from aisstream.io WebSocket. Empty array if `AISSTREAM_API_KEY` not set.
-- **`earthquakeData`**: Live earthquakes from USGS (refreshed every 420s). Covers the past 7 days of global seismic activity.
-- **`eventData`**: Live GDELT events from our server (refreshed every 15 min). Client-side 7-day rolling window with URL-based dedup. Server fetches GDELT raw export files, parses geocoded conflict/crisis events, caches in memory.
-- **`fireData`**: Live fire hotspots from our server (refreshed every 600s). Server fetches NASA FIRMS VIIRS CSV every 30 min, parses global fire detections from the last 24 hours. Empty array if `FIRMS_MAP_KEY` not set.
-- **`weatherData`**: Live NOAA severe weather alerts (refreshed every 300s). Client-side fetch from `api.weather.gov/alerts/active`. US-only. No API key, just User-Agent header.
+The scene codec converts source records to render records. It packs positions, unit vectors, timestamps, attributes, motion positions, and geometry.
 
----
+The scene publisher adds the protocol version, render session identifier, and sequence. It transfers eligible buffers to the RenderWorker.
 
-## The `filters` Map
+The RenderWorker routes each command by source. The source render layer applies the command to its `SceneStore`.
 
-```typescript
-const filters = {
-  aircraft: aircraftFilter,  // AircraftFilter object
-  ships:    layers.ships,     // boolean
-  events:   { enabled: layers.events ?? true, minSeverity: 0 },  // EventFilter
-  quakes:   { enabled: layers.quakes ?? true, minMagnitude: 0 },  // EarthquakeFilter
-  fires:    { enabled: layers.fires ?? true, minConfidence: 0 },  // FireFilter
-  weather:  { enabled: layers.weather ?? true, minSeverity: 0 },  // WeatherFilter
-};
+See [Rendering](./rendering.md) for the canvas lifecycle and the frame path.
+
+## Main-thread data path
+
+React receives small source-status snapshots. A snapshot contains the source identifier, version, status, loading state, record count, update time, and error.
+
+React requests bounded data for a specific UI purpose:
+
+- One source entity
+- One query page
+- One count
+- One facet list
+- One ticker page
+- One selected trail
+- One aircraft dossier
+
+`useSourceQuery()` reruns a query when the source version changes. It keeps the last valid page while a new request is active.
+
+The DataWorker limits query results. React never subscribes to the complete geographic collection.
+
+## React contexts
+
+`DataProvider` nests three contexts.
+
+| Context | Responsibilities |
+| --- | --- |
+| `DataContext` | Source status, counts, bounded ticker items, news, filters, and correlation results |
+| `UIContext` | Selected record copy, pane-facing globe controls, search text, focus intent, and chrome visibility |
+| `WatchContext` | Watch mode, dwell state, progress, and watch source |
+
+`useData()` combines these contexts for existing consumers. This combined hook does not create a second data owner.
+
+`DataContext` does not hold geographic source records. It reads source versions and bounded query results from the DataWorker.
+
+## Globe state path
+
+`RenderGlobeStateController` in the RenderWorker owns globe state.
+
+The render surface keeps a bounded state snapshot for React controls. A control dispatches a semantic command through `globeStateStore.ts`. The RenderWorker applies the command and publishes a new state snapshot.
+
+Layer filters, projection, rotation, and isolation do not use React as their authoritative owner.
+
+## Selection path
+
+The RenderWorker performs hit tests and owns the render selection.
+
+The selection path is:
+
+```text
+canvas input
+  -> RenderWorker hit test
+  -> semantic selection event
+  -> render surface
+  -> DataWorker getSourceEntity query
+  -> one current record
+  -> React selection and dossier panes
 ```
 
-Each feature's `matchesFilter()` receives its corresponding filter value. Aircraft uses a complex filter object with squawk/country/airborne toggles. Earthquake uses `EarthquakeFilter` with enabled + minMagnitude. Events use `EventFilter` with enabled + minSeverity. Ships use a simple boolean. Fires use `FireFilter` with enabled + minConfidence. Weather uses `WeatherFilter` with enabled + minSeverity.
+React stores one bounded record copy for pane presentation. `useFreshEntity()` requests a new copy when the source version changes.
 
----
+The RenderWorker also sends selection interest directly to the DataWorker. The DataWorker publishes the selected trail and aircraft route through the scene channel.
 
-## AIS Ship Data Flow
+## Search path
 
-The AIS pipeline has both server-side and client-side components:
+React performs bounded search-result queries for the search interface. A selected search result is one bounded record.
 
-**Server** (`aisCache.ts`): On boot, opens a persistent WebSocket to `wss://stream.aisstream.io/v0/stream`. Subscribes to global `PositionReport` and `ShipStaticData` messages. Accumulates latest position per MMSI in an in-memory Map. `PositionReport` provides lat/lon/speed/heading/course/nav status. `ShipStaticData` enriches with name/callsign/IMO/type/destination/draught/dimensions. Stale vessels (not seen for 60 min) pruned every 5 min. Auto-reconnects on disconnect. Serves snapshot via `/api/ships/latest` with token auth.
+A committed globe search uses a separate worker path:
 
-**Client** (`ShipProvider`): Polls `/api/ships/latest` every 300 seconds using `authenticatedFetch()` from `lib/authService.ts` . Converts server vessel records to DataPoints with `id: S{mmsi}`, type `ships`. Persists to IndexedDB. Hydrates on boot with 30-min staleness threshold.
-
----
-
-## GDELT Event Data Flow
-
-**Server** (`gdeltCache.ts`): Fetches GDELT export CSV every 15 min, filters to conflict/crisis CAMEO codes. See [Architecture](./architecture.md) for full pipeline.
-
-**Client** (`GdeltProvider`): Polls `/api/events/latest` every 15 min via `authenticatedFetch()`. Merges with existing cache (URL dedup), prunes events older than 7 days. Persists to IndexedDB.
-
----
-
-## NASA FIRMS Fire Data Flow
-
-**Server** (`firmsCache.ts`): Fetches VIIRS NOAA-20 CSV every 30 min. See [Architecture](./architecture.md) for full pipeline.
-
-**Client** (`FireProvider`): Polls `/api/fires/latest` every 600s via `authenticatedFetch()`. Converts to DataPoints (`id: FI{idx}-{lat}-{lon}`, type `fires`). Persists to IndexedDB, 30-min staleness.
-
----
-
-## NOAA Weather Data Flow
-
-Client-side fetch from `api.weather.gov/alerts/active`. No API key, just `User-Agent` header.
-
-**Client** (`WeatherProvider`): Polls every 300s. Extracts centroid from GeoJSON geometry. Maps to DataPoints (`id: WX{nws_id}`, type `weather`). US-only. Persists to IndexedDB, 30-min staleness.
-
----
-
-## RSS News Data Flow
-
-**Important**: News is a non-geographic data source. It does NOT participate in `allData`, the feature registry, or the globe rendering pipeline. However, news data IS lifted to `DataContext` — the `useNewsData()` hook is called in the DataProvider, and `newsArticles` is exposed on the context value. This enables the correlation engine and any pane to access news without duplicate hook instances.
-
-**Server** (`newsCache.ts`): Fetches 6 RSS feeds every 10 min, deduplicates, caps at 200 articles. See [Architecture](./architecture.md) for feed list and details.
-
-**Client** (`NewsProvider`): Mirrors the `BaseProvider` contract for `NewsArticle[]` (not `DataPoint[]`): `hydrate()` reads asynchronously from IndexedDB via `cacheGet()` with 12-hour staleness rejection, `refresh()` fetches from `/api/news/latest` via `authenticatedFetch()` (HttpOnly cookie auth) and persists to IndexedDB, `getData()` returns cache if fresh or triggers background refresh, `getSnapshot()` returns current state. The `useNewsData` hook subscribes to `onChange` and reads from `getSnapshot()` — it does NOT call `getData()` on mount. Initial data comes from the boot sequence in `frontend.tsx`.
-
-**Context integration**: `DataContext` calls `useNewsData()` (from `features/news/`) and exposes `newsArticles` on the context value. `NewsFeedPane` reads from `useData()` instead of calling the hook directly. News also appears in the `dataSources` array as `{ id: "news", label: "NEWS" }` for status reporting.
-
----
-
-## Correlation Engine
-
-`lib/correlationEngine.ts` derives intelligence products from raw `DataPoint[]` + `NewsArticle[]`. Runs as a `useMemo` in `DataContext` keyed on `[allData, newsArticles]` — recomputes on every data refresh. The result is shared across all panes via `correlation` on the context value.
-
-### Three Outputs
-
-| Output | Type | Purpose |
-|---|---|---|
-| `products` | `IntelProduct[]` | Correlated intelligence insights for the Intel Feed |
-| `alerts` | `ScoredAlert[]` | Context-scored alerts for the Alert Log |
-| `baseline` | `RegionBaseline` | Rolling per-country event counts (persisted to IndexedDB) |
-
-### Five Correlation Stages
-
-```mermaid
-flowchart TD
-    IN["allData + newsArticles"] --> CLUSTER["Regional Clustering<br/>Group by country+type within 6h"]
-    IN --> CROSS["Cross-Source Correlation<br/>Grid-indexed O(n) spatial matching"]
-    IN --> ANOMALY["Anomaly Detection<br/>7-day rolling baseline comparison"]
-    CLUSTER --> NEWS["News Linking<br/>Match articles to active regions"]
-    ANOMALY --> NEWS
-    CROSS --> PRODUCTS["buildProducts()"]
-    CLUSTER --> PRODUCTS
-    ANOMALY --> PRODUCTS
-    NEWS --> PRODUCTS
-    IN --> ALERTS["Alert Scoring<br/>Composite 1-10 score per event"]
-    CROSS --> ALERTS
-    ANOMALY --> ALERTS
-    PRODUCTS --> OUT["CorrelationResult"]
-    ALERTS --> OUT
+```text
+search text
+  -> RenderWorker
+  -> search interest
+  -> DataWorker
+  -> source-specific matching identifiers
+  -> scene handles
+  -> RenderWorker visibility state
 ```
 
-**1. Regional Clustering**: Groups events by country + type within 6-hour windows. "5 conflict events in Sudan in 3h" becomes one cluster instead of 5 raw entries.
+React does not store or relay the complete render match set.
 
-**2. Cross-Source Correlation**: Spatial-temporal matching across data types using a 2° grid index (same cell approach as `spatialIndex.ts`). Builds a grid per data type, then queries neighboring cells — O(n) not O(n²). Correlation rules:
-- GDELT conflict (severity ≥3) + FIRMS fire within 75km/12h → conflict-related fire
-- Earthquake (M4.5+) + subsequent fire within 75km/12h → secondary fire
-- Severe weather + 3+ ships within 75km → maritime risk
-- Military aircraft within 200km of conflict events → deployment activity
+## Trail path
 
-**3. Anomaly Detection**: Rolling 7-day per-country baseline (168 hourly buckets). Current 6h activity compared against historical average. 3× baseline = activity spike. A M3.5 in Virginia scores higher than M5 in Chile because Virginia's baseline shows no seismic activity. Baseline persisted to IndexedDB under `sigint.intel.baseline.v1` — accumulates over days of use.
+The DataWorker records aircraft and ship observations. `ObservedTrailBinding` receives accepted source patches and updates the trail recorder.
 
-**4. News Linking**: Matches RSS article titles/descriptions against country names from active clusters and anomalies. Links news coverage to intelligence products (up to 3 articles per country).
+The trail recorder owns these operations:
 
-**5. Alert Scoring**: Composite 1-10 score built from base measurement (magnitude, FRP, severity, squawk), regional baseline deviation, cross-source correlation boost, and military classification boost. Post-scoring dedup pass collapses same country + type within 1-hour into single alert (e.g., "CRISIS EVENT (+4 similar)") with highest score and merged factors.
+- Cache hydration
+- Position validation
+- Movement thresholds
+- Point limits
+- Stale-entry removal
+- Deferred persistence
+- Selected-trail queries
 
-### Grid-Indexed Spatial Matching
+The render selection activates `SelectionInterestService`. The service publishes one bounded selection overlay to the RenderWorker.
 
-The cross-source correlation uses a 2° grid (same approach as `spatialIndex.ts`) to avoid O(n²) comparisons. For each correlation rule, the "query" type is iterated and the "target" type is indexed in a grid. Each query point checks only the ~9 neighboring cells, making the total cost O(n) regardless of dataset size.
+## Correlation path
 
-```typescript
-// 75km ≈ 0.7° at equator — 2° cells with 1-ring neighbor query covers it
-const GRID_CELL_DEG = 2;
-function gridQuery(grid, lat, lon, radiusDeg): DataPoint[] { ... }
-```
+The DataWorker sends complete source rebases directly to the CorrelationWorker. A source-status publication triggers the corresponding rebase.
 
-### ScoredAlert Type
+React sends only news articles and the regional baseline with a correlation request. Geographic record arrays do not pass through React.
 
-```typescript
-type ScoredAlert = {
-  item: DataPoint;
-  label: string;           // "CRISIS EVENT (+4 similar)"
-  score: number;           // 1-10 composite
-  factors: string[];       // ["Severity 5/5", "Region elevated (5.0× baseline)", "Correlated with other source"]
-  count: number;           // Number of deduped events (1 = single)
-  groupedItems?: DataPoint[];  // All items in the dedup group
-};
-```
+The CorrelationWorker returns products, alerts, and the next baseline. React stores the result and persists the baseline.
 
-### Regional Baseline Persistence
+## News path
 
-The baseline survives page reloads via IndexedDB (`sigint.intel.baseline.v1`). It accumulates over days of use — the longer the app runs, the smarter the anomaly detection gets. Users can clear it from Settings like any other cache entry. Hourly buckets older than 7 days are pruned on each computation.
+News articles are not geographic render records.
 
----
+The news provider performs these operations:
 
-## Watch Mode
+1. Hydrate articles from cache.
+2. Refresh articles from the server.
+3. Publish articles to React.
+4. Supply articles to the news pane and the correlation request.
 
-Watch mode is a shared auto-tour system that cycles through alerts and/or intel products on the globe. State lives in `WatchContext` (nested inside `DataProvider`), controlled from the globe overlay, consumed by all panes. Accessible via `useWatch()` directly or through the merged `useData()` hook.
+News does not enter the scene protocol or the RenderWorker.
 
-### WatchMode State
+## Data rules
 
-```typescript
-type WatchSource = "alerts" | "intel" | "all";
-
-type WatchMode = {
-  active: boolean;
-  paused: boolean;
-  source: WatchSource;
-  index: number;
-  items: DataPoint[];
-  currentId: string | null;
-  currentItemSource: "alerts" | "intel" | null;  // which list the current item came from
-};
-```
-
-### Watch Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Inactive
-    Inactive --> Active: startWatch(source)
-    Active --> Paused: manual selection / pauseWatch()
-    Paused --> Active: resumeWatch()
-    Active --> Inactive: stopWatch()
-    Paused --> Inactive: stopWatch()
-    Active --> Active: 8s dwell → advance to next item
-```
-
-**Start**: `startWatch(source)` sets active, calls `requestWatchLayout()` (ensures dossier + alerts + intel panes are open via PaneManager), enables globe rotation.
-
-**Cycling**: Every 8 seconds, advances to the next item. Calls `setSelected(item)` + `setRevealId(item.id)` (ISS-level reveal — rotates globe to show point, no deep zoom). Dossier updates automatically since it reads `selectedCurrent`.
-
-**ALL mode interleaving**: Alerts and intel products merged into one list sorted by score descending, deduped by ID. Each item tracks its origin (`"alerts"` or `"intel"`). `currentItemSource` tells panes which list the current item came from — only the matching pane highlights/scrolls.
-
-**Pause**: Manual selection (clicking globe, ticker, data table) auto-pauses watch. Globe shows ▶ RESUME + ✕ stop buttons. Resume picks up where it left off. Pause also available programmatically via `pauseWatch()`.
-
-**Progress**: `watchProgress` (0-1) ticks every 100ms, exposed on context. Panes render a progress bar that fills left-to-right over 8 seconds, resets on each advance.
-
-### Watch Layout
-
-`requestWatchLayout()` fires on watch start and every 3 seconds during active watch. PaneManager handles it by ensuring three panes exist:
-
-1. **Dossier** — right of globe (75/25 ratio)
-2. **Alert Log** — below globe (65/35 ratio)
-3. **Intel Feed** — right of alert log (50/50 ratio)
-
-Each pane is restored from minimized if available, or created fresh. `ensurePane` scans the current tree by pane type on each call — handles cases where panes are closed during watch (re-created within 3 seconds). If the anchor pane for a child (e.g., alert-log for intel-feed) doesn't exist, falls back to splitting on root.
-
-### ISS-Level Reveal
-
-Watch mode uses `setRevealId()` instead of `selectAndZoom()`. The reveal effect in `GlobeVisualization`:
-
-- Always rotates the globe to show the point (no visibility guessing)
-- Sets `camTarget.zoom` to max(current, 2.5) — ISS altitude, not street level
-- Does NOT set `camTarget.lockedId` — camera remains free after the pan completes
-- Clears `lastRevealIdRef` when `revealId` goes null, allowing re-reveal of the same ID
-
-Pane clicks (alert log, intel feed, data table) also use ISS reveal. The LOCATE button in the detail panel/dossier still does full deep zoom via `selectAndZoom()`.
-
----
-
-## Enrichment Pipeline
-
-Aircraft metadata enrichment runs **server-side** against an embedded SQLite database — no client-side NDJSON download, no per-aircraft round-trips.
-
-### Server-Side Metadata DB
-
-`src/server/data/ac-db.sqlite` (~46 MB, ~617K records) is a read-only SQLite file baked into the production Docker image at build time. The source NDJSON (`ac-db.ndjson`, ~51 MB) is converted to SQLite by `scripts/build-aircraft-db.ts` and then removed before stage 2 of the build, so the runtime image only ships the SQLite. `src/server/api/aircraftEnrichment.ts` opens the DB read-only on the first sweep, caches a single prepared statement, and answers each lookup in <0.05 ms.
-
-Military classification is applied at **build time** by the build script (so the `military` flag is baked into the SQLite as a column) and the same three-rule logic in `src/server/data/militaryRules.ts` is re-applied at runtime for records whose typecode or hex range changes between builds. The three rules — ICAO type codes (50+ designators), operator keywords (15 strings), and US DoD ICAO24 hex range (AE0000–AFFFFF) — are OR'd.
-
-`originCountry` is derived from the ICAO 24-bit hex-prefix block per `src/server/data/icao24CountryRanges.ts` (ICAO Annex 10 mapping), independent of whether the DB has a row for that hex.
-
-### Enrichment Flow
-
-```mermaid
-flowchart TD
-    Sweep["Server sweep cycle"] --> Fetch["fetchTileWithRetry(lat,lon)"]
-    Fetch --> Enrich["enrichRecord(r, db)"]
-    Enrich --> Hex{"hex in SQLite?"}
-    Hex -->|"yes"| Merge["merge DB fields:<br/>acType, registration, operator,<br/>manufacturer, model, military, etc."]
-    Hex -->|"no"| Fallback["fall back: classifyMilitary(hex, live typecode)<br/>+ countryFromIcao24(hex)"]
-    Merge --> Ingest["ingestTile(sweepState, enriched)"]
-    Fallback --> Ingest
-    Ingest --> Serve["/api/aircraft/states serves the<br/>already-enriched body"]
-```
-
-The client's `parseAdsbV2.ts` is a pure shape mapper — it does no DB lookups. By the time a record reaches the browser it already has `acType`, `registration`, `operator`, `military`, `originCountry`, etc. attached. `requestAircraftEnrichment` on the client is a no-op shim kept for call-site compatibility.
-
----
-
-## Ticker Feed
-
-The live ticker at the bottom of the screen shows a continuous marquee of items from each active data type. Items are sorted by recency within each type, then interleaved: one aircraft, one ship, one event, one quake, one fire, one weather alert, repeat. Emergency aircraft (squawk 7700/7600/7500) always appear first. Non-emergency items are Fisher-Yates shuffled for variety. Grounded aircraft and moored ships (SOG < 0.5) are filtered out. The ticker draws from a pool of 80 items rendered as fixed-width cards (280px desktop, 220px mobile) scrolling left at a configurable speed (default 10 px/s, adjustable 0–100 in Settings → Appearance). Speed 0 stops scrolling and swaps the visible set every 8 seconds. Hover pauses the scroll. Below 640px, items render as compact single-line strips. Ticker items are clickable — clicking selects the item and zooms the globe to it. Speed setting persisted to `sigint.ticker.speed.v1`.
+- Keep one authoritative owner for each record set.
+- Use `DatasetPatch` for geographic source changes.
+- Use the common scene codec and scene protocol for rendering.
+- Keep complete and partial snapshot rules explicit.
+- Keep source versions monotonic.
+- Keep UI query results bounded.
+- Do not create a React-owned merged geographic array.
+- Do not relay render records through React.
+- Do not use pane queries as the render-data path.

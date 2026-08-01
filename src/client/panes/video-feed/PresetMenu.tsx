@@ -1,7 +1,22 @@
 import { useState, useEffect, useRef } from "react";
 import { Save, Trash2 } from "lucide-react";
-import { useWalkthroughStepId } from "@/lib/runtime/layoutSignals";
+import { useWalkthroughStepId, WalkthroughStepId } from "@/walkthrough";
+import { DomEvent, DomKey } from "@/runtime";
 import type { Preset } from "./videoFeedTypes";
+import { videoPresetGridLabel } from "./videoGrid";
+
+enum VideoPresetMenuIconSize {
+  Action = 14,
+}
+
+type PresetMenuProps = Readonly<{
+  presets: Preset[];
+  onLoad: (preset: Preset) => void;
+  onSave: (name: string) => void;
+  onUpdate: (index: number) => void;
+  onDelete: (index: number) => void;
+  onClose: () => void;
+}>;
 
 export function PresetMenu({
   presets,
@@ -10,14 +25,7 @@ export function PresetMenu({
   onUpdate,
   onDelete,
   onClose,
-}: {
-  presets: Preset[];
-  onLoad: (p: Preset) => void;
-  onSave: (name: string) => void;
-  onUpdate: (idx: number) => void;
-  onDelete: (idx: number) => void;
-  onClose: () => void;
-}) {
+}: PresetMenuProps) {
   const [newName, setNewName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const stepId = useWalkthroughStepId();
@@ -25,7 +33,7 @@ export function PresetMenu({
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       // Don't close during walkthrough save-video-preset step
-      if (stepId === "save-video-preset") return;
+      if (stepId === WalkthroughStepId.SaveVideoPreset) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         const toggle = (e.target as HTMLElement).closest(
           '[data-tour="video-preset-btn"]',
@@ -34,8 +42,8 @@ export function PresetMenu({
         onClose();
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener(DomEvent.MouseDown, handler);
+    return () => document.removeEventListener(DomEvent.MouseDown, handler);
   }, [onClose, stepId]);
 
   return (
@@ -54,7 +62,7 @@ export function PresetMenu({
       )}
       {presets.map((p, i) => (
         <div
-          key={i}
+          key={i /* NOSONAR: Preset order owns update and delete identity. */}
           className="flex items-center gap-1 px-2 py-1 hover:bg-sig-accent/10 transition-colors"
         >
           <button
@@ -66,7 +74,7 @@ export function PresetMenu({
           >
             {p.name}
             <span className="text-sig-dim ml-1">
-              ({p.state.grid === 1 ? "1" : p.state.grid === 4 ? "2×2" : "3×3"})
+              ({videoPresetGridLabel(p.state.grid)})
             </span>
           </button>
           <button
@@ -74,14 +82,14 @@ export function PresetMenu({
             onClick={() => onUpdate(i)}
             className="text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors touch-target p-0.5 shrink-0 flex items-center justify-center"
           >
-            <Save size={14} />
+            <Save size={VideoPresetMenuIconSize.Action} />
           </button>
           <button
             title="Delete preset"
             onClick={() => onDelete(i)}
             className="text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors touch-target p-0.5 shrink-0 flex items-center justify-center"
           >
-            <Trash2 size={14} />
+            <Trash2 size={VideoPresetMenuIconSize.Action} />
           </button>
         </div>
       ))}
@@ -94,7 +102,7 @@ export function PresetMenu({
           data-tour="video-preset-input"
           className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) min-w-0 caret-sig-accent"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && newName.trim()) {
+            if (e.key === DomKey.Enter && newName.trim()) {
               onSave(newName.trim());
               setNewName("");
               onClose();
@@ -113,7 +121,7 @@ export function PresetMenu({
           title="Save current as preset"
           data-tour="video-preset-save-btn"
         >
-          <Save size={14} />
+          <Save size={VideoPresetMenuIconSize.Action} />
         </button>
       </div>
     </div>

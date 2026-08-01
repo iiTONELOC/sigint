@@ -1,33 +1,35 @@
-// ── CycloneIntensityCurve ────────────────────────────────────────────
-// Wind-vs-lead-time area chart + Rapid Intensification badge, built from the
-// forecast track we already have (no new fetch). Saffir-Simpson category
-// bands give the line height meaning at a glance; a gradient fill under the
-// line reads as intensity. Theme-aware via var(--sigint-*) so it tracks
-// light/dark. Rendered in both the cyclone dossier and the detail pane.
-
 import { useId } from "react";
 import { TrendingUp } from "lucide-react";
-import { formatKtShort } from "@/lib/format/units";
+import { formatKtShort } from "@/measurements";
 import type { CycloneData } from "../types";
 import {
   analyzeIntensity,
   peakForecastWindKt,
 } from "../data/intensity";
-import { SAFFIR_SIMPSON, TS_MIN_KT, windColor } from "../classification";
+import {
+  CycloneBandLabel,
+  CycloneWindThreshold,
+  SAFFIR_SIMPSON,
+  windColor,
+} from "../classification";
 
-const W = 260;
-const H = 90;
-const PAD_X = 4;
-const PAD_TOP = 6;
-// Bottom gutter holds the forecast-hour axis labels below the plot, clear of
-// the curve baseline.
-const PAD_BOTTOM = 12;
+enum IntensityChartGeometry {
+  Width = 260,
+  Height = 90,
+  HorizontalPadding = 4,
+  TopPadding = 6,
+  BottomPadding = 12,
+  MaximumKnots = 150,
+}
 
 // Saffir-Simpson lower bounds (kt). Bands shade the chart so a viewer reads
 // the line's height as a category, not just a number.
 const SS_BANDS = [
   ...SAFFIR_SIMPSON.map((b) => ({ label: b.label, kt: b.minKt })),
-  { label: "TS", kt: TS_MIN_KT },
+  {
+    label: CycloneBandLabel.TropicalStorm,
+    kt: CycloneWindThreshold.TropicalStorm,
+  },
 ];
 
 export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }) {
@@ -35,42 +37,55 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
   const { series, ri } = analyzeIntensity(storm);
 
   if (series.length < 2) return null;
+  const [firstSample, ...remainingSamples] = series;
+  if (!firstSample) return null;
 
   const hours = series.map((s) => s.fcstHour);
   const winds = series.map((s) => s.maxWindKt);
   const minH = Math.min(...hours);
   const maxH = Math.max(...hours);
   const peak = peakForecastWindKt(series);
-  const peakSample = series.reduce((highest, sample) =>
-    sample.maxWindKt > highest.maxWindKt ? sample : highest,
+  const peakSample = remainingSamples.reduce(
+    (highest, sample) =>
+      sample.maxWindKt > highest.maxWindKt ? sample : highest,
+    firstSample,
   );
   const firstW = winds[0] ?? 0;
   const lastW = winds.at(-1) ?? 0;
   const peakTime =
     peakSample.fcstHour === 0 ? "now" : `+${peakSample.fcstHour}h`;
 
-  // Fixed y-domain (0..150 kt) so the same wind sits at the same height across
-  // storms and the category bands line up with real thresholds.
-  const Y_MAX = 150;
   const spanH = maxH - minH || 1;
-  const plotH = H - PAD_TOP - PAD_BOTTOM;
+  const plotH = IntensityChartGeometry.Height -
+    IntensityChartGeometry.TopPadding -
+    IntensityChartGeometry.BottomPadding;
 
-  const x = (h: number) => PAD_X + ((h - minH) / spanH) * (W - 2 * PAD_X);
-  const y = (w: number) => PAD_TOP + (1 - Math.min(w, Y_MAX) / Y_MAX) * plotH;
+  const x = (h: number) => IntensityChartGeometry.HorizontalPadding +
+    ((h - minH) / spanH) * (
+      IntensityChartGeometry.Width -
+      2 * IntensityChartGeometry.HorizontalPadding
+    );
+  const y = (w: number) => IntensityChartGeometry.TopPadding +
+    (
+      1 -
+      Math.min(w, IntensityChartGeometry.MaximumKnots) /
+        IntensityChartGeometry.MaximumKnots
+    ) * plotH;
 
   const line = series
     .map((s, i) => `${i === 0 ? "M" : "L"}${x(s.fcstHour).toFixed(1)},${y(s.maxWindKt).toFixed(1)}`)
     .join(" ");
-  const area = `${line} L${x(maxH).toFixed(1)},${(H - PAD_BOTTOM).toFixed(1)} L${x(minH).toFixed(1)},${(H - PAD_BOTTOM).toFixed(1)} Z`;
+  const area = `${line} L${x(maxH).toFixed(1)},${(
+    IntensityChartGeometry.Height - IntensityChartGeometry.BottomPadding
+  ).toFixed(1)} L${x(minH).toFixed(1)},${(
+    IntensityChartGeometry.Height - IntensityChartGeometry.BottomPadding
+  ).toFixed(1)} Z`;
 
-  // Line is the storm's CURRENT category color (now = firstW), not its peak —
-  // a C4-now storm reads C4, even if it crested higher. The per-point dots and
-  // the filled SS zone bands carry the changing category along the curve. Under
-  // RI the line goes watch-amber as a caution.
   const lineColor = ri.isRapid ? "var(--sigint-cycWatch)" : windColor(firstW);
 
-  // Y of a category's lower bound, for filling each Saffir-Simpson zone.
-  const yKt = (kt: number) => y(Math.min(kt, Y_MAX));
+  const yKt = (kt: number) => y(
+    Math.min(kt, IntensityChartGeometry.MaximumKnots),
+  );
 
   return (
     <div>
@@ -91,10 +106,9 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
       )}
 
       <svg
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`0 0 ${IntensityChartGeometry.Width} ${IntensityChartGeometry.Height}`}
         preserveAspectRatio="none"
         className="w-full h-28 @min-[28rem]/dossier:h-36"
-        role="img"
         aria-label={`Forecast intensity: peak ${peak} knots at ${peakTime}, ${lastW} knots at ${maxH} hours${
           ri.isRapid ? `, rapid intensification +${ri.maxGain24hKt} knots per 24 hours` : ""
         }`}
@@ -106,26 +120,33 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           </linearGradient>
         </defs>
 
-        {/* Saffir-Simpson zones — each category band filled in its own color so
-            the chart's vertical position reads as a category at a glance. */}
         {SS_BANDS.map((b, i) => {
-          if (b.kt > Y_MAX) return null;
+          if (b.kt > IntensityChartGeometry.MaximumKnots) return null;
           const top = yKt(b.kt);
-          const prevKt = SS_BANDS[i - 1]?.kt ?? Y_MAX;
-          const bottom = yKt(Math.min(prevKt, Y_MAX));
+          const prevKt = SS_BANDS[i - 1]?.kt ??
+            IntensityChartGeometry.MaximumKnots;
+          const bottom = yKt(
+            Math.min(prevKt, IntensityChartGeometry.MaximumKnots),
+          );
           return (
             <g key={b.label}>
               <rect
-                x={PAD_X}
+                x={IntensityChartGeometry.HorizontalPadding}
                 y={top}
-                width={W - 2 * PAD_X}
+                width={
+                  IntensityChartGeometry.Width -
+                  2 * IntensityChartGeometry.HorizontalPadding
+                }
                 height={Math.max(0, bottom - top)}
                 fill={windColor(b.kt)}
                 fillOpacity={0.1}
               />
               <line
-                x1={PAD_X}
-                x2={W - PAD_X}
+                x1={IntensityChartGeometry.HorizontalPadding}
+                x2={
+                  IntensityChartGeometry.Width -
+                  IntensityChartGeometry.HorizontalPadding
+                }
                 y1={top}
                 y2={top}
                 stroke={windColor(b.kt)}
@@ -133,7 +154,10 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
                 strokeDasharray="2 3"
               />
               <text
-                x={W - PAD_X}
+                x={
+                  IntensityChartGeometry.Width -
+                  IntensityChartGeometry.HorizontalPadding
+                }
                 y={top + 6}
                 textAnchor="end"
                 fontSize={6}
@@ -147,7 +171,6 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           );
         })}
 
-        {/* "NOW" marker — vertical line at the current moment (fcstHour 0). */}
         {(() => {
           const nx = x(minH) + 1;
           return (
@@ -155,15 +178,21 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
               <line
                 x1={nx}
                 x2={nx}
-                y1={PAD_TOP}
-                y2={H - PAD_BOTTOM}
+                y1={IntensityChartGeometry.TopPadding}
+                y2={
+                  IntensityChartGeometry.Height -
+                  IntensityChartGeometry.BottomPadding
+                }
                 stroke="var(--sigint-bright, #cdd9ec)"
                 strokeOpacity={0.5}
                 strokeDasharray="2 2"
               />
               <text
                 x={nx + 2}
-                y={PAD_TOP + 6}
+                y={
+                  IntensityChartGeometry.TopPadding +
+                  IntensityChartGeometry.TopPadding
+                }
                 fontSize={6}
                 fill="var(--sigint-bright, #cdd9ec)"
                 fillOpacity={0.7}
@@ -175,7 +204,6 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           );
         })()}
 
-        {/* Area + line */}
         <path d={area} fill={`url(#${gradientId})`} />
         <path
           d={line}
@@ -197,9 +225,6 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
           />
         ))}
 
-        {/* Forecast-hour axis: a tick under every forecast point, but labels
-            thinned (every other when crowded) and placed in the bottom gutter
-            so they never overlap the curve baseline. */}
         {series.map((s, i) => {
           if (s.fcstHour <= 0) return null;
           const forecastCount = series.length - 1; // exclude hour 0
@@ -210,15 +235,21 @@ export function CycloneIntensityCurve({ storm }: { readonly storm: CycloneData }
               <line
                 x1={tx}
                 x2={tx}
-                y1={H - PAD_BOTTOM}
-                y2={H - PAD_BOTTOM + 2}
+                y1={
+                  IntensityChartGeometry.Height -
+                  IntensityChartGeometry.BottomPadding
+                }
+                y2={
+                  IntensityChartGeometry.Height -
+                  IntensityChartGeometry.BottomPadding + 2
+                }
                 stroke="var(--sigint-dim, #8aa)"
                 strokeOpacity={0.6}
               />
               {showLabel && (
                 <text
                   x={tx}
-                  y={H - 3}
+                  y={IntensityChartGeometry.Height - 3}
                   textAnchor="middle"
                   fontSize={6}
                   fill="var(--sigint-dim, #8aa)"

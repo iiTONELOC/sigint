@@ -9,28 +9,60 @@ import {
   GripVertical,
   Maximize2,
   Minimize2,
+  type LucideIcon,
 } from "lucide-react";
-import { Tooltip } from "@/components/Tooltip";
+import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
 import { useData } from "@/context/DataContext";
-import { useLayoutMode } from "@/context/LayoutModeContext";
+import { DeviceType, useLayoutMode } from "@/layout-mode";
+import { DomEvent } from "@/runtime";
+import { ButtonType } from "@/lib/ui/button";
+import { cn } from "@/lib/ui/utils";
+import { isEnumValue } from "@shared/types/enum";
+import type { PaneType } from "./paneTree";
+import {
+  PaneDragDataType,
+  PaneDragEffect,
+  PaneType as PaneTypeId,
+  PaneWorkspaceIconMetric,
+} from "@/panes/workspace/model";
+
+enum PaneHeaderClassName {
+  Control = "p-1 min-h-6 min-w-6 pointer-fine:-mt-px pointer-fine:-mb-0.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none transition-colors",
+  ControlIcon = "size-3.25",
+  Destructive = "hover:text-sig-danger hover:bg-sig-danger/10",
+  DragIdle = "border-sig-border/40",
+  DragTarget = "border-sig-accent border-b-2 bg-sig-accent/10",
+  Header = "shrink-0 flex flex-wrap items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b select-none relative transition-colors",
+  Interactive = "hover:text-sig-accent hover:bg-sig-accent/10",
+}
+
+enum PaneHeaderMetric {
+  MenuOffsetPx = 2,
+  TooltipDelayMs = 600,
+}
+
+enum PaneHeaderCopy {
+  ClosePane = "Close pane",
+  ExitFullscreen = "Exit fullscreen",
+}
 
 type PaneOption = {
-  id: string;
-  label: string;
-  icon: React.ForwardRefExoticComponent<any>;
+  readonly id: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
 };
 
 type PaneHeaderProps = {
   readonly label: string;
-  readonly icon: React.ForwardRefExoticComponent<any>;
+  readonly icon: LucideIcon;
   readonly leafId: string;
-  readonly paneType?: string;
+  readonly paneType?: PaneType;
   readonly statusSlot?: React.ReactNode;
   readonly onSplitH?: (e: React.MouseEvent) => void;
   readonly onSplitV?: (e: React.MouseEvent) => void;
   readonly onMinimize: () => void;
   readonly onClose?: () => void;
-  readonly onChangePaneType?: (id: string) => void;
+  readonly onChangePaneType?: (id: PaneType) => void;
   readonly paneOptions?: PaneOption[];
   readonly onDragStart?: (leafId: string) => void;
   readonly onDragEnd?: () => void;
@@ -58,7 +90,7 @@ export function PaneHeader({
   isDragTarget,
 }: PaneHeaderProps) {
   const { chromeHidden, setChromeHidden } = useData();
-  const isPhone = useLayoutMode().deviceType === "phone";
+  const isPhone = useLayoutMode().deviceType === DeviceType.Phone;
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLButtonElement>(null);
@@ -66,11 +98,13 @@ export function PaneHeader({
     null,
   );
 
-  // Position dropdown below label button
   useEffect(() => {
     if (!showMenu || !labelRef.current) return;
     const rect = labelRef.current.getBoundingClientRect();
-    setDropPos({ top: rect.bottom + 2, left: rect.left });
+    setDropPos({
+      top: rect.bottom + PaneHeaderMetric.MenuOffsetPx,
+      left: rect.left,
+    });
   }, [showMenu]);
 
   useEffect(() => {
@@ -85,22 +119,23 @@ export function PaneHeader({
       )
         setShowMenu(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener(DomEvent.MouseDown, handler);
+    return () => document.removeEventListener(DomEvent.MouseDown, handler);
   }, [showMenu]);
 
   const hasSwitch = onChangePaneType && paneOptions && paneOptions.length > 0;
 
   return (
     <div
-      className={`shrink-0 flex flex-wrap items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b select-none relative transition-colors ${
+      className={cn(
+        PaneHeaderClassName.Header,
         isDragTarget
-          ? "border-sig-accent border-b-2 bg-sig-accent/10"
-          : "border-sig-border/40"
-      }`}
+          ? PaneHeaderClassName.DragTarget
+          : PaneHeaderClassName.DragIdle,
+      )}
       onDragOver={(e) => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
+        e.dataTransfer.dropEffect = PaneDragEffect.Move;
       }}
       onDrop={(e) => {
         e.preventDefault();
@@ -108,12 +143,16 @@ export function PaneHeader({
       }}
     >
       {/* Drag handle */}
-      <Tooltip content="Drag to swap" placement="bottom" delay={600}>
+      <Tooltip
+        content="Drag to swap"
+        placement={TooltipPlacement.Bottom}
+        delay={PaneHeaderMetric.TooltipDelayMs}
+      >
         <div
           draggable
           onDragStart={(e) => {
-            e.dataTransfer.setData("text/plain", leafId);
-            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData(PaneDragDataType.PlainText, leafId);
+            e.dataTransfer.effectAllowed = PaneDragEffect.Move;
             onDragStart?.(leafId);
           }}
           onDragEnd={() => onDragEnd?.()}
@@ -123,12 +162,15 @@ export function PaneHeader({
           }}
           className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5"
         >
-          <GripVertical size={10} strokeWidth={2.5} />
+          <GripVertical
+            size={PaneWorkspaceIconMetric.CompactSize}
+            strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+          />
         </div>
       </Tooltip>
 
-      {/* Clickable label — opens pane type dropdown */}
       <button
+        type={ButtonType.Button}
         ref={labelRef}
         onClick={() => {
           if (hasSwitch) setShowMenu((v) => !v);
@@ -136,8 +178,8 @@ export function PaneHeader({
         className={`flex items-center gap-1 bg-transparent border-none p-0 ${hasSwitch ? "cursor-pointer" : "cursor-default"} group`}
       >
         <Icon
-          size={11}
-          strokeWidth={2.5}
+          size={PaneWorkspaceIconMetric.ToolbarSize}
+          strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
           className="text-sig-accent shrink-0"
         />
         <span className="text-sig-accent tracking-wider text-(length:--sig-text-sm) font-semibold group-hover:text-sig-bright transition-colors">
@@ -145,14 +187,13 @@ export function PaneHeader({
         </span>
         {hasSwitch && (
           <ChevronDown
-            size={9}
-            strokeWidth={2.5}
+            size={PaneWorkspaceIconMetric.SmallSize}
+            strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
             className="text-sig-dim group-hover:text-sig-accent transition-colors"
           />
         )}
       </button>
 
-      {/* Pane type dropdown — portaled to body to avoid overflow clipping */}
       {showMenu &&
         paneOptions &&
         onChangePaneType &&
@@ -160,23 +201,25 @@ export function PaneHeader({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[80] bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
+            className="fixed z-80 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
             style={{ top: dropPos.top, left: dropPos.left }}
           >
             {paneOptions.map((opt) => {
               const OptIcon = opt.icon;
               return (
                 <button
+                  type={ButtonType.Button}
                   key={opt.id}
                   onClick={() => {
+                    if (!isEnumValue(opt.id, PaneTypeId)) return;
                     onChangePaneType(opt.id);
                     setShowMenu(false);
                   }}
                   className="w-full flex items-center gap-1.5 px-2.5 py-2 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors min-h-11"
                 >
                   <OptIcon
-                    size={11}
-                    strokeWidth={2}
+                    size={PaneWorkspaceIconMetric.ToolbarSize}
+                    strokeWidth={PaneWorkspaceIconMetric.LightStroke}
                     className="text-sig-dim shrink-0"
                   />
                   <span className="text-sig-bright text-(length:--sig-text-md) tracking-wide">
@@ -198,76 +241,128 @@ export function PaneHeader({
 
       <div className="flex-1" />
 
-      {/* Control buttons — touch-friendly (min 36px targets) */}
+      {/* Controls meet the minimum pointer target size. */}
       <div className="flex items-center">
         {onSplitH && (
-          <Tooltip content="Split right" placement="bottom">
+          <Tooltip content="Split right" placement={TooltipPlacement.Bottom}>
             <button
-              type="button"
-              data-tour={paneType === "globe" ? "split-right-btn" : undefined}
+              type={ButtonType.Button}
+              data-tour={
+                paneType === PaneTypeId.Globe ? "split-right-btn" : undefined
+              }
               aria-label="Split pane right"
               onClick={onSplitH}
-              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className={cn(
+                PaneHeaderClassName.Control,
+                PaneHeaderClassName.Interactive,
+              )}
             >
-              <Columns2 size={13} strokeWidth={2.5} aria-hidden="true" />
+              <Columns2
+                className={PaneHeaderClassName.ControlIcon}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                aria-hidden
+              />
             </button>
           </Tooltip>
         )}
         {onSplitV && (
-          <Tooltip content="Split down" placement="bottom">
+          <Tooltip content="Split down" placement={TooltipPlacement.Bottom}>
             <button
-              type="button"
-              data-tour={paneType === "globe" ? "split-down-btn" : undefined}
+              type={ButtonType.Button}
+              data-tour={
+                paneType === PaneTypeId.Globe ? "split-down-btn" : undefined
+              }
               aria-label="Split pane down"
               onClick={onSplitV}
-              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className={cn(
+                PaneHeaderClassName.Control,
+                PaneHeaderClassName.Interactive,
+              )}
             >
-              <Rows2 size={13} strokeWidth={2.5} aria-hidden="true" />
+              <Rows2
+                className={PaneHeaderClassName.ControlIcon}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                aria-hidden
+              />
             </button>
           </Tooltip>
         )}
 
         {!isPhone && (
           <Tooltip
-            content={chromeHidden ? "Exit fullscreen" : "Fullscreen"}
-            placement="bottom"
+            content={
+              chromeHidden ? PaneHeaderCopy.ExitFullscreen : "Fullscreen"
+            }
+            placement={TooltipPlacement.Bottom}
           >
             <button
-              type="button"
-              aria-label={chromeHidden ? "Exit fullscreen" : "Enter fullscreen"}
+              type={ButtonType.Button}
+              aria-label={
+                chromeHidden
+                  ? PaneHeaderCopy.ExitFullscreen
+                  : "Enter fullscreen"
+              }
               aria-pressed={chromeHidden}
               onClick={() => setChromeHidden((v) => !v)}
-              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+              className={cn(
+                PaneHeaderClassName.Control,
+                PaneHeaderClassName.Interactive,
+              )}
             >
               {chromeHidden ? (
-                <Minimize2 size={13} strokeWidth={2.5} aria-hidden="true" />
+                <Minimize2
+                  className={PaneHeaderClassName.ControlIcon}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  aria-hidden
+                />
               ) : (
-                <Maximize2 size={13} strokeWidth={2.5} aria-hidden="true" />
+                <Maximize2
+                  className={PaneHeaderClassName.ControlIcon}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  aria-hidden
+                />
               )}
             </button>
           </Tooltip>
         )}
 
-        <Tooltip content="Minimize" placement="bottom">
+        <Tooltip content="Minimize" placement={TooltipPlacement.Bottom}>
           <button
-            type="button"
+            type={ButtonType.Button}
             aria-label="Minimize pane"
             onClick={onMinimize}
-            className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
+            className={cn(
+              PaneHeaderClassName.Control,
+              PaneHeaderClassName.Interactive,
+            )}
           >
-            <Minus size={13} strokeWidth={2.5} aria-hidden="true" />
+            <Minus
+              className={PaneHeaderClassName.ControlIcon}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              aria-hidden
+            />
           </button>
         </Tooltip>
 
         {onClose && (
-          <Tooltip content="Close pane" placement="bottom">
+          <Tooltip
+            content={PaneHeaderCopy.ClosePane}
+            placement={TooltipPlacement.Bottom}
+          >
             <button
-              type="button"
-              aria-label="Close pane"
+              type={ButtonType.Button}
+              aria-label={PaneHeaderCopy.ClosePane}
               onClick={onClose}
-              className="p-1 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
+              className={cn(
+                PaneHeaderClassName.Control,
+                PaneHeaderClassName.Destructive,
+              )}
             >
-              <X size={13} strokeWidth={2.5} aria-hidden="true" />
+              <X
+                className={PaneHeaderClassName.ControlIcon}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                aria-hidden
+              />
             </button>
           </Tooltip>
         )}

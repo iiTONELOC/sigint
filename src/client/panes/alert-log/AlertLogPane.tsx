@@ -2,90 +2,155 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
+import { Domain } from "@shared/domain/identity";
+import type { PointType } from "@shared/domain/pointType";
 import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { WatchSource } from "@/context/WatchContext";
+import { ButtonType } from "@/lib/ui/button";
+import { EMPTY_TEXT, SEMICOLON_SEPARATOR } from "@shared/text";
+import { featureRegistry } from "@/features/registry";
 import {
   Bell,
   Locate,
-  Plane,
-  Anchor,
-  Zap,
   Activity,
-  Flame,
-  CloudAlert,
+  Zap,
   XCircle,
   Trash2,
   Clock,
 } from "lucide-react";
 import { relativeAge } from "@/lib/format/timeFormat";
 
-// ── Constants ───────────────────────────────────────────────────────
+enum AlertLogVirtualization {
+  Overscan = 6,
+  RowHeightPx = 72,
+}
 
-const ROW_HEIGHT = 72;
-const OVERSCAN = 6;
+enum AlertScoreThreshold {
+  Danger = 8,
+  Warning = 5,
+}
 
-// ── Dismissed alerts persistence ────────────────────────────────────
+enum AlertScoreTone {
+  Danger = "danger",
+  Notice = "notice",
+  Warning = "warning",
+}
+
+type AlertScorePresentation = Readonly<{
+  badgeClass: string;
+  borderClass: string;
+  textClass: string;
+}>;
+
+const ALERT_SCORE_PRESENTATION: Readonly<
+  Record<AlertScoreTone, AlertScorePresentation>
+> = {
+  [AlertScoreTone.Danger]: {
+    badgeClass: "text-red-400 bg-red-400/10 border-red-400/30",
+    borderClass: "border-l-sig-danger",
+    textClass: "text-sig-danger",
+  },
+  [AlertScoreTone.Notice]: {
+    badgeClass: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+    borderClass: "border-l-sig-accent",
+    textClass: "text-sig-accent",
+  },
+  [AlertScoreTone.Warning]: {
+    badgeClass: "text-orange-400 bg-orange-400/10 border-orange-400/30",
+    borderClass: "border-l-[var(--sigint-warn)]",
+    textClass: "text-[var(--sigint-warn)]",
+  },
+};
+
+enum AlertSort {
+  Score = "score",
+  Time = "time",
+}
+
+enum AlertLogIconSize {
+  Action = 14,
+  Empty = 24,
+  Filter = 9,
+  Row = 12,
+}
+
+enum AlertLogIconStrokeWidth {
+  Dismiss = 2,
+  Standard = 2.5,
+}
+
+enum AlertLogProgress {
+  Percent = 100,
+}
+
+enum AlertLogText {
+  FactorSeparator = " · ",
+  FireSatelliteFallback = "VIIRS",
+}
+
+enum AlertLogClassName {
+  AlertRow = "relative px-3 py-1.5 border-b border-sig-border/20 border-l-2 cursor-pointer transition-colors",
+  EmptyIcon = "opacity-20 mb-2",
+  EmptyState = "flex flex-col items-center justify-center h-full text-sig-dim",
+  EmptyTitle = "text-(length:--sig-text-md)",
+  FilterActive = "text-sig-accent bg-sig-accent/10 border-sig-accent/30",
+  FilterInactive = "text-sig-dim bg-transparent border-sig-border/40",
+  RowSelected = "bg-sig-accent/10",
+  RowStandard = "bg-transparent hover:bg-sig-panel/40",
+  RowWatchTarget = "bg-sig-accent/15",
+}
 
 async function loadDismissed(): Promise<Set<string>> {
-  const arr = await cacheGet<string[]>(CACHE_KEYS.dismissedAlerts);
+  const arr = await cacheGet<string[]>(CacheKey.DismissedAlerts);
   return new Set(Array.isArray(arr) ? arr : []);
 }
 
 function persistDismissed(ids: Set<string>): void {
-  cacheSet(CACHE_KEYS.dismissedAlerts, Array.from(ids));
+  cacheSet(CacheKey.DismissedAlerts, Array.from(ids));
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
-const TYPE_ICONS: Record<string, typeof Plane> = {
-  aircraft: Plane,
-  ships: Anchor,
-  events: Zap,
-  quakes: Activity,
-  fires: Flame,
-  weather: CloudAlert,
-};
-
 function getDetail(item: DataPoint): string {
-  const d = item.data as Record<string, unknown>;
   switch (item.type) {
-    case "aircraft":
-      return `${((d.callsign as string) ?? "").trim() || (d.icao24 as string) || ""} · ${(d.originCountry as string) || ""}`;
-    case "events":
-      return (d.headline as string) || "";
-    case "quakes":
-      return (d.location as string) || "";
-    case "fires":
-      return `${(d.satellite as string) || "VIIRS"} · ${(d.confidence as string) || ""}`;
-    case "weather":
-      return (d.areaDesc as string)?.split(";")[0]?.trim() || "";
+    case Domain.Aircraft:
+      return `${item.data.callsign?.trim() || item.data.icao24 || EMPTY_TEXT}${AlertLogText.FactorSeparator}${item.data.originCountry || EMPTY_TEXT}`;
+    case Domain.Events:
+      return item.data.headline || EMPTY_TEXT;
+    case Domain.Quakes:
+      return item.data.location || EMPTY_TEXT;
+    case Domain.Fires:
+      return `${item.data.satellite || AlertLogText.FireSatelliteFallback}${AlertLogText.FactorSeparator}${item.data.confidence || EMPTY_TEXT}`;
+    case Domain.Weather:
+      return item.data.areaDesc
+        ?.split(SEMICOLON_SEPARATOR)
+        .at(0)
+        ?.trim() || EMPTY_TEXT;
     default:
-      return "";
+      return EMPTY_TEXT;
   }
 }
 
-function scoreBorderClass(score: number): string {
-  if (score >= 8) return "border-l-sig-danger";
-  if (score >= 5) return "border-l-[var(--sigint-warn)]";
-  return "border-l-sig-accent";
+function alertScorePresentation(score: number): AlertScorePresentation {
+  if (score >= AlertScoreThreshold.Danger) {
+    return ALERT_SCORE_PRESENTATION[AlertScoreTone.Danger];
+  }
+  if (score >= AlertScoreThreshold.Warning) {
+    return ALERT_SCORE_PRESENTATION[AlertScoreTone.Warning];
+  }
+  return ALERT_SCORE_PRESENTATION[AlertScoreTone.Notice];
 }
 
-function scoreTextClass(score: number): string {
-  if (score >= 8) return "text-sig-danger";
-  if (score >= 5) return "text-[var(--sigint-warn)]";
-  return "text-sig-accent";
+function alertRowBackgroundClass(
+  isWatchTarget: boolean,
+  isSelected: boolean,
+): AlertLogClassName {
+  if (isWatchTarget) return AlertLogClassName.RowWatchTarget;
+  return isSelected
+    ? AlertLogClassName.RowSelected
+    : AlertLogClassName.RowStandard;
 }
-
-function scoreBadgeClass(score: number): string {
-  if (score >= 8) return "text-red-400 bg-red-400/10 border-red-400/30";
-  if (score >= 5)
-    return "text-orange-400 bg-orange-400/10 border-orange-400/30";
-  return "text-yellow-400 bg-yellow-400/10 border-yellow-400/30";
-}
-
-// ── Component ───────────────────────────────────────────────────────
 
 export function AlertLogPane() {
   const {
@@ -102,8 +167,6 @@ export function AlertLogPane() {
   const { theme } = useTheme();
 
   const alerts = correlation.alerts;
-
-  // ── Dismissed state ─────────────────────────────────────────────
 
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -126,15 +189,13 @@ export function AlertLogPane() {
     persistDismissed(new Set());
   }, []);
 
-  // ── Filter / sort ───────────────────────────────────────────────
-
-  const [filterType, setFilterType] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"score" | "time">("score");
+  const [filterType, setFilterType] = useState<PointType | null>(null);
+  const [sortBy, setSortBy] = useState(AlertSort.Score);
 
   const filteredAlerts = useMemo(() => {
     let list = alerts.filter((a) => !dismissed.has(a.item.id));
     if (filterType) list = list.filter((a) => a.item.type === filterType);
-    if (sortBy === "time") {
+    if (sortBy === AlertSort.Time) {
       list = [...list].sort((a, b) => {
         const ta = a.item.timestamp
           ? new Date(a.item.timestamp).getTime()
@@ -150,35 +211,36 @@ export function AlertLogPane() {
 
   const activeCount = alerts.filter((a) => !dismissed.has(a.item.id)).length;
 
-  // ── Watch — read from shared context (no local WATCH button) ───
-
   const isWatchingAlerts =
     watchActive &&
-    (watchMode.source === "alerts" || watchMode.source === "all");
+    (watchMode.source === WatchSource.Alerts ||
+      watchMode.source === WatchSource.All);
 
-  // Only highlight/scroll when the current watch item is actually from alerts
   const isAlertActive =
-    isWatchingAlerts && watchMode.currentItemSource === "alerts";
-
-  // ── Type counts ─────────────────────────────────────────────────
+    isWatchingAlerts &&
+    watchMode.currentItemSource === WatchSource.Alerts;
 
   const typeCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const counts = new Map<PointType, number>();
     const visible = alerts.filter((a) => !dismissed.has(a.item.id));
-    for (const a of visible)
-      counts[a.item.type] = (counts[a.item.type] ?? 0) + 1;
+    for (const alert of visible) {
+      counts.set(
+        alert.item.type,
+        (counts.get(alert.item.type) ?? 0) + 1,
+      );
+    }
     return counts;
   }, [alerts, dismissed]);
 
   const filterTypes = useMemo(
     () =>
-      Object.keys(typeCounts).sort(
-        (a, b) => (typeCounts[b] ?? 0) - (typeCounts[a] ?? 0),
+      [...typeCounts.keys()].sort(
+        (left, right) =>
+          (typeCounts.get(right) ?? 0) -
+          (typeCounts.get(left) ?? 0),
       ),
     [typeCounts],
   );
-
-  // ── Virtual scroll ──────────────────────────────────────────────
 
   const {
     scrollRef,
@@ -191,15 +253,14 @@ export function AlertLogPane() {
     scrollToIndex,
   } = useVirtualScroll({
     itemCount: filteredAlerts.length,
-    rowHeight: ROW_HEIGHT,
-    overscan: OVERSCAN,
+    rowHeight: AlertLogVirtualization.RowHeightPx,
+    overscan: AlertLogVirtualization.Overscan,
   });
 
   useEffect(() => {
     scrollToTop();
   }, [filterType, sortBy, scrollToTop]);
 
-  // Auto-scroll to watch target (only when current item is from alerts)
   useEffect(() => {
     if (!isAlertActive || !watchMode.currentId) return;
     const idx = filteredAlerts.findIndex(
@@ -213,21 +274,15 @@ export function AlertLogPane() {
     [filteredAlerts, startIdx, endIdx],
   );
 
-  // ── Handlers ────────────────────────────────────────────────────
-
   const { handleClick, handleZoom } = useItemSelectHandlers(
     setSelected,
     setRevealId,
     selectAndZoom,
   );
 
-  // ── Render ──────────────────────────────────────────────────────
-
   return (
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
-      {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 flex-wrap">
-        {/* Watch indicator (no button — controlled from globe) */}
         {isAlertActive && (
           <span className="text-[10px] text-sig-accent tracking-wider font-mono shrink-0 px-1.5 py-0.5 rounded bg-sig-accent/10 border border-sig-accent/30">
             WATCHING {watchMode.index + 1}/{watchMode.items.length}
@@ -242,27 +297,33 @@ export function AlertLogPane() {
           onClick={() => setFilterType(null)}
           className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             filterType === null
-              ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-              : "text-sig-dim bg-transparent border-sig-border/40"
+              ? AlertLogClassName.FilterActive
+              : AlertLogClassName.FilterInactive
           }`}
         >
           ALL
         </button>
-        {filterTypes.map((t) => {
-          const Icon = TYPE_ICONS[t] ?? Activity;
-          const color = colorMap[t] ?? theme.colors.dim;
+        {filterTypes.map((type) => {
+          const Icon = featureRegistry.get(type)?.icon ?? Activity;
+          const color = colorMap[type] ?? theme.colors.dim;
           return (
             <button
-              key={t}
-              onClick={() => setFilterType(filterType === t ? null : t)}
+              key={type}
+              onClick={() =>
+                setFilterType(filterType === type ? null : type)
+              }
               className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border flex items-center gap-1 ${
-                filterType === t
-                  ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                  : "text-sig-dim bg-transparent border-sig-border/40"
+                filterType === type
+                  ? AlertLogClassName.FilterActive
+                  : AlertLogClassName.FilterInactive
               }`}
             >
-              <Icon size={9} strokeWidth={2.5} style={{ color }} />
-              {typeCounts[t]}
+              <Icon
+                size={AlertLogIconSize.Filter}
+                strokeWidth={AlertLogIconStrokeWidth.Standard}
+                style={{ color }}
+              />
+              {typeCounts.get(type)}
             </button>
           );
         })}
@@ -275,43 +336,59 @@ export function AlertLogPane() {
             className="touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
             title={`Restore ${dismissed.size} dismissed alert${dismissed.size > 1 ? "s" : ""}`}
           >
-            <Trash2 size={9} strokeWidth={2.5} className="inline mr-0.5" />
+            <Trash2
+              size={AlertLogIconSize.Filter}
+              strokeWidth={AlertLogIconStrokeWidth.Standard}
+              className="inline mr-0.5"
+            />
             {dismissed.size}
           </button>
         )}
 
         <button
-          onClick={() => setSortBy((s) => (s === "score" ? "time" : "score"))}
+          onClick={() =>
+            setSortBy((current) =>
+              current === AlertSort.Score
+                ? AlertSort.Time
+                : AlertSort.Score,
+            )
+          }
           className="touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright flex items-center gap-1"
           title={
-            sortBy === "score"
-              ? "Sorted by score — click for time"
-              : "Sorted by time — click for score"
+            sortBy === AlertSort.Score
+              ? "Sorted by score, click for time"
+              : "Sorted by time, click for score"
           }
         >
-          {sortBy === "score" ? (
+          {sortBy === AlertSort.Score ? (
             <>
-              <Zap size={9} strokeWidth={2.5} /> SCORE
+              <Zap
+                size={AlertLogIconSize.Filter}
+                strokeWidth={AlertLogIconStrokeWidth.Standard}
+              /> SCORE
             </>
           ) : (
             <>
-              <Clock size={9} strokeWidth={2.5} /> NEW
+              <Clock
+                size={AlertLogIconSize.Filter}
+                strokeWidth={AlertLogIconStrokeWidth.Standard}
+              /> NEW
             </>
           )}
         </button>
       </div>
 
-      {/* Watch progress bar */}
       {isAlertActive && (
         <div className="h-0.5 bg-sig-border/20 shrink-0">
           <div
             className="h-full bg-sig-accent transition-all duration-100"
-            style={{ width: `${watchProgress * 100}%` }}
+            style={{
+              width: `${watchProgress * AlertLogProgress.Percent}%`,
+            }}
           />
         </div>
       )}
 
-      {/* ── Alert list ──────────────────────────────────────────────── */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -321,48 +398,53 @@ export function AlertLogPane() {
           <div
             style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
           >
-            {visibleAlerts.map((alert, localIdx) => {
-              const Icon = TYPE_ICONS[alert.item.type] ?? Activity;
+            {visibleAlerts.map((alert) => {
+              const Icon =
+                featureRegistry.get(alert.item.type)?.icon ?? Activity;
               const color = colorMap[alert.item.type] ?? theme.colors.dim;
               const isSelected = selectedCurrent?.id === alert.item.id;
               const isWatchTarget =
                 isAlertActive && watchMode.currentId === alert.item.id;
-              // During ALL watch, suppress selection glow when watch is currently on an intel item
-              // During watch, suppress selection highlight when this isn't the active source
               const showSelected =
                 isSelected && (!watchActive || isWatchTarget);
               const age = relativeAge(alert.item.timestamp);
               const detail = getDetail(alert.item);
-              const borderCls = scoreBorderClass(alert.score);
-              const textCls = scoreTextClass(alert.score);
+              const scorePresentation = alertScorePresentation(
+                alert.score,
+              );
+              const backgroundClass = alertRowBackgroundClass(
+                isWatchTarget,
+                showSelected,
+              );
 
               return (
                 <div
-                  key={`${alert.item.id}-${startIdx + localIdx}`}
-                  onClick={() => handleClick(alert.item)}
-                  className={`px-3 py-1.5 border-b border-sig-border/20 border-l-2 cursor-pointer transition-colors ${borderCls} ${
-                    isWatchTarget
-                      ? "bg-sig-accent/15"
-                      : showSelected
-                        ? "bg-sig-accent/10"
-                        : "bg-transparent hover:bg-sig-panel/40"
-                  }`}
-                  style={{ height: ROW_HEIGHT }}
+                  key={alert.item.id}
+                  className={`${AlertLogClassName.AlertRow} ${scorePresentation.borderClass} ${backgroundClass}`}
+                  style={{
+                    height: AlertLogVirtualization.RowHeightPx,
+                  }}
                 >
-                  <div className="flex items-center gap-2">
+                  <button
+                    type={ButtonType.Button}
+                    aria-label={alert.label}
+                    onClick={() => handleClick(alert.item)}
+                    className="absolute inset-0 w-full h-full bg-transparent border-none cursor-pointer"
+                  />
+                  <div className="relative flex items-center gap-2 pointer-events-none">
                     <Icon
-                      size={12}
-                      strokeWidth={2.5}
+                      size={AlertLogIconSize.Row}
+                      strokeWidth={AlertLogIconStrokeWidth.Standard}
                       style={{ color }}
                       className="shrink-0"
                     />
                     <span
-                      className={`text-(length:--sig-text-sm) font-bold tracking-wider truncate ${textCls}`}
+                      className={`text-(length:--sig-text-sm) font-bold tracking-wider truncate ${scorePresentation.textClass}`}
                     >
                       {alert.label}
                     </span>
                     <span
-                      className={`inline-flex items-center px-1 py-0 rounded text-[9px] font-bold tracking-wider border shrink-0 ${scoreBadgeClass(alert.score)}`}
+                      className={`inline-flex items-center px-1 py-0 rounded text-[9px] font-bold tracking-wider border shrink-0 ${scorePresentation.badgeClass}`}
                     >
                       {alert.score}
                     </span>
@@ -370,27 +452,33 @@ export function AlertLogPane() {
                       {age}
                     </span>
                   </div>
-                  <div className="text-sig-text text-(length:--sig-text-sm) mt-0.5 truncate ml-5">
+                  <div className="relative text-sig-text text-(length:--sig-text-sm) mt-0.5 truncate ml-5 pointer-events-none">
                     {detail}
                   </div>
-                  <div className="flex items-center mt-0.5 ml-5 gap-1">
+                  <div className="relative flex items-center mt-0.5 ml-5 gap-1 pointer-events-none">
                     <span className="text-[9px] text-sig-dim truncate">
-                      {alert.factors.join(" · ")}
+                      {alert.factors.join(AlertLogText.FactorSeparator)}
                     </span>
-                    <div className="ml-auto flex items-center shrink-0">
+                    <div className="ml-auto flex items-center shrink-0 pointer-events-auto">
                       <button
                         onClick={(e) => dismissAlert(alert.item.id, e)}
                         className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
                         title="Dismiss alert"
                       >
-                        <XCircle size={14} strokeWidth={2} />
+                        <XCircle
+                          size={AlertLogIconSize.Action}
+                          strokeWidth={AlertLogIconStrokeWidth.Dismiss}
+                        />
                       </button>
                       <button
                         onClick={(e) => handleZoom(alert.item, e)}
                         className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
                         title="Zoom to"
                       >
-                        <Locate size={14} strokeWidth={2.5} />
+                        <Locate
+                          size={AlertLogIconSize.Action}
+                          strokeWidth={AlertLogIconStrokeWidth.Standard}
+                        />
                       </button>
                     </div>
                   </div>
@@ -400,22 +488,28 @@ export function AlertLogPane() {
           </div>
         </div>
         {filteredAlerts.length === 0 && activeCount > 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-sig-dim">
-            <Bell size={24} className="opacity-20 mb-2" />
-            <span className="text-(length:--sig-text-md)">
+          <div className={AlertLogClassName.EmptyState}>
+            <Bell
+              size={AlertLogIconSize.Empty}
+              className={AlertLogClassName.EmptyIcon}
+            />
+            <span className={AlertLogClassName.EmptyTitle}>
               No alerts match filter
             </span>
           </div>
         )}
         {activeCount === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-sig-dim">
-            <Bell size={24} className="opacity-20 mb-2" />
-            <span className="text-(length:--sig-text-md)">
+          <div className={AlertLogClassName.EmptyState}>
+            <Bell
+              size={AlertLogIconSize.Empty}
+              className={AlertLogClassName.EmptyIcon}
+            />
+            <span className={AlertLogClassName.EmptyTitle}>
               {dismissed.size > 0 ? "All alerts dismissed" : "No active alerts"}
             </span>
             <span className="text-(length:--sig-text-sm) mt-1 text-center px-4">
               {dismissed.size > 0
-                ? `${dismissed.size} dismissed — click restore button to see them`
+                ? `${dismissed.size} dismissed, click restore to see them`
                 : "Context-scored monitoring for emergency squawks, severe events, large quakes, high-FRP fires, extreme weather"}
             </span>
           </div>

@@ -4,7 +4,7 @@ import {
 } from "@/features/intel/events/data/codec";
 import { fetchEventSnapshot } from "@/features/intel/events/data/fetch";
 import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import {
   EntityLifetime,
@@ -29,7 +29,7 @@ export function eventWindowDurationMs(): number {
 
 export const EVENT_SOURCE_POLICY: SourcePolicy = {
   id: Domain.Events,
-  cacheKey: CACHE_KEYS.events,
+  cacheKey: CacheKey.Events,
   pollIntervalMs: POLL_INTERVALS.events,
   completeness: SourceCompletenessPolicy.Partial,
   emptyResultIsComplete: false,

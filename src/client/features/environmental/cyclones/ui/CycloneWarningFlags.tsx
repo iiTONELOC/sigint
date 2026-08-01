@@ -1,37 +1,88 @@
-import { TS_MIN_KT, HURRICANE_MIN_KT } from "../classification";
+import { CycloneWindThreshold } from "../classification";
 
-const FLAG_RED = "#d32f2f";
-const FLAG_BLACK = "#111111";
-
-type WarningLevel = "none" | "gale" | "storm" | "hurricane";
-
-function warningLevel(maxWindKt: number, isHurricane: boolean): WarningLevel {
-  if (maxWindKt >= HURRICANE_MIN_KT) return isHurricane ? "hurricane" : "storm";
-  if (maxWindKt >= TS_MIN_KT) return "gale";
-  return "none";
+enum WarningFlagColor {
+  Red = "#d32f2f",
+  Black = "#111111",
 }
 
-const LEVEL_LABEL: Record<Exclude<WarningLevel, "none">, string> = {
-  gale: "GALE WARNING",
-  storm: "STORM WARNING",
-  hurricane: "HURRICANE WARNING",
-};
+enum WarningLevel {
+  None = "none",
+  Gale = "gale",
+  Storm = "storm",
+  Hurricane = "hurricane",
+}
+
+enum WarningLabel {
+  GaleWarning = "GALE WARNING",
+  StormWarning = "STORM WARNING",
+  HurricaneWarning = "HURRICANE WARNING",
+}
+
+enum WarningFlagRole {
+  Presentation = "presentation",
+}
+
+enum WarningFlagKey {
+  GaleOne = "g1",
+  GaleTwo = "g2",
+  HurricaneOne = "h1",
+  HurricaneTwo = "h2",
+  StormOne = "s1",
+}
+
+function warningLevel(maxWindKt: number, isHurricane: boolean): WarningLevel {
+  if (maxWindKt >= CycloneWindThreshold.HurricaneOne) {
+    return isHurricane ? WarningLevel.Hurricane : WarningLevel.Storm;
+  }
+  if (maxWindKt >= CycloneWindThreshold.TropicalStorm) {
+    return WarningLevel.Gale;
+  }
+  return WarningLevel.None;
+}
+
+function warningLabel(level: WarningLevel): WarningLabel {
+  switch (level) {
+    case WarningLevel.Gale:
+      return WarningLabel.GaleWarning;
+    case WarningLevel.Storm:
+      return WarningLabel.StormWarning;
+    default:
+      return WarningLabel.HurricaneWarning;
+  }
+}
 
 function GalePennant() {
   return (
-    <svg viewBox="0 0 20 24" className="h-4 w-3.5" role="presentation">
-      <polygon points="2,1 18,12 2,23" fill={FLAG_RED} />
+    <svg viewBox="0 0 20 24" className="h-4 w-3.5" role={WarningFlagRole.Presentation}>
+      <polygon points="2,1 18,12 2,23" fill={WarningFlagColor.Red} />
     </svg>
   );
 }
 
 function SquareFlag() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" role="presentation">
-      <rect x="1" y="1" width="22" height="22" fill={FLAG_RED} />
-      <rect x="8" y="8" width="8" height="8" fill={FLAG_BLACK} />
+    <svg viewBox="0 0 24 24" className="h-4 w-4" role={WarningFlagRole.Presentation}>
+      <rect x="1" y="1" width="22" height="22" fill={WarningFlagColor.Red} />
+      <rect x="8" y="8" width="8" height="8" fill={WarningFlagColor.Black} />
     </svg>
   );
+}
+
+function warningFlags(level: WarningLevel) {
+  switch (level) {
+    case WarningLevel.Gale:
+      return [
+        <GalePennant key={WarningFlagKey.GaleOne} />,
+        <GalePennant key={WarningFlagKey.GaleTwo} />,
+      ];
+    case WarningLevel.Storm:
+      return [<SquareFlag key={WarningFlagKey.StormOne} />];
+    default:
+      return [
+        <SquareFlag key={WarningFlagKey.HurricaneOne} />,
+        <SquareFlag key={WarningFlagKey.HurricaneTwo} />,
+      ];
+  }
 }
 
 export function CycloneWarningFlags({
@@ -42,20 +93,16 @@ export function CycloneWarningFlags({
   readonly isHurricane: boolean;
 }) {
   const level = warningLevel(maxWindKt, isHurricane);
-  if (level === "none") return null;
+  if (level === WarningLevel.None) return null;
 
-  const flags =
-    level === "gale"
-      ? [<GalePennant key="g1" />, <GalePennant key="g2" />]
-      : level === "storm"
-        ? [<SquareFlag key="s1" />]
-        : [<SquareFlag key="h1" />, <SquareFlag key="h2" />];
+  const flags = warningFlags(level);
+  const label = warningLabel(level);
 
   return (
     <div
       className="flex flex-col items-center gap-0.5 shrink-0"
-      aria-label={LEVEL_LABEL[level]}
-      title={LEVEL_LABEL[level]}
+      aria-label={label}
+      title={label}
     >
       {flags}
     </div>

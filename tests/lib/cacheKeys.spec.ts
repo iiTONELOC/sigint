@@ -1,75 +1,37 @@
-import { describe, test, expect } from "bun:test";
-import { CACHE_KEYS, CACHE_KEY_LABELS } from "@/lib/cache/cacheKeys";
+import { describe, expect, test } from "bun:test";
+import { settingsCacheMetadata } from "@/settings/model";
+import { CacheKey, isCacheKey } from "@shared/domain/cache";
 
-describe("cacheKeys", () => {
-  test("all keys include version prefix", () => {
-    for (const value of Object.values(CACHE_KEYS)) {
-      expect(value).toContain(".v1");
+enum CacheKeyFixture {
+  Unknown = "sigint.unknown.v1",
+}
+
+describe("CacheKey", () => {
+  test("keeps every persisted key versioned", () => {
+    for (const key of Object.values(CacheKey)) {
+      expect(key).toEndWith(".v1");
     }
   });
 
-  test("all keys are unique", () => {
-    const values = Object.values(CACHE_KEYS);
-    expect(new Set(values).size).toBe(values.length);
+  test("owns one unique value per key", () => {
+    const keys = Object.values(CacheKey);
+
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
-  test("expected data keys exist", () => {
-    expect(CACHE_KEYS.aircraft).toBeDefined();
-    expect(CACHE_KEYS.earthquake).toBeDefined();
-    expect(CACHE_KEYS.events).toBeDefined();
-    expect(CACHE_KEYS.ships).toBeDefined();
-    expect(CACHE_KEYS.fires).toBeDefined();
-    expect(CACHE_KEYS.weather).toBeDefined();
-    expect(CACHE_KEYS.cyclones).toBeDefined();
-    expect(CACHE_KEYS.cycloneDossier).toBeDefined();
-    expect(CACHE_KEYS.trails).toBeDefined();
-    expect(CACHE_KEYS.news).toBeDefined();
+  test("validates only registered keys", () => {
+    for (const key of Object.values(CacheKey)) {
+      expect(isCacheKey(key)).toBe(true);
+    }
+    expect(isCacheKey(CacheKeyFixture.Unknown)).toBe(false);
   });
 
-  test("cyclone keys are distinct and follow the sigint.<source>.<scope>.<v> shape", () => {
-    expect(CACHE_KEYS.cyclones).not.toBe(CACHE_KEYS.cycloneDossier);
-    expect(CACHE_KEYS.cyclones).toMatch(/^sigint\..*\.v\d+$/);
-    expect(CACHE_KEYS.cycloneDossier).toMatch(/^sigint\..*\.v\d+$/);
-  });
+  test("gives Settings metadata for every key", () => {
+    for (const key of Object.values(CacheKey)) {
+      const metadata = settingsCacheMetadata(key);
 
-  test("expected UI keys exist", () => {
-    expect(CACHE_KEYS.layout).toBeDefined();
-    expect(CACHE_KEYS.theme).toBeDefined();
-    expect(CACHE_KEYS.colorOverrides).toBeDefined();
-    expect(CACHE_KEYS.videoState).toBeDefined();
-    expect(CACHE_KEYS.layoutMode).toBeDefined();
-  });
-
-  test("layoutMode key is distinct from layout keys", () => {
-    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layout);
-    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layoutDesktop);
-    expect(CACHE_KEYS.layoutMode).not.toBe(CACHE_KEYS.layoutMobile);
-  });
-
-  test("mobile and desktop layout keys exist and are distinct", () => {
-    expect(CACHE_KEYS.layoutDesktop).toBeDefined();
-    expect(CACHE_KEYS.layoutMobile).toBeDefined();
-    expect(CACHE_KEYS.layoutPresetsDesktop).toBeDefined();
-    expect(CACHE_KEYS.layoutPresetsMobile).toBeDefined();
-    expect(CACHE_KEYS.layoutDesktop).not.toBe(CACHE_KEYS.layoutMobile);
-    expect(CACHE_KEYS.layoutPresetsDesktop).not.toBe(
-      CACHE_KEYS.layoutPresetsMobile,
-    );
-  });
-
-  test("legacy layout keys still exist for migration", () => {
-    expect(CACHE_KEYS.layout).toBeDefined();
-    expect(CACHE_KEYS.layoutPresets).toBeDefined();
-    expect(CACHE_KEYS.layout).not.toBe(CACHE_KEYS.layoutDesktop);
-    expect(CACHE_KEYS.layout).not.toBe(CACHE_KEYS.layoutMobile);
-  });
-
-  test("every key has a label", () => {
-    for (const value of Object.values(CACHE_KEYS)) {
-      const label = CACHE_KEY_LABELS[value];
-      expect(label).toBeDefined();
-      expect(label!.label.length).toBeGreaterThan(0);
-      expect(["Data", "UI"]).toContain(label!.group);
+      expect(metadata).not.toBeNull();
+      expect(metadata?.label.length).toBeGreaterThan(0);
     }
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import {
   InputAdapter,
   SurfaceControlKey,

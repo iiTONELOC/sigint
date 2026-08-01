@@ -1,6 +1,13 @@
-import type { AircraftData } from "./types";
+import {
+  AircraftDataLabel,
+  AircraftFlightStatusLabel,
+  type AircraftData,
+} from "./types";
 import { getSquawkStatus, getSquawkStatusLabel } from "./lib/utils";
-import { formatKtMph } from "@/lib/format/units";
+import {
+  formatKtMph,
+  metersPerSecondToFeetPerMinute,
+} from "@/measurements";
 
 export function buildAircraftDetailRows(
   data: AircraftData,
@@ -16,20 +23,20 @@ export function buildAircraftDetailRows(
     speed = 0,
     heading = 0,
     altitude = 0,
-    model = "UNKNOWN",
-    icao24 = "UNKNOWN",
-    callsign = "UNKNOWN",
-    registration = "UNKNOWN",
-    originCountry = "UNK ORIGIN",
-    manufacturerName = "UNKNOWN",
-    categoryDescription = "UNKNOWN",
+    model = AircraftDataLabel.UnknownUppercase,
+    icao24 = AircraftDataLabel.UnknownUppercase,
+    callsign = AircraftDataLabel.UnknownUppercase,
+    registration = AircraftDataLabel.UnknownUppercase,
+    originCountry = AircraftDataLabel.UnknownOrigin,
+    manufacturerName = AircraftDataLabel.UnknownUppercase,
+    categoryDescription = AircraftDataLabel.UnknownUppercase,
   } = data;
 
   const aircraftType =
     acType ||
     [manufacturerName, model].filter(Boolean).join(" ") ||
     categoryDescription ||
-    "Unknown";
+    AircraftDataLabel.Unknown;
 
   const speedLine =
     typeof speedMps === "number" ? formatKtMph(speed) : `${speed} kn`;
@@ -41,7 +48,7 @@ export function buildAircraftDetailRows(
     ["ICAO24", icao24],
     ["Type", aircraftType],
     ["Reg", registration],
-    ["Operator", operator || operatorIcao || "UNK OP"],
+    ["Operator", operator || operatorIcao || AircraftDataLabel.UnknownOperator],
     ["Classification", data.military ? "MILITARY" : "CIVILIAN"],
     ["Manufacturer", manufacturerName],
     ["Model", model],
@@ -53,30 +60,44 @@ export function buildAircraftDetailRows(
   ];
 
   if (verticalRate != null) {
-    rows.push(["V/S", `${Math.round(verticalRate * 196.85)} fpm`]);
+    rows.push([
+      "V/S",
+      `${Math.round(metersPerSecondToFeetPerMinute(verticalRate))} fpm`,
+    ]);
   }
 
-  rows.push(["Status", onGround ? "ON GROUND" : "AIRBORNE"]);
+  rows.push([
+    "Status",
+    onGround
+      ? AircraftFlightStatusLabel.OnGround
+      : AircraftFlightStatusLabel.Airborne,
+  ]);
 
   if (squawk) {
     const status = getSquawkStatusLabel(getSquawkStatus(squawk));
     rows.push(["Squawk", `${squawk} \u2014 ${status}`]);
   }
 
-  // ── Intel links ─────────────────────────────────────────────────
   const hasCallsign =
-    callsign && callsign !== "UNKNOWN" && callsign !== "Unknown";
-  const hasIcao = icao24 && icao24 !== "UNKNOWN" && icao24 !== "Unknown";
+    callsign &&
+    callsign !== AircraftDataLabel.UnknownUppercase &&
+    callsign !== AircraftDataLabel.Unknown;
+  const hasIcao =
+    icao24 &&
+    icao24 !== AircraftDataLabel.UnknownUppercase &&
+    icao24 !== AircraftDataLabel.Unknown;
 
   if (hasCallsign) {
-    rows.push([
-      "FlightAware",
-      `https://flightaware.com/live/flight/${callsign.trim()}`,
-    ]);
-    rows.push([
-      "FlightRadar24",
-      `https://www.flightradar24.com/${callsign.trim()}`,
-    ]);
+    rows.push(
+      [
+        "FlightAware",
+        `https://flightaware.com/live/flight/${callsign.trim()}`,
+      ],
+      [
+        "FlightRadar24",
+        `https://www.flightradar24.com/${callsign.trim()}`,
+      ],
+    );
   }
 
   if (hasIcao) {

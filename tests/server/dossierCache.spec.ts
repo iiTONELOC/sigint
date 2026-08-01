@@ -13,6 +13,11 @@ import {
   isValidCallsign,
   isValidIcao24,
 } from "../../src/server/api/dossierCache";
+import {
+  installFetchMock,
+  type FetchMockImplementation,
+  type RestoreFetch,
+} from "../support/network";
 
 enum AircraftDossierFixture {
   FlightAwareHost = "flightaware.com",
@@ -20,18 +25,16 @@ enum AircraftDossierFixture {
   HexDbRoutePath = "/api/v1/route/icao/",
 }
 
-const originalFetch = globalThis.fetch;
+let restoreFetch: RestoreFetch | undefined;
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  restoreFetch?.();
+  restoreFetch = undefined;
 });
 
-function setFetch(
-  implementation: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>,
-): void {
-  globalThis.fetch = Object.assign(implementation, {
-    preconnect: originalFetch.preconnect,
-  });
+function setFetch(implementation: FetchMockImplementation): void {
+  restoreFetch?.();
+  restoreFetch = installFetchMock(implementation);
 }
 
 function flightAwareHtml(): string {

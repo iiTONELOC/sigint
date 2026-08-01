@@ -1,5 +1,73 @@
-const C = 100;
-const R = 86;
+import { AngleConversion, TurnDeg } from "@shared/geo";
+import { cardinalCompassPointForDegrees } from "@shared/domain/compass";
+
+enum HeadingScaleGeometry {
+  Center = 100,
+  Radius = 86,
+  OuterRadiusOffset = 5,
+  LabelInset = 26,
+  LabelBaselineOffset = 4,
+}
+
+enum HeadingMarkGeometry {
+  Count = 36,
+  StepDegrees = 10,
+  MajorIntervalDegrees = 30,
+  MajorTickLength = 14,
+  MinorTickLength = 7,
+  MajorStrokeWidth = 1.5,
+  MinorStrokeWidth = 1,
+}
+
+enum HeadingTextGeometry {
+  CardinalIntervalDegrees = 90,
+  CardinalFontSize = 13,
+  OrdinalFontSize = 10,
+  DigitalFontWeight = 700,
+  DigitalBaselineOffset = 2,
+  PadLength = 3,
+}
+
+enum SelectedHeadingGeometry {
+  HalfWidth = 6,
+  TopOffset = 1,
+  BottomOffset = 7,
+  NotchOffset = 3,
+}
+
+enum LubberGeometry {
+  HalfWidth = 7,
+  Top = 6,
+  Bottom = 19,
+}
+
+enum AircraftSymbolGeometry {
+  StrokeWidth = 2.5,
+  NoseLength = 20,
+  TailLength = 22,
+  WingHalfSpan = 16,
+  StabilizerHalfSpan = 8,
+  StabilizerOffset = 15,
+}
+
+enum DigitalHeadingGeometry {
+  HalfWidth = 22,
+  VerticalOffset = 16,
+  Height = 18,
+  Radius = 2,
+}
+
+enum HeadingOpacity {
+  OuterRing = 0.5,
+}
+
+enum HeadingHsiClassName {
+  ReadoutText = "fill-sig-bright font-mono",
+}
+
+enum HeadingHsiTextAnchor {
+  Middle = "middle",
+}
 
 type Props = {
   readonly heading: number;
@@ -7,93 +75,145 @@ type Props = {
   readonly selectedHeading?: number;
 };
 
-const MARKS = Array.from({ length: 36 }, (_, i) => i * 10);
+const HEADING_MARKS = Array.from(
+  { length: HeadingMarkGeometry.Count },
+  (_, index) => index * HeadingMarkGeometry.StepDegrees,
+);
 
 function cardinal(d: number): string {
-  if (d === 0) return "N";
-  if (d === 90) return "E";
-  if (d === 180) return "S";
-  if (d === 270) return "W";
-  return String(d / 10);
+  return cardinalCompassPointForDegrees(d) ??
+    String(d / HeadingMarkGeometry.StepDegrees);
 }
 
 export function HeadingHSI({ heading, selectedHeading }: Props) {
-  const card = ((Math.round(heading) % 360) + 360) % 360;
+  const card = (
+    (Math.round(heading) % TurnDeg.Full) + TurnDeg.Full
+  ) % TurnDeg.Full;
+  const center = HeadingScaleGeometry.Center;
+  const radius = HeadingScaleGeometry.Radius;
 
   return (
     <div className="h-full w-full bg-sig-bg rounded-[10px] border border-sig-border p-1.5">
       <svg
-        viewBox="0 0 200 200"
+        viewBox={`0 0 ${center * 2} ${center * 2}`}
         preserveAspectRatio="xMidYMid meet"
         className="w-full h-full"
-        role="img"
         aria-label={`Heading ${card} degrees`}
       >
-        <circle cx={C} cy={C} r={R + 5} className="fill-none stroke-sig-dim" strokeOpacity={0.5} />
+        <circle
+          cx={center}
+          cy={center}
+          r={radius + HeadingScaleGeometry.OuterRadiusOffset}
+          className="fill-none stroke-sig-dim"
+          strokeOpacity={HeadingOpacity.OuterRing}
+        />
 
-        {/* rotating compass card */}
-        <g transform={`rotate(${-card} ${C} ${C})`}>
-          {MARKS.map((d) => {
-            const major = d % 30 === 0;
-            const a = ((d - 90) * Math.PI) / 180;
-            const r2 = R - (major ? 14 : 7);
+        <g transform={`rotate(${-card} ${center} ${center})`}>
+          {HEADING_MARKS.map((degrees) => {
+            const major = degrees % HeadingMarkGeometry.MajorIntervalDegrees === 0;
+            const angle = (
+              degrees - TurnDeg.Quarter
+            ) * AngleConversion.RadiansPerDegree;
+            const tickRadius = radius - (
+              major
+                ? HeadingMarkGeometry.MajorTickLength
+                : HeadingMarkGeometry.MinorTickLength
+            );
             return (
-              <g key={d}>
+              <g key={degrees}>
                 <line
-                  x1={C + Math.cos(a) * R}
-                  y1={C + Math.sin(a) * R}
-                  x2={C + Math.cos(a) * r2}
-                  y2={C + Math.sin(a) * r2}
+                  x1={center + Math.cos(angle) * radius}
+                  y1={center + Math.sin(angle) * radius}
+                  x2={center + Math.cos(angle) * tickRadius}
+                  y2={center + Math.sin(angle) * tickRadius}
                   className="stroke-sig-dim"
-                  strokeWidth={major ? 1.5 : 1}
+                  strokeWidth={
+                    major
+                      ? HeadingMarkGeometry.MajorStrokeWidth
+                      : HeadingMarkGeometry.MinorStrokeWidth
+                  }
                 />
                 {major && (
                   <text
-                    x={C + Math.cos(a) * (R - 26)}
-                    y={C + Math.sin(a) * (R - 26) + 4}
-                    textAnchor="middle"
-                    className="fill-sig-bright font-mono"
-                    fontSize={d % 90 === 0 ? 13 : 10}
+                    x={center + Math.cos(angle) * (
+                      radius - HeadingScaleGeometry.LabelInset
+                    )}
+                    y={center + Math.sin(angle) * (
+                      radius - HeadingScaleGeometry.LabelInset
+                    ) + HeadingScaleGeometry.LabelBaselineOffset}
+                    textAnchor={HeadingHsiTextAnchor.Middle}
+                    className={HeadingHsiClassName.ReadoutText}
+                    fontSize={
+                      degrees % HeadingTextGeometry.CardinalIntervalDegrees === 0
+                        ? HeadingTextGeometry.CardinalFontSize
+                        : HeadingTextGeometry.OrdinalFontSize
+                    }
                   >
-                    {cardinal(d)}
+                    {cardinal(degrees)}
                   </text>
                 )}
               </g>
             );
           })}
 
-          {/* flight-director selected-heading bug (rotates with the card) */}
           {selectedHeading != null && (
-            <g transform={`rotate(${selectedHeading} ${C} ${C})`}>
+            <g transform={`rotate(${selectedHeading} ${center} ${center})`}>
               <path
-                d={`M${C - 6},${C - R - 1} L${C + 6},${C - R - 1} L${C + 6},${C - R + 7} L${C},${C - R + 3} L${C - 6},${C - R + 7} Z`}
+                d={`M${center - SelectedHeadingGeometry.HalfWidth},${center - radius - SelectedHeadingGeometry.TopOffset} L${center + SelectedHeadingGeometry.HalfWidth},${center - radius - SelectedHeadingGeometry.TopOffset} L${center + SelectedHeadingGeometry.HalfWidth},${center - radius + SelectedHeadingGeometry.BottomOffset} L${center},${center - radius + SelectedHeadingGeometry.NotchOffset} L${center - SelectedHeadingGeometry.HalfWidth},${center - radius + SelectedHeadingGeometry.BottomOffset} Z`}
                 className="fill-sig-accent"
               />
             </g>
           )}
         </g>
 
-        {/* fixed lubber line */}
-        <path d={`M${C - 7},6 L${C + 7},6 L${C},19 Z`} className="fill-sig-bright" />
+        <path
+          d={`M${center - LubberGeometry.HalfWidth},${LubberGeometry.Top} L${center + LubberGeometry.HalfWidth},${LubberGeometry.Top} L${center},${LubberGeometry.Bottom} Z`}
+          className="fill-sig-bright"
+        />
 
-        {/* fixed aircraft symbol */}
-        <g className="stroke-sig-bright" strokeWidth={2.5} fill="none" strokeLinecap="round">
-          <line x1={C} y1={C - 20} x2={C} y2={C + 22} />
-          <line x1={C - 16} y1={C} x2={C + 16} y2={C} />
-          <line x1={C - 8} y1={C + 15} x2={C + 8} y2={C + 15} />
+        <g
+          className="stroke-sig-bright"
+          strokeWidth={AircraftSymbolGeometry.StrokeWidth}
+          fill="none"
+          strokeLinecap="round"
+        >
+          <line
+            x1={center}
+            y1={center - AircraftSymbolGeometry.NoseLength}
+            x2={center}
+            y2={center + AircraftSymbolGeometry.TailLength}
+          />
+          <line
+            x1={center - AircraftSymbolGeometry.WingHalfSpan}
+            y1={center}
+            x2={center + AircraftSymbolGeometry.WingHalfSpan}
+            y2={center}
+          />
+          <line
+            x1={center - AircraftSymbolGeometry.StabilizerHalfSpan}
+            y1={center + AircraftSymbolGeometry.StabilizerOffset}
+            x2={center + AircraftSymbolGeometry.StabilizerHalfSpan}
+            y2={center + AircraftSymbolGeometry.StabilizerOffset}
+          />
         </g>
 
-        {/* digital heading box */}
-        <rect x={C - 22} y={C + R - 16} width={44} height={18} rx={2} className="fill-sig-bg stroke-sig-dim" />
+        <rect
+          x={center - DigitalHeadingGeometry.HalfWidth}
+          y={center + radius - DigitalHeadingGeometry.VerticalOffset}
+          width={DigitalHeadingGeometry.HalfWidth * 2}
+          height={DigitalHeadingGeometry.Height}
+          rx={DigitalHeadingGeometry.Radius}
+          className="fill-sig-bg stroke-sig-dim"
+        />
         <text
-          x={C}
-          y={C + R - 2}
-          textAnchor="middle"
-          className="fill-sig-bright font-mono"
-          fontSize={13}
-          fontWeight={700}
+          x={center}
+          y={center + radius - HeadingTextGeometry.DigitalBaselineOffset}
+          textAnchor={HeadingHsiTextAnchor.Middle}
+          className={HeadingHsiClassName.ReadoutText}
+          fontSize={HeadingTextGeometry.CardinalFontSize}
+          fontWeight={HeadingTextGeometry.DigitalFontWeight}
         >
-          {`${String(card).padStart(3, "0")}°`}
+          {`${String(card).padStart(HeadingTextGeometry.PadLength, "0")}°`}
         </text>
       </svg>
     </div>

@@ -1,4 +1,4 @@
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import {
   TRAIL_POLICY,
   mergeCachedTrails,
@@ -13,10 +13,10 @@ import { isRecord } from "@shared/geo";
 import { MS_PER_SECOND } from "@shared/time";
 
 export const TRAIL_RECORDER_POLICY: Readonly<{
-  cacheKey: typeof CACHE_KEYS.trails;
+  cacheKey: CacheKey.Trails;
   persistIntervalMs: number;
 }> = {
-  cacheKey: CACHE_KEYS.trails,
+  cacheKey: CacheKey.Trails,
   persistIntervalMs: 10 * MS_PER_SECOND,
 };
 

@@ -1,28 +1,34 @@
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
+import { isRecord } from "@shared/geo";
+import {
+  PaneIdSequence,
+  PaneIdToken,
+  PaneLayoutRatio,
+  PaneNodeType,
+  PaneTreeArity,
+  PaneType as PaneTypeId,
+  SplitDirection,
+  type PaneLeafNodeType,
+  type PaneSplitNodeType,
+  type PaneTypeValue,
+  type SplitDirectionValue,
+} from "@/panes/workspace/model";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type PaneType =
-  | "globe"
-  | "data-table"
-  | "dossier"
-  | "intel-feed"
-  | "alert-log"
-  | "raw-console"
-  | "video-feed"
-  | "news-feed";
+export type PaneType = PaneTypeValue;
 
 export type LeafNode = {
-  type: "leaf";
+  type: PaneLeafNodeType;
   id: string;
   paneType: PaneType;
 };
 
 export type SplitNode = {
-  type: "split";
+  type: PaneSplitNodeType;
   id: string;
-  direction: "h" | "v";
+  direction: SplitDirectionValue;
   ratio: number;
   children: [LayoutNode, LayoutNode];
 };
@@ -34,7 +40,7 @@ export type LayoutState = {
   minimized: {
     id: string;
     paneType: PaneType;
-    dir: "h" | "v";
+    dir: SplitDirectionValue;
     ratio: number;
     wasSecond: boolean;
     siblingId: string | null;
@@ -46,54 +52,64 @@ export type LayoutPreset = { name: string; state: LayoutState };
 // On mobile these stay full-width: children go below only (no side-by-side
 // h-split, no left/right insert). Enforced in the mobile UI + auto-split logic.
 export const FULL_WIDTH_ONLY: ReadonlySet<PaneType> = new Set([
-  "globe",
-  "video-feed",
+  PaneTypeId.Globe,
+  PaneTypeId.VideoFeed,
 ]);
 
 /** Force a vertical split when the anchor must stay full-width on mobile. */
 export function mobileSplitDir(
-  dir: "h" | "v",
+  dir: SplitDirectionValue,
   anchorType: PaneType,
   isMobile: boolean,
-): "h" | "v" {
-  return isMobile && FULL_WIDTH_ONLY.has(anchorType) ? "v" : dir;
+): SplitDirectionValue {
+  return isMobile && FULL_WIDTH_ONLY.has(anchorType)
+    ? SplitDirection.Vertical
+    : dir;
 }
 
 // ── Tree helpers ─────────────────────────────────────────────────────
 
-let _idC = 0;
+let _idC = PaneIdSequence.Start;
 export function uid(): string {
-  _idC += 1;
-  return `n${Date.now()}-${_idC}`;
+  _idC += PaneIdSequence.Step;
+  return `${PaneIdToken.NodePrefix}${Date.now()}${PaneIdToken.SegmentSeparator}${_idC}`;
 }
 
 export function leaf(paneType: PaneType): LeafNode {
-  return { type: "leaf", id: uid(), paneType };
+  return { type: PaneNodeType.Leaf, id: uid(), paneType };
 }
 
 export function split(
-  dir: "h" | "v",
+  dir: SplitDirectionValue,
   a: LayoutNode,
   b: LayoutNode,
-  ratio = 0.5,
+  ratio: number = PaneLayoutRatio.Equal,
 ): SplitNode {
-  return { type: "split", id: uid(), direction: dir, ratio, children: [a, b] };
+  return {
+    children: [a, b],
+    direction: dir,
+    id: uid(),
+    ratio,
+    type: PaneNodeType.Split,
+  };
 }
 
 export function collectLeafTypes(node: LayoutNode): Set<PaneType> {
-  if (node.type === "leaf") return new Set([node.paneType]);
+  if (node.type === PaneNodeType.Leaf) return new Set([node.paneType]);
   const s = collectLeafTypes(node.children[0]);
   for (const t of collectLeafTypes(node.children[1])) s.add(t);
   return s;
 }
 
 export function leafCount(node: LayoutNode): number {
-  if (node.type === "leaf") return 1;
+  if (node.type === PaneNodeType.Leaf) return 1;
   return leafCount(node.children[0]) + leafCount(node.children[1]);
 }
 
 export function hasDossierInTree(node: LayoutNode): boolean {
-  if (node.type === "leaf") return node.paneType === "dossier";
+  if (node.type === PaneNodeType.Leaf) {
+    return node.paneType === PaneTypeId.Dossier;
+  }
   return (
     hasDossierInTree(node.children[0]) || hasDossierInTree(node.children[1])
   );
@@ -105,7 +121,7 @@ export function replaceNode(
   replacement: LayoutNode,
 ): LayoutNode {
   if (root.id === targetId) return replacement;
-  if (root.type === "leaf") return root;
+  if (root.type === PaneNodeType.Leaf) return root;
   return {
     ...root,
     children: [
@@ -119,7 +135,7 @@ export function removeLeaf(
   root: LayoutNode,
   targetId: string,
 ): LayoutNode | null {
-  if (root.type === "leaf") {
+  if (root.type === PaneNodeType.Leaf) {
     return root.id === targetId ? null : root;
   }
   const [a, b] = root.children;
@@ -136,21 +152,21 @@ export function findParentSplit(
   root: LayoutNode,
   leafId: string,
 ): {
-  dir: "h" | "v";
+  dir: SplitDirectionValue;
   ratio: number;
   wasSecond: boolean;
   siblingId: string;
 } | null {
-  if (root.type === "leaf") return null;
+  if (root.type === PaneNodeType.Leaf) return null;
   const [a, b] = root.children;
-  if (a.type === "leaf" && a.id === leafId)
+  if (a.type === PaneNodeType.Leaf && a.id === leafId)
     return {
       dir: root.direction,
       ratio: root.ratio,
       wasSecond: false,
       siblingId: b.id,
     };
-  if (b.type === "leaf" && b.id === leafId)
+  if (b.type === PaneNodeType.Leaf && b.id === leafId)
     return {
       dir: root.direction,
       ratio: root.ratio,
@@ -165,7 +181,7 @@ export function updateRatio(
   splitId: string,
   ratio: number,
 ): LayoutNode {
-  if (root.type === "leaf") return root;
+  if (root.type === PaneNodeType.Leaf) return root;
   if (root.id === splitId) return { ...root, ratio };
   return {
     ...root,
@@ -178,7 +194,7 @@ export function updateRatio(
 
 export function findNodeById(node: LayoutNode, id: string): LayoutNode | null {
   if (node.id === id) return node;
-  if (node.type === "split")
+  if (node.type === PaneNodeType.Split)
     return (
       findNodeById(node.children[0], id) ?? findNodeById(node.children[1], id)
     );
@@ -187,13 +203,13 @@ export function findNodeById(node: LayoutNode, id: string): LayoutNode | null {
 
 export function hasNodeId(node: LayoutNode, id: string): boolean {
   if (node.id === id) return true;
-  if (node.type === "split")
+  if (node.type === PaneNodeType.Split)
     return hasNodeId(node.children[0], id) || hasNodeId(node.children[1], id);
   return false;
 }
 
 export function collectLeaves(node: LayoutNode): LeafNode[] {
-  if (node.type === "leaf") return [node];
+  if (node.type === PaneNodeType.Leaf) return [node];
   return [
     ...collectLeaves(node.children[0]),
     ...collectLeaves(node.children[1]),
@@ -203,27 +219,30 @@ export function collectLeaves(node: LayoutNode): LeafNode[] {
 // ── Persistence ──────────────────────────────────────────────────────
 
 function layoutKey(mobile: boolean): string {
-  return mobile ? CACHE_KEYS.layoutMobile : CACHE_KEYS.layoutDesktop;
+  return mobile ? CacheKey.LayoutMobile : CacheKey.LayoutDesktop;
 }
 
 export function defaultLayout(): LayoutState {
-  return { root: leaf("globe"), minimized: [] };
+  return { root: leaf(PaneTypeId.Globe), minimized: [] };
 }
 
 function isValidTree(node: unknown): node is LayoutNode {
-  if (!node || typeof node !== "object") return false;
-  const n = node as any;
-  if (n.type === "leaf")
-    return typeof n.id === "string" && typeof n.paneType === "string";
-  if (n.type === "split") {
+  if (!isRecord(node)) return false;
+  if (node.type === PaneNodeType.Leaf)
+    return typeof node.id === "string" &&
+      typeof node.paneType === "string";
+  if (node.type === PaneNodeType.Split) {
     return (
-      typeof n.id === "string" &&
-      (n.direction === "h" || n.direction === "v") &&
-      typeof n.ratio === "number" &&
-      Array.isArray(n.children) &&
-      n.children.length === 2 &&
-      isValidTree(n.children[0]) &&
-      isValidTree(n.children[1])
+      typeof node.id === "string" &&
+      (
+        node.direction === SplitDirection.Horizontal ||
+        node.direction === SplitDirection.Vertical
+      ) &&
+      typeof node.ratio === "number" &&
+      Array.isArray(node.children) &&
+      node.children.length === PaneTreeArity.Binary &&
+      isValidTree(node.children[0]) &&
+      isValidTree(node.children[1])
     );
   }
   return false;
@@ -231,13 +250,13 @@ function isValidTree(node: unknown): node is LayoutNode {
 
 function parseLayout(cached: LayoutState | null): LayoutState | null {
   if (!cached || !isValidTree(cached.root)) return null;
-  const minimized = (cached.minimized ?? []).map((m: any) => ({
-    id: m.id,
-    paneType: m.paneType,
-    dir: m.dir ?? "h",
-    ratio: m.ratio ?? 0.5,
-    wasSecond: m.wasSecond ?? true,
-    siblingId: m.siblingId ?? null,
+  const minimized = (cached.minimized ?? []).map((entry) => ({
+    id: entry.id,
+    paneType: entry.paneType,
+    dir: entry.dir ?? SplitDirection.Horizontal,
+    ratio: entry.ratio ?? PaneLayoutRatio.Equal,
+    wasSecond: entry.wasSecond ?? true,
+    siblingId: entry.siblingId ?? null,
   }));
   return { root: cached.root, minimized };
 }
@@ -250,11 +269,13 @@ export async function loadLayout(mobile: boolean): Promise<LayoutState> {
     if (parsed) return parsed;
 
     // Fall back to legacy key (migrates existing users)
-    const legacy = await cacheGet<LayoutState>(CACHE_KEYS.layout);
+    const legacy = await cacheGet<LayoutState>(
+      CacheKey.LayoutLegacy, // NOSONAR typescript:S1874: Read only for stored-layout migration.
+    );
     const legacyParsed = parseLayout(legacy);
     if (legacyParsed) return legacyParsed;
   } catch {
-    /* ignore */
+    return defaultLayout();
   }
   return defaultLayout();
 }
@@ -263,20 +284,24 @@ export function persistLayout(layout: LayoutState, mobile: boolean) {
   cacheSet(layoutKey(mobile), layout);
 }
 
-// Presets are shared across devices — a view saved on desktop shows on mobile
-// and vice versa. The live layout stays per-device (globe must be full-width on
-// mobile), but a named view is the user's intent and should follow them.
+// Named presets follow user intent across device-specific live layouts.
 export async function loadPresets(): Promise<LayoutPreset[]> {
   const shared = await cacheGet<LayoutPreset[]>(
-    CACHE_KEYS.layoutPresetsShared,
+    CacheKey.LayoutPresets,
   );
   if (shared) return shared;
 
-  // First run: merge the old per-device + legacy lists by name.
+  // Merge deprecated stores when the shared store is absent.
   const lists = await Promise.all([
-    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresetsDesktop),
-    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresetsMobile),
-    cacheGet<LayoutPreset[]>(CACHE_KEYS.layoutPresets),
+    cacheGet<LayoutPreset[]>(
+      CacheKey.LayoutPresetsDesktopLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+    ),
+    cacheGet<LayoutPreset[]>(
+      CacheKey.LayoutPresetsMobileLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+    ),
+    cacheGet<LayoutPreset[]>(
+      CacheKey.LayoutPresetsLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+    ),
   ]);
   const seen = new Set<string>();
   const merged: LayoutPreset[] = [];
@@ -285,10 +310,10 @@ export async function loadPresets(): Promise<LayoutPreset[]> {
     seen.add(p.name);
     merged.push(p);
   }
-  cacheSet(CACHE_KEYS.layoutPresetsShared, merged);
+  cacheSet(CacheKey.LayoutPresets, merged);
   return merged;
 }
 
 export function savePresets(presets: LayoutPreset[]) {
-  cacheSet(CACHE_KEYS.layoutPresetsShared, presets);
+  cacheSet(CacheKey.LayoutPresets, presets);
 }

@@ -1,347 +1,252 @@
 # Architecture Overview
 
-[← Back to Docs Index](./README.md)
+[Back to the documentation index](./README.md)
 
-**Runtime**: Bun | **Frontend**: React 19, Tailwind 4, Canvas 2D + Web Worker | **Last updated**: May 2026
+Related documents: [Data flow](./data-flow.md), [Rendering](./rendering.md), [Pane system](./panes.md), and [Constraints](./constraints.md).
 
-**Related docs**: [Data Flow](./data-flow.md) · [Feature System](./features.md) · [Pane System](./panes.md) · [Rendering](./rendering.md)
+## Purpose
 
----
+SIGINT is a geospatial intelligence application. It presents live source data in an interactive globe, tables, feeds, and dossiers.
 
-## System Overview
+The application uses Bun, React 19, TypeScript, Tailwind CSS, Canvas 2D, and Web Workers.
 
-SIGINT is a real-time geospatial intelligence dashboard that renders live aircraft tracking data (via adsb.fi, server-proxied), live seismic data (via USGS), live geolocated news events (via GDELT 2.0), live AIS vessel positions (via aisstream.io), live fire hotspots (via NASA FIRMS), severe weather alerts (via NOAA), and tropical cyclone tracking (via NHC) onto an interactive globe or flat map projection. A non-geographic RSS news feed aggregates world news from 6 major sources. A correlation engine derives intelligence products and context-scored alerts from cross-source spatial-temporal matching, anomaly detection, and news linking. A single Bun process serves the bundled React SPA, maintains a persistent WebSocket to aisstream.io for AIS data, runs a tile-based polling sweep against adsb.fi for aircraft, fetches and caches GDELT event data, FIRMS fire data, NHC cyclone data, and RSS news feeds server-side, and provides token-authenticated API routes for data delivery. Aircraft records are enriched server-side from a read-only embedded SQLite database (`src/server/data/ac-db.sqlite`) before they hit the cache.
-
-The rendering pipeline uses a dedicated Web Worker (`public/workers/pointWorker.js`) with its own OffscreenCanvas. The worker renders everything — land, ocean, grid, glow, rim, data points, trails, and selection rings — on a separate CPU core. The main thread handles camera updates, input handling, and composites the finished `ImageBitmap` via a single `drawImage` call.
+## System topology
 
 ```mermaid
-graph TB
+flowchart LR
     subgraph Browser
-        SPA["React SPA<br/>(App → DataProvider → AppShell)"]
-        MainCanvas["Main Canvas<br/>(composite only)"]
-        Worker["Web Worker<br/>(pointWorker.js — OffscreenCanvas)<br/>land, grid, ocean, points, trails"]
-        IDB["IndexedDB<br/>(sigint-cache)"]
-        AircraftProv["AircraftProvider"]
-        QuakeProv["earthquakeProvider<br/>(BaseProvider)"]
-        GdeltProv["gdeltProvider<br/>(BaseProvider)"]
-        ShipProv["shipProvider<br/>(BaseProvider)"]
-        FireProv["fireProvider<br/>(BaseProvider)"]
-        WeatherProv["weatherProvider<br/>(BaseProvider)"]
+        D[DataWorker]
+        R[RenderWorker]
+        K[CorrelationWorker]
+        X[React]
+        P[Pane system]
+        C[Transferred canvas]
+        I[(IndexedDB)]
+        W[Service worker]
 
-        SPA -->|"props via propsRef"| MainCanvas
-        MainCanvas -->|"drawImage bitmap"| Worker
-        SPA -->|"data + camera msgs"| Worker
-        SPA -->|"useAircraftData hook"| AircraftProv
-        SPA -->|"useEarthquakeData hook"| QuakeProv
-        SPA -->|"useEventData hook"| GdeltProv
-        SPA -->|"useShipData hook"| ShipProv
-        SPA -->|"useFireData hook"| FireProv
-        SPA -->|"useWeatherData hook"| WeatherProv
-        AircraftProv -->|"hydrate / persist"| IDB
-        QuakeProv -->|"hydrate / persist"| IDB
-        GdeltProv -->|"hydrate / persist"| IDB
-        ShipProv -->|"hydrate / persist"| IDB
-        FireProv -->|"hydrate / persist"| IDB
-        WeatherProv -->|"hydrate / persist"| IDB
+        I <--> D
+        D -->|Direct scene channel| R
+        D -->|Direct source channel| K
+        R --> C
+        X --> P
+        X -->|Semantic commands| R
+        D -->|Status and bounded results| X
+        R -->|State and semantic events| X
+        W --> X
     end
 
-    AdsbFi["adsb.fi v3 API<br/>(1 req/sec/IP, tile-based)"]
-    USGS["USGS Earthquake API<br/>(free, no auth)"]
-    NOAA["NOAA Weather API<br/>(free, User-Agent only)"]
-    NHC["NHC CurrentStorms.json<br/>(no CORS, server-proxied)"]
-    BunServer["Bun Server<br/>(api routes + aircraft sweep + GDELT + AIS + FIRMS + cyclones caches)"]
-    SQLite["ac-db.sqlite<br/>(~617k records, read-only)"]
-    GdeltRaw["GDELT Raw Export Files<br/>(data.gdeltproject.org)"]
-    AISStream["aisstream.io<br/>(WebSocket, global AIS)"]
-    FIRMS["NASA FIRMS API<br/>(VIIRS NOAA-20 CSV)"]
-
-    AircraftProv -->|"GET /api/aircraft/states<br/>(token auth)"| BunServer
-    QuakeProv -->|"GET all_week.geojson<br/>(client-side fetch)"| USGS
-    WeatherProv -->|"GET /alerts/active<br/>(client-side fetch)"| NOAA
-    GdeltProv -->|"GET /api/events/latest<br/>(token auth)"| BunServer
-    ShipProv -->|"GET /api/ships/latest<br/>(token auth)"| BunServer
-    FireProv -->|"GET /api/fires/latest<br/>(token auth)"| BunServer
-    BunServer -->|"per-record lookup"| SQLite
-    BunServer -->|"serve cached"| GdeltCache["gdeltCache.ts<br/>(in-memory)"]
-    BunServer -->|"serve cached"| AISCache["aisCache.ts<br/>(in-memory)"]
-    BunServer -->|"serve cached"| FIRMSCache["firmsCache.ts<br/>(in-memory)"]
-    BunServer -->|"serve cached"| AircraftCache["aircraftCache.ts<br/>(in-memory sweepState)"]
-    BunServer -->|"serve cached"| CyclonesCache["cyclonesCache.ts<br/>(in-memory)"]
-    AircraftCache -->|"108-tile sweep<br/>(3s spacing, ~5 min cycle)"| AdsbFi
-    GdeltCache -->|"fetch + unzip + parse<br/>(every 15 min)"| GdeltRaw
-    AISCache -->|"persistent WebSocket<br/>(real-time stream)"| AISStream
-    FIRMSCache -->|"fetch CSV<br/>(every 30 min)"| FIRMS
-    CyclonesCache -->|"fetch CurrentStorms.json<br/>(every 30 min)"| NHC
+    U[External providers] --> S[Bun server]
+    Q[Approved direct sources] --> D
+    S --> D
 ```
 
-### Why client-side fetching for some sources?
+Geographic record arrays do not pass through React.
 
-The USGS earthquake API is fetched client-side — free, no auth, no CORS restrictions. NOAA Weather alerts are fetched client-side from `api.weather.gov/alerts/active` (no API key, just a User-Agent header).
+## Authoritative owners
 
-All other sources go through the Bun server for one or more of: API-key secrecy, CORS bypass, payload size, or per-user budget consolidation.
+| Owner | Responsibilities |
+| --- | --- |
+| Bun server | Protect credentials, consolidate provider budgets, normalize responses, enrich records, and keep disposable server caches |
+| DataWorker | Fetch browser sources, validate records, own source datasets, own IndexedDB access, answer bounded queries, and publish render data |
+| RenderWorker | Own the canvas context, camera, globe state, scene stores, hit tests, drawing, and frame schedule |
+| CorrelationWorker | Own geographic analysis copies and compute correlation results |
+| React | Own pane layout, accessible controls, news state, bounded query results, and pane presentation |
+| Service worker | Own build-scoped application assets, offline responses, and update activation |
 
-**adsb.fi (aircraft)** enforces 1 req/sec/IP. The server runs a tile-based sweep — 108 tiles × 250 nm radius — every 300 s with 3 s spacing, merges and dedups by ICAO 24-bit hex, and serves the result via `/api/aircraft/states`. Records are enriched per-sweep against the read-only `ac-db.sqlite` (military classification + manufacturer/model/operator/registration) before they hit the cache. Doing this server-side gives one shared budget across the whole user base instead of burning the per-IP cap on a single user.
+## Server boundary
 
-**GDELT raw export files** have CORS restrictions and are large CSV zips. The server downloads, unzips, and parses the export CSV every 15 min, caches in memory, serves via `/api/events/latest`.
+The Bun server serves the React application and the API. It also handles sources that need credentials, CORS support, enrichment, or a shared request budget.
 
-**AIS (aisstream.io)** requires an API key and does not support browser CORS. The server maintains a persistent WebSocket connection, accumulates vessel positions in an in-memory Map, and serves snapshots via `/api/ships/latest`.
+The server owns these types of work:
 
-**NASA FIRMS** requires an API key and returns 30–100k-row CSV payloads. Server fetches every 30 min, parses, caches, serves from `/api/fires/latest` with gzip. Clients poll every 600 s.
+- Aircraft tile sweeps and aircraft metadata enrichment
+- AIS WebSocket collection
+- GDELT collection
+- NASA FIRMS collection
+- NHC cyclone collection
+- RSS collection
+- Authentication and rate limits
+- Security headers
+- Static application files
 
-**NHC (cyclones)** publishes `CurrentStorms.json` without CORS headers. The server polls it every 30 min, validates shape, and serves via `/api/cyclones/latest`.
+The server memory cache is disposable. A server restart rebuilds live source state.
 
-### Server API Routes
+The embedded aircraft SQLite database is a read-only build artifact. The browser does not receive this database.
 
-All routes share the same sliding-window rate limiter (default 60 req/min per client IP, configurable via `SIGINT_RATE_LIMIT_PER_MINUTE`).
+## Browser boot
 
-| Route                           | Method | Auth            | Purpose                                                                                       |
-| ------------------------------- | ------ | --------------- | --------------------------------------------------------------------------------------------- |
-| `/api/auth/token`               | GET    | None            | Sets HttpOnly auth cookie (HMAC-SHA256, 30 min TTL)                                            |
-| `/api/aircraft/states`          | GET    | HttpOnly cookie | Server-side merged adsb.fi tile sweep, enriched against `ac-db.sqlite` (gzip compressed)       |
-| `/api/events/latest`            | GET    | HttpOnly cookie | Returns cached GDELT events (gzip compressed)                                                  |
-| `/api/ships/latest`             | GET    | HttpOnly cookie | Returns cached AIS vessel positions (gzip compressed)                                          |
-| `/api/fires/latest`             | GET    | HttpOnly cookie | Returns cached NASA FIRMS fire hotspots (gzip compressed)                                      |
-| `/api/cyclones/latest`          | GET    | HttpOnly cookie | Returns cached NHC CurrentStorms.json (gzip compressed)                                        |
-| `/api/cyclones/:stormId/cone`   | GET    | HttpOnly cookie | Per-storm KMZ forecast cone polygon                                                            |
-| `/api/dossier/cyclone/:stormId` | GET    | HttpOnly cookie | NHC text products for a storm (advisory, discussion, wind probs)                               |
-| `/api/news/latest`              | GET    | HttpOnly cookie | Returns cached RSS news articles (gzip compressed)                                             |
-| `/api/dossier/aircraft/:icao24` | GET    | HttpOnly cookie | Aircraft dossier (hexdb.io info + planespotters photos)                                        |
+`frontend.tsx` registers the render-surface custom element. It then renders the React application.
 
-### Auth + Rate Limiting
+Cache initialization starts during module evaluation. The shared DataWorker client opens IndexedDB and starts all geographic source owners.
 
-All API routes are rate limited per client IP via a sliding window (default 60 req/min, set by `config.rateLimitPerMinute`). Protected routes require a valid auth token in an HttpOnly cookie (`sigint_token`).
+React does not wait for all geographic sources before it renders the application shell. Source status and bounded results arrive independently.
 
-Auth and rate limiting are exposed as a factory: `createAuthGuards(config, security)` returns `{ generateToken, verifyToken, tokenCookieHeader, expireOldCookieHeader, guardAuth, guardRateLimit }`. The composition roots (`src/server/index.ts`, `src/server/index.prod.ts`) build the config once at boot, instantiate the guards, and mount them on the router. Every route calls either `guardAuth` (cookie token + rate limit) or `guardRateLimit` (rate limit only, for the token endpoint).
+News remains a React provider because news articles are not geographic scene records.
 
-Client IP comes from `X-Forwarded-For` using **rightmost-N** extraction with `config.trustedProxyHops` (default 0). With `trustedProxyHops=0` XFF is ignored and the bucket key is the direct source. With `trustedProxyHops>0` the rightmost N entries are trusted infrastructure; the entry immediately to their left is the client. If XFF has fewer entries than `trustedProxyHops+1`, the request falls into a single `"unknown"` bucket (fail-closed).
+## Pane and window system
 
-Tokens are generated via Web Crypto API (async HMAC-SHA256) and verified with `crypto.timingSafeEqual`. The token endpoint sets the token as an `HttpOnly; SameSite=Strict; Path=/api` cookie; `Secure` is added when `config.isProduction` is true.
+`PaneManager` owns the desktop pane layout. It stores the layout as a binary split tree.
 
-Clients use `lib/authService.ts` which wraps `fetch()` with `credentials: "same-origin"`. On 401, the cookie is refreshed and the request retried. Concurrent 401s share a single token refresh (deduped via an in-flight promise) to prevent boot stampede when multiple providers hit 401 simultaneously.
+Each leaf is a pane. A split node contains two child nodes, a direction, and a size ratio. The manager supports split, close, minimize, restore, swap, resize, and preset operations.
 
-### Composition Root + Config
+The pane types include the globe, data table, dossier, intelligence feed, news feed, alert log, raw console, and video feed.
 
-`src/server/config.ts` is the only module that reads `process.env`. It exports `loadConfig(env)` which returns a frozen `ServerConfig`, and `ConfigError` thrown on missing/invalid values. The composition roots (`src/server/index.ts`, `src/server/index.prod.ts`) call `loadConfig(process.env)` at boot; a `ConfigError` causes `process.exit(78)`. All downstream modules — auth, security headers, cache pollers — take the typed config as a parameter; none read env directly.
+The globe is one pane. It is not the owner of the application layout or the selected dossier.
 
-### Logging
+Desktop and mobile layouts use different persisted keys. The mobile layout uses `PaneMobile` and vertical content blocks. A mobile selection requests the dossier pane.
 
-Structured JSON via `src/server/lib/logger.ts` — project-owned, zero dependencies. Each emission is one line of JSON with `timestamp`, `level`, `service`, `message`, and any caller-supplied fields. Fields are passed through a redaction allowlist that strips known sensitive keys (`token`, `password`, `apiKey`, `cookie`, `secret`, `authorization`, `refreshToken`) at the top level and one level of nesting. Error instances are unwrapped to `errorClass` + `errorMessage`. Default sink writes to `Bun.stderr`. Every server module gets a logger via `createLogger({ service: "<name>" })`; `console.*` is not used in `src/server/`.
+Lazy pane mounting limits work for hidden panes. See [Pane system](./panes.md) for the complete layout contract.
 
-### Environment Variables
+## React structure
 
-| Variable                       | Required | Description                                                                                                                                                                       |
-| ------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SIGINT_SERVER_SECRET`         | **Yes**  | Server-only secret for signing auth tokens. Must be at least 32 characters. Generate with `openssl rand -hex 32`. Server exits 78 without it.                                     |
-| `AISSTREAM_API_KEY`            | No       | Free API key from [aisstream.io](https://aisstream.io) (sign up via GitHub). Enables live global AIS vessel data. Without it, ships layer is empty.                               |
-| `FIRMS_MAP_KEY`                | No       | Free API key from [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/). Enables live NASA FIRMS fire hotspot data. Without it, fires layer is empty. |
-| `PORT`                         | No       | Server port (default: 5500)                                                                                                                                                       |
-| `DOMAIN`                       | No       | Public hostname; logged at boot when set. No behavior change.                                                                                                                     |
-| `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap. Default 60.                                                                                                                                            |
-| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app. Default 0. Drives XFF rightmost-N extraction.                                                                                      |
-| `NODE_ENV`                     | No       | Read once by `loadConfig` to derive `config.isProduction` (only `"production"` flips it). Not read anywhere else.                                                                 |
-| `CYCLONES_FIXTURE`             | No       | Dev-only label that points the cyclones cache at `tests/fixtures/cyclones/<label>.json` instead of NHC. Ignored when `isProduction` is true.                                      |
-| `AIRCRAFT_FIXTURE`             | No       | Dev-only label that points the aircraft cache at `tests/fixtures/aircraft/<label>.json` instead of adsb.fi. Ignored when `isProduction` is true.                                  |
-
----
-
-## Directory Structure
-
-```
-.
-├── docs/                               Technical documentation (this folder)
-├── public/
-│   ├── data/ne_50m_land.json           HD coastline geometry
-│   ├── fonts/jetbrains-mono/           JetBrains Mono woff2 files
-│   ├── icons/                          PWA icons (72–512px)
-│   ├── workers/pointWorker.js          Web Worker — all rendering on OffscreenCanvas
-│   ├── fonts.css                       Font-face declarations
-│   ├── manifest.json                   PWA manifest
-│   └── sw.js                           Service worker — precache + runtime cache, update flow
-├── scripts/
-│   ├── convert-aircraft-csv.ts        CSV→NDJSON converter for ac-db
-│   └── fetch-hd-land.ts               Download HD coastline data
-├── src/
-│   ├── index.html                      Entry HTML
-│   ├── index.css                       Global CSS (Tailwind + SIGINT theme vars + SW update banner)
-│   ├── logo.svg
-│   ├── server/
-│   │   ├── config.ts                  Typed ServerConfig + loadConfig — sole reader of process.env
-│   │   ├── staticRoutes.ts             Shared safePath + static route builder (dev + prod)
-│   │   ├── index.ts                   Dev composition root (Bun, HMR)
-│   │   ├── index.prod.ts              Prod composition root
-│   │   ├── api/
-│   │   │   ├── index.ts               createApiRoutes({ authGuards, security }) factory
-│   │   │   ├── auth.ts                createAuthGuards(config, security) — HMAC-SHA256 tokens, XFF rightmost-N, sliding-window limiter
-│   │   │   ├── securityHeaders.ts     createSecurityHeaders(config) — CSP, HSTS (prod), etc.
-│   │   │   ├── aircraftCache.ts       adsb.fi tile sweep + dedup
-│   │   │   ├── aircraftTiles.ts       AIRCRAFT_TILES + PRIORITY_TILES coverage table
-│   │   │   ├── aircraftEnrichment.ts  Read-only SQLite metadata lookups
-│   │   │   ├── cyclonesCache.ts       NHC CurrentStorms.json polling
-│   │   │   ├── cyclonesConeCache.ts   Per-storm KMZ forecast cone
-│   │   │   ├── cyclonesDossierCache.ts NHC text products (advisory etc.)
-│   │   │   ├── dossierCache.ts        Aircraft dossier (hexdb.io + planespotters)
-│   │   │   ├── gdeltCache.ts          GDELT fetch/parse/cache
-│   │   │   ├── aisCache.ts            AIS WebSocket + vessel cache (LRU-capped at 100k)
-│   │   │   ├── firmsCache.ts          NASA FIRMS CSV fetch/parse/cache
-│   │   │   └── newsCache.ts           RSS feed fetch/parse/cache
-│   │   ├── lib/logger.ts              Project-owned structured JSON logger + redaction
-│   │   └── data/
-│   │       ├── ac-db.sqlite           Read-only aircraft metadata (~617k records, baked at build)
-│   │       ├── icao24CountryRanges.ts ICAO Annex 10 hex-prefix → country mapping
-│   │       └── militaryRules.ts       Three-rule military classification (shared build + runtime)
-│   └── client/
-│       ├── App.tsx                     ErrorBoundary → DataProvider → AppShell
-│       ├── AppShell.tsx                ConnectionStatus + Header + PaneManager + Ticker
-│       ├── frontend.tsx                Boot sequence, registerSW in both dev + prod
-│       ├── config/theme.ts             Colors, getColorMap(), LAYER_COLOR_KEYS
-│       ├── context/
-│       │   ├── DataContext.tsx          All shared state, correlation engine, watch mode
-│       │   └── ThemeContext.tsx         Dark/light + color overrides
-│       │   ├── UIContext.tsx            Selection, isolation, view controls, search, zoom, colorMap
-│       │   └── WatchContext.tsx         Watch mode state machine (dwell timer, pause/resume)
-│       ├── hooks/useVirtualScroll.ts    Virtual scroll (startIdx, endIdx, offsetY)
-│       ├── lib/
-│       │   ├── authService.ts          authenticatedFetch() + cookie refresh
-│       │   ├── storageService.ts       IndexedDB wrapper with dbReady gate
-│       │   ├── cacheKeys.ts            23 cache keys (incl mobile/desktop layout)
-│       │   ├── swRegistration.ts       SW registration + update detection + applyUpdate
-│       │   ├── correlation/            Correlation engine — split across baseline, clusters, anomalies, crossSource, cyclones, news, shared
-│       │   ├── correlationClient.ts    Main-thread wrapper around the correlation Web Worker + sync inline fallback
-│       │   ├── spatialIndex.ts         Grid-based spatial hash + inverse projection
-│       │   ├── trailService.ts         Position recording + interpolation (LRU-capped at 10k tracks)
-│       │   ├── landService.ts          HD coastline fetch + cache
-│       │   ├── sourceHealth.ts         Source up/down status
-│       │   ├── tickerFeed.ts           Ticker item interleaving
-│       │   ├── uiSelectors.ts          Derived counts, country lists
-│       │   ├── timeFormat.ts           Relative age formatting
-│       │   └── utils.ts                Shared utilities
-│       ├── workers/
-│       │   └── correlationWorker.ts    Worker entry — runs computeCorrelations off the main thread (bundled to public/workers/correlationWorker.js)
-│       ├── components/
-│       │   ├── globe/                  Canvas 2D visualization (modular)
-│       │   │   ├── GlobeVisualization  Shell: refs, render loop, worker lifecycle
-│       │   │   ├── cameraSystem.ts     Lock-on, lerp, auto-rotate
-│       │   │   ├── inputHandlers.ts    Mouse/touch/wheel/keyboard
-│       │   │   ├── projection.ts       projGlobe, projFlat, getFlatMetrics
-│       │   │   ├── landRenderer.ts     Coastline polygons
-│       │   │   ├── gridRenderer.ts     Lat/lon grid lines
-│       │   │   └── types.ts            Shared types
-│       │   ├── ConnectionStatus.tsx    Offline bar, RETRY, pull-to-refresh, RECONNECTED
-│       │   ├── Header.tsx              Logo, search, toggles, clock, settings
-│       │   ├── Search.tsx              Portal dropdown, zoom-to
-│       │   ├── DetailPanel.tsx         Bottom sheet / side panel
-│       │   ├── Ticker.tsx              Scrolling ticker with compact mobile mode
-│       │   ├── SettingsModal.tsx       Settings (safe-area, always-visible delete)
-│       │   ├── ErrorBoundary.tsx       App-level error boundary
-│       │   └── Tooltip.tsx             Reusable tooltip wrapper
-│       ├── panes/
-│       │   ├── PaneManager.tsx         Layout engine (device-specific keys, preset props to PaneMobile)
-│       │   ├── PaneMobile.tsx          Mobile layout (VIEWS button, flex-wrap headers, move mode)
-│       │   ├── PaneHeader.tsx          Per-pane header bar
-│       │   ├── ResizeHandle.tsx        Split resize interaction
-│       │   ├── LayoutPresetMenu.tsx    Save/load/update/delete presets (save icon)
-│       │   ├── paneTree.ts             Binary split tree + persistence (mobile/desktop)
-│       │   ├── SplitMenu.tsx             Shared pane-type dropdown (used by PaneManager + PaneMobile)
-│       │   ├── alert-log/             AlertLogPane + skeleton
-│       │   ├── data-table/            DataTablePane + skeleton
-│       │   ├── dossier/               DossierPane + atoms + skeleton
-│       │   ├── intel-feed/            IntelFeedPane + skeleton
-│       │   ├── live-traffic/          LiveTrafficPane
-│       │   ├── news-feed/             NewsFeedPane + skeleton
-│       │   ├── raw-console/           RawConsolePane + skeleton
-│       │   └── video-feed/            VideoFeedPane + slots + HLS + channels + presets
-│       ├── features/
-│       │   ├── base/                  BaseProvider, useProviderData, DataPoint types
-│       │   ├── tracking/aircraft/     adsb.fi (via /api/aircraft/states) — provider, filter, parser, utils
-│       │   ├── tracking/ships/        AIS — provider, hook, ticker
-│       │   ├── environmental/earthquake/ USGS — provider, hook, ticker
-│       │   ├── environmental/fires/   FIRMS — provider, hook, ticker
-│       │   ├── environmental/weather/ NOAA — provider, hook, ticker
-│       │   ├── environmental/cyclones/ NHC — provider, hook, dossier, forecast cone
-│       │   ├── intel/events/          GDELT — provider, hook, ticker
-│       │   ├── news/                  newsProvider + useNewsData (moved from panes/news-feed)
-│       │   └── registry.tsx           Feature registry (imports all definitions)
-│       └── data/mockData.ts           Mock aircraft (fallback only)
-├── tests/                              bun:test + happy-dom
-│   ├── setup.ts                       happy-dom global registrator
-│   ├── hookHelper.ts                  Custom renderHook + act utilities
-│   ├── components/                    Header, Search, DetailPanel, Ticker, ResizeHandle, etc.
-│   │   └── globe/                     cameraSystem, projection
-│   ├── config/                        theme
-│   ├── context/                       DataContext, ThemeContext
-│   ├── features/                      BaseProvider, AircraftProvider, newsProvider, providers, utils
-│   ├── hooks/                         hooks, virtualScroll
-│   ├── lib/                           cacheKeys, correlationEngine, services, spatialIndex, storage, trails
-│   ├── panes/                         PaneManager, paneTree, paneWrappers, skeletons
-│   ├── pwa/                           SW cache strategy, fetch routing, offline, manifest, update flow
-│   └── server/                        auth, auth.pen, routes.pen, serverCaches, aircraftMetadata, dossier
-├── Dockerfile / Dockerfile.prod       Dev + prod Docker images
-├── docker-compose.*.yml               Dev, prod, test compose configs
-├── Caddyfile.dev / Caddyfile.prod     TLS reverse proxy configs
-├── heroku.yml                         Heroku deployment
-├── build.ts / postbuild.ts            Bun build + SW manifest injection
-├── package.json / bun.lock / bunfig.toml
-└── tsconfig.json
+```text
+frontend.tsx
+  -> ThemeProvider
+    -> App
+      -> LayoutModeProvider
+        -> DataProvider
+          -> UIProvider
+            -> DataContext.Provider
+              -> WatchProvider
+                -> AppShell
+                  -> ConnectionStatus
+                  -> Header
+                  -> PaneManager or PaneMobile
+                  -> Ticker
 ```
 
----
+`DataProvider` does not own geographic record sets. It combines bounded worker projections for existing consumers.
 
-## Component Hierarchy
+`UIProvider` stores one selected record copy for pane use. The RenderWorker remains the authoritative owner of the render selection.
 
-```mermaid
-graph TD
-    App["App.tsx<br/><i>DataProvider → AppShell</i>"]
-    App --> AppShell["AppShell.tsx<br/><i>ConnectionStatus + Header + PaneManager + Ticker</i>"]
+## DataWorker
 
-    AppShell --> ConnStatus["ConnectionStatus<br/><i>Offline bar, RETRY, pull-to-refresh</i>"]
-    AppShell --> Header["Header<br/><i>Logo, search, toggles, controls, clock</i>"]
-    Header --> SearchComp["Search<br/><i>searchSlot prop, z-[60]</i>"]
-    Header --> LayerToggles["Layer toggle buttons"]
-    Header --> AircraftFC["AircraftFilterControl"]
-    Header --> ViewControls["Globe/flat, rotation"]
-    Header --> Clock["Clock"]
+`src/client/workers/dataWorker.ts` is the browser data composition root.
 
-    AppShell --> PM["PaneManager<br/><i>Binary split tree, resize, drag-to-move (swap + insert), type switcher</i>"]
-    PM --> LTP["LiveTrafficPane<br/><i>Globe + overlays</i>"]
-    PM --> DTP["DataTablePane<br/><i>Virtual-scrolling table</i>"]
-    PM --> DSP["DossierPane<br/><i>Entity dossier</i>"]
-    PM --> IFP["IntelFeedPane<br/><i>Intel feed</i>"]
-    PM --> ALP["AlertLogPane<br/><i>Priority alerts</i>"]
-    PM --> RCP["RawConsolePane<br/><i>Raw data console</i>"]
-    PM --> VFP["VideoFeedPane<br/><i>HLS.js news streams</i>"]
-    PM --> NFP["NewsFeedPane<br/><i>RSS news feed</i>"]
+The DataWorker owns these operations:
 
-    LTP --> GlobeViz["globe/<br/><i>Main thread: camera, input<br/>Worker: all rendering (land, points, trails)</i>"]
-    LTP --> DetailPanel["DetailPanel<br/><i>LOCATE/FOCUS/SOLO, swipe-to-dismiss mobile, desktop scroll</i>"]
+- Source cache hydration
+- Source fetch and validation
+- Snapshot reconciliation
+- Source versions and status
+- IndexedDB compression and persistence
+- Record lookup and bounded UI queries
+- Trail recording
+- Aircraft dossier caching
+- Render search
+- Scene publication
+- Correlation source publication
 
-    AppShell --> Ticker["Ticker<br/><i>Clickable items, live feed</i>"]
+`SourceCatalog` registers each queryable source. Each source owner attaches to one source runtime and one render binding.
+
+## RenderWorker
+
+`src/client/workers/pointWorker.ts` is the RenderWorker composition root.
+
+The RenderWorker owns these operations:
+
+- `OffscreenCanvas` and Canvas 2D context
+- Viewport backing dimensions
+- Camera and projection
+- Globe filters
+- Selection and isolation
+- Search visibility
+- Scene stores
+- Motion projection
+- Layer order
+- Hit tests
+- Trails and routes
+- Frame invalidation
+- Drawing
+
+The render surface transfers the canvas one time for each session. The DataWorker sends scene commands through a direct `MessageChannel`.
+
+See [Rendering](./rendering.md) for the complete render path.
+
+## CorrelationWorker
+
+The CorrelationWorker receives geographic source rebases directly from the DataWorker. React sends news and the regional baseline with each analysis request.
+
+The CorrelationWorker returns intelligence products, alerts, and the next baseline. Geographic record arrays do not pass through React for correlation.
+
+## State boundaries
+
+The application uses typed commands and bounded projections across ownership boundaries.
+
+| State | Authoritative owner | React projection |
+| --- | --- | --- |
+| Geographic source records | DataWorker | Bounded pages, counts, facets, status, and one selected record |
+| Canvas and camera | RenderWorker | Bounded globe-state snapshot and camera events |
+| Layer and render filters | RenderWorker | Bounded globe-state snapshot |
+| Render selection | RenderWorker | One selected record copy |
+| Pane layout | React pane system | Full pane layout |
+| News articles | React news provider | Full bounded news collection |
+| Correlation result | CorrelationWorker | Products, alerts, and baseline |
+
+## Render surface
+
+The render surface is a custom element. It owns browser APIs that are adjacent to rendering.
+
+Its adapters handle these inputs:
+
+- Element size
+- Pointer input
+- Touch input
+- Wheel input
+- Keyboard input
+- Theme colors
+- Reduced-motion preference
+- Aircraft-filter URL state
+
+The render surface converts these inputs to semantic or bounded worker commands. It does not own scene records.
+
+## Directory map
+
+```text
+src/
+  client/
+    components/globe/        React host, commands, events, and DOM tooltip
+    context/                 React pane and presentation state
+    features/                Feature definitions, codecs, queries, and UI
+    panes/                   Desktop and mobile pane implementations
+    render-surface/          Custom element, session, and browser adapters
+    workers/
+      data/                  Source owners, datasets, queries, and scene codecs
+      render/                Camera, globe state, scene stores, and render layers
+      correlation/           Correlation data protocol
+      dataWorker.ts          DataWorker composition root
+      pointWorker.ts         RenderWorker composition root
+      correlationWorker.ts   CorrelationWorker composition root
+  server/
+    api/                     Server source caches, auth, and API routes
+    data/                    Read-only build data
+    index.ts                 Development composition root
+    index.prod.ts            Production composition root
+  shared/                    Shared domain and protocol types
+public/
+  data/                      Static geographic data
+  fonts/                     Local fonts
+  icons/                     PWA icons
+  workers/                   Built worker entry files
 ```
 
-### State Architecture
+## Persistence
 
-All shared state lives in `DataContext`, exposed via `useData()`. There is no external state management library.
+The DataWorker owns the IndexedDB database. It stores geographic source caches, trails, and other worker-owned records.
 
-- **`App.tsx`** — wraps everything in `<DataProvider>`, renders `<AppShell>`
-- **`AppShell.tsx`** — reads from context, renders ConnectionStatus + Header + PaneManager + Ticker. ConnectionStatus always visible. Gates Header and Ticker on `chromeHidden`. Ticker container has `paddingBottom: max(0.25rem, env(safe-area-inset-bottom))` for iPhone home bar.
-- **`DataContext.tsx`** — owns all state: data hooks (aircraft, earthquake, events, ships, fires, weather, news), selection, isolation, layers, filters, view controls, search, derived values. Drives the correlation engine via `correlationClient` — `allData`/`newsArticles`/`allDataVersion` changes post to a Web Worker (`public/workers/correlationWorker.js`); the worker returns `{ products, alerts, baseline }` and `DataContext` persists the baseline to IndexedDB. A stale-response guard ignores out-of-order worker replies. In test/SSR or when the worker bundle isn't available the client falls back to synchronous inline compute, preserving the same `correlation` shape on the context. Manages watch mode state (active/paused, source, cycling, progress). Centralizes trail recording via a `useEffect` on `allData` changes. Maintains `idMap` (O(1) selection lookup), `spatialGrid` (for click/hover), and `filteredIds` (pre-computed filter set). Default rotation is paused.
-- **`PaneManager.tsx`** — layout engine. Owns pane configs (persisted to IndexedDB with separate mobile/desktop keys). Layout presets (save/load/update/delete named views — device-specific). `isMobile` state hoisted before layout load. Passes preset props to PaneMobile. Gates toolbar and pane headers on `chromeHidden`. Mobile responsive — vertical scrollable column under 768px. Touch-friendly button targets (40px minimum).
-- **`LiveTrafficPane.tsx`** — just the globe + overlays. Reads everything from context. Only local state is `panelSide`. Passes `spatialGrid` and `filteredIds` to globe.
-- **`DataTablePane.tsx`** — reads `allData`, `filters`, `selected` from context. Owns sort/filter state locally. Column header tooltips. Auto-scrolls to selected item when selection changes from external source (ticker, globe).
+Main-thread services use the DataWorker client for compatible cache operations. Pane layout and user preferences remain main-thread concerns.
 
-### Chrome Visibility
+The service worker does not cache API responses. It caches application assets and navigation responses.
 
-When `chromeHidden` is true (toggled by clicking empty globe area): Header, Ticker, PaneManager toolbar, pane headers, and DetailPanel all hide. Clicking a data point while chrome is hidden selects it AND unhides chrome automatically.
+## Architecture rules
 
-### Z-Index Stack
-
-| z-index  | Component                                                   |
-| -------- | ----------------------------------------------------------- |
-| (none)   | Header — no stacking context (preserves dropdown rendering) |
-| z-30     | Trail waypoint tooltip, PaneMobile sticky tab bar           |
-| z-40     | DetailPanel                                                 |
-| z-50     | PaneManager add-pane menu                                   |
-| z-[60]   | AircraftFilterControl dropdown, Search dropdown             |
-| z-[70]   | SettingsModal                                               |
-| z-[80]   | LayoutPresetMenu portal, PaneMobile add-pane dropdown       |
-| z-[9998] | Pull-to-refresh spinner                                     |
-| z-[9999] | ConnectionStatus offline/reconnected bar, SW update banner  |
+- Give each mutable datum one authoritative owner.
+- Keep geographic record sets out of React.
+- Use bounded queries for panes.
+- Use the common scene protocol for all render sources.
+- Use direct worker channels for render and correlation records.
+- Transfer each visible canvas one time.
+- Keep frame-affecting state in the RenderWorker.
+- Keep browser adapters in the render surface.
+- Keep pane layout independent from globe rendering.
+- Keep server credentials and shared provider budgets on the server.

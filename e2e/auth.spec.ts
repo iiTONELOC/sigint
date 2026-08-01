@@ -1,24 +1,68 @@
-import { test, expect } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type Response as PlaywrightResponse,
+} from "@playwright/test";
 import { mockCyclones, installDefaultMocks } from "./helpers/fixtures";
 
-// Auth: token cookie issued on first navigation. The cookie is HttpOnly
-// + SameSite=Strict + Path=/api + Secure (Secure is OK on localhost; the
-// cookie store accepts it regardless of viewport profile).
-//
-// Anchoring: the boot sequence calls ensureAuthCookie() asynchronously
-// after the shell paints, so reading context.cookies() right after a
-// canvas wait races the auth round-trip on slower mobile profiles.
-// We wait for the actual /api/auth/token response before assertion.
+enum AuthRoute {
+  Protected = "/api/dossier/aircraft/ZZZZZZ",
+  Token = "/api/auth/token",
+}
 
-async function waitForAuthToken(page: import("@playwright/test").Page) {
+enum AuthCookieValue {
+  Name = "sigint_token",
+  Path = "/api",
+  SameSite = "Strict",
+}
+
+enum AuthRequestCredentials {
+  SameOrigin = "same-origin",
+}
+
+enum HttpMethod {
+  Get = "GET",
+}
+
+enum HttpStatus {
+  BadRequest = 400,
+  Ok = 200,
+  Unauthorized = 401,
+}
+
+enum PlaywrightServiceWorkerPolicy {
+  Block = "block",
+}
+
+enum AuthWaitMs {
+  TokenResponse = 5_000,
+}
+
+async function waitForAuthToken(page: Page): Promise<PlaywrightResponse> {
   return page.waitForResponse(
     (res) =>
-      res.url().includes("/api/auth/token") && res.request().method() === "GET",
-    { timeout: 5_000 },
+      res.url().endsWith(AuthRoute.Token) &&
+      res.request().method() === HttpMethod.Get,
+    { timeout: AuthWaitMs.TokenResponse },
   );
 }
 
+async function requestStatus(page: Page, route: AuthRoute): Promise<number> {
+  return page.evaluate(async (request) => {
+    const response = await fetch(request.route, {
+      credentials: request.credentials,
+    });
+    return response.status;
+  }, {
+    route,
+    credentials: AuthRequestCredentials.SameOrigin,
+  });
+}
+
 test.describe("auth", () => {
+  test.use({ serviceWorkers: PlaywrightServiceWorkerPolicy.Block });
+
   test("/api/auth/token sets sigint_token cookie", async ({
     page,
     context,
@@ -30,33 +74,36 @@ test.describe("auth", () => {
     await authPromise;
 
     const cookies = await context.cookies();
-    const tok = cookies.find((c) => c.name === "sigint_token");
-    expect(tok).toBeDefined();
-    expect(tok?.httpOnly).toBe(true);
-    expect(tok?.sameSite).toMatch(/Strict/i);
-    expect(tok?.path).toBe("/api");
+    const token = cookies.find((cookie) => cookie.name === AuthCookieValue.Name);
+    expect(token).toBeDefined();
+    expect(token?.httpOnly).toBe(true);
+    expect(token?.sameSite).toBe(AuthCookieValue.SameSite);
+    expect(token?.path).toBe(AuthCookieValue.Path);
   });
 
-  test("401 on a protected route triggers re-issue + retry", async ({
+  test("a re-issued token authorizes a retry after rejection", async ({
     page,
     context,
   }) => {
     await installDefaultMocks(page);
     await mockCyclones(page, "empty-out-of-season");
-    let authPromise = waitForAuthToken(page);
+    const authPromise = waitForAuthToken(page);
     await page.goto("/");
     await authPromise;
 
-    // Drop the cookie to force the next protected fetch to 401, which
-    // should kick the cookie refresh path.
     await context.clearCookies();
 
-    authPromise = waitForAuthToken(page);
-    await page.reload();
-    await authPromise;
+    const rejectedStatus = await requestStatus(page, AuthRoute.Protected);
+    expect(rejectedStatus).toBe(HttpStatus.Unauthorized);
+
+    const reissueStatus = await requestStatus(page, AuthRoute.Token);
+    expect(reissueStatus).toBe(HttpStatus.Ok);
+
+    const retriedStatus = await requestStatus(page, AuthRoute.Protected);
+    expect(retriedStatus).toBe(HttpStatus.BadRequest);
 
     const cookies = await context.cookies();
-    const tok = cookies.find((c) => c.name === "sigint_token");
-    expect(tok).toBeDefined();
+    const token = cookies.find((cookie) => cookie.name === AuthCookieValue.Name);
+    expect(token).toBeDefined();
   });
 });

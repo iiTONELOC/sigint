@@ -1,9 +1,5 @@
 import { Domain } from "@shared/domain/identity";
-// ── NHC CurrentStorms.json parser ────────────────────────────────────
-// Fetches from the same-origin server proxy (/api/cyclones/latest), never
-// from nhc.noaa.gov directly — the NHC endpoint sends no CORS headers.
-// The server route is hardcoded in the cyclones cache module (A10 SSRF
-// guard: no client input flows into any outbound URL).
+import { EMPTY_TEXT } from "@shared/text";
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
@@ -23,10 +19,29 @@ import {
   type WindRadii,
 } from "../types";
 import { authenticatedFetch } from "@/lib/net/authService";
-import { saffirSimpson, TS_MIN_KT } from "../classification";
+import { CycloneWindThreshold, saffirSimpson } from "../classification";
 
-const CYCLONES_URL = "/api/cyclones/latest";
-const SUBTROPICAL_PREFIX = "S";
+export enum CycloneDataEndpoint {
+  Latest = "/api/cyclones/latest",
+}
+
+enum NhcClassificationPrefix {
+  Subtropical = "S",
+}
+
+enum CycloneFetchErrorKind {
+  HttpStatus = "Cyclone source request failed",
+}
+
+export class CycloneFetchError extends Error {
+  constructor(
+    readonly kind: CycloneFetchErrorKind,
+    readonly status: number,
+  ) {
+    super(kind);
+    this.name = CycloneFetchError.name;
+  }
+}
 
 enum NhcForecastHour {
   H12 = 12,
@@ -38,33 +53,24 @@ enum NhcForecastHour {
   H120 = 120,
 }
 
-// Source: https://www.nhc.noaa.gov/verification/verify5.shtml
-enum NhcTrackErrorNm {
-  H12 = 26,
-  H24 = 41,
-  H36 = 55,
-  H48 = 70,
-  H72 = 100,
-  H96 = 138,
-  H120 = 178,
-}
-
-const TRACK_ERROR_NM: ReadonlyMap<NhcForecastHour, NhcTrackErrorNm> = new Map([
-  [NhcForecastHour.H12, NhcTrackErrorNm.H12],
-  [NhcForecastHour.H24, NhcTrackErrorNm.H24],
-  [NhcForecastHour.H36, NhcTrackErrorNm.H36],
-  [NhcForecastHour.H48, NhcTrackErrorNm.H48],
-  [NhcForecastHour.H72, NhcTrackErrorNm.H72],
-  [NhcForecastHour.H96, NhcTrackErrorNm.H96],
-  [NhcForecastHour.H120, NhcTrackErrorNm.H120],
+const TRACK_ERROR_NM: ReadonlyMap<NhcForecastHour, number> = new Map([
+  [NhcForecastHour.H12, 26],
+  [NhcForecastHour.H24, 41],
+  [NhcForecastHour.H36, 55],
+  [NhcForecastHour.H48, 70],
+  [NhcForecastHour.H72, 100],
+  [NhcForecastHour.H96, 138],
+  [NhcForecastHour.H120, 178],
 ]);
 
-const NO_PUBLISHED_TRACK_ERROR_NM = 0;
+enum NhcTrackError {
+  NotPublished = 0,
+}
 
 function trackErrorNm(fcstHour: number): number {
   return (
     TRACK_ERROR_NM.get(fcstHour as NhcForecastHour) ??
-    NO_PUBLISHED_TRACK_ERROR_NM
+    NhcTrackError.NotPublished
   );
 }
 
@@ -97,7 +103,7 @@ type NhcStorm = {
     kmzFile?: string;
     zipFile?: string;
   };
-  // Attached server-side (enrichStorms) — not present in raw NHC payloads.
+  // The server attaches these values after it reads the NHC payload.
   forecast?: NhcForecastPoint[];
   officialCone?: GeoJSONPolygon;
   windRadii?: WindRadii;
@@ -125,12 +131,14 @@ export function classify(
       saffirSimpson: SaffirSimpson.None,
     };
   }
-  const subtropical = classification.startsWith(SUBTROPICAL_PREFIX);
+  const subtropical = classification.startsWith(
+    NhcClassificationPrefix.Subtropical,
+  );
   const scale = saffirSimpson(maxWindKt);
   if (scale !== SaffirSimpson.None) {
     return { category: HURRICANE_CATEGORY[scale], saffirSimpson: scale };
   }
-  if (maxWindKt >= TS_MIN_KT) {
+  if (maxWindKt >= CycloneWindThreshold.TropicalStorm) {
     return {
       category: subtropical
         ? Category.SubtropicalStorm
@@ -198,10 +206,12 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     // payload shapes (and existing test fixtures that pre-date the
     // schema correction).
     advisoryNumber:
-      s.publicAdvisory?.advNum ?? s.forecastTrack?.advisoryNumber ?? "",
+      s.publicAdvisory?.advNum ??
+      s.forecastTrack?.advisoryNumber ??
+      EMPTY_TEXT,
     lastUpdate: s.lastUpdate,
     forecast: (s.forecast ?? []).map(toForecastPoint),
-    // Absent if the cone fetch failed — worker falls back to a synthesized cone.
+    // The worker synthesizes the cone when this value is absent.
     officialCone: s.officialCone,
     // Absent for storms NHC reports no wind radii for (weak depressions).
     windRadii: s.windRadii,
@@ -211,19 +221,22 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     models: s.models,
   };
 
-  return {
+  const point: DataPoint = {
     id: `CY${s.id.toUpperCase()}`,
-    type: Domain.Cyclones as const,
+    type: Domain.Cyclones,
     lat: s.latitudeNumeric,
     lon: s.longitudeNumeric,
     timestamp: s.lastUpdate,
     data,
-  } as DataPoint;
+  };
+  return point;
 }
 
 export async function fetchCurrentStorms(): Promise<DataPoint[]> {
-  const res = await authenticatedFetch(CYCLONES_URL);
-  if (!res.ok) throw new Error(`/api/cyclones/latest: ${res.status}`);
+  const res = await authenticatedFetch(CycloneDataEndpoint.Latest);
+  if (!res.ok) {
+    throw new CycloneFetchError(CycloneFetchErrorKind.HttpStatus, res.status);
+  }
   const json = (await res.json()) as NhcResponse;
   const storms = json.activeStorms ?? [];
   const out: DataPoint[] = [];

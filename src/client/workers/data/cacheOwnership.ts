@@ -1,4 +1,4 @@
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import { EARTHQUAKE_SOURCE } from "@/workers/data/sources/earthquakes";
 import { FIRE_SOURCE } from "@/workers/data/sources/fires";
 import { WEATHER_SOURCE_POLICY } from "@/features/environmental/weather/source";
@@ -8,8 +8,8 @@ import {
 import type { DataWorkerCacheEntry } from "@/workers/data/protocol";
 
 const WORKER_OWNED_CACHE_KEYS = new Set<string>([
-  CACHE_KEYS.aircraft,
-  CACHE_KEYS.dossier,
+  CacheKey.Aircraft,
+  CacheKey.Dossier,
   EARTHQUAKE_SOURCE.cacheKey,
   FIRE_SOURCE.cacheKey,
   WEATHER_SOURCE_POLICY.cacheKey,

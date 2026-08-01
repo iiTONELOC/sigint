@@ -7,32 +7,47 @@ import React, {
   useMemo,
 } from "react";
 import {
-  type ThemeMode,
   type ColorOverrides,
   type LayerColorKey,
+  type Theme,
   themes,
   applyThemeToRoot,
   applyColorOverrides,
 } from "@/config/theme";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
+import {
+  isThemeMode,
+  ThemeMode,
+  type ResolvedThemeMode,
+} from "@/theme";
+import { DomEvent } from "@/runtime";
 
-/** Resolve "auto" to the actual dark/light based on system preference */
-function resolveMode(mode: ThemeMode): "dark" | "light" {
-  if (mode !== "auto") return mode;
-  if (typeof window === "undefined") return "dark";
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
+enum ThemeContextErrorMessage {
+  ProviderRequired = "useTheme must be used within ThemeProvider",
+}
+
+enum ThemePreferenceMediaQuery {
+  Light = "(prefers-color-scheme: light)",
+}
+
+function resolveMode(mode: ThemeMode): ResolvedThemeMode {
+  if (mode !== ThemeMode.Auto) {
+    return mode;
+  }
+  if (typeof window === "undefined") {
+    return ThemeMode.Dark;
+  }
+  return window.matchMedia(ThemePreferenceMediaQuery.Light).matches
+    ? ThemeMode.Light
+    : ThemeMode.Dark;
 }
 
 type ThemeContextType = {
-  /** The user's chosen setting: "dark" | "light" | "auto" */
   mode: ThemeMode;
-  /** The resolved mode actually applied: "dark" | "light" */
-  resolvedMode: "dark" | "light";
+  resolvedMode: ResolvedThemeMode;
   setMode: (mode: ThemeMode) => void;
-  theme: (typeof themes)["dark" | "light"];
+  theme: Theme;
   colorOverrides: ColorOverrides;
   setLayerColor: (key: LayerColorKey, color: string) => void;
   resetLayerColor: (key: LayerColorKey) => void;
@@ -41,53 +56,67 @@ type ThemeContextType = {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const EMPTY_OVERRIDES: ColorOverrides = { dark: {}, light: {} };
-
-async function loadOverrides(): Promise<ColorOverrides> {
-  const saved = await cacheGet<ColorOverrides>(CACHE_KEYS.colorOverrides);
-  if (saved && typeof saved === "object" && saved.dark && saved.light) {
-    return saved;
-  }
-  return EMPTY_OVERRIDES;
+function createEmptyOverrides(): ColorOverrides {
+  return {
+    [ThemeMode.Dark]: {},
+    [ThemeMode.Light]: {},
+  };
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeRaw] = useState<ThemeMode>("dark");
-  const [systemPreference, setSystemPreference] = useState<"dark" | "light">(
-    () => resolveMode("auto"),
-  );
-  const [overrides, setOverrides] = useState<ColorOverrides>(EMPTY_OVERRIDES);
+async function loadOverrides(): Promise<ColorOverrides | null> {
+  const saved = await cacheGet<ColorOverrides>(CacheKey.ColorOverrides);
+  if (
+    saved &&
+    typeof saved === "object" &&
+    saved[ThemeMode.Dark] &&
+    saved[ThemeMode.Light]
+  ) {
+    return saved;
+  }
+  return null;
+}
 
-  // Load persisted theme + overrides in parallel
+export function ThemeProvider({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  const [modeState, setModeState] = useState<ThemeMode>(ThemeMode.Dark);
+  const [systemPreference, setSystemPreference] = useState<ResolvedThemeMode>(
+    () => resolveMode(ThemeMode.Auto),
+  );
+  const [overrides, setOverrides] = useState<ColorOverrides>(
+    createEmptyOverrides,
+  );
+
   useEffect(() => {
     let mounted = true;
-    const modeP = cacheGet<ThemeMode>(CACHE_KEYS.theme);
+    const modeP = cacheGet<ThemeMode>(CacheKey.Theme);
     const overridesP = loadOverrides();
     modeP.then((savedMode) => {
       if (!mounted) return;
-      if (savedMode === "light" || savedMode === "dark" || savedMode === "auto") {
-        setModeRaw(savedMode);
+      if (isThemeMode(savedMode)) {
+        setModeState(savedMode);
       }
     });
     overridesP.then((savedOverrides) => {
-      if (mounted) setOverrides(savedOverrides);
+      if (mounted && savedOverrides) {
+        setOverrides(savedOverrides);
+      }
     });
     return () => { mounted = false; };
   }, []);
 
-  // Listen for system color scheme changes (only matters when mode === "auto")
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(prefers-color-scheme: light)");
+    const mql = window.matchMedia(ThemePreferenceMediaQuery.Light);
     const handler = (e: MediaQueryListEvent) => {
-      setSystemPreference(e.matches ? "light" : "dark");
+      setSystemPreference(e.matches ? ThemeMode.Light : ThemeMode.Dark);
     };
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    mql.addEventListener(DomEvent.Change, handler);
+    return () => mql.removeEventListener(DomEvent.Change, handler);
   }, []);
 
-  const resolvedMode: "dark" | "light" =
-    mode === "auto" ? systemPreference : mode;
+  const resolvedMode: ResolvedThemeMode =
+    modeState === ThemeMode.Auto ? systemPreference : modeState;
 
   const theme = useMemo(() => {
     const base = themes[resolvedMode];
@@ -97,8 +126,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [resolvedMode, overrides]);
 
   const setMode = useCallback((next: ThemeMode) => {
-    setModeRaw(next);
-    cacheSet(CACHE_KEYS.theme, next);
+    setModeState(next);
+    cacheSet(CacheKey.Theme, next);
   }, []);
 
   const setLayerColor = useCallback(
@@ -108,7 +137,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           [resolvedMode]: { ...prev[resolvedMode], [key]: color },
         };
-        cacheSet(CACHE_KEYS.colorOverrides, next);
+        cacheSet(CacheKey.ColorOverrides, next);
         return next;
       });
     },
@@ -121,7 +150,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         const modeOverrides = { ...prev[resolvedMode] };
         delete modeOverrides[key];
         const next = { ...prev, [resolvedMode]: modeOverrides };
-        cacheSet(CACHE_KEYS.colorOverrides, next);
+        cacheSet(CacheKey.ColorOverrides, next);
         return next;
       });
     },
@@ -129,36 +158,49 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
 
   const resetAllColors = useCallback(() => {
-    setOverrides(EMPTY_OVERRIDES);
-    cacheSet(CACHE_KEYS.colorOverrides, EMPTY_OVERRIDES);
+    const emptyOverrides = createEmptyOverrides();
+    setOverrides(emptyOverrides);
+    cacheSet(CacheKey.ColorOverrides, emptyOverrides);
   }, []);
 
   useEffect(() => {
     applyThemeToRoot(theme);
   }, [theme]);
 
+  const contextValue = useMemo<ThemeContextType>(
+    () => ({
+      mode: modeState,
+      resolvedMode,
+      setMode,
+      theme,
+      colorOverrides: overrides,
+      setLayerColor,
+      resetLayerColor,
+      resetAllColors,
+    }),
+    [
+      modeState,
+      overrides,
+      resetAllColors,
+      resetLayerColor,
+      resolvedMode,
+      setLayerColor,
+      setMode,
+      theme,
+    ],
+  );
+
   return (
-    <ThemeContext.Provider
-      value={{
-        mode,
-        resolvedMode,
-        setMode,
-        theme,
-        colorOverrides: overrides,
-        setLayerColor,
-        resetLayerColor,
-        resetAllColors,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );
 }
 
-export function useTheme() {
+export function useTheme(): ThemeContextType {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error("useTheme must be used within ThemeProvider");
+    throw new Error(ThemeContextErrorMessage.ProviderRequired);
   }
   return context;
 }

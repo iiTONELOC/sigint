@@ -24,10 +24,9 @@ export function useAircraftDossier(
   const [state, setState] = useState<AircraftDossierState | null>(null);
 
   useEffect(() => {
-    setState(null);
     if (!client) return;
     let active = true;
-    void client.getAircraftDossier(entityId).then(
+    client.getAircraftDossier(entityId).then(
       (dossier) => {
         if (active) setState({ entityId, dossier });
       },

@@ -1,13 +1,14 @@
 import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Activity } from "lucide-react";
-import type { CSSProperties } from "react";
+import { DossierSectionCard } from "@/dossier";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { estimateMmi, mmiInk } from "../intensity";
+import { estimateMmi, mmiBand } from "../intensity";
+import type { EarthquakeData } from "../types";
 import { useTsunamiAlerts } from "../hooks/useTsunamiAlerts";
 import { QuakeIdentityCard } from "./QuakeIdentityCard";
 import { MmiColumn } from "./MmiColumn";
@@ -33,25 +34,19 @@ export function EarthquakeDossier({
   onSolo,
   onClose,
 }: Props) {
-  const d = (item.data as Record<string, unknown>) ?? {};
-  const magnitude = typeof d.magnitude === "number" ? d.magnitude : 0;
-  const depth = typeof d.depth === "number" ? d.depth : undefined;
-  const magType = typeof d.magType === "string" ? d.magType : undefined;
-  const place = typeof d.location === "string" ? d.location : undefined;
-  const felt = typeof d.felt === "number" ? d.felt : undefined;
-  const significance = typeof d.significance === "number" ? d.significance : undefined;
-  const status = typeof d.status === "string" ? d.status : undefined;
+  const d = item.data as EarthquakeData;
+  const magnitude = d.magnitude ?? 0;
+  const { depth, magType, felt, significance, status } = d;
+  const place = d.location;
   const tsunami = d.tsunami === true;
-  const url = typeof d.url === "string" ? d.url : undefined;
+  const { url } = d;
   const mmi = estimateMmi(magnitude, depth);
+  const band = mmiBand(mmi);
   const tsunamiAlerts = useTsunamiAlerts();
   const closeBtnRef = useDossierFocus(item.id);
 
   return (
-    <div
-      className="h-full min-w-0 flex flex-col"
-      style={{ "--dossier-accent": mmiInk(mmi) } as CSSProperties}
-    >
+    <div className={`${band.className} h-full min-w-0 flex flex-col`}>
       <DossierToolbar
         icon={Activity}
         title={place || "Seismic event"}
@@ -90,19 +85,19 @@ export function EarthquakeDossier({
               </div>
             ))}
 
-          <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+          <DossierSectionCard>
             <Section title="SEISMOGRAM">
               <Seismogram lat={recordLatitude(item)} lon={recordLongitude(item)} originTimeIso={item.timestamp} mmi={mmi} />
             </Section>
-          </section>
+          </DossierSectionCard>
 
-          <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+          <DossierSectionCard>
             <Section title="SHAKING INTENSITY">
               <MmiColumn mmi={mmi} />
             </Section>
-          </section>
+          </DossierSectionCard>
 
-          <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+          <DossierSectionCard>
             <Section title="HYPOCENTER">
               {depth == null ? (
                 <div className="text-(length:--sig-text-xs) text-sig-dim">depth unavailable</div>
@@ -110,23 +105,23 @@ export function EarthquakeDossier({
                 <DepthProfile depthKm={depth} mmi={mmi} />
               )}
             </Section>
-          </section>
+          </DossierSectionCard>
 
           {tsunami && (
-            <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+            <DossierSectionCard>
               <Section title="WAVE TRAVEL">
                 <TsunamiPhysics />
               </Section>
-            </section>
+            </DossierSectionCard>
           )}
 
           {url && (
-            <section className="min-w-0 bg-sig-panel border border-sig-border rounded-[10px] p-3">
+            <DossierSectionCard>
               <Section title="INTEL LINKS">
                 <LinkRow label="USGS Event Detail" href={url} />
                 <LinkRow label="USGS ShakeMap" href={`${url}/shakemap`} />
               </Section>
-            </section>
+            </DossierSectionCard>
           )}
         </div>
       </div>

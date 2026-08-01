@@ -1,23 +1,10 @@
+import { DetailField, DetailFieldAlign } from "@/dossier";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { NO_VALUE } from "@shared/text";
 import type { EventData } from "../types";
 
-const ACCENT = "#d6448f";
-
-function Field({
-  label,
-  value,
-  align = "left",
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly align?: "left" | "right";
-}) {
-  return (
-    <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
-      <div className="text-(length:--sig-text-xs) tracking-wide text-sig-dim">{label}</div>
-      <div className="text-(length:--sig-text-sm) text-sig-bright truncate">{value}</div>
-    </div>
-  );
+enum EventDetailClassName {
+  Category = "shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded border border-current whitespace-nowrap uppercase text-[#d6448f]",
 }
 
 function goldsteinLabel(gs: number): string {
@@ -44,8 +31,7 @@ export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
         </div>
         {d.category && (
           <span
-            className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded border whitespace-nowrap uppercase"
-            style={{ color: ACCENT, borderColor: ACCENT }}
+            className={EventDetailClassName.Category}
           >
             {d.category}
           </span>
@@ -54,12 +40,12 @@ export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
 
       <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-sig-border/50">
         <div className="flex justify-between gap-4">
-          <Field label="IMPACT" value={d.goldstein == null ? "—" : `${d.goldstein.toFixed(1)} · ${goldsteinLabel(d.goldstein)}`} />
-          <Field label="TONE" value={d.tone == null ? "—" : d.tone.toFixed(1)} align="right" />
+          <DetailField label="IMPACT" value={d.goldstein == null ? NO_VALUE : `${d.goldstein.toFixed(1)} · ${goldsteinLabel(d.goldstein)}`} />
+          <DetailField label="TONE" value={d.tone == null ? NO_VALUE : d.tone.toFixed(1)} align={DetailFieldAlign.Right} />
         </div>
         <div className="flex justify-between gap-4">
-          <Field label="MENTIONS" value={d.mentions != null && d.mentions > 0 ? String(d.mentions) : "—"} />
-          <Field label="SOURCE" value={d.source ?? "—"} align="right" />
+          <DetailField label="MENTIONS" value={d.mentions != null && d.mentions > 0 ? String(d.mentions) : NO_VALUE} />
+          <DetailField label="SOURCE" value={d.source ?? NO_VALUE} align={DetailFieldAlign.Right} />
         </div>
       </div>
     </div>

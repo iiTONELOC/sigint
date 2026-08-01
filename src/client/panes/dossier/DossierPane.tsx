@@ -1,17 +1,14 @@
 import { useCallback } from "react";
+import { Domain } from "@shared/domain/identity";
 import { IsolateMode } from "@/workers/render/protocol";
 import { Plane } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { useTheme } from "@/context/ThemeContext";
 import { filterHeadingColor } from "@/config/theme";
-import { useUnitsMode } from "@/lib/ui/userPreferences";
+import { useUnitsMode } from "@/preferences/units";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { AircraftDossier } from "@/features/tracking/aircraft/ui/AircraftDossier";
 import { NonAircraftDossier } from "./NonAircraftDossier";
-
-// DossierPane is a thin dispatcher (cyclones plan, step 11). Per-feature
-// dossier bodies live in features/{feature}/ui/{Feature}Dossier.tsx;
-// this file picks one based on the selected DataPoint type.
 
 export function DossierPane() {
   const {
@@ -57,7 +54,7 @@ export function DossierPane() {
   }
 
   const body =
-    selectedCurrent.type === "aircraft" ? (
+    selectedCurrent.type === Domain.Aircraft ? (
       <AircraftDossier
         item={selectedCurrent}
         isolateMode={isolateMode}

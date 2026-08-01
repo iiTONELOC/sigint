@@ -1,52 +1,62 @@
-// ── useCycloneDossier ───────────────────────────────────────────────
-// Lazy-loads NHC text products (Public Advisory + Forecast Discussion +
-// Wind Speed Probabilities) for the currently-selected cyclone. Server
-// already caches the bundle for 60 minutes; this hook caches for the
-// same window in IndexedDB so a quick re-select doesn't re-roundtrip.
-//
-// The hook returns `{ dossier, loading, error }`. `dossier === null`
-// means the storm wasn't registered in CurrentStorms.json (e.g. the
-// stormId fell out of the active list); the dossier UI hides the
-// ADVISORY / DISCUSSION sections in that case rather than rendering a
-// confusing "loading…" spinner.
-
 import { useEffect, useState } from "react";
 import { authenticatedFetch } from "@/lib/net/authService";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
 
-export type DossierProductBody = {
-  advisoryNumber: string;
-  issuedAt: string;
-  body: string;
+export type DossierProductBody = Readonly<{
+  readonly advisoryNumber: string;
+  readonly issuedAt: string;
+  readonly body: string;
   /** NHC's published next-advisory time, verbatim. "" if absent. */
-  nextAdvisory: string;
-};
+  readonly nextAdvisory: string;
+}>;
 
-export type CycloneDossierBundle = {
-  stormId: string;
-  advisory?: DossierProductBody;
-  discussion?: DossierProductBody;
-  windProbs?: DossierProductBody;
-};
+export type CycloneDossierBundle = Readonly<{
+  readonly stormId: string;
+  readonly advisory?: DossierProductBody;
+  readonly discussion?: DossierProductBody;
+  readonly windProbs?: DossierProductBody;
+}>;
 
-type IdbEntry = {
-  bundle: CycloneDossierBundle | null;
-  fetchedAt: number;
-};
+type IdbEntry = Readonly<{
+  readonly bundle: CycloneDossierBundle | null;
+  readonly fetchedAt: number;
+}>;
 
-const CLIENT_TTL_MS = 60 * 60_000;
 const STORM_ID_RE = /^(?:AL|EP|CP)\d{2}\d{4}$/i;
 
-function idbKey(stormId: string): string {
-  return `${CACHE_KEYS.cycloneDossier}.${stormId.toUpperCase()}`;
+enum CycloneDossierEndpoint {
+  Cyclone = "/api/dossier/cyclone/",
 }
 
-type UseCycloneDossierResult = {
-  dossier: CycloneDossierBundle | null;
-  loading: boolean;
-  error: Error | null;
-};
+enum CycloneDossierTiming {
+  ClientCacheMs = 3_600_000,
+}
+
+enum CycloneDossierErrorKind {
+  RequestRejected = "The cyclone dossier request failed",
+  Unknown = "The cyclone dossier failed for an unknown reason",
+}
+
+class CycloneDossierError extends Error {
+  constructor(
+    readonly kind: CycloneDossierErrorKind,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(kind);
+    this.name = CycloneDossierError.name;
+  }
+}
+
+function idbKey(stormId: string): string {
+  return `${CacheKey.CycloneDossier}.${stormId.toUpperCase()}`;
+}
+
+type UseCycloneDossierResult = Readonly<{
+  readonly dossier: CycloneDossierBundle | null;
+  readonly loading: boolean;
+  readonly error: Error | null;
+}>;
 
 export function useCycloneDossier(
   stormId: string | null | undefined,
@@ -72,13 +82,13 @@ export function useCycloneDossier(
     }
     setLoading(true);
     setError(null);
-    void (async () => {
-      // Fast path — but only a non-null cached bundle. A persisted null must
-      // not stick for the TTL; fall through so a recovered server fills it in.
+    (async () => {
+      // A null cache entry must not block a recovered server response.
       const cached = await cacheGet<IdbEntry>(idbKey(normalized));
       if (cancelled) return;
       const fresh =
-        cached?.bundle && Date.now() - cached.fetchedAt < CLIENT_TTL_MS
+        cached?.bundle &&
+        Date.now() - cached.fetchedAt < CycloneDossierTiming.ClientCacheMs
           ? cached
           : null;
       if (fresh) {
@@ -86,14 +96,16 @@ export function useCycloneDossier(
         setLoading(false);
         return;
       }
-      // Network path: hit the server cache.
       try {
         const res = await authenticatedFetch(
-          `/api/dossier/cyclone/${encodeURIComponent(normalized)}`,
+          `${CycloneDossierEndpoint.Cyclone}${encodeURIComponent(normalized)}`,
         );
         if (cancelled) return;
         if (!res.ok) {
-          throw new Error(`Cyclone dossier API error: ${res.status}`);
+          throw new CycloneDossierError(
+            CycloneDossierErrorKind.RequestRejected,
+            res.status,
+          );
         }
         const json = (await res.json()) as {
           dossier: CycloneDossierBundle | null;
@@ -102,7 +114,7 @@ export function useCycloneDossier(
         if (cancelled) return;
         setDossier(json.dossier);
         setLoading(false);
-        // Persist only a real bundle — caching null re-creates the sticking.
+        // A null entry would hide a later recovery for the full cache period.
         if (json.dossier) {
           await cacheSet(idbKey(normalized), {
             bundle: json.dossier,
@@ -111,10 +123,13 @@ export function useCycloneDossier(
         }
       } catch (err) {
         if (cancelled) return;
-        // On error, fall back to whatever IDB had (even if stale) — a
-        // 24-hour-old advisory is still more useful than nothing.
+        // A stale advisory is more useful than an empty dossier.
         setDossier(cached?.bundle ?? null);
-        setError(err instanceof Error ? err : new Error("Unknown error"));
+        setError(
+          err instanceof Error
+            ? err
+            : new CycloneDossierError(CycloneDossierErrorKind.Unknown),
+        );
         setLoading(false);
       }
     })();

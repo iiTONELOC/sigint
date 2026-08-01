@@ -1,22 +1,54 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
-import { mmiInk } from "../intensity";
+import { MmiCssColor, mmiBand } from "../intensity";
 import { useWaveform } from "../hooks/useWaveform";
 import type { WaveformUnavailableReason } from "../data/waveform";
 import { playQuakeAudio } from "../lib/audify";
 
-const VBW = 320;
-const VBH = 92;
-const MID = VBH / 2;
-const PAD = 8;
+enum SeismogramGeometry {
+  ViewBoxWidth = 320,
+  ViewBoxHeight = 92,
+  Padding = 8,
+}
 
-const UNAVAILABLE_LABEL: Readonly<Record<WaveformUnavailableReason, string>> = {
-  "invalid-event-time": "event time unavailable",
-  "station-service-unavailable": "station service unavailable",
-  "availability-service-unavailable": "station availability unavailable",
-  "no-active-station": "no station found near event",
-  "no-recorded-trace": "station trace unavailable for event time",
-};
+enum SeismogramTiming {
+  AudioDurationMilliseconds = 5_000,
+}
+
+enum SeismogramStatus {
+  Loading = "loading",
+  Unavailable = "unavailable",
+}
+
+enum SeismogramUnavailableReason {
+  ActiveStation = "no-active-station",
+  AvailabilityService = "availability-service-unavailable",
+  EventTime = "invalid-event-time",
+  RecordedTrace = "no-recorded-trace",
+  StationService = "station-service-unavailable",
+}
+
+enum SeismogramSvgValue {
+  IconClass = "w-3 h-3",
+  NoFill = "none",
+  NonScalingStroke = "non-scaling-stroke",
+  TraceStrokeWidth = "1.1",
+}
+
+function unavailableLabel(reason: WaveformUnavailableReason): string {
+  switch (reason) {
+    case SeismogramUnavailableReason.AvailabilityService:
+      return "station availability unavailable";
+    case SeismogramUnavailableReason.ActiveStation:
+      return "no station found near event";
+    case SeismogramUnavailableReason.RecordedTrace:
+      return "station trace unavailable for event time";
+    case SeismogramUnavailableReason.StationService:
+      return "station service unavailable";
+    default:
+      return "event time unavailable";
+  }
+}
 
 function tracePath(samples: number[]): string {
   let min = Infinity;
@@ -26,12 +58,16 @@ function tracePath(samples: number[]): string {
     if (s > max) max = s;
   }
   const range = max - min || 1;
-  const usableH = VBH - PAD * 2;
-  const stepX = VBW / (samples.length - 1);
+  const usableHeight =
+    SeismogramGeometry.ViewBoxHeight - SeismogramGeometry.Padding * 2;
+  const stepX = SeismogramGeometry.ViewBoxWidth / (samples.length - 1);
   let d = "";
   samples.forEach((s, i) => {
     const x = i * stepX;
-    const y = PAD + usableH - ((s - min) / range) * usableH;
+    const y =
+      SeismogramGeometry.Padding +
+      usableHeight -
+      ((s - min) / range) * usableHeight;
     d += `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
   });
   return d.trim();
@@ -49,7 +85,7 @@ export function Seismogram({
   readonly mmi: number;
 }) {
   const state = useWaveform(lat, lon, originTimeIso);
-  const color = mmiInk(mmi);
+  const band = mmiBand(mmi);
   const [playing, setPlaying] = useState(false);
   const playerRef = useRef<{ stop: () => void } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,46 +121,63 @@ export function Seismogram({
       playerRef.current = null;
       timerRef.current = null;
       setPlaying(false);
-    }, 5000);
+    }, SeismogramTiming.AudioDurationMilliseconds);
   };
 
-  if (state.status === "loading") {
+  if (state.status === SeismogramStatus.Loading) {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
         acquiring trace…
       </div>
     );
   }
-  if (state.status === "unavailable") {
+  if (state.status === SeismogramStatus.Unavailable) {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
-        {UNAVAILABLE_LABEL[state.reason]}
+        {unavailableLabel(state.reason)}
       </div>
     );
   }
 
   const { waveform } = state;
   return (
-    <div>
+    <div className={band.className}>
       <svg
-        viewBox={`0 0 ${VBW} ${VBH}`}
+        viewBox={`0 0 ${SeismogramGeometry.ViewBoxWidth} ${SeismogramGeometry.ViewBoxHeight}`}
         preserveAspectRatio="none"
         className="w-full h-24"
         role="img"
         aria-label="Recorded seismogram trace"
       >
-        <line x1="0" y1={MID} x2={VBW} y2={MID} className="stroke-sig-border" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-        <path d={tracePath(waveform.samples)} fill="none" strokeWidth="1.1" vectorEffect="non-scaling-stroke" style={{ stroke: color }} />
+        <line
+          x1="0"
+          y1={SeismogramGeometry.ViewBoxHeight / 2}
+          x2={SeismogramGeometry.ViewBoxWidth}
+          y2={SeismogramGeometry.ViewBoxHeight / 2}
+          className="stroke-sig-border"
+          strokeWidth="1"
+          vectorEffect={SeismogramSvgValue.NonScalingStroke}
+        />
+        <path
+          d={tracePath(waveform.samples)}
+          fill={SeismogramSvgValue.NoFill}
+          stroke={MmiCssColor.Accent}
+          strokeWidth={SeismogramSvgValue.TraceStrokeWidth}
+          vectorEffect={SeismogramSvgValue.NonScalingStroke}
+        />
       </svg>
       <div className="text-(length:--sig-text-xs) text-sig-dim mt-1 flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={toggleAudio}
-          className="flex items-center gap-1 min-h-9 px-1.5 -ml-1.5 rounded cursor-pointer transition-colors hover:text-sig-bright"
-          style={{ color }}
+          className="flex items-center gap-1 min-h-9 px-1.5 -ml-1.5 rounded cursor-pointer text-(--dossier-accent) transition-colors hover:text-sig-bright"
           aria-label={playing ? "Stop quake audio" : "Listen to the quake"}
         >
-          {playing ? <Square className="w-3 h-3" aria-hidden="true" /> : <Play className="w-3 h-3" aria-hidden="true" />}
+          {playing ? (
+            <Square className={SeismogramSvgValue.IconClass} aria-hidden />
+          ) : (
+            <Play className={SeismogramSvgValue.IconClass} aria-hidden />
+          )}
           {playing ? "STOP" : "LISTEN"}
         </button>
         <span>

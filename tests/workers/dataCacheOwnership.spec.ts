@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 
 describe("DataWorker cache ownership", () => {
   test("does not clone worker-owned point data to the main thread", () => {
     const entries = mainThreadCacheEntries([
-      { key: CACHE_KEYS.earthquake, value: { data: ["quake"] } },
-      { key: CACHE_KEYS.fires, value: { data: ["fire"] } },
-      { key: CACHE_KEYS.weather, value: { data: ["weather"] } },
+      { key: CacheKey.Earthquake, value: { data: ["quake"] } },
+      { key: CacheKey.Fires, value: { data: ["fire"] } },
+      { key: CacheKey.Weather, value: { data: ["weather"] } },
       {
-        key: CACHE_KEYS.cycloneWarnings,
+        key: CacheKey.CycloneWarnings,
         value: { data: ["warning"] },
       },
-      { key: CACHE_KEYS.theme, value: "dark" },
+      { key: CacheKey.Theme, value: "dark" },
     ]);
 
-    expect(entries).toEqual([{ key: CACHE_KEYS.theme, value: "dark" }]);
+    expect(entries).toEqual([{ key: CacheKey.Theme, value: "dark" }]);
   });
 });

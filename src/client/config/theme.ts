@@ -1,7 +1,8 @@
 import type { DataType } from "@/features/base/dataPoints";
+import { ThemeMode, type ResolvedThemeMode } from "@/theme";
 import { Domain } from "@shared/domain/identity";
 
-export type ThemeMode = "dark" | "light" | "auto";
+export { ThemeMode, type ResolvedThemeMode } from "@/theme";
 
 export type ThemeColors = {
   bg: string;
@@ -38,10 +39,9 @@ export type Theme = {
   colors: ThemeColors;
 };
 
-// "auto" resolves to dark or light at runtime by
-// system preference, so only the two real palettes live here.
-export const themes: Record<"dark" | "light", Theme> = {
-  dark: {
+// Automatic mode resolves before palette selection.
+export const themes: Readonly<Record<ResolvedThemeMode, Theme>> = {
+  [ThemeMode.Dark]: {
     colors: {
       bg: "#080a0f",
       panel: "#0c1018",
@@ -77,7 +77,7 @@ export const themes: Record<"dark" | "light", Theme> = {
       warn: "#facc15",
     },
   },
-  light: {
+  [ThemeMode.Light]: {
     colors: {
       bg: "#f0f2f5",
       panel: "#ffffff",
@@ -148,10 +148,10 @@ export const LAYER_COLOR_LABELS: Record<LayerColorKey, string> = {
 };
 
 /** Per-theme color overrides for layers only. */
-export type ColorOverrides = {
-  dark: Partial<Record<LayerColorKey, string>>;
-  light: Partial<Record<LayerColorKey, string>>;
-};
+export type ColorOverrides = Record<
+  ResolvedThemeMode,
+  Partial<Record<LayerColorKey, string>>
+>;
 
 /** Merge user overrides into a theme's colors */
 export function applyColorOverrides(

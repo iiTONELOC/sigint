@@ -1,35 +1,65 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
+import { DomEvent } from "@/runtime";
 
-/**
- * Non-intrusive offline/online indicator + pull-to-refresh.
- *
- * - Offline: red bar + "OFFLINE — CACHED DATA ONLY" + RETRY (pings server)
- * - Reconnected: green bar + "RECONNECTED" for 3s, then auto-dismisses
- * - Pull-to-refresh: touch drag down from top reloads (only when online
- *   or SW-cached, never triggers browser dinosaur)
- *
- * Render once in AppShell — no props needed.
- */
+enum ConnectionStatusTiming {
+  ReconnectedMs = 3_000,
+}
+
+enum PullRefreshBoundaryPx {
+  ActivationDistance = 30,
+  MaximumDistance = 160,
+  ReloadDistance = 120,
+  ScrollTopMaximum = 2,
+  VisibleDistance = 10,
+}
+
+enum PullRefreshScale {
+  Distance = 0.4,
+  FullProgress = 1,
+  Opacity = 1.5,
+  RotationDegrees = 360,
+}
+
+enum ConnectionStatusIconSize {
+  Pull = 20,
+  Retry = 10,
+}
+
+enum ConnectionStatusSelector {
+  DetailSheet = "[data-detail-sheet]",
+}
+
+enum ConnectionStatusAsset {
+  Probe = "/icons/icon-72x72.png",
+}
+
+enum ConnectionStatusClassName {
+  PullLayer = "fixed top-0 inset-x-0 z-9998 flex items-center justify-center pointer-events-none",
+  Spinning = "animate-spin",
+  StatusBar = "fixed top-0 inset-x-0 z-9999 flex items-center justify-center gap-2 py-1 text-[11px] font-semibold tracking-widest transition-all duration-300",
+}
+
+/** Show connection changes and provide touch refresh. */
 export function ConnectionStatus() {
   const [online, setOnline] = useState(navigator.onLine);
   const [showReconnected, setShowReconnected] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const wasOffline = useRef(false);
 
-  // ── Pull-to-refresh ────────────────────────────────────────────────
   const [pullDistance, setPullDistance] = useState(0);
   const [pulling, setPulling] = useState(false);
   const touchStartRef = useRef<{ y: number } | null>(null);
-  const PULL_THRESHOLD = 120;
-  const PULL_DEAD_ZONE = 30; // Must drag 30px before pull starts
 
   useEffect(() => {
     const goOnline = () => {
       setOnline(true);
       if (wasOffline.current) {
         setShowReconnected(true);
-        setTimeout(() => setShowReconnected(false), 3000);
+        setTimeout(
+          () => setShowReconnected(false),
+          ConnectionStatusTiming.ReconnectedMs,
+        );
       }
       wasOffline.current = false;
     };
@@ -38,40 +68,45 @@ export function ConnectionStatus() {
       wasOffline.current = true;
     };
 
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
+    window.addEventListener(DomEvent.Online, goOnline);
+    window.addEventListener(DomEvent.Offline, goOffline);
     return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
+      window.removeEventListener(DomEvent.Online, goOnline);
+      window.removeEventListener(DomEvent.Offline, goOffline);
     };
   }, []);
 
-  // ── Pull-to-refresh touch handlers ─────────────────────────────────
   useEffect(() => {
     const onTouchStart = (e: TouchEvent) => {
-      // Ignore touches inside the detail bottom sheet — its own drag handles those
       const target = e.target as HTMLElement | null;
-      if (target?.closest?.("[data-detail-sheet]")) return;
+      if (target?.closest(ConnectionStatusSelector.DetailSheet)) return;
 
-      // Must start in the top edge of the viewport (mirrors native iOS /
-      // Android pull-to-refresh). The body's scrollTop is essentially
-      // always 0 in this app, so without an edge gate every downward
-      // drag anywhere on the globe triggered PTR.
-      const startY = e.touches[0]!.clientY;
-      if (startY > 30) return;
+      // The edge gate prevents a globe drag from starting a refresh.
+      const touch = e.touches.item(0);
+      if (!touch) return;
+      const startY = touch.clientY;
+      if (startY > PullRefreshBoundaryPx.ActivationDistance) return;
 
       const scrollTop =
         document.documentElement.scrollTop || document.body.scrollTop || 0;
-      if (scrollTop > 2) return;
+      if (scrollTop > PullRefreshBoundaryPx.ScrollTopMaximum) return;
       touchStartRef.current = { y: startY };
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (!touchStartRef.current) return;
-      const dy = e.touches[0]!.clientY - touchStartRef.current.y;
-      if (dy > PULL_DEAD_ZONE) {
+      const touch = e.touches.item(0);
+      if (!touch) return;
+      const dy = touch.clientY - touchStartRef.current.y;
+      if (dy > PullRefreshBoundaryPx.ActivationDistance) {
         setPulling(true);
-        setPullDistance(Math.min(160, (dy - PULL_DEAD_ZONE) * 0.4));
+        setPullDistance(
+          Math.min(
+            PullRefreshBoundaryPx.MaximumDistance,
+            (dy - PullRefreshBoundaryPx.ActivationDistance) *
+              PullRefreshScale.Distance,
+          ),
+        );
       } else {
         setPulling(false);
         setPullDistance(0);
@@ -79,8 +114,10 @@ export function ConnectionStatus() {
     };
 
     const onTouchEnd = () => {
-      if (pulling && pullDistance >= PULL_THRESHOLD) {
-        // Only reload if we're online or have a SW controller (cached page)
+      if (
+        pulling &&
+        pullDistance >= PullRefreshBoundaryPx.ReloadDistance
+      ) {
         if (navigator.onLine || navigator.serviceWorker?.controller) {
           window.location.reload();
         }
@@ -90,17 +127,20 @@ export function ConnectionStatus() {
       setPullDistance(0);
     };
 
-    document.addEventListener("touchstart", onTouchStart, { passive: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    document.addEventListener(DomEvent.TouchStart, onTouchStart, {
+      passive: true,
+    });
+    document.addEventListener(DomEvent.TouchMove, onTouchMove, {
+      passive: true,
+    });
+    document.addEventListener(DomEvent.TouchEnd, onTouchEnd, { passive: true });
     return () => {
-      document.removeEventListener("touchstart", onTouchStart);
-      document.removeEventListener("touchmove", onTouchMove);
-      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener(DomEvent.TouchStart, onTouchStart);
+      document.removeEventListener(DomEvent.TouchMove, onTouchMove);
+      document.removeEventListener(DomEvent.TouchEnd, onTouchEnd);
     };
   }, [pulling, pullDistance]);
 
-  // ── Retry: ping the server to check if we're really back ──────────
   const doRetry = useCallback(async () => {
     setRetrying(true);
 
@@ -109,7 +149,6 @@ export function ConnectionStatus() {
       return;
     }
 
-    // Probe with Image — never triggers navigation or dinosaur page
     const img = new Image();
     img.onload = () => {
       window.location.reload();
@@ -117,34 +156,45 @@ export function ConnectionStatus() {
     img.onerror = () => {
       setRetrying(false);
     };
-    img.src = `/icons/icon-72x72.png?_=${Date.now()}`;
+    img.src = `${ConnectionStatusAsset.Probe}?_=${Date.now()}`;
   }, []);
 
-  const pullProgress = Math.min(1, pullDistance / PULL_THRESHOLD);
+  const pullProgress = Math.min(
+    PullRefreshScale.FullProgress,
+    pullDistance / PullRefreshBoundaryPx.ReloadDistance,
+  );
 
   return (
     <>
-      {/* Pull-to-refresh spinner */}
-      {pulling && pullDistance > 10 && (
+      {pulling &&
+        pullDistance > PullRefreshBoundaryPx.VisibleDistance && (
         <div
-          className="fixed top-0 inset-x-0 z-[9998] flex items-center justify-center pointer-events-none"
+          className={ConnectionStatusClassName.PullLayer}
           style={{ height: pullDistance }}
         >
           <RefreshCw
-            size={20}
-            className={`text-sig-accent ${pullProgress >= 1 ? "animate-spin" : ""}`}
+            size={ConnectionStatusIconSize.Pull}
+            className={`text-sig-accent ${
+              pullProgress >= PullRefreshScale.FullProgress
+                ? ConnectionStatusClassName.Spinning
+                : ""
+            }`}
             style={{
-              transform: `rotate(${pullProgress * 360}deg)`,
-              opacity: Math.min(1, pullProgress * 1.5),
+              transform: `rotate(${
+                pullProgress * PullRefreshScale.RotationDegrees
+              }deg)`,
+              opacity: Math.min(
+                PullRefreshScale.FullProgress,
+                pullProgress * PullRefreshScale.Opacity,
+              ),
             }}
           />
         </div>
       )}
 
-      {/* Offline / Reconnected bar */}
       {(!online || showReconnected) && (
         <div
-          className={`fixed top-0 inset-x-0 z-[9999] flex items-center justify-center gap-2 py-1 text-[11px] font-semibold tracking-widest transition-all duration-300 ${
+          className={`${ConnectionStatusClassName.StatusBar} ${
             online
               ? "bg-green-900/90 text-green-300"
               : "bg-sig-danger/90 text-white"
@@ -157,14 +207,19 @@ export function ConnectionStatus() {
                 : "bg-white animate-pulse"
             }`}
           />
-          {online ? "RECONNECTED" : "OFFLINE — CACHED DATA ONLY"}
+          {online ? "RECONNECTED" : "OFFLINE: CACHED DATA ONLY"}
           {!online && (
             <button
               onClick={doRetry}
               disabled={retrying}
               className="ml-2 px-2 py-0.5 rounded border border-white/30 text-[10px] tracking-wider hover:bg-white/10 transition-colors flex items-center gap-1 disabled:opacity-50"
             >
-              <RefreshCw size={10} className={retrying ? "animate-spin" : ""} />
+              <RefreshCw
+                size={ConnectionStatusIconSize.Retry}
+                className={
+                  retrying ? ConnectionStatusClassName.Spinning : ""
+                }
+              />
               {retrying ? "CHECKING" : "RETRY"}
             </button>
           )}

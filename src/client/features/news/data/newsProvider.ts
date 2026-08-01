@@ -1,35 +1,46 @@
-// ── News Provider ───────────────────────────────────────────────────
-// Mirrors BaseProvider contract for NewsArticle[] (not DataPoint).
-// hydrate / refresh / getData / getSnapshot — same lifecycle.
-// IndexedDB persistence via storageService.
-
 import { authenticatedFetch } from "@/lib/net/authService";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
 
-// ── Types ───────────────────────────────────────────────────────────
+export type NewsArticle = Readonly<{
+  readonly id: string;
+  readonly title: string;
+  readonly url: string;
+  readonly source: string;
+  readonly publishedAt: string;
+  readonly description: string;
+}>;
 
-export type NewsArticle = {
-  id: string;
-  title: string;
-  url: string;
-  source: string;
-  publishedAt: string;
-  description: string;
-};
+type NewsSnapshot = Readonly<{
+  readonly items: readonly NewsArticle[];
+  readonly error: Error | null;
+  readonly loading: boolean;
+  readonly lastUpdatedAt: number | null;
+}>;
 
-type NewsSnapshot = {
-  items: NewsArticle[];
-  error: Error | null;
-  loading: boolean;
-  lastUpdatedAt: number | null;
-};
+enum NewsEndpoint {
+  Latest = "/api/news/latest",
+}
 
-// ── Provider ────────────────────────────────────────────────────────
+enum NewsTiming {
+  MaximumCacheAgeMs = 43_200_000,
+}
 
-const NEWS_URL = "/api/news/latest";
-const CACHE_KEY = CACHE_KEYS.news;
-const MAX_CACHE_AGE_MS = 12 * 60 * 60_000; // 12 hours staleness
+enum NewsProviderErrorKind {
+  InvalidResponse = "The news response format is invalid",
+  RequestRejected = "The news request failed",
+  Unknown = "The news request failed for an unknown reason",
+}
+
+class NewsProviderError extends Error {
+  constructor(
+    readonly kind: NewsProviderErrorKind,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(kind);
+    this.name = NewsProviderError.name;
+  }
+}
 
 class NewsProvider {
   private cache: { data: NewsArticle[]; timestamp: number } | null = null;
@@ -40,10 +51,8 @@ class NewsProvider {
     lastUpdatedAt: null,
   };
 
-  // ── Persistence ─────────────────────────────────────────────────
-
   private persistCache(data: NewsArticle[]): void {
-    cacheSet(CACHE_KEY, { timestamp: Date.now(), data });
+    cacheSet(CacheKey.News, { timestamp: Date.now(), data });
   }
 
   private async readPersistedCache(): Promise<{
@@ -51,7 +60,7 @@ class NewsProvider {
     timestamp: number;
   } | null> {
     const cached = await cacheGet<{ data?: NewsArticle[]; timestamp?: number }>(
-      CACHE_KEY,
+      CacheKey.News,
     );
     if (!cached || !Array.isArray(cached.data)) return null;
     return {
@@ -64,15 +73,14 @@ class NewsProvider {
     };
   }
 
-  // ── Hydrate ─────────────────────────────────────────────────────
-
   async hydrate(): Promise<{ data: NewsArticle[]; stale: boolean } | null> {
     if (this.cache) return { data: this.cache.data, stale: false };
 
     const persisted = await this.readPersistedCache();
     if (!persisted || persisted.data.length === 0) return null;
 
-    const stale = Date.now() - persisted.timestamp > MAX_CACHE_AGE_MS;
+    const stale =
+      Date.now() - persisted.timestamp > NewsTiming.MaximumCacheAgeMs;
 
     this.cache = { data: persisted.data, timestamp: persisted.timestamp };
     this.snapshot = {
@@ -85,8 +93,6 @@ class NewsProvider {
     return { data: persisted.data, stale };
   }
 
-  // ── Fetch ───────────────────────────────────────────────────────
-
   async refresh(): Promise<NewsArticle[]> {
     this.snapshot = { ...this.snapshot, loading: true, error: null };
     try {
@@ -98,12 +104,17 @@ class NewsProvider {
 
   private async doRefresh(): Promise<NewsArticle[]> {
     try {
-      const res = await authenticatedFetch(NEWS_URL);
-      if (!res.ok) throw new Error(`News API error: ${res.status}`);
+      const res = await authenticatedFetch(NewsEndpoint.Latest);
+      if (!res.ok) {
+        throw new NewsProviderError(
+          NewsProviderErrorKind.RequestRejected,
+          res.status,
+        );
+      }
 
       const json = await res.json();
       if (!json || !Array.isArray(json.items)) {
-        throw new Error("Invalid news response format");
+        throw new NewsProviderError(NewsProviderErrorKind.InvalidResponse);
       }
 
       const data = json.items as NewsArticle[];
@@ -123,7 +134,9 @@ class NewsProvider {
         items: fallback,
         lastUpdatedAt: Date.now(),
         loading: false,
-        error: error instanceof Error ? error : new Error("Unknown error"),
+        error: error instanceof Error
+          ? error
+          : new NewsProviderError(NewsProviderErrorKind.Unknown),
       };
       return fallback;
     }
@@ -139,7 +152,7 @@ class NewsProvider {
     this._onChange?.();
   }
 
-  /** Mirror BaseProvider.mute() — see types.ts DataProvider contract. */
+  /** Pause change notifications and return a restore action. */
   mute(): () => void {
     const saved = this._onChange;
     this._onChange = null;
@@ -148,7 +161,7 @@ class NewsProvider {
     };
   }
 
-  /** Mirror BaseProvider.unmute() — restore + fire once. */
+  /** Restore change notifications and publish the current snapshot. */
   unmute(restore: () => void): void {
     restore();
     this._onChange?.();
@@ -157,7 +170,7 @@ class NewsProvider {
   async getData(pollInterval?: number): Promise<NewsArticle[]> {
     if (this.cache) {
       if (pollInterval && Date.now() - this.cache.timestamp > pollInterval) {
-        this.refresh().catch(() => {});
+        this.refresh();
       }
       return this.cache.data;
     }
@@ -165,7 +178,7 @@ class NewsProvider {
     const hydrated = await this.hydrate();
     if (hydrated && hydrated.data.length > 0) {
       if (hydrated.stale) {
-        this.refresh().catch(() => {});
+        this.refresh();
       }
       return hydrated.data;
     }

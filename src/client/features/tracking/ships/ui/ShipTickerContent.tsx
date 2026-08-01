@@ -1,21 +1,37 @@
-import type { ShipData } from "../types";
+import {
+  AisHeading,
+  ShipDataLabel,
+  type ShipData,
+} from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { formatKtShort } from "@/lib/format/units";
+import { formatKtShort } from "@/measurements";
+
+enum ShipTickerClassName {
+  DimLine = "leading-snug text-sig-dim text-(length:--sig-text-sm)",
+}
 
 export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as ShipData;
-  const label = d.name || (d.mmsi ? `MMSI ${d.mmsi}` : "Unknown");
-  const type = d.vesselType && d.vesselType !== "Unknown" ? d.vesselType : "";
+  const label = d.name ||
+    (d.mmsi ? `MMSI ${d.mmsi}` : ShipDataLabel.Unknown);
+  const type =
+    d.vesselType && d.vesselType !== ShipDataLabel.Unknown
+      ? d.vesselType
+      : "";
 
   const speedText =
     d.speed != null && d.speed > 0
       ? formatKtShort(d.speed)
       : "0kn";
 
-  const hdg = d.heading != null && d.heading < 511 ? `${d.heading}°` : "---";
+  const hdg =
+    d.heading != null && d.heading < AisHeading.Unavailable
+      ? `${d.heading}°`
+      : "---";
 
   const navStatus =
-    d.navStatusLabel && d.navStatusLabel !== "Not defined"
+    d.navStatusLabel &&
+    d.navStatusLabel !== ShipDataLabel.NavigationUndefined
       ? d.navStatusLabel
       : "";
 
@@ -32,11 +48,11 @@ export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
         {label} {type} {speedText}
       </div>
       {metaParts && (
-        <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
+        <div className={ShipTickerClassName.DimLine}>
           {metaParts}
         </div>
       )}
-      <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
+      <div className={ShipTickerClassName.DimLine}>
         {idParts}
         {idParts ? " • " : ""}
         HDG {hdg}

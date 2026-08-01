@@ -6,10 +6,7 @@ import { Domain } from "@shared/domain/identity";
 import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 
 export { SourceCompletenessPolicy };
-import {
-  CACHE_KEYS,
-  type CacheKey,
-} from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
 import { EVENT_SOURCE_POLICY } from "@/workers/data/sources/events";
 import {
@@ -35,14 +32,14 @@ const POINT_SOURCE_POLICIES: Readonly<
 > = {
   [Domain.Aircraft]: {
     pointType: Domain.Aircraft,
-    cacheKey: CACHE_KEYS.aircraft,
+    cacheKey: CacheKey.Aircraft,
     pollIntervalMs: POLL_INTERVALS.aircraft,
     completeness: SourceCompletenessPolicy.Dynamic,
     emptyResultIsComplete: true,
   },
   [Domain.Ships]: {
     pointType: Domain.Ships,
-    cacheKey: CACHE_KEYS.ships,
+    cacheKey: CacheKey.Ships,
     pollIntervalMs: POLL_INTERVALS.ships,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: false,
@@ -56,7 +53,7 @@ const POINT_SOURCE_POLICIES: Readonly<
   },
   [Domain.Weather]: {
     pointType: Domain.Weather,
-    cacheKey: CACHE_KEYS.weather,
+    cacheKey: CacheKey.Weather,
     pollIntervalMs: POLL_INTERVALS.weather,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
@@ -64,28 +61,28 @@ const POINT_SOURCE_POLICIES: Readonly<
   [Domain.Cyclones]: {
     pointType: Domain.Cyclones,
     interactionPointTypes: [Domain.CyclonesForecast],
-    cacheKey: CACHE_KEYS.cyclones,
+    cacheKey: CacheKey.Cyclones,
     pollIntervalMs: POLL_INTERVALS.cyclones,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
   [Domain.CycloneWarnings]: {
     pointType: Domain.CyclonesWarning,
-    cacheKey: CACHE_KEYS.cycloneWarnings,
+    cacheKey: CacheKey.CycloneWarnings,
     pollIntervalMs: POLL_INTERVALS.cycloneWarnings,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
   [Domain.Earthquake]: {
     pointType: Domain.Quakes,
-    cacheKey: CACHE_KEYS.earthquake,
+    cacheKey: CacheKey.Earthquake,
     pollIntervalMs: POLL_INTERVALS.earthquakes,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,
   },
   [Domain.Fire]: {
     pointType: Domain.Fires,
-    cacheKey: CACHE_KEYS.fires,
+    cacheKey: CacheKey.Fires,
     pollIntervalMs: POLL_INTERVALS.fires,
     completeness: SourceCompletenessPolicy.Complete,
     emptyResultIsComplete: true,

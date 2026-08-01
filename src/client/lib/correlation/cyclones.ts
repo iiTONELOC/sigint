@@ -9,7 +9,7 @@ import { DEGREES_TO_RADIANS, haversineKm, TurnDeg } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { IntelProductType } from "@shared/domain/correlation";
-import { TS_MIN_KT } from "@/features/environmental/cyclones/classification";
+import { CycloneWindThreshold } from "@/features/environmental/cyclones/classification";
 import type { CycloneData } from "@/features/environmental/cyclones/types";
 import type { IntelProduct } from "./types";
 
@@ -51,7 +51,8 @@ type CycloneItem = DataPoint & { type: Domain.Cyclones; data: CycloneData };
 function activeCyclones(points: DataPoint[]): CycloneItem[] {
   return points.filter(
     (point): point is CycloneItem =>
-      point.type === Domain.Cyclones && point.data.maxWindKt >= TS_MIN_KT,
+      point.type === Domain.Cyclones &&
+      point.data.maxWindKt >= CycloneWindThreshold.TropicalStorm,
   );
 }
 

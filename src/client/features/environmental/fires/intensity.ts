@@ -1,75 +1,191 @@
-// Single source of truth for fire intensity + detection physics, mirroring the
-// earthquake intensity module. Bands are fire radiative power (FRP, MW); the
-// detection threshold and confidence meanings come from the official VIIRS
-// 375 m active-fire docs (NASA FIRMS / VNP14): low = sun-glint or weak (<15 K
-// I4 anomaly), nominal = clean & strong (>15 K, day or night), high = saturated
-// pixel. Hence ΔT = bright_ti4 − bright_ti5 is the signal the algorithm keys on.
+import { NO_VALUE } from "@shared/text";
 
-export type FrpBand = {
-  /** Inclusive lower bound in MW. */
+export enum FrpBandId {
+  Extreme = 500,
+  VeryHigh = 100,
+  High = 50,
+  Moderate = 10,
+  Low = 0,
+}
+
+export enum FireCssColor {
+  Accent = "var(--dossier-accent)",
+  Intensity = "var(--intensity-color)",
+}
+
+export enum FireTemperatureThreshold {
+  DetectionDeltaKelvin = 15,
+}
+
+export enum FireIntensityLabel {
+  High = "HIGH",
+  Low = "LOW",
+}
+
+export enum FireAnomalyStrength {
+  Strong = "strong",
+  Weak = "weak",
+}
+
+export enum FireConfidenceBand {
+  Unknown = -1,
+  Low = 0,
+  Nominal = 1,
+  High = 2,
+}
+
+enum FireConfidenceCode {
+  High = "high",
+  HighShort = "h",
+  Low = "low",
+  LowShort = "l",
+  Nominal = "nominal",
+  NominalShort = "n",
+}
+
+enum FireConfidenceThreshold {
+  Nominal = 30,
+  High = 80,
+  NumericRadix = 10,
+}
+
+export type FrpBand = Readonly<{
+  id: FrpBandId;
   min: number;
   label: string;
-  /** Ramp fill (heat scale: ember → white-hot). */
-  color: string;
-  /** Text/accent tone, legible on both themes. */
-  ink: string;
-};
+  className: string;
+}>;
 
-// Ordered high → low so frpBand can pick the first matching floor.
-export const FRP_SCALE: readonly FrpBand[] = [
-  { min: 500, label: "EXTREME", color: "#fde047", ink: "#d97706" },
-  { min: 100, label: "VERY HIGH", color: "#fb923c", ink: "#ea580c" },
-  { min: 50, label: "HIGH", color: "#f97316", ink: "#e25406" },
-  { min: 10, label: "MODERATE", color: "#ea580c", ink: "#c2410c" },
-  { min: 0, label: "LOW", color: "#9a3412", ink: "#9a3412" },
-];
+export type ConfidenceMeta = Readonly<{
+  level: FireConfidenceBand;
+  label: string;
+  meaning: string;
+}>;
 
-const FRP_FLOOR: FrpBand = FRP_SCALE.at(-1) ?? { min: 0, label: "LOW", color: "#9a3412", ink: "#9a3412" };
+function frpBandDefinition(id: FrpBandId): FrpBand {
+  switch (id) {
+    case FrpBandId.Extreme:
+      return {
+        id,
+        min: id,
+        label: "EXTREME",
+        className: "[--dossier-accent:#d97706] [--intensity-color:#fde047]",
+      };
+    case FrpBandId.VeryHigh:
+      return {
+        id,
+        min: id,
+        label: "VERY HIGH",
+        className: "[--dossier-accent:#ea580c] [--intensity-color:#fb923c]",
+      };
+    case FrpBandId.High:
+      return {
+        id,
+        min: id,
+        label: FireIntensityLabel.High,
+        className: "[--dossier-accent:#e25406] [--intensity-color:#f97316]",
+      };
+    case FrpBandId.Moderate:
+      return {
+        id,
+        min: id,
+        label: "MODERATE",
+        className: "[--dossier-accent:#c2410c] [--intensity-color:#ea580c]",
+      };
+    default:
+      return {
+        id: FrpBandId.Low,
+        min: FrpBandId.Low,
+        label: FireIntensityLabel.Low,
+        className: "[--dossier-accent:#9a3412] [--intensity-color:#9a3412]",
+      };
+  }
+}
 
-/** The I4−I5 brightness-temperature anomaly (K) above which a daytime pixel is
- *  flagged nominal rather than low confidence — the core VIIRS detection rule. */
-export const DELTA_T_DETECT_K = 15;
+function confidenceDefinition(id: FireConfidenceBand): ConfidenceMeta {
+  switch (id) {
+    case FireConfidenceBand.High:
+      return {
+        level: id,
+        label: FireIntensityLabel.High,
+        meaning: "saturated pixel",
+      };
+    case FireConfidenceBand.Nominal:
+      return {
+        level: id,
+        label: "NOMINAL",
+        meaning: "clean, strong signal",
+      };
+    case FireConfidenceBand.Low:
+      return {
+        level: id,
+        label: FireIntensityLabel.Low,
+        meaning: "weak or sun-glint",
+      };
+    default:
+      return {
+        level: FireConfidenceBand.Unknown,
+        label: NO_VALUE,
+        meaning: "unrated",
+      };
+  }
+}
+
+export function frpScale(): readonly FrpBand[] {
+  return Object.values(FrpBandId)
+    .filter((value): value is FrpBandId => typeof value === "number")
+    .sort((left, right) => right - left)
+    .map(frpBandDefinition);
+}
 
 export function frpBand(frp: number): FrpBand {
-  return FRP_SCALE.find((b) => frp >= b.min) ?? FRP_FLOOR;
+  return frpScale().find((band) => frp >= band.min) ??
+    frpBandDefinition(FrpBandId.Low);
 }
 
-export function frpColor(frp: number): string {
-  return frpBand(frp).color;
-}
-
-export function frpInk(frp: number): string {
-  return frpBand(frp).ink;
-}
-
-export type ConfidenceMeta = {
-  /** Normalized 0–2 rank (low/nominal/high). */
-  level: number;
-  label: string;
-  /** Plain-language meaning from the VIIRS docs. */
-  meaning: string;
-};
-
-const CONFIDENCE_UNKNOWN: ConfidenceMeta = {
-  level: 0,
-  label: "—",
-  meaning: "unrated",
-};
-
-/** Normalize a VIIRS confidence string (low/nominal/high or l/n/h) to its rank
- *  and official meaning. MODIS numeric confidence (0–100) collapses into the
- *  same three buckets. */
-export function confidenceMeta(conf?: string): ConfidenceMeta {
-  if (!conf) return CONFIDENCE_UNKNOWN;
-  const c = conf.trim().toLowerCase();
-  const numeric = Number.parseInt(c, 10);
-  if (Number.isFinite(numeric) && /^\d+$/.test(c)) {
-    if (numeric >= 80) return { level: 2, label: "HIGH", meaning: "saturated pixel" };
-    if (numeric >= 30) return { level: 1, label: "NOMINAL", meaning: "clean, strong signal" };
-    return { level: 0, label: "LOW", meaning: "weak or sun-glint" };
+function confidenceBand(value: string): FireConfidenceBand {
+  const numeric = Number.parseInt(value, FireConfidenceThreshold.NumericRadix);
+  if (Number.isFinite(numeric) && /^\d+$/.test(value)) {
+    if (numeric >= FireConfidenceThreshold.High) {
+      return FireConfidenceBand.High;
+    }
+    if (numeric >= FireConfidenceThreshold.Nominal) {
+      return FireConfidenceBand.Nominal;
+    }
+    return FireConfidenceBand.Low;
   }
-  if (c === "high" || c === "h") return { level: 2, label: "HIGH", meaning: "saturated pixel" };
-  if (c === "nominal" || c === "n") return { level: 1, label: "NOMINAL", meaning: "clean, strong signal" };
-  if (c === "low" || c === "l") return { level: 0, label: "LOW", meaning: "weak or sun-glint" };
-  return CONFIDENCE_UNKNOWN;
+  if (
+    value === FireConfidenceCode.High ||
+    value === FireConfidenceCode.HighShort
+  ) {
+    return FireConfidenceBand.High;
+  }
+  if (
+    value === FireConfidenceCode.Nominal ||
+    value === FireConfidenceCode.NominalShort
+  ) {
+    return FireConfidenceBand.Nominal;
+  }
+  if (
+    value === FireConfidenceCode.Low ||
+    value === FireConfidenceCode.LowShort
+  ) {
+    return FireConfidenceBand.Low;
+  }
+  return FireConfidenceBand.Unknown;
+}
+
+export function confidenceMeta(confidence?: string): ConfidenceMeta {
+  if (!confidence) return confidenceDefinition(FireConfidenceBand.Unknown);
+  return confidenceDefinition(
+    confidenceBand(confidence.trim().toLowerCase()),
+  );
+}
+
+export function fireAnomalyStrength(
+  deltaKelvin: number,
+): FireAnomalyStrength {
+  return deltaKelvin >= FireTemperatureThreshold.DetectionDeltaKelvin
+    ? FireAnomalyStrength.Strong
+    : FireAnomalyStrength.Weak;
 }

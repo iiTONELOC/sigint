@@ -1,56 +1,78 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Rss, ExternalLink, ArrowLeft, RefreshCw, Filter } from "lucide-react";
+import { Rss, ExternalLink, ArrowLeft, Filter } from "lucide-react";
 import { useVirtualScroll } from "@/hooks/useVirtualScroll";
 import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
 import { useData } from "@/context/DataContext";
 import type { NewsArticle } from "@/features/news";
+import { ButtonType } from "@/lib/ui/button";
+import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
+import { NewsSource } from "@shared/domain/newsSource";
+import { isEnumValue } from "@shared/types/enum";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const ROW_HEIGHT = 72;
-const OVERSCAN = 6;
+enum NewsFeedMetric {
+  RowHeight = 72,
+  Overscan = 6,
+  CompactIcon = 10,
+  StandardIcon = 11,
+  IconStrokeWidth = 2.5,
+}
+
+enum NewsFeedClassName {
+  Root = "w-full h-full flex flex-col bg-sig-bg overflow-hidden",
+  Spacer = "flex-1",
+  FilterActive = "text-sig-accent bg-sig-accent/10 border-sig-accent/30",
+  FilterInactive = "text-sig-dim bg-transparent border-sig-border/50",
+}
+
+enum NewsSourceSuffix {
+  Google = " via Google",
+  World = " World",
+}
+
+function newsSourceLabel(source: string): string {
+  return source
+    .replace(NewsSourceSuffix.Google, "")
+    .replace(NewsSourceSuffix.World, "");
+}
 
 // ── State persistence ───────────────────────────────────────────────
 
 type SavedNewsState = {
   selectedId: string | null;
-  sourceFilter: string | null;
+  sourceFilter: NewsSource | null;
 };
 
+function isNewsSource(value: unknown): value is NewsSource {
+  return isEnumValue(value, NewsSource);
+}
+
 async function loadNewsState(): Promise<SavedNewsState> {
-  const saved = await cacheGet<SavedNewsState>(CACHE_KEYS.newsState);
+  const saved = await cacheGet<SavedNewsState>(CacheKey.NewsState);
   if (saved && typeof saved === "object") {
     return {
       selectedId: saved.selectedId ?? null,
-      sourceFilter: saved.sourceFilter ?? null,
+      sourceFilter: isNewsSource(saved.sourceFilter)
+        ? saved.sourceFilter
+        : null,
     };
   }
   return { selectedId: null, sourceFilter: null };
 }
 
 function saveNewsState(state: SavedNewsState): void {
-  cacheSet(CACHE_KEYS.newsState, state);
+  cacheSet(CacheKey.NewsState, state);
 }
-
-// ── Source list for filter buttons ──────────────────────────────────
-
-const ALL_SOURCES = [
-  "Reuters via Google",
-  "NYT World",
-  "BBC World",
-  "Al Jazeera",
-  "The Guardian",
-  "NPR World",
-] as const;
 
 // ── Component ───────────────────────────────────────────────────────
 
 export function NewsFeedPane() {
   const { newsArticles: articles } = useData();
 
-  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<NewsSource | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +94,7 @@ export function NewsFeedPane() {
 
   // Persist state on changes
   const updateSourceFilter = useCallback(
-    (f: string | null) => {
+    (f: NewsSource | null) => {
       setSourceFilter(f);
       saveNewsState({ selectedId: selected?.id ?? null, sourceFilter: f });
     },
@@ -106,8 +128,8 @@ export function NewsFeedPane() {
   const { scrollRef, totalHeight, offsetY, startIdx, endIdx, onScroll } =
     useVirtualScroll({
       itemCount: filtered.length,
-      rowHeight: ROW_HEIGHT,
-      overscan: OVERSCAN,
+      rowHeight: NewsFeedMetric.RowHeight,
+      overscan: NewsFeedMetric.Overscan,
     });
 
   const visible = useMemo(
@@ -118,23 +140,29 @@ export function NewsFeedPane() {
   // ── Detail view ────────────────────────────────────────────────
   if (selected) {
     return (
-      <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
+      <div className={NewsFeedClassName.Root}>
         <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 border-b border-sig-border/40">
           <button
             onClick={() => updateSelected(null)}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
           >
-            <ArrowLeft size={10} strokeWidth={2.5} />
+            <ArrowLeft
+              size={NewsFeedMetric.CompactIcon}
+              strokeWidth={NewsFeedMetric.IconStrokeWidth}
+            />
             BACK
           </button>
-          <div className="flex-1" />
+          <div className={NewsFeedClassName.Spacer} />
           <a
             href={selected.url}
-            target="_blank"
-            rel="noopener noreferrer"
+            target={DomAnchorTarget.Blank}
+            rel={DomLinkRelation.NoopenerNoreferrer}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
           >
-            <ExternalLink size={10} strokeWidth={2.5} />
+            <ExternalLink
+              size={NewsFeedMetric.CompactIcon}
+              strokeWidth={NewsFeedMetric.IconStrokeWidth}
+            />
             OPEN
           </a>
         </div>
@@ -162,11 +190,14 @@ export function NewsFeedPane() {
           <div className="pt-2 border-t border-sig-border/30">
             <a
               href={selected.url}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={DomAnchorTarget.Blank}
+              rel={DomLinkRelation.NoopenerNoreferrer}
               className="inline-flex items-center gap-1.5 text-sig-accent text-(length:--sig-text-sm) hover:underline"
             >
-              <ExternalLink size={11} strokeWidth={2.5} />
+              <ExternalLink
+                size={NewsFeedMetric.StandardIcon}
+                strokeWidth={NewsFeedMetric.IconStrokeWidth}
+              />
               Read full article at {selected.source}
             </a>
           </div>
@@ -177,21 +208,25 @@ export function NewsFeedPane() {
 
   // ── List view ──────────────────────────────────────────────────
   return (
-    <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
+    <div className={NewsFeedClassName.Root}>
       {/* Filter bar */}
       <div className="shrink-0 flex flex-wrap items-center gap-1 px-2 py-1 border-b border-sig-border/40">
-        <Filter size={11} strokeWidth={2.5} className="text-sig-dim shrink-0" />
+        <Filter
+          size={NewsFeedMetric.StandardIcon}
+          strokeWidth={NewsFeedMetric.IconStrokeWidth}
+          className="text-sig-dim shrink-0"
+        />
         <button
           onClick={() => updateSourceFilter(null)}
           className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
             sourceFilter === null
-              ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-              : "text-sig-dim bg-transparent border-sig-border/50"
+              ? NewsFeedClassName.FilterActive
+              : NewsFeedClassName.FilterInactive
           }`}
         >
           ALL ({articles.length})
         </button>
-        {ALL_SOURCES.map((src) => {
+        {Object.values(NewsSource).map((src) => {
           const count = sourceCounts[src] ?? 0;
           if (count === 0) return null;
           const active = sourceFilter === src;
@@ -201,15 +236,15 @@ export function NewsFeedPane() {
               onClick={() => updateSourceFilter(active ? null : src)}
               className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
                 active
-                  ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
-                  : "text-sig-dim bg-transparent border-sig-border/50"
+                  ? NewsFeedClassName.FilterActive
+                  : NewsFeedClassName.FilterInactive
               }`}
             >
-              {src.replace(" via Google", "").replace(" World", "")} ({count})
+              {newsSourceLabel(src)} ({count})
             </button>
           );
         })}
-        <div className="flex-1" />
+        <div className={NewsFeedClassName.Spacer} />
         <span className="text-sig-dim text-(length:--sig-text-sm) shrink-0">
           {`${filtered.length}`}
         </span>
@@ -226,23 +261,22 @@ export function NewsFeedPane() {
             style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}
           >
             {visible.map((article) => (
-              <div
+              <button
                 key={article.id}
+                type={ButtonType.Button}
                 onClick={() => updateSelected(article)}
-                className="px-3 py-2 border-b border-sig-border/20 cursor-pointer transition-colors bg-transparent hover:bg-sig-panel/40"
-                style={{ height: ROW_HEIGHT }}
+                className="w-full px-3 py-2 border-b border-sig-border/20 cursor-pointer text-left transition-colors bg-transparent hover:bg-sig-panel/40"
+                style={{ height: NewsFeedMetric.RowHeight }}
               >
                 {/* Row 1: source + age */}
                 <div className="flex items-center gap-2">
                   <Rss
-                    size={10}
-                    strokeWidth={2.5}
+                    size={NewsFeedMetric.CompactIcon}
+                    strokeWidth={NewsFeedMetric.IconStrokeWidth}
                     className="text-sig-accent shrink-0"
                   />
                   <span className="text-sig-accent text-(length:--sig-text-sm) font-semibold tracking-wider truncate">
-                    {article.source
-                      .replace(" via Google", "")
-                      .replace(" World", "")}
+                    {newsSourceLabel(article.source)}
                   </span>
                   <span className="ml-auto text-(length:--sig-text-sm) text-sig-dim shrink-0">
                     {relativeAge(article.publishedAt)}
@@ -258,7 +292,7 @@ export function NewsFeedPane() {
                     {article.description}
                   </div>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         </div>

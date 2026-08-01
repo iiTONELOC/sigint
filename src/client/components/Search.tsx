@@ -9,10 +9,8 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceSearch } from "@/features/base/useSourceSearch";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { Domain } from "@shared/domain/identity";
-import { DomEvent } from "@/lib/runtime/domEvent";
-import {
-  scorePointSearchMatch,
-} from "@/workers/data/uiQuery";
+import { DomEvent, DomInputType, DomKey } from "@/runtime";
+import { scorePointSearchMatch } from "@/workers/data/uiQuery";
 
 // ── Search engine ────────────────────────────────────────────────────
 
@@ -88,13 +86,9 @@ function getSecondaryLabel(item: DataPoint): string {
       return parts.join(SearchLabel.Separator) || SearchLabel.Unknown;
     }
     case Domain.Ships:
-      return [d.vesselType, d.flag]
-        .filter(Boolean)
-        .join(SearchLabel.Separator);
+      return [d.vesselType, d.flag].filter(Boolean).join(SearchLabel.Separator);
     case Domain.Events:
-      return [d.category, d.source]
-        .filter(Boolean)
-        .join(SearchLabel.Separator);
+      return [d.category, d.source].filter(Boolean).join(SearchLabel.Separator);
     case Domain.Quakes:
       return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
     default:
@@ -171,12 +165,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
     setCommittedCount(matchingCount);
     setOpen(false);
     setActiveIndex(-1);
-  }, [
-    normalizedQuery,
-    searchReady,
-    matchingCount,
-    onCommit,
-  ]);
+  }, [normalizedQuery, searchReady, matchingCount, onCommit]);
 
   const clearFilter = useCallback(() => {
     setOpen(false);
@@ -209,7 +198,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key === DomKey.KeyK) {
         e.preventDefault();
         openSearch();
       }
@@ -281,21 +270,21 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === DomKey.Escape) {
         closeDropdown();
         return;
       }
-      if (e.key === "ArrowDown") {
+      if (e.key === DomKey.ArrowDown) {
         e.preventDefault();
         setActiveIndex((i) => Math.min(i + 1, topResults.length - 1));
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (e.key === DomKey.ArrowUp) {
         e.preventDefault();
         setActiveIndex((i) => Math.max(i - 1, -1));
         return;
       }
-      if (e.key === "Enter") {
+      if (e.key === DomKey.Enter) {
         e.preventDefault();
         if (activeIndex >= 0 && topResults[activeIndex])
           selectResult(topResults[activeIndex]);
@@ -369,7 +358,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
         />
         <input
           ref={inputRefCallback}
-          type="text"
+          type={DomInputType.Text}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -398,7 +387,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-[80] rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
+            className="fixed z-80 rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
             style={
               isMobileWidth(window.innerWidth)
                 ? {
@@ -425,8 +414,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
                     width: "max-content",
                     maxWidth: Math.min(
                       SearchDropdownLayout.MaximumWidth,
-                      window.innerWidth *
-                        SearchDropdownLayout.ViewportRatio,
+                      window.innerWidth * SearchDropdownLayout.ViewportRatio,
                     ),
                   }
             }
@@ -447,8 +435,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
                       className="px-3 py-1 tracking-wider text-(length:--sig-text-sm) border-b border-sig-border"
                       style={{
                         color,
-                        background:
-                          `${color}${SearchColorSuffix.Faint}`,
+                        background: `${color}${SearchColorSuffix.Faint}`,
                       }}
                     >
                       {feature.label}

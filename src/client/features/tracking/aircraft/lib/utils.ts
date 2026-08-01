@@ -1,7 +1,13 @@
-import type { AircraftData, AircraftFilter, SquawkStatus } from "../types";
+import {
+  SquawkLabel,
+  type AircraftData,
+  type AircraftFilter,
+  type SquawkStatus,
+} from "../types";
 import type { BasePoint } from "@/features/base/types";
 import {
   MilFilter,
+  SquawkStatus as SquawkStatusId,
   squawkBucketFor,
   squawkStatusFor,
 } from "@shared/domain/aircraft";
@@ -23,15 +29,6 @@ export function normalizeIcao24(value: string | undefined): string | null {
 
 export function getSquawkStatus(squawk?: string): SquawkStatus {
   return squawkStatusFor(squawk);
-}
-
-// Delay-severity → sig token class. Single owner for the on-time/late ramp used
-// by the dossier on-time chip and arrival time. Red is reserved for 60+ min.
-export function delaySeverity(mins: number): string {
-  if (mins <= 0) return "sig-quakes";
-  if (mins <= 15) return "sig-warn";
-  if (mins <= 60) return "sig-fires";
-  return "sig-danger";
 }
 
 // readsb message-source type → short label (how we're tracking it).
@@ -60,14 +57,14 @@ export function windComponents(
 
 export function getSquawkStatusLabel(status: SquawkStatus): string {
   switch (status) {
-    case "emergency":
-      return "EMERGENCY";
-    case "radio_failure":
-      return "RADIO FAILURE";
-    case "hijack":
-      return "HIJACK";
+    case SquawkStatusId.Emergency:
+      return SquawkLabel.Emergency;
+    case SquawkStatusId.RadioFailure:
+      return SquawkLabel.RadioFailure;
+    case SquawkStatusId.Hijack:
+      return SquawkLabel.Hijack;
     default:
-      return "NORMAL";
+      return SquawkLabel.Normal;
   }
 }
 

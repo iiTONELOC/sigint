@@ -10,7 +10,7 @@ import {
 } from "@/workers/render/protocol";
 import { RENDER_POLICY } from "@/workers/render/policy";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import { isRecord } from "@shared/geo";
 import {
   InputAdapter,
@@ -269,7 +269,7 @@ export class RenderSurfaceSession {
         },
         [offscreen, channel.port2],
       );
-      void dataClient.connectRender(channel.port1, sessionId);
+      dataClient.connectRender(channel.port1, sessionId);
       return;
     }
     this.send(

@@ -1,4 +1,4 @@
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
 import { authenticatedFetch } from "@/lib/net/authService";
 import type {
   AircraftPoint,
@@ -63,13 +63,13 @@ export type AircraftDossierServiceOptions = Readonly<{
 }>;
 
 type AircraftDossierCachePolicy = Readonly<{
-  key: typeof CACHE_KEYS.dossier;
+  key: CacheKey.Dossier;
   timeToLiveMs: number;
   maximumEntries: number;
 }>;
 
 export const AIRCRAFT_DOSSIER_CACHE_POLICY: AircraftDossierCachePolicy = {
-  key: CACHE_KEYS.dossier,
+  key: CacheKey.Dossier,
   timeToLiveMs: 30 * MS_PER_MINUTE,
   maximumEntries: 200,
 };

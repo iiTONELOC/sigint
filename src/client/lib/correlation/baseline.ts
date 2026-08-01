@@ -3,28 +3,31 @@
 // to IndexedDB so it survives reloads and grows smarter with use.
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
+import { Domain } from "@shared/domain/identity";
 import type { CountryWindow, RegionBaseline } from "./types";
-import { BASELINE_BUCKETS, getCountry, getTs } from "./shared";
-import { MS_PER_HOUR } from "@shared/time";
-
-const BASELINE_KEY = CACHE_KEYS.intelBaseline;
+import {
+  BASELINE_BUCKETS,
+  CorrelationRegion,
+  getCountry,
+  getTs,
+} from "./shared";
+import { HOURS_PER_DAY, MS_PER_HOUR } from "@shared/time";
 
 let _baselineCache: RegionBaseline | null = null;
 
 /** Call once at boot to load baseline from IndexedDB. */
 export async function initBaseline(): Promise<void> {
-  const cached = await cacheGet<RegionBaseline>(BASELINE_KEY);
-  if (cached && cached.countries && typeof cached.lastUpdated === "number") {
+  const cached = await cacheGet<RegionBaseline>(CacheKey.IntelBaseline);
+  if (cached?.countries && typeof cached.lastUpdated === "number") {
     _baselineCache = cached;
   }
 }
 
 export function loadBaseline(): RegionBaseline {
   if (
-    _baselineCache &&
-    _baselineCache.countries &&
+    _baselineCache?.countries &&
     typeof _baselineCache.lastUpdated === "number"
   ) {
     return _baselineCache;
@@ -33,7 +36,7 @@ export function loadBaseline(): RegionBaseline {
 }
 
 export function persistBaseline(baseline: RegionBaseline): void {
-  cacheSet(BASELINE_KEY, baseline);
+  cacheSet(CacheKey.IntelBaseline, baseline);
 }
 
 function getBucketIndex(ts: number, bucketStart: number): number {
@@ -80,7 +83,12 @@ export function recordEvent(
   ts: number,
   now: number,
 ): void {
-  if (country === "Unknown" || country === "Global") return;
+  if (
+    country === CorrelationRegion.Unknown ||
+    country === CorrelationRegion.Global
+  ) {
+    return;
+  }
   const win = ensureCountryWindow(baseline, country, now);
   const idx = getBucketIndex(ts, win.bucketStart);
   if (idx >= 0 && idx < BASELINE_BUCKETS) {
@@ -91,7 +99,10 @@ export function recordEvent(
 
 /** Average events per hour over the stable window (excludes last 24h). */
 export function avgRate(win: CountryWindow): number {
-  const stableBuckets = win.buckets.slice(0, BASELINE_BUCKETS - 24);
+  const stableBuckets = win.buckets.slice(
+    0,
+    BASELINE_BUCKETS - HOURS_PER_DAY,
+  );
   if (stableBuckets.length === 0) return 0;
   const sum = stableBuckets.reduce((a, b) => a + b, 0);
   return sum / stableBuckets.length;
@@ -105,7 +116,12 @@ export function recentCount(win: CountryWindow, hours: number): number {
   return sum;
 }
 
-const intelTypes = new Set(["events", "quakes", "fires", "weather"]);
+const intelTypes = new Set([
+  Domain.Events,
+  Domain.Quakes,
+  Domain.Fires,
+  Domain.Weather,
+]);
 
 export function emptyBaseline(): RegionBaseline {
   return { countries: {}, lastUpdated: 0 };

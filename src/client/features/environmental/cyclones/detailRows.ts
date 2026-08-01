@@ -1,9 +1,6 @@
 import { formatTimeWithAge } from "@/lib/format/timeFormat";
-import {
-  formatBearingDeg,
-  formatKtMph,
-  formatPressureMb,
-} from "@/lib/format/units";
+import { formatKtMph } from "@/measurements";
+import { formatBearingDeg, formatPressureMb } from "./formatters";
 import { BLANK_SEPARATOR } from "@shared/text";
 import { CycloneRowLabel, SaffirSimpson, type CycloneData } from "./types";
 import { CATEGORY_LABEL } from "./classification";

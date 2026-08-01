@@ -4,7 +4,7 @@ import { type PointType } from "@shared/domain/pointType";
 import { type SourceId } from "@shared/source";
 import { SourceStatus } from "@shared/domain/sourceStatus";
 import { AircraftRouteSource } from "@shared/domain/aircraftDossier";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import {
   DataWorkerClientError,
   createDataWorkerClient,

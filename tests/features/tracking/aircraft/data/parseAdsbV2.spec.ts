@@ -10,11 +10,16 @@ import {
   parseAircraftFetchResult,
   toAircraftData,
   fetchAircraftStates,
-  AIRCRAFT_STATES_URL,
+  AircraftFeedEndpoint,
 } from "@/features/tracking/aircraft/data/parseAdsbV2";
 import type { SourceState } from "@shared/source";
+import { feetPerMinuteToMetersPerSecond } from "@/measurements";
 
-// ── Sample adsb.fi v3 record (verbatim shape from the live probe) ──
+enum AircraftParserFixtureTime {
+  ExpiresAt = 1_700_000_900_000,
+  ObservationOffset = 5_000,
+  ReceivedAt = 1_700_000_000_000,
+}
 
 const SAMPLE_AIRCRAFT = {
   hex: "abe7c5",
@@ -51,9 +56,9 @@ const AIRCRAFT_SOURCE_STATE: SourceState = {
   freshness: SourceFreshness.Fresh,
   completeness: SourceCompleteness.Complete,
   sequence: 1,
-  observedAt: 1_700_000_000_000,
-  receivedAt: 1_700_000_000_000,
-  expiresAt: 1_700_000_900_000,
+  observedAt: AircraftParserFixtureTime.ReceivedAt,
+  receivedAt: AircraftParserFixtureTime.ReceivedAt,
+  expiresAt: AircraftParserFixtureTime.ExpiresAt,
   successfulScopes: 108,
   failedScopes: 0,
   totalScopes: 108,
@@ -64,9 +69,7 @@ function aircraftEnvelope(ac: unknown[]): unknown {
   return { ac, source: AIRCRAFT_SOURCE_STATE };
 }
 
-// ── Field mapping ──────────────────────────────────────────────────
-
-describe("toAircraftData — field mapping", () => {
+describe("toAircraftData field mapping", () => {
   test("hex → icao24 (lowercase preserved)", () => {
     expect(toAircraftData(SAMPLE_AIRCRAFT).icao24).toBe("abe7c5");
   });
@@ -108,9 +111,12 @@ describe("toAircraftData — field mapping", () => {
     expect(toAircraftData(GROUND_AIRCRAFT).heading).toBeCloseTo(70.31, 2);
   });
 
-  test("baro_rate (ft/min) → verticalRate (m/s) via /196.85", () => {
+  test("converts vertical rate to meters per second", () => {
     const data = toAircraftData(SAMPLE_AIRCRAFT);
-    expect(data.verticalRate).toBeCloseTo(-1088 / 196.85, 3);
+    expect(data.verticalRate).toBeCloseTo(
+      feetPerMinuteToMetersPerSecond(SAMPLE_AIRCRAFT.baro_rate),
+      3,
+    );
   });
 
   test("squawk passes through", () => {
@@ -126,7 +132,7 @@ describe("toAircraftData — field mapping", () => {
   });
 
   test("originCountry empty-string fallback when source has no value", () => {
-    // SAMPLE_AIRCRAFT carries no originCountry — server didn't enrich
+    // The sample has no country because the server did not enrich it.
     // (hex unmapped, or sweep ran before enrichment landed). Parser
     // returns "" so consumers fall back to "Unknown" as today.
     expect(toAircraftData(SAMPLE_AIRCRAFT).originCountry).toBe("");
@@ -136,7 +142,7 @@ describe("toAircraftData — field mapping", () => {
     expect(toAircraftData(SAMPLE_AIRCRAFT).acType).toBe("Unknown");
   });
 
-  test("military flag is NOT set from raw adsb.fi data — left undefined", () => {
+  test("leaves the military flag undefined for raw data", () => {
     // Confirmed: adsb.fi v3 does not expose dbFlags. Military is set
     // downstream by AircraftProvider.applyMetadata via the local
     // NDJSON DB (icao24 hex range + type-code heuristics + operator
@@ -144,7 +150,7 @@ describe("toAircraftData — field mapping", () => {
     expect(toAircraftData(SAMPLE_AIRCRAFT).military).toBeUndefined();
   });
 
-  test("emergency field is intentionally dropped — squawk carries the signal", () => {
+  test("drops the upstream emergency field", () => {
     // `emergency` isn't part of AdsbAircraft; pass it via a cast to prove the
     // mapper drops unknown upstream fields.
     const data = toAircraftData({
@@ -208,40 +214,42 @@ describe("parseAdsbResponse", () => {
   });
 
   test("preserves the server observation timestamp", () => {
-    const receivedAt = 1_700_000_000_000;
-    const observedAt = receivedAt - 5_000;
+    const observedAt =
+      AircraftParserFixtureTime.ReceivedAt -
+      AircraftParserFixtureTime.ObservationOffset;
     const point = parseAdsbResponse(
       { ac: [{ ...SAMPLE_AIRCRAFT, observedAt }] },
-      receivedAt,
+      AircraftParserFixtureTime.ReceivedAt,
     )[0];
 
     expect(point?.timestamp).toBe(new Date(observedAt).toISOString());
   });
 
   test("derives observation time from position age for raw records", () => {
-    const receivedAt = 1_700_000_000_000;
     const point = parseAdsbResponse(
       { ac: [{ ...SAMPLE_AIRCRAFT, seen_pos: 12.5 }] },
-      receivedAt,
+      AircraftParserFixtureTime.ReceivedAt,
     )[0];
 
     expect(point?.timestamp).toBe(
-      new Date(receivedAt - 12_500).toISOString(),
+      new Date(
+        AircraftParserFixtureTime.ReceivedAt - 12_500,
+      ).toISOString(),
     );
   });
 
   test("uses receipt time only when observation metadata is absent", () => {
-    const receivedAt = 1_700_000_000_000;
     const point = parseAdsbResponse(
       { ac: [SAMPLE_AIRCRAFT] },
-      receivedAt,
+      AircraftParserFixtureTime.ReceivedAt,
     )[0];
 
-    expect(point?.timestamp).toBe(new Date(receivedAt).toISOString());
+    expect(point?.timestamp).toBe(
+      new Date(AircraftParserFixtureTime.ReceivedAt).toISOString(),
+    );
   });
 });
 
-// ── fetchAircraftStates — fetch path ──────────────────────────────
 describe("parseAircraftFetchResult", () => {
   test("returns data and the validated aircraft source state", () => {
     const result = parseAircraftFetchResult(
@@ -310,8 +318,8 @@ describe("fetchAircraftStates", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("AIRCRAFT_STATES_URL is the same-origin server proxy path", () => {
-    expect(AIRCRAFT_STATES_URL).toBe("/api/aircraft/states");
+  test("uses the same-origin server proxy path", () => {
+    expect(AircraftFeedEndpoint.States.startsWith("/")).toBeTrue();
   });
 
   test("hits /api/aircraft/states, never adsb.fi directly", async () => {

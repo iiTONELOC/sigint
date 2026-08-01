@@ -1,9 +1,18 @@
-import type { CSSProperties } from "react";
 import { Sun, Moon } from "lucide-react";
+import {
+  DossierMetric,
+  DossierMetricValueClass,
+} from "@/dossier";
 import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { formatPixelKm } from "@/lib/format/units";
-import { frpBand, confidenceMeta, DELTA_T_DETECT_K } from "../intensity";
+import { formatPixelKm } from "../formatters";
+import {
+  confidenceMeta,
+  fireAnomalyStrength,
+  frpBand,
+} from "../intensity";
+import { FireDayNight } from "@shared/domain/fireDayNight";
+import { FirePassLabel } from "../types";
 
 export function FireIdentityCard({
   frp,
@@ -40,15 +49,13 @@ export function FireIdentityCard({
   const age = timestamp
     ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
     : null;
-  const isNight = daynight === "N";
+  const isNight = daynight === FireDayNight.Night;
   const PassIcon = isNight ? Moon : Sun;
   const source = [satellite, instrument].filter(Boolean).join(" · ");
+  const cardClass = `${band.className} relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel`;
 
   return (
-    <div
-      className="relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel"
-      style={{ "--dossier-accent": band.ink } as CSSProperties}
-    >
+    <div className={cardClass}>
       <div className="absolute inset-0 bg-(--dossier-accent)/6 pointer-events-none" />
       <div className="relative h-1 bg-(--dossier-accent)" />
       <div className="relative px-4 pt-3 pb-3">
@@ -61,39 +68,50 @@ export function FireIdentityCard({
           ACTIVE FIRE · {band.label}
         </div>
         <div className="pr-24 flex items-center gap-2 text-(length:--sig-text-md) text-sig-bright font-bold tracking-wide leading-snug mt-1 mb-3">
-          <PassIcon className="w-4 h-4 shrink-0 text-sig-dim" aria-hidden="true" />
+          <PassIcon className="w-4 h-4 shrink-0 text-sig-dim" aria-hidden />
           <span className="font-mono">{formatLat(lat)}, {formatLon(lon)}</span>
         </div>
 
         <div className="flex items-end gap-5 flex-wrap">
-          <div className="leading-none">
-            <div className="text-(length:--sig-text-title) text-sig-bright font-bold">
-              {(frp ?? 0).toFixed(1)}
-              <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">MW</span>
-            </div>
-            <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">RADIATIVE POWER</div>
-          </div>
+          <DossierMetric
+            label="RADIATIVE POWER"
+            valueClass={DossierMetricValueClass.Title}
+            value={
+              <>
+                {(frp ?? 0).toFixed(1)}
+                <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">
+                  MW
+                </span>
+              </>
+            }
+          />
 
           {deltaT != null && (
-            <div className="leading-none">
-              <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{deltaT.toFixed(0)} K</div>
-              <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">
-                THERMAL Δ · {deltaT >= DELTA_T_DETECT_K ? "strong" : "weak"}
-              </div>
-            </div>
+            <DossierMetric
+              value={`${deltaT.toFixed(0)} K`}
+              label={
+                <>
+                  THERMAL Δ · {fireAnomalyStrength(deltaT)}
+                </>
+              }
+            />
           )}
 
           {scan != null && track != null && (
-            <div className="leading-none">
-              <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{formatPixelKm(scan, track)}</div>
-              <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">FOOTPRINT</div>
-            </div>
+            <DossierMetric
+              label="FOOTPRINT"
+              value={formatPixelKm(scan, track)}
+            />
           )}
 
-          <div className="leading-none">
-            <div className="text-(length:--sig-text-md) text-sig-bright font-mono">{isNight ? "NIGHT" : "DAY"}</div>
-            <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim mt-1">PASS</div>
-          </div>
+          <DossierMetric
+            label="PASS"
+            value={
+              isNight
+                ? FirePassLabel.NightUppercase
+                : FirePassLabel.DayUppercase
+            }
+          />
         </div>
       </div>
 

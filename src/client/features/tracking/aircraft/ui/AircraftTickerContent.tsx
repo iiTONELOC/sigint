@@ -1,6 +1,14 @@
-import type { AircraftData } from "../types";
+import {
+  AircraftDataLabel,
+  AircraftFlightStatusLabel,
+  type AircraftData,
+} from "../types";
 import type { TickerRendererProps } from "@/features/base/types";
-import { formatKtShort } from "@/lib/format/units";
+import { formatKtShort } from "@/measurements";
+
+enum AircraftTickerClassName {
+  DimLine = "leading-snug text-sig-dim text-(length:--sig-text-sm)",
+}
 
 export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as AircraftData;
@@ -17,9 +25,9 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
     categoryDescription,
     speed = 0,
     altitude = 0,
-    callsign = "UNK",
-    acType = "Unknown",
-    originCountry = "UNK ORIGIN",
+    callsign = AircraftDataLabel.UnknownCallsign,
+    acType = AircraftDataLabel.Unknown,
+    originCountry = AircraftDataLabel.UnknownOrigin,
   } = d;
 
   const sq = squawk ? ` SQ${squawk}` : "";
@@ -30,7 +38,7 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
       ? formatKtShort(speed)
       : `${speed}kn`;
 
-  const opLabel = operator || operatorIcao || "UNK OP";
+  const opLabel = operator || operatorIcao || AircraftDataLabel.UnknownOperator;
   const category = categoryDescription ? ` • ${categoryDescription}` : "";
   const mfgModel = [manufacturerName, model].filter(Boolean).join(" ").trim();
 
@@ -38,7 +46,9 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
     ? `${opLabel} • ${mfgModel}${category}`
     : `${opLabel}${category}`;
 
-  const status = onGround ? "GROUND" : "AIRBORNE";
+  const status = onGround
+    ? AircraftFlightStatusLabel.Ground
+    : AircraftFlightStatusLabel.Airborne;
   const hdg = typeof heading === "number" ? `${heading}°` : "---";
 
   const milBadge = d.military ? " MIL" : "";
@@ -50,10 +60,10 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
         {reg} {acType} {altitude}ft {speedText}
         {sq}{milBadge}
       </div>
-      <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
+      <div className={AircraftTickerClassName.DimLine}>
         {metaLine}
       </div>
-      <div className="leading-snug text-sig-dim text-(length:--sig-text-sm)">
+      <div className={AircraftTickerClassName.DimLine}>
         {originCountry} • HDG {hdg} • {status}
       </div>
     </>

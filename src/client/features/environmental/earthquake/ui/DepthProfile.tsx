@@ -1,26 +1,50 @@
-import { formatKmMi } from "@/lib/format/units";
-import { mmiColor, isShallow } from "../intensity";
+import { formatKmMi } from "@/measurements";
+import {
+  isShallow,
+  MmiCssColor,
+  mmiBand,
+} from "../intensity";
 
-const VBW = 320;
-const VBH = 188;
-const CX = VBW / 2;
-const CY = 176;
-const R_SURFACE = 150;
-const MAX_DEPTH_KM = 700;
-const CRUST_KM = 35;
-const MOHO_KM = 70;
-const MANTLE_KM = 300;
-
-function depthToRadius(km: number): number {
-  const t = Math.log10(1 + Math.min(MAX_DEPTH_KM, Math.max(0, km))) / Math.log10(1 + MAX_DEPTH_KM);
-  return R_SURFACE * (1 - t);
+enum DepthProfileGeometry {
+  ViewBoxWidth = 320,
+  ViewBoxHeight = 188,
+  CenterX = 160,
+  CenterY = 176,
+  SurfaceRadius = 150,
+  MaximumDepthKilometers = 700,
+  CrustKilometers = 35,
+  MohoKilometers = 70,
+  MantleKilometers = 300,
+  CrossArm = 6,
+  LabelOffsetX = 8,
+  SurfaceLabelOffsetY = 2,
 }
 
-function pctX(x: number): string {
-  return `${(x / VBW) * 100}%`;
+enum DepthProfileStroke {
+  BoundaryWidth = 1.5,
+  LayerWidth = 1,
+  EpicenterWidth = 2.4,
 }
-function pctY(y: number): string {
-  return `${(y / VBH) * 100}%`;
+
+enum DepthProfileOpacity {
+  Layer = 0.3,
+  Guide = 0.5,
+  FocusOutline = 0.35,
+}
+
+enum DepthProfileColor {
+  Outline = "#000000",
+  NoFill = "none",
+}
+
+function depthToRadius(kilometers: number): number {
+  const boundedDepth = Math.min(
+    DepthProfileGeometry.MaximumDepthKilometers,
+    Math.max(0, kilometers),
+  );
+  const scale = Math.log10(1 + boundedDepth) /
+    Math.log10(1 + DepthProfileGeometry.MaximumDepthKilometers);
+  return DepthProfileGeometry.SurfaceRadius * (1 - scale);
 }
 
 export function DepthProfile({
@@ -30,58 +54,146 @@ export function DepthProfile({
   readonly depthKm: number;
   readonly mmi: number;
 }) {
-  const color = mmiColor(mmi);
+  const band = mmiBand(mmi);
   const shallow = isShallow(depthKm);
-  const focusY = CY - depthToRadius(depthKm);
-  const surfaceTopY = CY - R_SURFACE;
+  const focusY = DepthProfileGeometry.CenterY - depthToRadius(depthKm);
+  const surfaceTopY =
+    DepthProfileGeometry.CenterY - DepthProfileGeometry.SurfaceRadius;
+  const rootClass = `${band.className} w-full max-w-80 mx-auto`;
 
   return (
-    <div className="relative w-full max-w-80 mx-auto">
-      <svg viewBox={`0 0 ${VBW} ${VBH}`} className="w-full" role="img" aria-label="Hypocenter depth — Earth cross-section">
+    <div className={rootClass}>
+      <svg
+        viewBox={`0 0 ${DepthProfileGeometry.ViewBoxWidth} ${DepthProfileGeometry.ViewBoxHeight}`}
+        className="w-full"
+        role="img"
+        aria-label="Hypocenter depth, Earth cross-section"
+      >
         <defs>
           <clipPath id="quake-dome">
-            <path d={`M${CX - R_SURFACE},${CY} A${R_SURFACE} ${R_SURFACE} 0 0 1 ${CX + R_SURFACE},${CY} Z`} />
+            <path
+              d={`M${DepthProfileGeometry.CenterX - DepthProfileGeometry.SurfaceRadius},${DepthProfileGeometry.CenterY} A${DepthProfileGeometry.SurfaceRadius} ${DepthProfileGeometry.SurfaceRadius} 0 0 1 ${DepthProfileGeometry.CenterX + DepthProfileGeometry.SurfaceRadius},${DepthProfileGeometry.CenterY} Z`}
+            />
           </clipPath>
         </defs>
         <g clipPath="url(#quake-dome)">
-          <circle cx={CX} cy={CY} r={R_SURFACE} fill="color-mix(in srgb, #caa06a 60%, var(--color-sig-panel))" />
-          <circle cx={CX} cy={CY} r={depthToRadius(CRUST_KM)} fill="color-mix(in srgb, #c47a3e 58%, var(--color-sig-panel))" />
-          <circle cx={CX} cy={CY} r={depthToRadius(MOHO_KM)} fill="color-mix(in srgb, #b5673c 58%, var(--color-sig-panel))" />
-          <circle cx={CX} cy={CY} r={depthToRadius(MANTLE_KM)} fill="color-mix(in srgb, #8a4a28 60%, var(--color-sig-panel))" />
-          <g fill="none" stroke="#000000" strokeOpacity="0.3" strokeWidth="1">
-            <circle cx={CX} cy={CY} r={depthToRadius(CRUST_KM)} />
-            <circle cx={CX} cy={CY} r={depthToRadius(MOHO_KM)} />
-            <circle cx={CX} cy={CY} r={depthToRadius(MANTLE_KM)} />
+          <circle
+            cx={DepthProfileGeometry.CenterX}
+            cy={DepthProfileGeometry.CenterY}
+            r={DepthProfileGeometry.SurfaceRadius}
+            fill="color-mix(in srgb, #caa06a 60%, var(--color-sig-panel))"
+          />
+          <circle
+            cx={DepthProfileGeometry.CenterX}
+            cy={DepthProfileGeometry.CenterY}
+            r={depthToRadius(DepthProfileGeometry.CrustKilometers)}
+            fill="color-mix(in srgb, #c47a3e 58%, var(--color-sig-panel))"
+          />
+          <circle
+            cx={DepthProfileGeometry.CenterX}
+            cy={DepthProfileGeometry.CenterY}
+            r={depthToRadius(DepthProfileGeometry.MohoKilometers)}
+            fill="color-mix(in srgb, #b5673c 58%, var(--color-sig-panel))"
+          />
+          <circle
+            cx={DepthProfileGeometry.CenterX}
+            cy={DepthProfileGeometry.CenterY}
+            r={depthToRadius(DepthProfileGeometry.MantleKilometers)}
+            fill="color-mix(in srgb, #8a4a28 60%, var(--color-sig-panel))"
+          />
+          <g
+            fill={DepthProfileColor.NoFill}
+            stroke={DepthProfileColor.Outline}
+            strokeOpacity={DepthProfileOpacity.Layer}
+            strokeWidth={DepthProfileStroke.LayerWidth}
+          >
+            <circle
+              cx={DepthProfileGeometry.CenterX}
+              cy={DepthProfileGeometry.CenterY}
+              r={depthToRadius(DepthProfileGeometry.CrustKilometers)}
+            />
+            <circle
+              cx={DepthProfileGeometry.CenterX}
+              cy={DepthProfileGeometry.CenterY}
+              r={depthToRadius(DepthProfileGeometry.MohoKilometers)}
+            />
+            <circle
+              cx={DepthProfileGeometry.CenterX}
+              cy={DepthProfileGeometry.CenterY}
+              r={depthToRadius(DepthProfileGeometry.MantleKilometers)}
+            />
           </g>
         </g>
         <path
-          d={`M${CX - R_SURFACE},${CY} A${R_SURFACE} ${R_SURFACE} 0 0 1 ${CX + R_SURFACE},${CY}`}
-          fill="none"
+          d={`M${DepthProfileGeometry.CenterX - DepthProfileGeometry.SurfaceRadius},${DepthProfileGeometry.CenterY} A${DepthProfileGeometry.SurfaceRadius} ${DepthProfileGeometry.SurfaceRadius} 0 0 1 ${DepthProfileGeometry.CenterX + DepthProfileGeometry.SurfaceRadius},${DepthProfileGeometry.CenterY}`}
+          fill={DepthProfileColor.NoFill}
           className="stroke-sig-dim"
-          strokeWidth="1.5"
+          strokeWidth={DepthProfileStroke.BoundaryWidth}
         />
-        <line x1={CX - R_SURFACE} y1={CY} x2={CX + R_SURFACE} y2={CY} className="stroke-sig-border" strokeWidth="1.5" />
-        <line x1={CX} y1={surfaceTopY + 8} x2={CX} y2={focusY} className="stroke-sig-bright" strokeOpacity="0.5" strokeWidth="1" strokeDasharray="2 3" />
-        <g style={{ stroke: color }} strokeWidth="2.4">
-          <line x1={CX - 6} y1={surfaceTopY - 6} x2={CX + 6} y2={surfaceTopY + 6} />
-          <line x1={CX + 6} y1={surfaceTopY - 6} x2={CX - 6} y2={surfaceTopY + 6} />
+        <line
+          x1={DepthProfileGeometry.CenterX - DepthProfileGeometry.SurfaceRadius}
+          y1={DepthProfileGeometry.CenterY}
+          x2={DepthProfileGeometry.CenterX + DepthProfileGeometry.SurfaceRadius}
+          y2={DepthProfileGeometry.CenterY}
+          className="stroke-sig-border"
+          strokeWidth={DepthProfileStroke.BoundaryWidth}
+        />
+        <line
+          x1={DepthProfileGeometry.CenterX}
+          y1={surfaceTopY + DepthProfileGeometry.LabelOffsetX}
+          x2={DepthProfileGeometry.CenterX}
+          y2={focusY}
+          className="stroke-sig-bright"
+          strokeOpacity={DepthProfileOpacity.Guide}
+          strokeWidth={DepthProfileStroke.LayerWidth}
+          strokeDasharray="2 3"
+        />
+        <g
+          stroke={MmiCssColor.Intensity}
+          strokeWidth={DepthProfileStroke.EpicenterWidth}
+        >
+          <line
+            x1={DepthProfileGeometry.CenterX - DepthProfileGeometry.CrossArm}
+            y1={surfaceTopY - DepthProfileGeometry.CrossArm}
+            x2={DepthProfileGeometry.CenterX + DepthProfileGeometry.CrossArm}
+            y2={surfaceTopY + DepthProfileGeometry.CrossArm}
+          />
+          <line
+            x1={DepthProfileGeometry.CenterX + DepthProfileGeometry.CrossArm}
+            y1={surfaceTopY - DepthProfileGeometry.CrossArm}
+            x2={DepthProfileGeometry.CenterX - DepthProfileGeometry.CrossArm}
+            y2={surfaceTopY + DepthProfileGeometry.CrossArm}
+          />
         </g>
-        <circle cx={CX} cy={focusY} r="6" style={{ fill: color }} stroke="#000000" strokeOpacity="0.35" />
+        <circle
+          cx={DepthProfileGeometry.CenterX}
+          cy={focusY}
+          r={DepthProfileGeometry.CrossArm}
+          fill={MmiCssColor.Intensity}
+          stroke={DepthProfileColor.Outline}
+          strokeOpacity={DepthProfileOpacity.FocusOutline}
+        />
+        <text
+          x={DepthProfileGeometry.CenterX + DepthProfileGeometry.LabelOffsetX}
+          y={surfaceTopY - DepthProfileGeometry.SurfaceLabelOffsetY}
+          className="fill-sig-bright text-(length:--sig-text-xs) font-mono"
+        >
+          EPICENTER
+        </text>
+        <text
+          x={DepthProfileGeometry.CenterX + DepthProfileGeometry.LabelOffsetX}
+          y={focusY}
+          dominantBaseline="middle"
+          className="text-(length:--sig-text-xs) font-mono"
+        >
+          <tspan className="fill-sig-bright font-bold">
+            {formatKmMi(depthKm)}
+          </tspan>{" "}
+          <tspan fill={MmiCssColor.Intensity}>
+            · {shallow ? "SHALLOW" : "DEEP"}
+          </tspan>
+        </text>
       </svg>
-
-      <span
-        className="absolute -translate-y-full pl-2 text-(length:--sig-text-xs) text-sig-bright font-mono whitespace-nowrap"
-        style={{ left: pctX(CX + 8), top: pctY(surfaceTopY - 2) }}
-      >
-        EPICENTER
-      </span>
-      <span
-        className="absolute -translate-y-1/2 pl-2 text-(length:--sig-text-xs) font-mono whitespace-nowrap"
-        style={{ left: pctX(CX + 8), top: pctY(focusY) }}
-      >
-        <span className="text-sig-bright font-bold">{formatKmMi(depthKm)}</span>{" "}
-        <span style={{ color }}>· {shallow ? "SHALLOW" : "DEEP"}</span>
-      </span>
     </div>
   );
 }

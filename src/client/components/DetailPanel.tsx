@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useHasDossier } from "@/lib/runtime/layoutSignals";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import { useTheme } from "@/context/ThemeContext";
 import { getColorMap, ThemeCssVar } from "@/config/theme";
 import { windColor } from "@/features/environmental/cyclones/classification";
@@ -24,10 +24,11 @@ import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { useUnitsMode } from "@/lib/ui/userPreferences";
+import { useUnitsMode } from "@/preferences/units";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { FeatureDefinition } from "@/features/base/types";
 import { featureRegistry } from "@/features/registry";
+import { isHttpUrl } from "@/dossier/detail-panel/utils/httpUrl";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
 import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
@@ -36,15 +37,6 @@ import { FireDetailSummary } from "@/features/environmental/fires/ui/FireDetailS
 import { WeatherDetailSummary } from "@/features/environmental/weather/ui/WeatherDetailSummary";
 import { EventDetailSummary } from "@/features/intel/events/ui/EventDetailSummary";
 import { ShipDetailSummary } from "@/features/tracking/ships/ui/ShipDetailSummary";
-
-enum UrlScheme {
-  Https = "https://",
-  Http = "http://",
-}
-
-function isUrl(value: string): boolean {
-  return value.startsWith(UrlScheme.Https) || value.startsWith(UrlScheme.Http);
-}
 
 function getRows(item: DataPoint): [string, string][] {
   const feature = featureRegistry.get(item.type);
@@ -123,20 +115,20 @@ function useDrag() {
 
 // ── Mobile bottom-sheet with snap heights ────────────────────────────
 
-const CLOSE_LABEL = "Close detail panel";
-
-enum ModeLabel {
+enum DetailPanelLabel {
+  Close = "Close detail panel",
   Locate = "LOCATE",
   Focus = "FOCUS",
   Solo = "SOLO",
 }
 
-// Heights stop short of the viewport so the selected globe point stays
-// visible. One policy enum: every number the sheet gesture depends on.
+enum SheetSnapHeightVh {
+  Peek = 18,
+  Half = 38,
+  Full = 55,
+}
+
 enum SheetPolicy {
-  PeekHeightVh = 18,
-  HalfHeightVh = 38,
-  FullHeightVh = 55,
   VhPerViewport = 100,
   OverDragVh = 2,
   MinDragHeightVh = 10,
@@ -150,21 +142,47 @@ enum SheetPolicy {
   SnapSettleMs = 250,
 }
 
-const SHEET_OPEN_HEIGHT_VH = SheetPolicy.HalfHeightVh;
+enum DetailPanelIconSize {
+  Action = 12,
+  Drag = 14,
+  ExternalLink = 9,
+  Feature = 16,
+  Mode = 11,
+}
 
-const SNAP_HEIGHTS = [
-  SheetPolicy.PeekHeightVh,
-  SheetPolicy.HalfHeightVh,
-  SheetPolicy.FullHeightVh,
-];
+enum DetailPanelIconStrokeWidth {
+  Action = 2.5,
+}
+
+enum DetailPanelColorSuffix {
+  ActiveBackground = "20",
+}
+
+enum DetailPanelScrollPx {
+  NearTop = 5,
+  OverflowMargin = 10,
+}
+
+enum DetailPanelClassName {
+  DesktopPanel = "hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll",
+  HeaderRow = "flex items-center gap-1.5",
+  SummaryRow = "flex justify-between mb-1.5",
+  SummaryRowLabel = "uppercase tracking-wide text-sig-accent text-xs",
+  SummaryRowList = "pt-2.5 border-t border-sig-border",
+  SummaryRowValue = "text-right max-w-38.75 wrap-break-word text-sig-bright text-xs",
+}
+
+const SHEET_SNAP_HEIGHTS = Object.values(SheetSnapHeightVh).filter(
+  (height): height is SheetSnapHeightVh => typeof height === "number",
+);
 
 function useSheetDismiss(onClose: () => void) {
   const offsetRef = useRef(0);
   const settlingRef = useRef(false);
-  const [heightVh, setHeightVh] = useState<number>(SHEET_OPEN_HEIGHT_VH);
-  const heightRef = useRef<number>(SHEET_OPEN_HEIGHT_VH);
+  const [heightVh, setHeightVh] = useState<number>(SheetSnapHeightVh.Half);
+  const heightRef = useRef<number>(SheetSnapHeightVh.Half);
   heightRef.current = heightVh;
-  const heightAtDragStart = useRef<number>(SHEET_OPEN_HEIGHT_VH);
+  const heightAtDragStart = useRef<number>(SheetSnapHeightVh.Half);
   const [, forceRender] = useReducer((count: number) => count + 1, 0);
   const dragRef = useRef({
     active: false,
@@ -200,8 +218,8 @@ function useSheetDismiss(onClose: () => void) {
       lastT: 0,
       velocity: 0,
     };
-    if (heightRef.current !== SHEET_OPEN_HEIGHT_VH) {
-      setHeightVh(SHEET_OPEN_HEIGHT_VH);
+    if (heightRef.current !== SheetSnapHeightVh.Half) {
+      setHeightVh(SheetSnapHeightVh.Half);
     }
     if (offsetRef.current !== 0 || settlingRef.current) {
       offsetRef.current = 0;
@@ -242,7 +260,7 @@ function useSheetDismiss(onClose: () => void) {
       const newH = Math.max(
         SheetPolicy.MinDragHeightVh,
         Math.min(
-          SheetPolicy.FullHeightVh + SheetPolicy.OverDragVh,
+          SheetSnapHeightVh.Full + SheetPolicy.OverDragVh,
           heightAtDragStart.current - dvh,
         ),
       );
@@ -278,8 +296,9 @@ function useSheetDismiss(onClose: () => void) {
     }
     if (vel < SheetPolicy.FlickExpandVelocity) {
       const next =
-        SNAP_HEIGHTS.find((snap) => snap > h + SheetPolicy.SnapSeekMarginVh) ??
-        SNAP_HEIGHTS.at(-1)!;
+        SHEET_SNAP_HEIGHTS.find(
+          (snap) => snap > h + SheetPolicy.SnapSeekMarginVh,
+        ) ?? SheetSnapHeightVh.Full;
       snapTo(next);
       return;
     }
@@ -289,9 +308,9 @@ function useSheetDismiss(onClose: () => void) {
       return;
     }
 
-    let best = SheetPolicy.PeekHeightVh;
+    let best = SheetSnapHeightVh.Peek;
     let bestDist = Infinity;
-    for (const snap of SNAP_HEIGHTS) {
+    for (const snap of SHEET_SNAP_HEIGHTS) {
       const distance = Math.abs(snap - h);
       if (distance < bestDist) {
         bestDist = distance;
@@ -439,7 +458,7 @@ export function DetailPanel({
 
       {/* Desktop: draggable floating card */}
       <div // NOSONAR typescript:S6848,S1082: Click guard only, so a panel tap cannot fall through to the globe. Not a control: focus or keys here would put a non-interactive container in the tab order. SSDLC 8.2 false positive, owner: DetailPanel.
-        className={`hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll ${side === PanelSide.Left ? "left-3.5" : "right-3.5"}`}
+        className={`${DetailPanelClassName.DesktopPanel} ${side === PanelSide.Left ? "left-3.5" : "right-3.5"}`}
         style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -448,7 +467,7 @@ export function DetailPanel({
           className="flex justify-center mb-1 -mt-1 text-sig-dim cursor-grab active:cursor-grabbing touch-none"
           onPointerDown={drag.onPointerDown}
         >
-          <GripHorizontal size={14} />
+          <GripHorizontal size={DetailPanelIconSize.Drag} />
         </div>
         {content}
       </div>
@@ -466,16 +485,18 @@ function MobileScrollHint({
     const el = sheetRef.current;
     if (!el) return;
     const check = () => {
-      const hasOverflow = el.scrollHeight > el.clientHeight + 10;
-      const nearTop = el.scrollTop < 5;
+      const hasOverflow =
+        el.scrollHeight >
+        el.clientHeight + DetailPanelScrollPx.OverflowMargin;
+      const nearTop = el.scrollTop < DetailPanelScrollPx.NearTop;
       setShow(hasOverflow && nearTop);
     };
     check();
-    el.addEventListener(`${DomEvent.Scroll}`, check);
+    el.addEventListener(DomEvent.Scroll, check);
     const ob = new ResizeObserver(check);
     ob.observe(el);
     return () => {
-      el.removeEventListener(`${DomEvent.Scroll}`, check);
+      el.removeEventListener(DomEvent.Scroll, check);
       ob.disconnect();
     };
   }, [sheetRef]);
@@ -515,24 +536,17 @@ function ModeButton({
         active
           ? {
               color: accentColor,
-              background: `${accentColor}20`,
+              background: `${accentColor}${DetailPanelColorSuffix.ActiveBackground}`,
               borderColor: accentColor,
             }
           : undefined
       }
     >
-      <ButtonIcon size={11} />
+      <ButtonIcon size={DetailPanelIconSize.Mode} />
       {label}
     </button>
   );
 }
-
-const SUMMARY_CLASS = {
-  rowList: "pt-2.5 border-t border-sig-border",
-  row: "flex justify-between mb-1.5",
-  rowLabel: "uppercase tracking-wide text-sig-accent text-xs",
-  rowValue: "text-right max-w-38.75 wrap-break-word text-sig-bright text-xs",
-};
 
 const TYPES_WITH_OWN_COORDINATES: ReadonlySet<string> = new Set([
   Domain.Cyclones,
@@ -545,11 +559,15 @@ const TYPES_WITH_OWN_COORDINATES: ReadonlySet<string> = new Set([
 
 function RowList({ rows }: { readonly rows: readonly [string, string][] }) {
   return (
-    <div className={SUMMARY_CLASS.rowList}>
+    <div className={DetailPanelClassName.SummaryRowList}>
       {rows.map(([label, value]) => (
-        <div key={label} className={SUMMARY_CLASS.row}>
-          <span className={SUMMARY_CLASS.rowLabel}>{label}</span>
-          <span className={SUMMARY_CLASS.rowValue}>{value}</span>
+        <div key={label} className={DetailPanelClassName.SummaryRow}>
+          <span className={DetailPanelClassName.SummaryRowLabel}>
+            {label}
+          </span>
+          <span className={DetailPanelClassName.SummaryRowValue}>
+            {value}
+          </span>
         </div>
       ))}
     </div>
@@ -592,8 +610,8 @@ function PanelBody({
   readonly rows: [string, string][];
   readonly onOpenDossier?: () => void;
 }) {
-  const dataRows = rows.filter(([, v]) => !isUrl(v));
-  const linkRows = rows.filter(([, v]) => isUrl(v));
+  const dataRows = rows.filter(([, value]) => !isHttpUrl(value));
+  const linkRows = rows.filter(([, value]) => isHttpUrl(value));
 
   return (
     <>
@@ -627,7 +645,10 @@ function PanelBody({
             onClick={onOpenDossier}
             className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-xs tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
           >
-            <FileSearch size={12} strokeWidth={2.5} />
+            <FileSearch
+              size={DetailPanelIconSize.Action}
+              strokeWidth={DetailPanelIconStrokeWidth.Action}
+            />
             OPEN IN DOSSIER
           </button>
         </div>
@@ -645,7 +666,7 @@ function PanelBody({
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-xs tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
             >
               {label}
-              <ExternalLink size={9} />
+              <ExternalLink size={DetailPanelIconSize.ExternalLink} />
             </a>
           ))}
         </div>
@@ -676,8 +697,12 @@ function PanelHeader({
   return (
     <div className="mb-2.5">
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <Icon size={16} style={{ color }} {...feature.iconProps} />
+        <div className={DetailPanelClassName.HeaderRow}>
+          <Icon
+            size={DetailPanelIconSize.Feature}
+            style={{ color }}
+            {...feature.iconProps}
+          />
           <span
             className="font-bold tracking-widest text-(length:--sig-text-btn)"
             style={{ color }}
@@ -689,17 +714,17 @@ function PanelHeader({
           type="button"
           data-tour="detail-close"
           onClick={onClose}
-          aria-label={CLOSE_LABEL}
+          aria-label={DetailPanelLabel.Close}
           className="cursor-pointer text-[18px] leading-none select-none text-sig-dim touch-target flex items-center justify-center hover:text-sig-bright transition-colors"
         >
           ✕
         </button>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className={DetailPanelClassName.HeaderRow}>
         {onZoomTo && (
           <ModeButton
             active={locateActive ?? false}
-            label={ModeLabel.Locate}
+            label={DetailPanelLabel.Locate}
             icon={LocateFixed}
             accentColor={ThemeCssVar.Accent}
             onClick={onZoomTo}
@@ -707,7 +732,7 @@ function PanelHeader({
         )}
         <ModeButton
           active={isolateMode === IsolateMode.Focus}
-          label={ModeLabel.Focus}
+          label={DetailPanelLabel.Focus}
           icon={Eye}
           accentColor={ThemeCssVar.Accent}
           onClick={() =>
@@ -718,7 +743,7 @@ function PanelHeader({
         />
         <ModeButton
           active={isolateMode === IsolateMode.Solo}
-          label={ModeLabel.Solo}
+          label={DetailPanelLabel.Solo}
           icon={Crosshair}
           accentColor={ThemeCssVar.Danger}
           onClick={() =>

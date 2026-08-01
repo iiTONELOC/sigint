@@ -35,30 +35,40 @@ export const CROSS_SOURCE_TIME_WINDOW =
 
 // ── Country / timestamp helpers ────────────────────────────────────
 
-const UNKNOWN_COUNTRY = "Unknown";
-const COUNTRY_SEPARATOR = ",";
+export enum CorrelationRegion {
+  Global = "Global",
+  UnitedStates = "United States",
+  Unknown = "Unknown",
+}
+
+enum CorrelationCountrySyntax {
+  Separator = ",",
+}
 
 export function getCountry(item: DataPoint): string {
   switch (item.type) {
     case Domain.Events:
       return (
         item.data.sourceCountry ||
-        item.data.locationName?.split(COUNTRY_SEPARATOR).pop()?.trim() ||
-        UNKNOWN_COUNTRY
+        item.data.locationName
+          ?.split(CorrelationCountrySyntax.Separator)
+          .pop()
+          ?.trim() ||
+        CorrelationRegion.Unknown
       );
     case Domain.Aircraft:
-      return item.data.originCountry || UNKNOWN_COUNTRY;
+      return item.data.originCountry || CorrelationRegion.Unknown;
     case Domain.Quakes: {
       const location = item.data.location || EMPTY_TEXT;
-      const parts = location.split(COUNTRY_SEPARATOR);
+      const parts = location.split(CorrelationCountrySyntax.Separator);
       return parts.length > 1 ? (parts.at(-1) ?? location).trim() : location;
     }
     case Domain.Weather:
-      return "United States";
+      return CorrelationRegion.UnitedStates;
     case Domain.Fires:
-      return "Global";
+      return CorrelationRegion.Global;
     default:
-      return UNKNOWN_COUNTRY;
+      return CorrelationRegion.Unknown;
   }
 }
 

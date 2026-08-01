@@ -1,31 +1,71 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import { Field } from "./dossierKit";
+import { DetailField, DetailFieldAlign } from "@/dossier";
+import { metersPerSecondToFeetPerMinute } from "@/measurements";
+import {
+  AircraftDataLabel,
+  AircraftFlightStatusLabel,
+  type AircraftData,
+} from "../types";
 import { getSquawkStatus } from "../lib/utils";
+import { SquawkStatus } from "@shared/domain/aircraft";
+import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
+
+enum AircraftSummaryValue {
+  CriticalDescentFeetPerMinute = -2_000,
+  DescentFeetPerMinute = -50,
+  ClimbFeetPerMinute = 50,
+  ModelFamilyMinimumLength = 3,
+}
+
+enum AircraftSummaryClassName {
+  AccentText = "text-sig-accent",
+  DangerText = "text-sig-danger",
+  QuakeText = "text-sig-quakes",
+}
 
 function vsClass(fpm: number): string {
-  if (fpm <= -2000) return "text-sig-danger";
-  if (fpm < -50) return "text-sig-accent";
-  if (fpm > 50) return "text-sig-quakes";
-  return "";
+  if (fpm <= AircraftSummaryValue.CriticalDescentFeetPerMinute) {
+    return AircraftSummaryClassName.DangerText;
+  }
+  if (fpm < AircraftSummaryValue.DescentFeetPerMinute) {
+    return AircraftSummaryClassName.AccentText;
+  }
+  if (fpm > AircraftSummaryValue.ClimbFeetPerMinute) {
+    return AircraftSummaryClassName.QuakeText;
+  }
+  return EMPTY_TEXT;
 }
 
 export function AircraftDetailSummary({ item }: { readonly item: DataPoint }) {
-  const d = (item as { data?: Record<string, any> }).data ?? {};
+  const d = item.data as AircraftData;
 
-  const operator = d.operator || d.operatorIcao || d.registration || "Unknown";
-  const callsign = (d.callsign ?? "").trim();
-  const reg = d.registration ?? "";
+  const operator =
+    d.operator ||
+    d.operatorIcao ||
+    d.registration ||
+    AircraftDataLabel.Unknown;
+  const callsign = (d.callsign ?? EMPTY_TEXT).trim();
+  const reg = d.registration ?? EMPTY_TEXT;
   const sub = [callsign, reg].filter(Boolean).join(" · ");
 
-  const model = d.model ?? "";
-  const family = model.split(/[\s/-]/)[0] ?? "";
-  const typeBadge = family.length >= 3 ? family : d.acType || "";
+  const model = d.model ?? EMPTY_TEXT;
+  const family = model.split(/[\s/-]/)[0] ?? EMPTY_TEXT;
+  const typeBadge =
+    family.length >= AircraftSummaryValue.ModelFamilyMinimumLength
+      ? family
+      : d.acType || EMPTY_TEXT;
 
-  const emergency = d.squawk ? getSquawkStatus(d.squawk) !== "normal" : false;
-  const fpm = d.verticalRate != null ? Math.round(d.verticalRate * 196.85) : 0;
-  const alt = d.altitude != null ? Math.round(d.altitude).toLocaleString() : "—";
-  const spd = d.speed != null ? `${Math.round(d.speed)}` : "—";
-  const hdg = d.heading != null ? `${Math.round(d.heading)}°` : "—";
+  const emergency = d.squawk
+    ? getSquawkStatus(d.squawk) !== SquawkStatus.Normal
+    : false;
+  const fpm = d.verticalRate != null
+    ? Math.round(metersPerSecondToFeetPerMinute(d.verticalRate))
+    : 0;
+  const alt = d.altitude != null
+    ? Math.round(d.altitude).toLocaleString()
+    : NO_VALUE;
+  const spd = d.speed != null ? `${Math.round(d.speed)}` : NO_VALUE;
+  const hdg = d.heading != null ? `${Math.round(d.heading)}°` : NO_VALUE;
   const vs = `${fpm > 0 ? "+" : ""}${fpm.toLocaleString()}`;
 
   return (
@@ -57,7 +97,9 @@ export function AircraftDetailSummary({ item }: { readonly item: DataPoint }) {
             </span>
           )}
           {emergency && (
-            <span className="text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-danger/10 text-sig-danger border border-sig-danger/40">
+            <span
+              className={`text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-danger/10 border border-sig-danger/40 ${AircraftSummaryClassName.DangerText}`}
+            >
               {d.squawk} EMERG
             </span>
           )}
@@ -66,21 +108,41 @@ export function AircraftDetailSummary({ item }: { readonly item: DataPoint }) {
 
       <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-sig-border/50">
         <div className="flex justify-between gap-4">
-          <Field label="ALT ft" value={alt} />
-          <Field label="GS kn" value={spd} align="right" />
+          <DetailField label="ALT ft" value={alt} />
+          <DetailField
+            label="GS kn"
+            value={spd}
+            align={DetailFieldAlign.Right}
+          />
         </div>
         <div className="flex justify-between gap-4">
-          <Field label="HDG" value={hdg} />
-          <Field label="V/S fpm" value={vs} align="right" valueClass={vsClass(fpm)} />
+          <DetailField label="HDG" value={hdg} />
+          <DetailField
+            label="V/S fpm"
+            value={vs}
+            align={DetailFieldAlign.Right}
+            valueClass={vsClass(fpm)}
+          />
         </div>
         <div className="flex justify-between gap-4">
-          <Field label="STATUS" value={d.onGround ? "ON GROUND" : "AIRBORNE"} />
+          <DetailField
+            label="STATUS"
+            value={
+              d.onGround
+                ? AircraftFlightStatusLabel.OnGround
+                : AircraftFlightStatusLabel.Airborne
+            }
+          />
           {d.squawk && (
-            <Field
+            <DetailField
               label="SQUAWK"
               value={d.squawk}
-              align="right"
-              valueClass={emergency ? "text-sig-danger" : ""}
+              align={DetailFieldAlign.Right}
+              valueClass={
+                emergency
+                  ? AircraftSummaryClassName.DangerText
+                  : EMPTY_TEXT
+              }
             />
           )}
         </div>

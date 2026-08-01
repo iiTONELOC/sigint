@@ -4,11 +4,8 @@ import {
   STROKED_ICON_PROPS,
   type FeatureDefinition,
 } from "@/features/base/types";
-import {
-  formatKtMph,
-  formatNmKm,
-  formatPressureMb,
-} from "@/lib/format/units";
+import { formatKtMph } from "@/measurements";
+import { formatNmKm, formatPressureMb } from "./formatters";
 import {
   CycloneFeatureLabel,
   CycloneRowLabel,
@@ -17,18 +14,16 @@ import {
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 import { BLANK_SEPARATOR } from "@shared/text";
 
-const SEARCH_SUFFIX = "forecast";
-const LEAD_TIME_PREFIX = "+";
-const HOUR_SUFFIX = "h";
+enum CycloneForecastText {
+  SearchSuffix = "forecast",
+  LeadTimePrefix = "+",
+  HourSuffix = "h",
+}
 
 /** Lead time as the dossier writes it: `+24h`. */
 export function leadTime(fcstHour: number): string {
-  return `${LEAD_TIME_PREFIX}${fcstHour}${HOUR_SUFFIX}`;
+  return `${CycloneForecastText.LeadTimePrefix}${fcstHour}${CycloneForecastText.HourSuffix}`;
 }
-
-// Feature entry for the synthetic Domain.CyclonesForecast points. Needed so
-// featureRegistry.get(type) resolves for the hit-test/detail pipeline.
-// Minimal: forecast points piggyback on the cyclones layer toggle.
 
 export const cycloneForecastFeature: FeatureDefinition<
   CycloneForecastPointData,
@@ -59,5 +54,5 @@ export const cycloneForecastFeature: FeatureDefinition<
   },
 
   getSearchText: (data: CycloneForecastPointData) =>
-    `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}${BLANK_SEPARATOR}${SEARCH_SUFFIX}`,
+    `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}${BLANK_SEPARATOR}${CycloneForecastText.SearchSuffix}`,
 };

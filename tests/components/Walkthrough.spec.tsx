@@ -2,12 +2,15 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
+import { flushReactUpdates } from "../support/react";
+import {
+  installFetchMock,
+  type RestoreFetch,
+} from "../support/network";
 
-// ── Mocks (storageService + paneLayoutContext only — NOT DataContext) ──
+// Mock storage and layout signals. Keep DataContext real.
 
 let mockStorage = new Map<string, unknown>();
-let resetCalls = 0;
-let lastStepId: string | null = null;
 
 mock.module("@/lib/cache/storageService", () => ({
   cacheGet: async (key: string) => mockStorage.get(key) ?? null,
@@ -21,69 +24,44 @@ mock.module("@/lib/cache/storageService", () => ({
 }));
 
 mock.module("@/lib/runtime/layoutSignals", () => ({
-  requestWalkthroughReset: () => {
-    resetCalls++;
-  },
-  requestWalkthroughUndo: () => {},
-  setWalkthroughStepId: (id: string | null) => {
-    lastStepId = id;
-  },
-  useWalkthroughLeafTypes: () => new Set(["globe"]),
-  useWalkthroughLeafCount: () => 1,
-  useWalkthroughPresetCount: () => 0,
-  useVideoPresetCount: () => 0,
+  requestWatchLayout: () => {},
 }));
 
-const { Walkthrough } = await import("@/components/Walkthrough");
-const { CACHE_KEYS } = await import("@/lib/cache/cacheKeys");
+const {
+  ESSENTIAL_STEPS,
+  Walkthrough,
+  onWalkthroughReset,
+  setVideoPresetCount,
+  setWalkthroughLayoutSnapshot,
+  useWalkthroughStepId,
+  WalkthroughStepId,
+  WalkthroughStepMode,
+} = await import("@/walkthrough");
+const { PaneType } = await import("@/panes/workspace");
+const { CacheKey } = await import("@shared/domain/cache");
 const { ThemeProvider } = await import("@/context/ThemeContext");
 const { DataProvider } = await import("@/context/DataContext");
-const { LayoutModeProvider } = await import("@/context/LayoutModeContext");
+const { LayoutModeProvider } = await import("@/layout-mode");
 
 // ── Mock fetch for DataProvider ─────────────────────────────────────
 
-const origFetch = globalThis.fetch;
+let restoreFetch: RestoreFetch;
 
-function mockAllFetch() {
-  // @ts-ignore
-  globalThis.fetch = async (input: RequestInfo | URL) => {
+function mockAllFetch(): RestoreFetch {
+  return installFetchMock(async (input) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/api/auth/token"))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: true }),
-      } as unknown as Response;
+      return Response.json({ ok: true });
     if (url.includes("/api/aircraft/states"))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ ac: [] }),
-      } as unknown as Response;
+      return Response.json({ ac: [] });
     if (url.includes("earthquake.usgs.gov"))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ features: [] }),
-      } as unknown as Response;
+      return Response.json({ features: [] });
     if (url.includes("api.weather.gov"))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ type: "FeatureCollection", features: [] }),
-      } as unknown as Response;
+      return Response.json({ type: "FeatureCollection", features: [] });
     if (url.includes("/api/"))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [], items: [] }),
-      } as unknown as Response;
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    } as unknown as Response;
-  };
+      return Response.json({ data: [], items: [] });
+    return Response.json({});
+  });
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -148,6 +126,10 @@ function render(props: Record<string, any> = {}) {
   return { container, unmount, closeCalls };
 }
 
+function CurrentStepId() {
+  return <output data-testid="current-step-id">{useWalkthroughStepId()}</output>;
+}
+
 function clickButton(label: string): boolean {
   const btn = Array.from(document.body.querySelectorAll("button")).find((b) =>
     b.textContent?.includes(label),
@@ -169,15 +151,15 @@ function advanceInfoSteps(count: number) {
 
 beforeEach(() => {
   mockStorage = new Map();
-  resetCalls = 0;
-  lastStepId = null;
+  setWalkthroughLayoutSnapshot(new Set([PaneType.Globe]), 1, 0);
+  setVideoPresetCount(0);
   document.body.innerHTML = "";
-  mockAllFetch();
+  restoreFetch = mockAllFetch();
   addTourTargets();
 });
 
 afterEach(() => {
-  globalThis.fetch = origFetch;
+  restoreFetch();
   document.body.innerHTML = "";
 });
 
@@ -197,15 +179,28 @@ describe("Walkthrough", () => {
   });
 
   test("fires requestWalkthroughReset on mount", () => {
+    let resetCalls = 0;
+    const unsubscribe = onWalkthroughReset(() => {
+      resetCalls++;
+    });
     const { unmount } = render();
     expect(resetCalls).toBeGreaterThanOrEqual(1);
     unmount();
+    unsubscribe();
   });
 
   test("pushes step ID on mount", () => {
-    const { unmount } = render();
-    expect(lastStepId).toBe("welcome");
-    unmount();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(<CurrentStepId />);
+    });
+    const walkthrough = render();
+    expect(container.textContent).toBe("welcome");
+    walkthrough.unmount();
+    act(() => root.unmount());
+    container.remove();
   });
 
   test("has NEXT and SKIP buttons on info steps", () => {
@@ -258,15 +253,15 @@ describe("Walkthrough", () => {
   test("SKIP calls onComplete", () => {
     const { unmount, closeCalls } = render();
     clickButton("SKIP");
-    expect(closeCalls.length).toBe(1);
+    expect(closeCalls).toHaveLength(1);
     unmount();
   });
 
   test("SKIP does NOT persist walkthroughComplete flag (session-only)", async () => {
     const { unmount } = render();
     clickButton("SKIP");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(mockStorage.get(CACHE_KEYS.walkthroughComplete)).toBeUndefined();
+    await flushReactUpdates();
+    expect(mockStorage.get(CacheKey.WalkthroughComplete)).toBeUndefined();
     unmount();
   });
 
@@ -279,9 +274,9 @@ describe("Walkthrough", () => {
   test("DON'T SHOW AGAIN calls onComplete and persists flag", async () => {
     const { unmount, closeCalls } = render();
     clickButton("DON'T SHOW AGAIN");
-    expect(closeCalls.length).toBe(1);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(mockStorage.get(CACHE_KEYS.walkthroughComplete)).toBe(true);
+    expect(closeCalls).toHaveLength(1);
+    await flushReactUpdates();
+    expect(mockStorage.get(CacheKey.WalkthroughComplete)).toBe(true);
     unmount();
   });
 
@@ -290,9 +285,9 @@ describe("Walkthrough", () => {
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(closeCalls.length).toBe(1);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(mockStorage.get(CACHE_KEYS.walkthroughComplete)).toBeUndefined();
+    expect(closeCalls).toHaveLength(1);
+    await flushReactUpdates();
+    expect(mockStorage.get(CacheKey.WalkthroughComplete)).toBeUndefined();
     unmount();
   });
 
@@ -329,7 +324,7 @@ describe("Walkthrough", () => {
     const { unmount, closeCalls } = render();
     advanceInfoSteps(2);
     clickButton("SKIP");
-    expect(closeCalls.length).toBe(1);
+    expect(closeCalls).toHaveLength(1);
     unmount();
   });
 
@@ -337,32 +332,32 @@ describe("Walkthrough", () => {
 
   test("overlay has correct z-index", () => {
     const { unmount } = render();
-    const overlay = document.body.querySelector("[class*='z-[9999]']");
-    expect(overlay).not.toBeNull();
+    const overlay = document.body.querySelector("[data-wt-overlay]");
+    expect(overlay?.classList.contains("z-9999")).toBe(true);
     unmount();
   });
 
   test("overlay has backdrop dimming via SVG", () => {
     const { unmount } = render();
-    const html = document.body.innerHTML;
-    expect(html).toContain("rgba(0,0,0,0.72)");
+    const backdrop = document.body.querySelector("[data-wt-backdrop]");
+    expect(backdrop).not.toBeNull();
     unmount();
   });
 
   test("info step overlay has pointer-events none for interactivity", () => {
     const { unmount } = render();
-    const overlay = document.body.querySelector("[class*='z-[9999]']");
+    const overlay = document.body.querySelector("[data-wt-overlay]");
     expect(overlay).not.toBeNull();
-    expect((overlay as HTMLElement).style.pointerEvents).toBe("none");
+    expect(overlay?.classList.contains("pointer-events-none")).toBe(true);
     unmount();
   });
 
   test("action step overlay also has pointer-events none", () => {
     const { unmount } = render();
     advanceInfoSteps(2);
-    const overlay = document.body.querySelector("[class*='z-[9999]']");
+    const overlay = document.body.querySelector("[data-wt-overlay]");
     expect(overlay).not.toBeNull();
-    expect((overlay as HTMLElement).style.pointerEvents).toBe("none");
+    expect(overlay?.classList.contains("pointer-events-none")).toBe(true);
     unmount();
   });
 
@@ -384,41 +379,46 @@ describe("Walkthrough", () => {
   // ── CompletionCheck logic (tested directly on step objects) ────────
 
   test("globe-select completionCheck responds to selectedId", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
-    const step = ESSENTIAL_STEPS.find((s: any) => s.id === "globe-select");
+    const step = ESSENTIAL_STEPS.find(
+      (candidate) => candidate.id === WalkthroughStepId.GlobeSelect,
+    )!;
     expect(step).toBeDefined();
-    expect(step.mode).toBe("action");
-    expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(false);
-    expect(step.completionCheck(new Set(), 1, 0, "Aabc123", false)).toBe(true);
+    expect(step.mode).toBe(WalkthroughStepMode.Action);
+    expect(step.completionCheck?.(new Set(), 1, 0, null, false, 0)).toBe(false);
+    expect(step.completionCheck?.(new Set(), 1, 0, "Aabc123", false, 0)).toBe(true);
   });
 
   test("globe-deselect completionCheck responds to selectedId null", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
-    const step = ESSENTIAL_STEPS.find((s: any) => s.id === "globe-deselect");
-    expect(step.completionCheck(new Set(), 1, 0, "Aabc123", false)).toBe(false);
-    expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(true);
+    const step = ESSENTIAL_STEPS.find(
+      (candidate) => candidate.id === WalkthroughStepId.GlobeDeselect,
+    )!;
+    expect(step.completionCheck?.(new Set(), 1, 0, "Aabc123", false, 0)).toBe(false);
+    expect(step.completionCheck?.(new Set(), 1, 0, null, false, 0)).toBe(true);
   });
 
   test("focus-enter completionCheck responds to chromeHidden", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
-    const step = ESSENTIAL_STEPS.find((s: any) => s.id === "focus-enter");
-    expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(false);
-    expect(step.completionCheck(new Set(), 1, 0, null, true)).toBe(true);
+    const step = ESSENTIAL_STEPS.find(
+      (candidate) => candidate.id === WalkthroughStepId.FocusEnter,
+    )!;
+    expect(step.completionCheck?.(new Set(), 1, 0, null, false, 0)).toBe(false);
+    expect(step.completionCheck?.(new Set(), 1, 0, null, true, 0)).toBe(true);
   });
 
   test("focus-exit completionCheck responds to chromeHidden false", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
-    const step = ESSENTIAL_STEPS.find((s: any) => s.id === "focus-exit");
-    expect(step.completionCheck(new Set(), 1, 0, null, true)).toBe(false);
-    expect(step.completionCheck(new Set(), 1, 0, null, false)).toBe(true);
+    const step = ESSENTIAL_STEPS.find(
+      (candidate) => candidate.id === WalkthroughStepId.FocusExit,
+    )!;
+    expect(step.completionCheck?.(new Set(), 1, 0, null, true, 0)).toBe(false);
+    expect(step.completionCheck?.(new Set(), 1, 0, null, false, 0)).toBe(true);
   });
 
   test("save-preset action step description mentions VIEWS", () => {
-    const { ESSENTIAL_STEPS } = require("@/lib/ui/walkthroughSteps");
-    const step = ESSENTIAL_STEPS.find((s: any) => s.id === "save-preset");
+    const step = ESSENTIAL_STEPS.find(
+      (candidate) => candidate.id === WalkthroughStepId.SavePreset,
+    )!;
     expect(step).toBeDefined();
     expect(step.description).toContain("VIEWS");
     expect(step.description).toContain("save");
-    expect(step.mode).toBe("action");
+    expect(step.mode).toBe(WalkthroughStepMode.Action);
   });
 });

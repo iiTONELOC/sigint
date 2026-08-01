@@ -1,20 +1,19 @@
 import { useState, useEffect } from "react";
 import { useData } from "@/context/DataContext";
-import { useIsMobileLayout } from "@/context/LayoutModeContext";
+import { useIsMobileLayout } from "@/layout-mode";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
 import { PaneManager } from "@/panes/PaneManager";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
-import { Walkthrough } from "@/components/Walkthrough";
 import {
-  setWalkthroughActive,
   onWalkthroughLaunch,
-  type WalkthroughLaunchMode,
-} from "@/lib/runtime/layoutSignals";
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { cacheGetEnum } from "@/lib/cache/cacheEnum";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+  setWalkthroughActive,
+  Walkthrough,
+  WalkthroughLaunchMode,
+} from "@/walkthrough";
+import { cacheGet, cacheGetEnum, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
 import { GripHorizontal } from "lucide-react";
 
 enum TickerMode {
@@ -75,7 +74,7 @@ export function AppShell() {
   // ── Walkthrough state ──────────────────────────────────────────
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [walkthroughMode, setWalkthroughMode] =
-    useState<WalkthroughLaunchMode>("both");
+    useState(WalkthroughLaunchMode.Both);
 
   useEffect(() => {
     setWalkthroughActive(showWalkthrough);
@@ -95,7 +94,7 @@ export function AppShell() {
   useEffect(() => {
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    cacheGet<boolean>(CACHE_KEYS.walkthroughComplete).then((done) => {
+    cacheGet<boolean>(CacheKey.WalkthroughComplete).then((done) => {
       if (!mounted) return;
       if (!done) {
         timer = setTimeout(() => {
@@ -115,7 +114,7 @@ export function AppShell() {
   );
 
   useEffect(() => {
-    cacheGetEnum(CACHE_KEYS.tickerHeight, TickerMode).then((saved) => {
+    cacheGetEnum(CacheKey.TickerHeight, TickerMode).then((saved) => {
       if (saved) {
         setTickerMode(saved);
       } else if (isMobileLayout) {
@@ -130,7 +129,7 @@ export function AppShell() {
       const next = isMobileLayout
         ? mobileTickerMode(prev)
         : DESKTOP_TICKER_CYCLE[prev];
-      cacheSet(CACHE_KEYS.tickerHeight, next);
+      cacheSet(CacheKey.TickerHeight, next);
       return next;
     });
   };

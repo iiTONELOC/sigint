@@ -1,49 +1,80 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// ── Playwright config (cyclones plan, step 14) ──────────────────────
-// Bootstraps the e2e suite under tests/e2e. Server-side: the Bun prod
-// server is launched from `bun run start` with a dedicated test secret
-// (Hard Rule 7 — A07: never reuse production secrets in tests).
-// Client-side: each spec mocks data via `page.route("**/api/...")` and
-// loads fixtures from tests/fixtures/ via Bun.file().json().
+enum PlaywrightPath {
+  Tests = "./e2e",
+}
+
+enum PlaywrightTimeMs {
+  Assertion = 5_000,
+  Standard = 30_000,
+}
+
+enum PlaywrightSnapshotRatio {
+  MaximumDifference = 0.02,
+}
+
+enum PlaywrightWorkerCount {
+  SharedServer = 1,
+}
+
+enum PlaywrightOutputMode {
+  CiReporter = "github",
+  LocalReporter = "list",
+  RetainTraceOnFailure = "retain-on-failure",
+  ScreenshotOnFailure = "only-on-failure",
+}
+
+enum PlaywrightTestServer {
+  ApplicationUrl = "http://localhost:5500",
+  Command = "bun run start",
+  RateLimitPerMinute = "10000",
+  Secret = "test-secret-do-not-use-in-prod-0123456789abcdef",
+}
+
+enum PlaywrightProfileValue {
+  DesktopDevice = "Desktop Chrome",
+  DesktopName = "chromium-desktop",
+  MobileDevice = "Pixel 5",
+  MobileName = "chromium-mobile",
+}
 
 export default defineConfig({
-  testDir: "./e2e",
-  timeout: 30_000,
+  testDir: PlaywrightPath.Tests,
+  timeout: PlaywrightTimeMs.Standard,
   expect: {
-    timeout: 5_000,
-    toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
+    timeout: PlaywrightTimeMs.Assertion,
+    toHaveScreenshot: {
+      maxDiffPixelRatio: PlaywrightSnapshotRatio.MaximumDifference,
+    },
   },
-  fullyParallel: false, // shared server, sequential
-  // 1 retry both locally and in CI. Under sustained server load the
-  // ConnectionStatus online-event timing drifts on the Chromium desktop
-  // profile (see offline.spec.ts) — retry papers over the load-induced
-  // race without weakening the assertion. Single retry is enough.
-  retries: 1,
-  workers: 1,
-  reporter: process.env.CI ? "github" : "list",
+  workers: PlaywrightWorkerCount.SharedServer,
+  reporter: process.env.CI
+    ? PlaywrightOutputMode.CiReporter
+    : PlaywrightOutputMode.LocalReporter,
   webServer: {
-    command: "bun run start",
-    url: "http://localhost:5500",
+    command: PlaywrightTestServer.Command,
+    url: PlaywrightTestServer.ApplicationUrl,
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: PlaywrightTimeMs.Standard,
     env: {
-      PORT: "5500",
-      // Test-only secret. Never reuse production secrets in tests (A07).
-      SIGINT_SERVER_SECRET: "test-secret-do-not-use-in-prod-0123456789abcdef",
-      // Lift rate limit for E2E — Playwright's browser presents the same
-      // "unknown" IP for every request and exhausts the prod 60/min cap
-      // mid-suite. Production cap is unchanged (RATE_LIMIT_DEFAULT).
-      SIGINT_RATE_LIMIT: "10000",
+      PORT: new URL(PlaywrightTestServer.ApplicationUrl).port,
+      SIGINT_SERVER_SECRET: PlaywrightTestServer.Secret,
+      SIGINT_RATE_LIMIT_PER_MINUTE: PlaywrightTestServer.RateLimitPerMinute,
     },
   },
   use: {
-    baseURL: "http://localhost:5500",
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
+    baseURL: PlaywrightTestServer.ApplicationUrl,
+    trace: PlaywrightOutputMode.RetainTraceOnFailure,
+    screenshot: PlaywrightOutputMode.ScreenshotOnFailure,
   },
   projects: [
-    { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "chromium-mobile", use: { ...devices["Pixel 5"] } },
+    {
+      name: PlaywrightProfileValue.DesktopName,
+      use: { ...devices[PlaywrightProfileValue.DesktopDevice] },
+    },
+    {
+      name: PlaywrightProfileValue.MobileName,
+      use: { ...devices[PlaywrightProfileValue.MobileDevice] },
+    },
   ],
 });

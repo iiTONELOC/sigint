@@ -14,11 +14,12 @@ import { Domain } from "@shared/domain/identity";
 import { MS_PER_SECOND } from "@shared/time";
 import { useTheme } from "@/context/ThemeContext";
 import { useData } from "@/context/DataContext";
-import { cacheGet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { cacheGet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
+import { DomEvent } from "@/runtime";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { useUnitsMode } from "@/lib/ui/userPreferences";
+import { useUnitsMode } from "@/preferences/units";
+import { TickerSpeedPolicy } from "@/shell/ticker";
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import { relativeAge } from "@/lib/format/timeFormat";
@@ -28,16 +29,6 @@ type TickerProps = {
   readonly items: DataPoint[];
   readonly compact?: boolean;
 };
-
-/** The slider policy: bounds, step, label thresholds, and the default. */
-export enum TickerSpeedPolicy {
-  Stopped = 0,
-  SliderStep = 5,
-  Default = 10,
-  SlowMax = 25,
-  NormalMax = 60,
-  Max = 100,
-}
 
 enum TickerPolicy {
   ItemWidthDesktopPx = 280,
@@ -56,10 +47,23 @@ enum TickerBuffer {
   SlackCount = 2,
 }
 
-const SUMMARY_SEPARATOR = " · ";
-const SUMMARY_COORD_DECIMALS = 2;
-const UNKNOWN_LABEL = "Unknown";
-const COMPACT_SUMMARY_PARTS = 2;
+enum TickerSummaryText {
+  Event = "Event",
+  FireHotspot = "Fire hotspot",
+  Quake = "Quake",
+  Separator = " · ",
+  Unknown = "Unknown",
+  UnknownVessel = "Unknown vessel",
+  WeatherAlert = "Weather alert",
+}
+
+enum TickerCoordinatePolicy {
+  DecimalPlaces = 2,
+}
+
+enum TickerSummaryPolicy {
+  CompactPartCount = 2,
+}
 
 // ── Speed setting (persisted to IndexedDB) ──────────────────────────
 
@@ -69,11 +73,11 @@ function useTickerSpeed(): number {
   // Load from cache + poll for external changes
   useEffect(() => {
     let mounted = true;
-    cacheGet<number>(CACHE_KEYS.tickerSpeed).then((saved) => {
+    cacheGet<number>(CacheKey.TickerSpeed).then((saved) => {
       if (mounted && typeof saved === "number") setSpeed(saved);
     });
     const iv = setInterval(async () => {
-      const saved = await cacheGet<number>(CACHE_KEYS.tickerSpeed);
+      const saved = await cacheGet<number>(CacheKey.TickerSpeed);
       if (mounted && typeof saved === "number" && saved !== speed)
         setSpeed(saved);
     }, TickerPolicy.SpeedPollMs);
@@ -92,30 +96,37 @@ function summaryLead(item: DataPoint): string[] {
   switch (item.type) {
     case Domain.Aircraft: {
       const lead = [
-        item.data.callsign?.trim() || item.data.icao24 || UNKNOWN_LABEL,
+        item.data.callsign?.trim() ||
+          item.data.icao24 ||
+          TickerSummaryText.Unknown,
       ];
-      if (item.data.acType && item.data.acType !== UNKNOWN_LABEL) {
+      if (
+        item.data.acType &&
+        item.data.acType !== TickerSummaryText.Unknown
+      ) {
         lead.push(item.data.acType);
       }
       if (item.data.originCountry) lead.push(item.data.originCountry);
       return lead;
     }
     case Domain.Ships:
-      return [item.data.name || "Unknown vessel"];
+      return [item.data.name || TickerSummaryText.UnknownVessel];
     case Domain.Events:
-      return [item.data.headline || "Event"];
+      return [item.data.headline || TickerSummaryText.Event];
     case Domain.Quakes: {
-      const lead = [item.data.location || "Quake"];
+      const lead: string[] = [
+        item.data.location || TickerSummaryText.Quake,
+      ];
       if (item.data.magnitude != null) lead.push(`M${item.data.magnitude}`);
       return lead;
     }
     case Domain.Fires: {
-      const lead = ["Fire hotspot"];
+      const lead: string[] = [TickerSummaryText.FireHotspot];
       if (item.data.frp != null) lead.push(`FRP ${item.data.frp} MW`);
       return lead;
     }
     case Domain.Weather:
-      return [item.data.event || "Weather alert"];
+      return [item.data.event || TickerSummaryText.WeatherAlert];
     default:
       return [];
   }
@@ -124,8 +135,8 @@ function summaryLead(item: DataPoint): string[] {
 function tickerSummary(item: DataPoint): string {
   return [
     ...summaryLead(item),
-    `${formatLat(recordLatitude(item), SUMMARY_COORD_DECIMALS)}, ${formatLon(recordLongitude(item), SUMMARY_COORD_DECIMALS)}`,
-  ].join(SUMMARY_SEPARATOR);
+    `${formatLat(recordLatitude(item), TickerCoordinatePolicy.DecimalPlaces)}, ${formatLon(recordLongitude(item), TickerCoordinatePolicy.DecimalPlaces)}`,
+  ].join(TickerSummaryText.Separator);
 }
 
 // ── Age refresh ─────────────────────────────────────────────────────
@@ -152,8 +163,8 @@ function useItemWidth(): number {
   const [w, setW] = useState<number>(getW);
   useEffect(() => {
     const onResize = () => setW(getW());
-    window.addEventListener(`${DomEvent.Resize}`, onResize);
-    return () => window.removeEventListener(`${DomEvent.Resize}`, onResize);
+    window.addEventListener(DomEvent.Resize, onResize);
+    return () => window.removeEventListener(DomEvent.Resize, onResize);
   }, [getW]);
   return w;
 }
@@ -340,9 +351,9 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                   style={{ color }}
                 >
                   {tickerSummary(item)
-                    .split(SUMMARY_SEPARATOR)
-                    .slice(0, COMPACT_SUMMARY_PARTS)
-                    .join(SUMMARY_SEPARATOR)}
+                    .split(TickerSummaryText.Separator)
+                    .slice(0, TickerSummaryPolicy.CompactPartCount)
+                    .join(TickerSummaryText.Separator)}
                 </span>
                 <span className="ml-auto text-sig-dim text-(length:--sig-text-xs) shrink-0">
                   {relativeAge(item.timestamp)}

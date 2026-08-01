@@ -3,6 +3,7 @@ export enum AisHeading {
 }
 
 export enum ShipDataLabel {
+  NavigationUndefined = "Not defined",
   Unknown = "Unknown",
 }
 

@@ -1,4 +1,5 @@
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { CacheKey } from "@shared/domain/cache";
+import { DomEvent, DomVisibilityState } from "@/runtime";
 import {
   getDataWorkerClient,
   type DataWorkerClient,
@@ -16,7 +17,7 @@ function ready(): Promise<void> {
 async function migrateLocalStorage(
   client: DataWorkerClient,
 ): Promise<void> {
-  const keys = [CACHE_KEYS.aircraft, CACHE_KEYS.trails, CACHE_KEYS.land];
+  const keys = [CacheKey.Aircraft, CacheKey.Trails, CacheKey.Land];
   for (const key of keys) {
     try {
       const json = localStorage.getItem(key);
@@ -53,7 +54,7 @@ export function cacheInit(): Promise<void> {
 }
 
 export function cacheGet<T = unknown>(key: string): Promise<T | null>;
-export async function cacheGet(key: string): Promise<unknown | null> {
+export async function cacheGet(key: string): Promise<unknown> {
   const memoryValue = memoryCache.get(key);
   if (memoryValue !== undefined) return memoryValue;
 
@@ -87,7 +88,7 @@ export function cacheSetDeferred(key: string, value: unknown): void {
     activeClient.setDeferred(key, value);
     return;
   }
-  void ready().then(() => {
+  ready().then(() => {
     if (memoryCache.get(key) === value) {
       activeClient?.setDeferred(key, value);
     }
@@ -100,10 +101,17 @@ export async function cacheFlushPending(): Promise<void> {
 }
 
 if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void cacheFlushPending();
+  document.addEventListener(DomEvent.VisibilityChange, () => {
+    if (document.visibilityState === DomVisibilityState.Hidden) {
+      cacheFlushPending();
+    }
   });
-  globalThis.addEventListener("pagehide", () => void cacheFlushPending());
+  globalThis.addEventListener(
+    DomEvent.PageHide,
+    () => {
+      cacheFlushPending();
+    },
+  );
 }
 
 export async function cacheDelete(key: string): Promise<void> {
@@ -114,7 +122,9 @@ export async function cacheDelete(key: string): Promise<void> {
 
 export async function cacheListKeys(): Promise<string[]> {
   await ready();
-  return Array.from(memoryCache.keys()).sort();
+  return Array.from(memoryCache.keys()).sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 export async function cacheEstimateSize(key: string): Promise<number> {

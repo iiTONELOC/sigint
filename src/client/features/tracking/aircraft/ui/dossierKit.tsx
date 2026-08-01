@@ -1,14 +1,34 @@
 import type { ReactNode } from "react";
 
-const CHIP: Record<string, string> = {
-  "sig-quakes": "text-sig-quakes border-sig-quakes/40 bg-sig-quakes/10",
-  "sig-warn": "text-sig-warn border-sig-warn/40 bg-sig-warn/10",
-  "sig-fires": "text-sig-fires border-sig-fires/40 bg-sig-fires/10",
-  "sig-danger": "text-sig-danger border-sig-danger/40 bg-sig-danger/10",
-};
+export enum AircraftChipTone {
+  Critical = "text-sig-danger border-sig-danger/40 bg-sig-danger/10",
+  Late = "text-sig-fires border-sig-fires/40 bg-sig-fires/10",
+  OnTime = "text-sig-quakes border-sig-quakes/40 bg-sig-quakes/10",
+  Warning = "text-sig-warn border-sig-warn/40 bg-sig-warn/10",
+}
 
-export function chipClass(tone: string): string {
-  return CHIP[tone] ?? "text-sig-quakes border-sig-quakes/40 bg-sig-quakes/10";
+enum AircraftDelayMinutes {
+  OnTimeMaximum = 0,
+  WarningMaximum = 15,
+  LateMaximum = 60,
+}
+
+export type AircraftChip = Readonly<{
+  label: string;
+  tone: AircraftChipTone;
+}>;
+
+export function aircraftDelayTone(minutes: number): AircraftChipTone {
+  if (minutes <= AircraftDelayMinutes.OnTimeMaximum) {
+    return AircraftChipTone.OnTime;
+  }
+  if (minutes <= AircraftDelayMinutes.WarningMaximum) {
+    return AircraftChipTone.Warning;
+  }
+  if (minutes <= AircraftDelayMinutes.LateMaximum) {
+    return AircraftChipTone.Late;
+  }
+  return AircraftChipTone.Critical;
 }
 
 type CardProps = {
@@ -39,24 +59,6 @@ export function SectionLabel({ children }: SectionLabelProps) {
 export function Label({ children, className = "" }: { readonly children: ReactNode; readonly className?: string }) {
   return (
     <div className={`text-(length:--sig-text-xs) tracking-wide text-sig-dim ${className}`}>{children}</div>
-  );
-}
-
-type FieldProps = {
-  readonly label: string;
-  readonly value: ReactNode;
-  readonly align?: "left" | "right";
-  readonly valueClass?: string;
-};
-
-export function Field({ label, value, align = "left", valueClass = "" }: FieldProps) {
-  return (
-    <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
-      <Label>{label}</Label>
-      <div className={`text-(length:--sig-text-sm) text-sig-bright truncate ${valueClass}`}>
-        {value}
-      </div>
-    </div>
   );
 }
 

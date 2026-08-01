@@ -15,7 +15,7 @@ import type { PointType } from "@shared/domain/pointType";
 import type { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 import type { SourceStatus } from "@shared/domain/sourceStatus";
 import type { SourceId } from "@shared/source";
-import type { CacheKey } from "@/lib/cache/cacheKeys";
+import type { CacheKey } from "@shared/domain/cache";
 
 export enum SourceDomainKind {
   Geo = "geo",

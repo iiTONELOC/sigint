@@ -1,9 +1,10 @@
 import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Wind } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
+import { NO_VALUE } from "@shared/text";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { formatKtMph, nmToKm } from "@/lib/format/units";
+import { formatKtMph, nmToKm } from "@/measurements";
 import type { CycloneForecastPointData } from "../types";
 import {
   DossierToolbar,
@@ -12,8 +13,8 @@ import {
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
 import { CATEGORY_LABEL } from "../classification";
-
-// Dossier for one forecast-track point — shows that point's own projected data.
+import { leadTime } from "../forecastDefinition";
+import { SaffirSimpson } from "../types";
 
 type Props = {
   readonly item: DataPoint & {
@@ -38,14 +39,16 @@ export function CycloneForecastDossier({
   const d = item.data;
   const category = CATEGORY_LABEL[d.category] ?? d.category;
   const closeBtnRef = useDossierFocus(item.id);
-  const badge = d.saffirSimpson > 0 ? `CAT ${d.saffirSimpson}` : null;
+  const badge = d.saffirSimpson > SaffirSimpson.None
+    ? `CAT ${d.saffirSimpson}`
+    : null;
   const errKm = nmToKm(d.errorRadiusNm);
 
   return (
     <div className="h-full flex flex-col">
       <DossierToolbar
         icon={Wind}
-        title={`${d.parentName} · +${d.fcstHour}h`}
+        title={`${d.parentName} · ${leadTime(d.fcstHour)}`}
         subtitle={`${category} (forecast)`}
         badge={badge}
         isolateMode={isolateMode}
@@ -60,8 +63,8 @@ export function CycloneForecastDossier({
           <Section title="FORECAST">
             <Row label="STORM" value={d.parentName} />
             <Row label="BASIN" value={d.parentBasin} />
-            <Row label="LEAD TIME" value={`+${d.fcstHour}h`} />
-            <Row label="VALID" value={d.validTime || "—"} />
+            <Row label="LEAD TIME" value={leadTime(d.fcstHour)} />
+            <Row label="VALID" value={d.validTime || NO_VALUE} />
           </Section>
 
           <Section title="INTENSITY">

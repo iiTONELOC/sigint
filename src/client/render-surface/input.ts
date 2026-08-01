@@ -5,7 +5,7 @@ import {
   type RenderInputPayload,
 } from "@/workers/render/protocol";
 import { CAMERA_POLICY } from "@/workers/render/policy";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 import { isEnumValue } from "@shared/types/enum";
 
 enum TextEntryElementTag {

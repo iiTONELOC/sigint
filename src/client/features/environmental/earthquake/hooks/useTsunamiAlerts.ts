@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DomEvent, DomVisibilityState } from "@/runtime";
 import { fetchTsunamiAlerts, type TsunamiAlert } from "../data/tsunamiAlerts";
 
 const POLL_INTERVAL_MS = 5 * 60_000;
@@ -12,16 +13,20 @@ export function useTsunamiAlerts(): TsunamiAlert[] {
       const next = await fetchTsunamiAlerts();
       if (mounted) setAlerts(next);
     };
-    void load();
-    const id = setInterval(() => void load(), POLL_INTERVAL_MS);
+    load();
+    const id = setInterval(() => {
+      load();
+    }, POLL_INTERVAL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === DomVisibilityState.Visible) {
+        load();
+      }
     };
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener(DomEvent.VisibilityChange, onVisible);
     return () => {
       mounted = false;
       clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener(DomEvent.VisibilityChange, onVisible);
     };
   }, []);
 

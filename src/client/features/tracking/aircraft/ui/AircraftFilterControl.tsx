@@ -3,6 +3,94 @@ import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
 import { createPortal } from "react-dom";
 import { Plane } from "lucide-react";
 import { type AircraftFilter } from "../types";
+import { DomEvent } from "@/runtime";
+import { ButtonType } from "@/lib/ui/button";
+import { cn } from "@/lib/ui/utils";
+
+enum AircraftVisibilityField {
+  Airborne = "showAirborne",
+  Ground = "showGround",
+}
+
+enum AircraftFilterColor {
+  Hijack = "#cc44ff",
+  RadioFailure = "#ff8800",
+}
+
+enum AircraftFilterClassName {
+  AircraftRoleActive = "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
+  AircraftRoleInactive = "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
+  BrightRoleActive = "bg-sig-bright/15 border-sig-bright text-sig-bright",
+  BrightRoleInactive = "bg-sig-panel/30 border-sig-bright/40 text-sig-bright",
+  Dimmed = "opacity-50",
+  Option = "rounded-sm px-1.5 py-0.5 text-[12px]",
+  OptionRow = "flex gap-1 flex-wrap",
+  ReconRoleActive = "bg-sig-recon/15 border-sig-recon text-sig-recon",
+  ReconRoleInactive = "bg-sig-panel/30 border-sig-recon/40 text-sig-recon",
+  Section = "mb-2",
+  SectionHeading = "text-sig-bright text-[11px] opacity-80 tracking-wider mb-1",
+}
+
+type AircraftRolePresentation = {
+  readonly activeClassName: AircraftFilterClassName;
+  readonly inactiveClassName: AircraftFilterClassName;
+  readonly label: string;
+};
+
+const AIRCRAFT_VISIBILITY_LABELS: Readonly<
+  Record<AircraftVisibilityField, string>
+> = {
+  [AircraftVisibilityField.Airborne]: "AIR",
+  [AircraftVisibilityField.Ground]: "GND",
+};
+
+const AIRCRAFT_ROLE_PRESENTATION: Readonly<
+  Record<MilFilter, AircraftRolePresentation>
+> = {
+  [MilFilter.All]: {
+    activeClassName: AircraftFilterClassName.AircraftRoleActive,
+    inactiveClassName: AircraftFilterClassName.AircraftRoleInactive,
+    label: "ALL",
+  },
+  [MilFilter.Military]: {
+    activeClassName: AircraftFilterClassName.BrightRoleActive,
+    inactiveClassName: AircraftFilterClassName.BrightRoleInactive,
+    label: "MIL",
+  },
+  [MilFilter.Civilian]: {
+    activeClassName: AircraftFilterClassName.AircraftRoleActive,
+    inactiveClassName: AircraftFilterClassName.AircraftRoleInactive,
+    label: "CIV",
+  },
+  [MilFilter.Recon]: {
+    activeClassName: AircraftFilterClassName.ReconRoleActive,
+    inactiveClassName: AircraftFilterClassName.ReconRoleInactive,
+    label: "HUNTER",
+  },
+};
+
+const SQUAWK_FILTER_LABELS: Readonly<Record<SquawkBucket, string>> = {
+  [SquawkBucket.Emergency]: "EMRG",
+  [SquawkBucket.RadioFailure]: "RDOF",
+  [SquawkBucket.Hijack]: "HJCK",
+  [SquawkBucket.Other]: "NRML",
+};
+
+function squawkFilterColor(
+  bucket: SquawkBucket,
+  colors: FilterThemeColors,
+): string {
+  switch (bucket) {
+    case SquawkBucket.Emergency:
+      return colors.danger;
+    case SquawkBucket.RadioFailure:
+      return AircraftFilterColor.RadioFailure;
+    case SquawkBucket.Hijack:
+      return AircraftFilterColor.Hijack;
+    case SquawkBucket.Other:
+      return colors.dim;
+  }
+}
 
 type FilterThemeColors = {
   panel: string;
@@ -62,12 +150,12 @@ export function AircraftFilterControl({
       }
     };
     if (open) {
-      document.addEventListener("mousedown", handler);
-      document.addEventListener("touchstart", handler);
+      document.addEventListener(DomEvent.MouseDown, handler);
+      document.addEventListener(DomEvent.TouchStart, handler);
     }
     return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
+      document.removeEventListener(DomEvent.MouseDown, handler);
+      document.removeEventListener(DomEvent.TouchStart, handler);
     };
   }, [open]);
 
@@ -92,6 +180,7 @@ export function AircraftFilterControl({
   return (
     <div className="relative" ref={containerRef}>
       <button
+        type={ButtonType.Button}
         ref={buttonRef}
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) shrink-0 touch-target justify-center sm:justify-start"
@@ -106,10 +195,6 @@ export function AircraftFilterControl({
         <span className="text-(length:--sig-text-icon)">
           <Plane size="1em" fill="currentColor" strokeWidth={0} />
         </span>
-        {/* Match the other LayerToggle counts — hide inline count
-            below the `sm` breakpoint so the compact layout shows all
-            counts in the dedicated row below instead of cramming them
-            next to each icon. */}
         <span className="hidden sm:inline">{aircraftCount}</span>
         <span className="text-[8px] opacity-60">▾</span>
       </button>
@@ -119,7 +204,7 @@ export function AircraftFilterControl({
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-[80] rounded bg-sig-panel border border-sig-border p-2.5 min-w-55 max-w-72 shadow-2xl"
+            className="fixed z-80 rounded bg-sig-panel border border-sig-border p-2.5 min-w-55 max-w-72 shadow-2xl"
             style={{ top: dropPos.top, right: dropPos.right }}
           >
             {/* Header */}
@@ -128,6 +213,7 @@ export function AircraftFilterControl({
                 AIRCRAFT
               </span>
               <button
+                type={ButtonType.Button}
                 onClick={() =>
                   setAircraftFilter((f) => ({ ...f, enabled: !f.enabled }))
                 }
@@ -141,25 +227,21 @@ export function AircraftFilterControl({
             </div>
 
             {/* Status */}
-            <div className="mb-2">
-              <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
+            <div className={AircraftFilterClassName.Section}>
+              <div className={AircraftFilterClassName.SectionHeading}>
                 STATUS
               </div>
-              <div className="flex gap-1 flex-wrap">
-                {(
-                  [
-                    ["AIR", "showAirborne"],
-                    ["GND", "showGround"],
-                  ] as const
-                ).map(([label, key]) => {
+              <div className={AircraftFilterClassName.OptionRow}>
+                {Object.values(AircraftVisibilityField).map((key) => {
                   const on = aircraftFilter[key];
                   return (
                     <button
+                      type={ButtonType.Button}
                       key={key}
                       onClick={() =>
                         setAircraftFilter((f) => ({ ...f, [key]: !f[key] }))
                       }
-                      className="rounded-sm px-1.5 py-0.5 text-[12px]"
+                      className={AircraftFilterClassName.Option}
                       style={{
                         background: on
                           ? aircraftColor + "24"
@@ -168,7 +250,7 @@ export function AircraftFilterControl({
                         color: on ? aircraftColor : colors.bright,
                       }}
                     >
-                      {label}
+                      {AIRCRAFT_VISIBILITY_LABELS[key]}
                     </button>
                   );
                 })}
@@ -176,54 +258,30 @@ export function AircraftFilterControl({
             </div>
 
             {/* Military filter */}
-            <div className="mb-2">
-              <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
+            <div className={AircraftFilterClassName.Section}>
+              <div className={AircraftFilterClassName.SectionHeading}>
                 TYPE
               </div>
-              <div className="flex gap-1 flex-wrap">
-                {(
-                  [
-                    // [label, value, ON-state classes, OFF-state classes].
-                    // Pure Tailwind sig-* classes (theme-aware via the
-                    // @theme bridge in index.css). Written literally so the
-                    // JIT generates them.
-                    [
-                      "ALL",
-                      MilFilter.All,
-                      "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
-                      "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
-                    ],
-                    [
-                      "MIL",
-                      MilFilter.Military,
-                      "bg-sig-bright/15 border-sig-bright text-sig-bright",
-                      "bg-sig-panel/30 border-sig-bright/40 text-sig-bright",
-                    ],
-                    [
-                      "CIV",
-                      MilFilter.Civilian,
-                      "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
-                      "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
-                    ],
-                    [
-                      "HUNTER",
-                      MilFilter.Recon,
-                      "bg-sig-recon/15 border-sig-recon text-sig-recon",
-                      "bg-sig-panel/30 border-sig-recon/40 text-sig-recon",
-                    ],
-                  ] as const
-                ).map(([label, value, onCls, offCls]) => {
+              <div className={AircraftFilterClassName.OptionRow}>
+                {Object.values(MilFilter).map((value) => {
+                  const presentation = AIRCRAFT_ROLE_PRESENTATION[value];
                   const on = aircraftFilter.milFilter === value;
                   return (
                     <button
                       key={value}
-                      type="button"
+                      type={ButtonType.Button}
                       onClick={() =>
                         setAircraftFilter((f) => ({ ...f, milFilter: value }))
                       }
-                      className={`rounded-sm px-1.5 py-0.5 text-[12px] border transition-colors ${on ? onCls : offCls}`}
+                      className={cn(
+                        AircraftFilterClassName.Option,
+                        "border transition-colors",
+                        on
+                          ? presentation.activeClassName
+                          : presentation.inactiveClassName,
+                      )}
                     >
-                      {label}
+                      {presentation.label}
                     </button>
                   );
                 })}
@@ -232,31 +290,29 @@ export function AircraftFilterControl({
 
             {/* Squawk */}
             <div>
-              <div className="text-sig-bright text-[11px] opacity-80 tracking-wider mb-1">
-                SQUAWK <span className="opacity-50">(empty = all)</span>
+              <div className={AircraftFilterClassName.SectionHeading}>
+                SQUAWK {" "}
+                <span className={AircraftFilterClassName.Dimmed}>
+                  (empty = all)
+                </span>
               </div>
-              <div className="flex gap-1 flex-wrap">
-                {(
-                  [
-                    [SquawkBucket.Emergency, "EMRG", colors.danger],
-                    [SquawkBucket.RadioFailure, "RDOF", "#ff8800"],
-                    [SquawkBucket.Hijack, "HJCK", "#cc44ff"],
-                    [SquawkBucket.Other, "NRML", colors.dim],
-                  ] as const
-                ).map(([code, label, clr]) => {
+              <div className={AircraftFilterClassName.OptionRow}>
+                {Object.values(SquawkBucket).map((code) => {
+                  const color = squawkFilterColor(code, colors);
                   const on = aircraftFilter.squawks.has(code);
                   return (
                     <button
+                      type={ButtonType.Button}
                       key={code}
-                      onClick={() => toggleSquawk(code as any)}
-                      className="rounded-sm px-1.5 py-0.5 text-[12px]"
+                      onClick={() => toggleSquawk(code)}
+                      className={AircraftFilterClassName.Option}
                       style={{
-                        background: on ? clr + "28" : colors.panel + "55",
-                        border: `1px solid ${on ? clr : colors.bright + "66"}`,
-                        color: on ? clr : colors.bright,
+                        background: on ? color + "28" : colors.panel + "55",
+                        border: `1px solid ${on ? color : colors.bright + "66"}`,
+                        color: on ? color : colors.bright,
                       }}
                     >
-                      {label}
+                      {SQUAWK_FILTER_LABELS[code]}
                     </button>
                   );
                 })}
@@ -266,14 +322,18 @@ export function AircraftFilterControl({
             {/* Countries */}
             {availableCountries.length > 0 && (
               <div className="mt-2 pt-1.5 border-t border-sig-border">
-                <div className="text-sig-bright text-[11px] tracking-wider mb-1 opacity-80">
-                  COUNTRY <span className="opacity-50">(empty = all)</span>
+                <div className={AircraftFilterClassName.SectionHeading}>
+                  COUNTRY {" "}
+                  <span className={AircraftFilterClassName.Dimmed}>
+                    (empty = all)
+                  </span>
                 </div>
                 <div className="flex gap-1 flex-wrap sigint-scroll max-h-22 overflow-y-auto pr-1">
                   {availableCountries.map((country) => {
                     const on = aircraftFilter.countries.has(country);
                     return (
                       <button
+                        type={ButtonType.Button}
                         key={country}
                         onClick={() => toggleCountry(country)}
                         className="rounded-sm px-1.5 py-0.5 text-[11px] whitespace-nowrap"

@@ -1,4 +1,4 @@
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent } from "@/runtime";
 
 export enum RenderMediaQuery {
   ReducedMotion = "(prefers-reduced-motion: reduce)",

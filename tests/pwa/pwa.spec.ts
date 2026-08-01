@@ -88,7 +88,7 @@ describe("production service worker", () => {
     ).text();
 
     expect(source).toContain("registration?.waiting?.postMessage");
-    expect(source).toContain("SW_ACTIVATE_WAITING");
+    expect(source).toContain("ServiceWorkerMessage.ActivateWaiting");
     expect(source).not.toContain("controller?.postMessage");
   });
 
@@ -97,9 +97,9 @@ describe("production service worker", () => {
       join(projectRoot, "src/client/lib/runtime/swRegistration.ts"),
     ).text();
 
-    expect(source).toContain('"visibilitychange"');
-    expect(source).toContain('"online"');
-    expect(source).toContain("UPDATE_CHECK_INTERVAL_MS");
+    expect(source).toContain("DomEvent.VisibilityChange");
+    expect(source).toContain("DomEvent.Online");
+    expect(source).toContain("ServiceWorkerTiming.UpdateCheckMilliseconds");
     expect(source).toContain("updateCheck");
   });
 });

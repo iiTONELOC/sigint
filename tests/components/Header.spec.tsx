@@ -1,100 +1,95 @@
-import { describe, test, expect } from "bun:test";
-import React from "react";
-import { createRoot } from "react-dom/client";
-import { act } from "react";
-import { ThemeProvider } from "@/context/ThemeContext";
-import { DataProvider } from "@/context/DataContext";
-import { LayoutModeProvider } from "@/context/LayoutModeContext";
+import { describe, expect, test } from "bun:test";
+import type { ComponentProps } from "react";
 import { Header } from "@/components/Header";
+import { DataProvider } from "@/context/DataContext";
+import { LayoutModeProvider } from "@/layout-mode";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { MilFilter } from "@shared/domain/aircraft";
+import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
+import { renderReact } from "../support/react";
 
-function render(props: Record<string, any> = {}) {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  const defaults = {
-    layers: { aircraft: true, ships: true, events: false },
-    toggleLayer: () => {},
-    counts: { aircraft: 42, ships: 10, events: 5 },
-    dataSources: [{ status: "live" }],
+type HeaderProps = ComponentProps<typeof Header>;
+
+function noop(): void {}
+
+function headerProps(overrides: Partial<HeaderProps>): HeaderProps {
+  return {
     aircraftFilter: {
+      countries: new Set(),
       enabled: true,
+      milFilter: MilFilter.All,
       showAirborne: true,
       showGround: true,
       squawks: new Set(),
-      countries: new Set(),
-      milFilter: "all",
     },
-    setAircraftFilter: () => {},
     availableCountries: ["US", "UK"],
-    ...props,
+    counts: {
+      [Domain.Aircraft]: 42,
+      [Domain.Events]: 5,
+      [Domain.Ships]: 10,
+    },
+    dataSources: [
+      {
+        error: null,
+        id: Domain.Aircraft,
+        status: SourceStatus.Live,
+      },
+    ],
+    layers: {
+      [Domain.Aircraft]: true,
+      [Domain.Events]: false,
+      [Domain.Ships]: true,
+    },
+    setAircraftFilter: noop,
+    toggleLayer: noop,
+    ...overrides,
   };
-  act(() => {
-    root.render(
-      React.createElement(
-        LayoutModeProvider,
-        null,
-        React.createElement(
-          ThemeProvider,
-          null,
-          React.createElement(
-            DataProvider,
-            null,
-            React.createElement(Header, defaults as any),
-          ),
-        ),
-      ),
-    );
-  });
-  const unmount = () => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  };
-  return { container, unmount };
 }
 
-// Mock fetch
-const origFetch = globalThis.fetch;
-// @ts-ignore
-globalThis.fetch = async () =>
-  ({ ok: true, status: 200, json: async () => ({}) }) as any;
+function renderHeader(
+  overrides: Partial<HeaderProps> = {},
+): HTMLDivElement {
+  return renderReact(
+    <LayoutModeProvider>
+      <ThemeProvider>
+        <DataProvider>
+          <Header {...headerProps(overrides)} />
+        </DataProvider>
+      </ThemeProvider>
+    </LayoutModeProvider>,
+  ).container;
+}
 
 describe("Header", () => {
-  test("renders SIGINT branding", () => {
-    const { container, unmount } = render();
+  test("renders the SIGINT identity", () => {
+    const container = renderHeader();
+
     expect(container.textContent).toContain("SIGINT");
-    unmount();
   });
 
-  test("renders settings button", () => {
-    const { container, unmount } = render();
-    const btn = container.querySelector('button[title="Settings"]');
-    expect(btn).not.toBeNull();
-    unmount();
+  test("offers the settings action", () => {
+    const container = renderHeader();
+
+    expect(
+      container.querySelector('button[title="Settings"]'),
+    ).not.toBeNull();
   });
 
-  test("renders clock", () => {
-    const { container, unmount } = render();
-    // Clock shows time in HH:MM:SS format
+  test("shows the current clock value", () => {
+    const container = renderHeader();
+
     expect(container.textContent).toMatch(/\d{1,2}:\d{2}:\d{2}/);
-    unmount();
   });
 
-  test("renders layout mode toggle button", () => {
-    const { container, unmount } = render();
-    const btn = container.querySelector('[data-tour="layout-mode-toggle"]');
-    expect(btn).not.toBeNull();
-    unmount();
-  });
+  test("names the layout-mode action", () => {
+    const container = renderHeader();
+    const layoutModeButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) =>
+      button.getAttribute("aria-label")?.includes("Layout mode"),
+    );
 
-  test("layout mode toggle has accessible label", () => {
-    const { container, unmount } = render();
-    const btn = container.querySelector('[data-tour="layout-mode-toggle"]');
-    expect(btn?.getAttribute("aria-label")).toContain("Layout mode");
-    unmount();
+    expect(layoutModeButton).not.toBeUndefined();
   });
 });
-
-// Restore
-globalThis.fetch = origFetch;

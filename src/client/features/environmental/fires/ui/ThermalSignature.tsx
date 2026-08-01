@@ -1,13 +1,36 @@
-import { formatTempCF } from "@/lib/format/units";
-import { DELTA_T_DETECT_K, frpInk } from "../intensity";
+import { formatTempCF } from "../formatters";
+import {
+  fireAnomalyStrength,
+  FireTemperatureThreshold,
+  frpBand,
+} from "../intensity";
 
-// Brightness-temperature plotting domain (K). VIIRS background sits ~280–300 K;
-// the I4 fire channel saturates near 367 K, so 270–400 K spans both with margin.
-const T_MIN = 270;
-const T_MAX = 400;
+enum ThermalPlotValue {
+  MaximumKelvin = 400,
+  MinimumKelvin = 270,
+  PercentageMaximum = 100,
+}
 
-function pct(k: number): number {
-  return Math.min(100, Math.max(0, ((k - T_MIN) / (T_MAX - T_MIN)) * 100));
+enum ThermalChannelGeometry {
+  ViewBoxHeight = 12,
+  ViewBoxWidth = 100,
+}
+
+enum ThermalChannelTone {
+  Background = "fill-sig-dim",
+  Fire = "fill-(--dossier-accent)",
+}
+
+function percentage(kelvin: number): number {
+  const range = ThermalPlotValue.MaximumKelvin -
+    ThermalPlotValue.MinimumKelvin;
+  const value =
+    ((kelvin - ThermalPlotValue.MinimumKelvin) / range) *
+    ThermalPlotValue.PercentageMaximum;
+  return Math.min(
+    ThermalPlotValue.PercentageMaximum,
+    Math.max(0, value),
+  );
 }
 
 export function ThermalSignature({
@@ -19,23 +42,35 @@ export function ThermalSignature({
   readonly bgK: number;
   readonly frp: number;
 }) {
-  const deltaT = fireK - bgK;
-  const ink = frpInk(frp);
-  const strong = deltaT >= DELTA_T_DETECT_K;
+  const deltaKelvin = fireK - bgK;
+  const band = frpBand(frp);
+  const anomaly = fireAnomalyStrength(deltaKelvin);
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <Channel label="I4 fire" k={fireK} pctW={pct(fireK)} color={ink} />
-      <Channel label="I5 bg" k={bgK} pctW={pct(bgK)} color="var(--color-sig-dim)" />
+    <div className={`${band.className} flex flex-col gap-2.5`}>
+      <Channel
+        label="I4 fire"
+        kelvin={fireK}
+        percentage={percentage(fireK)}
+        tone={ThermalChannelTone.Fire}
+      />
+      <Channel
+        label="I5 bg"
+        kelvin={bgK}
+        percentage={percentage(bgK)}
+        tone={ThermalChannelTone.Background}
+      />
 
       <div className="flex items-baseline gap-2 pt-1 border-t border-sig-border/60">
-        <span className="text-(length:--sig-text-md) font-bold font-mono leading-none" style={{ color: ink }}>
-          ΔT {deltaT.toFixed(0)} K
+        <span className="text-(length:--sig-text-md) text-(--dossier-accent) font-bold font-mono leading-none">
+          ΔT {deltaKelvin.toFixed(0)} K
         </span>
         <span className="text-(length:--sig-text-xs) text-sig-bright tracking-wide">
-          {strong ? "strong anomaly" : "weak anomaly"}
+          {anomaly} anomaly
         </span>
-        <span className="text-(length:--sig-text-xs) text-sig-dim truncate">· detection ≥ {DELTA_T_DETECT_K} K</span>
+        <span className="text-(length:--sig-text-xs) text-sig-dim truncate">
+          · detection ≥ {FireTemperatureThreshold.DetectionDeltaKelvin} K
+        </span>
       </div>
     </div>
   );
@@ -43,23 +78,39 @@ export function ThermalSignature({
 
 function Channel({
   label,
-  k,
-  pctW,
-  color,
+  kelvin,
+  percentage: width,
+  tone,
 }: {
   readonly label: string;
-  readonly k: number;
-  readonly pctW: number;
-  readonly color: string;
+  readonly kelvin: number;
+  readonly percentage: number;
+  readonly tone: ThermalChannelTone;
 }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <span className="w-12 shrink-0 text-(length:--sig-text-xs) tracking-wider text-sig-dim">{label}</span>
-      <div className="relative flex-1 h-3 rounded-[3px] bg-sig-bg/60 overflow-hidden">
-        <div className="absolute inset-y-0 left-0 rounded-[3px]" style={{ width: `${pctW}%`, background: color }} />
-      </div>
+      <span className="w-12 shrink-0 text-(length:--sig-text-xs) tracking-wider text-sig-dim">
+        {label}
+      </span>
+      <svg
+        viewBox={`0 0 ${ThermalChannelGeometry.ViewBoxWidth} ${ThermalChannelGeometry.ViewBoxHeight}`}
+        preserveAspectRatio="none"
+        className="flex-1 h-3 rounded-[3px] overflow-hidden"
+        aria-hidden
+      >
+        <rect
+          width={ThermalChannelGeometry.ViewBoxWidth}
+          height={ThermalChannelGeometry.ViewBoxHeight}
+          className="fill-sig-bg/60"
+        />
+        <rect
+          width={width}
+          height={ThermalChannelGeometry.ViewBoxHeight}
+          className={tone}
+        />
+      </svg>
       <span className="w-28 shrink-0 text-right font-mono text-(length:--sig-text-xs) text-sig-bright">
-        {Math.round(k)} K · {formatTempCF(k)}
+        {Math.round(kelvin)} K · {formatTempCF(kelvin)}
       </span>
     </div>
   );

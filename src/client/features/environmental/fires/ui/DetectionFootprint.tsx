@@ -1,18 +1,57 @@
-import { formatPixelKm } from "@/lib/format/units";
+import { formatPixelKm } from "../formatters";
+import { kilometersToMeters } from "@/measurements";
 
-// VIIRS aggregates 3→2→1 native pixels from nadir to swath edge, so scan/track
-// grow off-nadir and localization gets coarser. Nominal nadir cell is 375 m.
-const NOMINAL_KM = 0.375;
-const PX_PER_KM = 90;
-const MAX_BOX_PX = 76;
-
-function box(km: number): number {
-  return Math.min(MAX_BOX_PX, Math.max(8, km * PX_PER_KM));
+enum DetectionFootprintGeometry {
+  MaximumBoxPixels = 76,
+  MinimumBoxPixels = 8,
+  NominalKilometers = 0.375,
+  PixelsPerKilometer = 90,
 }
 
-function swathVerdict(scan: number): { zone: string; note: string } {
-  if (scan < 0.45) return { zone: "near-nadir", note: "sharp fix" };
-  if (scan < 0.62) return { zone: "mid-scan", note: "moderate" };
+enum DetectionFootprintSwathBoundary {
+  NearNadirMaximumKilometers = 0.45,
+  MidScanMaximumKilometers = 0.62,
+}
+
+enum DetectionFootprintCorner {
+  CornerRadius = 2,
+}
+
+enum DetectionFootprintStroke {
+  StrokeWidth = 2,
+}
+
+type SwathVerdict = Readonly<{
+  zone: string;
+  note: string;
+}>;
+
+function boxSize(kilometers: number): number {
+  return Math.min(
+    DetectionFootprintGeometry.MaximumBoxPixels,
+    Math.max(
+      DetectionFootprintGeometry.MinimumBoxPixels,
+      kilometers * DetectionFootprintGeometry.PixelsPerKilometer,
+    ),
+  );
+}
+
+function centeredOffset(size: number): number {
+  return (DetectionFootprintGeometry.MaximumBoxPixels - size) / 2;
+}
+
+function swathVerdict(scan: number): SwathVerdict {
+  if (
+    scan <
+    DetectionFootprintSwathBoundary.NearNadirMaximumKilometers
+  ) {
+    return { zone: "near-nadir", note: "sharp fix" };
+  }
+  if (
+    scan < DetectionFootprintSwathBoundary.MidScanMaximumKilometers
+  ) {
+    return { zone: "mid-scan", note: "moderate" };
+  }
   return { zone: "swath edge", note: "coarse localization" };
 }
 
@@ -23,35 +62,56 @@ export function DetectionFootprint({
   readonly scan: number;
   readonly track: number;
 }) {
-  const w = box(scan);
-  const h = box(track);
-  const ref = NOMINAL_KM * PX_PER_KM;
+  const width = boxSize(scan);
+  const height = boxSize(track);
+  const reference =
+    DetectionFootprintGeometry.NominalKilometers *
+    DetectionFootprintGeometry.PixelsPerKilometer;
   const verdict = swathVerdict(scan);
 
   return (
     <div className="flex items-center gap-4">
-      <div
-        className="relative shrink-0 flex items-center justify-center"
-        style={{ width: MAX_BOX_PX, height: MAX_BOX_PX }}
+      <svg
+        viewBox={`0 0 ${DetectionFootprintGeometry.MaximumBoxPixels} ${DetectionFootprintGeometry.MaximumBoxPixels}`}
+        className="size-19 shrink-0"
+        role="img"
+        aria-label="Detection footprint compared with the nominal pixel"
       >
-        <div
-          className="absolute border border-dashed border-sig-dim/60 rounded-[2px]"
-          style={{ width: ref, height: ref }}
+        <rect
+          x={centeredOffset(reference)}
+          y={centeredOffset(reference)}
+          width={reference}
+          height={reference}
+          rx={DetectionFootprintCorner.CornerRadius}
+          fill="none"
+          className="stroke-sig-dim/60"
+          strokeDasharray="3 2"
         />
-        <div
-          className="absolute border-2 border-(--dossier-accent) bg-(--dossier-accent)/15 rounded-[2px]"
-          style={{ width: w, height: h }}
+        <rect
+          x={centeredOffset(width)}
+          y={centeredOffset(height)}
+          width={width}
+          height={height}
+          rx={DetectionFootprintCorner.CornerRadius}
+          className="fill-(--dossier-accent)/15 stroke-(--dossier-accent)"
+          strokeWidth={DetectionFootprintStroke.StrokeWidth}
         />
-      </div>
+      </svg>
       <div className="min-w-0 flex flex-col gap-1">
         <div className="font-mono text-(length:--sig-text-md) text-sig-bright">
           {formatPixelKm(scan, track)}
         </div>
         <div className="text-(length:--sig-text-xs) text-sig-dim">
-          dashed = nominal 375 m at nadir
+          dashed = nominal{" "}
+          {kilometersToMeters(
+            DetectionFootprintGeometry.NominalKilometers,
+          )}{" "}
+          m at nadir
         </div>
         <div className="text-(length:--sig-text-xs)">
-          <span className="text-sig-bright tracking-wide">{verdict.zone}</span>
+          <span className="text-sig-bright tracking-wide">
+            {verdict.zone}
+          </span>
           <span className="text-sig-dim"> · {verdict.note}</span>
         </div>
       </div>

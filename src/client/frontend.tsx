@@ -1,10 +1,4 @@
-/**
- * This file is the entry point for the React app, it sets up the root
- * element and renders the App component to the DOM.
- *
- * It is included in `src/index.html`.
- */
-import "./disablePerfTracks"; // MUST be first — runs before react-dom loads
+import "./disablePerfTracks";
 import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,32 +10,67 @@ import { initAirports } from "./lib/geo/airportService";
 import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
 import { ensureAuthCookie } from "./lib/net/authService";
 import { registerRenderSurfaceElement } from "./render-surface/registration";
+import {
+  DomEvent,
+  DomElementTag,
+  ServiceWorkerClassName,
+  ServiceWorkerElementId,
+  ServiceWorkerTiming,
+  ServiceWorkerUpdateText,
+} from "./runtime";
+
+enum FrontendElementId {
+  Root = "root",
+}
+
+enum FrontendAssetPath {
+  AppleTouchIcon = "/icons/icon-192x192.png",
+  Fonts = "/fonts.css",
+  Manifest = "/manifest.json",
+}
+
+enum FrontendLinkRelation {
+  AppleTouchIcon = "apple-touch-icon",
+  Manifest = "manifest",
+  Stylesheet = "stylesheet",
+}
+
+enum FrontendBootstrapErrorKind {
+  RootMissing = "The application root element is missing",
+}
+
+class FrontendBootstrapError extends Error {
+  constructor(readonly kind: FrontendBootstrapErrorKind) {
+    super(kind);
+    this.name = FrontendBootstrapError.name;
+  }
+}
 
 registerRenderSurfaceElement();
 
-// Singleton providers
 import { newsProvider } from "./features/news";
 
-// Fire cacheInit NOW — runs while the rest of the module parses.
-// By the time we await it below, IDB is likely already open.
 const cacheReady = cacheInit();
 
-const fontsLink = document.createElement("link");
-fontsLink.rel = "stylesheet";
-fontsLink.href = "/fonts.css";
+const fontsLink = document.createElement(DomElementTag.Link);
+fontsLink.rel = FrontendLinkRelation.Stylesheet;
+fontsLink.href = FrontendAssetPath.Fonts;
 document.head.appendChild(fontsLink);
 
-const manifestLink = document.createElement("link");
-manifestLink.rel = "manifest";
-manifestLink.href = "/manifest.json";
+const manifestLink = document.createElement(DomElementTag.Link);
+manifestLink.rel = FrontendLinkRelation.Manifest;
+manifestLink.href = FrontendAssetPath.Manifest;
 document.head.appendChild(manifestLink);
 
-const appleTouchIcon = document.createElement("link");
-appleTouchIcon.rel = "apple-touch-icon";
-appleTouchIcon.href = "/icons/icon-192x192.png";
+const appleTouchIcon = document.createElement(DomElementTag.Link);
+appleTouchIcon.rel = FrontendLinkRelation.AppleTouchIcon;
+appleTouchIcon.href = FrontendAssetPath.AppleTouchIcon;
 document.head.appendChild(appleTouchIcon);
 
-const elem = document.getElementById("root")!;
+const rootElement = document.getElementById(FrontendElementId.Root);
+if (!rootElement) {
+  throw new FrontendBootstrapError(FrontendBootstrapErrorKind.RootMissing);
+}
 const app = (
   <StrictMode>
     <ThemeProvider>
@@ -50,90 +79,70 @@ const app = (
   </StrictMode>
 );
 
-// ── Boot sequence ────────────────────────────────────────────────────
-// Each provider streams in independently: hydrate from IDB (notifies the
-// UI the instant it has cached data), then refresh from the network and
-// notify again when it lands. No batch barrier — the slow feed (aircraft's
-// ~60s server sweep) never holds the fast ones hostage, and the globe is
-// interactive from frame zero with whatever has resolved so far.
-
-// 1. Render immediately
 if (import.meta.hot) {
-  const root = (import.meta.hot.data.root ??= createRoot(elem));
+  const root = (import.meta.hot.data.root ??= createRoot(rootElement));
   root.render(app);
 } else {
-  createRoot(elem).render(app);
+  createRoot(rootElement).render(app);
 }
 
-// News is the last feed React still fetches: it is articles, not points, so
-// it has no DataWorker source. Every point source hydrates and polls in the
-// worker and never appears here.
-const providers = [newsProvider] as const;
-
-type HydrateResult = Awaited<ReturnType<(typeof providers)[number]["hydrate"]>>;
+type HydrateResult = Awaited<ReturnType<typeof newsProvider.hydrate>>;
 
 function needsRefresh(result: HydrateResult): boolean {
-  // null = no cached data; { stale:true } = cached but expired. Fresh cache skips.
   return (
     !result ||
     (typeof result === "object" && "stale" in result && result.stale)
   );
 }
 
-// Auth token once, up front — needed before any authed fetch, but it does
-// NOT gate hydrate/first paint (hydrate is local IDB, no auth).
 const authReady = ensureAuthCookie().catch(() => {});
 
-// Started here and awaited at the end of the module, so the three run
-// concurrently and nothing downstream waits on them. Trails are hydrated and
-// recorded by the DataWorker.
 const backgroundReady = Promise.allSettled([
   initBaseline(),
   initLand(),
   initAirports(),
 ]);
 
-async function streamProvider(
-  provider: (typeof providers)[number],
-): Promise<void> {
-  const hydrated = await provider.hydrate().catch(() => null);
+async function streamNewsProvider(): Promise<void> {
+  const hydrated = await newsProvider.hydrate().catch(() => null);
   if (!needsRefresh(hydrated)) return;
   await authReady;
-  await provider.refresh().catch(() => {});
+  await newsProvider.refresh().catch(() => {});
 }
 
-// Register SW
 registerSW({
   onUpdate: () => {
-    // Don't double-create
-    if (document.getElementById("sw-update-bar")) return;
+    if (document.getElementById(ServiceWorkerElementId.UpdateBanner)) return;
 
-    const bar = document.createElement("div");
-    bar.id = "sw-update-bar";
-    bar.className = "sw-update-bar";
+    const bar = document.createElement(DomElementTag.Container);
+    bar.id = ServiceWorkerElementId.UpdateBanner;
+    bar.className = ServiceWorkerClassName.UpdateBanner;
     bar.innerHTML = `
-      <div class="sw-update-inner">
-        <span class="sw-update-dot"></span>
-        <span class="sw-update-text">UPDATE AVAILABLE</span>
-        <span class="sw-update-sub">A new version of SIGINT is ready</span>
-        <button id="sw-reload-btn">RELOAD NOW</button>
-        <button id="sw-dismiss-btn">LATER</button>
+      <div class="${ServiceWorkerClassName.UpdateInner}">
+        <span class="${ServiceWorkerClassName.UpdateDot}"></span>
+        <span class="${ServiceWorkerClassName.UpdateTitle}">${ServiceWorkerUpdateText.Title}</span>
+        <span class="${ServiceWorkerClassName.UpdateSubtitle}">${ServiceWorkerUpdateText.Subtitle}</span>
+        <button id="${ServiceWorkerElementId.ReloadUpdate}">${ServiceWorkerUpdateText.Reload}</button>
+        <button id="${ServiceWorkerElementId.DismissUpdate}">${ServiceWorkerUpdateText.Dismiss}</button>
       </div>
     `;
     document.body.prepend(bar);
 
-    bar.querySelector("#sw-reload-btn")?.addEventListener("click", () => {
-      applyUpdate();
-    });
-    bar.querySelector("#sw-dismiss-btn")?.addEventListener("click", () => {
-      bar.classList.add("sw-update-bar-dismissed");
-      setTimeout(() => bar.remove(), 300);
-    });
+    bar
+      .querySelector(`#${ServiceWorkerElementId.ReloadUpdate}`)
+      ?.addEventListener(DomEvent.Click, applyUpdate);
+    bar
+      .querySelector(`#${ServiceWorkerElementId.DismissUpdate}`)
+      ?.addEventListener(DomEvent.Click, () => {
+        bar.classList.add(ServiceWorkerClassName.DismissedUpdate);
+        setTimeout(
+          () => bar.remove(),
+          ServiceWorkerTiming.DismissAnimationMs,
+        );
+      });
   },
 });
 
-// Last in the module, so nothing above waits on them. providers.map starts
-// every feed at once: no batch barrier, so a slow feed cannot hold a fast one.
 await cacheReady;
-await Promise.allSettled(providers.map(streamProvider));
+await streamNewsProvider();
 await backgroundReady;

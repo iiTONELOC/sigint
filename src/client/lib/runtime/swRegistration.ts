@@ -1,12 +1,17 @@
+import {
+  DomEvent,
+  DomVisibilityState,
+  ServiceWorkerElementId,
+  ServiceWorkerLifecycleState,
+  ServiceWorkerMessage,
+  ServiceWorkerPath,
+  ServiceWorkerTiming,
+} from "@/runtime";
+
 type ServiceWorkerRegistrationConfig = {
   onUpdate?: () => void;
   onError?: (error: unknown) => void;
 };
-
-const SERVICE_WORKER_URL = "/sw.js";
-const SERVICE_WORKER_SCOPE = "/";
-const ACTIVATION_MESSAGE = "SW_ACTIVATE_WAITING";
-const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
 let updateCallback: (() => void) | null = null;
 let errorCallback: ((error: unknown) => void) | null = null;
@@ -17,7 +22,7 @@ let reloading = false;
 
 function notifyUpdate(): void {
   if (!registration?.waiting) return;
-  if (document.getElementById("sw-update-bar")) return;
+  if (document.getElementById(ServiceWorkerElementId.UpdateBanner)) return;
   updateCallback?.();
 }
 
@@ -40,17 +45,26 @@ function checkForUpdate(): Promise<void> {
 }
 
 function watchInstallingWorker(worker: ServiceWorker): void {
-  worker.addEventListener("statechange", () => {
-    if (worker.state === "installed") notifyUpdate();
+  worker.addEventListener(DomEvent.StateChange, () => {
+    if (worker.state === ServiceWorkerLifecycleState.Installed) notifyUpdate();
   });
 }
 
 function installUpdateChecks(): void {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void checkForUpdate();
+  document.addEventListener(DomEvent.VisibilityChange, () => {
+    if (document.visibilityState === DomVisibilityState.Visible) {
+      checkForUpdate();
+    }
   });
-  window.addEventListener("online", () => void checkForUpdate());
-  window.setInterval(() => void checkForUpdate(), UPDATE_CHECK_INTERVAL_MS);
+  window.addEventListener(DomEvent.Online, () => {
+    checkForUpdate();
+  });
+  window.setInterval(
+    () => {
+      checkForUpdate();
+    },
+    ServiceWorkerTiming.UpdateCheckMilliseconds,
+  );
 }
 
 export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
@@ -60,18 +74,18 @@ export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
   if (registrationStarted) return;
   registrationStarted = true;
 
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
+  navigator.serviceWorker.addEventListener(DomEvent.ControllerChange, () => {
     if (reloading) return;
     reloading = true;
     window.location.reload();
   });
 
-  void navigator.serviceWorker
-    .register(SERVICE_WORKER_URL, { scope: SERVICE_WORKER_SCOPE })
+  navigator.serviceWorker
+    .register(ServiceWorkerPath.Script, { scope: ServiceWorkerPath.Root })
     .then((registered) => {
       registration = registered;
       if (registered.installing) watchInstallingWorker(registered.installing);
-      registered.addEventListener("updatefound", () => {
+      registered.addEventListener(DomEvent.UpdateFound, () => {
         if (registered.installing) watchInstallingWorker(registered.installing);
       });
       notifyUpdate();
@@ -82,5 +96,7 @@ export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
 }
 
 export function applyUpdate(): void {
-  registration?.waiting?.postMessage({ type: ACTIVATION_MESSAGE });
+  registration?.waiting?.postMessage({
+    type: ServiceWorkerMessage.ActivateWaiting,
+  });
 }

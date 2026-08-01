@@ -19,11 +19,23 @@ import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
 import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
 import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
-import { SectionLabel, Card, StatCell, Label, RouteEndpoint } from "./dossierKit";
-import { ktToMph, machFromGs, isaTempC } from "@/lib/format/units";
+import {
+  aircraftDelayTone,
+  AircraftChipTone,
+  type AircraftChip,
+  Card,
+  Label,
+  RouteEndpoint,
+  SectionLabel,
+  StatCell,
+} from "./dossierKit";
+import {
+  ktToMph,
+  metersPerSecondToFeetPerMinute,
+} from "@/measurements";
+import { isaTempC, machFromGs } from "../utils";
 import {
   getSquawkStatus,
-  delaySeverity,
   sourceLabel,
   windComponents,
 } from "@/features/tracking/aircraft/lib/utils";
@@ -37,6 +49,7 @@ import {
   formatEpoch,
   useDossierFocus,
 } from "@/panes/dossier/DossierAtoms";
+import { AircraftDataLabel } from "../types";
 
 type Props = {
   readonly item: AircraftPoint;
@@ -47,13 +60,10 @@ type Props = {
   readonly onClose: () => void;
 };
 
-type Chip = { readonly label: string; readonly tone: string };
-
 enum AircraftDossierLabel {
   Military = "MIL",
   OnTime = "ON TIME",
   Reconnaissance = "RECON",
-  Unknown = "UNKNOWN",
 }
 
 enum AircraftDossierClassName {
@@ -70,12 +80,15 @@ enum AircraftDriftSide {
   Right = "R",
 }
 
-function onTimeChip(hasRoute: boolean, delay?: string): Chip | null {
+function onTimeChip(
+  hasRoute: boolean,
+  delay?: string,
+): AircraftChip | null {
   if (!hasRoute) return null;
   if (!delay) {
     return {
       label: AircraftDossierLabel.OnTime,
-      tone: "sig-quakes",
+      tone: AircraftChipTone.OnTime,
     };
   }
   const match = /(-?\d+)/.exec(delay);
@@ -84,7 +97,7 @@ function onTimeChip(hasRoute: boolean, delay?: string): Chip | null {
     label: minutes <= 0
       ? AircraftDossierLabel.OnTime
       : `+${minutes}m`,
-    tone: delaySeverity(minutes),
+    tone: aircraftDelayTone(minutes),
   };
 }
 
@@ -98,7 +111,7 @@ function roleBadge(
 
 function wakeCategory(category: string | undefined): string | null {
   return category &&
-    category !== AircraftDossierLabel.Unknown
+    category !== AircraftDataLabel.UnknownUppercase
     ? category
     : null;
 }
@@ -107,7 +120,7 @@ function verticalSpeedFeet(
   verticalRate: number | undefined,
 ): number {
   return verticalRate != null
-    ? Math.round(verticalRate * 196.85)
+    ? Math.round(metersPerSecondToFeetPerMinute(verticalRate))
     : 0;
 }
 

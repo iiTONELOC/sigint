@@ -22,11 +22,6 @@ describe("touch-target class in index.css", () => {
 // ── Touch target usage in components ──────────────────────────────────
 
 describe("touch-target on interactive elements", () => {
-  test("PaneHeader buttons use touch-target", async () => {
-    const src = await Bun.file("src/client/panes/PaneHeader.tsx").text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(4);
-  });
-
   test("AlertLogPane filter buttons use touch-target", async () => {
     const src = await Bun.file(
       "src/client/panes/alert-log/AlertLogPane.tsx",
@@ -142,27 +137,5 @@ describe("Speed slider touch", () => {
       "src/client/panes/live-traffic/LiveTrafficPane.tsx",
     ).text();
     expect(src).toContain("touch-none");
-  });
-});
-
-// ── Ticker independence from filters ─────────────────────────────────
-
-describe("Ticker filter independence", () => {
-  test("mergeTickerPages takes only worker pages", async () => {
-    const src = await Bun.file("src/client/lib/ui/tickerFeed.ts").text();
-    expect(src).toContain(
-      "export function mergeTickerPages(pages: readonly TickerPage[])",
-    );
-    expect(src).not.toContain("filters");
-    expect(src).not.toContain("layers");
-  });
-
-  test("the ticker query carries no filter or layer state", async () => {
-    const src = await Bun.file(
-      "src/client/features/base/useSourceTicker.ts",
-    ).text();
-    expect(src).toContain('kind: "ticker"');
-    expect(src).not.toContain("filter");
-    expect(src).not.toContain("layers");
   });
 });

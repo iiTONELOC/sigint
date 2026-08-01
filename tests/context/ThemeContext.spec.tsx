@@ -1,378 +1,160 @@
-import { describe, test, expect, beforeAll } from "bun:test";
-import React from "react";
-import { createRoot } from "react-dom/client";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
-import type { ThemeMode } from "@/config/theme";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import { cacheClearAll } from "@/lib/cache/storageService";
+import { ThemeMode } from "@/theme";
 import { Domain } from "@shared/domain/identity";
+import {
+  flushReactUpdates,
+  renderHook,
+  type ReactHookResult,
+  withExpectedReactError,
+} from "../support/react";
 
-// ── ThemeContext tests ───────────────────────────────────────────────
+enum ThemeFixtureColor {
+  Aircraft = "#ff0000",
+  Ships = "#00ff00",
+}
+
+type ThemeHookResult = ReactHookResult<ReturnType<typeof useTheme>>;
+
+async function renderTheme(): Promise<ThemeHookResult> {
+  const rendered = renderHook(() => useTheme(), {
+    wrapper: (probe) => <ThemeProvider>{probe}</ThemeProvider>,
+  });
+  await flushReactUpdates();
+  return rendered;
+}
+
+function renderThemeWithoutProvider(): void {
+  withExpectedReactError(
+    "useTheme must be used within ThemeProvider",
+    () => {
+      renderHook(() => useTheme());
+    },
+  );
+}
+
+beforeEach(async () => {
+  await cacheClearAll();
+});
 
 describe("ThemeContext", () => {
-  let ThemeProvider: typeof import("@/context/ThemeContext").ThemeProvider;
-  let useTheme: typeof import("@/context/ThemeContext").useTheme;
+  test("provides the default dark theme", async () => {
+    const { result } = await renderTheme();
 
-  // Fresh import each describe to avoid stale module state
-  beforeAll(async () => {
-    const mod = await import("@/context/ThemeContext");
-    ThemeProvider = mod.ThemeProvider;
-    useTheme = mod.useTheme;
+    expect(result.current.mode).toBe(ThemeMode.Dark);
+    expect(result.current.resolvedMode).toBe(ThemeMode.Dark);
+    expect(typeof result.current.theme.colors.bg).toBe("string");
+    expect(result.current.colorOverrides).toEqual({
+      [ThemeMode.Dark]: {},
+      [ThemeMode.Light]: {},
+    });
   });
 
-  function renderWithTheme(testFn: (ctx: ReturnType<typeof useTheme>) => void) {
-    let captured: ReturnType<typeof useTheme>;
-
-    function TestConsumer() {
-      captured = useTheme();
-      return null;
-    }
-
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
+  test("changes and resolves each theme mode", async () => {
+    const { result } = await renderTheme();
 
     act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(TestConsumer),
-        }),
+      result.current.setMode(ThemeMode.Light);
+    });
+    expect(result.current.mode).toBe(ThemeMode.Light);
+    expect(result.current.resolvedMode).toBe(ThemeMode.Light);
+
+    act(() => {
+      result.current.setMode(ThemeMode.Auto);
+    });
+    expect(result.current.mode).toBe(ThemeMode.Auto);
+    expect([
+      ThemeMode.Dark,
+      ThemeMode.Light,
+    ]).toContain(result.current.resolvedMode);
+
+    act(() => {
+      result.current.setMode(ThemeMode.Dark);
+    });
+    expect(result.current.mode).toBe(ThemeMode.Dark);
+    expect(result.current.resolvedMode).toBe(ThemeMode.Dark);
+  });
+
+  test("sets a layer color for the resolved mode", async () => {
+    const { result } = await renderTheme();
+
+    act(() => {
+      result.current.setLayerColor(
+        Domain.Aircraft,
+        ThemeFixtureColor.Aircraft,
       );
     });
 
-    testFn(captured!);
+    expect(result.current.colorOverrides[ThemeMode.Dark].aircraft).toBe(
+      ThemeFixtureColor.Aircraft,
+    );
+    expect(result.current.colorOverrides[ThemeMode.Light]).toEqual({});
+  });
+
+  test("resets one layer color", async () => {
+    const { result } = await renderTheme();
 
     act(() => {
-      root.unmount();
+      result.current.setLayerColor(
+        Domain.Aircraft,
+        ThemeFixtureColor.Aircraft,
+      );
+      result.current.setLayerColor(Domain.Ships, ThemeFixtureColor.Ships);
     });
-    container.remove();
+    act(() => {
+      result.current.resetLayerColor(Domain.Aircraft);
+    });
 
-    return captured!;
-  }
+    expect(
+      result.current.colorOverrides[ThemeMode.Dark].aircraft,
+    ).toBeUndefined();
+    expect(result.current.colorOverrides[ThemeMode.Dark].ships).toBe(
+      ThemeFixtureColor.Ships,
+    );
+  });
 
-  test("defaults to dark mode", () => {
-    renderWithTheme((ctx) => {
-      expect(ctx.mode).toBe("dark");
+  test("resets all layer colors", async () => {
+    const { result } = await renderTheme();
+
+    act(() => {
+      result.current.setLayerColor(
+        Domain.Aircraft,
+        ThemeFixtureColor.Aircraft,
+      );
+    });
+    act(() => {
+      result.current.resetAllColors();
+    });
+
+    expect(result.current.colorOverrides).toEqual({
+      [ThemeMode.Dark]: {},
+      [ThemeMode.Light]: {},
     });
   });
 
-  test("provides theme colors object", () => {
-    renderWithTheme((ctx) => {
-      expect(ctx.theme).toBeDefined();
-      expect(ctx.theme.colors).toBeDefined();
-      expect(typeof ctx.theme.colors.bg).toBe("string");
-    });
-  });
-
-  test("setMode switches to light", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
+  test("uses the resolved bucket for automatic mode overrides", async () => {
+    const { result } = await renderTheme();
 
     act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
+      result.current.setMode(ThemeMode.Auto);
+    });
+    act(() => {
+      result.current.setLayerColor(
+        Domain.Aircraft,
+        ThemeFixtureColor.Aircraft,
       );
     });
 
-    act(() => {
-      ctx!.setMode("light");
-    });
-
-    expect(ctx!.mode).toBe("light");
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    expect(
+      result.current.colorOverrides[result.current.resolvedMode].aircraft,
+    ).toBe(ThemeFixtureColor.Aircraft);
   });
 
-  test("colorOverrides starts empty", () => {
-    renderWithTheme((ctx) => {
-      expect(ctx.colorOverrides).toEqual({ dark: {}, light: {} });
-    });
-  });
-
-  test("setLayerColor updates overrides for current mode", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    act(() => {
-      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
-    });
-
-    expect(ctx!.colorOverrides.dark.aircraft).toBe("#ff0000");
-    expect(ctx!.colorOverrides.light).toEqual({});
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("resetLayerColor removes single override", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    act(() => {
-      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
-      ctx!.setLayerColor(Domain.Ships, "#00ff00");
-    });
-
-    act(() => {
-      ctx!.resetLayerColor(Domain.Aircraft);
-    });
-
-    expect(ctx!.colorOverrides.dark.aircraft).toBeUndefined();
-    expect(ctx!.colorOverrides.dark.ships).toBe("#00ff00");
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("resetAllColors clears all overrides", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    act(() => {
-      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
-    });
-
-    act(() => {
-      ctx!.resetAllColors();
-    });
-
-    expect(ctx!.colorOverrides).toEqual({ dark: {}, light: {} });
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("useTheme throws outside provider", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-
-    function Orphan() {
-      useTheme();
-      return null;
-    }
-
-    expect(() => {
-      try {
-        act(() => {
-          root.render(React.createElement(Orphan));
-        });
-      } catch (e) {
-        throw e;
-      }
-    }).toThrow("useTheme must be used within ThemeProvider");
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("setMode accepts auto", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    act(() => {
-      ctx!.setMode("auto");
-    });
-
-    expect(ctx!.mode).toBe("auto");
-    // resolvedMode should be "dark" or "light" (never "auto")
-    expect(["dark", "light"]).toContain(ctx!.resolvedMode);
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("resolvedMode is dark or light even when mode is auto", () => {
-    renderWithTheme((ctx) => {
-      // Default mode is dark
-      expect(ctx.resolvedMode).toBe("dark");
-    });
-  });
-
-  test("resolvedMode matches mode when explicitly set", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    act(() => {
-      ctx!.setMode("light");
-    });
-    expect(ctx!.resolvedMode).toBe("light");
-
-    act(() => {
-      ctx!.setMode("dark");
-    });
-    expect(ctx!.resolvedMode).toBe("dark");
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("all three modes are accepted without error", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    const modes: ThemeMode[] = ["dark", "light", "auto"];
-    for (const m of modes) {
-      act(() => {
-        ctx!.setMode(m);
-      });
-      expect(ctx!.mode).toBe(m);
-      expect(["dark", "light"]).toContain(ctx!.resolvedMode);
-    }
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  test("layer color overrides apply to resolvedMode not mode", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    let ctx: ReturnType<typeof useTheme>;
-
-    function Consumer() {
-      ctx = useTheme();
-      return null;
-    }
-
-    act(() => {
-      root.render(
-        React.createElement(ThemeProvider, {
-          children: React.createElement(Consumer),
-        }),
-      );
-    });
-
-    // Set to auto (resolves to dark in test env)
-    act(() => {
-      ctx!.setMode("auto");
-    });
-
-    act(() => {
-      ctx!.setLayerColor(Domain.Aircraft, "#ff0000");
-    });
-
-    // Override should be on the resolved mode's bucket
-    const resolved = ctx!.resolvedMode;
-    expect(ctx!.colorOverrides[resolved].aircraft).toBe("#ff0000");
-
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+  test("rejects use outside the provider", () => {
+    expect(renderThemeWithoutProvider).toThrow(
+      "useTheme must be used within ThemeProvider",
+    );
   });
 });

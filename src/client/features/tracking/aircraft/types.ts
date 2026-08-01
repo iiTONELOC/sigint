@@ -12,7 +12,26 @@ export type AircraftHistoryPoint = {
   timestamp: string;
 };
 
-export type SquawkLabel = "EMERGENCY" | "RADIO FAILURE" | "HIJACK" | "NORMAL";
+export enum AircraftDataLabel {
+  Unknown = "Unknown",
+  UnknownCallsign = "UNK",
+  UnknownOrigin = "UNK ORIGIN",
+  UnknownOperator = "UNK OP",
+  UnknownUppercase = "UNKNOWN",
+}
+
+export enum AircraftFlightStatusLabel {
+  Airborne = "AIRBORNE",
+  Ground = "GROUND",
+  OnGround = "ON GROUND",
+}
+
+export enum SquawkLabel {
+  Emergency = "EMERGENCY",
+  Hijack = "HIJACK",
+  Normal = "NORMAL",
+  RadioFailure = "RADIO FAILURE",
+}
 export type { SquawkStatus } from "@shared/domain/aircraft";
 
 export type AircraftData = {
@@ -28,27 +47,23 @@ export type AircraftData = {
   altitude?: number;
   speedMps?: number;
   onGround?: boolean;
-  /** True airspeed (kt), Mach, indicated airspeed (kt) — present in the adsb.fi
-   *  v3 (readsb) feed for many aircraft; undefined when not transmitted. */
+  /** True airspeed, Mach, and indicated airspeed from the ADS-B feed. */
   tas?: number;
   mach?: number;
   ias?: number;
-  /** Wind from the feed: direction (° true) and speed (kt). */
+  /** Wind direction in true degrees and wind speed in knots. */
   windDir?: number;
   windSpd?: number;
   /** Outer/static + total air temperature (°C). */
   oat?: number;
   tat?: number;
-  /** Roll angle (°, negative = left). Pitch is NOT transmitted by ADS-B, so
-   *  there is no attitude/pitch field — only a real bank indicator is possible. */
+  /** Roll angle in degrees. A negative value indicates a left bank. */
   roll?: number;
   /** Rate of change of track (°/s). */
   trackRate?: number;
   /** Magnetic heading (°). `heading` already carries track/true_heading. */
   magHeading?: number;
-  /** True heading (°, nose direction) when transmitted — kept separate from
-   *  `heading` (which prefers ground track) so the wind-drift crab angle
-   *  (track − heading) can be shown. */
+  /** True nose heading. The heading field prefers the ground track. */
   trueHeading?: number;
   /** Geometric (GNSS) vertical rate (fpm). `verticalRate` is baro. */
   geomRate?: number;

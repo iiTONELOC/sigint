@@ -1,25 +1,44 @@
 import { Navigation, LocateFixed } from "lucide-react";
-import { formatKtShort, ktToMph } from "@/lib/format/units";
+import { formatKtShort, ktToMph } from "@/measurements";
+import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import type { CycloneData } from "../types";
-import { windTrend, pressureTrend, pressureRateHpaPerH, WIND_TREND_LABEL, PRESS_TREND_LABEL } from "../data/intensity";
-import { windColor } from "../classification";
+import {
+  pressureRateHpaPerH,
+  pressureTrend,
+  pressureTrendLabel,
+  windTrend,
+  windTrendLabel,
+} from "../data/intensity";
 import { StatBox, StatValue, StatTrend } from "./cycloneKit";
 import { CycloneWindsock } from "./CycloneWindsock";
 import { CyclonePressureGauge } from "./CyclonePressureGauge";
+import { compassPointForDegrees } from "@shared/domain/compass";
 
-const COMPASS = [
-  "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-];
-const COMPASS_STEP_DEG = 360 / 16;
-function cardinal(deg: number): string {
-  const idx = Math.round((((deg % 360) + 360) % 360) / COMPASS_STEP_DEG) % 16;
-  return COMPASS[idx] ?? "N";
+enum CycloneVitalsClassName {
+  StatBox = "relative",
+  Instrument = "absolute top-2.5 right-3",
+  Icon = "w-3.5 h-3.5 text-(--dossier-accent)",
+  Value = "text-(length:--sig-text-md) text-sig-bright font-mono truncate",
+  Strip = "flex items-center justify-between gap-2 min-w-0 bg-sig-panel border border-sig-border rounded-[12px] px-3 py-2.5",
+  StripLabel = "flex items-center gap-2 text-(length:--sig-text-xs) tracking-wide text-sig-text shrink-0",
 }
 
-// VITALS — MAX WIND (lead, category-accent left border) + PRESSURE boxes with
-// real trends (windTrend/pressureTrend over pastTrack + forecast), and a
-// MOVEMENT strip whose arrow rotates to the storm's heading. Boxes, not dials.
+enum CycloneVitalsText {
+  PositivePrefix = "+",
+  PressureRateSuffix = " hPa/h",
+  SincePriorAdvisory = " since prior advisory",
+  MiddleDot = " · ",
+}
+
+enum CycloneVitalsSvgGeometry {
+  IconCenter = 12,
+}
+
+function pressureRateText(rate: number | null): string | null {
+  if (rate === null) return null;
+  const prefix = rate > 0 ? CycloneVitalsText.PositivePrefix : "";
+  return `${prefix}${rate.toFixed(1)}${CycloneVitalsText.PressureRateSuffix}`;
+}
 
 export function CycloneVitals({
   data,
@@ -32,62 +51,69 @@ export function CycloneVitals({
 }) {
   const windTrendValue = windTrend(data);
   const pressureTrendValue = pressureTrend(data);
-  const w = WIND_TREND_LABEL[windTrendValue];
-  const p = PRESS_TREND_LABEL[pressureTrendValue];
+  const windLabel = windTrendLabel(windTrendValue);
+  const pressureLabel = pressureTrendLabel(pressureTrendValue);
   const pressRate = pressureRateHpaPerH(data);
-  const pressRateText =
-    pressRate == null ? null : `${pressRate > 0 ? "+" : ""}${pressRate.toFixed(1)} hPa/h`;
+  const pressRateText = pressureRateText(pressRate);
   const { movementDir, movementSpeedKt } = data;
   const hasMovement = movementDir != null && movementSpeedKt != null;
 
   return (
     <div className="@container/vitals flex flex-col gap-2.5 h-full">
       <div className="grid grid-cols-1 @min-[16rem]/vitals:grid-cols-2 gap-2.5">
-        <StatBox label="MAX WIND" lead className="relative">
-          <div className="absolute top-2.5 right-3">
+        <StatBox label="MAX WIND" lead className={CycloneVitalsClassName.StatBox}>
+          <div className={CycloneVitalsClassName.Instrument}>
             <CycloneWindsock maxWindKt={data.maxWindKt} />
           </div>
           <StatValue value={data.maxWindKt} unit="kt" />
-          <StatTrend tone={w.tone}>
-            <span style={{ color: windColor(data.maxWindKt) }}>{ktToMph(data.maxWindKt)} mph</span> · {w.text}
-            {windTrendValue === "unknown" ? "" : " since prior advisory"}
+          <StatTrend tone={windLabel.tone}>
+            <span className="text-(--dossier-accent)">
+              {ktToMph(data.maxWindKt)} mph
+            </span>
+            {CycloneVitalsText.MiddleDot}{windLabel.text}
+            {windLabel.observed ? CycloneVitalsText.SincePriorAdvisory : ""}
           </StatTrend>
         </StatBox>
         {data.minPressureMb != null && (
-          <StatBox label="PRESSURE" className="relative">
-            <div className="absolute top-2.5 right-3">
+          <StatBox label="PRESSURE" className={CycloneVitalsClassName.StatBox}>
+            <div className={CycloneVitalsClassName.Instrument}>
               <CyclonePressureGauge pressureHpa={data.minPressureMb} />
             </div>
             <StatValue value={data.minPressureMb} unit="hPa" />
-            <StatTrend tone={p.tone}>
-              {pressRateText ? `${pressRateText} · ${p.text}` : p.text}
-              {pressureTrendValue === "unknown" ? "" : " since prior advisory"}
+            <StatTrend tone={pressureLabel.tone}>
+              {pressRateText
+                ? `${pressRateText}${CycloneVitalsText.MiddleDot}${pressureLabel.text}`
+                : pressureLabel.text}
+              {pressureLabel.observed
+                ? CycloneVitalsText.SincePriorAdvisory
+                : ""}
             </StatTrend>
           </StatBox>
         )}
       </div>
       {hasMovement && (
-        <div className="flex items-center justify-between gap-2 min-w-0 bg-sig-panel border border-sig-border rounded-[12px] px-3 py-2.5">
-          <span className="flex items-center gap-2 text-(length:--sig-text-xs) tracking-wide text-sig-text shrink-0">
+        <div className={CycloneVitalsClassName.Strip}>
+          <span className={CycloneVitalsClassName.StripLabel}>
             <Navigation
-              className="w-3.5 h-3.5 text-(--dossier-accent)"
-              style={{ transform: `rotate(${movementDir}deg)` }}
-              aria-hidden="true"
+              className={CycloneVitalsClassName.Icon}
+              transform={`rotate(${movementDir} ${CycloneVitalsSvgGeometry.IconCenter} ${CycloneVitalsSvgGeometry.IconCenter})`}
+              aria-hidden
             />
             MOVING
           </span>
-          <span className="text-(length:--sig-text-md) text-sig-bright font-mono truncate">
-            {cardinal(movementDir)} {movementDir}° · {formatKtShort(movementSpeedKt)}
+          <span className={CycloneVitalsClassName.Value}>
+            {compassPointForDegrees(movementDir)} {movementDir}°
+            {CycloneVitalsText.MiddleDot}{formatKtShort(movementSpeedKt)}
           </span>
         </div>
       )}
-      <div className="flex items-center justify-between gap-2 min-w-0 bg-sig-panel border border-sig-border rounded-[12px] px-3 py-2.5">
-        <span className="flex items-center gap-2 text-(length:--sig-text-xs) tracking-wide text-sig-text shrink-0">
-          <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden="true" />
+      <div className={CycloneVitalsClassName.Strip}>
+        <span className={CycloneVitalsClassName.StripLabel}>
+          <LocateFixed className={CycloneVitalsClassName.Icon} aria-hidden />
           POSITION
         </span>
-        <span className="text-(length:--sig-text-md) text-sig-bright font-mono truncate">
-          {Math.abs(lat).toFixed(2)}°{lat >= 0 ? "N" : "S"} · {Math.abs(lon).toFixed(2)}°{lon >= 0 ? "E" : "W"}
+        <span className={CycloneVitalsClassName.Value}>
+          {formatLat(lat)}{CycloneVitalsText.MiddleDot}{formatLon(lon)}
         </span>
       </div>
     </div>

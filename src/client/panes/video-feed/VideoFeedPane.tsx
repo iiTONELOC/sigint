@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useWalkthroughActive, setVideoPresetCount } from "@/lib/runtime/layoutSignals";
+import { setVideoPresetCount, useWalkthroughActive } from "@/walkthrough";
 import {
   Square,
   Columns2,
@@ -12,6 +12,7 @@ import {
 import type {
   Channel,
   GridLayout,
+  Preset,
   SlotState,
   SavedState,
 } from "./videoFeedTypes";
@@ -24,9 +25,78 @@ import {
   restoreChannels,
   buildSavedState,
 } from "./videoFeedPersistence";
-import type { Preset } from "./videoFeedTypes";
 import { VideoSlot } from "./VideoSlot";
 import { PresetMenu } from "./PresetMenu";
+import { videoGridLabel } from "./videoGrid";
+
+enum VideoFeedIconMetric {
+  CompactSize = 10,
+  StrokeWidth = 2.5,
+  ToolbarSize = 12,
+}
+
+enum VideoFeedControlClassName {
+  Active = "text-sig-accent bg-sig-accent/15",
+  Divider = "w-px h-4 bg-sig-border/50",
+  Inactive = "text-sig-dim bg-transparent hover:text-sig-bright",
+}
+
+enum VideoGridSvgStroke {
+  Round = "round",
+}
+
+type VideoGridIconProps = Readonly<{
+  grid: GridLayout;
+}>;
+
+function VideoGridIcon({ grid }: VideoGridIconProps) {
+  switch (grid) {
+    case 1:
+      return (
+        <Square
+          size={VideoFeedIconMetric.ToolbarSize}
+          strokeWidth={VideoFeedIconMetric.StrokeWidth}
+        />
+      );
+    case 2:
+      return (
+        <Columns2
+          size={VideoFeedIconMetric.ToolbarSize}
+          strokeWidth={VideoFeedIconMetric.StrokeWidth}
+        />
+      );
+    case 4:
+      return (
+        <LayoutGrid
+          size={VideoFeedIconMetric.ToolbarSize}
+          strokeWidth={VideoFeedIconMetric.StrokeWidth}
+        />
+      );
+    default:
+      return (
+        <svg
+          width={VideoFeedIconMetric.ToolbarSize}
+          height={VideoFeedIconMetric.ToolbarSize}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={VideoFeedIconMetric.StrokeWidth}
+          strokeLinecap={VideoGridSvgStroke.Round}
+          strokeLinejoin={VideoGridSvgStroke.Round}
+        >
+          <rect x="1" y="1" width="6" height="6" />
+          <rect x="9" y="1" width="6" height="6" />
+          <rect x="17" y="1" width="6" height="6" />
+          <rect x="1" y="9" width="6" height="6" />
+          <rect x="9" y="9" width="6" height="6" />
+          <rect x="17" y="9" width="6" height="6" />
+          <rect x="1" y="17" width="6" height="6" />
+          <rect x="9" y="17" width="6" height="6" />
+          <rect x="17" y="17" width="6" height="6" />
+        </svg>
+      );
+  }
+}
 
 export function VideoFeedPane() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -267,15 +337,12 @@ export function VideoFeedPane() {
             onClick={handleRestoreGrid}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) font-semibold tracking-wider bg-sig-accent/10 border border-sig-accent/30 hover:bg-sig-accent/20 transition-colors mr-auto"
           >
-            <Minimize size={10} strokeWidth={2.5} />
+            <Minimize
+              size={VideoFeedIconMetric.CompactSize}
+              strokeWidth={VideoFeedIconMetric.StrokeWidth}
+            />
             RESTORE{" "}
-            {prePromoteGrid === 2
-              ? "2×1"
-              : prePromoteGrid === 4
-                ? "2×2"
-                : prePromoteGrid === 9
-                  ? "3×3"
-                  : "GRID"}
+            {videoGridLabel(prePromoteGrid)}
           </button>
         )}
 
@@ -290,72 +357,52 @@ export function VideoFeedPane() {
               }}
               className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
                 gridLayout === g
-                  ? "text-sig-accent bg-sig-accent/15"
-                  : "text-sig-dim bg-transparent hover:text-sig-bright"
+                  ? VideoFeedControlClassName.Active
+                  : VideoFeedControlClassName.Inactive
               }`}
-              title={
-                g === 1 ? "Single" : g === 2 ? "2×1" : g === 4 ? "2×2" : "3×3"
-              }
+              title={videoGridLabel(g)}
             >
-              {g === 1 ? (
-                <Square size={12} strokeWidth={2.5} />
-              ) : g === 2 ? (
-                <Columns2 size={12} strokeWidth={2.5} />
-              ) : g === 4 ? (
-                <LayoutGrid size={12} strokeWidth={2.5} />
-              ) : (
-                <svg
-                  width={12}
-                  height={12}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="1" y="1" width="6" height="6" />
-                  <rect x="9" y="1" width="6" height="6" />
-                  <rect x="17" y="1" width="6" height="6" />
-                  <rect x="1" y="9" width="6" height="6" />
-                  <rect x="9" y="9" width="6" height="6" />
-                  <rect x="17" y="9" width="6" height="6" />
-                  <rect x="1" y="17" width="6" height="6" />
-                  <rect x="9" y="17" width="6" height="6" />
-                  <rect x="17" y="17" width="6" height="6" />
-                </svg>
-              )}
+              <VideoGridIcon grid={g} />
             </button>
           ))}
         </div>
-        <div className="w-px h-4 bg-sig-border/50" />
+        <div className={VideoFeedControlClassName.Divider} />
         {/* Presets button */}
         <button
           onClick={() => setShowPresets((v) => !v)}
           className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
             showPresets
-              ? "text-sig-accent bg-sig-accent/15"
-              : "text-sig-dim bg-transparent hover:text-sig-bright"
+              ? VideoFeedControlClassName.Active
+              : VideoFeedControlClassName.Inactive
           }`}
           title="Presets"
           data-tour="video-preset-btn"
         >
-          <Bookmark size={12} strokeWidth={2.5} />
+          <Bookmark
+            size={VideoFeedIconMetric.ToolbarSize}
+            strokeWidth={VideoFeedIconMetric.StrokeWidth}
+          />
         </button>
         <span className="text-sig-dim text-(length:--sig-text-sm)">
           {loading ? (
-            <Loader2 size={10} className="animate-spin" />
+            <Loader2
+              size={VideoFeedIconMetric.CompactSize}
+              className="animate-spin"
+            />
           ) : (
             `${channels.length} ch`
           )}
         </span>
-        <div className="w-px h-4 bg-sig-border/50" />
+        <div className={VideoFeedControlClassName.Divider} />
         <button
           onClick={handlePaneFullscreen}
           className="p-1.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
           title="Fullscreen pane"
         >
-          <Fullscreen size={12} strokeWidth={2.5} />
+          <Fullscreen
+            size={VideoFeedIconMetric.ToolbarSize}
+            strokeWidth={VideoFeedIconMetric.StrokeWidth}
+          />
         </button>
         {showPresets && (
           <PresetMenu

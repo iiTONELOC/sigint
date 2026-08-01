@@ -1,0 +1,1 @@
+export { TickerSpeedPolicy } from "./model";

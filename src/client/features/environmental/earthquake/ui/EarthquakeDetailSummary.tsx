@@ -1,42 +1,34 @@
 import type { DataPoint } from "@/features/base/dataPoints";
+import { DetailField, DetailFieldAlign } from "@/dossier";
 import { formatLat, formatLon } from "@/lib/format/geoFormat";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { formatKmMi } from "@/lib/format/units";
+import { formatKmMi } from "@/measurements";
+import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
 import { estimateMmi, mmiBand, isShallow } from "../intensity";
+import type { EarthquakeData } from "../types";
 
-function Field({
-  label,
-  value,
-  align = "left",
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly align?: "left" | "right";
-}) {
-  return (
-    <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
-      <div className="text-(length:--sig-text-xs) tracking-wide text-sig-dim">{label}</div>
-      <div className="text-(length:--sig-text-sm) text-sig-bright truncate">{value}</div>
-    </div>
-  );
+enum EarthquakeDetailLabel {
+  Position = "POSITION",
+}
+
+function depthClassification(depth: number | undefined): string {
+  if (depth === undefined) return EMPTY_TEXT;
+  return isShallow(depth) ? "shallow" : "deep";
 }
 
 export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) {
-  const d = (item as { data?: Record<string, unknown> }).data ?? {};
-  const magnitude = typeof d.magnitude === "number" ? d.magnitude : 0;
-  const magType = typeof d.magType === "string" ? d.magType : "";
-  const depth = typeof d.depth === "number" ? d.depth : undefined;
-  const place = typeof d.location === "string" ? d.location : "Unknown location";
-  const felt = typeof d.felt === "number" ? d.felt : undefined;
-  const significance = typeof d.significance === "number" ? d.significance : undefined;
-  const status = typeof d.status === "string" ? d.status : undefined;
+  const d = item.data as EarthquakeData;
+  const magnitude = d.magnitude ?? 0;
+  const magType = d.magType ?? "";
+  const { depth, felt, significance, status } = d;
+  const place = d.location ?? "Unknown location";
   const band = mmiBand(estimateMmi(magnitude, depth));
 
   return (
-    <div className="pt-2.5 border-t border-sig-border">
+    <div className={`${band.className} pt-2.5 border-t border-sig-border`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-(length:--sig-text-lg) font-bold text-sig-bright leading-none">
@@ -45,31 +37,32 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
           </div>
           <div className="text-(length:--sig-text-xs) text-sig-dim mt-1 truncate">{place}</div>
         </div>
-        <span
-          className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-bg/70 border whitespace-nowrap"
-          style={{ color: band.ink, borderColor: band.ink }}
-        >
+        <span className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded bg-sig-bg/70 border border-(--dossier-accent) text-(--dossier-accent) whitespace-nowrap">
           {band.roman} · {band.label}
         </span>
       </div>
 
       <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-sig-border/50">
         <div className="flex justify-between gap-4">
-          <Field label="DEPTH" value={depth == null ? "—" : formatKmMi(depth)} />
-          <Field label="" value={depth == null ? "" : isShallow(depth) ? "shallow" : "deep"} align="right" />
+          <DetailField label="DEPTH" value={depth == null ? NO_VALUE : formatKmMi(depth)} />
+          <DetailField
+            label={EMPTY_TEXT}
+            value={depthClassification(depth)}
+            align={DetailFieldAlign.Right}
+          />
         </div>
         <div className="flex justify-between gap-4">
-          <Field label="SIGNIFICANCE" value={significance == null ? "—" : String(significance)} />
-          <Field label="REVIEW" value={status ?? "—"} align="right" />
+          <DetailField label="SIGNIFICANCE" value={significance == null ? NO_VALUE : String(significance)} />
+          <DetailField label="REVIEW" value={status ?? NO_VALUE} align={DetailFieldAlign.Right} />
         </div>
         {felt != null && felt > 0 && (
           <div className="flex justify-between gap-4">
-            <Field label="FELT" value={`${felt} reports`} />
-            <Field label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} align="right" />
+            <DetailField label="FELT" value={`${felt} reports`} />
+            <DetailField label={EarthquakeDetailLabel.Position} value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} align={DetailFieldAlign.Right} />
           </div>
         )}
         {(felt == null || felt === 0) && (
-          <Field label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />
+          <DetailField label={EarthquakeDetailLabel.Position} value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />
         )}
       </div>
     </div>

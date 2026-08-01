@@ -1,22 +1,82 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "@/context/ThemeContext";
-import { useLayoutMode, type LayoutMode } from "@/context/LayoutModeContext";
+import { LayoutMode, useLayoutMode } from "@/layout-mode";
 import { getColorMap } from "@/config/theme";
 
 import { featureList } from "@/features/registry";
 import type { AircraftFilter } from "@/features/tracking/aircraft/types";
 import { AircraftFilterControl } from "@/features/tracking/aircraft";
-import { Tooltip } from "@/components/Tooltip";
+import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
 import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
-import { useAlwaysShowCyclones } from "@/lib/ui/userPreferences";
+import { useAlwaysShowCyclones } from "@/preferences/cyclones";
 import {
   buildSourceStatusMap,
   type SourceStatusEntry,
 } from "@/lib/net/sourceHealth";
 import { Domain } from "@shared/domain/identity";
 import { isSourceDown, SourceStatus } from "@shared/domain/sourceStatus";
-import { SettingsModal } from "@/components/SettingsModal";
+import { SettingsModal } from "@/settings";
+import { ThemeMode } from "@/theme";
+
+enum HeaderLabel {
+  Hide = "Hide",
+  OpenSettings = "Open settings",
+  Settings = "Settings",
+  Show = "Show",
+}
+
+enum HeaderTourTarget {
+  AircraftFilter = "aircraft-filter",
+  Brand = "header-brand",
+  LayerToggles = "layer-toggles",
+  LayoutMode = "layout-mode-toggle",
+  Search = "search",
+  Settings = "settings-button",
+}
+
+enum HeaderColorSuffix {
+  ActiveBackground = "15",
+  ActiveBorder = "50",
+}
+
+enum HeaderCssValue {
+  LayerIconSize = "var(--sig-text-icon)",
+}
+
+enum HeaderIconSize {
+  Compact = 14,
+  SettingsDesktop = 15,
+  SourceError = 10,
+}
+
+enum HeaderIconStrokeWidth {
+  Emphasis = 2.5,
+  Standard = 2,
+}
+
+enum HeaderTiming {
+  ClockRefreshMs = 1_000,
+}
+
+enum HeaderLocale {
+  UnitedStatesEnglish = "en-US",
+}
+
+enum HeaderDateStyle {
+  Numeric = "numeric",
+  Short = "short",
+}
+
+const HEADER_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  hour12: false,
+};
+
+const HEADER_DATE_FORMAT: Intl.DateTimeFormatOptions = {
+  year: HeaderDateStyle.Numeric,
+  month: HeaderDateStyle.Short,
+  day: HeaderDateStyle.Numeric,
+};
 
 type HeaderProps = {
   readonly layers: Record<string, boolean>;
@@ -30,8 +90,6 @@ type HeaderProps = {
   readonly availableCountries: string[];
   readonly searchSlot?: React.ReactNode;
 };
-
-// ── Sub-components ───────────────────────────────────────────────────
 
 function LayerToggle({
   label,
@@ -57,42 +115,44 @@ function LayerToggle({
   const downText = reason
     ? `${label} offline: ${reason}`
     : `${label} offline`;
-  const tooltipText = down
-    ? downText
-    : `${on ? "Hide" : "Show"} ${label}`;
+  const visibilityAction = on ? HeaderLabel.Hide : HeaderLabel.Show;
+  const tooltipText = down ? downText : `${visibilityAction} ${label}`;
 
   return (
-    <Tooltip content={tooltipText} placement="bottom">
+    <Tooltip
+      content={tooltipText}
+      placement={TooltipPlacement.Bottom}
+    >
       <button
         type="button"
         onClick={onToggle}
         aria-label={`Toggle ${label} layer`}
         aria-pressed={on}
-        // Off state needs explicit text + border colors so the icon
-        // stays visible after clicking to toggle off; without them
-        // the icon inherits the browser default text color and the
-        // browser-default focus ring obscures both. focus-visible
-        // override replaces the white outline with the theme accent.
+        // Explicit off-state colors keep the icon visible after a toggle.
         className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sig-accent"
         style={{
           color: on ? color : "var(--sigint-dim)",
-          background: on ? `${color}15` : undefined,
-          borderColor: on ? `${color}50` : "var(--sigint-border)",
+          background: on
+            ? `${color}${HeaderColorSuffix.ActiveBackground}`
+            : undefined,
+          borderColor: on
+            ? `${color}${HeaderColorSuffix.ActiveBorder}`
+            : "var(--sigint-border)",
         }}
       >
         <Icon
           aria-hidden="true"
           {...iconProps}
           style={{
-            width: "var(--sig-text-icon)",
-            height: "var(--sig-text-icon)",
+            width: HeaderCssValue.LayerIconSize,
+            height: HeaderCssValue.LayerIconSize,
           }}
         />
         <span className="hidden sm:inline-flex items-center min-h-lh">
           {down && count === 0 ? (
             <AlertTriangle
-              size={10}
-              strokeWidth={2.5}
+              size={HeaderIconSize.SourceError}
+              strokeWidth={HeaderIconStrokeWidth.Emphasis}
               className="text-sig-dim opacity-60"
               aria-label={`${label} source offline`}
             />
@@ -105,7 +165,25 @@ function LayerToggle({
   );
 }
 
-// ── Toggles (shared between single-row and two-row layouts) ──────────
+function shouldShowLayerToggle(
+  featureId: string,
+  alwaysShowCyclones: boolean,
+  sourceStatusMap: ReadonlyMap<string, SourceStatusEntry>,
+): boolean {
+  if (
+    featureId === Domain.Aircraft ||
+    featureId === Domain.CyclonesForecast ||
+    featureId === Domain.CyclonesWarning
+  ) {
+    return false;
+  }
+  if (featureId !== Domain.Cyclones) return true;
+  if (alwaysShowCyclones) return true;
+
+  const cyclonesEmpty =
+    sourceStatusMap.get(Domain.Cyclones)?.status === SourceStatus.Empty;
+  return shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1);
+}
 
 function Toggles({
   layers,
@@ -118,7 +196,7 @@ function Toggles({
   searchSlot,
 }: Readonly<HeaderProps>) {
   const { theme, resolvedMode } = useTheme();
-  const C = theme.colors;
+  const colors = theme.colors;
   const colorMap = getColorMap(theme);
   const sourceStatusMap = useMemo(
     () => buildSourceStatusMap(dataSources),
@@ -128,82 +206,59 @@ function Toggles({
 
   return (
     <>
-      <div data-tour="search">{searchSlot}</div>
+      <div data-tour={HeaderTourTarget.Search}>{searchSlot}</div>
       <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
-      <div data-tour="layer-toggles" className="flex items-center gap-0.5 sm:gap-1">
+      <div
+        data-tour={HeaderTourTarget.LayerToggles}
+        className="flex items-center gap-0.5 sm:gap-1"
+      >
         {featureList
-          // Aircraft has its own filter control. Cyclone-forecast is a
-          // synthetic per-track-point variant of the cyclones layer —
-          // it's gated by layers.cyclones in the worker, so a separate
-          // toggle would be a duplicate of the storm toggle. The
-          // cyclones toggle itself is conditionally hidden when all
-          // in-scope basins are out of season AND the cyclones source
-          // has reported empty (Hard Rule: render-only filter,
-          // layers.cyclones survives). Note that `counts.cyclones` is
-          // filter-applied — when the user clicks the toggle to OFF,
-          // that count drops to 0 and would spuriously hide the toggle
-          // mid-session. The source status is what we actually want:
-          // "empty" means the upstream confirmed zero storms; any
-          // other status (loading / live / cached / mock / error /
-          // unavailable) keeps the toggle visible.
-          .filter((f) => {
-            if (
-              f.id === "aircraft" ||
-              f.id === "cyclones-forecast" ||
-              f.id === "cyclones-warning"
-            ) {
-              return false;
-            }
-            if (f.id === "cyclones") {
-              // User preference wins — when set, the toggle is always
-              // visible regardless of season + cache state. Useful for
-              // ops scenarios where the cyclones layer is part of a
-              // saved workflow and the operator wants quick access
-              // even mid-winter.
-              if (alwaysShowCyclones) return true;
-              const cyclonesEmpty =
-                sourceStatusMap.get(Domain.Cyclones)?.status ===
-                SourceStatus.Empty;
-              if (!shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1)) {
-                return false;
-              }
-            }
-            return true;
-          })
-          .map((f) => {
-            const on = layers[f.id] ?? false;
-            const color = colorMap[f.id] ?? C.dim;
-            const entry = sourceStatusMap.get(f.id);
-            const count = counts[f.id] ?? 0;
+          .filter((feature) =>
+            shouldShowLayerToggle(
+              feature.id,
+              alwaysShowCyclones,
+              sourceStatusMap,
+            ),
+          )
+          .map((feature) => {
+            const on = layers[feature.id] ?? false;
+            const color = colorMap[feature.id] ?? colors.dim;
+            const entry = sourceStatusMap.get(feature.id);
+            const count = counts[feature.id] ?? 0;
             const down = isSourceDown(entry?.status);
             return (
               <LayerToggle
-                key={f.id}
-                label={f.label}
-                icon={f.icon}
+                key={feature.id}
+                label={feature.label}
+                icon={feature.icon}
                 on={on}
                 color={color}
                 count={count}
                 down={down}
                 reason={entry?.error ?? null}
-                iconProps={f.iconProps}
-                onToggle={() => toggleLayer(f.id)}
+                iconProps={feature.iconProps}
+                onToggle={() => toggleLayer(feature.id)}
               />
             );
           })}
-        <div data-tour="aircraft-filter">
+        <div data-tour={HeaderTourTarget.AircraftFilter}>
           <AircraftFilterControl
             aircraftFilter={aircraftFilter}
             setAircraftFilter={setAircraftFilter}
-            aircraftCount={counts.aircraft ?? 0}
-            aircraftColor={colorMap.aircraft ?? C.aircraft}
+            aircraftCount={counts[Domain.Aircraft] ?? 0}
+            aircraftColor={
+              colorMap[Domain.Aircraft] ?? colors.aircraft
+            }
             availableCountries={availableCountries}
             colors={{
-              panel: C.panel,
-              border: C.border,
-              bright: resolvedMode === "dark" ? "#00b8d4" : C.accent,
-              dim: C.dim,
-              danger: C.danger,
+              panel: colors.panel,
+              border: colors.border,
+              bright:
+                resolvedMode === ThemeMode.Dark
+                  ? "#00b8d4"
+                  : colors.accent,
+              dim: colors.dim,
+              danger: colors.danger,
             }}
         />
         </div>
@@ -212,41 +267,56 @@ function Toggles({
   );
 }
 
-// ── Layout mode toggle button ───────────────────────────────────────
+type LayoutModePresentation = Readonly<{
+  label: string;
+  tooltip: string;
+}>;
 
-const MODE_LABELS: Record<LayoutMode, string> = {
-  auto: "AUTO",
-  mobile: "MOBILE",
-  desktop: "DESKTOP",
-};
-
-const MODE_TOOLTIPS: Record<LayoutMode, string> = {
-  auto: "Layout: Auto (viewport-based) — click to force mobile",
-  mobile: "Layout: Forced mobile — click to force desktop",
-  desktop: "Layout: Forced desktop — click for auto",
+const LAYOUT_MODE_PRESENTATION: Readonly<
+  Record<LayoutMode, LayoutModePresentation>
+> = {
+  [LayoutMode.Auto]: {
+    label: "AUTO",
+    tooltip: "Layout: Auto (viewport-based); click to force mobile",
+  },
+  [LayoutMode.Mobile]: {
+    label: "MOBILE",
+    tooltip: "Layout: Forced mobile; click to force desktop",
+  },
+  [LayoutMode.Desktop]: {
+    label: "DESKTOP",
+    tooltip: "Layout: Forced desktop; click for auto",
+  },
 };
 
 function LayoutModeToggle() {
   const { mode, cycleMode, isMobile } = useLayoutMode();
   const Icon = isMobile ? Smartphone : Monitor;
-  const isForced = mode !== "auto";
+  const isForced = mode !== LayoutMode.Auto;
+  const presentation = LAYOUT_MODE_PRESENTATION[mode];
 
   return (
-    <Tooltip content={MODE_TOOLTIPS[mode]} placement="bottom">
+    <Tooltip
+      content={presentation.tooltip}
+      placement={TooltipPlacement.Bottom}
+    >
       <button
-        data-tour="layout-mode-toggle"
+        data-tour={HeaderTourTarget.LayoutMode}
         onClick={cycleMode}
         className={`p-1.5 rounded transition-colors touch-target flex items-center justify-center gap-1 ${
           isForced
             ? "text-sig-accent"
             : "text-sig-dim hover:text-sig-accent"
         }`}
-        aria-label={`Layout mode: ${MODE_LABELS[mode]}`}
+        aria-label={`Layout mode: ${presentation.label}`}
       >
-        <Icon size={14} strokeWidth={2} />
+        <Icon
+          size={HeaderIconSize.Compact}
+          strokeWidth={HeaderIconStrokeWidth.Standard}
+        />
         {isForced && (
           <span className="text-[8px] tracking-widest font-bold hidden sm:inline">
-            {MODE_LABELS[mode]}
+            {presentation.label}
           </span>
         )}
       </button>
@@ -254,108 +324,124 @@ function LayoutModeToggle() {
   );
 }
 
-// ── Main Header ──────────────────────────────────────────────────────
+function HeaderBrand() {
+  return (
+    <div
+      data-tour={HeaderTourTarget.Brand}
+      className="flex items-center gap-1.5 sm:gap-2 shrink-0"
+    >
+      <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
+      <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
+        SIGINT
+      </span>
+      <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
+        OSINT LIVE FEED
+      </span>
+    </div>
+  );
+}
+
+function HeaderClock({ time }: { readonly time: Date }) {
+  return (
+    <div className="text-right">
+      <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
+        {time.toLocaleTimeString(
+          HeaderLocale.UnitedStatesEnglish,
+          HEADER_TIME_FORMAT,
+        )}
+      </div>
+      <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
+        {time.toLocaleDateString(
+          HeaderLocale.UnitedStatesEnglish,
+          HEADER_DATE_FORMAT,
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsButton({
+  iconSize,
+  onOpen,
+  showTooltip,
+}: {
+  readonly iconSize: HeaderIconSize;
+  readonly onOpen: () => void;
+  readonly showTooltip: boolean;
+}) {
+  const button = (
+    <button
+      type="button"
+      data-tour={HeaderTourTarget.Settings}
+      aria-label={HeaderLabel.OpenSettings}
+      onClick={onOpen}
+      className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
+      title={showTooltip ? undefined : HeaderLabel.Settings}
+    >
+      <Settings
+        size={iconSize}
+        strokeWidth={HeaderIconStrokeWidth.Standard}
+        aria-hidden={true}
+      />
+    </button>
+  );
+  return showTooltip ? (
+    <Tooltip
+      content={HeaderLabel.Settings}
+      placement={TooltipPlacement.Bottom}
+    >
+      {button}
+    </Tooltip>
+  ) : button;
+}
 
 export function Header(props: Readonly<HeaderProps>) {
   const [time, setTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    const iv = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(iv);
+    const intervalId = setInterval(
+      () => setTime(new Date()),
+      HeaderTiming.ClockRefreshMs,
+    );
+    return () => clearInterval(intervalId);
   }, []);
+
+  const openSettings = () => setShowSettings(true);
 
   return (
     <div className="shrink-0 border-b border-sig-border bg-sig-panel/95">
-      {/* ── LARGE SCREENS: Single row ─────────────────────────────── */}
-      {/* Single-row layout requires xl: (1280px+) — at lg (1024px) the
-          7 layer toggles + search + clock + settings overflow into the
-          aircraft toggle / date-time region. Two-row layout below
-          handles everything narrower. */}
       <div className="hidden xl:flex items-center gap-1.5 px-3 md:px-4 py-1.5">
-        {/* Logo */}
-        <div data-tour="header-brand" className="flex items-center gap-2 shrink-0">
-          <div className="w-1.75 h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
-          <span className="font-bold tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
-            SIGINT
-          </span>
-          <span className="font-light text-sig-dim text-(length:--sig-text-subtitle)">
-            OSINT LIVE FEED
-          </span>
-        </div>
+        <HeaderBrand />
 
         <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-1" />
 
-        {/* Search + Toggles + Aircraft — centered */}
         <div className="flex items-center justify-center gap-1.5 flex-1 min-w-0">
           <Toggles {...props} />
         </div>
 
-        {/* Clock + Layout Mode + Settings */}
         <div className="flex items-center gap-2 shrink-0 ml-3">
-          <div className="text-right">
-            <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
-              {time.toLocaleTimeString("en-US", { hour12: false })}
-            </div>
-            <div className="tracking-wide text-sig-dim text-(length:--sig-text-sm)">
-              {time.toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
-            </div>
-          </div>
+          <HeaderClock time={time} />
           <LayoutModeToggle />
-          <Tooltip content="Settings" placement="bottom">
-            <button
-              type="button"
-              data-tour="settings-button"
-              aria-label="Open settings"
-              onClick={() => setShowSettings(true)}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
-            >
-              <Settings size={15} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </Tooltip>
+          <SettingsButton
+            iconSize={HeaderIconSize.SettingsDesktop}
+            onOpen={openSettings}
+            showTooltip={true}
+          />
         </div>
       </div>
 
-      {/* ── SMALL SCREENS: Two rows ───────────────────────────────── */}
       <div className="xl:hidden">
         <div className="flex items-center justify-between px-2 sm:px-3 py-1 sm:py-1.5">
-          <div data-tour="header-brand" className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <div className="w-1.5 h-1.5 sm:w-1.75 sm:h-1.75 rounded-full bg-sig-accent shadow-[0_0_8px_var(--sigint-accent)] animate-[pulse_2s_infinite]" />
-            <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
-              SIGINT
-            </span>
-            <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
-              OSINT LIVE FEED
-            </span>
-          </div>
+          <HeaderBrand />
           <div className="flex items-center gap-1.5 shrink-0">
-            <div className="text-right">
-              <div className="font-semibold tracking-wider text-sig-accent text-(length:--sig-text-clock)">
-                {time.toLocaleTimeString("en-US", { hour12: false })}
-              </div>
-              <div className="tracking-wide hidden sm:block text-sig-dim text-(length:--sig-text-sm)">
-                {time.toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </div>
-            </div>
+            <HeaderClock time={time} />
             <LayoutModeToggle />
-            <button
-              type="button"
-              data-tour="settings-button"
-              aria-label="Open settings"
-              onClick={() => setShowSettings(true)}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-accent transition-colors touch-target flex items-center justify-center"
-              title="Settings"
-            >
-              <Settings size={14} strokeWidth={2} aria-hidden="true" />
-            </button>
+            <SettingsButton
+              iconSize={HeaderIconSize.Compact}
+              onOpen={openSettings}
+              showTooltip={false}
+            />
           </div>
         </div>
         <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 pb-1 sm:pb-1.5 flex-wrap">
@@ -363,7 +449,6 @@ export function Header(props: Readonly<HeaderProps>) {
         </div>
       </div>
 
-      {/* Settings modal */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );

@@ -3,7 +3,7 @@ import { Component, type ReactNode, type ErrorInfo } from "react";
 // ── Types ────────────────────────────────────────────────────────────
 
 type ErrorBoundaryProps = {
-  /** Unique key for this boundary — changing it forces a remount/reset */
+  /** Changing this unique key forces a remount and reset. */
   readonly name: string;
   /** What to show when an error is caught. Receives error + reset fn. */
   readonly fallback?: (error: Error, reset: () => void) => ReactNode;
@@ -24,9 +24,9 @@ function DefaultFallback({
   reset,
   name,
 }: {
-  error: Error;
-  reset: () => void;
-  name: string;
+  readonly error: Error;
+  readonly reset: () => void;
+  readonly name: string;
 }) {
   return (
     <div className="w-full h-full flex items-center justify-center bg-sig-bg/80 p-4">
@@ -37,7 +37,7 @@ function DefaultFallback({
           {name.toUpperCase()} ERROR
         </div>
         <div
-          className="text-sig-dim mb-3 break-words text-(length:--sig-text-sm)"
+          className="text-sig-dim mb-3 wrap-break-word text-(length:--sig-text-sm)"
         >
           {error.message}
         </div>
@@ -95,7 +95,7 @@ export class ErrorBoundary extends Component<
     }
   }
 
-  private reset = () => {
+  private readonly reset = () => {
     this.clearRetryTimer();
     this.setState((prev) => ({
       error: null,

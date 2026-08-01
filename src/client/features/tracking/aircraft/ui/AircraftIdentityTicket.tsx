@@ -1,17 +1,59 @@
 import { Camera } from "lucide-react";
 import { Barcode } from "@/components/Barcode";
-import { Field, chipClass } from "./dossierKit";
+import { DetailField, DetailFieldAlign } from "@/dossier";
+import type { AircraftChip } from "./dossierKit";
+import { NO_VALUE } from "@shared/text";
+
+enum AircraftPhotoPlateGeometry {
+  CenterX = 100,
+  CenterY = 52,
+  FillOpacity = 0.5,
+  InnerRadius = 18,
+  MiddleRadius = 34,
+  OuterRadius = 50,
+  RotationDegrees = -28,
+  StrokeOpacity = 0.22,
+}
+
+enum AircraftPhotoPlateAttribute {
+  ViewBox = "0 0 200 120",
+}
 
 function NoPhotoPlate() {
   return (
     <div className="w-full h-full flex items-center justify-center bg-linear-to-b from-sig-bg to-sig-panel">
-      <svg viewBox="0 0 200 120" preserveAspectRatio="xMidYMid slice" className="w-full h-full" aria-hidden="true">
-        <g className="stroke-sig-dim" fill="none" strokeOpacity={0.22}>
-          <circle cx={100} cy={52} r={18} />
-          <circle cx={100} cy={52} r={34} />
-          <circle cx={100} cy={52} r={50} />
+      <svg
+        viewBox={AircraftPhotoPlateAttribute.ViewBox}
+        preserveAspectRatio="xMidYMid slice"
+        className="w-full h-full"
+        aria-hidden
+      >
+        <g
+          className="stroke-sig-dim"
+          fill="none"
+          strokeOpacity={AircraftPhotoPlateGeometry.StrokeOpacity}
+        >
+          <circle
+            cx={AircraftPhotoPlateGeometry.CenterX}
+            cy={AircraftPhotoPlateGeometry.CenterY}
+            r={AircraftPhotoPlateGeometry.InnerRadius}
+          />
+          <circle
+            cx={AircraftPhotoPlateGeometry.CenterX}
+            cy={AircraftPhotoPlateGeometry.CenterY}
+            r={AircraftPhotoPlateGeometry.MiddleRadius}
+          />
+          <circle
+            cx={AircraftPhotoPlateGeometry.CenterX}
+            cy={AircraftPhotoPlateGeometry.CenterY}
+            r={AircraftPhotoPlateGeometry.OuterRadius}
+          />
         </g>
-        <g transform="translate(100,52) rotate(-28)" className="fill-sig-dim" fillOpacity={0.5}>
+        <g
+          transform={`translate(${AircraftPhotoPlateGeometry.CenterX},${AircraftPhotoPlateGeometry.CenterY}) rotate(${AircraftPhotoPlateGeometry.RotationDegrees})`}
+          className="fill-sig-dim"
+          fillOpacity={AircraftPhotoPlateGeometry.FillOpacity}
+        >
           <path d="M0,-24 L3,-7 L28,6 L28,11 L3,4 L2,19 L9,24 L9,27 L0,25 L-9,27 L-9,24 L-2,19 L-3,4 L-28,11 L-28,6 L-3,-7 Z" />
         </g>
       </svg>
@@ -34,7 +76,7 @@ type Props = {
   readonly military: boolean;
   readonly recon: boolean;
   readonly operator: string;
-  readonly chip: { readonly label: string; readonly tone: string } | null;
+  readonly chip: AircraftChip | null;
   readonly reg: string;
   readonly icao24: string;
   readonly originCountry: string;
@@ -43,6 +85,50 @@ type Props = {
   readonly mfr: string;
   readonly wake: string | null;
 };
+
+type AircraftPhotoProps = Readonly<{
+  error: boolean;
+  fallbackText: string;
+  loading: boolean;
+  onError: () => void;
+  photo: Photo | null;
+}>;
+
+function AircraftPhoto({
+  error,
+  fallbackText,
+  loading,
+  onError,
+  photo,
+}: AircraftPhotoProps) {
+  if (photo?.src && !error) {
+    return (
+      <a
+        href={photo.link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute inset-0 block"
+      >
+        <img
+          src={photo.src}
+          alt={fallbackText}
+          className="w-full h-full object-cover"
+          onError={onError}
+        />
+      </a>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="absolute inset-0 animate-pulse bg-linear-to-b from-sig-border/40 to-sig-panel" />
+    );
+  }
+  return (
+    <div className="absolute inset-0">
+      <NoPhotoPlate />
+    </div>
+  );
+}
 
 export function AircraftIdentityTicket({
   photo,
@@ -62,7 +148,7 @@ export function AircraftIdentityTicket({
   mfr,
   wake,
 }: Props) {
-  const hasPhoto = photo?.src && !photoError;
+  const hasPhoto = Boolean(photo?.src) && !photoError;
 
   const badges = (
     <div className="flex gap-1.5">
@@ -92,7 +178,7 @@ export function AircraftIdentityTicket({
         </span>
         {chip && (
           <span
-            className={`ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-(length:--sig-text-xs) font-bold tracking-wider ${chipClass(chip.tone)}`}
+            className={`ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-(length:--sig-text-xs) font-bold tracking-wider ${chip.tone}`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-current" />
             {chip.label}
@@ -103,10 +189,16 @@ export function AircraftIdentityTicket({
         <div className="min-w-0">
           <div className="text-(length:--sig-text-xs) tracking-wider text-sig-dim">REGISTRATION</div>
           <div className="text-(length:--sig-text-title) text-sig-bright tracking-wider leading-none">
-            {reg || "—"}
+            {reg || NO_VALUE}
           </div>
         </div>
-        {originCountry && <Field label="ORIGIN" value={originCountry} align="right" />}
+        {originCountry && (
+          <DetailField
+            label="ORIGIN"
+            value={originCountry}
+            align={DetailFieldAlign.Right}
+          />
+        )}
       </div>
     </>
   );
@@ -116,22 +208,18 @@ export function AircraftIdentityTicket({
       <div className="h-1 bg-linear-to-r from-(--dossier-accent) via-sig-bright/40 to-(--dossier-accent)" />
 
       <div className="relative w-full bg-sig-bg overflow-hidden h-[12.4rem] @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:min-h-0 @min-[40rem]/dossier:flex-1">
-        {hasPhoto ? (
-          <a href={photo?.link} target="_blank" rel="noopener noreferrer" className="absolute inset-0 block">
-            <img src={photo?.src} alt={reg || icao24} className="w-full h-full object-cover" onError={onPhotoError} />
-          </a>
-        ) : photoLoading ? (
-          <div className="absolute inset-0 animate-pulse bg-linear-to-b from-sig-border/40 to-sig-panel" />
-        ) : (
-          <div className="absolute inset-0">
-            <NoPhotoPlate />
-          </div>
-        )}
+        <AircraftPhoto
+          error={photoError}
+          fallbackText={reg || icao24}
+          loading={photoLoading}
+          onError={onPhotoError}
+          photo={photo}
+        />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-linear-to-t from-sig-panel via-sig-panel/85 to-transparent" />
         <div className="absolute top-2 right-2">{badges}</div>
         {hasPhoto && photo?.photographer && (
           <div className="absolute top-2 left-2 flex items-center gap-1 text-(length:--sig-text-xs) text-sig-bright/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
-            <Camera className="w-3 h-3 shrink-0" aria-hidden="true" />
+            <Camera className="w-3 h-3 shrink-0" aria-hidden />
             <span className="truncate max-w-40">{photo.photographer}</span>
           </div>
         )}
@@ -146,10 +234,12 @@ export function AircraftIdentityTicket({
 
       <div className="px-4 pb-4">
         <div className="grid grid-cols-3 gap-x-4 gap-y-2 mb-3">
-          {model && <Field label="MODEL" value={model} />}
-          {aircraft && aircraft !== model && <Field label="AIRCRAFT" value={aircraft} />}
-          {mfr && <Field label="MFR" value={mfr} />}
-          {wake && <Field label="WAKE" value={wake} />}
+          {model && <DetailField label="MODEL" value={model} />}
+          {aircraft && aircraft !== model && (
+            <DetailField label="AIRCRAFT" value={aircraft} />
+          )}
+          {mfr && <DetailField label="MFR" value={mfr} />}
+          {wake && <DetailField label="WAKE" value={wake} />}
         </div>
         <div className="h-11 rounded-md bg-sig-bg border border-sig-border flex items-center gap-2.5 px-3">
           <Barcode value={icao24} className="flex-1 h-7" />

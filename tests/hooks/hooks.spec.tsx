@@ -1,18 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act } from "react";
 import { SourceStatus } from "@shared/domain/sourceStatus";
-import { renderHook } from "../hookHelper";
-
-// ── useNewsData ─────────────────────────────────────────────────────
+import { renderHook } from "../support/react";
+import {
+  installFetchMock,
+  type RestoreFetch,
+} from "../support/network";
 
 describe("useNewsData", () => {
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
+  let restoreFetch: RestoreFetch | undefined;
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    restoreFetch?.();
+    restoreFetch = undefined;
   });
 
   test("starts empty and loads data", async () => {
@@ -27,37 +27,20 @@ describe("useNewsData", () => {
       },
     ];
 
-    // @ts-ignore
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/api/auth/token")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ ok: true }),
-        } as unknown as Response;
-      }
-      if (url.includes("/api/news/latest")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ items: mockArticles }),
-        } as unknown as Response;
-      }
-      throw new Error(`Unmocked: ${url}`);
-    };
+    restoreFetch = installFetchMock(async () =>
+      Response.json({ items: mockArticles }),
+    );
 
-    const { useNewsData } = await import("@/features/news");
-    const { newsProvider } = await import("@/features/news");
-    const { result, waitFor } = renderHook(() => useNewsData());
+    const { newsProvider, useNewsData } = await import("@/features/news");
+    const { result, unmount, waitFor } = renderHook(() => useNewsData());
 
-    // Simulate boot: refresh + notify
-    await newsProvider.refresh().catch(() => {});
-    (newsProvider as any)._onChange?.();
-
+    await act(async () => {
+      await newsProvider.refresh();
+    });
     await waitFor(() => result.current.loading === false);
-    expect(result.current.data.length).toBeGreaterThan(0);
+
+    expect(result.current.data).not.toHaveLength(0);
     expect(result.current.dataSource).toBe(SourceStatus.Live);
+    unmount();
   });
 });
-

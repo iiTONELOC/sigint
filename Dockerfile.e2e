@@ -1,0 +1,26 @@
+FROM oven/bun:1
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+RUN bunx playwright install --with-deps chromium
+
+COPY src ./src
+COPY public ./public
+COPY tests ./tests
+COPY e2e ./e2e
+COPY scripts ./scripts
+COPY tsconfig.json .
+COPY components.json .
+COPY bun-env.d.ts .
+COPY bunfig.toml .
+COPY build.ts .
+COPY postbuild.ts .
+COPY playwright.config.ts .
+
+CMD ["bun", "run", "test:e2e"]

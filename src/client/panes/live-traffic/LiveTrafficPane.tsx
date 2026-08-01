@@ -5,19 +5,22 @@ import {
 import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { useData, WatchSource } from "@/context/DataContext";
-import { useLayoutMode } from "@/context/LayoutModeContext";
+import { DeviceType, useLayoutMode } from "@/layout-mode";
 import {
   useHasDossier,
   requestDossierOpen,
+} from "@/lib/runtime/layoutSignals";
+import {
   useWalkthroughActive,
   useWalkthroughStepId,
-} from "@/lib/runtime/layoutSignals";
+  WalkthroughStepId,
+} from "@/walkthrough";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { GlobeVisualization } from "@/components/globe";
 import { DetailPanel } from "@/components/DetailPanel";
 import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
 import { IconStrokeWidth } from "@/features/base/types";
-import { DomEvent } from "@/lib/runtime/domEvent";
+import { DomEvent, DomInputType } from "@/runtime";
 import { ButtonType } from "@/lib/ui/button";
 import {
   Eye,
@@ -35,6 +38,13 @@ enum LiveTrafficIconSize {
   PrimaryPx = 12,
   SecondaryPx = 11,
 }
+
+const WALKTHROUGH_CLICK_STEPS: ReadonlySet<WalkthroughStepId> = new Set([
+  WalkthroughStepId.GlobeSelect,
+  WalkthroughStepId.GlobeDeselect,
+  WalkthroughStepId.FocusEnter,
+  WalkthroughStepId.FocusExit,
+]);
 
 enum LiveTrafficLabel {
   RotationSpeed = "Rotation speed",
@@ -85,7 +95,7 @@ export function LiveTrafficPane() {
   const walkthroughActive = useWalkthroughActive();
   const walkthroughStepId = useWalkthroughStepId();
   const { isMobile: isMobileLayout, deviceType } = useLayoutMode();
-  const isPhone = deviceType === "phone";
+  const isPhone = deviceType === DeviceType.Phone;
 
   useEffect(() => {
     if (isMobileLayout && selectedCurrent && !hasDossier) requestDossierOpen();
@@ -125,14 +135,6 @@ export function LiveTrafficPane() {
     [chromeHidden, setChromeHidden, setSelected, setAutoRotate, setIsolateMode, isMobileLayout],
   );
 
-  // Step IDs where globe click-through is allowed during walkthrough
-  const WALKTHROUGH_CLICK_STEPS = new Set([
-    "globe-select",
-    "globe-deselect",
-    "focus-enter",
-    "focus-exit",
-  ]);
-
   const handleRawCanvasClick = useCallback(() => {
     // On mobile, tapping empty canvas should NOT toggle chrome or deselect.
     // Users scroll via the vertical pane column; chrome toggle is desktop-only.
@@ -141,7 +143,8 @@ export function LiveTrafficPane() {
     // During walkthrough, only allow interaction on specific steps
     if (
       walkthroughActive &&
-      !WALKTHROUGH_CLICK_STEPS.has(walkthroughStepId ?? "")
+      (walkthroughStepId === null ||
+        !WALKTHROUGH_CLICK_STEPS.has(walkthroughStepId))
     )
       return;
 
@@ -381,7 +384,7 @@ export function LiveTrafficPane() {
               SPD
             </span>
             <input
-              type="range"
+              type={DomInputType.Range}
               aria-label={LiveTrafficLabel.RotationSpeed}
               title={LiveTrafficLabel.RotationSpeed}
               min={RenderRotationSpeedPolicy.MinimumAndStep}

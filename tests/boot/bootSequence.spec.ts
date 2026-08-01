@@ -7,9 +7,11 @@ const frontendSource = await Bun.file(
 ).text();
 
 describe("Boot sequence (frontend.tsx)", () => {
-  // Render the shell before any data work — globe interactive from frame zero.
+  // Render the shell before any data work, with the globe interactive immediately.
   test("createRoot().render() runs before cacheReady is consumed", () => {
-    const renderIdx = frontendSource.indexOf("createRoot(elem).render(app)");
+    const renderIdx = frontendSource.indexOf(
+      "createRoot(rootElement).render(app)",
+    );
     const cacheReadyUse = frontendSource.indexOf("await cacheReady");
     expect(renderIdx).toBeGreaterThan(-1);
     expect(cacheReadyUse).toBeGreaterThan(-1);
@@ -21,7 +23,7 @@ describe("Boot sequence (frontend.tsx)", () => {
   });
 
   // The HOL fix: boot must NOT batch providers behind a mute/Promise.all
-  // barrier — each streams in independently.
+  // barrier. Each provider streams independently.
   test("boot does not mute/unmute providers as a batch", () => {
     expect(frontendSource).not.toContain("muteAll");
     expect(frontendSource).not.toContain("unmuteAll");
@@ -34,10 +36,10 @@ describe("Boot sequence (frontend.tsx)", () => {
 
   // Per-provider streaming: each hydrates then refreshes on its own, and they
   // all start together rather than one waiting on the last.
-  test("boot streams every provider concurrently, hydrate then refresh", () => {
-    expect(frontendSource).toContain("providers.map(streamProvider)");
-    expect(frontendSource).toContain("provider.hydrate()");
-    expect(frontendSource).toContain("provider.refresh()");
+  test("boot streams news while background initialization runs", () => {
+    expect(frontendSource).toContain("const backgroundReady = Promise.allSettled");
+    expect(frontendSource).toContain("newsProvider.hydrate()");
+    expect(frontendSource).toContain("newsProvider.refresh()");
   });
 
   // Auth is fetched once up front but does not gate first paint.
@@ -52,7 +54,7 @@ describe("Boot sequence (frontend.tsx)", () => {
 
   test("news is the only provider React boots", () => {
     expect(frontendSource).toContain("newsProvider");
-    expect(frontendSource).toContain("const providers = [newsProvider]");
+    expect(frontendSource).toContain("await streamNewsProvider()");
   });
 
   test("no point source is booted from React", () => {

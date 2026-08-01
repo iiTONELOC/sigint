@@ -1,5 +1,5 @@
-import { cacheGet, cacheSet } from "@/lib/cache/storageService";
-import { CACHE_KEYS } from "@/lib/cache/cacheKeys";
+import { cacheGet, cacheSet } from "@/lib/cache";
+import { CacheKey } from "@shared/domain/cache";
 import type {
   Channel,
   GridLayout,
@@ -8,9 +8,6 @@ import type {
   SavedState,
   Preset,
 } from "./videoFeedTypes";
-
-const CACHE_KEY = CACHE_KEYS.videoState;
-const PRESETS_KEY = CACHE_KEYS.videoPresets;
 
 export function saveState(
   grid: GridLayout,
@@ -32,19 +29,19 @@ export function saveState(
         : null,
     ),
   };
-  cacheSet(CACHE_KEY, saved);
+  cacheSet(CacheKey.VideoState, saved);
 }
 
 export async function loadState(): Promise<SavedState | null> {
-  return await cacheGet<SavedState>(CACHE_KEY);
+  return await cacheGet<SavedState>(CacheKey.VideoState);
 }
 
 export async function loadPresets(): Promise<Preset[]> {
-  return (await cacheGet<Preset[]>(PRESETS_KEY)) ?? [];
+  return (await cacheGet<Preset[]>(CacheKey.VideoPresets)) ?? [];
 }
 
 export function savePresets(presets: Preset[]) {
-  cacheSet(PRESETS_KEY, presets);
+  cacheSet(CacheKey.VideoPresets, presets);
 }
 
 export function restoreChannels(

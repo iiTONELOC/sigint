@@ -17,32 +17,198 @@ import type {
   PaneType,
   LeafNode,
   LayoutNode,
+  SplitNode,
   LayoutState,
   LayoutPreset,
 } from "./paneTree";
 import { FULL_WIDTH_ONLY } from "./paneTree";
 import { useData } from "@/context/DataContext";
 import { isSourceDelivering } from "@shared/domain/sourceStatus";
+import { Domain } from "@shared/domain/identity";
 import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
+import { DomEvent } from "@/runtime";
+import { cn } from "@/lib/ui/utils";
 import { ResizeHandle } from "./ResizeHandle";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { SplitMenu } from "./SplitMenu";
-import type { Globe } from "lucide-react";
+import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
+import {
+  collectMobileBlocks,
+  reconcileMobileBlockOrder,
+  type MobileBlock,
+} from "@/panes/workspace/utils/mobile";
+import {
+  PaneDropZone,
+  PaneMobileHeight,
+  PaneMobileRatio,
+  PaneNodeType,
+  PaneType as PaneTypeId,
+  PaneWorkspaceIconMetric,
+  PaneWorkspaceMenuMetric,
+  SplitDirection,
+  type PaneDropZoneValue,
+  type PaneEdgeDropZoneValue,
+  type SplitDirectionValue,
+} from "@/panes/workspace/model";
 
 // ── Default heights per pane type ────────────────────────────────────
 
 const DEFAULT_HEIGHTS: Record<PaneType, number> = {
-  globe: 420,
-  "data-table": 320,
-  dossier: 360,
-  "intel-feed": 340,
-  "alert-log": 300,
-  "raw-console": 280,
-  "video-feed": 400,
-  "news-feed": 320,
+  [PaneTypeId.Globe]: PaneMobileHeight.XXLarge,
+  [PaneTypeId.DataTable]: PaneMobileHeight.Standard,
+  [PaneTypeId.Dossier]: PaneMobileHeight.Large,
+  [PaneTypeId.IntelFeed]: PaneMobileHeight.Medium,
+  [PaneTypeId.AlertLog]: PaneMobileHeight.Small,
+  [PaneTypeId.RawConsole]: PaneMobileHeight.XSmall,
+  [PaneTypeId.VideoFeed]: PaneMobileHeight.XLarge,
+  [PaneTypeId.NewsFeed]: PaneMobileHeight.Standard,
 };
 
-const MIN_PANE_HEIGHT = 160;
+const COUNT_ORDER: readonly Domain[] = [
+  Domain.Ships,
+  Domain.Events,
+  Domain.Quakes,
+  Domain.Fires,
+  Domain.Weather,
+  Domain.Aircraft,
+];
+
+enum PaneMobileClassName {
+  Accent = "text-sig-accent",
+  AccentIcon = "text-sig-accent shrink-0",
+  Block = "border-b border-sig-border/40",
+  BlockFlex = "flex-1 flex flex-col",
+  BlockHeader = "flex items-center gap-0.5 px-1 py-px border-b border-sig-border/40 select-none",
+  BlockHeaderIdle = "bg-sig-panel/80",
+  BlockHeaderMoveSource = "bg-sig-accent/10",
+  BlockMoveSource = "ring-2 ring-sig-accent/70 shadow-[0_0_12px_rgba(0,212,240,0.15)]",
+  BodyNoSelect = "select-none",
+  FlexFill = "flex-1",
+  Grip = "bg-transparent border-none p-1 -ml-0.5 transition-colors touch-target",
+  GripIdle = "text-sig-dim hover:text-sig-accent",
+  MoveZone = "rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors",
+  MoveZoneFullWidth = "col-span-3",
+  StatusCount = "text-(length:--sig-text-sm) tabular-nums font-semibold",
+  SwapZone = "rounded flex items-center justify-center gap-1 bg-sig-bg/90 border-2 border-sig-accent/80 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors",
+  TabActive = "text-sig-accent bg-sig-accent/10",
+  TabInactive = "text-sig-dim bg-transparent",
+  TabMinimized = "text-sig-dim/50 bg-transparent",
+}
+
+enum PaneMobileGridTrack {
+  Collapsed = "36px",
+  Flexible = "1fr",
+}
+
+enum PaneMobileGridMetric {
+  SeparatorPx = 6,
+}
+
+type MobileSplitTracks = {
+  readonly first: string;
+  readonly second: string;
+};
+
+function proportionalSplitTracks(node: SplitNode): MobileSplitTracks {
+  return {
+    first: `${node.ratio}fr`,
+    second: `${1 - node.ratio}fr`,
+  };
+}
+
+function mobileSplitTracks(
+  node: SplitNode,
+  minimizedLeaves: ReadonlySet<string>,
+): MobileSplitTracks {
+  const proportionalTracks = proportionalSplitTracks(node);
+  if (node.direction !== SplitDirection.Horizontal) {
+    return proportionalTracks;
+  }
+
+  const [firstChild, secondChild] = node.children;
+  const isFirstMinimized =
+    firstChild.type === PaneNodeType.Leaf && minimizedLeaves.has(firstChild.id);
+  const isSecondMinimized =
+    secondChild.type === PaneNodeType.Leaf &&
+    minimizedLeaves.has(secondChild.id);
+  if (isFirstMinimized === isSecondMinimized) {
+    return proportionalTracks;
+  }
+  if (isFirstMinimized) {
+    return {
+      first: PaneMobileGridTrack.Collapsed,
+      second: PaneMobileGridTrack.Flexible,
+    };
+  }
+  return {
+    first: PaneMobileGridTrack.Flexible,
+    second: PaneMobileGridTrack.Collapsed,
+  };
+}
+
+function horizontalLeafId(
+  splitNode: SplitNode,
+  childNode: LayoutNode,
+): string | undefined {
+  if (
+    splitNode.direction !== SplitDirection.Horizontal ||
+    childNode.type !== PaneNodeType.Leaf
+  ) {
+    return undefined;
+  }
+  return childNode.id;
+}
+
+function mobileTabStateClassName(
+  isActive: boolean,
+  isMinimized: boolean,
+): PaneMobileClassName {
+  if (isActive) {
+    return PaneMobileClassName.TabActive;
+  }
+  if (isMinimized) {
+    return PaneMobileClassName.TabMinimized;
+  }
+  return PaneMobileClassName.TabInactive;
+}
+
+function moveSourcePaneType(
+  allLeaves: readonly LeafNode[],
+  moveSourceLeafId: string | null,
+): PaneType | undefined {
+  if (moveSourceLeafId === null) {
+    return undefined;
+  }
+  return allLeaves.find((leaf) => leaf.id === moveSourceLeafId)?.paneType;
+}
+
+function isMoveSourceBlock(
+  block: MobileBlock,
+  moveSourceLeafId: string | null,
+): boolean {
+  return (
+    moveSourceLeafId !== null && block.leafIds.includes(moveSourceLeafId)
+  );
+}
+
+function isMoveTargetBlock(
+  block: MobileBlock,
+  moveSourceLeafId: string | null,
+): boolean {
+  return (
+    moveSourceLeafId !== null && !block.leafIds.includes(moveSourceLeafId)
+  );
+}
+
+function allowsBesideMove(
+  sourceType: PaneType | undefined,
+  targetType: PaneType,
+): boolean {
+  if (sourceType === undefined) {
+    return false;
+  }
+  return !FULL_WIDTH_ONLY.has(sourceType) && !FULL_WIDTH_ONLY.has(targetType);
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -54,15 +220,14 @@ type PaneMobileProps = {
   readonly activeCount: number;
   readonly dataSources: readonly SourceStatusEntry[];
   readonly counts: Record<string, number>;
-  readonly paneMeta: Record<PaneType, { label: string; icon: typeof Globe }>;
-  readonly paneComponents: Record<PaneType, React.ComponentType>;
+  readonly paneCatalog: PaneCatalog;
   readonly closePane: (leafId: string) => void;
   readonly minimizePane: (leafId: string, paneType: PaneType) => void;
   readonly changePaneType: (leafId: string, newType: PaneType) => void;
   readonly restorePane: (idx: number) => void;
   readonly splitPane: (
     leafId: string,
-    dir: "h" | "v",
+    dir: SplitDirectionValue,
     newType: PaneType,
   ) => void;
   readonly resizeSplit: (splitId: string, ratio: number) => void;
@@ -72,7 +237,7 @@ type PaneMobileProps = {
   readonly insertPaneBeside: (
     sourceLeafId: string,
     targetLeafId: string,
-    zone: "left" | "right" | "top" | "bottom",
+    zone: PaneEdgeDropZoneValue,
   ) => void;
   readonly presets?: LayoutPreset[];
   readonly presetsLoaded?: boolean;
@@ -81,65 +246,6 @@ type PaneMobileProps = {
   readonly onUpdatePreset?: (idx: number) => void;
   readonly onDeletePreset?: (idx: number) => void;
 };
-
-// ── Mobile block model ──────────────────────────────────────────────
-// Walk the layout tree. V-splits at the top level become separate blocks.
-// H-splits stay as one block rendered side-by-side.
-
-type MobileBlock = {
-  id: string;
-  node: LayoutNode;
-  primaryLeaf: LeafNode;
-  leafIds: string[];
-};
-
-function collectFirstLeaf(node: LayoutNode): LeafNode {
-  if (node.type === "leaf") return node;
-  return collectFirstLeaf(node.children[0]);
-}
-
-function collectLeafIds(node: LayoutNode): string[] {
-  if (node.type === "leaf") return [node.id];
-  return [
-    ...collectLeafIds(node.children[0]),
-    ...collectLeafIds(node.children[1]),
-  ];
-}
-
-function collectMobileBlocks(root: LayoutNode): MobileBlock[] {
-  if (root.type === "leaf") {
-    return [
-      {
-        id: root.id,
-        node: root,
-        primaryLeaf: root,
-        leafIds: [root.id],
-      },
-    ];
-  }
-
-  // H-split where BOTH children are leaves → keep as one side-by-side block
-  if (
-    root.direction === "h" &&
-    root.children[0].type === "leaf" &&
-    root.children[1].type === "leaf"
-  ) {
-    return [
-      {
-        id: root.id,
-        node: root,
-        primaryLeaf: root.children[0],
-        leafIds: [root.children[0].id, root.children[1].id],
-      },
-    ];
-  }
-
-  // Everything else (V-splits, deep H-splits) → flatten into separate blocks
-  return [
-    ...collectMobileBlocks(root.children[0]),
-    ...collectMobileBlocks(root.children[1]),
-  ];
-}
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -151,8 +257,7 @@ export function PaneMobile({
   activeCount,
   dataSources,
   counts,
-  paneMeta,
-  paneComponents,
+  paneCatalog,
   closePane,
   minimizePane,
   changePaneType,
@@ -170,7 +275,7 @@ export function PaneMobile({
   onUpdatePreset,
   onDeletePreset,
 }: PaneMobileProps) {
-  const { colorMap, chromeHidden, selectedCurrent } = useData();
+  const { colorMap, chromeHidden } = useData();
   const [showPresets, setShowPresets] = useState(false);
 
   // ── Build blocks from layout tree ──────────────────────────────
@@ -200,44 +305,14 @@ export function PaneMobile({
     }
 
     if (added.length > 0 || removed.size > 0) {
-      setOrder((prev) => {
-        // Find where the first removed block was — insert new blocks there
-        let insertAt = -1;
-        if (removed.size > 0) {
-          for (let i = 0; i < prev.length; i++) {
-            if (removed.has(prev[i]!)) {
-              insertAt = i;
-              break;
-            }
-          }
-        }
+      setOrder((previousOrder) =>
+        reconcileMobileBlockOrder(previousOrder, added, removed),
+      );
 
-        let next = prev.filter((id) => !removed.has(id));
-
-        if (insertAt >= 0 && added.length > 0) {
-          // Insert new blocks where the removed one was
-          const clampedIdx = Math.min(insertAt, next.length);
-          for (let i = 0; i < added.length; i++) {
-            if (!next.includes(added[i]!)) {
-              next.splice(clampedIdx + i, 0, added[i]!);
-            }
-          }
-        } else {
-          // No removal context — append (first load, restore, etc.)
-          for (const id of added) {
-            if (!next.includes(id)) next.push(id);
-          }
-        }
-
-        return next;
-      });
-
-      // Auto-scroll to newly added block
-      if (added.length > 0) {
+      const addedId = added.at(-1);
+      if (addedId !== undefined) {
         requestAnimationFrame(() => {
-          const el = document.getElementById(
-            `mobile-block-${added[added.length - 1]}`,
-          );
+          const el = document.getElementById(`mobile-block-${addedId}`);
           el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         });
       }
@@ -253,18 +328,15 @@ export function PaneMobile({
   }, [rawBlocks]);
 
   const orderedBlocks = useMemo(
-    () => order.map((id) => blockMap.get(id)).filter(Boolean) as MobileBlock[],
+    () =>
+      order
+        .map((id) => blockMap.get(id))
+        .filter((block): block is MobileBlock => block !== undefined),
     [order, blockMap],
   );
 
   // ── Per-block heights ──────────────────────────────────────────
   const [heights, setHeights] = useState<Record<string, number>>({});
-
-  const getHeight = useCallback(
-    (block: MobileBlock) =>
-      heights[block.id] ?? DEFAULT_HEIGHTS[block.primaryLeaf.paneType],
-    [heights],
-  );
 
   // ── Minimized blocks (collapsed to header only) ────────────────
   const [minimizedBlocks, setMinimizedBlocks] = useState<Set<string>>(
@@ -340,31 +412,34 @@ export function PaneMobile({
       const block = blockMap.get(blockId);
       const startH =
         heights[blockId] ??
-        DEFAULT_HEIGHTS[block?.primaryLeaf.paneType ?? "globe"];
-      document.body.style.userSelect = "none";
+        DEFAULT_HEIGHTS[block?.primaryLeaf.paneType ?? PaneTypeId.Globe];
+      document.body.classList.add(PaneMobileClassName.BodyNoSelect);
 
       const onMove = (ev: PointerEvent) => {
         const dy = ev.clientY - startY;
         setHeights((prev) => ({
           ...prev,
           [blockId]: Math.max(
-            MIN_PANE_HEIGHT,
-            Math.min(window.innerHeight * 0.8, startH + dy),
+            PaneMobileHeight.Minimum,
+            Math.min(
+              window.innerHeight * PaneMobileRatio.MaximumViewportHeight,
+              startH + dy,
+            ),
           ),
         }));
       };
       const onUp = () => {
-        document.removeEventListener("pointermove", onMove);
-        document.removeEventListener("pointerup", onUp);
-        document.body.style.userSelect = "";
+        document.removeEventListener(DomEvent.PointerMove, onMove);
+        document.removeEventListener(DomEvent.PointerUp, onUp);
+        document.body.classList.remove(PaneMobileClassName.BodyNoSelect);
       };
-      document.addEventListener("pointermove", onMove);
-      document.addEventListener("pointerup", onUp);
+      document.addEventListener(DomEvent.PointerMove, onMove);
+      document.addEventListener(DomEvent.PointerUp, onUp);
     },
     [heights, blockMap],
   );
 
-  // ── Move mode — works with leaf IDs directly ───────────────────
+  // ── Move mode: use leaf IDs directly ───────────────────────────
   // Tap any grip (block-level or per-leaf inside split) to enter move mode.
   // moveSourceLeafId stores the leaf ID being moved.
   const [moveSourceLeafId, setMoveSourceLeafId] = useState<string | null>(null);
@@ -374,10 +449,7 @@ export function PaneMobile({
   }, []);
 
   const handleMoveAction = useCallback(
-    (
-      targetBlockId: string,
-      action: "above" | "below" | "left" | "right" | "swap",
-    ) => {
+    (targetBlockId: string, zone: PaneDropZoneValue) => {
       if (!moveSourceLeafId) return;
 
       const targetBlock = blockMap.get(targetBlockId);
@@ -386,11 +458,9 @@ export function PaneMobile({
       const tgtLeafId = targetBlock.primaryLeaf.id;
       if (moveSourceLeafId === tgtLeafId) return;
 
-      if (action === "swap") {
+      if (zone === PaneDropZone.Center) {
         swapPanes(moveSourceLeafId, tgtLeafId);
       } else {
-        const zone =
-          action === "above" ? "top" : action === "below" ? "bottom" : action;
         insertPaneBeside(moveSourceLeafId, tgtLeafId, zone);
       }
 
@@ -411,14 +481,14 @@ export function PaneMobile({
 
   const handleAddPane = useCallback(
     (type: PaneType) => {
-      // Split the currently active (visible) block, not the last one
+      const lastBlock = orderedBlocks.at(-1);
       const activeBlock = activeInView
         ? blockMap.get(activeInView)
-        : orderedBlocks[orderedBlocks.length - 1];
-      const target = activeBlock ?? orderedBlocks[orderedBlocks.length - 1];
+        : lastBlock;
+      const target = activeBlock ?? lastBlock;
       if (target) {
         const leafId = target.primaryLeaf.id;
-        splitPane(leafId, "v", type);
+        splitPane(leafId, SplitDirection.Vertical, type);
       }
       setAddMenuOpen(false);
     },
@@ -432,23 +502,23 @@ export function PaneMobile({
       if (
         addBtnRef.current &&
         !addBtnRef.current.contains(target) &&
-        (!addDropRef.current || !addDropRef.current.contains(target))
+        !addDropRef.current?.contains(target)
       ) {
         setAddMenuOpen(false);
       }
     };
-    document.addEventListener("mousedown", onDown, true);
-    document.addEventListener("touchstart", onDown, true);
+    document.addEventListener(DomEvent.MouseDown, onDown, true);
+    document.addEventListener(DomEvent.TouchStart, onDown, true);
     return () => {
-      document.removeEventListener("mousedown", onDown, true);
-      document.removeEventListener("touchstart", onDown, true);
+      document.removeEventListener(DomEvent.MouseDown, onDown, true);
+      document.removeEventListener(DomEvent.TouchStart, onDown, true);
     };
   }, [addMenuOpen]);
 
   // ── Split menu ──────────────────────────────────────────────────
   const [splitMenu, setSplitMenu] = useState<{
     leafId: string;
-    dir: "h" | "v";
+    dir: SplitDirectionValue;
     top: number;
     left: number;
   } | null>(null);
@@ -463,11 +533,11 @@ export function PaneMobile({
       )
         setSplitMenu(null);
     };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
+    document.addEventListener(DomEvent.MouseDown, handler);
+    document.addEventListener(DomEvent.TouchStart, handler);
     return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
+      document.removeEventListener(DomEvent.MouseDown, handler);
+      document.removeEventListener(DomEvent.TouchStart, handler);
     };
   }, [splitMenu]);
 
@@ -488,11 +558,11 @@ export function PaneMobile({
       )
         setTypeMenu(null);
     };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
+    document.addEventListener(DomEvent.MouseDown, handler);
+    document.addEventListener(DomEvent.TouchStart, handler);
     return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
+      document.removeEventListener(DomEvent.MouseDown, handler);
+      document.removeEventListener(DomEvent.TouchStart, handler);
     };
   }, [typeMenu]);
 
@@ -538,21 +608,11 @@ export function PaneMobile({
     return () => tabObsRef.current?.disconnect();
   }, [orderedBlocks]);
 
-  // ── Count order ─────────────────────────────────────────────────
-  const countOrder = [
-    "ships",
-    "events",
-    "quakes",
-    "fires",
-    "weather",
-    "aircraft",
-  ] as const;
-
   // ── Render leaf content ─────────────────────────────────────────
   const renderLeafContent = useCallback(
     (lf: LeafNode, isVisible: boolean) => {
       if (!isVisible) {
-        const meta = paneMeta[lf.paneType];
+        const meta = paneCatalog[lf.paneType];
         return (
           <div className="w-full h-full flex items-center justify-center bg-sig-bg/50">
             <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
@@ -561,18 +621,18 @@ export function PaneMobile({
           </div>
         );
       }
-      const PaneComponent = paneComponents[lf.paneType];
+      const PaneComponent = paneCatalog[lf.paneType].component;
       return <PaneComponent />;
     },
-    [paneComponents, paneMeta],
+    [paneCatalog],
   );
 
   // ── Render a single leaf with its own mini header ────────────────
   const renderLeafWithHeader = useCallback(
     (lf: LeafNode, isVisible: boolean, siblingLeafId?: string) => {
-      const lfMeta = paneMeta[lf.paneType];
+      const lfMeta = paneCatalog[lf.paneType];
       const LfIcon = lfMeta.icon;
-      const PaneComponent = paneComponents[lf.paneType];
+      const PaneComponent = paneCatalog[lf.paneType].component;
       const isLeafMin = minimizedLeaves.has(lf.id);
 
       // ── Minimized: vertical sidebar you can tap to expand ──────
@@ -584,18 +644,16 @@ export function PaneMobile({
             title={`Expand ${lfMeta.label}`}
           >
             <LfIcon
-              size={12}
-              strokeWidth={2.5}
-              className="text-sig-accent shrink-0"
+              size={PaneWorkspaceIconMetric.MediumSize}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              className={PaneMobileClassName.AccentIcon}
             />
-            <span
-              className="text-sig-accent tracking-widest text-(length:--sig-text-sm) font-semibold [writing-mode:vertical-lr] [text-orientation:mixed]"
-            >
+            <span className="text-sig-accent tracking-widest text-(length:--sig-text-sm) font-semibold [writing-mode:vertical-lr] [text-orientation:mixed]">
               {lfMeta.label}
             </span>
             <ChevronRight
-              size={10}
-              strokeWidth={2.5}
+              size={PaneWorkspaceIconMetric.CompactSize}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
               className="text-sig-dim"
             />
           </button>
@@ -607,19 +665,23 @@ export function PaneMobile({
         <div className="flex flex-col w-full h-full min-w-0 min-h-0 overflow-hidden">
           {/* Per-pane header */}
           <div className="shrink-0 flex flex-wrap items-center gap-0.5 px-1 py-px bg-sig-panel/80 border-b border-sig-border/40 select-none">
-            {/* Move grip — tap to enter move mode for this leaf */}
+          {/* Tap the move grip to move this leaf. */}
             <button
               onClick={() => handleGripTap(lf.id)}
-              className={`bg-transparent border-none p-1 -ml-0.5 transition-colors touch-target ${
+              className={cn(
+                PaneMobileClassName.Grip,
                 moveSourceLeafId === lf.id
-                  ? "text-sig-accent"
-                  : "text-sig-dim hover:text-sig-accent"
-              }`}
+                  ? PaneMobileClassName.Accent
+                  : PaneMobileClassName.GripIdle,
+              )}
               title={
                 moveSourceLeafId === lf.id ? "Cancel move" : "Move this pane"
               }
             >
-              <GripVertical size={9} strokeWidth={2.5} />
+              <GripVertical
+                size={PaneWorkspaceIconMetric.SmallSize}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              />
             </button>
 
             <button
@@ -640,33 +702,36 @@ export function PaneMobile({
               className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group touch-target"
             >
               <LfIcon
-                size={10}
-                strokeWidth={2.5}
-                className="text-sig-accent shrink-0"
+                size={PaneWorkspaceIconMetric.CompactSize}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                className={PaneMobileClassName.AccentIcon}
               />
               <span className="text-sig-accent tracking-wider text-(length:--sig-text-sm) font-semibold group-hover:text-sig-bright transition-colors truncate">
                 {lfMeta.label}
               </span>
               <ChevronDown
-                size={8}
-                strokeWidth={2.5}
+                size={PaneWorkspaceIconMetric.XSmallSize}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
                 className="text-sig-dim shrink-0"
               />
             </button>
 
-            <div className="flex-1" />
+            <div className={PaneMobileClassName.FlexFill} />
 
             <div className="flex items-center gap-0.5 shrink-0">
-              {/* Pop out — extract from split into its own block */}
+              {/* Extract the pane from the split into its own block. */}
               {siblingLeafId && (
                 <button
                   onClick={() =>
-                    insertPaneBeside(lf.id, siblingLeafId, "bottom")
+                    insertPaneBeside(lf.id, siblingLeafId, PaneDropZone.Bottom)
                   }
                   className="p-0.5 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                   title="Pop out to own block"
                 >
-                  <Maximize2 size={10} strokeWidth={2.5} />
+                  <Maximize2
+                    size={PaneWorkspaceIconMetric.CompactSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
                 </button>
               )}
 
@@ -676,7 +741,10 @@ export function PaneMobile({
                 className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                 title="Minimize"
               >
-                <Minus size={10} strokeWidth={2.5} />
+                <Minus
+                  size={PaneWorkspaceIconMetric.CompactSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
               </button>
 
               {/* Close just this pane */}
@@ -686,7 +754,10 @@ export function PaneMobile({
                   className="p-0.5 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
                   title={`Close ${lfMeta.label}`}
                 >
-                  <X size={10} strokeWidth={2.5} />
+                  <X
+                    size={PaneWorkspaceIconMetric.CompactSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
                 </button>
               )}
             </div>
@@ -708,8 +779,7 @@ export function PaneMobile({
       );
     },
     [
-      paneMeta,
-      paneComponents,
+      paneCatalog,
       closePane,
       totalLeafCount,
       setTypeMenu,
@@ -728,51 +798,16 @@ export function PaneMobile({
       isVisible: boolean,
       isTopLevel: boolean,
     ): React.ReactNode => {
-      if (node.type === "leaf") {
+      if (node.type === PaneNodeType.Leaf) {
         if (!isTopLevel) {
           return renderLeafWithHeader(node, isVisible);
         }
         return renderLeafContent(node, isVisible);
       }
 
-      const isH = node.direction === "h";
-
-      // Adjust grid when a leaf child is minimized
-      let leftSize: string;
-      let rightSize: string;
-
-      if (isH) {
-        const leftMin =
-          node.children[0].type === "leaf" &&
-          minimizedLeaves.has(node.children[0].id);
-        const rightMin =
-          node.children[1].type === "leaf" &&
-          minimizedLeaves.has(node.children[1].id);
-
-        if (leftMin && !rightMin) {
-          leftSize = "36px";
-          rightSize = "1fr";
-        } else if (rightMin && !leftMin) {
-          leftSize = "1fr";
-          rightSize = "36px";
-        } else {
-          leftSize = `${node.ratio}fr`;
-          rightSize = `${1 - node.ratio}fr`;
-        }
-      } else {
-        leftSize = `${node.ratio}fr`;
-        rightSize = `${1 - node.ratio}fr`;
-      }
-
-      // Get sibling leaf IDs for pop-out button (only for shallow H-splits)
-      const leftSiblingId =
-        isH && node.children[1].type === "leaf"
-          ? node.children[1].id
-          : undefined;
-      const rightSiblingId =
-        isH && node.children[0].type === "leaf"
-          ? node.children[0].id
-          : undefined;
+      const tracks = mobileSplitTracks(node, minimizedLeaves);
+      const leftSiblingId = horizontalLeafId(node, node.children[1]);
+      const rightSiblingId = horizontalLeafId(node, node.children[0]);
 
       return (
         <div
@@ -780,12 +815,14 @@ export function PaneMobile({
           className="w-full h-full min-w-0 min-h-0 overflow-hidden"
           style={{
             display: "grid",
-            [isH ? "gridTemplateColumns" : "gridTemplateRows"]:
-              `${leftSize} 6px ${rightSize}`,
+            [node.direction === SplitDirection.Horizontal
+              ? "gridTemplateColumns"
+              : "gridTemplateRows"]:
+              `${tracks.first} ${PaneMobileGridMetric.SeparatorPx}px ${tracks.second}`,
           }}
         >
           <div className="overflow-hidden min-w-0 min-h-0">
-            {node.children[0].type === "leaf" && !isTopLevel
+            {node.children[0].type === PaneNodeType.Leaf && !isTopLevel
               ? renderLeafWithHeader(node.children[0], isVisible, leftSiblingId)
               : renderMobileNode(node.children[0], isVisible, false)}
           </div>
@@ -795,7 +832,7 @@ export function PaneMobile({
             onResize={resizeSplit}
           />
           <div className="overflow-hidden min-w-0 min-h-0">
-            {node.children[1].type === "leaf" && !isTopLevel
+            {node.children[1].type === PaneNodeType.Leaf && !isTopLevel
               ? renderLeafWithHeader(
                   node.children[1],
                   isVisible,
@@ -812,20 +849,21 @@ export function PaneMobile({
   // ── Get label for a block ───────────────────────────────────────
   const getBlockLabel = useCallback(
     (block: MobileBlock) => {
-      if (block.node.type === "leaf") {
-        return paneMeta[block.node.paneType].label;
+      if (block.node.type === PaneNodeType.Leaf) {
+        return paneCatalog[block.node.paneType].label;
       }
       const labels = block.leafIds
         .map((id) => {
           const leaf = allLeaves.find((l) => l.id === id);
-          return leaf ? paneMeta[leaf.paneType].label : null;
+          return leaf ? paneCatalog[leaf.paneType].label : null;
         })
         .filter(Boolean);
       if (labels.length <= 2) return labels.join(" | ");
       return `${labels[0]} +${labels.length - 1}`;
     },
-    [paneMeta, allLeaves],
+    [paneCatalog, allLeaves],
   );
+  const moveSourceType = moveSourcePaneType(allLeaves, moveSourceLeafId);
 
   // ── Render ──────────────────────────────────────────────────────
 
@@ -837,11 +875,11 @@ export function PaneMobile({
         <SplitMenu
           ref={splitMenuRef}
           types={availableTypes}
-          meta={paneMeta}
+          catalog={paneCatalog}
           top={splitMenu.top}
           left={splitMenu.left}
           wtMenu
-          className="fixed z-[80] rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
+          className="fixed z-80 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
           onSelect={(type) => {
             splitPane(splitMenu.leafId, splitMenu.dir, type);
             setSplitMenu(null);
@@ -853,35 +891,39 @@ export function PaneMobile({
         createPortal(
           <div
             ref={typeMenuRef}
-            className="fixed z-[80] bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
+            className="fixed z-80 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
             style={{
               top: typeMenu.top,
-              left: Math.min(typeMenu.left, window.innerWidth - 200),
+              left: Math.min(
+                typeMenu.left,
+                window.innerWidth - PaneWorkspaceMenuMetric.BoundaryWidth,
+              ),
             }}
           >
-            {Object.entries(paneMeta)
-              .filter(([id]) => {
+            {Object.values(PaneTypeId)
+              .filter((paneType) => {
                 const leaf = allLeaves.find((l) => l.id === typeMenu.leafId);
-                return leaf && id !== leaf.paneType;
+                return leaf && paneType !== leaf.paneType;
               })
-              .map(([id, m]) => {
-                const OptIcon = m.icon;
+              .map((paneType) => {
+                const definition = paneCatalog[paneType];
+                const OptIcon = definition.icon;
                 return (
                   <button
-                    key={id}
+                    key={paneType}
                     onClick={() => {
-                      changePaneType(typeMenu.leafId, id as PaneType);
+                      changePaneType(typeMenu.leafId, paneType);
                       setTypeMenu(null);
                     }}
                     className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors min-h-11"
                   >
                     <OptIcon
-                      size={11}
-                      strokeWidth={2}
+                      size={PaneWorkspaceIconMetric.ToolbarSize}
+                      strokeWidth={PaneWorkspaceIconMetric.LightStroke}
                       className="text-sig-dim shrink-0"
                     />
                     <span className="text-sig-bright text-(length:--sig-text-md) tracking-wide">
-                      {m.label}
+                      {definition.label}
                     </span>
                   </button>
                 );
@@ -894,12 +936,12 @@ export function PaneMobile({
       {!chromeHidden && (
         <div className="shrink-0 flex flex-col items-center gap-0 px-2 py-0.5 border-b border-sig-border/30 bg-sig-panel/60">
           <div className="flex items-center gap-2 sm:hidden">
-            {countOrder.map((key) => {
+            {COUNT_ORDER.map((key) => {
               const count = counts[key] ?? 0;
               return (
                 <span
                   key={key}
-                  className="text-(length:--sig-text-sm) tabular-nums font-semibold"
+                  className={PaneMobileClassName.StatusCount}
                   style={{
                     color: count > 0 ? colorMap[key] : undefined,
                     opacity: count > 0 ? 1 : 0.3,
@@ -911,7 +953,7 @@ export function PaneMobile({
             })}
             {(counts.cyclones ?? 0) > 0 && (
               <span
-                className="text-(length:--sig-text-sm) tabular-nums font-semibold"
+                className={PaneMobileClassName.StatusCount}
                 style={{ color: colorMap.cyclones }}
               >
                 {(counts.cyclones ?? 0).toLocaleString()}
@@ -920,9 +962,9 @@ export function PaneMobile({
           </div>
           <div className="flex items-center gap-2">
             <Satellite
-              size={10}
-              strokeWidth={2.5}
-              className="text-sig-accent shrink-0"
+              size={PaneWorkspaceIconMetric.CompactSize}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              className={PaneMobileClassName.AccentIcon}
             />
             <span className="text-sig-accent font-semibold tabular-nums text-(length:--sig-text-sm)">
               {activeCount.toLocaleString()}
@@ -947,7 +989,7 @@ export function PaneMobile({
       {!chromeHidden && (
         <div className="shrink-0 sticky top-0 z-30 flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/95 backdrop-blur-sm">
           {orderedBlocks.map((block) => {
-            const meta = paneMeta[block.primaryLeaf.paneType];
+            const meta = paneCatalog[block.primaryLeaf.paneType];
             const Icon = meta.icon;
             const isActive = activeInView === block.id;
             const isMinimized = minimizedBlocks.has(block.id);
@@ -959,16 +1001,15 @@ export function PaneMobile({
                   scrollToBlock(block.id);
                 }}
                 className={`flex items-center gap-1 px-2 py-1.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors min-h-8 ${
-                  isActive
-                    ? "text-sig-accent bg-sig-accent/10"
-                    : isMinimized
-                      ? "text-sig-dim/50 bg-transparent"
-                      : "text-sig-dim bg-transparent"
+                  mobileTabStateClassName(isActive, isMinimized)
                 }`}
               >
-                <Icon size={12} strokeWidth={2.5} />
+                <Icon
+                  size={PaneWorkspaceIconMetric.MediumSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
                 <span>
-                  {block.node.type === "leaf"
+                  {block.node.type === PaneNodeType.Leaf
                     ? meta.label
                     : getBlockLabel(block)}
                 </span>
@@ -977,7 +1018,7 @@ export function PaneMobile({
           })}
 
           {layout.minimized.map((m, i) => {
-            const meta = paneMeta[m.paneType];
+            const meta = paneCatalog[m.paneType];
             const Icon = meta.icon;
             return (
               <button
@@ -986,7 +1027,10 @@ export function PaneMobile({
                 className="flex items-center gap-1 px-2 py-1.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 opacity-50 min-h-8"
                 title={`Restore ${meta.label}`}
               >
-                <Icon size={12} strokeWidth={2.5} />
+                <Icon
+                  size={PaneWorkspaceIconMetric.MediumSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
                 {meta.label}
               </button>
             );
@@ -999,7 +1043,10 @@ export function PaneMobile({
               className="flex items-center justify-center px-2 py-1.5 min-h-8 min-w-8 rounded text-sig-dim hover:text-sig-accent transition-colors shrink-0"
               title="Add pane"
             >
-              <Plus size={14} strokeWidth={2.5} />
+              <Plus
+                size={PaneWorkspaceIconMetric.LargeSize}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              />
             </button>
           )}
 
@@ -1008,17 +1055,17 @@ export function PaneMobile({
             createPortal(
               <div
                 ref={addDropRef}
-                className="fixed z-[80] rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48 py-1"
+                className="fixed z-80 rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48 py-1"
                 style={{
                   top: addBtnRef.current.getBoundingClientRect().bottom + 4,
                   left: Math.min(
                     addBtnRef.current.getBoundingClientRect().left,
-                    window.innerWidth - 200,
+                    window.innerWidth - PaneWorkspaceMenuMetric.BoundaryWidth,
                   ),
                 }}
               >
                 {availableTypes.map((type) => {
-                  const meta = paneMeta[type];
+                  const meta = paneCatalog[type];
                   const Icon = meta.icon;
                   return (
                     <button
@@ -1027,9 +1074,9 @@ export function PaneMobile({
                       className="flex items-center gap-2 w-full px-3 py-2 min-h-11 text-left text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors"
                     >
                       <Icon
-                        size={14}
-                        strokeWidth={2}
-                        className="text-sig-accent"
+                        size={PaneWorkspaceIconMetric.LargeSize}
+                        strokeWidth={PaneWorkspaceIconMetric.LightStroke}
+                        className={PaneMobileClassName.Accent}
                       />
                       {meta.label}
                     </button>
@@ -1039,7 +1086,7 @@ export function PaneMobile({
               document.body,
             )}
 
-          {/* VIEWS — layout presets */}
+          {/* VIEWS layout presets */}
           {presets && onLoadPreset && (
             <div className="relative ml-auto shrink-0">
               <button
@@ -1051,7 +1098,10 @@ export function PaneMobile({
                 className="flex items-center gap-1 px-2 py-1.5 min-h-8 rounded text-sig-dim text-(length:--sig-text-sm) hover:text-sig-accent transition-colors"
                 title="Layout presets"
               >
-                <Bookmark size={12} strokeWidth={2.5} />
+                <Bookmark
+                  size={PaneWorkspaceIconMetric.MediumSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
                 VIEWS
               </button>
               {showPresets && (
@@ -1084,26 +1134,19 @@ export function PaneMobile({
         className={`flex-1 overflow-y-auto sigint-scroll ${orderedBlocks.length === 1 ? "flex flex-col" : ""}`}
       >
         {orderedBlocks.map((block) => {
-          const meta = paneMeta[block.primaryLeaf.paneType];
+          const meta = paneCatalog[block.primaryLeaf.paneType];
           const Icon = meta.icon;
           const rawH =
             heights[block.id] ?? DEFAULT_HEIGHTS[block.primaryLeaf.paneType];
           const useFlexFill = orderedBlocks.length === 1 && !heights[block.id];
           const isVisible = visibleSet.has(block.id);
           const isMinimized = minimizedBlocks.has(block.id);
-          const isMoveSource =
-            moveSourceLeafId !== null &&
-            block.leafIds.includes(moveSourceLeafId);
-          const isMoveTarget =
-            moveSourceLeafId !== null &&
-            !block.leafIds.includes(moveSourceLeafId);
-          const moveSrcType = moveSourceLeafId
-            ? allLeaves.find((l) => l.id === moveSourceLeafId)?.paneType
-            : undefined;
-          const allowBeside =
-            !!moveSrcType &&
-            !FULL_WIDTH_ONLY.has(moveSrcType) &&
-            !FULL_WIDTH_ONLY.has(block.primaryLeaf.paneType);
+          const isMoveSource = isMoveSourceBlock(block, moveSourceLeafId);
+          const isMoveTarget = isMoveTargetBlock(block, moveSourceLeafId);
+          const allowBeside = allowsBesideMove(
+            moveSourceType,
+            block.primaryLeaf.paneType,
+          );
 
           return (
             <div
@@ -1112,38 +1155,43 @@ export function PaneMobile({
               data-block-id={block.id}
               data-pane-id={block.primaryLeaf.id}
               data-tour={
-                block.primaryLeaf.paneType === "globe"
+                block.primaryLeaf.paneType === PaneTypeId.Globe
                   ? "globe-pane"
                   : undefined
               }
               ref={(el) => setBlockRef(block.id, el)}
-              className={`border-b border-sig-border/40 ${
-                useFlexFill ? "flex-1 flex flex-col" : ""
-              } ${
-                isMoveSource
-                  ? "ring-2 ring-sig-accent/70 shadow-[0_0_12px_rgba(0,212,240,0.15)]"
-                  : ""
-              }`}
+              className={cn(
+                PaneMobileClassName.Block,
+                useFlexFill && PaneMobileClassName.BlockFlex,
+                isMoveSource && PaneMobileClassName.BlockMoveSource,
+              )}
             >
               {/* Block header */}
               <div
-                className={`flex items-center gap-0.5 px-1 py-px border-b border-sig-border/40 select-none ${
-                  isMoveSource ? "bg-sig-accent/10" : "bg-sig-panel/80"
-                }`}
+                className={cn(
+                  PaneMobileClassName.BlockHeader,
+                  isMoveSource
+                    ? PaneMobileClassName.BlockHeaderMoveSource
+                    : PaneMobileClassName.BlockHeaderIdle,
+                )}
               >
                 <button
                   onClick={() => handleGripTap(block.primaryLeaf.id)}
-                  className={`bg-transparent border-none p-1 -ml-0.5 transition-colors touch-target ${
+                  className={cn(
+                    PaneMobileClassName.Grip,
                     isMoveSource
-                      ? "text-sig-accent"
-                      : "text-sig-dim hover:text-sig-accent"
-                  }`}
+                      ? PaneMobileClassName.Accent
+                      : PaneMobileClassName.GripIdle,
+                  )}
                   title={isMoveSource ? "Cancel move" : "Move this block"}
                 >
-                  <GripVertical size={10} strokeWidth={2.5} />
+                  <GripVertical
+                    size={PaneWorkspaceIconMetric.CompactSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
                 </button>
 
-                {block.node.type === "leaf" ? (
+                {block.node.type === PaneNodeType.Leaf ? (
                   <button
                     onClick={(e) => {
                       const rect = (
@@ -1162,16 +1210,16 @@ export function PaneMobile({
                     className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer group touch-target"
                   >
                     <Icon
-                      size={11}
-                      strokeWidth={2.5}
-                      className="text-sig-accent shrink-0"
+                      size={PaneWorkspaceIconMetric.ToolbarSize}
+                      strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      className={PaneMobileClassName.AccentIcon}
                     />
                     <span className="text-sig-accent tracking-wider text-(length:--sig-text-sm) font-semibold group-hover:text-sig-bright transition-colors">
                       {meta.label}
                     </span>
                     <ChevronDown
-                      size={9}
-                      strokeWidth={2.5}
+                      size={PaneWorkspaceIconMetric.SmallSize}
+                      strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
                       className="text-sig-dim group-hover:text-sig-accent transition-colors"
                     />
                   </button>
@@ -1181,9 +1229,9 @@ export function PaneMobile({
                   </span>
                 )}
 
-                <div className="flex-1" />
+                <div className={PaneMobileClassName.FlexFill} />
 
-                {block.node.type === "leaf" &&
+                {block.node.type === PaneNodeType.Leaf &&
                   availableTypes.length > 0 &&
                   !moveSourceLeafId &&
                   !FULL_WIDTH_ONLY.has(block.primaryLeaf.paneType) && (
@@ -1192,7 +1240,7 @@ export function PaneMobile({
                         if (availableTypes.length === 1) {
                           splitPane(
                             block.primaryLeaf.id,
-                            "h",
+                            SplitDirection.Horizontal,
                             availableTypes[0]!,
                           );
                         } else {
@@ -1201,11 +1249,11 @@ export function PaneMobile({
                           ).getBoundingClientRect();
                           setSplitMenu((prev) =>
                             prev?.leafId === block.primaryLeaf.id &&
-                            prev.dir === "h"
+                            prev.dir === SplitDirection.Horizontal
                               ? null
                               : {
                                   leafId: block.primaryLeaf.id,
-                                  dir: "h",
+                                  dir: SplitDirection.Horizontal,
                                   top: rect.bottom + 4,
                                   left: rect.left,
                                 },
@@ -1216,11 +1264,14 @@ export function PaneMobile({
                       title="Split side-by-side"
                       data-tour={`split-right-${block.primaryLeaf.paneType}`}
                     >
-                      <Columns2 size={11} strokeWidth={2.5} />
+                      <Columns2
+                        size={PaneWorkspaceIconMetric.ToolbarSize}
+                        strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      />
                     </button>
                   )}
 
-                {block.node.type === "leaf" &&
+                {block.node.type === PaneNodeType.Leaf &&
                   availableTypes.length > 0 &&
                   !moveSourceLeafId && (
                     <button
@@ -1228,7 +1279,7 @@ export function PaneMobile({
                         if (availableTypes.length === 1) {
                           splitPane(
                             block.primaryLeaf.id,
-                            "v",
+                            SplitDirection.Vertical,
                             availableTypes[0]!,
                           );
                         } else {
@@ -1237,11 +1288,11 @@ export function PaneMobile({
                           ).getBoundingClientRect();
                           setSplitMenu((prev) =>
                             prev?.leafId === block.primaryLeaf.id &&
-                            prev.dir === "v"
+                            prev.dir === SplitDirection.Vertical
                               ? null
                               : {
                                   leafId: block.primaryLeaf.id,
-                                  dir: "v",
+                                  dir: SplitDirection.Vertical,
                                   top: rect.bottom + 4,
                                   left: rect.left,
                                 },
@@ -1251,12 +1302,15 @@ export function PaneMobile({
                       className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-accent hover:bg-sig-accent/10 transition-colors"
                       title="Add pane below"
                       data-tour={
-                        block.primaryLeaf.paneType === "globe"
+                        block.primaryLeaf.paneType === PaneTypeId.Globe
                           ? "split-down-btn"
                           : `split-down-${block.primaryLeaf.paneType}`
                       }
                     >
-                      <Rows2 size={11} strokeWidth={2.5} />
+                      <Rows2
+                        size={PaneWorkspaceIconMetric.ToolbarSize}
+                        strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      />
                     </button>
                   )}
 
@@ -1267,22 +1321,31 @@ export function PaneMobile({
                     title={isMinimized ? "Expand" : "Minimize"}
                   >
                     {isMinimized ? (
-                      <ChevronRight size={11} strokeWidth={2.5} />
+                      <ChevronRight
+                        size={PaneWorkspaceIconMetric.ToolbarSize}
+                        strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      />
                     ) : (
-                      <Minus size={11} strokeWidth={2.5} />
+                      <Minus
+                        size={PaneWorkspaceIconMetric.ToolbarSize}
+                        strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      />
                     )}
                   </button>
                 )}
 
                 {totalLeafCount > 1 &&
-                  block.node.type === "leaf" &&
+                  block.node.type === PaneNodeType.Leaf &&
                   !moveSourceLeafId && (
                     <button
                       onClick={() => closePane(block.primaryLeaf.id)}
                       className="p-1 touch-target rounded text-sig-dim bg-transparent border-none hover:text-sig-danger hover:bg-sig-danger/10 transition-colors"
                       title="Close pane"
                     >
-                      <X size={11} strokeWidth={2.5} />
+                      <X
+                        size={PaneWorkspaceIconMetric.ToolbarSize}
+                        strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                      />
                     </button>
                   )}
               </div>
@@ -1297,7 +1360,7 @@ export function PaneMobile({
                     {renderMobileNode(
                       block.node,
                       isVisible,
-                      block.node.type === "leaf",
+                      block.node.type === PaneNodeType.Leaf,
                     )}
 
                     {/* ── Move-mode ghost overlay with 5 drop zones ──── */}
@@ -1305,42 +1368,60 @@ export function PaneMobile({
                       <div className="absolute inset-0 z-20 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
                         {/* Top zone */}
                         <button
-                          onClick={() => handleMoveAction(block.id, "above")}
-                          className="col-span-3 rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                          onClick={() =>
+                            handleMoveAction(block.id, PaneDropZone.Top)
+                          }
+                          className={cn(
+                            PaneMobileClassName.MoveZoneFullWidth,
+                            PaneMobileClassName.MoveZone,
+                          )}
                         >
                           ↑ ABOVE
                         </button>
-                        {/* Left zone — only when both panes allow side-by-side */}
+                        {/* Show left only when both panes allow it. */}
                         {allowBeside && (
                           <button
-                            onClick={() => handleMoveAction(block.id, "left")}
-                            className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                            onClick={() =>
+                              handleMoveAction(block.id, PaneDropZone.Left)
+                            }
+                            className={PaneMobileClassName.MoveZone}
                           >
                             ← LEFT
                           </button>
                         )}
                         {/* Center = swap (spans full width when beside is disallowed) */}
                         <button
-                          onClick={() => handleMoveAction(block.id, "swap")}
-                          className={`rounded flex items-center justify-center gap-1 bg-sig-bg/90 border-2 border-sig-accent/80 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors ${
-                            allowBeside ? "" : "col-span-3"
-                          }`}
+                          onClick={() =>
+                            handleMoveAction(block.id, PaneDropZone.Center)
+                          }
+                          className={cn(
+                            PaneMobileClassName.SwapZone,
+                            !allowBeside &&
+                              PaneMobileClassName.MoveZoneFullWidth,
+                          )}
                         >
                           ⇄ SWAP
                         </button>
-                        {/* Right zone — only when both panes allow side-by-side */}
+                        {/* Show right only when both panes allow it. */}
                         {allowBeside && (
                           <button
-                            onClick={() => handleMoveAction(block.id, "right")}
-                            className="rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                            onClick={() =>
+                              handleMoveAction(block.id, PaneDropZone.Right)
+                            }
+                            className={PaneMobileClassName.MoveZone}
                           >
                             RIGHT →
                           </button>
                         )}
                         {/* Bottom zone */}
                         <button
-                          onClick={() => handleMoveAction(block.id, "below")}
-                          className="col-span-3 rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors"
+                          onClick={() =>
+                            handleMoveAction(block.id, PaneDropZone.Bottom)
+                          }
+                          className={cn(
+                            PaneMobileClassName.MoveZoneFullWidth,
+                            PaneMobileClassName.MoveZone,
+                          )}
                         >
                           ↓ BELOW
                         </button>
@@ -1360,7 +1441,7 @@ export function PaneMobile({
           );
         })}
 
-        {/* Bottom padding — taller when detail panel is showing so you can scroll past it.
+      {/* Use taller bottom padding when the detail panel is visible.
              Skip when single pane is flex-filling (no scroll, no dead space needed). */}
         {orderedBlocks.length > 1 && <div className="h-16" />}
       </div>
