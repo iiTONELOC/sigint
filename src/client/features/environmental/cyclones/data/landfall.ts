@@ -8,16 +8,23 @@ import {
 } from "@shared/geo";
 import type { ForecastPoint } from "../types";
 
-export type LandfallAssessment =
-  | Readonly<{ kind: "onshore"; position: GeoPoint }>
+export enum LandfallKind {
+  Onshore = "onshore",
+  EstimatedArrival = "eta",
+  None = "none",
+  Indeterminate = "indeterminate",
+}
+
+export type Landfall =
+  | Readonly<{ kind: LandfallKind.Onshore; position: GeoPoint }>
   | Readonly<{
-      kind: "eta";
+      kind: LandfallKind.EstimatedArrival;
       fcstHour: number;
       validTime: string;
       position: GeoPoint;
     }>
-  | Readonly<{ kind: "none" }>
-  | Readonly<{ kind: "indeterminate" }>;
+  | Readonly<{ kind: LandfallKind.None }>
+  | Readonly<{ kind: LandfallKind.Indeterminate }>;
 
 type CoastSegment = Readonly<{
   start: GeoPoint;
@@ -38,8 +45,10 @@ type TrackNode = Readonly<{
   validTimeMs: number;
 }>;
 
-const INTERSECTION_EPSILON = 1e-9;
-const CROSSING_SAMPLE_RATIO = 1e-5;
+enum LandfallCalculation {
+  IntersectionEpsilon = 1e-9,
+  CrossingSampleRatio = 1e-5,
+}
 
 function samePoint(first: GeoPoint, second: GeoPoint): boolean {
   return first[0] === second[0] && first[1] === second[1];
@@ -103,7 +112,9 @@ function intersectionRatio(
     coastDeltaLongitude,
     coastDeltaLatitude,
   );
-  if (Math.abs(denominator) <= INTERSECTION_EPSILON) return null;
+  if (Math.abs(denominator) <= LandfallCalculation.IntersectionEpsilon) {
+    return null;
+  }
 
   const offsetLongitude = coastStartLongitude - trackStartLongitude;
   const offsetLatitude = coast.start[1] - trackStart[1];
@@ -123,10 +134,10 @@ function intersectionRatio(
     ) / denominator;
 
   if (
-    trackRatio < -INTERSECTION_EPSILON ||
-    trackRatio > 1 + INTERSECTION_EPSILON ||
-    coastRatio < -INTERSECTION_EPSILON ||
-    coastRatio > 1 + INTERSECTION_EPSILON
+    trackRatio < -LandfallCalculation.IntersectionEpsilon ||
+    trackRatio > 1 + LandfallCalculation.IntersectionEpsilon ||
+    coastRatio < -LandfallCalculation.IntersectionEpsilon ||
+    coastRatio > 1 + LandfallCalculation.IntersectionEpsilon
   ) {
     return null;
   }
@@ -152,7 +163,9 @@ function crossingRatios(
     if (ratio === null) continue;
     if (
       ratios.some(
-        (existing) => Math.abs(existing - ratio) <= INTERSECTION_EPSILON,
+        (existing) =>
+          Math.abs(existing - ratio) <=
+          LandfallCalculation.IntersectionEpsilon,
       )
     ) {
       continue;
@@ -172,12 +185,12 @@ function firstWaterToLandRatio(
     const before = interpolateGeoPoint(
       start,
       end,
-      Math.max(0, ratio - CROSSING_SAMPLE_RATIO),
+      Math.max(0, ratio - LandfallCalculation.CrossingSampleRatio),
     );
     const after = interpolateGeoPoint(
       start,
       end,
-      Math.min(1, ratio + CROSSING_SAMPLE_RATIO),
+      Math.min(1, ratio + LandfallCalculation.CrossingSampleRatio),
     );
     if (
       !multiPolygonContainsPoint(before, index.polygons) &&
@@ -211,15 +224,15 @@ export function assessLandfall(
   currentValidTime: string,
   forecast: readonly ForecastPoint[],
   index: LandfallIndex,
-): LandfallAssessment {
+): Landfall {
   if (index.polygons.length === 0 || index.coastSegments.length === 0) {
-    return { kind: "indeterminate" };
+    return { kind: LandfallKind.Indeterminate };
   }
   if (multiPolygonContainsPoint(current, index.polygons)) {
-    return { kind: "onshore", position: current };
+    return { kind: LandfallKind.Onshore, position: current };
   }
   const currentNode = createTrackNode(current, 0, currentValidTime);
-  if (!currentNode) return { kind: "indeterminate" };
+  if (!currentNode) return { kind: LandfallKind.Indeterminate };
 
   const orderedForecast = [...forecast].sort(
     (first, second) => first.fcstHour - second.fcstHour,
@@ -227,7 +240,7 @@ export function assessLandfall(
   const nodes: TrackNode[] = [currentNode];
   for (const candidate of orderedForecast) {
     const node = forecastNode(candidate);
-    if (!node) return { kind: "indeterminate" };
+    if (!node) return { kind: LandfallKind.Indeterminate };
     nodes.push(node);
   }
 
@@ -243,11 +256,11 @@ export function assessLandfall(
     const validTimeMs =
       start.validTimeMs + (end.validTimeMs - start.validTimeMs) * ratio;
     return {
-      kind: "eta",
+      kind: LandfallKind.EstimatedArrival,
       fcstHour: forecastHour,
       validTime: new Date(validTimeMs).toISOString(),
       position: interpolateGeoPoint(start.point, end.point, ratio),
     };
   }
-  return { kind: "none" };
+  return { kind: LandfallKind.None };
 }

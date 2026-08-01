@@ -12,6 +12,7 @@ import { weatherSeverityInk } from "../severity";
 import { unwrapNwsText, weatherAreas } from "../text";
 import { WeatherPlacard } from "./WeatherPlacard";
 import { WeatherTiming } from "./WeatherTiming";
+import { WeatherCopy } from "../formatters";
 
 type Props = {
   readonly item: WeatherPoint;
@@ -46,7 +47,7 @@ export function WeatherDossier({
     >
       <DossierToolbar
         icon={CloudAlert}
-        title={data.event || "Weather Alert"}
+        title={data.event || WeatherCopy.Alert}
         subtitle="WEATHER ALERT"
         isolateMode={isolateMode}
         onLocate={onLocate}

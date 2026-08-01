@@ -1,16 +1,16 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useData } from "@/context/DataContext";
-import { useTheme } from "@/context/ThemeContext";
-import { useVirtualScroll } from "@/hooks/useVirtualScroll";
+import { useTheme } from "@/theme";
+import { useVirtualScroll } from "@/virtual-scroll";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
 import { Domain } from "@shared/domain/identity";
 import type { PointType } from "@shared/domain/pointType";
-import { useItemSelectHandlers } from "@/lib/runtime/useItemSelectHandlers";
+import { useItemSelectHandlers } from "@/selection";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { WatchSource } from "@/context/WatchContext";
 import { ButtonType } from "@/lib/ui/button";
-import { EMPTY_TEXT, SEMICOLON_SEPARATOR } from "@shared/text";
+import { EMPTY_TEXT } from "@shared/text";
 import { featureRegistry } from "@/features/registry";
 import {
   Bell,
@@ -21,7 +21,9 @@ import {
   Trash2,
   Clock,
 } from "lucide-react";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { relativeAge } from "@/time";
+import { FireCopy } from "@/features/environmental/fires/formatters";
+import { primaryWeatherArea } from "@/features/environmental/weather/formatters";
 
 enum AlertLogVirtualization {
   Overscan = 6,
@@ -88,7 +90,6 @@ enum AlertLogProgress {
 
 enum AlertLogText {
   FactorSeparator = " · ",
-  FireSatelliteFallback = "VIIRS",
 }
 
 enum AlertLogClassName {
@@ -121,12 +122,9 @@ function getDetail(item: DataPoint): string {
     case Domain.Quakes:
       return item.data.location || EMPTY_TEXT;
     case Domain.Fires:
-      return `${item.data.satellite || AlertLogText.FireSatelliteFallback}${AlertLogText.FactorSeparator}${item.data.confidence || EMPTY_TEXT}`;
+      return `${item.data.satellite || FireCopy.DefaultSatellite}${AlertLogText.FactorSeparator}${item.data.confidence || EMPTY_TEXT}`;
     case Domain.Weather:
-      return item.data.areaDesc
-        ?.split(SEMICOLON_SEPARATOR)
-        .at(0)
-        ?.trim() || EMPTY_TEXT;
+      return primaryWeatherArea(item.data.areaDesc);
     default:
       return EMPTY_TEXT;
   }

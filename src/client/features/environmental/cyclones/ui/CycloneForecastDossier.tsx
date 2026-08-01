@@ -3,7 +3,7 @@ import { Wind } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
 import { NO_VALUE } from "@shared/text";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import { formatKtMph, nmToKm } from "@/measurements";
 import type { CycloneForecastPointData } from "../types";
 import {

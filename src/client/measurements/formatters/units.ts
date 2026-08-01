@@ -1,16 +1,12 @@
-import { getUnitsMode, UnitMode } from "@/preferences/units";
+import { resolveUnitMode, UnitMode } from "@/preferences/units";
 import { kmToMi, ktToKmh, ktToMph } from "../utils";
-
-function activeUnitMode(mode: UnitMode | undefined): UnitMode {
-  return mode ?? getUnitsMode();
-}
 
 export function formatKmMi(
   kilometers: number,
   mode?: UnitMode,
 ): string {
   const rounded = Math.round(kilometers);
-  switch (activeUnitMode(mode)) {
+  switch (resolveUnitMode(mode)) {
     case UnitMode.MilesPerHour:
       return `${kmToMi(kilometers)} mi`;
     case UnitMode.Knots:
@@ -25,7 +21,7 @@ export function formatKtMph(
   knots: number,
   mode?: UnitMode,
 ): string {
-  switch (activeUnitMode(mode)) {
+  switch (resolveUnitMode(mode)) {
     case UnitMode.Knots:
       return `${knots} kn`;
     case UnitMode.MilesPerHour:
@@ -41,7 +37,7 @@ export function formatKtShort(
   knots: number,
   mode?: UnitMode,
 ): string {
-  switch (activeUnitMode(mode)) {
+  switch (resolveUnitMode(mode)) {
     case UnitMode.Knots:
       return `${knots}kn`;
     case UnitMode.MilesPerHour:

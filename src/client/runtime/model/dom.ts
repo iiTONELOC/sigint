@@ -71,6 +71,19 @@ export enum DomLinkRelation {
   NoopenerNoreferrer = "noopener noreferrer",
 }
 
+export enum DomTableScope {
+  Column = "col",
+}
+
+export enum DomScrollBehavior {
+  Smooth = "smooth",
+}
+
+export enum DomScrollBlock {
+  Nearest = "nearest",
+  Start = "start",
+}
+
 export enum DomKey {
   ArrowDown = "ArrowDown",
   ArrowLeft = "ArrowLeft",

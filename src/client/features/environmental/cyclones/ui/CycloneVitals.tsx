@@ -1,6 +1,6 @@
 import { Navigation, LocateFixed } from "lucide-react";
 import { formatKtShort, ktToMph } from "@/measurements";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import type { CycloneData } from "../types";
 import {
   pressureRateHpaPerH,

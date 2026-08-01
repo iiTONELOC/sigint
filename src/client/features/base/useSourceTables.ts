@@ -29,7 +29,7 @@ export type SourceTableOptions = Readonly<{
 export type SourceTable = Readonly<{
   /** One sorted prefix per source, ready to merge. */
   prefixes: readonly (readonly DataPoint[])[];
-  totals: Readonly<Record<string, number>>;
+  totals: Readonly<Partial<Record<DataType, number>>>;
   itemCount: number;
 }>;
 
@@ -90,7 +90,7 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
 
   return useMemo(() => {
     const prefixes: (readonly DataPoint[])[] = [];
-    const totals: Record<string, number> = {};
+    const totals: Partial<Record<DataType, number>> = {};
     let itemCount = 0;
 
     for (const id of QUERYABLE_SOURCE_IDS) {

@@ -11,6 +11,7 @@ import {
   weatherSeverityLabel,
 } from "../severity";
 import { unwrapNwsText, weatherAreas } from "../text";
+import { WeatherCopy } from "../formatters";
 
 enum WeatherDetailText {
   Expired = "expired",
@@ -85,7 +86,9 @@ export function WeatherDetailSummary({
     <div className={WeatherDetailClassName.Root}>
       <div className={WeatherDetailClassName.Header}>
         <div className={WeatherDetailClassName.HeaderText}>
-          <div className={WeatherDetailClassName.Event}>{data.event ?? "Weather Alert"}</div>
+          <div className={WeatherDetailClassName.Event}>
+            {data.event ?? WeatherCopy.Alert}
+          </div>
           <div className={WeatherDetailClassName.Eyebrow}>
             WEATHER ALERT
             {data.urgency ? ` · ${data.urgency}` : EMPTY_TEXT}

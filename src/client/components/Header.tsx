@@ -1,13 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
-import { useTheme } from "@/context/ThemeContext";
+import { getColorMap, ThemeMode, useTheme } from "@/theme";
 import { LayoutMode, useLayoutMode } from "@/layout-mode";
-import { getColorMap } from "@/config/theme";
 
 import { featureList } from "@/features/registry";
 import type { AircraftFilter } from "@/features/tracking/aircraft/types";
 import { AircraftFilterControl } from "@/features/tracking/aircraft";
 import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
-import { AlertTriangle, Settings, Smartphone, Monitor } from "lucide-react";
+import {
+  AlertTriangle,
+  Settings,
+  Smartphone,
+  Monitor,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  featureIconProps,
+  type FeatureIconStyle,
+} from "@/features/base/presentation";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
 import { useAlwaysShowCyclones } from "@/preferences/cyclones";
 import {
@@ -17,7 +26,6 @@ import {
 import { Domain } from "@shared/domain/identity";
 import { isSourceDown, SourceStatus } from "@shared/domain/sourceStatus";
 import { SettingsModal } from "@/settings";
-import { ThemeMode } from "@/theme";
 
 enum HeaderLabel {
   Hide = "Hide",
@@ -99,17 +107,17 @@ function LayerToggle({
   count,
   down,
   reason,
-  iconProps,
+  iconStyle,
   onToggle,
 }: {
   readonly label: string;
-  readonly icon: React.ForwardRefExoticComponent<any>;
+  readonly icon: LucideIcon;
   readonly on: boolean;
   readonly color: string;
   readonly count: number;
   readonly down: boolean;
   readonly reason: string | null;
-  readonly iconProps: Record<string, unknown>;
+  readonly iconStyle: FeatureIconStyle;
   readonly onToggle: () => void;
 }) {
   const downText = reason
@@ -142,7 +150,7 @@ function LayerToggle({
       >
         <Icon
           aria-hidden="true"
-          {...iconProps}
+          {...featureIconProps(iconStyle)}
           style={{
             width: HeaderCssValue.LayerIconSize,
             height: HeaderCssValue.LayerIconSize,
@@ -236,7 +244,7 @@ function Toggles({
                 count={count}
                 down={down}
                 reason={entry?.error ?? null}
-                iconProps={feature.iconProps}
+                iconStyle={feature.iconStyle}
                 onToggle={() => toggleLayer(feature.id)}
               />
             );

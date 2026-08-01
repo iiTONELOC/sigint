@@ -2,8 +2,9 @@ import {
   AgeStyle,
   formatTimestamp,
   relativeAge,
-} from "@/lib/format/timeFormat";
+} from "@/time";
 import type { EarthquakeData } from "./types";
+import { EarthquakeCopy } from "./formatters";
 
 export function buildEarthquakeDetailRows(
   data: EarthquakeData,
@@ -57,7 +58,7 @@ export function buildEarthquakeDetailRows(
 
   // ── Intel links ─────────────────────────────────────────────────
   if (data.url) {
-    rows.push(["USGS", data.url]);
+    rows.push([EarthquakeCopy.Source, data.url]);
   }
 
   return rows;

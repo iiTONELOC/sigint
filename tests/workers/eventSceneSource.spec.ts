@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { EventPoint } from "@/features/intel/events/data/codec";
-import { EventSeverity } from "@/features/intel/events/types";
+import { IntelSeverity } from "@shared/domain/correlation";
 import { EventSceneBinding } from "@/workers/data/render-codecs/eventSceneBinding";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
@@ -19,7 +19,7 @@ import { TestInstant } from "../_support";
 function event(
   id: string,
   timestamp: number,
-  severity: EventSeverity,
+  severity: IntelSeverity,
 ): EventPoint {
   return {
     id,
@@ -35,7 +35,7 @@ describe("event scene source", () => {
   test("publishes patches and rebases through the shared scene path", async () => {
     let observedAt = TestInstant.EventSceneNow;
     let entities = [
-      event("event-a", observedAt, EventSeverity.Concern),
+      event("event-a", observedAt, IntelSeverity.Concern),
     ];
     const scenePatches: SceneSourcePatch[] = [];
     const binding = new EventSceneBinding((command) => {
@@ -62,7 +62,7 @@ describe("event scene source", () => {
     await source.refresh();
     observedAt += 1;
     entities = [
-      event("event-b", observedAt, EventSeverity.Crisis),
+      event("event-b", observedAt, IntelSeverity.Crisis),
     ];
     await source.refresh();
     source.publishRebase();
@@ -73,7 +73,7 @@ describe("event scene source", () => {
     expect(scenePatches[0]?.positions).toBeInstanceOf(Float64Array);
     expect(
       scenePatches[0]?.attributes[EventSceneAttribute.Severity],
-    ).toBe(EventSeverity.Concern);
+    ).toBe(IntelSeverity.Concern);
     expect(scenePatches[1]?.kind).toBe(DatasetPatchKind.Patch);
     expect(scenePatches[1]?.entityIds).toEqual(["event-b"]);
     expect(scenePatches[2]?.kind).toBe(DatasetPatchKind.Rebase);

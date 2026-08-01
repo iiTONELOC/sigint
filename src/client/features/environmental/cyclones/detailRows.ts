@@ -1,4 +1,4 @@
-import { formatTimeWithAge } from "@/lib/format/timeFormat";
+import { formatTimeWithAge } from "@/time";
 import { formatKtMph } from "@/measurements";
 import { formatBearingDeg, formatPressureMb } from "./formatters";
 import { BLANK_SEPARATOR } from "@shared/text";

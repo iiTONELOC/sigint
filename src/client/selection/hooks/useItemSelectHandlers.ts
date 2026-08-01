@@ -1,24 +1,22 @@
-import { useCallback } from "react";
-import type { KeyboardEvent, MouseEvent } from "react";
+import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DomKey } from "@/runtime";
-import { revealThenClear } from "./revealSignals";
-
-type SetId = (id: string | null) => void;
+import type { SelectionIdSetter } from "../model";
+import { revealThenClear } from "../utils";
 
 function isRowActivationKey(key: string): boolean {
   return key === DomKey.Enter || key === DomKey.Space;
 }
 
-export type ItemSelectHandlers = {
+export type ItemSelectHandlers = Readonly<{
   handleClick: (item: DataPoint) => void;
-  handleKeyDown: (item: DataPoint, e: KeyboardEvent) => void;
-  handleZoom: (item: DataPoint, e: MouseEvent) => void;
-};
+  handleKeyDown: (item: DataPoint, event: KeyboardEvent) => void;
+  handleZoom: (item: DataPoint, event: MouseEvent) => void;
+}>;
 
 export function useItemSelectHandlers(
   setSelected: (item: DataPoint) => void,
-  setRevealId: SetId,
+  setRevealId: SelectionIdSetter,
   selectAndZoom: (item: DataPoint) => void,
 ): ItemSelectHandlers {
   const handleClick = useCallback(
@@ -30,17 +28,17 @@ export function useItemSelectHandlers(
   );
 
   const handleKeyDown = useCallback(
-    (item: DataPoint, e: KeyboardEvent) => {
-      if (!isRowActivationKey(e.key)) return;
-      e.preventDefault();
+    (item: DataPoint, event: KeyboardEvent) => {
+      if (!isRowActivationKey(event.key)) return;
+      event.preventDefault();
       handleClick(item);
     },
     [handleClick],
   );
 
   const handleZoom = useCallback(
-    (item: DataPoint, e: MouseEvent) => {
-      e.stopPropagation();
+    (item: DataPoint, event: MouseEvent) => {
+      event.stopPropagation();
       selectAndZoom(item);
     },
     [selectAndZoom],

@@ -1,4 +1,18 @@
-export type TsunamiLevel = "warning" | "watch" | "advisory";
+import { isRecord } from "@shared/geo";
+
+export enum TsunamiLevel {
+  Warning = "warning",
+  Watch = "watch",
+  Advisory = "advisory",
+}
+
+enum TsunamiEndpoint {
+  ActiveAlerts = "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
+}
+
+enum TsunamiEventPrefix {
+  Tsunami = "tsunami",
+}
 
 export type TsunamiAlert = {
   id: string;
@@ -9,48 +23,52 @@ export type TsunamiAlert = {
   expires: string;
 };
 
-const ALERTS_URL =
-  "https://api.weather.gov/alerts/active?status=actual&message_type=alert";
+function levelOf(event: string): TsunamiLevel | null {
+  const normalizedEvent = event.toLowerCase();
+  for (const level of Object.values(TsunamiLevel)) {
+    if (normalizedEvent === `${TsunamiEventPrefix.Tsunami} ${level}`) {
+      return level;
+    }
+  }
+  return null;
+}
 
-const TSUNAMI_EVENTS = new Set([
-  "tsunami warning",
-  "tsunami watch",
-  "tsunami advisory",
-]);
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
 
-function levelOf(eventLower: string): TsunamiLevel {
-  if (eventLower.includes("warning")) return "warning";
-  if (eventLower.includes("advisory")) return "advisory";
-  return "watch";
+function toTsunamiAlert(value: unknown): TsunamiAlert | null {
+  if (!isRecord(value)) return null;
+  const properties = isRecord(value.properties)
+    ? value.properties
+    : {};
+  const event = textValue(properties.event);
+  const level = levelOf(event);
+  if (level === null) return null;
+  return {
+    id: textValue(value.id) || event,
+    level,
+    event,
+    areaDesc: textValue(properties.areaDesc),
+    headline: textValue(properties.headline),
+    expires: textValue(properties.expires),
+  };
 }
 
 function toTsunamiAlerts(json: unknown): TsunamiAlert[] {
-  if (!json || typeof json !== "object") return [];
-  const features = (json as { features?: unknown }).features;
-  if (!Array.isArray(features)) return [];
+  if (!isRecord(json) || !Array.isArray(json.features)) return [];
 
   const out: TsunamiAlert[] = [];
-  for (const f of features) {
-    if (!f || typeof f !== "object") continue;
-    const feat = f as Record<string, unknown>;
-    const props = (feat.properties ?? {}) as Record<string, unknown>;
-    const event = typeof props.event === "string" ? props.event : "";
-    if (!TSUNAMI_EVENTS.has(event.toLowerCase())) continue;
-    out.push({
-      id: typeof feat.id === "string" ? feat.id : event,
-      level: levelOf(event.toLowerCase()),
-      event,
-      areaDesc: typeof props.areaDesc === "string" ? props.areaDesc : "",
-      headline: typeof props.headline === "string" ? props.headline : "",
-      expires: typeof props.expires === "string" ? props.expires : "",
-    });
+  for (const feature of json.features) {
+    const alert = toTsunamiAlert(feature);
+    if (alert) out.push(alert);
   }
   return out;
 }
 
 export async function fetchTsunamiAlerts(): Promise<TsunamiAlert[]> {
   try {
-    const res = await fetch(ALERTS_URL, {
+    const res = await fetch(TsunamiEndpoint.ActiveAlerts, {
       headers: {
         "User-Agent": "(sigint-dashboard, osint-tool)",
         Accept: "application/geo+json",

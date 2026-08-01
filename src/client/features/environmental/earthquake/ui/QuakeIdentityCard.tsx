@@ -1,11 +1,12 @@
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/time";
 import {
   DossierMetric,
   DossierMetricValueClass,
 } from "@/dossier";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import { formatKmMi } from "@/measurements";
 import { mmiBand, isShallow } from "../intensity";
+import { EarthquakeCopy } from "../formatters";
 
 export function QuakeIdentityCard({
   magnitude,
@@ -52,7 +53,7 @@ export function QuakeIdentityCard({
           SEISMIC EVENT · {band.label}
         </div>
         <div className="pr-24 text-(length:--sig-text-md) text-sig-bright font-bold tracking-wide leading-snug mt-1 mb-3">
-          {location || "Unknown location"}
+          {location || EarthquakeCopy.UnknownLocation}
         </div>
 
         <div className="flex items-end gap-5 flex-wrap">
@@ -102,7 +103,7 @@ export function QuakeIdentityCard({
       </div>
 
       <div className="relative flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t border-(--dossier-accent)/20 bg-sig-bg/40 px-4 py-2 text-(length:--sig-text-xs) text-sig-dim">
-        <span className="shrink-0">SOURCE <span className="text-sig-text">USGS{status ? ` · ${status}` : ""}</span></span>
+        <span className="shrink-0">SOURCE <span className="text-sig-text">{EarthquakeCopy.Source}{status ? ` · ${status}` : ""}</span></span>
         {age && <span className="min-w-0">{age}</span>}
       </div>
     </div>

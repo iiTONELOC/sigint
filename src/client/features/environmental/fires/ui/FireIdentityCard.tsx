@@ -3,8 +3,8 @@ import {
   DossierMetric,
   DossierMetricValueClass,
 } from "@/dossier";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
+import { AgeStyle, relativeAge } from "@/time";
 import { formatPixelKm } from "../formatters";
 import {
   confidenceMeta,

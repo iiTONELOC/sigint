@@ -5,6 +5,7 @@ export {
 export {
   getUnitsMode,
   hydrateUnitsPreference,
+  resolveUnitMode,
   setUnitsMode,
 } from "./store";
 export { useUnitsMode } from "./useUnitsMode";

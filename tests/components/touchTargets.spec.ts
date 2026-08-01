@@ -31,14 +31,14 @@ describe("touch-target on interactive elements", () => {
 
   test("DataTablePane filter buttons use touch-target", async () => {
     const src = await Bun.file(
-      "src/client/panes/data-table/DataTablePane.tsx",
+      "src/client/panes/data-table/components/DataTableToolbar.tsx",
     ).text();
     expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(2);
   });
 
   test("IntelFeedPane filter buttons use touch-target", async () => {
     const src = await Bun.file(
-      "src/client/panes/intel-feed/IntelFeedPane.tsx",
+      "src/client/panes/intel-feed/components/IntelFeedToolbar.tsx",
     ).text();
     expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
     expect(src).not.toContain("touch-target touch-target");

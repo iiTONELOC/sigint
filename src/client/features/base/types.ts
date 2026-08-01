@@ -52,56 +52,7 @@ export type BasePoint = {
   timestamp?: string;
 };
 
-// ── Feature rendering contracts ──────────────────────────────────────
-
 export enum IconStrokeWidth {
   None = 0,
   Standard = 2.5,
 }
-
-enum IconFill {
-  Current = "currentColor",
-}
-
-export const STROKED_ICON_PROPS = {
-  strokeWidth: IconStrokeWidth.Standard,
-} as const;
-
-export const FILLED_ICON_PROPS = {
-  fill: IconFill.Current,
-  strokeWidth: IconStrokeWidth.None,
-} as const;
-
-export type TickerRendererProps = {
-  data: unknown;
-  textColor: string;
-  dimColor: string;
-};
-
-export type FeatureDefinition<
-  TData = unknown,
-  TFilter = unknown,
-  TType extends PointType = PointType,
-> = {
-  /** Unique key matching the DataPoint type discriminator */
-  id: TType;
-
-  /** Display metadata */
-  label: string;
-  icon: React.ForwardRefExoticComponent<any>;
-
-  /** Icon rendering props — filled icons (aircraft, events) vs stroked */
-  iconProps: Record<string, unknown>;
-
-  /** Build detail panel rows from entity data */
-  buildDetailRows: (data: TData, timestamp?: string) => [string, string][];
-
-  /** Render ticker content for this feature type */
-  TickerContent: React.ComponentType<TickerRendererProps>;
-
-  /** Optional: filter control component for the header */
-  FilterControl?: React.ComponentType<any>;
-
-  /** Optional: build searchable text for this entity (used by global search) */
-  getSearchText?: (data: TData) => string;
-};

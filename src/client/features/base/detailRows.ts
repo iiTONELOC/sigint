@@ -1,4 +1,4 @@
-import { formatTime } from "@/lib/format/timeFormat";
+import { formatTime } from "@/time";
 
 export type DetailRow = [string, string];
 

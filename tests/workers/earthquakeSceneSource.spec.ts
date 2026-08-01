@@ -4,7 +4,10 @@ import {
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import type { PointSourceCacheSnapshot } from "@/workers/data/sourceRuntime";
+import {
+  PointSourceCacheSchema,
+  type PointSourceCacheSnapshot,
+} from "@/workers/data/sourceRuntime";
 import {
   EarthquakeSceneBinding,
   EarthquakeSource,
@@ -164,8 +167,10 @@ describe("earthquake scene source", () => {
     });
     source.attach({
       readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
         timestamp: EarthquakeTestInstant.Cache,
-        data: [cached],
+        version: 1,
+        entities: [cached],
       }),
       persistCache: (_key, snapshot) => {
         persisted.push(
@@ -208,8 +213,10 @@ describe("earthquake scene source", () => {
     });
     source.attach({
       readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
         timestamp: EarthquakeTestInstant.Cache,
-        data: [cached],
+        version: 1,
+        entities: [cached],
       }),
       persistCache: () => undefined,
       publishStatus: (snapshot) => snapshots.push(snapshot),

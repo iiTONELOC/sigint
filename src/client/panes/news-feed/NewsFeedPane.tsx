@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Rss, ExternalLink, ArrowLeft, Filter } from "lucide-react";
-import { useVirtualScroll } from "@/hooks/useVirtualScroll";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { useVirtualScroll } from "@/virtual-scroll";
+import { AgeStyle, relativeAge } from "@/time";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
 import { useData } from "@/context/DataContext";

@@ -1,22 +1,44 @@
 import { authenticatedFetch } from "@/lib/net/authService";
+import { parseIntelSeverity } from "@shared/domain/correlation";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import { rampBand, type Band } from "@/lib/format/rampLookup";
 import type { EventPoint } from "@/features/intel/events/data/codec";
+import { classifyEventTone } from "../utils";
 
-const EVENTS_URL = "/api/events/latest";
+enum EventEndpoint {
+  Latest = "/api/events/latest",
+}
 
-const EVENTS_ERROR = {
-  request: "The events request failed",
-  format: "The events response was not GDELT GeoJSON",
-} as const;
+enum EventFetchError {
+  Request = "The events request failed",
+  Format = "The events response was not GDELT GeoJSON",
+}
 
-// ── GDELT GeoJSON shape ─────────────────────────────────────────────
+enum GdeltGeoJsonType {
+  Feature = "Feature",
+  Point = "Point",
+  FeatureCollection = "FeatureCollection",
+}
+
+enum EventFetchPolicy {
+  MinimumCoordinateCount = 2,
+  HashShift = 5,
+  HashRadix = 36,
+}
+
+enum EventIdentityToken {
+  Prefix = "GE",
+  Separator = "-",
+}
+
+enum EventFetchCopy {
+  UnknownEvent = "Unknown Event",
+}
 
 type GdeltFeature = {
-  type: "Feature";
+  type: GdeltGeoJsonType.Feature;
   geometry: {
-    type: "Point";
+    type: GdeltGeoJsonType.Point;
     coordinates: [number, number];
   };
   properties: {
@@ -40,7 +62,7 @@ type GdeltFeature = {
 };
 
 type GdeltResponse = {
-  type: "FeatureCollection";
+  type: GdeltGeoJsonType.FeatureCollection;
   features: GdeltFeature[];
 };
 
@@ -50,27 +72,12 @@ type ServerResponse = {
   error?: string;
 };
 
-// ── Tone to category ────────────────────────────────────────────────
-
-type ToneClass = { category: string; severity: number };
-
-const TONE_CLASS_BANDS: ReadonlyArray<Band<ToneClass>> = [
-  { max: -15, value: { category: "Crisis", severity: 5 } },
-  { max: -10, value: { category: "Conflict", severity: 4 } },
-  { max: -5, value: { category: "Tension", severity: 3 } },
-  { max: -1, value: { category: "Concern", severity: 2 } },
-];
-
-function toneToCategorySeverity(tone: number): ToneClass {
-  return rampBand(tone, TONE_CLASS_BANDS, {
-    category: "Monitoring",
-    severity: 1,
-  });
-}
-
 /** First text node in the GDELT anchor. Scanned, not matched, because the
  *  equivalent pattern backtracks on markup with no closing tag. */
-function extractTitle(html?: string, fallback = "Unknown Event"): string {
+function extractTitle(
+  html?: string,
+  fallback: string = EventFetchCopy.UnknownEvent,
+): string {
   if (!html) return fallback;
   const open = html.indexOf(">");
   if (open === -1) return fallback;
@@ -79,16 +86,17 @@ function extractTitle(html?: string, fallback = "Unknown Event"): string {
   return html.slice(open + 1, close).trim() || fallback;
 }
 
-const HASH_SHIFT = 5;
-const HASH_RADIX = 36;
-
 function hashString(value: string): string {
   let hash = 0;
   for (const character of value) {
     hash =
-      Math.trunc((hash << HASH_SHIFT) - hash + (character.codePointAt(0) ?? 0));
+      Math.trunc(
+        (hash << EventFetchPolicy.HashShift) -
+          hash +
+          (character.codePointAt(0) ?? 0),
+      );
   }
-  return Math.abs(hash).toString(HASH_RADIX);
+  return Math.abs(hash).toString(EventFetchPolicy.HashRadix);
 }
 
 function toEventPoint(
@@ -97,16 +105,20 @@ function toEventPoint(
   now: number,
 ): EventPoint | null {
   const coords = feature.geometry?.coordinates;
-  if (!coords || coords.length < 2) return null;
+  if (!coords || coords.length < EventFetchPolicy.MinimumCoordinateCount) {
+    return null;
+  }
   const [lon, lat] = coords;
   if (lat == null || lon == null) return null;
 
   const props = feature.properties ?? {};
   const tone = props.urltone ? Number.parseFloat(props.urltone) : 0;
-  const toneClass = toneToCategorySeverity(tone);
+  const toneClass = classifyEventTone(tone);
 
   return {
-    id: props.url ? `GE${hashString(props.url)}` : `GE${index}-${now}`,
+    id: props.url
+      ? `${EventIdentityToken.Prefix}${hashString(props.url)}`
+      : `${EventIdentityToken.Prefix}${index}${EventIdentityToken.Separator}${now}`,
     type: Domain.Events,
     lat,
     lon,
@@ -123,7 +135,7 @@ function toEventPoint(
       url: props.url ?? undefined,
       imageUrl: props.urlsocialimage ?? undefined,
       tone: Number.isFinite(tone) ? tone : undefined,
-      severity: props.severity ?? toneClass.severity,
+      severity: parseIntelSeverity(props.severity ?? toneClass.severity),
       locationName: props.name ?? undefined,
       goldstein: props.goldstein,
       mentions: props.mentions,
@@ -147,12 +159,12 @@ export type EventFetchSnapshot = Readonly<{
 export async function fetchEventSnapshot(
   now: () => number = Date.now,
 ): Promise<EventFetchSnapshot> {
-  const response = await authenticatedFetch(EVENTS_URL);
-  if (!response.ok) throw new Error(EVENTS_ERROR.request);
+  const response = await authenticatedFetch(EventEndpoint.Latest);
+  if (!response.ok) throw new Error(EventFetchError.Request);
 
   const json: ServerResponse = await response.json();
   const features = json.data?.features;
-  if (!Array.isArray(features)) throw new Error(EVENTS_ERROR.format);
+  if (!Array.isArray(features)) throw new Error(EventFetchError.Format);
 
   const observedAt = now();
   const entities: EventPoint[] = [];

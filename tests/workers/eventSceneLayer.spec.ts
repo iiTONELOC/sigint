@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
-import { EventSeverity } from "@/features/intel/events/types";
+import { IntelSeverity } from "@shared/domain/correlation";
 import type {
   MarkerVisualRenderer,
   PulsingMarker,
@@ -36,8 +36,8 @@ const view = {
     TestInstant.EventSceneNow - 4 * MS_PER_DAY,
   ]),
   attributes: new Float32Array([
-    EventSeverity.Tension,
-    EventSeverity.Concern,
+    IntelSeverity.Tension,
+    IntelSeverity.Concern,
   ]),
   attributeStride: EventSceneSchema.AttributeStride,
   stringAttributes: new Uint32Array(),

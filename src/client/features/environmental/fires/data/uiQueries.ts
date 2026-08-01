@@ -13,30 +13,28 @@ import {
   type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
 import { FireDayNight } from "@shared/domain/fireDayNight";
-import { isEnumValue } from "@shared/types/enum";
+import { stringEnumMemberName } from "@shared/types/enum";
+import { FireCopy, formatFirePower } from "../formatters";
 
 export type { TableSortDirection, TableSortKey } from "@/workers/data/uiQuery";
 
 export type FireUiQuery = PointUiQuery;
 export type FireUiQueryResult = PointUiQueryResult<FirePoint>;
 
-const DAY_NIGHT_LABELS: Readonly<Record<FireDayNight, string>> = {
-  [FireDayNight.Day]: "day",
-  [FireDayNight.Night]: "night",
-};
-
 function radiativePowerLabel(point: FirePoint): string {
-  return point.data.frp === undefined ? "" : `FRP${point.data.frp}`;
+  return point.data.frp === undefined
+    ? ""
+    : `${FireCopy.RadiativePower}${point.data.frp}`;
 }
 
 function hotspotName(point: FirePoint): string {
   return point.data.frp === undefined
-    ? "Fire hotspot"
-    : `FRP ${point.data.frp.toFixed(1)} MW`;
+    ? FireCopy.Hotspot
+    : `${FireCopy.RadiativePower} ${formatFirePower(point.data.frp)}`;
 }
 
 export function fireDayNightSearchTerm(value: string | undefined): string {
-  return isEnumValue(value, FireDayNight) ? DAY_NIGHT_LABELS[value] : "";
+  return stringEnumMemberName(value, FireDayNight)?.toLowerCase() ?? "";
 }
 
 function dayNightLabel(point: FirePoint): string {

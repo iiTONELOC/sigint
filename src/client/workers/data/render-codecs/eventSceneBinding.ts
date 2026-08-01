@@ -1,7 +1,5 @@
 import type { EventPoint } from "@/features/intel/events/data/codec";
-import {
-  eventSeverity,
-} from "@/features/intel/events/types";
+import { parseIntelSeverity } from "@shared/domain/correlation";
 import { recordPosition } from "@/workers/data/source-model/position";
 import {
   EventSceneAttribute,
@@ -30,7 +28,7 @@ export class EventSceneBinding extends SceneBinding<EventPoint> {
         timestamp: sceneTimestamp,
         writeAttributes: (point, target, offset) => {
           target[offset + EventSceneAttribute.Severity] =
-            eventSeverity(point.data.severity);
+            parseIntelSeverity(point.data.severity);
         },
       }),
       publishScene,

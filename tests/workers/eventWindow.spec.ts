@@ -11,7 +11,7 @@ import {
   mergeEventWindow,
 } from "@/workers/data/sources/events";
 import type { EventPoint } from "@/features/intel/events/data/codec";
-import { EventSeverity } from "@/features/intel/events/types";
+import { IntelSeverity } from "@shared/domain/correlation";
 import { TestInstant } from "../_support";
 
 function event(id: string, agedMs: number): EventPoint {
@@ -23,7 +23,7 @@ function event(id: string, agedMs: number): EventPoint {
     timestamp: new Date(
       TestInstant.EventSceneNow - agedMs,
     ).toISOString(),
-    data: { headline: id, severity: EventSeverity.Monitoring },
+    data: { headline: id, severity: IntelSeverity.Monitoring },
   };
 }
 
@@ -92,7 +92,7 @@ describe("mergeEventWindow", () => {
         ...event("A", 0),
         data: {
           headline: "updated",
-          severity: EventSeverity.Conflict,
+          severity: IntelSeverity.Conflict,
         },
       },
     ];

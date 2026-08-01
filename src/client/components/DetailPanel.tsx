@@ -16,17 +16,19 @@ import {
 } from "lucide-react";
 import { useHasDossier } from "@/lib/runtime/layoutSignals";
 import { DomEvent } from "@/runtime";
-import { useTheme } from "@/context/ThemeContext";
-import { getColorMap, ThemeCssVar } from "@/config/theme";
+import { getColorMap, ThemeCssVar, useTheme } from "@/theme";
 import { windColor } from "@/features/environmental/cyclones/classification";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
 import { useUnitsMode } from "@/preferences/units";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { FeatureDefinition } from "@/features/base/types";
+import {
+  featureIconProps,
+  type FeatureDefinition,
+} from "@/features/base/presentation";
 import { featureRegistry } from "@/features/registry";
 import { isHttpUrl } from "@/dossier/detail-panel/utils/httpUrl";
 import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
@@ -701,7 +703,7 @@ function PanelHeader({
           <Icon
             size={DetailPanelIconSize.Feature}
             style={{ color }}
-            {...feature.iconProps}
+            {...featureIconProps(feature.iconStyle)}
           />
           <span
             className="font-bold tracking-widest text-(length:--sig-text-btn)"

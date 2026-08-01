@@ -2,8 +2,14 @@ import {
   AgeStyle,
   formatTimestamp,
   relativeAge,
-} from "@/lib/format/timeFormat";
+} from "@/time";
+import { FireDayNight } from "@shared/domain/fireDayNight";
 import type { FireData } from "./types";
+import {
+  FireCopy,
+  formatFirePower,
+  formatFireTemperature,
+} from "./formatters";
 
 export function buildFireDetailRows(
   data: FireData,
@@ -12,15 +18,15 @@ export function buildFireDetailRows(
   const rows: [string, string][] = [];
 
   if (data.frp != null && data.frp > 0) {
-    rows.push(["FRP", `${data.frp.toFixed(1)} MW`]);
+    rows.push([FireCopy.RadiativePower, formatFirePower(data.frp)]);
   }
 
   if (data.brightness != null && data.brightness > 0) {
-    rows.push(["Brightness", `${data.brightness.toFixed(1)} K`]);
+    rows.push(["Brightness", formatFireTemperature(data.brightness)]);
   }
 
   if (data.brightT31 != null && data.brightT31 > 0) {
-    rows.push(["Bright T31", `${data.brightT31.toFixed(1)} K`]);
+    rows.push(["Bright T31", formatFireTemperature(data.brightT31)]);
   }
 
   if (data.confidence) {
@@ -36,7 +42,10 @@ export function buildFireDetailRows(
   }
 
   if (data.daynight) {
-    rows.push(["Detection", data.daynight === "D" ? "DAYTIME" : "NIGHTTIME"]);
+    rows.push([
+      "Detection",
+      data.daynight === FireDayNight.Day ? "DAYTIME" : "NIGHTTIME",
+    ]);
   }
 
   if (data.scan != null && data.track != null) {

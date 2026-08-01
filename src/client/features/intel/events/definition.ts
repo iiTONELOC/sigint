@@ -1,20 +1,27 @@
 import { Domain } from "@shared/domain/identity";
 import { Zap } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
-import type { EventData, EventFilter } from "./types";
+import {
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
+import type { EventData } from "./types";
 import { buildEventDetailRows } from "./detailRows";
 import { EventTickerContent } from "./ui/EventTickerContent";
+import { eventFeedPresentation, eventTablePresentation } from "./formatters";
 
-export const eventsFeature: FeatureDefinition<EventData, EventFilter, Domain.Events> = {
+export const eventsFeature = defineFeature<EventData, Domain.Events>({
   id: Domain.Events,
   label: "GDELT EVENTS",
   icon: Zap,
-  iconProps: { fill: "currentColor", strokeWidth: 0 },
-
-
+  iconStyle: FeatureIconStyle.Filled,
+  colorClassName: FeatureColorClassName.Events,
+  includeInRawFeed: true,
 
   buildDetailRows: (data: EventData, ts?: string) =>
     buildEventDetailRows(data, ts),
+  tablePresentation: eventTablePresentation,
+  feedPresentation: eventFeedPresentation,
 
   TickerContent: EventTickerContent,
 
@@ -29,4 +36,4 @@ export const eventsFeature: FeatureDefinition<EventData, EventFilter, Domain.Eve
     ]
       .filter(Boolean)
       .join(" "),
-};
+});

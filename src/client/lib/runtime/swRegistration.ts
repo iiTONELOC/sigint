@@ -21,6 +21,7 @@ let registrationStarted = false;
 let reloading = false;
 
 function notifyUpdate(): void {
+  if (!navigator.serviceWorker.controller) return;
   if (!registration?.waiting) return;
   if (document.getElementById(ServiceWorkerElementId.UpdateBanner)) return;
   updateCallback?.();
@@ -73,8 +74,13 @@ export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
   if (!("serviceWorker" in navigator)) return;
   if (registrationStarted) return;
   registrationStarted = true;
+  let controllerEstablished = navigator.serviceWorker.controller !== null;
 
   navigator.serviceWorker.addEventListener(DomEvent.ControllerChange, () => {
+    if (!controllerEstablished) {
+      controllerEstablished = true;
+      return;
+    }
     if (reloading) return;
     reloading = true;
     window.location.reload();

@@ -25,11 +25,11 @@ function pt(
 // ── timeFormat ──────────────────────────────────────────────────────
 
 describe("relativeAge", () => {
-  let relativeAge: typeof import("@/lib/format/timeFormat").relativeAge;
-  let AgeStyle: typeof import("@/lib/format/timeFormat").AgeStyle;
+  let relativeAge: typeof import("@/time").relativeAge;
+  let AgeStyle: typeof import("@/time").AgeStyle;
 
   beforeEach(async () => {
-    const timeFormat = await import("@/lib/format/timeFormat");
+    const timeFormat = await import("@/time");
     relativeAge = timeFormat.relativeAge;
     AgeStyle = timeFormat.AgeStyle;
   });

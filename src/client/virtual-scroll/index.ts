@@ -1,3 +1,4 @@
+export { useVirtualScroll } from "./hooks";
 export { VirtualScrollPolicy } from "./model";
 export {
   calculateVirtualWindow,

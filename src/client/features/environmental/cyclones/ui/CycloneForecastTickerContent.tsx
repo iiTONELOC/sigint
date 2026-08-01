@@ -1,5 +1,5 @@
 import type { CycloneForecastPointData } from "../types";
-import type { TickerRendererProps } from "@/features/base/types";
+import type { TickerRendererProps } from "@/features/base/presentation";
 import { formatKtShort } from "@/measurements";
 
 export function CycloneForecastTickerContent({

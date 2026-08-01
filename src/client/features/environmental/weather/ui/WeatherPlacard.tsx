@@ -1,11 +1,12 @@
 import type { CSSProperties } from "react";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, relativeAge } from "@/time";
 import {
   weatherSeverityInk,
   weatherSeverityLabel,
   type WeatherSeverity,
 } from "../severity";
 import { weatherAreas } from "../text";
+import { WeatherCopy } from "../formatters";
 
 function Fact({ label, value }: { readonly label: string; readonly value: string }) {
   return (
@@ -57,7 +58,7 @@ export function WeatherPlacard({
               WEATHER ALERT{urgency ? ` · ${urgency.toUpperCase()}` : ""}
             </div>
             <div className="text-(length:--sig-text-lg) text-sig-bright font-bold tracking-wide leading-snug mt-1">
-              {event || "Weather Alert"}
+              {event || WeatherCopy.Alert}
             </div>
             {headline && (
               <div className="text-(length:--sig-text-sm) text-sig-text leading-snug mt-1">{headline}</div>
@@ -77,7 +78,7 @@ export function WeatherPlacard({
       </div>
 
       <div className="relative flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t border-(--dossier-accent)/20 bg-sig-bg/40 px-4 py-2 text-(length:--sig-text-xs) text-sig-dim">
-        <span className="shrink-0 min-w-0 truncate">SOURCE <span className="text-sig-text">{senderName || "NWS"}</span></span>
+        <span className="shrink-0 min-w-0 truncate">SOURCE <span className="text-sig-text">{senderName || WeatherCopy.DefaultSender}</span></span>
         {age && <span className="shrink-0">{age}</span>}
       </div>
     </div>

@@ -1,61 +1,56 @@
-import { formatTime } from "@/lib/format/timeFormat";
-import { CycloneWarningField, type CycloneWarningData } from "./types";
+import {
+  buildDetailRows,
+  detailRowLabels,
+  type DetailRow,
+} from "@/features/base/detailRows";
+import {
+  CYCLONE_WARNING_FIELDS,
+  CycloneWarningField,
+  type CycloneWarningData,
+} from "./types";
 
-enum WarningRowLabel {
-  Alert = "Alert",
+enum WarningSupplementalLabel {
   Severity = "Severity",
-  Area = "Area",
-  Headline = "Headline",
-  Effective = "Effective",
-  Expires = "Expires",
 }
 
-type WarningRowReader = (data: CycloneWarningData) => string;
-
-const ROWS: readonly (readonly [WarningRowLabel, WarningRowReader])[] = [
-  [WarningRowLabel.Alert, (data) => data[CycloneWarningField.Alert]],
-  [WarningRowLabel.Severity, (data) => data.kind.toUpperCase()],
-  [WarningRowLabel.Area, (data) => data[CycloneWarningField.Area]],
-  [WarningRowLabel.Headline, (data) => data[CycloneWarningField.Headline]],
-  [
-    WarningRowLabel.Effective,
-    (data) => formatTime(data[CycloneWarningField.Effective]),
-  ],
-  [
-    WarningRowLabel.Expires,
-    (data) => formatTime(data[CycloneWarningField.Expires]),
-  ],
-];
-
-// The dossier toolbar already carries these as its title and its badge.
-const TOOLBAR_ROWS: ReadonlySet<WarningRowLabel> = new Set([
-  WarningRowLabel.Alert,
-  WarningRowLabel.Severity,
+const WARNING_ROW_LABELS = detailRowLabels(CycloneWarningField);
+const WARNING_TIME_FIELDS: ReadonlySet<CycloneWarningField> = new Set([
+  CycloneWarningField.Effective,
+  CycloneWarningField.Expires,
 ]);
 
-function build(
+function warningRows(
   data: CycloneWarningData,
-  skip: ReadonlySet<WarningRowLabel>,
-): [string, string][] {
-  const rows: [string, string][] = [];
-  for (const [label, read] of ROWS) {
-    if (skip.has(label)) continue;
-    const value = read(data);
-    if (value) rows.push([label, value]);
+  includeToolbarRows: boolean,
+): DetailRow[] {
+  const order = includeToolbarRows
+    ? CYCLONE_WARNING_FIELDS
+    : CYCLONE_WARNING_FIELDS.filter(
+        (field) => field !== CycloneWarningField.Alert,
+      );
+  const rows = buildDetailRows({
+    order,
+    labels: WARNING_ROW_LABELS,
+    timeFields: WARNING_TIME_FIELDS,
+    read: (field) => data[field],
+  });
+  if (includeToolbarRows) {
+    rows.splice(1, 0, [
+      WarningSupplementalLabel.Severity,
+      data.kind.toUpperCase(),
+    ]);
   }
   return rows;
 }
 
-const NO_ROWS_SKIPPED: ReadonlySet<WarningRowLabel> = new Set();
-
 export function buildWarningDetailRows(
   data: CycloneWarningData,
-): [string, string][] {
-  return build(data, NO_ROWS_SKIPPED);
+): DetailRow[] {
+  return warningRows(data, true);
 }
 
 export function buildWarningDossierRows(
   data: CycloneWarningData,
-): [string, string][] {
-  return build(data, TOOLBAR_ROWS);
+): DetailRow[] {
+  return warningRows(data, false);
 }

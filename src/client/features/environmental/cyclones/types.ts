@@ -195,8 +195,8 @@ export enum CycloneRowLabel {
 
 export enum CycloneWarningField {
   Alert = "event",
-  Headline = "headline",
   Area = "areaDesc",
+  Headline = "headline",
   Effective = "effective",
   Expires = "expires",
 }

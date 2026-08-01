@@ -4,8 +4,8 @@ import { DetailField } from "@/dossier";
 import type {
   ShipPoint,
 } from "@/features/tracking/ships/data/codec";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
-import { AgeStyle, relativeAge } from "@/lib/format/timeFormat";
+import { formatLat, formatLon } from "@/geo";
+import { AgeStyle, relativeAge } from "@/time";
 import { useTrail } from "@/features/base/useTrail";
 import { Domain } from "@shared/domain/identity";
 import {

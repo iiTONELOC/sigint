@@ -1,4 +1,4 @@
-import { AgeStyle, formatTime, relativeAge } from "@/lib/format/timeFormat";
+import { AgeStyle, formatTime, relativeAge } from "@/time";
 import { weatherSeverityLabel } from "./severity";
 import { WeatherTextField, type WeatherData } from "./types";
 

@@ -17,6 +17,7 @@ import { FireIdentityCard } from "./FireIdentityCard";
 import { ThermalSignature } from "./ThermalSignature";
 import { FrpScale } from "./FrpScale";
 import { DetectionFootprint } from "./DetectionFootprint";
+import { FireCopy, formatFirePower } from "../formatters";
 
 type Props = {
   readonly item: DataPoint;
@@ -48,8 +49,8 @@ export function FireDossier({
   const { scan, track } = d;
   const closeBtnRef = useDossierFocus(item.id);
   const title = frp > 0
-    ? `Fire hotspot: ${frp.toFixed(1)} MW`
-    : "Fire hotspot";
+    ? `${FireCopy.Hotspot}: ${formatFirePower(frp)}`
+    : FireCopy.Hotspot;
 
   return (
     <div className={`${band.className} h-full min-w-0 flex flex-col`}>

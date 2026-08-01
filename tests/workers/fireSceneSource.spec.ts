@@ -6,7 +6,10 @@ import {
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
-import type { PointSourceCacheSnapshot } from "@/workers/data/sourceRuntime";
+import {
+  PointSourceCacheSchema,
+  type PointSourceCacheSnapshot,
+} from "@/workers/data/sourceRuntime";
 import {
   FireHttpStatus,
   FireSceneBinding,
@@ -204,8 +207,10 @@ describe("fire scene source", () => {
     });
     source.attach({
       readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
         timestamp: FireTestInstant.Cache,
-        data: [cached],
+        version: 1,
+        entities: [cached],
       }),
       persistCache: (_key, snapshot) => {
         persisted.push(
@@ -247,8 +252,10 @@ describe("fire scene source", () => {
     });
     source.attach({
       readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
         timestamp: FireTestInstant.Cache,
-        data: [cached],
+        version: 1,
+        entities: [cached],
       }),
       persistCache: () => undefined,
       publishStatus: (snapshot) => snapshots.push(snapshot),

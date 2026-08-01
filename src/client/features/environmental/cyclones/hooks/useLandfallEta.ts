@@ -1,19 +1,28 @@
 import { useEffect, useState } from "react";
-import { formatTime } from "@/lib/format/timeFormat";
+import { formatTime } from "@/time";
 import { enrichLand } from "@/lib/geo/landService";
 import { scheduleIdle } from "@/lib/runtime/idle";
 import { createGeoPoint, type GeoMultiPolygon } from "@shared/geo";
 import {
   assessLandfall,
   createLandfallIndex,
-  type LandfallAssessment,
+  type Landfall,
   type LandfallIndex,
+  LandfallKind,
 } from "../data/landfall";
 import type { ForecastPoint } from "../types";
 
-export type Landfall = LandfallAssessment;
+export enum LandfallTone {
+  Critical = "critical",
+  Forecast = "forecast",
+  Neutral = "neutral",
+}
 
-export type LandfallTone = "critical" | "forecast" | "neutral";
+enum LandfallCopy {
+  Onshore = "Onshore now",
+  None = "None in forecast",
+  Unavailable = "Unavailable",
+}
 
 type LandfallText = Readonly<{ text: string; tone: LandfallTone }>;
 
@@ -30,18 +39,18 @@ function landfallIndex(land: GeoMultiPolygon): LandfallIndex {
 }
 
 export function landfallText(landfall: Landfall): LandfallText {
-  if (landfall.kind === "onshore") {
-    return { text: "Onshore now", tone: "critical" };
+  if (landfall.kind === LandfallKind.Onshore) {
+    return { text: LandfallCopy.Onshore, tone: LandfallTone.Critical };
   }
-  if (landfall.kind === "none") {
-    return { text: "None in forecast", tone: "neutral" };
+  if (landfall.kind === LandfallKind.None) {
+    return { text: LandfallCopy.None, tone: LandfallTone.Neutral };
   }
-  if (landfall.kind === "indeterminate") {
-    return { text: "Unavailable", tone: "neutral" };
+  if (landfall.kind === LandfallKind.Indeterminate) {
+    return { text: LandfallCopy.Unavailable, tone: LandfallTone.Neutral };
   }
   return {
     text: `≈ +${Math.round(landfall.fcstHour)}h · ${formatTime(landfall.validTime)}`,
-    tone: "forecast",
+    tone: LandfallTone.Forecast,
   };
 }
 
@@ -69,7 +78,7 @@ export function useLandfallEta(
                 forecast,
                 landfallIndex(land),
               )
-            : { kind: "indeterminate" },
+            : { kind: LandfallKind.Indeterminate },
         );
       });
     });

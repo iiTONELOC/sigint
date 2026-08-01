@@ -1,5 +1,8 @@
 import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
-import { EventSeverity } from "@/features/intel/events/types";
+import {
+  IntelSeverity,
+  parseIntelSeverity,
+} from "@shared/domain/correlation";
 import type { MarkerGlow } from "@/workers/render/primitives/markerStyle";
 import type {
   MarkerVisualRenderer,
@@ -104,29 +107,25 @@ export type EventSceneStyle = Readonly<{
 function severityAt(
   view: RenderSceneView,
   index: number,
-): EventSeverity {
+): IntelSeverity {
   const value =
     view.attributes[
       index * view.attributeStride + EventSceneAttribute.Severity
     ];
-  if (value === EventSeverity.Concern) return EventSeverity.Concern;
-  if (value === EventSeverity.Tension) return EventSeverity.Tension;
-  if (value === EventSeverity.Conflict) return EventSeverity.Conflict;
-  if (value === EventSeverity.Crisis) return EventSeverity.Crisis;
-  return EventSeverity.Monitoring;
+  return parseIntelSeverity(value);
 }
 
-function markerSize(severity: EventSeverity): number {
-  if (severity === EventSeverity.Concern) {
+function markerSize(severity: IntelSeverity): number {
+  if (severity === IntelSeverity.Concern) {
     return EventMarkerSize.ConcernRadius;
   }
-  if (severity === EventSeverity.Tension) {
+  if (severity === IntelSeverity.Tension) {
     return EventMarkerSize.TensionRadius;
   }
-  if (severity === EventSeverity.Conflict) {
+  if (severity === IntelSeverity.Conflict) {
     return EventMarkerSize.ConflictRadius;
   }
-  if (severity === EventSeverity.Crisis) {
+  if (severity === IntelSeverity.Crisis) {
     return EventMarkerSize.CrisisRadius;
   }
   return EventMarkerSize.MonitoringRadius;
@@ -148,7 +147,7 @@ function ageAlpha(timestamp: number, now: number): number {
   return EventAgeAlpha.Older;
 }
 
-function pulseIndex(severity: EventSeverity): number {
+function pulseIndex(severity: IntelSeverity): number {
   return Math.min(
     NormalizedScale.Maximum,
     (severity - EventPulseSeverity.Base) /
@@ -215,7 +214,7 @@ export class EventLayer extends ScenePointLayer<
     this.animated = false;
     if (!view) return;
     for (const index of this.visibleIndices()) {
-      if (severityAt(view, index) >= EventSeverity.Tension) {
+      if (severityAt(view, index) >= IntelSeverity.Tension) {
         this.animated = true;
         return;
       }
@@ -264,7 +263,7 @@ export class EventLayer extends ScenePointLayer<
         EventMarkerAlpha.Gain,
       selected,
       glow:
-        severity >= EventSeverity.Tension
+        severity >= IntelSeverity.Tension
           ? {
               intensity: markerPulseIntensity(style.zoomLevel),
               pulseIndex: pulseIndex(severity),

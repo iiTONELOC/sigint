@@ -12,18 +12,24 @@ import {
 } from "react";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_SECOND } from "@shared/time";
-import { useTheme } from "@/context/ThemeContext";
+import { useTheme } from "@/theme";
 import { useData } from "@/context/DataContext";
 import { cacheGet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
 import { DomEvent } from "@/runtime";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import { useUnitsMode } from "@/preferences/units";
 import { TickerSpeedPolicy } from "@/shell/ticker";
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { relativeAge } from "@/lib/format/timeFormat";
+import { featureIconProps } from "@/features/base/presentation";
+import { relativeAge } from "@/time";
 import { featureRegistry } from "@/features/registry";
+import {
+  FireCopy,
+  formatUnroundedFirePower,
+} from "@/features/environmental/fires/formatters";
+import { WeatherCopy } from "@/features/environmental/weather/formatters";
 
 type TickerProps = {
   readonly items: DataPoint[];
@@ -49,12 +55,10 @@ enum TickerBuffer {
 
 enum TickerSummaryText {
   Event = "Event",
-  FireHotspot = "Fire hotspot",
   Quake = "Quake",
   Separator = " · ",
   Unknown = "Unknown",
   UnknownVessel = "Unknown vessel",
-  WeatherAlert = "Weather alert",
 }
 
 enum TickerCoordinatePolicy {
@@ -121,12 +125,16 @@ function summaryLead(item: DataPoint): string[] {
       return lead;
     }
     case Domain.Fires: {
-      const lead: string[] = [TickerSummaryText.FireHotspot];
-      if (item.data.frp != null) lead.push(`FRP ${item.data.frp} MW`);
+      const lead: string[] = [FireCopy.Hotspot];
+      if (item.data.frp != null) {
+        lead.push(
+          `${FireCopy.RadiativePower} ${formatUnroundedFirePower(item.data.frp)}`,
+        );
+      }
       return lead;
     }
     case Domain.Weather:
-      return [item.data.event || TickerSummaryText.WeatherAlert];
+      return [item.data.event || WeatherCopy.TickerAlert];
     default:
       return [];
   }
@@ -318,6 +326,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
           if (!feature) return null;
 
           const Icon = feature.icon;
+          const iconProps = featureIconProps(feature.iconStyle);
           const color = colorMap[item.type];
           const TickerContent = feature.TickerContent;
           const isSelected = selectedId && item.id === selectedId;
@@ -344,7 +353,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                   size={TickerPolicy.CompactIconPx}
                   style={{ color }}
                   className="shrink-0"
-                  {...feature.iconProps}
+                  {...iconProps}
                 />
                 <span
                   className="text-(length:--sig-text-sm) font-semibold tracking-wider truncate"
@@ -368,7 +377,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                     className="tracking-wider flex items-center gap-1 text-(length:--sig-text-md)"
                     style={{ color }}
                   >
-                    <Icon size="1em" {...feature.iconProps} />
+                    <Icon size="1em" {...iconProps} />
                     {feature.label}
                   </span>
                   <span className="text-sig-dim text-(length:--sig-text-sm)">

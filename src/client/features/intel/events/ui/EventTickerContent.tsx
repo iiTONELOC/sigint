@@ -1,18 +1,29 @@
 import type { EventData } from "../types";
-import type { TickerRendererProps } from "@/features/base/types";
+import type { TickerRendererProps } from "@/features/base/presentation";
+
+enum EventTickerTonePrefix {
+  Positive = "+",
+}
+
+function eventTickerTone(tone: number | undefined): string {
+  if (tone == null) return "";
+  const prefix = tone > 0 ? EventTickerTonePrefix.Positive : "";
+  return ` · ${prefix}${tone.toFixed(1)}`;
+}
 
 export function EventTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as EventData;
+  const tone = eventTickerTone(d.tone);
   return (
     <div className="leading-snug overflow-hidden">
-      <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-text text-[length:var(--sig-text-lg)]">
+      <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-text text-(length:--sig-text-lg)">
         {d.headline ?? ""}
       </div>
       {d.source && (
-        <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-dim text-[length:var(--sig-text-sm)]">
+        <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-dim text-(length:--sig-text-sm)">
           {d.source}
           {d.sourceCountry ? ` · ${d.sourceCountry}` : ""}
-          {d.tone != null ? ` · ${d.tone > 0 ? "+" : ""}${d.tone.toFixed(1)}` : ""}
+          {tone}
         </div>
       )}
     </div>

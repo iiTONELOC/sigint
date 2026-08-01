@@ -1,21 +1,30 @@
 import { Domain } from "@shared/domain/identity";
 import { TriangleAlert } from "lucide-react";
 import {
-  STROKED_ICON_PROPS,
-  type FeatureDefinition,
-} from "@/features/base/types";
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
 import { CycloneFeatureLabel, type CycloneWarningData } from "./types";
 import { buildWarningDetailRows } from "./warningDetailRows";
+import {
+  cycloneFeedPresentation,
+  cycloneTablePresentation,
+} from "./formatters";
 
-export const cycloneWarningFeature: FeatureDefinition<
+export const cycloneWarningFeature = defineFeature<
   CycloneWarningData,
-  Record<string, never>,
   Domain.CyclonesWarning
-> = {
+>({
   id: Domain.CyclonesWarning,
   label: CycloneFeatureLabel.TropicalAlert,
   icon: TriangleAlert,
-  iconProps: STROKED_ICON_PROPS,
+  iconStyle: FeatureIconStyle.Stroked,
+  colorClassName: FeatureColorClassName.Cyclones,
+  includeInDataTable: false,
   TickerContent: () => null,
   buildDetailRows: (data) => buildWarningDetailRows(data),
-};
+  tablePresentation: (_data, id) =>
+    cycloneTablePresentation(id, Domain.CyclonesWarning),
+  feedPresentation: (_data, id) => cycloneFeedPresentation(id),
+});

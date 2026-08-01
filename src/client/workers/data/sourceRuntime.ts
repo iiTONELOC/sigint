@@ -13,10 +13,15 @@ import { SourceCompleteness, type SourceId } from "@shared/source";
 import { isRecord } from "@shared/geo";
 
 export type PointSourceCacheSnapshot<TEntity extends DatasetEntity> = Readonly<{
+  schema: PointSourceCacheSchema;
   timestamp: number;
   version: number;
   entities: readonly TEntity[];
 }>;
+
+export enum PointSourceCacheSchema {
+  Current = "point-source-v1",
+}
 
 export type PointSourceFetchSnapshot<TEntity extends DatasetEntity> = Readonly<{
   completeness: DatasetCompleteness;
@@ -63,6 +68,7 @@ export type PointSourceRuntime<TEntity extends DatasetEntity> = Readonly<{
 }>;
 
 type CacheEnvelope = Readonly<{
+  schema: PointSourceCacheSchema;
   timestamp: number;
   version: number;
   entities: unknown;
@@ -78,10 +84,11 @@ enum SourceRuntimeError {
 
 function parseCacheEnvelope(value: unknown): CacheEnvelope | null {
   if (!isRecord(value)) return null;
+  if (value.schema !== PointSourceCacheSchema.Current) return null;
   if (typeof value.timestamp !== "number" || !Number.isFinite(value.timestamp)) {
     return null;
   }
-  const version = value.version ?? SourceCacheVersion.Initial;
+  const version = value.version;
   if (
     typeof version !== "number" ||
     !Number.isSafeInteger(version) ||
@@ -89,8 +96,12 @@ function parseCacheEnvelope(value: unknown): CacheEnvelope | null {
   ) {
     return null;
   }
-  const entities = value.entities ?? value.data;
-  return { timestamp: value.timestamp, version, entities };
+  return {
+    schema: PointSourceCacheSchema.Current,
+    timestamp: value.timestamp,
+    version,
+    entities: value.entities,
+  };
 }
 
 function errorMessage(value: unknown): string {
@@ -184,6 +195,7 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       const snapshot = await options.fetchSnapshot();
       await applySnapshot(snapshot, store.version() + 1);
       await options.persistCache({
+        schema: PointSourceCacheSchema.Current,
         timestamp: snapshot.observedAt,
         version: store.version(),
         entities: values(),

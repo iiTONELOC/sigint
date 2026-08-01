@@ -1,14 +1,16 @@
 import { TriangleAlert } from "lucide-react";
-import type { Landfall } from "../hooks/useLandfallEta";
+import type { Landfall } from "../data/landfall";
 import {
   landfallText,
-  type LandfallTone,
+  LandfallTone,
 } from "../hooks/useLandfallEta";
 
 const TONE_CLASS: Readonly<Record<LandfallTone, string>> = {
-  critical: "border-sig-danger/40 text-sig-danger bg-sig-danger/8",
-  forecast: "border-sig-warn/40 text-sig-warn bg-sig-warn/8",
-  neutral: "border-sig-border text-sig-dim",
+  [LandfallTone.Critical]:
+    "border-sig-danger/40 text-sig-danger bg-sig-danger/8",
+  [LandfallTone.Forecast]:
+    "border-sig-warn/40 text-sig-warn bg-sig-warn/8",
+  [LandfallTone.Neutral]: "border-sig-border text-sig-dim",
 };
 
 export function CycloneThreatStrip({ landfall }: { readonly landfall: Landfall | null }) {

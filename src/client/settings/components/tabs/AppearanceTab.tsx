@@ -10,10 +10,12 @@ import {
 import {
   LAYER_COLOR_KEYS,
   LAYER_COLOR_LABELS,
+  ThemeMode,
   themes,
   type ColorOverrides,
   type LayerColorKey,
-} from "@/config/theme";
+  type ResolvedThemeMode,
+} from "@/theme";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { ButtonType } from "@/lib/ui/button";
 import { LayoutMode, useLayoutMode } from "@/layout-mode";
@@ -28,7 +30,6 @@ import {
 } from "@/preferences/units";
 import { DomInputType } from "@/runtime";
 import { TickerSpeedPolicy } from "@/shell/ticker";
-import { ThemeMode, type ResolvedThemeMode } from "@/theme";
 import { CacheKey } from "@shared/domain/cache";
 import {
   SettingsClassName,

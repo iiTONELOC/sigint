@@ -1,4 +1,5 @@
-import type { FeatureDefinition } from "./base/types";
+import type { DataType } from "./base/dataPoints";
+import type { FeatureDefinition } from "./base/presentation";
 import { aircraftFeature } from "./tracking/aircraft";
 import { earthquakeFeature } from "./environmental/earthquake";
 import { shipsFeature } from "./tracking/ships";
@@ -11,9 +12,7 @@ import {
   cycloneWarningFeature,
 } from "./environmental/cyclones";
 
-// ── Registry ─────────────────────────────────────────────────────────
-
-const features: FeatureDefinition<any, any, any>[] = [
+const features: readonly FeatureDefinition[] = [
   aircraftFeature,
   shipsFeature,
   eventsFeature,
@@ -22,14 +21,13 @@ const features: FeatureDefinition<any, any, any>[] = [
   weatherFeature,
   cycloneFeature,
   cycloneForecastFeature,
-  // Not a data layer — synthetic feature so a clicked watch/warning polygon
-  // resolves through the detail pipeline. Excluded from the Header toggles and
-  // the DataTable filter (no points in allData). See inputHandlers.ts.
   cycloneWarningFeature,
 ];
 
-export const featureRegistry = new Map<string, FeatureDefinition<any, any, any>>(
-  features.map((f) => [f.id, f]),
+export const featureRegistry = new Map<DataType, FeatureDefinition>(
+  features.map(
+    (feature): readonly [DataType, FeatureDefinition] => [feature.id, feature],
+  ),
 );
 
 export const featureList = features;

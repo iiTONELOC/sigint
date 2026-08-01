@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DetailField, DetailFieldAlign } from "@/dossier";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,
@@ -9,6 +9,7 @@ import { formatKmMi } from "@/measurements";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
 import { estimateMmi, mmiBand, isShallow } from "../intensity";
 import type { EarthquakeData } from "../types";
+import { EarthquakeCopy } from "../formatters";
 
 enum EarthquakeDetailLabel {
   Position = "POSITION",
@@ -24,7 +25,7 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
   const magnitude = d.magnitude ?? 0;
   const magType = d.magType ?? "";
   const { depth, felt, significance, status } = d;
-  const place = d.location ?? "Unknown location";
+  const place = d.location ?? EarthquakeCopy.UnknownLocation;
   const band = mmiBand(estimateMmi(magnitude, depth));
 
   return (

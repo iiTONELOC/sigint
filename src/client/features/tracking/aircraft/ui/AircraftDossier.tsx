@@ -4,7 +4,7 @@ import { Plane, ExternalLink, LocateFixed } from "lucide-react";
 import type {
   AircraftPoint,
 } from "@/features/tracking/aircraft/data/codec";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import { useTrail } from "@/features/base/useTrail";
 import { useAircraftDossier } from "../hooks/useAircraftDossier";
 import { Domain } from "@shared/domain/identity";

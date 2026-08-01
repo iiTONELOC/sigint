@@ -16,6 +16,11 @@ export function hydrateUnitsPreference(): Promise<void> {
   return unitsPreferenceStore.hydrate();
 }
 
+/** Return the requested unit mode or the current preference. */
+export function resolveUnitMode(mode: UnitMode | undefined): UnitMode {
+  return mode ?? getUnitsMode();
+}
+
 export function setUnitsMode(mode: UnitMode): Promise<void> {
   return unitsPreferenceStore.set(mode);
 }

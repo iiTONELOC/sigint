@@ -2,6 +2,7 @@ import { SourceCompleteness } from "@shared/source";
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import {
+  PointSourceCacheSchema,
   createPointSourceRuntime,
   type PointSourceFetchSnapshot,
 } from "@/workers/data/sourceRuntime";
@@ -39,6 +40,7 @@ describe("point source runtime", () => {
       pollIntervalMs: 1_000,
       maxQueryItems: 20,
       readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
         timestamp: 10,
         version: 4,
         entities: [{ id: "cached", value: 1 }],

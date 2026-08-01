@@ -1,3 +1,4 @@
+import { ThemeStylesheetEvent } from "@/theme/utils/stylesheet";
 import {
   RenderColorKey,
   isRenderWorkerColors,
@@ -73,15 +74,20 @@ export class RenderThemeAdapter {
 export function createBrowserRenderThemeAdapter(
   setRenderTheme: (theme: RenderWorkerColors) => void,
 ): RenderThemeAdapter {
+  const root = document.documentElement;
   return new RenderThemeAdapter({
-    root: document.documentElement,
+    root,
     readStyle: (root) => getComputedStyle(root),
     createObserver: (notify) => {
       const observer = new MutationObserver(notify);
+      root.addEventListener(ThemeStylesheetEvent.Applied, notify);
       return {
         observe: (element, options) =>
           observer.observe(element, options),
-        disconnect: () => observer.disconnect(),
+        disconnect: () => {
+          observer.disconnect();
+          root.removeEventListener(ThemeStylesheetEvent.Applied, notify);
+        },
       };
     },
     setRenderTheme,

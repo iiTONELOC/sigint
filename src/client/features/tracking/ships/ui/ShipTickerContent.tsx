@@ -3,7 +3,7 @@ import {
   ShipDataLabel,
   type ShipData,
 } from "../types";
-import type { TickerRendererProps } from "@/features/base/types";
+import type { TickerRendererProps } from "@/features/base/presentation";
 import { formatKtShort } from "@/measurements";
 
 enum ShipTickerClassName {

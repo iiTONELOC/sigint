@@ -1,24 +1,33 @@
 import { Domain } from "@shared/domain/identity";
 import { Activity } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
-import type { EarthquakeData, EarthquakeFilter } from "./types";
+import {
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
+import type { EarthquakeData } from "./types";
 import { buildEarthquakeDetailRows } from "./detailRows";
 import { EarthquakeTickerContent } from "./ui/EarthquakeTickerContent";
+import {
+  earthquakeFeedPresentation,
+  earthquakeTablePresentation,
+} from "./formatters";
 
-export const earthquakeFeature: FeatureDefinition<
+export const earthquakeFeature = defineFeature<
   EarthquakeData,
-  EarthquakeFilter,
   Domain.Quakes
-> = {
+>({
   id: Domain.Quakes,
   label: "SEISMIC",
   icon: Activity,
-  iconProps: { strokeWidth: 2.5 },
-
-
+  iconStyle: FeatureIconStyle.Stroked,
+  colorClassName: FeatureColorClassName.Quakes,
+  includeInRawFeed: true,
 
   buildDetailRows: (data: EarthquakeData, timestamp?: string) =>
     buildEarthquakeDetailRows(data, timestamp),
+  tablePresentation: earthquakeTablePresentation,
+  feedPresentation: earthquakeFeedPresentation,
 
   TickerContent: EarthquakeTickerContent,
 
@@ -31,4 +40,4 @@ export const earthquakeFeature: FeatureDefinition<
     ]
       .filter(Boolean)
       .join(" "),
-};
+});

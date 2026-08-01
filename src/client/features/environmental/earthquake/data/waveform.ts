@@ -2,42 +2,15 @@ import {
   geographicToUnitVector,
   type UnitVector,
 } from "@/lib/geo/unitSphere";
-
-const STATION_URL = "https://service.earthscope.org/fdsnws/station/1/query";
-const AVAILABILITY_URL = "https://service.earthscope.org/fdsnws/availability/1/query?nodata=204";
-const TIMESERIES_URL = "https://service.iris.edu/irisws/timeseries/1/query";
-const SEARCH_RADII_DEG = [3, 8, 20, 40];
-const CHANNEL_QUERY = "BHZ,HHZ,EHZ,SHZ,LHZ";
-const WINDOW_SEC = 240;
-const PRE_ROLL_SEC = 20;
-const MAX_PLOT_POINTS = 600;
-const CHANNEL_RANK: Readonly<Record<string, number>> = {
-  BHZ: 0,
-  HHZ: 1,
-  EHZ: 2,
-  SHZ: 3,
-  LHZ: 4,
-};
-
-export type Waveform = {
-  station: string;
-  network: string;
-  channel: string;
-  samples: number[];
-  rawSamples: number[];
-  sampleRate: number;
-};
-
-export type WaveformUnavailableReason =
-  | "invalid-event-time"
-  | "station-service-unavailable"
-  | "availability-service-unavailable"
-  | "no-active-station"
-  | "no-recorded-trace";
-
-export type WaveformResult =
-  | { status: "ready"; waveform: Waveform }
-  | { status: "unavailable"; reason: WaveformUnavailableReason };
+import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
+import { MS_PER_SECOND } from "@shared/time";
+import {
+  WaveformChannel,
+  WaveformStatus,
+  WaveformUnavailableReason,
+  type Waveform,
+  type WaveformResult,
+} from "../model";
 
 export type WaveformFetcher = (
   url: string,
@@ -49,34 +22,99 @@ export type FetchWaveformOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
-type Channel = {
+enum WaveformEndpoint {
+  Station = "https://service.earthscope.org/fdsnws/station/1/query",
+  Timeseries = "https://service.earthscope.org/irisws/timeseries/1/query",
+}
+
+enum WaveformSearchRadius {
+  Local = 3,
+  Regional = 8,
+  Wide = 20,
+  GlobalFallback = 40,
+}
+
+enum WaveformPolicy {
+  MaximumPlotPoints = 600,
+  MinimumColumnCount = 6,
+  MinimumSampleCount = 2,
+  PreRollSeconds = 20,
+  WindowSeconds = 240,
+}
+
+enum StationColumn {
+  Channel = 3,
+  Latitude = 4,
+  Location = 2,
+  Longitude = 5,
+  Network = 0,
+  Station = 1,
+}
+
+enum WaveformServiceToken {
+  AsciiTwoColumn = "ascii2",
+  Channel = "channel",
+  ChannelShort = "cha",
+  Comma = ",",
+  Duration = "duration",
+  EndTime = "endtime",
+  EmptyLocation = "--",
+  False = "false",
+  Format = "format",
+  HeaderPrefix = "#",
+  IncludeRestricted = "includerestricted",
+  Latitude = "latitude",
+  Level = "level",
+  Location = "loc",
+  Longitude = "longitude",
+  MaximumRadius = "maxradius",
+  Network = "net",
+  Newline = "\n",
+  Pipe = "|",
+  SamplesPerSecond = "sps",
+  StartTime = "starttime",
+  Station = "sta",
+  Text = "text",
+  TimeseriesHeader = "TIMESERIES",
+}
+
+type StationChannel = Readonly<{
+  channel: WaveformChannel;
+  latitude: number;
+  location: string;
+  longitude: number;
   network: string;
   station: string;
-  loc: string;
-  channel: string;
-  lat: number;
-  lon: number;
-};
+}>;
 
-type RankedChannel = Channel & {
-  distanceSquared: number;
-};
+type RankedChannel = StationChannel &
+  Readonly<{ distanceSquared: number }>;
 
 type TraceWindow = Readonly<{
-  start: string;
   end: string;
+  start: string;
 }>;
 
 type ChannelSearchResult =
-  | { status: "ready"; channels: Channel[] }
-  | { status: "failed" };
+  | Readonly<{
+      channels: readonly StationChannel[];
+      status: WaveformStatus.Ready;
+    }>
+  | Readonly<{ status: WaveformStatus.Failed }>;
 
-type AvailabilitySearchResult =
-  | { status: "ready"; channelKeys: ReadonlySet<string> }
-  | { status: "failed" };
+type ParsedTimeseries = Readonly<{
+  sampleRate: number;
+  samples: number[];
+}>;
 
-function squaredChordDistance(origin: UnitVector, channel: Channel): number {
-  const candidate = geographicToUnitVector(channel.lat, channel.lon);
+function squaredChordDistance(
+  origin: UnitVector,
+  channel: StationChannel,
+): number {
+  const candidate = geographicToUnitVector(
+    channel.latitude,
+    channel.longitude,
+  );
   return (
     (candidate.x - origin.x) ** 2 +
     (candidate.y - origin.y) ** 2 +
@@ -84,26 +122,37 @@ function squaredChordDistance(origin: UnitVector, channel: Channel): number {
   );
 }
 
-function parseChannels(text: string): Channel[] {
-  const out: Channel[] = [];
-  for (const line of text.split("\n")) {
-    if (!line || line.startsWith("#")) continue;
-    const cols = line.split("|");
-    if (cols.length < 6) continue;
-    const lat = Number.parseFloat(cols[4] ?? "");
-    const lon = Number.parseFloat(cols[5] ?? "");
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    const rawLoc = (cols[2] ?? "").trim();
-    out.push({
-      network: (cols[0] ?? "").trim(),
-      station: (cols[1] ?? "").trim(),
-      loc: rawLoc.length > 0 ? rawLoc : "--",
-      channel: (cols[3] ?? "").trim(),
-      lat,
-      lon,
+function parseChannels(text: string): StationChannel[] {
+  const channels: StationChannel[] = [];
+  for (const line of text.split(WaveformServiceToken.Newline)) {
+    if (!line || line.startsWith(WaveformServiceToken.HeaderPrefix)) continue;
+    const columns = line.split(WaveformServiceToken.Pipe);
+    if (columns.length < WaveformPolicy.MinimumColumnCount) continue;
+    const latitude = Number.parseFloat(
+      columns[StationColumn.Latitude] ?? "",
+    );
+    const longitude = Number.parseFloat(
+      columns[StationColumn.Longitude] ?? "",
+    );
+    const channel = columns[StationColumn.Channel]?.trim();
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      !isEnumValue(channel, WaveformChannel)
+    ) {
+      continue;
+    }
+    const location = columns[StationColumn.Location]?.trim();
+    channels.push({
+      channel,
+      latitude,
+      location: location || WaveformServiceToken.EmptyLocation,
+      longitude,
+      network: columns[StationColumn.Network]?.trim() ?? "",
+      station: columns[StationColumn.Station]?.trim() ?? "",
     });
   }
-  return out;
+  return channels;
 }
 
 function serviceTime(timestamp: number): string {
@@ -113,36 +162,51 @@ function serviceTime(timestamp: number): string {
 function traceWindow(originTimeIso: string): TraceWindow | null {
   const originTimestamp = Date.parse(originTimeIso);
   if (!Number.isFinite(originTimestamp)) return null;
-  const startTimestamp = originTimestamp - PRE_ROLL_SEC * 1000;
+  const startTimestamp =
+    originTimestamp - WaveformPolicy.PreRollSeconds * MS_PER_SECOND;
   return {
+    end: serviceTime(
+      startTimestamp + WaveformPolicy.WindowSeconds * MS_PER_SECOND,
+    ),
     start: serviceTime(startTimestamp),
-    end: serviceTime(startTimestamp + WINDOW_SEC * 1000),
   };
 }
 
 function stationUrl(
   latitude: number,
   longitude: number,
-  radius: number,
+  radius: WaveformSearchRadius,
   window: TraceWindow,
 ): string {
-  const url = new URL(STATION_URL);
-  url.searchParams.set("latitude", String(latitude));
-  url.searchParams.set("longitude", String(longitude));
-  url.searchParams.set("maxradius", String(radius));
-  url.searchParams.set("channel", CHANNEL_QUERY);
-  url.searchParams.set("starttime", window.start);
-  url.searchParams.set("endtime", window.end);
-  url.searchParams.set("includerestricted", "false");
-  url.searchParams.set("level", "channel");
-  url.searchParams.set("format", "text");
+  const url = new URL(WaveformEndpoint.Station);
+  url.searchParams.set(WaveformServiceToken.Latitude, String(latitude));
+  url.searchParams.set(WaveformServiceToken.Longitude, String(longitude));
+  url.searchParams.set(WaveformServiceToken.MaximumRadius, String(radius));
+  url.searchParams.set(
+    WaveformServiceToken.Channel,
+    Object.values(WaveformChannel).join(WaveformServiceToken.Comma),
+  );
+  url.searchParams.set(WaveformServiceToken.StartTime, window.start);
+  url.searchParams.set(WaveformServiceToken.EndTime, window.end);
+  url.searchParams.set(
+    WaveformServiceToken.IncludeRestricted,
+    WaveformServiceToken.False,
+  );
+  url.searchParams.set(
+    WaveformServiceToken.Level,
+    WaveformServiceToken.Channel,
+  );
+  url.searchParams.set(
+    WaveformServiceToken.Format,
+    WaveformServiceToken.Text,
+  );
   return url.toString();
 }
 
 async function nearbyChannels(
   latitude: number,
   longitude: number,
-  radius: number,
+  radius: WaveformSearchRadius,
   window: TraceWindow,
   fetcher: WaveformFetcher,
   signal: AbortSignal | undefined,
@@ -152,23 +216,36 @@ async function nearbyChannels(
       stationUrl(latitude, longitude, radius, window),
       { signal },
     );
-    if (response.status === 204 || response.status === 404) {
-      return { status: "ready", channels: [] };
-    }
-    if (!response.ok) return { status: "failed" };
-    return { status: "ready", channels: parseChannels(await response.text()) };
+    if (!response.ok) return { status: WaveformStatus.Failed };
+    return {
+      channels: parseChannels(await response.text()),
+      status: WaveformStatus.Ready,
+    };
   } catch {
-    return { status: "failed" };
+    return { status: WaveformStatus.Failed };
   }
+}
+
+function channelKey(channel: StationChannel): string {
+  return [
+    channel.network,
+    channel.station,
+    channel.location,
+    channel.channel,
+  ].join(".");
+}
+
+function channelRank(channel: WaveformChannel): number {
+  return Object.values(WaveformChannel).indexOf(channel);
 }
 
 function rankChannels(
   latitude: number,
   longitude: number,
-  channels: readonly Channel[],
+  channels: readonly StationChannel[],
 ): RankedChannel[] {
   const origin = geographicToUnitVector(latitude, longitude);
-  const uniqueChannels = new Map<string, Channel>();
+  const uniqueChannels = new Map<string, StationChannel>();
   for (const channel of channels) {
     uniqueChannels.set(channelKey(channel), channel);
   }
@@ -180,194 +257,182 @@ function rankChannels(
     .sort(
       (left, right) =>
         left.distanceSquared - right.distanceSquared ||
-        (CHANNEL_RANK[left.channel] ?? Number.MAX_SAFE_INTEGER) -
-          (CHANNEL_RANK[right.channel] ?? Number.MAX_SAFE_INTEGER) ||
+        channelRank(left.channel) - channelRank(right.channel) ||
         left.network.localeCompare(right.network) ||
         left.station.localeCompare(right.station) ||
-        left.loc.localeCompare(right.loc),
+        left.location.localeCompare(right.location),
     );
 }
 
-function channelKey(channel: Channel): string {
-  return `${channel.network}.${channel.station}.${channel.loc}.${channel.channel}`;
-}
-
-function availabilityRequestBody(
-  channels: readonly Channel[],
-  window: TraceWindow,
-): string {
-  return [
-    "format=text",
-    ...channels.map(
-      (channel) =>
-        `${channel.network} ${channel.station} ${channel.loc} ${channel.channel} ${window.start} ${window.end}`,
-    ),
-  ].join("\n");
-}
-
-function parseAvailableChannelKeys(text: string): ReadonlySet<string> {
-  const keys = new Set<string>();
-  for (const line of text.split("\n")) {
-    if (!line || line.startsWith("#")) continue;
-    const [network, station, location, channel] = line.trim().split(/\s+/);
-    if (!network || !station || !location || !channel) continue;
-    keys.add(`${network}.${station}.${location}.${channel}`);
-  }
-  return keys;
-}
-
-async function availableChannelKeys(
-  channels: readonly Channel[],
-  window: TraceWindow,
-  fetcher: WaveformFetcher,
-  signal: AbortSignal | undefined,
-): Promise<AvailabilitySearchResult> {
-  try {
-    const response = await fetcher(AVAILABILITY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: availabilityRequestBody(channels, window),
-      signal,
-    });
-    if (response.status === 204) {
-      return { status: "ready", channelKeys: new Set<string>() };
-    }
-    if (!response.ok) return { status: "failed" };
-    return {
-      status: "ready",
-      channelKeys: parseAvailableChannelKeys(await response.text()),
-    };
-  } catch {
-    return { status: "failed" };
-  }
-}
-
-function parseTimeseries(text: string): { samples: number[]; sampleRate: number } | null {
-  const lines = text.split("\n");
-  const header = lines.find((l) => l.startsWith("TIMESERIES")) ?? "";
-  const rateMatch = /([\d.]+)\s*sps/.exec(header);
-  const sampleRate = rateMatch ? Number.parseFloat(rateMatch[1] ?? "0") : 0;
-  const values: number[] = [];
+function parseTimeseries(text: string): ParsedTimeseries | null {
+  const lines = text.split(WaveformServiceToken.Newline);
+  const header =
+    lines.find((line) =>
+      line.startsWith(WaveformServiceToken.TimeseriesHeader),
+    ) ?? "";
+  const sampleRate = parseSampleRate(header);
+  const samples: number[] = [];
   for (const line of lines) {
-    if (!line || line.startsWith("TIMESERIES")) continue;
-    const parts = line.trim().split(/\s+/);
-    const v = Number.parseFloat(parts.at(-1) ?? "");
-    if (Number.isFinite(v)) values.push(v);
+    if (
+      !line ||
+      line.startsWith(WaveformServiceToken.TimeseriesHeader)
+    ) {
+      continue;
+    }
+    const value = Number.parseFloat(line.trim().split(/\s+/).at(-1) ?? "");
+    if (Number.isFinite(value)) samples.push(value);
   }
-  if (values.length < 2 || sampleRate <= 0) return null;
-  return { samples: values, sampleRate };
+  if (
+    samples.length < WaveformPolicy.MinimumSampleCount ||
+    !Number.isFinite(sampleRate) ||
+    sampleRate <= 0
+  ) {
+    return null;
+  }
+  return { sampleRate, samples };
+}
+
+function parseSampleRate(header: string): number {
+  for (const segment of header.split(WaveformServiceToken.Comma)) {
+    const fields = segment.trim().split(/\s+/);
+    if (fields.at(-1) === WaveformServiceToken.SamplesPerSecond) {
+      return Number.parseFloat(fields.at(-2) ?? "");
+    }
+  }
+  return Number.NaN;
 }
 
 function downsample(samples: number[]): number[] {
-  if (samples.length <= MAX_PLOT_POINTS) return samples;
-  const step = samples.length / MAX_PLOT_POINTS;
-  const out: number[] = [];
-  for (let i = 0; i < MAX_PLOT_POINTS; i++) {
-    const v = samples[Math.floor(i * step)];
-    if (v != null) out.push(v);
+  if (samples.length <= WaveformPolicy.MaximumPlotPoints) return samples;
+  const step = samples.length / WaveformPolicy.MaximumPlotPoints;
+  const points: number[] = [];
+  for (let index = 0; index < WaveformPolicy.MaximumPlotPoints; index++) {
+    const value = samples[Math.floor(index * step)];
+    if (value != null) points.push(value);
   }
-  return out;
+  return points;
 }
 
 async function tryTrace(
-  channel: Channel,
+  channel: StationChannel,
   start: string,
   fetcher: WaveformFetcher,
   signal: AbortSignal | undefined,
 ): Promise<Waveform | null> {
-  const url = new URL(TIMESERIES_URL);
-  url.searchParams.set("net", channel.network);
-  url.searchParams.set("sta", channel.station);
-  url.searchParams.set("loc", channel.loc);
-  url.searchParams.set("cha", channel.channel);
-  url.searchParams.set("starttime", start);
-  url.searchParams.set("duration", String(WINDOW_SEC));
-  url.searchParams.set("output", "ascii2");
+  const url = new URL(WaveformEndpoint.Timeseries);
+  url.searchParams.set(WaveformServiceToken.Network, channel.network);
+  url.searchParams.set(WaveformServiceToken.Station, channel.station);
+  url.searchParams.set(WaveformServiceToken.Location, channel.location);
+  url.searchParams.set(WaveformServiceToken.ChannelShort, channel.channel);
+  url.searchParams.set(WaveformServiceToken.StartTime, start);
+  url.searchParams.set(
+    WaveformServiceToken.Duration,
+    String(WaveformPolicy.WindowSeconds),
+  );
+  url.searchParams.set(
+    WaveformServiceToken.Format,
+    WaveformServiceToken.AsciiTwoColumn,
+  );
   try {
-    const res = await fetcher(url.toString(), { signal });
-    if (!res.ok) return null;
-    const parsed = parseTimeseries(await res.text());
+    const response = await fetcher(url.toString(), { signal });
+    if (!response.ok) return null;
+    const parsed = parseTimeseries(await response.text());
     if (!parsed) return null;
     return {
-      station: channel.station,
-      network: channel.network,
       channel: channel.channel,
-      samples: downsample(parsed.samples),
+      network: channel.network,
       rawSamples: parsed.samples,
       sampleRate: parsed.sampleRate,
+      samples: downsample(parsed.samples),
+      station: channel.station,
     };
   } catch {
     return null;
   }
 }
 
+function searchRadii(): WaveformSearchRadius[] {
+  return Object.values(WaveformSearchRadius).filter(
+    (value): value is WaveformSearchRadius =>
+      isNumberEnumValue(value, WaveformSearchRadius),
+  );
+}
+
+async function firstRecordedTrace(
+  channels: readonly RankedChannel[],
+  window: TraceWindow,
+  fetcher: WaveformFetcher,
+  signal: AbortSignal | undefined,
+  attemptedChannels: Set<string>,
+): Promise<Waveform | null> {
+  for (const channel of channels) {
+    const key = channelKey(channel);
+    if (attemptedChannels.has(key)) continue;
+    attemptedChannels.add(key);
+    const waveform = await tryTrace(
+      channel,
+      window.start,
+      fetcher,
+      signal,
+    );
+    if (waveform) return waveform;
+  }
+  return null;
+}
+
 export async function fetchWaveform(
-  lat: number,
-  lon: number,
+  latitude: number,
+  longitude: number,
   originTimeIso: string,
   options: FetchWaveformOptions = {},
 ): Promise<WaveformResult> {
   const window = traceWindow(originTimeIso);
   if (!window) {
-    return { status: "unavailable", reason: "invalid-event-time" };
+    return {
+      reason: WaveformUnavailableReason.EventTime,
+      status: WaveformStatus.Unavailable,
+    };
   }
   const fetcher: WaveformFetcher =
     options.fetcher ?? ((url, init) => globalThis.fetch(url, init));
   const attemptedChannels = new Set<string>();
   let stationServiceResponded = false;
-  let activeStationFound = false;
-  let availabilityRequested = false;
-  let availabilityServiceResponded = false;
+  let stationFound = false;
 
-  for (const radius of SEARCH_RADII_DEG) {
+  for (const radius of searchRadii()) {
     const result = await nearbyChannels(
-      lat,
-      lon,
+      latitude,
+      longitude,
       radius,
       window,
       fetcher,
       options.signal,
     );
-    if (result.status === "failed") continue;
+    if (result.status === WaveformStatus.Failed) continue;
     stationServiceResponded = true;
-    const channels = rankChannels(lat, lon, result.channels);
-    if (channels.length > 0) activeStationFound = true;
-    if (channels.length === 0) continue;
-    availabilityRequested = true;
-    const availability = await availableChannelKeys(
+    const channels = rankChannels(latitude, longitude, result.channels);
+    if (channels.length > 0) stationFound = true;
+    const waveform = await firstRecordedTrace(
       channels,
       window,
       fetcher,
       options.signal,
+      attemptedChannels,
     );
-    if (availability.status === "failed") continue;
-    availabilityServiceResponded = true;
-    for (const channel of channels.filter((candidate) =>
-      availability.channelKeys.has(channelKey(candidate)),
-    )) {
-      const key = channelKey(channel);
-      if (attemptedChannels.has(key)) continue;
-      attemptedChannels.add(key);
-      const waveform = await tryTrace(
-        channel,
-        window.start,
-        fetcher,
-        options.signal,
-      );
-      if (waveform) return { status: "ready", waveform };
+    if (waveform) {
+      return { status: WaveformStatus.Ready, waveform };
     }
   }
   if (!stationServiceResponded) {
-    return { status: "unavailable", reason: "station-service-unavailable" };
-  }
-  if (!activeStationFound) {
-    return { status: "unavailable", reason: "no-active-station" };
-  }
-  if (availabilityRequested && !availabilityServiceResponded) {
     return {
-      status: "unavailable",
-      reason: "availability-service-unavailable",
+      reason: WaveformUnavailableReason.StationService,
+      status: WaveformStatus.Unavailable,
     };
   }
-  return { status: "unavailable", reason: "no-recorded-trace" };
+  return {
+    reason: stationFound
+      ? WaveformUnavailableReason.RecordedTrace
+      : WaveformUnavailableReason.Station,
+    status: WaveformStatus.Unavailable,
+  };
 }

@@ -1,11 +1,17 @@
 import { Domain } from "@shared/domain/identity";
 import { Wind } from "lucide-react";
 import {
-  STROKED_ICON_PROPS,
-  type FeatureDefinition,
-} from "@/features/base/types";
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
 import { formatKtMph } from "@/measurements";
-import { formatNmKm, formatPressureMb } from "./formatters";
+import {
+  cycloneFeedPresentation,
+  cycloneTablePresentation,
+  formatNmKm,
+  formatPressureMb,
+} from "./formatters";
 import {
   CycloneFeatureLabel,
   CycloneRowLabel,
@@ -25,15 +31,15 @@ export function leadTime(fcstHour: number): string {
   return `${CycloneForecastText.LeadTimePrefix}${fcstHour}${CycloneForecastText.HourSuffix}`;
 }
 
-export const cycloneForecastFeature: FeatureDefinition<
+export const cycloneForecastFeature = defineFeature<
   CycloneForecastPointData,
-  Record<string, never>,
   Domain.CyclonesForecast
-> = {
+>({
   id: Domain.CyclonesForecast,
   label: CycloneFeatureLabel.Forecast,
   icon: Wind,
-  iconProps: STROKED_ICON_PROPS,
+  iconStyle: FeatureIconStyle.Stroked,
+  colorClassName: FeatureColorClassName.Cyclones,
   TickerContent: CycloneForecastTickerContent,
 
   buildDetailRows: (data: CycloneForecastPointData) => {
@@ -52,7 +58,10 @@ export const cycloneForecastFeature: FeatureDefinition<
     ];
     return rows.map(([label, value]) => [label.toUpperCase(), value]);
   },
+  tablePresentation: (_data, id) =>
+    cycloneTablePresentation(id, Domain.CyclonesForecast),
+  feedPresentation: (_data, id) => cycloneFeedPresentation(id),
 
   getSearchText: (data: CycloneForecastPointData) =>
     `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}${BLANK_SEPARATOR}${CycloneForecastText.SearchSuffix}`,
-};
+});

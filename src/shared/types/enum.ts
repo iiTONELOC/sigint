@@ -9,6 +9,17 @@ export function isEnumValue<TEnum extends StringEnum>(
   );
 }
 
+export function stringEnumMemberName(
+  value: unknown,
+  members: StringEnum,
+): string | null {
+  if (typeof value !== "string") return null;
+  for (const [name, member] of Object.entries(members)) {
+    if (member === value) return name;
+  }
+  return null;
+}
+
 export type NumberEnum = Record<string, string | number>;
 
 // A numeric enum carries its reverse mapping in Object.values, so the value

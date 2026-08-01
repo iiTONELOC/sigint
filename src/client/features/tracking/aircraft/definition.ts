@@ -1,10 +1,17 @@
 import { Domain } from "@shared/domain/identity";
 import { Plane } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
-import type { AircraftData, AircraftFilter } from "./types";
+import {
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
+import type { AircraftData } from "./types";
 import { buildAircraftDetailRows } from "./detailRows";
 import { AircraftTickerContent } from "./ui/AircraftTickerContent";
-import { AircraftFilterControl } from "./ui/AircraftFilterControl";
+import {
+  aircraftFeedPresentation,
+  aircraftTablePresentation,
+} from "./formatters";
 
 // NOAA WP-3D / G-IV recon aircraft have well-known nicknames; surface them
 // as search terms so "kermit" / "miss piggy" / "gonzo" find the right bird.
@@ -25,19 +32,19 @@ function reconNicknames(data: AircraftData): string {
   return RECON_NICKNAMES[reg] ?? RECON_NICKNAMES[hex] ?? "";
 }
 
-export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter, Domain.Aircraft> =
-  {
+export const aircraftFeature = defineFeature<AircraftData, Domain.Aircraft>({
     id: Domain.Aircraft,
     label: "AIRCRAFT",
     icon: Plane,
-    iconProps: { fill: "currentColor", strokeWidth: 0 },
+    iconStyle: FeatureIconStyle.Filled,
+    colorClassName: FeatureColorClassName.Aircraft,
 
     buildDetailRows: (data: AircraftData, _timestamp?: string) =>
       buildAircraftDetailRows(data),
+    tablePresentation: aircraftTablePresentation,
+    feedPresentation: aircraftFeedPresentation,
 
     TickerContent: AircraftTickerContent,
-
-    FilterControl: AircraftFilterControl,
 
     getSearchText: (data: AircraftData) =>
       [
@@ -59,4 +66,4 @@ export const aircraftFeature: FeatureDefinition<AircraftData, AircraftFilter, Do
       ]
         .filter(Boolean)
         .join(" "),
-  };
+  });

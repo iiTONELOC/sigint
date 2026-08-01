@@ -1,36 +1,48 @@
 import { useEffect, useState } from "react";
 import {
   fetchWaveform,
-  type Waveform,
-  type WaveformUnavailableReason,
 } from "../data/waveform";
-
-export type WaveformState =
-  | { status: "loading" }
-  | { status: "ready"; waveform: Waveform }
-  | { status: "unavailable"; reason: WaveformUnavailableReason };
+import {
+  WaveformStatus,
+  WaveformUnavailableReason,
+  type WaveformState,
+} from "../model";
 
 export function useWaveform(
   lat: number,
   lon: number,
   originTimeIso: string | undefined,
 ): WaveformState {
-  const [state, setState] = useState<WaveformState>({ status: "loading" });
+  const [state, setState] = useState<WaveformState>({
+    status: WaveformStatus.Loading,
+  });
 
   useEffect(() => {
     if (!originTimeIso) {
-      setState({ status: "unavailable", reason: "invalid-event-time" });
+      setState({
+        reason: WaveformUnavailableReason.EventTime,
+        status: WaveformStatus.Unavailable,
+      });
       return;
     }
     const controller = new AbortController();
     let cancelled = false;
-    setState({ status: "loading" });
-    void fetchWaveform(lat, lon, originTimeIso, {
+    setState({ status: WaveformStatus.Loading });
+    fetchWaveform(lat, lon, originTimeIso, {
       signal: controller.signal,
-    }).then((result) => {
-      if (cancelled) return;
-      setState(result);
-    });
+    }).then(
+      (result) => {
+        if (!cancelled) setState(result);
+      },
+      () => {
+        if (!cancelled) {
+          setState({
+            reason: WaveformUnavailableReason.StationService,
+            status: WaveformStatus.Unavailable,
+          });
+        }
+      },
+    );
     return () => {
       cancelled = true;
       controller.abort();

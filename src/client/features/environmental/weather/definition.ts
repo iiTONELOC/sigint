@@ -1,28 +1,32 @@
 import { Domain } from "@shared/domain/identity";
 import { CloudAlert } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
-import type { WeatherData, WeatherFilter } from "./types";
+import {
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
+import type { WeatherData } from "./types";
 import { buildWeatherDetailRows } from "./detailRows";
 import { WeatherTickerContent } from "./ui/WeatherTickerContent";
 import { weatherSearchText } from "@/features/environmental/weather/data/uiQueries";
+import {
+  weatherFeedPresentation,
+  weatherTablePresentation,
+} from "./formatters";
 
-const ICON_STROKE_WIDTH = 2.5;
-
-export const weatherFeature: FeatureDefinition<
-  WeatherData,
-  WeatherFilter,
-  Domain.Weather
-> = {
+export const weatherFeature = defineFeature<WeatherData, Domain.Weather>({
   id: Domain.Weather,
   label: Domain.Weather.toUpperCase(),
   icon: CloudAlert,
-  iconProps: { strokeWidth: ICON_STROKE_WIDTH },
-
-
+  iconStyle: FeatureIconStyle.Stroked,
+  colorClassName: FeatureColorClassName.Weather,
+  includeInRawFeed: true,
 
   buildDetailRows: buildWeatherDetailRows,
+  tablePresentation: weatherTablePresentation,
+  feedPresentation: weatherFeedPresentation,
 
   TickerContent: WeatherTickerContent,
 
   getSearchText: weatherSearchText,
-};
+});

@@ -2,10 +2,9 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Search as SearchIcon, X } from "lucide-react";
 import { isMobileWidth } from "@/config/breakpoints";
-import { useTheme } from "@/context/ThemeContext";
-import { getColorMap } from "@/config/theme";
+import { getColorMap, useTheme } from "@/theme";
 import { featureRegistry } from "@/features/registry";
-import type { DataPoint } from "@/features/base/dataPoints";
+import type { DataPoint, DataType } from "@/features/base/dataPoints";
 import { useSourceSearch } from "@/features/base/useSourceSearch";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import { Domain } from "@shared/domain/identity";
@@ -208,7 +207,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
   }, [openSearch]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, SearchResult[]>();
+    const map = new Map<DataType, SearchResult[]>();
     for (const r of topResults) {
       const existing = map.get(r.item.type);
       if (existing) existing.push(r);

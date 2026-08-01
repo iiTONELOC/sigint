@@ -1,5 +1,6 @@
 import type { EarthquakeData } from "../types";
-import type { TickerRendererProps } from "@/features/base/types";
+import type { TickerRendererProps } from "@/features/base/presentation";
+import { EarthquakeCopy } from "../formatters";
 
 export function EarthquakeTickerContent({
   data,
@@ -13,7 +14,7 @@ export function EarthquakeTickerContent({
   return (
     <>
       <div className="leading-snug text-sig-text text-(length:--sig-text-md)">
-        {mag} {"\u2014"} {d.location ?? "Unknown location"}
+        {mag} {"\u2014"} {d.location ?? EarthquakeCopy.UnknownLocation}
         {tsunami}
         {alert}
       </div>

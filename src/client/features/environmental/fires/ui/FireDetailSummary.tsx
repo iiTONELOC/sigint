@@ -1,6 +1,6 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DetailField, DetailFieldAlign } from "@/dossier";
-import { formatLat, formatLon } from "@/lib/format/geoFormat";
+import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,

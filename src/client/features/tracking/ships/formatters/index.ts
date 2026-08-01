@@ -5,3 +5,4 @@ export {
   formatShipHeading,
   formatShipSpeed,
 } from "./navigation";
+export { shipFeedPresentation, shipTablePresentation } from "./presentation";

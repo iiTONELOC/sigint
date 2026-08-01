@@ -1,4 +1,5 @@
 import { frpBand, frpScale } from "../intensity";
+import { formatFirePower } from "../formatters";
 
 enum FrpScaleClassName {
   ActiveLabel = "font-bold text-(--dossier-accent)",
@@ -45,7 +46,7 @@ export function FrpScale({ frp }: { readonly frp: number }) {
       </div>
       <div className="flex items-baseline gap-2 min-w-0">
         <span className="text-(length:--sig-text-md) text-(--dossier-accent) font-bold leading-none shrink-0">
-          {frp.toFixed(1)} MW
+          {formatFirePower(frp)}
         </span>
         <span className="text-(length:--sig-text-xs) text-sig-bright tracking-wide shrink-0">
           {band.label}

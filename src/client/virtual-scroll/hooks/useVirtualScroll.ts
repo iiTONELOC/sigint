@@ -5,10 +5,8 @@ import {
   useState,
   type RefObject,
 } from "react";
-import {
-  VirtualScrollPolicy,
-  calculateVirtualWindow,
-} from "@/virtual-scroll";
+import { VirtualScrollPolicy } from "../model";
+import { calculateVirtualWindow } from "../utils";
 
 type UseVirtualScrollOptions = Readonly<{
   itemCount: number;
@@ -43,9 +41,7 @@ export function useVirtualScroll({
 
   useEffect(() => {
     const element = scrollRef.current;
-    if (!element) {
-      return;
-    }
+    if (!element) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setViewportH(entry.contentRect.height);
@@ -83,17 +79,13 @@ export function useVirtualScroll({
 
   const scrollToIndex = useCallback(
     (index: number) => {
-      if (!scrollRef.current) {
-        return;
-      }
       const element = scrollRef.current;
+      if (!element) return;
       const rowTop = index * rowHeight;
       const rowBottom = rowTop + rowHeight;
       const visibleTop = element.scrollTop;
       const visibleBottom = visibleTop + viewportH;
-      if (rowTop >= visibleTop && rowBottom <= visibleBottom) {
-        return;
-      }
+      if (rowTop >= visibleTop && rowBottom <= visibleBottom) return;
       element.scrollTop = Math.max(
         VirtualScrollPolicy.Start,
         rowTop -

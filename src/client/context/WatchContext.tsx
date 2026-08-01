@@ -11,7 +11,7 @@ import {
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { CorrelationResult } from "@/lib/correlation";
 import { requestWatchLayout } from "@/lib/runtime/layoutSignals";
-import { revealThenClear } from "@/lib/runtime/revealSignals";
+import { revealThenClear } from "@/selection";
 import { useUI } from "@/context/UIContext";
 
 // ── Types ───────────────────────────────────────────────────────────

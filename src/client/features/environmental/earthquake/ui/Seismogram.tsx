@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { MmiCssColor, mmiBand } from "../intensity";
 import { useWaveform } from "../hooks/useWaveform";
-import type { WaveformUnavailableReason } from "../data/waveform";
+import {
+  WaveformStatus,
+  WaveformUnavailableReason,
+} from "../model";
 import { playQuakeAudio } from "../lib/audify";
 
 enum SeismogramGeometry {
@@ -15,19 +18,6 @@ enum SeismogramTiming {
   AudioDurationMilliseconds = 5_000,
 }
 
-enum SeismogramStatus {
-  Loading = "loading",
-  Unavailable = "unavailable",
-}
-
-enum SeismogramUnavailableReason {
-  ActiveStation = "no-active-station",
-  AvailabilityService = "availability-service-unavailable",
-  EventTime = "invalid-event-time",
-  RecordedTrace = "no-recorded-trace",
-  StationService = "station-service-unavailable",
-}
-
 enum SeismogramSvgValue {
   IconClass = "w-3 h-3",
   NoFill = "none",
@@ -37,13 +27,11 @@ enum SeismogramSvgValue {
 
 function unavailableLabel(reason: WaveformUnavailableReason): string {
   switch (reason) {
-    case SeismogramUnavailableReason.AvailabilityService:
-      return "station availability unavailable";
-    case SeismogramUnavailableReason.ActiveStation:
+    case WaveformUnavailableReason.Station:
       return "no station found near event";
-    case SeismogramUnavailableReason.RecordedTrace:
+    case WaveformUnavailableReason.RecordedTrace:
       return "station trace unavailable for event time";
-    case SeismogramUnavailableReason.StationService:
+    case WaveformUnavailableReason.StationService:
       return "station service unavailable";
     default:
       return "event time unavailable";
@@ -99,7 +87,8 @@ export function Seismogram({
     };
   }, [lat, lon, originTimeIso]);
 
-  const samples = state.status === "ready" ? state.waveform.rawSamples : null;
+  const samples =
+    state.status === WaveformStatus.Ready ? state.waveform.rawSamples : null;
   const toggleAudio = () => {
     if (timerRef.current != null) {
       clearTimeout(timerRef.current);
@@ -124,14 +113,14 @@ export function Seismogram({
     }, SeismogramTiming.AudioDurationMilliseconds);
   };
 
-  if (state.status === SeismogramStatus.Loading) {
+  if (state.status === WaveformStatus.Loading) {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
         acquiring trace…
       </div>
     );
   }
-  if (state.status === SeismogramStatus.Unavailable) {
+  if (state.status === WaveformStatus.Unavailable) {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
         {unavailableLabel(state.reason)}

@@ -1,16 +1,24 @@
 import { Domain } from "@shared/domain/identity";
 import { Anchor } from "lucide-react";
-import type { FeatureDefinition } from "@/features/base/types";
+import {
+  defineFeature,
+  FeatureColorClassName,
+  FeatureIconStyle,
+} from "@/features/base/presentation";
 import type { ShipData } from "./types";
 import { buildShipDetailRows } from "./detailRows";
 import { ShipTickerContent } from "./ui/ShipTickerContent";
+import { shipFeedPresentation, shipTablePresentation } from "./formatters";
 
-export const shipsFeature: FeatureDefinition<ShipData, boolean, Domain.Ships> = {
+export const shipsFeature = defineFeature<ShipData, Domain.Ships>({
   id: Domain.Ships,
   label: "AIS VESSELS",
   icon: Anchor,
-  iconProps: { strokeWidth: 2.5 },
+  iconStyle: FeatureIconStyle.Stroked,
+  colorClassName: FeatureColorClassName.Ships,
   buildDetailRows: (data) => buildShipDetailRows(data),
+  tablePresentation: shipTablePresentation,
+  feedPresentation: shipFeedPresentation,
   TickerContent: ShipTickerContent,
   getSearchText: (data) =>
     [
@@ -24,4 +32,4 @@ export const shipsFeature: FeatureDefinition<ShipData, boolean, Domain.Ships> = 
     ]
       .filter(Boolean)
       .join(" "),
-};
+});

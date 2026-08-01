@@ -4,11 +4,7 @@ import {
   kilometersToMeters,
   metersToFeet,
 } from "@/measurements";
-import { getUnitsMode, UnitMode } from "@/preferences/units";
-
-function activeUnitMode(mode: UnitMode | undefined): UnitMode {
-  return mode ?? getUnitsMode();
-}
+import { resolveUnitMode, UnitMode } from "@/preferences/units";
 
 export function formatPixelKm(
   scanKilometers: number,
@@ -22,7 +18,7 @@ export function formatPixelKm(
   const scanFeet = Math.round(metersToFeet(scanMetersValue));
   const trackFeet = Math.round(metersToFeet(trackMetersValue));
 
-  switch (activeUnitMode(mode)) {
+  switch (resolveUnitMode(mode)) {
     case UnitMode.MilesPerHour:
       return `${scanFeet} × ${trackFeet} ft`;
     case UnitMode.Knots:
@@ -40,7 +36,7 @@ export function formatTempCF(
   const celsius = kelvinToC(kelvin);
   const fahrenheit = cToF(celsius);
 
-  switch (activeUnitMode(mode)) {
+  switch (resolveUnitMode(mode)) {
     case UnitMode.MilesPerHour:
       return `${Math.round(fahrenheit)} °F`;
     case UnitMode.Knots:

@@ -7,7 +7,7 @@ import {
   Rss,
   X,
 } from "lucide-react";
-import { useTheme } from "@/context/ThemeContext";
+import { useTheme } from "@/theme";
 import { ButtonType } from "@/lib/ui/button";
 import { DomEvent, DomKey } from "@/runtime";
 import {
