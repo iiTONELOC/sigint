@@ -132,6 +132,7 @@ export abstract class SceneAreaLayer<TFilter> extends SceneLayer<TFilter> {
     this.anchorProjection.project(view, {
       ...frame,
       includes: (index) => included[index] === 1,
+      sceneVersion: this.sceneVersion(),
     });
   }
 

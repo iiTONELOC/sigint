@@ -23,8 +23,13 @@ import {
   type MarkerSourcePolicy,
 } from "@/workers/render/primitives/markerStyle";
 import {
+  addDot,
+  dotBatches,
   markerPulseIntensity,
+  MarkerGlowPolicy,
+  type DotBatchSet,
   type MarkerVisualRenderer,
+  type PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
 import {
   ProjectedSceneLayer,
@@ -53,6 +58,14 @@ import {
   type EnabledSceneFilter,
 } from "@/workers/render/scene/visibility";
 import { zoomScale } from "@/workers/render/workerMath";
+import {
+  AggregateAttribute,
+  AggregateCell,
+  aggregatePoints,
+  type PointAggregate,
+} from "@/workers/render/scene/pointAggregate";
+import { scenePositionFromView } from "@/workers/render/scene/scenePosition";
+import { TurnDeg } from "@shared/geo";
 
 export enum RenderLayerOrder {
   Aircraft = 0,
@@ -66,6 +79,8 @@ export enum RenderLayerOrder {
 }
 
 type PulsingPointLayerDefinition = Readonly<{
+  /** Below this zoom the layer draws one marker per 1 degree cell. */
+  detailZoom?: number;
   includeThreshold?: boolean;
   markerPolicy: MarkerSourcePolicy;
   metricAttribute: number;
@@ -73,8 +88,28 @@ type PulsingPointLayerDefinition = Readonly<{
   order: RenderLayerOrder;
 }>;
 
+/** Aggregate markers grow with the log of the records they stand for,
+ *  but never past a fraction of their cell on screen, so a dense region
+ *  reads as density, not as one blob. */
+enum AggregateMarker {
+  CountGain = 0.3,
+  MaximumScale = 2.5,
+  MaximumCellFraction = 0.55,
+  AlphaScale = 0.75,
+}
+
+const DEGREES_TO_RADIANS = Math.PI / TurnDeg.Half;
+
+/** Screen pixels spanned by one degree at the frame's scale. */
+function pixelsPerDegree(frame: SceneLayerProjectionFrame): number {
+  if (frame.globe) return frame.globe.radius * DEGREES_TO_RADIANS;
+  if (frame.flat) return frame.flat.mapWidth / TurnDeg.Full;
+  return 1;
+}
+
 const PULSING_POINT_LAYER_DEFINITIONS = {
   [Domain.Fire]: {
+    detailZoom: 3,
     markerPolicy: {
       ageAlphaByMaximumMs: {
         [MS_PER_HOUR]: 1,
@@ -96,7 +131,8 @@ const PULSING_POINT_LAYER_DEFINITIONS = {
       markerAlphaGain: 0.5,
       maximumSize: 4.5,
       pulseSpan: 85,
-      pulseZoom: { floor: 1.5, span: 2.5 },
+      /** Glow only once records draw individually (past `detailZoom`). */
+      pulseZoom: { floor: 3, span: 2.5 },
       selectedScale: 2,
       sizeByMaximum: {
         1: 0.8,
@@ -324,6 +360,11 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
     return this.targetForRecord(record, time);
   }
 
+  /** The store's source version; projections and cell buckets key on it. */
+  protected sceneVersion(): number {
+    return this.store.version();
+  }
+
   protected beginProject(): RenderSceneView {
     const view = this.store.view();
     this.view = view;
@@ -420,6 +461,7 @@ export abstract class ScenePointLayer<
       ...frame,
       includes: (index) =>
         this.recordIncludes(view, index, filter),
+      sceneVersion: this.sceneVersion(),
     }, time);
   }
 
@@ -529,6 +571,14 @@ export class PulsingPointLayer extends ScenePointLayer<
   readonly order: RenderLayerOrder;
 
   private animated = false;
+  private aggregated = false;
+  private aggregate: PointAggregate | null = null;
+  private aggregateVersion = -1;
+  private aggregateCellPixels = 1;
+  private readonly aggregateProjection = new ProjectedSceneLayer();
+  private zoomLevel = 1;
+  private fadeColor = "";
+  private readonly fades = new Map<number, string>();
   private readonly definition: PulsingPointLayerDefinition;
   private readonly pulsingSource: PulsingPointLayerSource;
   private readonly visuals: MarkerVisualRenderer;
@@ -548,9 +598,19 @@ export class PulsingPointLayer extends ScenePointLayer<
     frame: SceneLayerProjectionFrame,
     filter: EnabledSceneFilter,
   ): void {
+    this.animated = false;
+    const detailZoom = this.definition.detailZoom;
+    this.aggregated =
+      detailZoom !== undefined &&
+      frame.zoomLevel !== undefined &&
+      frame.zoomLevel < detailZoom &&
+      filter.isolateMode === null;
+    if (this.aggregated) {
+      this.projectAggregate(frame, filter);
+      return;
+    }
     super.project(frame, filter);
     const view = this.view;
-    this.animated = false;
     if (!view) return;
     for (const index of this.visibleIndices()) {
       const metric = pulsingPointMetric(
@@ -564,8 +624,109 @@ export class PulsingPointLayer extends ScenePointLayer<
     }
   }
 
+  /** Low zoom: project the 1 degree cells instead of the records. */
+  private projectAggregate(
+    frame: SceneLayerProjectionFrame,
+    filter: EnabledSceneFilter,
+  ): void {
+    const view = this.beginProject();
+    const version = this.sceneVersion();
+    if (!this.aggregate || this.aggregateVersion !== version) {
+      this.aggregate = aggregatePoints(view, (index) =>
+        pulsingPointMetric(view, index, this.definition),
+      );
+      this.aggregateVersion = version;
+    }
+    this.aggregateProjection.project(this.aggregate.view, {
+      ...frame,
+      includes: () => filter.enabled,
+      sceneVersion: version,
+    });
+    this.aggregateCellPixels = pixelsPerDegree(frame) * AggregateCell.SizeDegrees;
+  }
+
+  /** Frames are only worth requesting while the pulse is visible at this zoom. */
   override hasTimeAnimation(reducedMotion: boolean): boolean {
-    return !reducedMotion && this.animated;
+    return !reducedMotion && this.animated && this.glowIntensity() > 0;
+  }
+
+  override nearest(
+    kind: SceneHitKind,
+    x: number,
+    y: number,
+    radius: number,
+    maximumCandidates: number,
+  ): SceneHit | null {
+    if (!this.aggregated) return super.nearest(kind, x, y, radius, maximumCandidates);
+    if (kind !== SceneHitKind.Point) return null;
+    const hit = this.aggregateProjection.nearest(x, y, radius, maximumCandidates);
+    return hit ? this.peakRecordHit(hit) : null;
+  }
+
+  /** A cell hit resolves to the strongest record in that cell. */
+  private peakRecordHit(hit: SceneHit): SceneHit | null {
+    const view = this.view;
+    const index = this.aggregate?.peakRecords[hit.handle - 1];
+    if (!view || index === undefined) return null;
+    const position = scenePositionFromView(view, index);
+    const sceneId = view.sceneIds[index];
+    const entityId = view.entityIds[index];
+    if (!position || !sceneId || !entityId) return null;
+    return {
+      ...hit,
+      handle: index + 1,
+      sceneId,
+      entityId,
+      latitude: position.latitude,
+      longitude: position.longitude,
+    };
+  }
+
+  override selectionAnchor(entityId: string): SceneProjection | null {
+    if (!this.aggregated) return super.selectionAnchor(entityId);
+    const cell = this.aggregate?.cellOfEntity.get(entityId);
+    return cell === undefined ? null : this.aggregateProjection.projection(cell);
+  }
+
+  /** Batched: plain dots fill once per colour, size, and alpha bucket;
+   *  glowing and selected markers keep their own draw. */
+  override draw(style: PulsingPointSceneStyle): void {
+    const view = this.view;
+    if (!view) return;
+    this.zoomLevel = style.zoomLevel;
+    if (this.fadeColor !== style.color) {
+      this.fadeColor = style.color;
+      this.fades.clear();
+    }
+    const batches: DotBatchSet = new Map();
+    const indices = this.aggregated
+      ? this.aggregateProjection.visibleIndices()
+      : this.visibleIndices();
+    for (const index of indices) {
+      const marker = this.aggregated
+        ? this.aggregateMarkerAt(index, style)
+        : this.markerAt(view, index, style);
+      if (!marker) continue;
+      if (marker.selected || marker.glow) {
+        this.visuals.drawPulsing(style.context, style.time, marker);
+      } else {
+        addDot(batches, marker);
+      }
+    }
+    for (const batch of dotBatches(batches)) {
+      this.visuals.fillDots(style.context, batch);
+    }
+    style.context.globalAlpha = 1;
+  }
+
+  /** Age alpha takes a handful of values; fade each once per colour. */
+  private fadedColor(color: string, alpha: number): string {
+    let faded = this.fades.get(alpha);
+    if (faded === undefined) {
+      faded = this.visuals.fade(color, alpha);
+      this.fades.set(alpha, faded);
+    }
+    return faded;
   }
 
   protected includes(
@@ -581,41 +742,84 @@ export class PulsingPointLayer extends ScenePointLayer<
     index: number,
     style: PulsingPointSceneStyle,
   ): void {
+    const marker = this.markerAt(view, index, style);
+    if (marker) this.visuals.drawPulsing(style.context, style.time, marker);
+  }
+
+  /** One marker for a cell: sized by its peak metric and record count. */
+  private aggregateMarkerAt(
+    index: number,
+    style: PulsingPointSceneStyle,
+  ): PulsingMarker | null {
+    const aggregate = this.aggregate;
+    const projection = this.aggregateProjection.projection(index);
+    if (!aggregate || !projection) return null;
+    const view = aggregate.view;
+    const policy = this.definition.markerPolicy;
+    const peak = sceneNumericAttribute(view, index, AggregateAttribute.PeakMetric);
+    const count = sceneNumericAttribute(view, index, AggregateAttribute.Count);
+    const alpha = sourceMarkerAgeAlpha(view.timestamps[index] ?? 0, style.now, policy);
+    const scale = Math.min(
+      AggregateMarker.MaximumScale,
+      1 + Math.log2(Math.max(1, count)) * AggregateMarker.CountGain,
+    );
+    const selected =
+      style.selectedId !== null &&
+      aggregate.cellOfEntity.get(style.selectedId) === index;
+    return {
+      x: projection.x,
+      y: projection.y,
+      size: Math.min(
+        sourceMarkerSize(peak, false, policy) * zoomScale(style.zoomLevel) * scale,
+        this.aggregateCellPixels * AggregateMarker.MaximumCellFraction,
+      ),
+      color: this.fadedColor(style.color, alpha),
+      fillAlpha:
+        sourceMarkerFillAlpha(projection.depth, alpha, policy) *
+        AggregateMarker.AlphaScale,
+      selected,
+      glow: null,
+    };
+  }
+
+  private glowIntensity(): number {
+    const intensity = markerPulseIntensity(
+      this.zoomLevel,
+      this.definition.markerPolicy.pulseZoom,
+    );
+    return intensity > MarkerGlowPolicy.MinimumVisibleIntensity ? intensity : 0;
+  }
+
+  private markerAt(
+    view: RenderSceneView,
+    index: number,
+    style: PulsingPointSceneStyle,
+  ): PulsingMarker | null {
     const projection = this.projection.projection(index);
     const entityId = view.entityIds[index];
     const timestamp = view.timestamps[index];
-    if (!projection || !entityId || timestamp === undefined) return;
+    if (!projection || !entityId || timestamp === undefined) return null;
 
     const policy = this.definition.markerPolicy;
     const metric = pulsingPointMetric(view, index, this.definition);
     const alpha = sourceMarkerAgeAlpha(timestamp, style.now, policy);
     const selected = entityId === style.selectedId;
-    const size =
-      sourceMarkerSize(metric, selected, policy) *
-      zoomScale(style.zoomLevel);
-    const color = this.visuals.fade(style.color, alpha);
-    this.visuals.drawPulsing(style.context, style.time, {
+    const intensity = this.glowIntensity();
+    return {
       x: projection.x,
       y: projection.y,
-      size,
-      color,
-      fillAlpha: sourceMarkerFillAlpha(
-        projection.depth,
-        alpha,
-        policy,
-      ),
+      size: sourceMarkerSize(metric, selected, policy) * zoomScale(style.zoomLevel),
+      color: this.fadedColor(style.color, alpha),
+      fillAlpha: sourceMarkerFillAlpha(projection.depth, alpha, policy),
       selected,
-      glow: passesMarkerThreshold(metric, this.definition)
+      glow: intensity > 0 && passesMarkerThreshold(metric, this.definition)
         ? {
-            intensity: markerPulseIntensity(
-              style.zoomLevel,
-              policy.pulseZoom,
-            ),
+            intensity,
             pulseIndex: sourceMarkerPulseIndex(metric, policy),
             id: entityId,
             config: policy.glow,
           }
         : null,
-    });
+    };
   }
 }

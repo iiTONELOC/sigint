@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  DotBatch,
   MarkerVisualRenderer,
   PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
@@ -71,11 +72,15 @@ function filter(
 function visuals(
   markers: PulsingMarker[] = [],
   fades: number[] = [],
+  batches: DotBatch[] = [],
 ): MarkerVisualRenderer {
   return {
     fade: (color, factor) => {
       fades.push(factor);
       return color;
+    },
+    fillDots: (_context, batch) => {
+      batches.push(batch);
     },
     drawPulsing: (_context, _time, marker) => {
       markers.push(marker);
@@ -104,6 +109,16 @@ describe("earthquake scene layer", () => {
       depth: 1,
     });
     expect(layer.includesEntity("Qlow", filter())).toBe(true);
+    // The pulse only earns frames once the zoom passes its floor.
+    expect(layer.hasTimeAnimation(false)).toBe(false);
+    layer.draw({
+      context: {} as OffscreenCanvasRenderingContext2D,
+      color: "#ffaa00",
+      selectedId: null,
+      time: 1,
+      now: TestInstant.EventSceneNow,
+      zoomLevel: 3,
+    });
     expect(layer.hasTimeAnimation(false)).toBe(true);
     expect(layer.hasTimeAnimation(true)).toBe(false);
   });
@@ -145,9 +160,10 @@ describe("earthquake scene layer", () => {
   test("preserves age, size, pulse, and selection drawing", () => {
     const markers: PulsingMarker[] = [];
     const fades: number[] = [];
+    const batches: DotBatch[] = [];
     const layer = new PulsingPointLayer(
       Domain.Earthquake,
-      visuals(markers, fades),
+      visuals(markers, fades, batches),
     );
     layer.apply(sceneRebaseCommand(Domain.Earthquake, view));
     layer.project(frame, filter());
@@ -161,13 +177,14 @@ describe("earthquake scene layer", () => {
     });
 
     expect(fades).toEqual([1, 0.5]);
-    expect(markers).toHaveLength(2);
+    expect(markers).toHaveLength(1);
     expect(markers[0]?.size).toBe(12);
     expect(markers[0]?.selected).toBe(true);
     expect(markers[0]?.glow).not.toBeNull();
-    expect(markers[1]?.size).toBe(2);
-    expect(markers[1]?.selected).toBe(false);
-    expect(markers[1]?.glow).toBeNull();
+    // The plain marker fills through the batch.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.size).toBe(2);
+    expect(batches[0]?.xs).toHaveLength(1);
   });
 
   test("rejects an incompatible schema", () => {

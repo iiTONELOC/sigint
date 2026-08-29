@@ -29,7 +29,6 @@ import {
 } from "@/workers/render/scene/sceneLayer";
 import {
   CycloneSceneAttribute,
-  CycloneSceneDefault,
   CycloneSceneRole,
   CycloneSceneStringAttribute,
   CycloneSceneText,
@@ -308,6 +307,7 @@ export class CycloneLayer extends ScenePointLayer<
   readonly order = RenderLayerOrder.Cyclones;
 
   private recordSets = new Map<string, CycloneRecordSet>();
+  private onScreen = false;
 
   constructor() {
     super(Domain.Cyclones);
@@ -355,7 +355,9 @@ export class CycloneLayer extends ScenePointLayer<
               this.recordSets.get(entityId)?.overlay.showForecast === true))
         );
       },
+      sceneVersion: this.sceneVersion(),
     });
+    this.onScreen = !this.projection.visibleIndices().next().done;
   }
 
   override draw(style: CycloneSceneStyle): void {
@@ -393,8 +395,9 @@ export class CycloneLayer extends ScenePointLayer<
     return cycloneSelectionIdentity(role, hit.sceneId, hit.entityId);
   }
 
+  /** Only a storm on screen earns frames; off-screen storms cost nothing. */
   override hasTimeAnimation(reducedMotion: boolean): boolean {
-    return !reducedMotion && this.recordSets.size > 0;
+    return !reducedMotion && this.onScreen;
   }
 
   protected override recordSelectionIdentity(

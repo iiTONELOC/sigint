@@ -230,11 +230,24 @@ class RenderBackdrop {
     if (!frame) return null;
     const geometry = frame.geometry;
     const metrics = geometry.flatMetrics;
+    const camera = frame.camera;
     return {
       width: frame.viewport.width,
       height: frame.viewport.height,
       hitCellSize: CAMERA_POLICY.hitCellSizePx,
       cullMargin: SceneProjectionPolicy.CullMarginPixels,
+      zoomLevel: this.zoomLevel(),
+      revision: [
+        frame.flat ? 1 : 0,
+        frame.viewport.width,
+        frame.viewport.height,
+        camera.rotX,
+        camera.rotY,
+        camera.zoomGlobe,
+        camera.zoomFlat,
+        camera.panX,
+        camera.panY,
+      ].join("|"),
       flat: metrics
         ? {
             centerX: metrics.cx,
@@ -498,7 +511,10 @@ function enabledFilter(
 export class RenderLayerCatalog {
   private readonly backdrop = new RenderBackdrop();
   private readonly bySource: Partial<Record<RenderSourceId, RenderLayer>> = {};
+  private nextStateRevision = 1;
+  private ordered: RenderLayer[] | null = null;
   private readonly sceneLayers: RenderSceneLayers | null = null;
+  private readonly stateRevisions = new WeakMap<RenderGlobeStateSnapshot, number>();
 
   constructor(visuals?: MarkerVisualRenderer) {
     if (!visuals) return;
@@ -515,6 +531,7 @@ export class RenderLayerCatalog {
       );
     }
     this.bySource[layer.source] = layer;
+    this.ordered = null;
   }
 
   apply(command: SceneLayerCommand): boolean {
@@ -538,8 +555,8 @@ export class RenderLayerCatalog {
 
   project(options: RenderLayerProjectOptions): RenderLayerProjectedFrame {
     const layers = this.sceneLayers;
-    const frame = this.backdrop.projectionFrame();
-    if (!layers || !frame) {
+    const cameraFrame = this.backdrop.projectionFrame();
+    if (!layers || !cameraFrame) {
       return {
         aircraftEntityIsVisible: () => false,
         isolatedType: null,
@@ -558,6 +575,17 @@ export class RenderLayerCatalog {
       isolateMode,
       isolatedId,
       isolatedType,
+    };
+    // Every layer filter derives from the globe state and the isolation
+    // target, so their identity completes the projection revision.
+    const frame: SceneAreaProjectionFrame = {
+      ...cameraFrame,
+      revision: [
+        cameraFrame.revision,
+        this.stateRevision(state),
+        isolatedId ?? "",
+        isolatedType ?? "",
+      ].join("|"),
     };
     const aircraftFilter = {
       filter: state.aircraftFilter,
@@ -734,8 +762,19 @@ export class RenderLayerCatalog {
   }
 
   private orderedLayers(): RenderLayer[] {
-    return Object.values(this.bySource).sort(
+    this.ordered ??= Object.values(this.bySource).sort(
       (left, right) => left.order - right.order,
     );
+    return this.ordered;
+  }
+
+  /** The controller replaces the state object only on change; number each one. */
+  private stateRevision(state: RenderGlobeStateSnapshot): number {
+    let revision = this.stateRevisions.get(state);
+    if (revision === undefined) {
+      revision = this.nextStateRevision++;
+      this.stateRevisions.set(state, revision);
+    }
+    return revision;
   }
 }

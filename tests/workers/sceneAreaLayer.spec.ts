@@ -128,6 +128,7 @@ function filter(): WeatherSceneFilter {
 function visuals(markers: PulsingMarker[]): MarkerVisualRenderer {
   return {
     fade: (color) => color,
+    fillDots: () => undefined,
     drawPulsing: (_context, _time, marker) => {
       markers.push(marker);
     },

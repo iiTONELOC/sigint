@@ -1,4 +1,13 @@
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
+import {
+  addDot,
+  dotBatches,
+  fillDotBatch,
+  markerAlphaBucket,
+  trackDot,
+  type DotBatchSet,
+} from "@/workers/render/primitives/markerVisuals";
+import { motionIsVisible } from "@/workers/render/scene/projectedLayer";
 import { ShipSceneAttribute } from "@shared/scene";
 import {
   RenderLayerOrder,
@@ -54,28 +63,24 @@ export function shipSceneIncludes(
   return sceneSourceIncludes(Domain.Ships, view, index, settings);
 }
 
-function drawShip(
+type ShipMarker = Readonly<{
+  x: number;
+  y: number;
+  size: number;
+  angle: number;
+  alpha: number;
+  selected: boolean;
+}>;
+
+function markerAt(
   view: RenderSceneView,
   projection: SceneProjection | null,
   index: number,
   style: ShipSceneStyle,
-): void {
+): ShipMarker | null {
   const entityId = view.entityIds[index];
-  if (!projection || !entityId) return;
+  if (!projection || !entityId) return null;
   const selected = entityId === style.selectedId;
-  const size =
-    ShipMarkerSize.BaseSize *
-    zoomScale(style.zoomLevel) *
-    (selected ? ShipMarkerSize.SelectedScale : 1);
-  const angle =
-    ((view.attributes[
-      index * view.attributeStride +
-        ShipSceneAttribute.Heading
-    ] ?? 0) *
-      Math.PI) /
-    TurnDeg.Half;
-  const halfWidth = size * ShipMarkerSize.HalfWidthScale;
-  const context = style.context;
   const alpha = Math.min(
     ShipMarkerAlpha.MaximumAlpha,
     ShipMarkerAlpha.BaseAlpha +
@@ -85,46 +90,67 @@ function drawShip(
       ) *
         ShipMarkerAlpha.ZoomGain,
   );
+  return {
+    x: projection.x,
+    y: projection.y,
+    size:
+      ShipMarkerSize.BaseSize *
+      zoomScale(style.zoomLevel) *
+      (selected ? ShipMarkerSize.SelectedScale : 1),
+    angle:
+      ((view.attributes[
+        index * view.attributeStride + ShipSceneAttribute.Heading
+      ] ?? 0) *
+        Math.PI) /
+      TurnDeg.Half,
+    alpha: projection.depth * alpha,
+    selected,
+  };
+}
 
-  context.globalAlpha = projection.depth * alpha;
-  context.fillStyle = style.color;
-  context.beginPath();
+/** Add one ship hull to the current path. */
+function traceShip(
+  context: OffscreenCanvasRenderingContext2D,
+  marker: ShipMarker,
+): void {
+  const { x, y, size, angle } = marker;
+  const halfWidth = size * ShipMarkerSize.HalfWidthScale;
+  const beam = Math.PI / ShipMarkerAngle.QuarterTurnDivisor;
   context.moveTo(
-    projection.x +
-      Math.sin(angle) * size * ShipMarkerSize.BowScale,
-    projection.y -
-      Math.cos(angle) * size * ShipMarkerSize.BowScale,
+    x + Math.sin(angle) * size * ShipMarkerSize.BowScale,
+    y - Math.cos(angle) * size * ShipMarkerSize.BowScale,
   );
   context.lineTo(
-    projection.x +
-      Math.sin(angle + Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
-        halfWidth,
-    projection.y -
-      Math.cos(angle + Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
-        halfWidth,
+    x + Math.sin(angle + beam) * halfWidth,
+    y - Math.cos(angle + beam) * halfWidth,
   );
   context.lineTo(
-    projection.x +
-      Math.sin(angle + Math.PI) * size * ShipMarkerSize.SternScale,
-    projection.y -
-      Math.cos(angle + Math.PI) * size * ShipMarkerSize.SternScale,
+    x + Math.sin(angle + Math.PI) * size * ShipMarkerSize.SternScale,
+    y - Math.cos(angle + Math.PI) * size * ShipMarkerSize.SternScale,
   );
   context.lineTo(
-    projection.x +
-      Math.sin(angle - Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
-        halfWidth,
-    projection.y -
-      Math.cos(angle - Math.PI / ShipMarkerAngle.QuarterTurnDivisor) *
-        halfWidth,
+    x + Math.sin(angle - beam) * halfWidth,
+    y - Math.cos(angle - beam) * halfWidth,
   );
   context.closePath();
+}
+
+function drawShip(
+  context: OffscreenCanvasRenderingContext2D,
+  marker: ShipMarker,
+  style: ShipSceneStyle,
+): void {
+  context.globalAlpha = marker.alpha;
+  context.fillStyle = style.color;
+  context.beginPath();
+  traceShip(context, marker);
   context.fill();
-  if (selected) {
+  if (marker.selected) {
     drawSelectionRing(
       context,
-      projection.x,
-      projection.y,
-      size,
+      marker.x,
+      marker.y,
+      marker.size,
       style.color,
       style.time,
     );
@@ -149,16 +175,60 @@ export class ShipLayer extends ScenePointLayer<
     return shipSceneIncludes(view, index, filter);
   }
 
+  /** Batched: one path and one fill per alpha bucket; the selected ship
+   *  keeps its own draw for the ring. */
+  override draw(style: ShipSceneStyle): void {
+    const view = this.view;
+    if (!view) return;
+    if (!motionIsVisible(style.zoomLevel)) {
+      this.drawDots(view, style);
+      return;
+    }
+    const batches = new Map<number, ShipMarker[]>();
+    for (const index of this.visibleIndices()) {
+      const marker = markerAt(view, this.projection.projection(index), index, style);
+      if (!marker) continue;
+      if (marker.selected) {
+        drawShip(style.context, marker, style);
+        continue;
+      }
+      const alpha = markerAlphaBucket(marker.alpha);
+      const batch = batches.get(alpha);
+      if (batch) batch.push(marker);
+      else batches.set(alpha, [marker]);
+    }
+    for (const [alpha, batch] of batches) {
+      style.context.globalAlpha = alpha;
+      style.context.fillStyle = style.color;
+      style.context.beginPath();
+      for (const marker of batch) traceShip(style.context, marker);
+      style.context.fill();
+    }
+    style.context.globalAlpha = 1;
+  }
+
+  /** Below the motion-detail zoom a hull is under a pixel: dots, batched. */
+  private drawDots(view: RenderSceneView, style: ShipSceneStyle): void {
+    const batches: DotBatchSet = new Map();
+    for (const index of this.visibleIndices()) {
+      const marker = markerAt(view, this.projection.projection(index), index, style);
+      if (!marker) continue;
+      if (marker.selected) {
+        drawShip(style.context, marker, style);
+        continue;
+      }
+      addDot(batches, trackDot(marker.x, marker.y, marker.size, style.color, marker.alpha));
+    }
+    for (const batch of dotBatches(batches)) fillDotBatch(style.context, batch);
+    style.context.globalAlpha = 1;
+  }
+
   protected drawRecord(
     view: RenderSceneView,
     index: number,
     style: ShipSceneStyle,
   ): void {
-    drawShip(
-      view,
-      this.projection.projection(index),
-      index,
-      style,
-    );
+    const marker = markerAt(view, this.projection.projection(index), index, style);
+    if (marker) drawShip(style.context, marker, style);
   }
 }

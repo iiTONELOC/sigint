@@ -29,6 +29,7 @@ export type ScenePositionAccessor = Readonly<{
     time: number,
   ) => SceneResolvedPosition | null;
   hasFrameMotion: (view: RenderSceneView) => boolean;
+  hasMotionAt: (view: RenderSceneView, index: number) => boolean;
 }>;
 
 export function scenePositionFromRecord(

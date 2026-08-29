@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { IntelSeverity } from "@shared/domain/correlation";
 import type {
+  DotBatch,
   MarkerVisualRenderer,
   PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
@@ -82,10 +83,21 @@ describe("event scene layer", () => {
   test("owns visibility, hit testing, selection, and animation", () => {
     const visuals: MarkerVisualRenderer = {
       fade: (color) => color,
+      fillDots: () => undefined,
       drawPulsing: () => undefined,
     };
     const layer = new PulsingPointLayer(Domain.Events, visuals);
     project(layer);
+    // The pulse only earns frames once the zoom passes its floor.
+    expect(layer.hasTimeAnimation(false)).toBe(false);
+    layer.draw({
+      context: {} as OffscreenCanvasRenderingContext2D,
+      color: "#ff00aa",
+      selectedId: null,
+      time: 1,
+      now: TestInstant.EventSceneNow,
+      zoomLevel: 3,
+    });
 
     expect(
       layer.nearest(
@@ -116,10 +128,14 @@ describe("event scene layer", () => {
   test("preserves severity size, age fade, pulse, and selection", () => {
     const fades: number[] = [];
     const markers: PulsingMarker[] = [];
+    const batches: DotBatch[] = [];
     const visuals: MarkerVisualRenderer = {
       fade: (color, factor) => {
         fades.push(factor);
         return color;
+      },
+      fillDots: (_context, batch) => {
+        batches.push(batch);
       },
       drawPulsing: (_context, _time, marker) => {
         markers.push(marker);
@@ -137,12 +153,13 @@ describe("event scene layer", () => {
     });
 
     expect(fades).toEqual([1, 0.45]);
-    expect(markers).toHaveLength(2);
+    expect(markers).toHaveLength(1);
     expect(markers[0]?.size).toBeCloseTo(3.6);
     expect(markers[0]?.selected).toBe(true);
     expect(markers[0]?.glow).not.toBeNull();
-    expect(markers[1]?.size).toBeCloseTo(1.3);
-    expect(markers[1]?.selected).toBe(false);
-    expect(markers[1]?.glow).toBeNull();
+    // The plain marker fills through the batch, quantized to its bucket.
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.size).toBeCloseTo(1.25);
+    expect(batches[0]?.xs).toHaveLength(1);
   });
 });

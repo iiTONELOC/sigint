@@ -93,20 +93,21 @@ export class MovingScenePositionAccessor
   }
 
   hasFrameMotion(view: RenderSceneView): boolean {
-    if (
-      !this.hasCompatibleSchema(
+    for (let index = 0; index < view.capacity; index++) {
+      if (this.hasMotionAt(view, index)) return true;
+    }
+    return false;
+  }
+
+  hasMotionAt(view: RenderSceneView, index: number): boolean {
+    return (
+      view.active[index] === 1 &&
+      (view.timestamps[index] ?? 0) > 0 &&
+      this.hasCompatibleSchema(
         view.attributeStride,
         view.motionPositionStride,
       )
-    ) {
-      return false;
-    }
-    for (const [index, active] of view.active.entries()) {
-      if (active === 1 && (view.timestamps[index] ?? 0) > 0) {
-        return true;
-      }
-    }
-    return false;
+    );
   }
 
   private interpolationSeconds(

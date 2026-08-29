@@ -11,6 +11,7 @@ import {
 import { MarkerDepthAlpha } from "@/workers/render/primitives/markerStyle";
 import {
   markerPulseIntensity,
+  MarkerGlowPolicy,
   type MarkerVisualRenderer,
 } from "@/workers/render/primitives/markerVisuals";
 import {
@@ -84,6 +85,7 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
 
   private readonly visuals: MarkerVisualRenderer;
   private animated = false;
+  private zoomLevel = 1;
 
   constructor(visuals: MarkerVisualRenderer) {
     super(Domain.Weather);
@@ -106,8 +108,13 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
     }
   }
 
+  /** Frames are only worth requesting while the pulse is visible at this zoom. */
   override hasTimeAnimation(reducedMotion: boolean): boolean {
-    return !reducedMotion && this.animated;
+    return (
+      !reducedMotion &&
+      this.animated &&
+      markerPulseIntensity(this.zoomLevel) > MarkerGlowPolicy.MinimumVisibleIntensity
+    );
   }
 
   drawAreas(style: WeatherAreaStyle): void {
@@ -130,6 +137,7 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
   draw(style: WeatherSceneStyle): void {
     const view = this.view;
     if (!view) return;
+    this.zoomLevel = style.zoomLevel;
     for (const index of this.markerIndices()) {
       const projection = this.markerProjection(index);
       const entityId = view.entityIds[index];

@@ -22,11 +22,17 @@ enum MarkerFadePolicy {
   UnchangedThreshold = 0.95,
 }
 
-enum MarkerGlowPolicy {
+export enum MarkerGlowPolicy {
   SpriteSizePixels = 128,
   MaximumCachedSprites = 512,
   RadiusToDiameter = 2,
   MinimumVisibleIntensity = 0.01,
+}
+
+/** Dots that share a fill bucket: one path, one fill. */
+enum DotBucket {
+  SizeStep = 0.25,
+  AlphaStep = 0.02,
 }
 
 enum GradientStop {
@@ -72,8 +78,91 @@ export type PulsingMarker = Readonly<{
   shape?: (size: number) => void;
 }>;
 
+export type DotBatch = {
+  color: string;
+  fillAlpha: number;
+  size: number;
+  xs: number[];
+  ys: number[];
+};
+
+/** Batches by colour, then by a numeric size and alpha key; no strings per marker. */
+export type DotBatchSet = Map<string, Map<number, DotBatch>>;
+
+const DOT_KEY_STRIDE = 4096;
+
+function quantize(value: number, step: number): number {
+  return Math.round(value / step) * step;
+}
+
+/** Alpha rounded to the batch step, so markers can share one fill. */
+export function markerAlphaBucket(alpha: number): number {
+  return quantize(alpha, DotBucket.AlphaStep);
+}
+
+/** File a plain marker into the batch that shares its colour, size, and alpha. */
+export function addDot(batches: DotBatchSet, marker: PulsingMarker): void {
+  const sizeIndex = Math.round(marker.size / DotBucket.SizeStep);
+  const alphaIndex = Math.round(marker.fillAlpha / DotBucket.AlphaStep);
+  let byKey = batches.get(marker.color);
+  if (!byKey) {
+    byKey = new Map();
+    batches.set(marker.color, byKey);
+  }
+  const key = sizeIndex * DOT_KEY_STRIDE + alphaIndex;
+  let batch = byKey.get(key);
+  if (!batch) {
+    batch = {
+      color: marker.color,
+      fillAlpha: alphaIndex * DotBucket.AlphaStep,
+      size: sizeIndex * DotBucket.SizeStep,
+      xs: [],
+      ys: [],
+    };
+    byKey.set(key, batch);
+  }
+  batch.xs.push(marker.x);
+  batch.ys.push(marker.y);
+}
+
+/** Every batch in the set, for one fill each. */
+export function* dotBatches(batches: DotBatchSet): IterableIterator<DotBatch> {
+  for (const byKey of batches.values()) yield* byKey.values();
+}
+
+/** One path and one fill for every dot in the batch. */
+export function fillDotBatch(
+  context: OffscreenCanvasRenderingContext2D,
+  batch: DotBatch,
+): void {
+  context.globalAlpha = batch.fillAlpha;
+  context.fillStyle = batch.color;
+  context.beginPath();
+  for (const [index, x] of batch.xs.entries()) {
+    const y = batch.ys[index] ?? 0;
+    context.moveTo(x + batch.size, y);
+    context.arc(x, y, batch.size, 0, FULL_CIRCLE_RADIANS);
+  }
+  context.fill();
+}
+
+/** Dot marker for a track drawn below the motion-detail zoom. */
+export function trackDot(
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  fillAlpha: number,
+): PulsingMarker {
+  return { x, y, size, color, fillAlpha, selected: false, glow: null };
+}
+
 export type MarkerVisualRenderer = Readonly<{
   fade: (color: string, factor: number) => string;
+  fillDots: (
+    context: OffscreenCanvasRenderingContext2D,
+    batch: DotBatch,
+  ) => void;
   drawPulsing: (
     context: OffscreenCanvasRenderingContext2D,
     time: number,
@@ -170,6 +259,13 @@ export class MarkerVisuals {
       radius * MarkerGlowPolicy.RadiusToDiameter,
       radius * MarkerGlowPolicy.RadiusToDiameter,
     );
+  }
+
+  fillDots(
+    context: OffscreenCanvasRenderingContext2D,
+    batch: DotBatch,
+  ): void {
+    fillDotBatch(context, batch);
   }
 
   drawPulsing(

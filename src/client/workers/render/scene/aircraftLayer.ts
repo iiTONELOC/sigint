@@ -19,6 +19,15 @@ import {
   movingPositionAccessor,
 } from "@/workers/render/scene/movingScenePosition";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
+import {
+  addDot,
+  dotBatches,
+  fillDotBatch,
+  markerAlphaBucket,
+  trackDot,
+  type DotBatchSet,
+} from "@/workers/render/primitives/markerVisuals";
+import { motionIsVisible } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
 import {
   MilFilter,
@@ -261,15 +270,25 @@ function markerAlpha(flags: number, zoomLevel: number): number {
   return alpha;
 }
 
-function drawMarker(
+type AircraftMarker = Readonly<{
+  x: number;
+  y: number;
+  size: number;
+  angle: number;
+  color: string;
+  alpha: number;
+  selected: boolean;
+}>;
+
+function markerAt(
   view: RenderSceneView,
   projection: SceneProjection | null,
   index: number,
   style: AircraftSceneStyle,
-): void {
-  if (!projection) return;
+): AircraftMarker | null {
+  if (!projection) return null;
   const entityId = view.entityIds[index];
-  if (!entityId) return;
+  if (!entityId) return null;
 
   const attributeOffset = index * view.attributeStride;
   const heading =
@@ -285,50 +304,60 @@ function drawMarker(
       attributeOffset + AircraftSceneAttribute.Squawk
     ] ?? 0;
   const selected = entityId === style.selectedId;
-  const size = markerSize(flags, selected, style.zoomLevel);
-  const color = markerColor(flags, squawk, style);
   const emergency =
     squawk !== AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal];
-  const angle = (heading * Math.PI) / TurnDeg.Half;
-  const context = style.context;
+  return {
+    x: projection.x,
+    y: projection.y,
+    size: markerSize(flags, selected, style.zoomLevel),
+    angle: (heading * Math.PI) / TurnDeg.Half,
+    color: markerColor(flags, squawk, style),
+    alpha: emergency
+      ? projection.depth
+      : projection.depth * markerAlpha(flags, style.zoomLevel),
+    selected,
+  };
+}
 
-  context.globalAlpha = emergency
-    ? projection.depth
-    : projection.depth * markerAlpha(flags, style.zoomLevel);
-  context.fillStyle = color;
-  context.beginPath();
+/** Add one aircraft triangle to the current path. */
+function traceMarker(
+  context: OffscreenCanvasRenderingContext2D,
+  marker: AircraftMarker,
+): void {
+  const { x, y, size, angle } = marker;
   context.moveTo(
-    projection.x +
-      Math.sin(angle) * size * AircraftMarkerGeometry.TipScale,
-    projection.y -
-      Math.cos(angle) * size * AircraftMarkerGeometry.TipScale,
+    x + Math.sin(angle) * size * AircraftMarkerGeometry.TipScale,
+    y - Math.cos(angle) * size * AircraftMarkerGeometry.TipScale,
   );
   context.lineTo(
-    projection.x +
-      Math.sin(angle + AircraftMarkerGeometry.WingAngleRadians) *
-        size,
-    projection.y -
-      Math.cos(angle + AircraftMarkerGeometry.WingAngleRadians) *
-        size,
+    x + Math.sin(angle + AircraftMarkerGeometry.WingAngleRadians) * size,
+    y - Math.cos(angle + AircraftMarkerGeometry.WingAngleRadians) * size,
   );
   context.lineTo(
-    projection.x +
-      Math.sin(angle - AircraftMarkerGeometry.WingAngleRadians) *
-        size,
-    projection.y -
-      Math.cos(angle - AircraftMarkerGeometry.WingAngleRadians) *
-        size,
+    x + Math.sin(angle - AircraftMarkerGeometry.WingAngleRadians) * size,
+    y - Math.cos(angle - AircraftMarkerGeometry.WingAngleRadians) * size,
   );
   context.closePath();
+}
+
+function drawMarker(
+  context: OffscreenCanvasRenderingContext2D,
+  marker: AircraftMarker,
+  time: number,
+): void {
+  context.globalAlpha = marker.alpha;
+  context.fillStyle = marker.color;
+  context.beginPath();
+  traceMarker(context, marker);
   context.fill();
-  if (selected) {
+  if (marker.selected) {
     drawSelectionRing(
       context,
-      projection.x,
-      projection.y,
-      size,
-      color,
-      style.time,
+      marker.x,
+      marker.y,
+      marker.size,
+      marker.color,
+      time,
     );
   }
 }
@@ -351,16 +380,61 @@ export class AircraftLayer extends ScenePointLayer<
     return aircraftSceneIncludes(view, index, filter);
   }
 
+  /** Batched: one path and one fill per colour and alpha bucket;
+   *  the selected aircraft keeps its own draw for the ring. */
+  override draw(style: AircraftSceneStyle): void {
+    const view = this.view;
+    if (!view) return;
+    if (!motionIsVisible(style.zoomLevel)) {
+      this.drawDots(view, style);
+      return;
+    }
+    const batches = new Map<string, AircraftMarker[]>();
+    for (const index of this.visibleIndices()) {
+      const marker = markerAt(view, this.projection.projection(index), index, style);
+      if (!marker) continue;
+      if (marker.selected) {
+        drawMarker(style.context, marker, style.time);
+        continue;
+      }
+      const key = `${marker.color}|${markerAlphaBucket(marker.alpha)}`;
+      const batch = batches.get(key);
+      if (batch) batch.push(marker);
+      else batches.set(key, [marker]);
+    }
+    for (const batch of batches.values()) {
+      const first = batch[0]!;
+      style.context.globalAlpha = markerAlphaBucket(first.alpha);
+      style.context.fillStyle = first.color;
+      style.context.beginPath();
+      for (const marker of batch) traceMarker(style.context, marker);
+      style.context.fill();
+    }
+    style.context.globalAlpha = 1;
+  }
+
+  /** Below the motion-detail zoom a heading is under a pixel: dots, batched. */
+  private drawDots(view: RenderSceneView, style: AircraftSceneStyle): void {
+    const batches: DotBatchSet = new Map();
+    for (const index of this.visibleIndices()) {
+      const marker = markerAt(view, this.projection.projection(index), index, style);
+      if (!marker) continue;
+      if (marker.selected) {
+        drawMarker(style.context, marker, style.time);
+        continue;
+      }
+      addDot(batches, trackDot(marker.x, marker.y, marker.size, marker.color, marker.alpha));
+    }
+    for (const batch of dotBatches(batches)) fillDotBatch(style.context, batch);
+    style.context.globalAlpha = 1;
+  }
+
   protected drawRecord(
     view: RenderSceneView,
     index: number,
     style: AircraftSceneStyle,
   ): void {
-    drawMarker(
-      view,
-      this.projection.projection(index),
-      index,
-      style,
-    );
+    const marker = markerAt(view, this.projection.projection(index), index, style);
+    if (marker) drawMarker(style.context, marker, style.time);
   }
 }
