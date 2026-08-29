@@ -24,7 +24,6 @@ export enum CacheKey {
   /** @deprecated Read only for stored-preset migration. */
   LayoutPresetsMobileLegacy = "sigint.layout.presets.mobile.v1",
   LayoutPresets = "sigint.layout.presets.shared.v1",
-  Dossier = "sigint.dossier.cache.v1",
   VideoState = "sigint.videofeed.state.v1",
   VideoPresets = "sigint.videofeed.presets.v1",
   Theme = "sigint.theme.v1",

@@ -14,7 +14,7 @@ import {
 import { CAMERA_POLICY } from "@/workers/render/policy";
 import { RenderFocusKind } from "@/workers/render/protocol";
 
-const viewport = { width: 1_000, height: 700 };
+const viewport = { width: 1_000, height: 700, isMobile: false };
 
 describe("render worker camera", () => {
   it("owns drag and inertia without React camera state", () => {

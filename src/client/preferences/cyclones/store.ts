@@ -1,5 +1,5 @@
 import { CacheKey } from "@shared/domain/cache";
-import { createPersistedPreferenceStore } from "../utils";
+import { createPersistedPreferenceStore } from "../utils/persistedPreference";
 
 function isAlwaysShowCyclones(value: unknown): value is boolean {
   return typeof value === "boolean";

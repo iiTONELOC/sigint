@@ -1,15 +1,14 @@
 import { Domain } from "@shared/domain/identity";
 import {
-  hasOptionalFields,
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
-import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import {
+  WeatherSeverity,
   WEATHER_TEXT_FIELDS,
   type WeatherData,
   type WeatherPoint,
-} from "@/features/environmental/weather/types";
+} from "@shared/domain/weather";
 import {
   isRecord,
   parseGeoJsonPolygonGeometry,
@@ -17,6 +16,7 @@ import {
   type GeoJsonPolygonGeometry,
 } from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
+import { hasOptionalFields } from "@shared/types/fields";
 
 function isWeatherGeometry(
   value: unknown,

@@ -1,5 +1,8 @@
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
-import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
+import {
+  NWS_ALERTS_TRANSPORT,
+  NWS_SOURCE_FAILURE_MESSAGES,
+} from "@/workers/data/source-model/feeds";
 import {
   RemoteSource,
   type SourceFailureMessages,
@@ -15,17 +18,12 @@ import {
   isRecord,
   parseGeoJsonPolygonGeometry,
 } from "@shared/geo";
-import { AreaKind } from "@/workers/render/protocol";
 import {
+  AreaKind,
   CycloneWarningField,
   type CycloneWarningData,
   type CycloneWarningPoint,
-} from "@/features/environmental/cyclones/types";
-
-enum WarningFetchMessage {
-  Request = "The tropical alerts request failed",
-  Payload = "The tropical alerts response was not NWS GeoJSON",
-}
+} from "@shared/domain/cyclones";
 
 enum WarningPayloadField {
   Features = "features",
@@ -78,7 +76,7 @@ class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
   protected readonly transport: SourceTransport = NWS_ALERTS_TRANSPORT;
 
   protected readonly failureMessages: SourceFailureMessages =
-    WarningFetchMessage;
+    NWS_SOURCE_FAILURE_MESSAGES[Domain.CycloneWarnings];
 
   protected readonly completeness: DatasetCompleteness =
     SourceCompleteness.Complete;

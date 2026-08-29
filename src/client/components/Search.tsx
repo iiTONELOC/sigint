@@ -4,18 +4,13 @@ import { Search as SearchIcon, X } from "lucide-react";
 import { isMobileWidth } from "@/config/breakpoints";
 import { getColorMap, useTheme } from "@/theme";
 import { featureRegistry } from "@/features/registry";
+import { FeaturePresentationText } from "@/features/base/presentation";
 import type { DataPoint, DataType } from "@/features/base/dataPoints";
 import { useSourceSearch } from "@/features/base/useSourceSearch";
 import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
-import { Domain } from "@shared/domain/identity";
 import { DomEvent, DomInputType, DomKey } from "@/runtime";
+import { ButtonType } from "@/lib/ui/button";
 import { scorePointSearchMatch } from "@/workers/data/uiQuery";
-
-// ── Search engine ────────────────────────────────────────────────────
-
-enum SearchScoreBoundary {
-  Match = 0,
-}
 
 enum SearchIconSize {
   Result = 12,
@@ -38,11 +33,6 @@ enum SearchColorSuffix {
   Faint = "10",
 }
 
-enum SearchLabel {
-  Unknown = "Unknown",
-  Separator = " · ",
-}
-
 enum SearchClassName {
   ResultButton = "w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30",
   ActiveResult = "bg-sig-accent/10",
@@ -56,71 +46,31 @@ type SearchResult = {
   secondary: string;
 };
 
-function getPrimaryLabel(item: DataPoint): string {
-  const d = item.data as Record<string, unknown>;
-  switch (item.type) {
-    case Domain.Aircraft:
-      return (d.callsign as string) || (d.icao24 as string) || item.id;
-    case Domain.Ships:
-      return (d.name as string) || item.id;
-    case Domain.Events:
-      return (d.headline as string) || item.id;
-    case Domain.Quakes:
-      return (d.location as string) || item.id;
-    default:
-      return item.id || SearchLabel.Unknown;
-  }
-}
-
-function getSecondaryLabel(item: DataPoint): string {
-  const d = item.data as Record<string, unknown>;
-  switch (item.type) {
-    case Domain.Aircraft: {
-      const parts: string[] = [];
-      if (d.acType && d.acType !== SearchLabel.Unknown) {
-        parts.push(d.acType as string);
-      }
-      if (d.originCountry) parts.push(d.originCountry as string);
-      if (d.operator) parts.push(d.operator as string);
-      return parts.join(SearchLabel.Separator) || SearchLabel.Unknown;
-    }
-    case Domain.Ships:
-      return [d.vesselType, d.flag].filter(Boolean).join(SearchLabel.Separator);
-    case Domain.Events:
-      return [d.category, d.source].filter(Boolean).join(SearchLabel.Separator);
-    case Domain.Quakes:
-      return typeof d.magnitude === "number" ? `M${d.magnitude}` : "";
-    default:
-      return "";
-  }
-}
-
 function rankMatches(
   query: string,
   data: readonly DataPoint[],
 ): SearchResult[] {
-  if (!query.trim()) return [];
   const allMatches: SearchResult[] = [];
   for (const item of data) {
-    const feature = featureRegistry.get(item.type);
+    const feature = featureRegistry[item.type];
     if (!feature?.getSearchText) continue;
-    const searchText = feature.getSearchText(item.data as never);
+    const searchText = feature.getSearchText(item.data);
     if (!searchText) continue;
-    const primary = getPrimaryLabel(item);
+    const presentation = feature.searchPresentation(item.data, item.id);
+    const primary =
+      presentation?.primary ?? (item.id || FeaturePresentationText.Unknown);
     const score = scorePointSearchMatch(query, searchText, primary);
-    if (score > SearchScoreBoundary.Match)
+    if (score > 0)
       allMatches.push({
         item,
         score,
         primary,
-        secondary: getSecondaryLabel(item),
+        secondary: presentation?.secondary ?? "",
       });
   }
   allMatches.sort((left, right) => right.score - left.score);
   return allMatches.slice(0, POINT_UI_QUERY_POLICY.searchResultLimit);
 }
-
-// ── Component ────────────────────────────────────────────────────────
 
 type SearchProps = {
   readonly onSelect: (item: DataPoint) => void;
@@ -297,11 +247,11 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
     setActiveIndex(-1);
   }, [topResults]);
 
-  // ── COMMITTED state (chip) ───────────────────────────────────────
   if (!open && committedQuery) {
     return (
       <div className="flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-sig-accent/10 border border-sig-accent/30">
         <button
+          type={ButtonType.Button}
           onClick={openSearch}
           className="flex items-center gap-1 bg-transparent border-none p-0 text-sig-accent text-(length:--sig-text-btn)"
           title="Edit search"
@@ -316,6 +266,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
           </span>
         </button>
         <button
+          type={ButtonType.Button}
           onClick={clearFilter}
           className="text-sig-dim bg-transparent border-none p-0 pl-0.5 touch-target flex items-center justify-center"
           title="Clear filter"
@@ -329,10 +280,10 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
     );
   }
 
-  // ── IDLE state (button) ──────────────────────────────────────────
   if (!open) {
     return (
       <button
+        type={ButtonType.Button}
         onClick={openSearch}
         className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border"
         title="Search (Ctrl+K)"
@@ -346,9 +297,8 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
     );
   }
 
-  // ── OPEN state (input + dropdown) ────────────────────────────────
   return (
-    <div ref={containerRef} className="relative z-60">
+    <div ref={containerRef} className="relative z-(--layer-search)">
       <div className="flex items-center gap-1.5 rounded px-2 py-0.5 bg-sig-panel border border-sig-accent/45 min-w-45">
         <SearchIcon
           size={SearchIconSize.Control}
@@ -370,6 +320,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
           </span>
         )}
         <button
+          type={ButtonType.Button}
           title="Close"
           onClick={closeDropdown}
           className="shrink-0 text-sig-dim bg-transparent border-none p-0"
@@ -381,12 +332,12 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
         </button>
       </div>
 
-      {query.trim() &&
+      {normalizedQuery &&
         containerRef.current &&
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-80 rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
+            className="fixed z-(--layer-menu) rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
             style={
               isMobileWidth(window.innerWidth)
                 ? {
@@ -424,7 +375,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
               </div>
             ) : (
               Array.from(grouped.entries()).map(([type, items]) => {
-                const feature = featureRegistry.get(type);
+                const feature = featureRegistry[type];
                 if (!feature) return null;
                 const Icon = feature.icon;
                 const color = colorMap[type] ?? C.dim;
@@ -444,6 +395,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
                       const isActive = flatIdx === activeIndex;
                       return (
                         <button
+                          type={ButtonType.Button}
                           key={result.item.id}
                           onClick={() => selectResult(result)}
                           className={`${SearchClassName.ResultButton} ${

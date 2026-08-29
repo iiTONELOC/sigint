@@ -1,22 +1,18 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { TriangleAlert } from "lucide-react";
-import { CycloneWarningField, type CycloneWarningPoint } from "../types";
+import {
+  CycloneWarningField,
+} from "@shared/domain/cyclones";
+import type { FeatureDossierProps } from "@/features/base/presentation";
+import { Domain } from "@shared/domain/identity";
 import { buildWarningDossierRows } from "../warningDetailRows";
 import {
+  DossierRow,
+  DossierSection,
   DossierToolbar,
-  Section,
-  Row,
   useDossierFocus,
-} from "@/panes/dossier/DossierAtoms";
+} from "@/dossier";
 
-type Props = {
-  readonly item: CycloneWarningPoint;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
+type Props = FeatureDossierProps<Domain.CyclonesWarning>;
 
 export function CycloneWarningDossier({
   item,
@@ -46,17 +42,17 @@ export function CycloneWarningDossier({
       />
       <div className="flex-1 overflow-y-auto sigint-scroll">
         <div className="p-3 space-y-3">
-          <Section title="ALERT">
+          <DossierSection title="ALERT">
             {rows.map(([k, v]) => (
-              <Row key={k} label={k} value={v} />
+              <DossierRow key={k} label={k} value={v} />
             ))}
-          </Section>
+          </DossierSection>
           {headline && (
-            <Section title="DETAILS">
+            <DossierSection title="DETAILS">
               <p className="text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap">
                 {headline}
               </p>
-            </Section>
+            </DossierSection>
           )}
         </div>
       </div>

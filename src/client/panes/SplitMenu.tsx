@@ -2,6 +2,12 @@ import { forwardRef } from "react";
 import { createPortal } from "react-dom";
 import type { PaneType } from "./paneTree";
 import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
+import { ButtonType } from "@/lib/ui/button";
+import { PaneWorkspaceIconMetric, PaneWorkspaceMenuMetric } from "@/panes/workspace/model/pane";
+
+enum SplitMenuMetric {
+  BoundaryPaddingPx = 8,
+}
 
 type SplitMenuProps = {
   readonly types: PaneType[];
@@ -9,17 +15,10 @@ type SplitMenuProps = {
   readonly top: number;
   readonly left: number;
   readonly onSelect: (type: PaneType) => void;
-  /** Optional data-wt-menu attribute for walkthrough detection */
   readonly wtMenu?: boolean;
-  /** Optional className override for the container */
   readonly className?: string;
 };
 
-/**
- * Dropdown menu of available pane types for split/add operations.
- * Used by both PaneManager (desktop) and PaneMobile.
- * Renders via portal to document.body.
- */
 export const SplitMenu = forwardRef<HTMLDivElement, SplitMenuProps>(
   function SplitMenu(
     { types, catalog, top, left, onSelect, wtMenu, className },
@@ -31,11 +30,17 @@ export const SplitMenu = forwardRef<HTMLDivElement, SplitMenuProps>(
         {...(wtMenu ? { "data-wt-menu": "" } : {})}
         className={
           className ??
-          "fixed z-80 rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
+          "fixed z-(--layer-menu) rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-36"
         }
         style={{
           top,
-          left: Math.max(8, Math.min(left, window.innerWidth - 200)),
+          left: Math.max(
+            SplitMenuMetric.BoundaryPaddingPx,
+            Math.min(
+              left,
+              window.innerWidth - PaneWorkspaceMenuMetric.BoundaryWidth,
+            ),
+          ),
         }}
       >
         {types.map((type) => {
@@ -43,12 +48,17 @@ export const SplitMenu = forwardRef<HTMLDivElement, SplitMenuProps>(
           const Icon = definition.icon;
           return (
             <button
+              type={ButtonType.Button}
               key={type}
               data-tour={`split-menu-${type}`}
               onClick={() => onSelect(type)}
               className="w-full text-left px-3 py-2.5 flex items-center gap-2 text-sig-text text-(length:--sig-text-md) bg-transparent border-none hover:bg-sig-accent/10 transition-colors min-h-11"
             >
-              <Icon size={14} strokeWidth={2.5} className="text-sig-accent" />
+              <Icon
+                size={PaneWorkspaceIconMetric.LargeSize}
+                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                className="text-sig-accent"
+              />
               {definition.label}
             </button>
           );

@@ -14,3 +14,8 @@ export enum ViewportOrientation {
   Portrait = "portrait",
   Landscape = "landscape",
 }
+
+export enum PanelSide {
+  Left = "left",
+  Right = "right",
+}

@@ -36,11 +36,6 @@ type WithEnvelope<T> = T extends object
 export type CorrelationDataCommand =
   WithEnvelope<CorrelationDataCommandBody>;
 
-export type CorrelationDataProtocolState = {
-  sessionId: string;
-  sequence: number;
-};
-
 export function createCorrelationDataCommand<
   T extends CorrelationDataCommandBody,
 >(
@@ -101,18 +96,4 @@ export function parseCorrelationDataCommand(
         points,
       }
     : null;
-}
-
-export function acceptCorrelationDataCommand(
-  state: CorrelationDataProtocolState,
-  command: CorrelationDataCommand,
-): boolean {
-  if (
-    command.sessionId !== state.sessionId ||
-    command.sequence <= state.sequence
-  ) {
-    return false;
-  }
-  state.sequence = command.sequence;
-  return true;
 }

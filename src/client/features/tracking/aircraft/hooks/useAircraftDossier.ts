@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Domain } from "@shared/domain/identity";
 import type {
   AircraftDossier,
 } from "@shared/domain/aircraftDossier";
+import type { AircraftPoint } from "@shared/domain/aircraft";
 import {
   getDataWorkerClient,
 } from "@/lib/cache/dataWorkerClient";
-import {
-  useSourceSnapshot,
-} from "@/features/base/useSourceQuery";
 
 type AircraftDossierState = Readonly<{
   entityId: string;
@@ -17,10 +14,9 @@ type AircraftDossierState = Readonly<{
 
 export function useAircraftDossier(
   entityId: string,
+  requestKey: AircraftPoint | null,
 ): AircraftDossier | null {
   const client = useMemo(getDataWorkerClient, []);
-  const sourceVersion =
-    useSourceSnapshot(Domain.Aircraft)?.version;
   const [state, setState] = useState<AircraftDossierState | null>(null);
 
   useEffect(() => {
@@ -37,7 +33,7 @@ export function useAircraftDossier(
     return () => {
       active = false;
     };
-  }, [client, entityId, sourceVersion]);
+  }, [client, entityId, requestKey]);
 
   return state?.entityId === entityId ? state.dossier : null;
 }

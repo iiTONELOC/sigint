@@ -1,20 +1,25 @@
-import { isMobileWidth } from "@/config/breakpoints";
-import { clampFlatPan, getFlatMetrics } from "@/lib/geo/render/flatMap";
 import {
-  RenderCameraKey,
-  RenderFocusKind,
-  type RenderCamera,
-} from "./protocol";
+  clampFlatPan,
+  getFlatMetrics,
+  projFlat,
+  type FlatMetrics,
+} from "@/lib/geo/render/flatMap";
+import type { ProjFn } from "@/lib/geo/render/types";
+import { screenToLatLonFlat, screenToLatLonGlobe } from "@/lib/geo/spatialIndex";
+import {
+  createGlobeRotationMatrix,
+  projectGeographicPoint,
+  type GlobeRotationMatrix,
+} from "@/lib/geo/unitSphere";
+import { RenderCameraKey, RenderFocusKind, type RenderCamera } from "./protocol";
 import { CAMERA_POLICY } from "./policy";
-import {
-  GeoLimit,
-  TurnDeg,
-} from "@shared/geo";
+import { createGeoPoint, GeoLimit, type GeoPoint, TurnDeg } from "@shared/geo";
 import { MS_PER_SECOND } from "@shared/time";
 
 export type CameraViewport = Readonly<{
   width: number;
   height: number;
+  isMobile: boolean;
 }>;
 
 export type CameraPosition = Readonly<{
@@ -76,6 +81,89 @@ export type CameraStepFrame = Readonly<{
   selectedPosition: CameraPosition | null;
   deltaMilliseconds: number;
 }>;
+
+export type CameraProjection = Readonly<{
+  centerX: number;
+  centerY: number;
+  flatMetrics: FlatMetrics | null;
+  globeMatrix: GlobeRotationMatrix;
+  globeRadius: number;
+  project: ProjFn;
+  screenPoint: (x: number, y: number) => GeoPoint | null;
+}>;
+
+export function createCameraProjection(
+  camera: RenderCamera,
+  viewport: CameraViewport,
+  flat: boolean,
+): CameraProjection {
+  const centerX = viewport.width / 2;
+  const centerY = viewport.height / 2;
+  const flatMetrics = flat
+    ? getFlatMetrics(
+        viewport.width,
+        viewport.height,
+        camera.zoomFlat,
+        camera.panX,
+        camera.panY,
+      )
+    : null;
+  const globeRadius =
+    Math.min(viewport.width, viewport.height) *
+    CAMERA_POLICY.globeRadiusRatio *
+    camera.zoomGlobe;
+  const project: ProjFn = flatMetrics
+    ? (latitude, longitude) =>
+        projFlat(
+          latitude,
+          longitude,
+          flatMetrics.cx,
+          flatMetrics.cy,
+          flatMetrics.mW,
+          flatMetrics.mH,
+        )
+    : (latitude, longitude) =>
+        projectGeographicPoint(
+          latitude,
+          longitude,
+          centerX,
+          centerY,
+          globeRadius,
+          camera.rotY,
+          camera.rotX,
+        );
+  return {
+    centerX,
+    centerY,
+    flatMetrics,
+    globeMatrix: createGlobeRotationMatrix(camera.rotY, camera.rotX),
+    globeRadius,
+    project,
+    screenPoint: (x, y) => {
+      const coordinate = flatMetrics
+        ? screenToLatLonFlat(
+            x,
+            y,
+            flatMetrics.cx,
+            flatMetrics.cy,
+            flatMetrics.mW,
+            flatMetrics.mH,
+          )
+        : screenToLatLonGlobe(
+            x,
+            y,
+            centerX,
+            centerY,
+            globeRadius,
+            camera.rotY,
+            camera.rotX,
+          );
+      return coordinate
+        ? createGeoPoint(coordinate.lon, coordinate.lat)
+        : null;
+    },
+  };
+}
 
 export function createWorkerCameraState(): WorkerCameraState {
   return {
@@ -158,7 +246,7 @@ function positionTarget(
     const basePanY =
       (position.latitude / GeoLimit.MaxLatitude) * (mapHeight / 2);
     target.panY =
-      useMobileOffset && isMobileWidth(viewport.width)
+      useMobileOffset && viewport.isMobile
         ? basePanY - viewport.height * CAMERA_POLICY.mobileFlatOffsetRatio
         : basePanY;
     target.zoom = zoom;
@@ -169,7 +257,7 @@ function positionTarget(
       (position.longitude * Math.PI) / TurnDeg.Half;
     target.rotY = -longitudeRadians - Math.PI / 2;
     const baseRotX = latitudeRadians;
-    if (useMobileOffset && isMobileWidth(viewport.width)) {
+    if (useMobileOffset && viewport.isMobile) {
       const radius =
         Math.min(viewport.width, viewport.height) *
         CAMERA_POLICY.globeRadiusRatio *

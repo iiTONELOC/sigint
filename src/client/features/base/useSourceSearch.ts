@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Domain } from "@shared/domain/identity";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { useSourceQuery } from "@/features/base/useSourceQuery";
+import { useSourceQueries } from "@/features/base/useSourceQuery";
+import type { QueryableSourceId } from "@/workers/data/queryableSources";
 import {
   PointUiQueryKind,
   type PointUiQuery,
@@ -18,6 +19,16 @@ export type SourceSearch = Readonly<{
 
 const EMPTY: readonly DataPoint[] = [];
 
+const SEARCH_SOURCES: readonly QueryableSourceId[] = [
+  Domain.Aircraft,
+  Domain.Cyclones,
+  Domain.Earthquake,
+  Domain.Events,
+  Domain.Fire,
+  Domain.Ships,
+  Domain.Weather,
+];
+
 /** Searches every source in the DataWorker; nothing is scanned on the main thread. */
 export function useSourceSearch(text: string | null): SourceSearch {
   const query = useMemo<PointUiQuery | null>(
@@ -28,39 +39,23 @@ export function useSourceSearch(text: string | null): SourceSearch {
     ),
     [text],
   );
-
-  const results = {
-    aircraft: useSourceQuery(Domain.Aircraft, query),
-    cyclones: useSourceQuery(Domain.Cyclones, query),
-    earthquake: useSourceQuery(Domain.Earthquake, query),
-    events: useSourceQuery(Domain.Events, query),
-    fire: useSourceQuery(Domain.Fire, query),
-    ships: useSourceQuery(Domain.Ships, query),
-    weather: useSourceQuery(Domain.Weather, query),
-  };
+  const results = useSourceQueries(
+    (source) => SEARCH_SOURCES.includes(source) ? query : null,
+  );
 
   return useMemo(() => {
-    const answered = Object.values(results);
     if (!query) return { items: EMPTY, total: 0, ready: false };
 
     const items: DataPoint[] = [];
     let total = 0;
     let searched = 0;
-    for (const result of answered) {
+    for (const source of SEARCH_SOURCES) {
+      const result = results[source];
       if (result?.kind !== PointUiQueryKind.Search) continue;
       items.push(...result.items);
       total += result.total;
       searched++;
     }
-    return { items, total, ready: searched === answered.length };
-  }, [
-    query,
-    results.aircraft,
-    results.cyclones,
-    results.earthquake,
-    results.events,
-    results.fire,
-    results.ships,
-    results.weather,
-  ]);
+    return { items, total, ready: searched === SEARCH_SOURCES.length };
+  }, [query, results]);
 }

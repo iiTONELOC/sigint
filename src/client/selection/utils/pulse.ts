@@ -1,4 +1,5 @@
-import { SelectionPulseDurationMs, type SelectionIdSetter } from "../model";
+import { SelectionPulseDurationMs } from "../model/policy";
+import type { SelectionIdSetter } from "../model/types";
 
 function pulseSelectionId(
   setId: SelectionIdSetter,

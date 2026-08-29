@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { DomEvent } from "@/runtime";
-import {
-  WalkthroughTourTarget,
-  walkthroughTourSelector,
-} from "../model";
+import { WalkthroughTourTarget, walkthroughTourSelector } from "../model/vocabulary";
 import type { WalkthroughRect } from "../utils/geometry";
 import {
   removeWalkthroughStyleRule,
@@ -106,9 +103,9 @@ export function LandingZone({ onDrop }: LandingZoneProps) {
     <div
       aria-hidden="true"
       data-wt-style={WalkthroughStyleSlot.LandingZone}
-      className="fixed z-9996 pointer-events-none border-2 border-dashed border-sig-accent/30 rounded-lg bg-sig-accent/[0.03] flex items-center justify-center animate-pulse"
+      className="walkthrough-zone fixed z-(--layer-guidance) pointer-events-none border-2 border-dashed border-sig-accent/30 rounded-lg bg-sig-accent/3 flex items-center justify-center animate-walkthrough-pulse"
     >
-      <span className="text-[10px] tracking-widest font-bold text-sig-accent/50">
+      <span className="text-(length:--sig-text-sm) tracking-widest font-bold text-sig-accent/50">
         DROP HERE
       </span>
     </div>,

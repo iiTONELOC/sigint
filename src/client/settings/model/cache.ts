@@ -61,7 +61,7 @@ const SETTINGS_CACHE_METADATA: Readonly<
     group: SettingsCacheGroup.Data,
     label: "Airport coordinates",
   },
-  [CacheKey.LayoutLegacy]: { // NOSONAR typescript:S1874: Shows stored legacy layout data.
+  [CacheKey.LayoutLegacy]: {
     group: SettingsCacheGroup.UserInterface,
     label: "Pane layout (legacy)",
   },
@@ -73,25 +73,21 @@ const SETTINGS_CACHE_METADATA: Readonly<
     group: SettingsCacheGroup.UserInterface,
     label: "Mobile layout",
   },
-  [CacheKey.LayoutPresetsLegacy]: { // NOSONAR typescript:S1874: Shows stored legacy preset data.
+  [CacheKey.LayoutPresetsLegacy]: {
     group: SettingsCacheGroup.UserInterface,
     label: "Layout presets (legacy)",
   },
-  [CacheKey.LayoutPresetsDesktopLegacy]: { // NOSONAR typescript:S1874: Shows stored legacy desktop presets.
+  [CacheKey.LayoutPresetsDesktopLegacy]: {
     group: SettingsCacheGroup.UserInterface,
     label: "Desktop presets (legacy)",
   },
-  [CacheKey.LayoutPresetsMobileLegacy]: { // NOSONAR typescript:S1874: Shows stored legacy mobile presets.
+  [CacheKey.LayoutPresetsMobileLegacy]: {
     group: SettingsCacheGroup.UserInterface,
     label: "Mobile presets (legacy)",
   },
   [CacheKey.LayoutPresets]: {
     group: SettingsCacheGroup.UserInterface,
     label: "Layout presets",
-  },
-  [CacheKey.Dossier]: {
-    group: SettingsCacheGroup.Data,
-    label: "Dossier cache",
   },
   [CacheKey.VideoState]: {
     group: SettingsCacheGroup.UserInterface,

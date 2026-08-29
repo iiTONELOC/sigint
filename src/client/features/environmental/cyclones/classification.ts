@@ -1,64 +1,15 @@
 import { ktToMph } from "@/measurements";
+import {
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  CYCLONE_HURRICANE_CATEGORIES_DESCENDING,
+  CycloneModelCode,
+  SaffirSimpson,
+  cycloneCategoryShortLabel,
+} from "@shared/domain/cyclones";
 import { isEnumValue } from "@shared/types/enum";
-import { Category, SaffirSimpson } from "./types";
-
-export enum CycloneCategoryLabel {
-  Td = "Tropical Depression",
-  Ts = "Tropical Storm",
-  Hu1 = "Hurricane Cat 1",
-  Hu2 = "Hurricane Cat 2",
-  Hu3 = "Hurricane Cat 3 (major)",
-  Hu4 = "Hurricane Cat 4 (major)",
-  Hu5 = "Hurricane Cat 5 (major)",
-  Std = "Subtropical Depression",
-  Sts = "Subtropical Storm",
-  Pt = "Post-Tropical",
-}
-
-export const CATEGORY_LABEL: Readonly<Record<Category, CycloneCategoryLabel>> = {
-  [Category.TropicalDepression]: CycloneCategoryLabel.Td,
-  [Category.TropicalStorm]: CycloneCategoryLabel.Ts,
-  [Category.Hurricane1]: CycloneCategoryLabel.Hu1,
-  [Category.Hurricane2]: CycloneCategoryLabel.Hu2,
-  [Category.Hurricane3]: CycloneCategoryLabel.Hu3,
-  [Category.Hurricane4]: CycloneCategoryLabel.Hu4,
-  [Category.Hurricane5]: CycloneCategoryLabel.Hu5,
-  [Category.SubtropicalDepression]: CycloneCategoryLabel.Std,
-  [Category.SubtropicalStorm]: CycloneCategoryLabel.Sts,
-  [Category.PostTropical]: CycloneCategoryLabel.Pt,
-};
-
-export enum CycloneWindThreshold {
-  TropicalStorm = 34,
-  StrongWindRadiusKnots = 50,
-  HurricaneOne = 64,
-  HurricaneTwo = 83,
-  HurricaneThree = 96,
-  HurricaneFour = 113,
-  HurricaneFive = 137,
-}
-
-export enum CycloneBandLabel {
-  TropicalStorm = "TS",
-  CategoryOne = "C1",
-  CategoryTwo = "C2",
-  CategoryThree = "C3",
-  CategoryFour = "C4",
-  CategoryFive = "C5",
-}
-
-export enum CycloneWindColor {
-  CategoryFive = "#ff5dff",
-  HurricaneRed = "#ff5d5d",
-  CategoryThree = "#ff8c42",
-  CategoryTwo = "#ffb142",
-  HurricaneAmber = "#ffd24a",
-  TropicalStorm = "#4ad2ff",
-  TropicalDepression = "#8fd3ff",
-}
 
 enum CycloneBandIndex {
-  Last = -1,
   First = 0,
   PreviousOffset = 1,
 }
@@ -66,53 +17,23 @@ enum CycloneBandIndex {
 export const SAFFIR_SIMPSON: readonly {
   cat: SaffirSimpson;
   minKt: number;
-  label: CycloneBandLabel;
-  color: CycloneWindColor;
-}[] = [
-  {
-    cat: SaffirSimpson.Cat5,
-    minKt: CycloneWindThreshold.HurricaneFive,
-    label: CycloneBandLabel.CategoryFive,
-    color: CycloneWindColor.CategoryFive,
-  },
-  {
-    cat: SaffirSimpson.Cat4,
-    minKt: CycloneWindThreshold.HurricaneFour,
-    label: CycloneBandLabel.CategoryFour,
-    color: CycloneWindColor.HurricaneRed,
-  },
-  {
-    cat: SaffirSimpson.Cat3,
-    minKt: CycloneWindThreshold.HurricaneThree,
-    label: CycloneBandLabel.CategoryThree,
-    color: CycloneWindColor.CategoryThree,
-  },
-  {
-    cat: SaffirSimpson.Cat2,
-    minKt: CycloneWindThreshold.HurricaneTwo,
-    label: CycloneBandLabel.CategoryTwo,
-    color: CycloneWindColor.CategoryTwo,
-  },
-  {
-    cat: SaffirSimpson.Cat1,
-    minKt: CycloneWindThreshold.HurricaneOne,
-    label: CycloneBandLabel.CategoryOne,
-    color: CycloneWindColor.HurricaneAmber,
-  },
-];
+  label: string;
+  color: string;
+}[] = CYCLONE_HURRICANE_CATEGORIES_DESCENDING.map((category) => {
+  const {
+    color,
+    minimumWindKt: minKt,
+    saffirSimpson: cat,
+  } = CYCLONE_CATEGORY_METADATA[category];
+  return { cat, minKt, label: cycloneCategoryShortLabel(category), color };
+});
 
-/** Saffir-Simpson category for a sustained wind in knots. */
-export function saffirSimpson(kt: number): SaffirSimpson {
-  for (const band of SAFFIR_SIMPSON) if (kt >= band.minKt) return band.cat;
-  return SaffirSimpson.None;
-}
-
-/** Short category tag for a sustained wind: a band label, or a storm class. */
 export function categoryShort(kt: number): string {
   for (const band of SAFFIR_SIMPSON) if (kt >= band.minKt) return band.label;
-  return kt >= CycloneWindThreshold.TropicalStorm
+  const category = kt >= CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt
     ? Category.TropicalStorm
     : Category.TropicalDepression;
+  return cycloneCategoryShortLabel(category);
 }
 
 export const SAFFIR_LEGEND: ReadonlyArray<{
@@ -134,10 +55,10 @@ export const SAFFIR_LEGEND: ReadonlyArray<{
     };
   }),
   {
-    label: CycloneBandLabel.TropicalStorm,
-    color: CycloneWindColor.TropicalStorm,
-    range: `${ktToMph(CycloneWindThreshold.TropicalStorm)}-${ktToMph(
-      SAFFIR_SIMPSON.at(CycloneBandIndex.Last)!.minKt -
+    label: cycloneCategoryShortLabel(Category.TropicalStorm),
+    color: CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].color,
+    range: `${ktToMph(CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt)}-${ktToMph(
+      CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt -
         CycloneBandIndex.PreviousOffset,
     )} mph`,
   },
@@ -145,41 +66,20 @@ export const SAFFIR_LEGEND: ReadonlyArray<{
 
 export function windColor(kt: number): string {
   for (const b of SAFFIR_SIMPSON) if (kt >= b.minKt) return b.color;
-  if (kt >= CycloneWindThreshold.TropicalStorm) {
-    return CycloneWindColor.TropicalStorm;
-  }
-  return CycloneWindColor.TropicalDepression;
+  const category = kt >= CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt
+    ? Category.TropicalStorm
+    : Category.TropicalDepression;
+  return CYCLONE_CATEGORY_METADATA[category].color;
 }
 
 export function windRadiiBandColor(thresholdKt: number): string {
-  if (thresholdKt >= CycloneWindThreshold.HurricaneOne) {
-    return CycloneWindColor.HurricaneRed;
+  if (thresholdKt >= CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt) {
+    return CYCLONE_CATEGORY_METADATA[Category.Hurricane4].color;
   }
-  if (thresholdKt >= CycloneWindThreshold.TropicalStorm) {
-    return thresholdKt > CycloneWindThreshold.TropicalStorm
-      ? CycloneWindColor.HurricaneAmber
-      : CycloneWindColor.TropicalStorm;
+  if (thresholdKt > CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt) {
+    return CYCLONE_CATEGORY_METADATA[Category.Hurricane1].color;
   }
-  return CycloneWindColor.TropicalStorm;
-}
-
-enum CycloneModelCode {
-  Official = "OFCL",
-  Consensus = "TVCN",
-  Gfs = "AVNO",
-  GfsOperational = "GFSO",
-  Ecmwf = "EMXI",
-  EcmwfOperational = "EMX",
-  Canadian = "CMC",
-  CanadianInterpolated = "CMCI",
-  Ukmet = "UKM",
-  UkmetInterpolated = "UKMI",
-  Hwrf = "HWRF",
-  HwrfInterpolated = "HWFI",
-  Hmon = "HMON",
-  HmonInterpolated = "HMNI",
-  Navy = "NVGM",
-  GefsMean = "AEMN",
+  return CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].color;
 }
 
 enum CycloneModelColor {
@@ -200,24 +100,51 @@ enum CycloneColorHash {
   Multiplier = 31,
 }
 
-const MODEL_COLOR: Readonly<Record<CycloneModelCode, CycloneModelColor>> = {
-  [CycloneModelCode.Official]: CycloneModelColor.Violet,
-  [CycloneModelCode.Consensus]: CycloneModelColor.Fuchsia,
-  [CycloneModelCode.Gfs]: CycloneModelColor.Sky,
-  [CycloneModelCode.GfsOperational]: CycloneModelColor.Sky,
-  [CycloneModelCode.Ecmwf]: CycloneModelColor.Rose,
-  [CycloneModelCode.EcmwfOperational]: CycloneModelColor.Rose,
-  [CycloneModelCode.Canadian]: CycloneModelColor.Green,
-  [CycloneModelCode.CanadianInterpolated]: CycloneModelColor.Green,
-  [CycloneModelCode.Ukmet]: CycloneModelColor.Amber,
-  [CycloneModelCode.UkmetInterpolated]: CycloneModelColor.Amber,
-  [CycloneModelCode.Hwrf]: CycloneModelColor.Orange,
-  [CycloneModelCode.HwrfInterpolated]: CycloneModelColor.Orange,
-  [CycloneModelCode.Hmon]: CycloneModelColor.Pink,
-  [CycloneModelCode.HmonInterpolated]: CycloneModelColor.Pink,
-  [CycloneModelCode.Navy]: CycloneModelColor.Teal,
-  [CycloneModelCode.GefsMean]: CycloneModelColor.Slate,
+type CycloneModelMetadata = Readonly<{
+  color: CycloneModelColor;
+  label: string;
+}>;
+
+type CycloneModelFamilyMetadata = CycloneModelMetadata &
+  Readonly<{ aliases: readonly CycloneModelCode[] }>;
+
+const MODEL_FAMILY_BY_PRIMARY_CODE: Readonly<
+  Partial<Record<CycloneModelCode, CycloneModelFamilyMetadata>>
+> = {
+  [CycloneModelCode.Official]: { aliases: [], color: CycloneModelColor.Violet, label: "NHC Official" },
+  [CycloneModelCode.Consensus]: { aliases: [], color: CycloneModelColor.Fuchsia, label: "Consensus" },
+  [CycloneModelCode.Gfs]: { aliases: [CycloneModelCode.GfsOperational], color: CycloneModelColor.Sky, label: "GFS" },
+  [CycloneModelCode.Ecmwf]: { aliases: [CycloneModelCode.EcmwfOperational], color: CycloneModelColor.Rose, label: "ECMWF" },
+  [CycloneModelCode.Canadian]: { aliases: [CycloneModelCode.CanadianInterpolated], color: CycloneModelColor.Green, label: "Canadian" },
+  [CycloneModelCode.Ukmet]: { aliases: [CycloneModelCode.UkmetInterpolated], color: CycloneModelColor.Amber, label: "UKMET" },
+  [CycloneModelCode.Hwrf]: { aliases: [CycloneModelCode.HwrfInterpolated], color: CycloneModelColor.Orange, label: "HWRF" },
+  [CycloneModelCode.Hmon]: { aliases: [CycloneModelCode.HmonInterpolated], color: CycloneModelColor.Pink, label: "HMON" },
+  [CycloneModelCode.Navy]: { aliases: [], color: CycloneModelColor.Teal, label: "Navy NAVGEM" },
+  [CycloneModelCode.GefsMean]: { aliases: [], color: CycloneModelColor.Slate, label: "GEFS Mean" },
 };
+
+function buildModelMetadataByCode(): Readonly<
+  Partial<Record<CycloneModelCode, CycloneModelMetadata>>
+> {
+  const metadataByCode: Partial<Record<CycloneModelCode, CycloneModelMetadata>> = {};
+  for (const primaryCode of Object.keys(MODEL_FAMILY_BY_PRIMARY_CODE)) {
+    if (!isEnumValue(primaryCode, CycloneModelCode)) continue;
+    const family = MODEL_FAMILY_BY_PRIMARY_CODE[primaryCode];
+    if (!family) continue;
+    const metadata = { color: family.color, label: family.label };
+    metadataByCode[primaryCode] = metadata;
+    for (const alias of family.aliases) metadataByCode[alias] = metadata;
+  }
+  return metadataByCode;
+}
+
+const MODEL_METADATA_BY_CODE = buildModelMetadataByCode();
+
+function knownModelMetadata(model: string): CycloneModelMetadata | undefined {
+  return isEnumValue(model, CycloneModelCode)
+    ? MODEL_METADATA_BY_CODE[model]
+    : undefined;
+}
 
 const MODEL_FALLBACK = Object.values(CycloneModelColor).filter(
   (color) => color !== CycloneModelColor.Slate &&
@@ -226,7 +153,10 @@ const MODEL_FALLBACK = Object.values(CycloneModelColor).filter(
 );
 
 export function modelColor(model: string): string {
-  if (isEnumValue(model, CycloneModelCode)) return MODEL_COLOR[model];
+  const metadata = knownModelMetadata(model);
+  if (metadata) {
+    return metadata.color;
+  }
   let hash = CycloneColorHash.Seed;
   for (const character of model) {
     hash = (
@@ -236,4 +166,10 @@ export function modelColor(model: string): string {
   }
   return MODEL_FALLBACK[hash % MODEL_FALLBACK.length] ??
     CycloneModelColor.Violet;
+}
+
+export function modelLabel(model: string): string {
+  const metadata = knownModelMetadata(model);
+  if (!metadata) return model;
+  return metadata.label;
 }

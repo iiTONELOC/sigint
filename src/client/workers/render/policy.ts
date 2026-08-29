@@ -1,7 +1,37 @@
+import { Domain } from "@shared/domain/identity";
+
 export type RenderPolicy = Readonly<{
-  landGeometryUrl: string;
   maxDevicePixelRatio: number;
 }>;
+
+export const REGISTERED_RENDER_LAYER_DEFAULTS = Object.freeze({
+  [Domain.Ships]: true,
+  [Domain.Events]: true,
+  [Domain.Quakes]: true,
+  [Domain.Fires]: true,
+  [Domain.Weather]: true,
+  [Domain.Cyclones]: true,
+});
+
+export type RenderLayerId =
+  keyof typeof REGISTERED_RENDER_LAYER_DEFAULTS;
+
+export type RenderLayerVisibility = Readonly<
+  Record<RenderLayerId, boolean>
+>;
+
+export function isRenderLayerId(value: unknown): value is RenderLayerId {
+  return (
+    typeof value === "string" &&
+    Object.hasOwn(REGISTERED_RENDER_LAYER_DEFAULTS, value)
+  );
+}
+
+export function registeredRenderLayerIds(): RenderLayerId[] {
+  return Object.keys(REGISTERED_RENDER_LAYER_DEFAULTS).filter(
+    isRenderLayerId,
+  );
+}
 
 export type CameraPolicy = Readonly<{
   autoRotationRadiansPerSecond: number;
@@ -48,7 +78,6 @@ export type CameraPolicy = Readonly<{
 }>;
 
 export const RENDER_POLICY: RenderPolicy = {
-  landGeometryUrl: "/data/ne_50m_land.json",
   maxDevicePixelRatio: 2,
 };
 

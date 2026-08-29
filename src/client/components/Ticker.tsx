@@ -10,26 +10,21 @@ import {
   useReducer,
   useRef,
 } from "react";
-import { Domain } from "@shared/domain/identity";
 import { MS_PER_SECOND } from "@shared/time";
-import { useTheme } from "@/theme";
-import { useData } from "@/context/DataContext";
-import { cacheGet } from "@/lib/cache";
-import { CacheKey } from "@shared/domain/cache";
+import { useUI } from "@/context/UIContext";
 import { DomEvent } from "@/runtime";
 import { formatLat, formatLon } from "@/geo";
-import { useUnitsMode } from "@/preferences/units";
+import { useTickerSpeed } from "@/preferences";
+import { useUnitsMode } from "@/preferences/units/useUnitsMode";
 import { TickerSpeedPolicy } from "@/shell/ticker";
 
 import type { DataPoint } from "@/features/base/dataPoints";
-import { featureIconProps } from "@/features/base/presentation";
+import {
+  featureIconProps,
+  FeaturePresentationText,
+} from "@/features/base/presentation";
 import { relativeAge } from "@/time";
 import { featureRegistry } from "@/features/registry";
-import {
-  FireCopy,
-  formatUnroundedFirePower,
-} from "@/features/environmental/fires/formatters";
-import { WeatherCopy } from "@/features/environmental/weather/formatters";
 
 type TickerProps = {
   readonly items: DataPoint[];
@@ -41,7 +36,6 @@ enum TickerPolicy {
   ItemWidthMobilePx = 220,
   GapPx = 8,
   StoppedSwapMs = 8000,
-  SpeedPollMs = 1000,
   AgeRefreshMs = 30000,
   MobileMaxWidthPx = 640,
   FallbackViewportPx = 1200,
@@ -53,14 +47,6 @@ enum TickerBuffer {
   SlackCount = 2,
 }
 
-enum TickerSummaryText {
-  Event = "Event",
-  Quake = "Quake",
-  Separator = " · ",
-  Unknown = "Unknown",
-  UnknownVessel = "Unknown vessel",
-}
-
 enum TickerCoordinatePolicy {
   DecimalPlaces = 2,
 }
@@ -69,85 +55,13 @@ enum TickerSummaryPolicy {
   CompactPartCount = 2,
 }
 
-// ── Speed setting (persisted to IndexedDB) ──────────────────────────
-
-function useTickerSpeed(): number {
-  const [speed, setSpeed] = useState<number>(TickerSpeedPolicy.Default);
-
-  // Load from cache + poll for external changes
-  useEffect(() => {
-    let mounted = true;
-    cacheGet<number>(CacheKey.TickerSpeed).then((saved) => {
-      if (mounted && typeof saved === "number") setSpeed(saved);
-    });
-    const iv = setInterval(async () => {
-      const saved = await cacheGet<number>(CacheKey.TickerSpeed);
-      if (mounted && typeof saved === "number" && saved !== speed)
-        setSpeed(saved);
-    }, TickerPolicy.SpeedPollMs);
-    return () => {
-      mounted = false;
-      clearInterval(iv);
-    };
-  }, [speed]);
-
-  return speed;
-}
-
-// ── Summary text ────────────────────────────────────────────────────
-
-function summaryLead(item: DataPoint): string[] {
-  switch (item.type) {
-    case Domain.Aircraft: {
-      const lead = [
-        item.data.callsign?.trim() ||
-          item.data.icao24 ||
-          TickerSummaryText.Unknown,
-      ];
-      if (
-        item.data.acType &&
-        item.data.acType !== TickerSummaryText.Unknown
-      ) {
-        lead.push(item.data.acType);
-      }
-      if (item.data.originCountry) lead.push(item.data.originCountry);
-      return lead;
-    }
-    case Domain.Ships:
-      return [item.data.name || TickerSummaryText.UnknownVessel];
-    case Domain.Events:
-      return [item.data.headline || TickerSummaryText.Event];
-    case Domain.Quakes: {
-      const lead: string[] = [
-        item.data.location || TickerSummaryText.Quake,
-      ];
-      if (item.data.magnitude != null) lead.push(`M${item.data.magnitude}`);
-      return lead;
-    }
-    case Domain.Fires: {
-      const lead: string[] = [FireCopy.Hotspot];
-      if (item.data.frp != null) {
-        lead.push(
-          `${FireCopy.RadiativePower} ${formatUnroundedFirePower(item.data.frp)}`,
-        );
-      }
-      return lead;
-    }
-    case Domain.Weather:
-      return [item.data.event || WeatherCopy.TickerAlert];
-    default:
-      return [];
-  }
-}
-
 function tickerSummary(item: DataPoint): string {
+  const feature = featureRegistry[item.type];
   return [
-    ...summaryLead(item),
+    ...(feature?.tickerSummary?.(item.data) ?? []),
     `${formatLat(recordLatitude(item), TickerCoordinatePolicy.DecimalPlaces)}, ${formatLon(recordLongitude(item), TickerCoordinatePolicy.DecimalPlaces)}`,
-  ].join(TickerSummaryText.Separator);
+  ].join(FeaturePresentationText.Separator);
 }
-
-// ── Age refresh ─────────────────────────────────────────────────────
 
 function useAgeRefresh() {
   const [, refresh] = useReducer((count: number) => count + 1, 0);
@@ -156,8 +70,6 @@ function useAgeRefresh() {
     return () => clearInterval(iv);
   }, []);
 }
-
-// ── Item width responsive ───────────────────────────────────────────
 
 function useItemWidth(): number {
   const getW = useCallback(
@@ -177,13 +89,9 @@ function useItemWidth(): number {
   return w;
 }
 
-// ── Component ───────────────────────────────────────────────────────
-
 export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
-  const { selectedCurrent, selectAndZoom, colorMap } = useData();
+  const { selectedCurrent, selectAndZoom, colorMap } = useUI();
   const selectedId = selectedCurrent?.id ?? null;
-  const { theme } = useTheme();
-  const C = theme.colors;
   const baseItemWidth = useItemWidth();
   const itemWidth = compact ? TickerPolicy.ItemWidthMobilePx : baseItemWidth;
   const speed = useTickerSpeed();
@@ -194,7 +102,6 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const step = itemWidth + TickerPolicy.GapPx;
 
-  // Track container width so bufferCount updates when viewport resizes
   const [containerWidth, setContainerWidth] = useState<number>(
     typeof window !== "undefined"
       ? window.innerWidth
@@ -212,21 +119,17 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     return () => obs.disconnect();
   }, []);
 
-  // How many items fill the container + slack
   const bufferCount = useMemo(() => {
     if (containerWidth <= 0) return TickerBuffer.FallbackCount;
     return Math.ceil(containerWidth / step) + TickerBuffer.SlackCount;
   }, [step, containerWidth]);
 
-  // Stable ref to items, prevents a jump on data refresh
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  // Offset into the items array
   const offsetRef = useRef(0);
   const [offset, setOffset] = useState(0);
 
-  // Scroll position: ref for rAF, state for render
   const scrollXRef = useRef(0);
   const [scrollX, setScrollX] = useState(0);
 
@@ -236,7 +139,6 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
   const speedRef = useRef(speed);
   speedRef.current = speed;
 
-  // ── Scrolling mode (speed > 0) ──────────────────────────────────
   useEffect(() => {
     if (items.length === 0) return;
 
@@ -250,7 +152,6 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
       if (!pausedRef.current && currentSpeed > TickerSpeedPolicy.Stopped) {
         scrollXRef.current += currentSpeed * dt;
 
-        // Recycle when first item exits left
         if (scrollXRef.current >= step) {
           scrollXRef.current -= step;
           offsetRef.current += 1;
@@ -270,11 +171,9 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     };
   }, [items.length, step]);
 
-  // ── Stopped mode: swap the visible set periodically ─────────────
   useEffect(() => {
     if (speed !== TickerSpeedPolicy.Stopped || items.length === 0) return;
 
-    // Reset scroll position when stopping
     scrollXRef.current = 0;
     setScrollX(0);
 
@@ -285,7 +184,6 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     return () => clearInterval(iv);
   }, [speed, items.length, bufferCount]);
 
-  // Pause on hover
   const handleMouseEnter = useCallback(() => {
     pausedRef.current = true;
   }, []);
@@ -294,17 +192,15 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
     lastTimeRef.current = 0;
   }, []);
 
-  // Build visible items from itemsRef.current so data refreshes
-  // don't cause a layout jump (offset stays stable)
-  const visible = useMemo(() => {
-    const pool = itemsRef.current;
-    if (pool.length === 0) return [];
-    return Array.from({ length: bufferCount }, (_, i) => {
-      const idx = (((offset + i) % pool.length) + pool.length) % pool.length;
-      return { item: pool[idx]!, slotKey: offset + i };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset, bufferCount, items]);
+  const pool = itemsRef.current;
+  const visible = pool.length === 0
+    ? []
+    : Array.from({ length: bufferCount }, (_, index) => {
+        const itemIndex = (
+          ((offset + index) % pool.length) + pool.length
+        ) % pool.length;
+        return { item: pool[itemIndex]!, slotKey: offset + index };
+      });
 
   return (
     <div
@@ -322,7 +218,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
         }}
       >
         {visible.map(({ item, slotKey }) => {
-          const feature = featureRegistry.get(item.type);
+          const feature = featureRegistry[item.type];
           if (!feature) return null;
 
           const Icon = feature.icon;
@@ -360,9 +256,9 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                   style={{ color }}
                 >
                   {tickerSummary(item)
-                    .split(TickerSummaryText.Separator)
+                    .split(FeaturePresentationText.Separator)
                     .slice(0, TickerSummaryPolicy.CompactPartCount)
-                    .join(TickerSummaryText.Separator)}
+                    .join(FeaturePresentationText.Separator)}
                 </span>
                 <span className="ml-auto text-sig-dim text-(length:--sig-text-xs) shrink-0">
                   {relativeAge(item.timestamp)}
@@ -385,11 +281,7 @@ export function Ticker({ items, compact = false }: Readonly<TickerProps>) {
                   </span>
                 </div>
 
-                <TickerContent
-                  data={item.data}
-                  textColor={C.text}
-                  dimColor={C.dim}
-                />
+                <TickerContent data={item.data} />
               </div>
               )}
             </button>

@@ -1,48 +1,42 @@
 import {
   DEFAULT_AIRCRAFT_FILTER_VALUES,
+  type AircraftFilterValues,
 } from "@shared/domain/aircraftFilter";
 import {
   SaffirSimpson,
-} from "@shared/domain/cycloneClassification";
+} from "@shared/domain/cyclones";
 import { Domain } from "@shared/domain/identity";
 import {
-  pointTypeForSource,
-} from "@/workers/data/sources/registry";
+  RENDER_THEME_COLOR_KEYS,
+  type RenderWorkerColors,
+} from "@shared/domain/theme";
+import {
+  getPointSourceDefinition,
+} from "@shared/domain/pointSource";
 import type {
   RenderSourceId,
-} from "@/workers/data/sourceIds";
+} from "@shared/source";
 import {
-  RENDER_LAYER_IDS,
-  RenderColorKey,
-  RenderFilterBoundary,
+  DEFAULT_RENDER_CYCLONE_OVERLAY,
   RenderGlobeCommandKind,
   RenderProjectionMode,
   RenderRotationSpeedPolicy,
   isRenderGlobeCommand,
   isRenderGlobeStateSnapshot,
-  isRenderLayerId,
-  type RenderAircraftFilter,
   type RenderCycloneFilter,
+  type RenderCycloneOverlay,
   type RenderGlobeCommand,
   type RenderGlobeStateSnapshot,
-  type RenderLayerVisibility,
-  type RenderWorkerColors,
 } from "@/workers/render/protocol";
-
-function createDefaultLayerVisibility(): RenderLayerVisibility {
-  return {
-    [Domain.Ships]: true,
-    [Domain.Events]: true,
-    [Domain.Quakes]: true,
-    [Domain.Fires]: true,
-    [Domain.Weather]: true,
-    [Domain.Cyclones]: true,
-  };
-}
+import {
+  isRenderLayerId,
+  registeredRenderLayerIds,
+  REGISTERED_RENDER_LAYER_DEFAULTS,
+} from "@/workers/render/policy";
 
 function copyAircraftFilter(
-  filter: RenderAircraftFilter,
-): RenderAircraftFilter {
+  filter: AircraftFilterValues,
+): AircraftFilterValues {
   return {
     ...filter,
     squawks: [...filter.squawks],
@@ -53,10 +47,7 @@ function copyAircraftFilter(
 function copyCycloneFilter(
   filter: RenderCycloneFilter,
 ): RenderCycloneFilter {
-  return {
-    ...filter,
-    hiddenModels: [...filter.hiddenModels],
-  };
+  return structuredClone(filter);
 }
 
 function copyRenderTheme(
@@ -84,20 +75,14 @@ export function createDefaultRenderGlobeState(): RenderGlobeStateSnapshot {
     projection: RenderProjectionMode.Globe,
     rotationEnabled: false,
     rotationSpeed: RenderRotationSpeedPolicy.Default,
-    layers: createDefaultLayerVisibility(),
+    layers: { ...REGISTERED_RENDER_LAYER_DEFAULTS },
     aircraftFilter: copyAircraftFilter(
       DEFAULT_AIRCRAFT_FILTER_VALUES,
     ),
-    earthquakeMinimumMagnitude: RenderFilterBoundary.Minimum,
-    fireMinimumConfidence: RenderFilterBoundary.Minimum,
     cycloneFilter: {
       minimumCategory: SaffirSimpson.None,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
       showWarnings: true,
-      hiddenModels: [],
+      overlays: {},
     },
     isolateMode: null,
     reducedMotion: false,
@@ -108,7 +93,7 @@ export function createDefaultRenderGlobeState(): RenderGlobeStateSnapshot {
 export function restoreRenderGlobeStateCommands(
   state: RenderGlobeStateSnapshot,
 ): readonly RenderGlobeCommand[] {
-  const layerCommands: RenderGlobeCommand[] = RENDER_LAYER_IDS.map(
+  const layerCommands: RenderGlobeCommand[] = registeredRenderLayerIds().map(
     (layer) => ({
       kind: RenderGlobeCommandKind.SetLayerVisibility,
       layer,
@@ -132,14 +117,6 @@ export function restoreRenderGlobeStateCommands(
     {
       kind: RenderGlobeCommandKind.SetAircraftFilter,
       filter: copyAircraftFilter(state.aircraftFilter),
-    },
-    {
-      kind: RenderGlobeCommandKind.SetEarthquakeFilter,
-      minimumMagnitude: state.earthquakeMinimumMagnitude,
-    },
-    {
-      kind: RenderGlobeCommandKind.SetFireFilter,
-      minimumConfidence: state.fireMinimumConfidence,
     },
     {
       kind: RenderGlobeCommandKind.SetCycloneFilter,
@@ -174,8 +151,8 @@ function arraysEqual(
 }
 
 function aircraftFiltersEqual(
-  left: RenderAircraftFilter,
-  right: RenderAircraftFilter,
+  left: AircraftFilterValues,
+  right: AircraftFilterValues,
 ): boolean {
   return (
     left.enabled === right.enabled &&
@@ -191,14 +168,23 @@ function cycloneFiltersEqual(
   left: RenderCycloneFilter,
   right: RenderCycloneFilter,
 ): boolean {
+  const entityIds = Object.keys(left.overlays);
   return (
     left.minimumCategory === right.minimumCategory &&
-    left.showForecast === right.showForecast &&
-    left.showCone === right.showCone &&
-    left.showWindField === right.showWindField &&
-    left.showModels === right.showModels &&
     left.showWarnings === right.showWarnings &&
-    arraysEqual(left.hiddenModels, right.hiddenModels)
+    entityIds.length === Object.keys(right.overlays).length &&
+    entityIds.every((entityId) => {
+      const leftOverlay = left.overlays[entityId];
+      const rightOverlay = right.overlays[entityId];
+      if (leftOverlay === undefined || rightOverlay === undefined) return false;
+      return (
+        leftOverlay.showForecast === rightOverlay.showForecast &&
+        leftOverlay.showCone === rightOverlay.showCone &&
+        leftOverlay.showWindField === rightOverlay.showWindField &&
+        leftOverlay.showModels === rightOverlay.showModels &&
+        arraysEqual(leftOverlay.hiddenModels, rightOverlay.hiddenModels)
+      );
+    })
   );
 }
 
@@ -208,7 +194,7 @@ function renderThemesEqual(
 ): boolean {
   if (left === right) return true;
   if (!left || !right) return false;
-  return Object.values(RenderColorKey).every(
+  return RENDER_THEME_COLOR_KEYS.every(
     (key) => left[key] === right[key],
   );
 }
@@ -221,16 +207,13 @@ function renderGlobeStatesEqual(
     left.projection === right.projection &&
     left.rotationEnabled === right.rotationEnabled &&
     left.rotationSpeed === right.rotationSpeed &&
-    RENDER_LAYER_IDS.every(
+    registeredRenderLayerIds().every(
       (layer) => left.layers[layer] === right.layers[layer],
     ) &&
     aircraftFiltersEqual(
       left.aircraftFilter,
       right.aircraftFilter,
     ) &&
-    left.earthquakeMinimumMagnitude ===
-      right.earthquakeMinimumMagnitude &&
-    left.fireMinimumConfidence === right.fireMinimumConfidence &&
     cycloneFiltersEqual(left.cycloneFilter, right.cycloneFilter) &&
     left.isolateMode === right.isolateMode &&
     left.reducedMotion === right.reducedMotion &&
@@ -271,7 +254,7 @@ export class RenderGlobeStateController {
     if (source === Domain.CycloneWarnings) {
       return this.state.cycloneFilter.showWarnings;
     }
-    const layer = pointTypeForSource(source);
+    const layer = getPointSourceDefinition(source).pointType;
     return isRenderLayerId(layer) && this.state.layers[layer];
   }
 
@@ -319,50 +302,48 @@ export class RenderGlobeStateController {
           ...this.state,
           aircraftFilter: command.filter,
         });
-      case RenderGlobeCommandKind.SetEarthquakeFilter:
-        return this.commit({
-          ...this.state,
-          earthquakeMinimumMagnitude: command.minimumMagnitude,
-        });
-      case RenderGlobeCommandKind.SetFireFilter:
-        return this.commit({
-          ...this.state,
-          fireMinimumConfidence: command.minimumConfidence,
-        });
       case RenderGlobeCommandKind.SetCycloneFilter:
         return this.commit({
           ...this.state,
           cycloneFilter: command.filter,
         });
       case RenderGlobeCommandKind.ToggleCycloneLayer:
-        return this.commit({
-          ...this.state,
-          cycloneFilter: {
-            ...this.state.cycloneFilter,
+        return this.commitCycloneOverlay(
+          command.entityId,
+          (overlay) => ({
+            ...overlay,
             [command.layer]:
-              !this.state.cycloneFilter[command.layer],
-          },
-        });
+              !overlay[command.layer],
+          }),
+        );
       case RenderGlobeCommandKind.ToggleCycloneModel:
-        return this.commit({
-          ...this.state,
-          cycloneFilter: {
-            ...this.state.cycloneFilter,
+        return this.commitCycloneOverlay(
+          command.entityId,
+          (overlay) => ({
+            ...overlay,
             hiddenModels: toggledModelCodes(
-              this.state.cycloneFilter.hiddenModels,
+              overlay.hiddenModels,
               command.model,
             ),
-          },
-        });
+          }),
+        );
       case RenderGlobeCommandKind.ToggleAllCycloneModels:
+        return this.commitCycloneOverlay(
+          command.entityId,
+          (overlay) => ({
+            ...overlay,
+            hiddenModels: toggledAllModelCodes(
+              overlay.hiddenModels,
+              command.models,
+            ),
+          }),
+        );
+      case RenderGlobeCommandKind.ToggleCycloneWarnings:
         return this.commit({
           ...this.state,
           cycloneFilter: {
             ...this.state.cycloneFilter,
-            hiddenModels: toggledAllModelCodes(
-              this.state.cycloneFilter.hiddenModels,
-              command.models,
-            ),
+            showWarnings: !this.state.cycloneFilter.showWarnings,
           },
         });
       case RenderGlobeCommandKind.SetIsolation:
@@ -394,5 +375,24 @@ export class RenderGlobeStateController {
     if (renderGlobeStatesEqual(this.state, state)) return null;
     this.state = copyRenderGlobeState(state);
     return this.state;
+  }
+
+  private commitCycloneOverlay(
+    entityId: string,
+    update: (overlay: RenderCycloneOverlay) => RenderCycloneOverlay,
+  ): RenderGlobeStateSnapshot | null {
+    const filter = this.state.cycloneFilter;
+    const overlay = filter.overlays[entityId] ??
+      DEFAULT_RENDER_CYCLONE_OVERLAY;
+    return this.commit({
+      ...this.state,
+      cycloneFilter: {
+        ...filter,
+        overlays: {
+          ...filter.overlays,
+          [entityId]: update(overlay),
+        },
+      },
+    });
   }
 }

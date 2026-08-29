@@ -1,25 +1,51 @@
-// One owner for the dev-only fixture-override loader the aircraft and cyclones
-// caches each copied verbatim. Loads tests/fixtures/<category>/<label>.json when
-// overrides are enabled (non-production only — gated by the caller via opts.enabled,
-// which the composition root sets from `!isProduction`). NOT a production data path.
-
 const FIXTURE_LABEL_RE = /^[a-z0-9-]+$/;
 
-export type FixtureOverride = { body: unknown };
+export type FixtureOverride = Readonly<{ body: unknown }>;
 
 export type FixtureOptions = Readonly<{
   enabled: boolean;
   label: string | undefined;
 }>;
 
-/**
- * Resolve a fixture override for a feature.
- * @param category fixture subdirectory under tests/fixtures (e.g. "aircraft").
- * @param envVarName the env var the label came from, for a clear error message.
- * @param opts whether overrides are enabled and the requested fixture label.
- * @returns the parsed fixture body, or null when overrides are off / no label.
- * @throws if the label is malformed or the fixture file is missing.
- */
+export enum FixtureOverrideErrorKind {
+  InvalidLabel = "invalid-label",
+  MissingFixture = "missing-fixture",
+}
+
+export class FixtureOverrideError extends Error {
+  constructor(
+    readonly kind: FixtureOverrideErrorKind,
+    readonly environmentVariable: string | null,
+    readonly label: string | null,
+    readonly fixturePath: string | null,
+  ) {
+    super(
+      FixtureOverrideError.message(
+        kind,
+        environmentVariable,
+        label,
+        fixturePath,
+      ),
+    );
+    this.name = "FixtureOverrideError";
+  }
+
+  private static message(
+    kind: FixtureOverrideErrorKind,
+    environmentVariable: string | null,
+    label: string | null,
+    fixturePath: string | null,
+  ): string {
+    switch (kind) {
+      case FixtureOverrideErrorKind.InvalidLabel:
+        return `Invalid ${environmentVariable ?? "fixture"} value: ${label ?? ""}`;
+      case FixtureOverrideErrorKind.MissingFixture:
+        return `Fixture not found: ${fixturePath ?? ""}`;
+    }
+  }
+}
+
+/** Resolve a development fixture override for one feature. */
 export async function resolveFixtureOverride(
   category: string,
   envVarName: string,
@@ -27,12 +53,36 @@ export async function resolveFixtureOverride(
 ): Promise<FixtureOverride | null> {
   if (!opts.enabled || !opts.label) return null;
   if (!FIXTURE_LABEL_RE.test(opts.label)) {
-    throw new Error(`Invalid ${envVarName} value: ${opts.label}`);
+    throw new FixtureOverrideError(
+      FixtureOverrideErrorKind.InvalidLabel,
+      envVarName,
+      opts.label,
+      null,
+    );
   }
   const path = `tests/fixtures/${category}/${opts.label}.json`;
   const file = Bun.file(path);
   if (!(await file.exists())) {
-    throw new Error(`Fixture not found: ${path}`);
+    throw new FixtureOverrideError(
+      FixtureOverrideErrorKind.MissingFixture,
+      null,
+      null,
+      path,
+    );
   }
   return { body: await file.json() };
+}
+
+export class FixtureOverrideOwner {
+  private options: FixtureOptions = { enabled: false, label: undefined };
+
+  constructor(private readonly category: string, private readonly environmentVariable: string) {}
+
+  configure(options: FixtureOptions): void {
+    this.options = options;
+  }
+
+  resolve(options: FixtureOptions = this.options): Promise<FixtureOverride | null> {
+    return resolveFixtureOverride(this.category, this.environmentVariable, options);
+  }
 }

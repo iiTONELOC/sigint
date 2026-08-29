@@ -16,7 +16,7 @@ import {
   recordLongitude,
 } from "@/workers/data/source-model/position";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
-import type { GeoJSONPolygon } from "../types";
+import type { GeoJsonPolygon } from "@shared/geo";
 
 export type ConeAssets = Readonly<{
   ships: readonly DataPoint[];
@@ -39,7 +39,7 @@ const EMPTY_BOUNDS: ConeBounds = {
 
 /** Bounding box of the cone's outer ring, so the worker can page the
  *  candidates before the per-point ray-cast. */
-function coneBboxQuery(cone: GeoJSONPolygon | undefined): PointUiQuery | null {
+function coneBboxQuery(cone: GeoJsonPolygon | undefined): PointUiQuery | null {
   const ring = cone?.coordinates?.[0];
   if (!ring || ring.length === 0) return null;
 
@@ -62,7 +62,7 @@ function coneBboxQuery(cone: GeoJSONPolygon | undefined): PointUiQuery | null {
 
 function insideCone(
   candidates: readonly DataPoint[],
-  cone: GeoJSONPolygon,
+  cone: GeoJsonPolygon,
 ): readonly DataPoint[] {
   return candidates.filter((point) =>
     pointInPolygon(recordLatitude(point), recordLongitude(point), cone),
@@ -70,7 +70,7 @@ function insideCone(
 }
 
 export function useAssetsInCone(
-  cone: GeoJSONPolygon | undefined,
+  cone: GeoJsonPolygon | undefined,
   stormKey: string,
 ): ConeAssets | null {
   // stormKey (advisory number) changes with the cone, so a refreshed advisory

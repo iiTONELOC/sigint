@@ -1,142 +1,123 @@
-// ── GDELT server-side cache ──────────────────────────────────────────
-// Fetches GDELT 2.0 raw export files every 15 minutes.
-// Parses tab-delimited CSV for geocoded events with lat/lon.
-// Single consumer of GDELT data regardless of client count.
-// Zero external dependencies — zip extraction uses Node zlib inflateRaw.
-
-import { inflateRaw } from "zlib";
-import { promisify } from "util";
+import { IntelSeverity } from "@shared/domain/correlation";
+import {
+  EventApiMessage,
+  type GdeltEvent,
+} from "@shared/domain/events";
+import { MS_PER_MINUTE } from "@shared/time";
+import {
+  FETCH_TIMEOUT_LARGE_MS,
+  FETCH_TIMEOUT_STANDARD_MS,
+  fetchWithTimeout,
+} from "../lib/fetchWithTimeout";
+import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
-import { errorMessage } from "../lib/errorMessage";
-import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
+import { unzipSingleEntryKmz } from "./zipReader";
 
-const logger = createLogger({ service: "gdelt" });
-
-const inflateRawAsync = promisify(inflateRaw);
-
-// ── GDELT raw data URLs ──────────────────────────────────────────────
-
-const LASTUPDATE_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt";
-const POLL_INTERVAL_MS = 15 * 60_000;
-
-// ── ZIP extraction (zero deps) ───────────────────────────────────────
-// ZIP local file header: PK\x03\x04, then fixed fields, then filename,
-// then extra, then compressed data. We use Node zlib inflateRaw on the
-// DEFLATE payload. Works in Bun, Node, anywhere — no shell, no deps.
-
-async function extractZipFirstFile(zipBuffer: ArrayBuffer): Promise<string> {
-  const buf = Buffer.from(zipBuffer);
-
-  // Verify ZIP signature
-  if (
-    buf[0] !== 0x50 ||
-    buf[1] !== 0x4b ||
-    buf[2] !== 0x03 ||
-    buf[3] !== 0x04
-  ) {
-    throw new Error("Not a valid ZIP file");
-  }
-
-  const compressionMethod = buf.readUInt16LE(8);
-  const compressedSize = buf.readUInt32LE(18);
-  const filenameLen = buf.readUInt16LE(26);
-  const extraLen = buf.readUInt16LE(28);
-  const dataOffset = 30 + filenameLen + extraLen;
-
-  const compressedData = buf.subarray(dataOffset, dataOffset + compressedSize);
-
-  if (compressionMethod === 0) {
-    // Stored (no compression)
-    return compressedData.toString("utf-8");
-  }
-
-  if (compressionMethod === 8) {
-    // DEFLATE
-    const decompressed = await inflateRawAsync(compressedData);
-    return decompressed.toString("utf-8");
-  }
-
-  throw new Error(`Unsupported ZIP compression method: ${compressionMethod}`);
+enum GdeltService {
+  Name = "gdelt",
 }
 
-// ── GDELT export CSV parsing ─────────────────────────────────────────
-// Tab-delimited, 61 columns per GDELT 2.0 Event Codebook.
-
-const COL = {
-  GlobalEventID: 0,
-  Actor1Name: 6,
-  Actor2Name: 16,
-  EventCode: 26,
-  EventBaseCode: 27,
-  EventRootCode: 28,
-  GoldsteinScale: 30,
-  NumMentions: 31,
-  AvgTone: 34,
-  ActionGeo_Type: 43,
-  ActionGeo_Fullname: 44,
-  ActionGeo_CountryCode: 45,
-  ActionGeo_Lat: 48,
-  ActionGeo_Long: 49,
-  SOURCEURL: 60,
-  DATEADDED: 59,
-} as const;
-
-// CAMEO root codes we care about (conflict, protest, military, etc.)
-// 14 = Protest, 17 = Coerce, 18 = Assault, 19 = Fight, 20 = Unconventional mass violence
-// Also include 10 = Demand, 13 = Threaten, 15 = Exhibit military posture
-const RELEVANT_ROOT_CODES = new Set([
-  "10",
-  "13",
-  "14",
-  "15",
-  "17",
-  "18",
-  "19",
-  "20",
-]);
-
-type GdeltEvent = {
-  id: string;
-  lat: number;
-  lon: number;
-  timestamp: string;
-  headline: string;
-  actor1: string;
-  actor2: string;
-  eventCode: string;
-  goldstein: number;
-  tone: number;
-  mentions: number;
-  locationName: string;
-  countryCode: string;
-  sourceUrl: string;
-  severity: number;
-  category: string;
-};
-
-function parseDateAdded(dateStr: string): string {
-  // Format: YYYYMMDDHHMMSS
-  if (dateStr.length < 14) return new Date().toISOString();
-  const y = dateStr.slice(0, 4);
-  const m = dateStr.slice(4, 6);
-  const d = dateStr.slice(6, 8);
-  const h = dateStr.slice(8, 10);
-  const mn = dateStr.slice(10, 12);
-  const s = dateStr.slice(12, 14);
-  return new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`).toISOString();
+enum GdeltEndpoint {
+  LastUpdate = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt",
 }
 
-function goldsteinToSeverity(gs: number): {
-  severity: number;
-  category: string;
-} {
-  // Goldstein scale: -10 (most conflictual) to +10 (most cooperative)
-  if (gs <= -7) return { severity: 5, category: "Crisis" };
-  if (gs <= -4) return { severity: 4, category: "Conflict" };
-  if (gs <= -2) return { severity: 3, category: "Tension" };
-  if (gs <= 0) return { severity: 2, category: "Concern" };
-  return { severity: 1, category: "Monitoring" };
+enum GdeltPolling {
+  IntervalMinutes = 15,
+}
+
+enum GdeltDateFormat {
+  IsoReplacement = "$1-$2-$3T$4:$5:$6Z",
+}
+
+enum GdeltArchive {
+  ExportMarker = ".export.CSV.zip",
+}
+
+enum GdeltCopy {
+  UnknownActor = "Unknown actor",
+  TargetSeparator = " → ",
+}
+
+enum GdeltColumn {
+  Actor1Name = 6,
+  Actor2Name = 16,
+  EventCode = 26,
+  EventRootCode = 28,
+  GoldsteinScale = 30,
+  NumMentions = 31,
+  AverageTone = 34,
+  ActionGeoFullName = 44,
+  ActionGeoCountryCode = 45,
+  ActionGeoLatitude = 48,
+  ActionGeoLongitude = 49,
+  DateAdded = 59,
+  SourceUrl = 60,
+}
+
+enum GdeltRootCode {
+  Demand = "10",
+  Threaten = "13",
+  Protest = "14",
+  MilitaryPosture = "15",
+  Coerce = "17",
+  Assault = "18",
+  Fight = "19",
+  MassViolence = "20",
+}
+
+enum GdeltGoldsteinThreshold {
+  Crisis = -7,
+  Conflict = -4,
+  Tension = -2,
+  Concern = 0,
+}
+
+enum GdeltDefault {
+  Numeric = 0,
+  Mentions = 1,
+  DecimalRadix = 10,
+}
+
+enum GdeltDiagnostic {
+  LastUpdateRequest = "GDELT lastupdate request failed",
+  MissingExport = "GDELT lastupdate response contained no export file",
+  InvalidExportUrl = "GDELT export URL could not be parsed",
+  ExportRequest = "GDELT export request failed",
+  EmptyExport = "GDELT upstream returned no events; retaining stale cache",
+  Refresh = "GDELT refresh failed",
+  UnknownFailure = "Unknown GDELT refresh failure",
+}
+
+const logger = createLogger({ service: GdeltService.Name });
+const GDELT_DATE_PATTERN =
+  /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).*$/;
+const WWW_PREFIX_PATTERN = /^www\./;
+const RELEVANT_ROOT_CODES: ReadonlySet<string> = new Set(
+  Object.values(GdeltRootCode),
+);
+
+function parseDateAdded(value: string): string {
+  if (!GDELT_DATE_PATTERN.test(value)) return new Date().toISOString();
+  return new Date(
+    value.replace(GDELT_DATE_PATTERN, GdeltDateFormat.IsoReplacement),
+  ).toISOString();
+}
+
+function goldsteinSeverity(goldstein: number): IntelSeverity {
+  if (goldstein <= GdeltGoldsteinThreshold.Crisis) {
+    return IntelSeverity.Crisis;
+  }
+  if (goldstein <= GdeltGoldsteinThreshold.Conflict) {
+    return IntelSeverity.Conflict;
+  }
+  if (goldstein <= GdeltGoldsteinThreshold.Tension) {
+    return IntelSeverity.Tension;
+  }
+  if (goldstein <= GdeltGoldsteinThreshold.Concern) {
+    return IntelSeverity.Concern;
+  }
+  return IntelSeverity.Monitoring;
 }
 
 function buildHeadline(
@@ -144,111 +125,97 @@ function buildHeadline(
   actor2: string,
   eventCode: string,
 ): string {
-  const a1 = actor1 || "Unknown actor";
-  const a2 = actor2 ? ` → ${actor2}` : "";
-  return `${a1}${a2} [${eventCode}]`;
+  const sourceActor = actor1 || GdeltCopy.UnknownActor;
+  const targetActor = actor2
+    ? `${GdeltCopy.TargetSeparator}${actor2}`
+    : "";
+  return `${sourceActor}${targetActor} [${eventCode}]`;
+}
+
+function finiteDecimal(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function finiteInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", GdeltDefault.DecimalRadix);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function sourceDomain(sourceUrl: string): string | undefined {
+  return sourceUrl
+    ? new URL(sourceUrl).hostname.replace(WWW_PREFIX_PATTERN, "")
+    : undefined;
 }
 
 function parseExportCsv(csv: string): GdeltEvent[] {
-  const lines = csv.split("\n");
   const events: GdeltEvent[] = [];
 
-  for (const line of lines) {
+  for (const line of csv.split("\n")) {
     if (!line.trim()) continue;
-    const cols = line.split("\t");
-    if (cols.length < 58) continue;
+    const columns = line.split("\t");
+    if (columns.length <= GdeltColumn.SourceUrl) continue;
 
-    // Filter to conflict/crisis CAMEO root codes
-    // 10=Demand, 13=Threaten, 14=Protest, 15=Military posture,
-    // 17=Coerce, 18=Assault, 19=Fight, 20=Unconventional mass violence
-    const rootCode = cols[COL.EventRootCode]?.trim();
+    const rootCode = columns[GdeltColumn.EventRootCode]?.trim();
     if (!rootCode || !RELEVANT_ROOT_CODES.has(rootCode)) continue;
 
-    // Must have lat/lon
-    const lat = Number.parseFloat(cols[COL.ActionGeo_Lat] ?? "");
-    const lon = Number.parseFloat(cols[COL.ActionGeo_Long] ?? "");
+    const lat = Number.parseFloat(
+      columns[GdeltColumn.ActionGeoLatitude] ?? "",
+    );
+    const lon = Number.parseFloat(
+      columns[GdeltColumn.ActionGeoLongitude] ?? "",
+    );
     if (!isFiniteCoordinate(lat, lon) || isNullIsland(lat, lon)) continue;
 
-    const goldstein = parseFloat(cols[COL.GoldsteinScale] ?? "0");
-    const tone = parseFloat(cols[COL.AvgTone] ?? "0");
-    const mentions = parseInt(cols[COL.NumMentions] ?? "1", 10);
-    const { severity, category } = goldsteinToSeverity(
-      isFinite(goldstein) ? goldstein : 0,
+    const goldstein = finiteDecimal(
+      columns[GdeltColumn.GoldsteinScale],
+      GdeltDefault.Numeric,
     );
-
-    const actor1 = cols[COL.Actor1Name]?.trim() ?? "";
-    const actor2 = cols[COL.Actor2Name]?.trim() ?? "";
-    const eventCode =
-      cols[COL.EventCode]?.trim() ?? cols[COL.EventRootCode]?.trim() ?? "";
-    const sourceUrl = cols[COL.SOURCEURL]?.trim() ?? "";
-    const dateAdded = cols[COL.DATEADDED]?.trim() ?? "";
-    const locationName = cols[COL.ActionGeo_Fullname]?.trim() ?? "";
-    const countryCode = cols[COL.ActionGeo_CountryCode]?.trim() ?? "";
-    const globalEventId = cols[COL.GlobalEventID]?.trim() ?? "";
+    const tone = finiteDecimal(
+      columns[GdeltColumn.AverageTone],
+      GdeltDefault.Numeric,
+    );
+    const mentions = finiteInteger(
+      columns[GdeltColumn.NumMentions],
+      GdeltDefault.Mentions,
+    );
+    const actor1 = columns[GdeltColumn.Actor1Name]?.trim() ?? "";
+    const actor2 = columns[GdeltColumn.Actor2Name]?.trim() ?? "";
+    const eventCode = columns[GdeltColumn.EventCode]?.trim() ?? rootCode;
+    const sourceUrl = columns[GdeltColumn.SourceUrl]?.trim() ?? "";
+    const severity = goldsteinSeverity(goldstein);
 
     events.push({
-      id: globalEventId,
       lat,
       lon,
-      timestamp: parseDateAdded(dateAdded),
-      headline: buildHeadline(actor1, actor2, eventCode),
-      actor1,
-      actor2,
-      eventCode,
-      goldstein: isFinite(goldstein) ? goldstein : 0,
-      tone: isFinite(tone) ? tone : 0,
-      mentions,
-      locationName,
-      countryCode,
-      sourceUrl,
-      severity,
-      category,
+      timestamp: parseDateAdded(
+        columns[GdeltColumn.DateAdded]?.trim() ?? "",
+      ),
+      data: {
+        headline: buildHeadline(actor1, actor2, eventCode),
+        category: IntelSeverity[severity],
+        source: sourceDomain(sourceUrl),
+        sourceCountry:
+          columns[GdeltColumn.ActionGeoCountryCode]?.trim() ?? "",
+        url: sourceUrl,
+        tone,
+        severity,
+        locationName:
+          columns[GdeltColumn.ActionGeoFullName]?.trim() ?? "",
+        goldstein,
+        mentions,
+        actor1: actor1 || undefined,
+        actor2: actor2 || undefined,
+      },
     });
   }
 
   return events;
 }
 
-// ── Convert to GeoJSON for client compatibility ──────────────────────
-// The client already parses GeoJSON format, so we wrap events in that.
-
-function toGeoJSON(events: GdeltEvent[]): object {
-  return {
-    type: "FeatureCollection",
-    features: events.map((e) => ({
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: [e.lon, e.lat],
-      },
-      properties: {
-        name: e.locationName,
-        url: e.sourceUrl,
-        urltone: String(e.tone),
-        urlpubtimedate: e.timestamp,
-        domain: e.sourceUrl
-          ? new URL(e.sourceUrl).hostname.replace(/^www\./, "")
-          : undefined,
-        html: `<a href="${e.sourceUrl}">${e.headline}</a>`,
-        urlsourcecountry: e.countryCode,
-        goldstein: e.goldstein,
-        mentions: e.mentions,
-        actor1: e.actor1,
-        actor2: e.actor2,
-        eventCode: e.eventCode,
-        severity: e.severity,
-        category: e.category,
-      },
-    })),
-  };
-}
-
-// ── Cache state ──────────────────────────────────────────────────────
-
 type GdeltCache = {
-  data: object | null;
+  data: readonly GdeltEvent[] | null;
   fetchedAt: number;
-  eventCount: number;
   error: string | null;
   lastExportUrl: string | null;
 };
@@ -256,109 +223,101 @@ type GdeltCache = {
 let cache: GdeltCache = {
   data: null,
   fetchedAt: 0,
-  eventCount: 0,
   error: null,
   lastExportUrl: null,
 };
 
-
-// ── Fetch pipeline ───────────────────────────────────────────────────
+function recordFailure(
+  message: GdeltDiagnostic,
+  fields?: Record<string, unknown>,
+): void {
+  logger.warn(message, fields);
+  cache = { ...cache, error: EventApiMessage.Unavailable };
+}
 
 async function fetchGdelt(): Promise<void> {
   try {
-    // 1. Get latest update file list
-    const updateRes = await fetch(LASTUPDATE_URL);
-    if (!updateRes.ok) {
-      cache = {
-        ...cache,
-        error: `lastupdate.txt returned ${updateRes.status}`,
-      };
+    const updateResponse = await fetchWithTimeout(
+      GdeltEndpoint.LastUpdate,
+      FETCH_TIMEOUT_STANDARD_MS,
+    );
+    if (!updateResponse.ok) {
+      recordFailure(GdeltDiagnostic.LastUpdateRequest, {
+        statusCode: updateResponse.status,
+      });
       return;
     }
 
-    const updateText = await updateRes.text();
-    const lines = updateText.trim().split("\n");
-
-    // Find the .export.CSV.zip line
-    const exportLine = lines.find((l) => l.includes(".export.CSV.zip"));
+    const exportLine = (await updateResponse.text())
+      .trim()
+      .split("\n")
+      .find((line) => line.includes(GdeltArchive.ExportMarker));
     if (!exportLine) {
-      cache = { ...cache, error: "No export file found in lastupdate.txt" };
+      recordFailure(GdeltDiagnostic.MissingExport);
       return;
     }
 
     const exportUrl = exportLine.split(" ").pop()?.trim();
     if (!exportUrl) {
-      cache = { ...cache, error: "Could not parse export URL" };
+      recordFailure(GdeltDiagnostic.InvalidExportUrl);
       return;
     }
-
-    // Skip if we already fetched this exact file
     if (exportUrl === cache.lastExportUrl && cache.data) return;
 
-    // 2. Download the zip
-    const zipRes = await fetch(exportUrl);
-    if (!zipRes.ok) {
-      cache = { ...cache, error: `Export download failed: ${zipRes.status}` };
+    const exportResponse = await fetchWithTimeout(
+      exportUrl,
+      FETCH_TIMEOUT_LARGE_MS,
+    );
+    if (!exportResponse.ok) {
+      recordFailure(GdeltDiagnostic.ExportRequest, {
+        statusCode: exportResponse.status,
+      });
       return;
     }
 
-    const zipBuffer = await zipRes.arrayBuffer();
-
-    // 3. Extract CSV from zip
-    const csv = await extractZipFirstFile(zipBuffer);
-
-    // 4. Parse events
+    const csv = await unzipSingleEntryKmz(
+      new Uint8Array(await exportResponse.arrayBuffer()),
+    );
     const events = parseExportCsv(csv);
 
-    // If upstream returned valid response but 0 events, retain stale cache
     if (events.length === 0 && cache.data) {
-      logger.info(
-        "⚡ GDELT: upstream returned 0 events — retaining stale cache",
-      );
-      cache = { ...cache, error: "Upstream returned 0 events" };
+      recordFailure(GdeltDiagnostic.EmptyExport);
       return;
     }
 
-    // 5. Convert to GeoJSON and cache
-    const geojson = toGeoJSON(events);
-
     cache = {
-      data: geojson,
+      data: events,
       fetchedAt: Date.now(),
-      eventCount: events.length,
       error: null,
       lastExportUrl: exportUrl,
     };
-  } catch (err) {
-    cache = {
-      ...cache,
-      error: errorMessage(err, "Unknown fetch error"),
-    };
+  } catch (cause) {
+    const error =
+      cause instanceof Error
+        ? cause
+        : new Error(GdeltDiagnostic.UnknownFailure);
+    logger.error(GdeltDiagnostic.Refresh, { error });
+    cache = { ...cache, error: EventApiMessage.Unavailable };
   }
 }
 
-// ── Public API ───────────────────────────────────────────────────────
-
-const poller = createPoller(fetchGdelt, POLL_INTERVAL_MS);
+const poller = createPoller(
+  fetchGdelt,
+  GdeltPolling.IntervalMinutes * MS_PER_MINUTE,
+);
 
 export function startGdeltPolling(): void {
   poller.start();
 }
 
-export function stopGdeltPolling(): void {
-  poller.stop();
-}
-
 export function getGdeltCache(): {
-  data: object | null;
+  data: readonly GdeltEvent[] | null;
   fetchedAt: number;
-  eventCount: number;
   error: string | null;
 } {
   return {
     data: cache.data,
     fetchedAt: cache.fetchedAt,
-    eventCount: cache.eventCount,
     error: cache.error,
   };
 }
@@ -368,7 +327,6 @@ export function __resetGdeltCacheForTests(): void {
   cache = {
     data: null,
     fetchedAt: 0,
-    eventCount: 0,
     error: null,
     lastExportUrl: null,
   };

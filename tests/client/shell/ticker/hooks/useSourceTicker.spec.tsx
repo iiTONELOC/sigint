@@ -43,6 +43,10 @@ type TickerHookCall = Readonly<{
   source: QueryableSourceId;
 }>;
 
+type TickerHookRequest = (
+  source: QueryableSourceId,
+) => PointUiQuery | null;
+
 type TickerHookResult = PointUiQueryResult<DataPoint>;
 
 const queryCalls: TickerHookCall[] = [];
@@ -51,14 +55,18 @@ const sourceResults = new Map<
   TickerHookResult | null
 >();
 
+function mockSourceQueries(request: TickerHookRequest) {
+  return Object.fromEntries(
+    QUERYABLE_SOURCE_IDS.map((source) => {
+      const query = request(source);
+      if (query) queryCalls.push({ query, source });
+      return [source, sourceResults.get(source) ?? null];
+    }),
+  );
+}
+
 mock.module("@/features/base/useSourceQuery", () => ({
-  useSourceQuery: (
-    source: QueryableSourceId,
-    query: PointUiQuery,
-  ) => {
-    queryCalls.push({ query, source });
-    return sourceResults.get(source) ?? null;
-  },
+  useSourceQueries: mockSourceQueries,
 }));
 
 const { useSourceTicker } = await import(

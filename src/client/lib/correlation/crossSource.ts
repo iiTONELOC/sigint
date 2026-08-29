@@ -1,6 +1,6 @@
 // ── Cross-source correlation rules ──────────────────────────────────
 // Spatial-temporal matching across data types using the 2° grid index.
-// Each rule is O(n) — query points check ~9 neighboring cells.
+// Each rule is O(n). Query points check approximately nine neighboring cells.
 
 import {
   recordLatitude,
@@ -10,7 +10,7 @@ import type { DataPoint, DataType } from "@/features/base/dataPoints";
 import {
   WeatherSeverity,
   weatherSeverityRank,
-} from "@/features/environmental/weather/severity";
+} from "@shared/domain/weather";
 import { Domain } from "@shared/domain/identity";
 import { haversineKm } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";

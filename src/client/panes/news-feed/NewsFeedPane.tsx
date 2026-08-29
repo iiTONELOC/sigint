@@ -4,7 +4,7 @@ import { useVirtualScroll } from "@/virtual-scroll";
 import { AgeStyle, relativeAge } from "@/time";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
 import type { NewsArticle } from "@/features/news";
 import { ButtonType } from "@/lib/ui/button";
 import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
@@ -70,7 +70,7 @@ function saveNewsState(state: SavedNewsState): void {
 // ── Component ───────────────────────────────────────────────────────
 
 export function NewsFeedPane() {
-  const { newsArticles: articles } = useData();
+  const { newsArticles: articles } = useDataContext();
 
   const [sourceFilter, setSourceFilter] = useState<NewsSource | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -143,6 +143,7 @@ export function NewsFeedPane() {
       <div className={NewsFeedClassName.Root}>
         <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 border-b border-sig-border/40">
           <button
+            type={ButtonType.Button}
             onClick={() => updateSelected(null)}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
           >
@@ -217,6 +218,7 @@ export function NewsFeedPane() {
           className="text-sig-dim shrink-0"
         />
         <button
+          type={ButtonType.Button}
           onClick={() => updateSourceFilter(null)}
           className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
             sourceFilter === null
@@ -232,6 +234,7 @@ export function NewsFeedPane() {
           const active = sourceFilter === src;
           return (
             <button
+              type={ButtonType.Button}
               key={src}
               onClick={() => updateSourceFilter(active ? null : src)}
               className={`touch-target shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${

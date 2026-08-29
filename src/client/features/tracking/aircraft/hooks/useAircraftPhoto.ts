@@ -1,8 +1,14 @@
-// Fetched client-side (viewer's IP) so it isn't blocked like the server-IP call.
 import { useEffect, useState } from "react";
-import type { AircraftPhoto } from "@/panes/dossier/dossierTypes";
 
 const API = "https://api.planespotters.net/pub/photos/hex";
+
+export type AircraftPhoto = Readonly<{
+  src: string;
+  link: string;
+  photographer: string;
+  width: number;
+  height: number;
+}>;
 
 type PsPhoto = {
   thumbnail: { src: string; size: { width: number; height: number } };
@@ -13,15 +19,13 @@ type PsPhoto = {
 
 async function fetchPhoto(
   icao24: string,
-  reg: string | undefined,
-  typeCode: string | undefined,
+  registration: string | undefined,
   signal: AbortSignal,
 ): Promise<AircraftPhoto | null> {
-  let url = `${API}/${icao24.toUpperCase()}`;
-  const params: string[] = [];
-  if (reg) params.push(`reg=${encodeURIComponent(reg)}`);
-  if (typeCode) params.push(`icaoType=${encodeURIComponent(typeCode)}`);
-  if (params.length > 0) url += `?${params.join("&")}`;
+  const query = registration
+    ? `?reg=${encodeURIComponent(registration)}`
+    : "";
+  const url = `${API}/${icao24.toUpperCase()}${query}`;
 
   const res = await fetch(url, { signal });
   if (!res.ok) return null;
@@ -46,7 +50,6 @@ export type AircraftPhotoState = {
 export function useAircraftPhoto(
   icao24: string,
   reg?: string,
-  typeCode?: string,
 ): AircraftPhotoState {
   const [photo, setPhoto] = useState<AircraftPhoto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,29 +61,29 @@ export function useAircraftPhoto(
       return;
     }
     const controller = new AbortController();
-    let cancelled = false;
     setPhoto(null);
     setLoading(true);
     (async () => {
       try {
-        let p = await fetchPhoto(icao24, undefined, undefined, controller.signal);
-        if (!p && reg) p = await fetchPhoto(icao24, reg, typeCode, controller.signal);
-        if (!cancelled) {
-          setPhoto(p);
+        let result = await fetchPhoto(icao24, undefined, controller.signal);
+        if (!result && reg) {
+          result = await fetchPhoto(icao24, reg, controller.signal);
+        }
+        if (!controller.signal.aborted) {
+          setPhoto(result);
           setLoading(false);
         }
-      } catch (err) {
-        if (!cancelled && (err as Error)?.name !== "AbortError") {
+      } catch {
+        if (!controller.signal.aborted) {
           setPhoto(null);
           setLoading(false);
         }
       }
     })();
     return () => {
-      cancelled = true;
       controller.abort();
     };
-  }, [icao24, reg, typeCode]);
+  }, [icao24, reg]);
 
   return { photo, loading };
 }

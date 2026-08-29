@@ -1,139 +1,90 @@
-// ── AIS server-side cache ────────────────────────────────────────────
-// Connects to aisstream.io via the `ws` npm package using require() to
-// prevent Bun from intercepting the import with its native WebSocket.
-// Explicit https.Agent forces Node's TLS stack.
-//
-// Accumulates latest position per MMSI in memory.
-// Serves snapshot via /api/ships/latest with token auth.
-// Optional env var: AISSTREAM_API_KEY — if absent, ships endpoint returns 503.
-
-// require() (not import) avoids Bun's ESM WebSocket polyfill for aisstream.
-const WebSocketClient = require("ws");
-// require() avoids Bun's ESM polyfill so we keep Node's TLS stack.
-const https = require("https");
-
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errorMessage";
-import { isNullIsland, isUsableCoordinate } from "../lib/geoValidation";
+import { isUsableCoordinate } from "../lib/geoValidation";
+import {
+  AisNavigationStatus,
+  type AisVesselRecord,
+} from "@shared/domain/ships";
+import {
+  HOURS_PER_DAY,
+  MS_PER_HOUR,
+  MS_PER_MINUTE,
+  MS_PER_SECOND,
+  SECONDS_PER_MINUTE,
+} from "@shared/time";
+import { GeoLimit, isRecord } from "@shared/geo";
+import { isNumberEnumValue } from "@shared/types/enum";
+import { optionalFiniteNumber } from "@shared/types/numbers";
+import WebSocket, { type RawData } from "ws";
+import * as https from "https";
 
 const logger = createLogger({ service: "ais" });
 
 const AISSTREAM_WS_URL = "wss://stream.aisstream.io/v0/stream";
-const RECONNECT_DELAY_MS = 10_000;
-const PRUNE_INTERVAL_MS = 5 * 60_000;
-const MAX_VESSEL_AGE_MS = 60 * 60_000;
+const RECONNECT_DELAY_MS = 10 * MS_PER_SECOND;
+const PRUNE_INTERVAL_MS = 5 * MS_PER_MINUTE;
+const MAX_VESSEL_AGE_MS = MS_PER_HOUR;
+const AIS_TEXT_PADDING = "@";
 
-// ── Vessel record ────────────────────────────────────────────────────
-
-type VesselRecord = {
-  mmsi: number;
-  lat: number;
-  lon: number;
-  sog: number;
-  cog: number;
-  heading: number;
-  navStatus: number;
-  lastSeen: number;
-
-  rot?: number;
-
-  name?: string;
-  callSign?: string;
-  imo?: number;
-  shipType?: number;
-  destination?: string;
-  draught?: number;
-  eta?: string;
-  dimA?: number;
-  dimB?: number;
-  dimC?: number;
-  dimD?: number;
-};
-
-// AIS ETA arrives as {Month,Day,Hour,Minute} (no year); 0/24/60 are the
-// "unavailable" sentinels. Format to a compact "Jun 24 14:30" or undefined.
-const ETA_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatEta(eta: { Month?: number; Day?: number; Hour?: number; Minute?: number } | undefined): string | undefined {
-  if (!eta) return undefined;
-  const mo = eta.Month ?? 0;
-  const day = eta.Day ?? 0;
-  if (mo < 1 || mo > 12 || day < 1 || day > 31) return undefined;
-  const hh = eta.Hour != null && eta.Hour < 24 ? String(eta.Hour).padStart(2, "0") : "00";
-  const mm = eta.Minute != null && eta.Minute < 60 ? String(eta.Minute).padStart(2, "0") : "00";
-  return `${ETA_MONTHS[mo]} ${day} ${hh}:${mm}`;
+export enum AisMessageType {
+  PositionReport = "PositionReport",
+  ShipStaticData = "ShipStaticData",
 }
 
-// ── Cache state ──────────────────────────────────────────────────────
+const ETA_MONTHS = [
+  "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+  "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
-const vessels = new Map<number, VesselRecord>();
-let wsConnection: any = null;
+function formatEta(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const month = optionalFiniteNumber(value.Month) ?? 0;
+  const day = optionalFiniteNumber(value.Day) ?? 0;
+  const maximumDay = 31;
+  const fieldWidth = 2;
+  const unavailableField = "00";
+  if (month < 1 || month >= ETA_MONTHS.length || day < 1 || day > maximumDay) return undefined;
+  const hour = optionalFiniteNumber(value.Hour);
+  const minute = optionalFiniteNumber(value.Minute);
+  const hourText = hour !== undefined && hour < HOURS_PER_DAY
+    ? String(hour).padStart(fieldWidth, "0") : unavailableField;
+  const minuteText = minute !== undefined && minute < SECONDS_PER_MINUTE
+    ? String(minute).padStart(fieldWidth, "0") : unavailableField;
+  return `${ETA_MONTHS[month]} ${day} ${hourText}:${minuteText}`;
+}
+
+export function normalizeAisText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  let end = trimmed.length;
+  while (end > 0 && trimmed[end - 1] === AIS_TEXT_PADDING) end -= 1;
+  const normalized = trimmed.slice(0, end);
+  return normalized || undefined;
+}
+
+function parseAisMessage(raw: RawData): unknown {
+  let bytes: Buffer;
+  if (Array.isArray(raw)) bytes = Buffer.concat(raw);
+  else if (raw instanceof ArrayBuffer) bytes = Buffer.from(raw);
+  else bytes = raw;
+  return JSON.parse(bytes.toString("utf8"));
+}
+
+const vessels = new Map<number, AisVesselRecord>();
+let wsConnection: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let lastError: string | null = null;
 let messageCount = 0;
 
-// ── Nav status labels ────────────────────────────────────────────────
-
-const NAV_STATUS_LABELS: Record<number, string> = {
-  0: "Under way using engine",
-  1: "At anchor",
-  2: "Not under command",
-  3: "Restricted manoeuvrability",
-  4: "Constrained by draught",
-  5: "Moored",
-  6: "Aground",
-  7: "Engaged in fishing",
-  8: "Under way sailing",
-  9: "Reserved (HSC)",
-  10: "Reserved (WIG)",
-  11: "Power-driven towing astern",
-  12: "Power-driven pushing/towing",
-  14: "AIS-SART",
-  15: "Not defined",
-};
-
-// ── Ship type labels (AIS type codes) ────────────────────────────────
-
-function shipTypeLabel(code?: number): string {
-  if (code == null) return "Unknown";
-  const labels: Record<number, string> = {
-    20: "WIG",
-    30: "Fishing",
-    31: "Towing",
-    32: "Towing (large)",
-    33: "Dredging",
-    34: "Diving ops",
-    35: "Military ops",
-    36: "Sailing",
-    37: "Pleasure craft",
-    40: "HSC",
-    50: "Pilot vessel",
-    51: "SAR",
-    52: "Tug",
-    53: "Port tender",
-    54: "Anti-pollution",
-    55: "Law enforcement",
-    58: "Medical",
-    59: "Noncombatant",
-    60: "Passenger",
-    70: "Cargo",
-    80: "Tanker",
-    90: "Other",
-  };
-  const tens = Math.floor(code / 10) * 10;
-  return labels[code] ?? labels[tens] ?? "Unknown";
-}
-
-// ── WebSocket connection ─────────────────────────────────────────────
-
 let configuredApiKey: string | undefined;
 
 function connect(): void {
+  if (!started) return;
   const apiKey = configuredApiKey;
   if (!apiKey) {
-    lastError = "AISSTREAM_API_KEY not configured — ships data unavailable";
+    lastError = "AISSTREAM_API_KEY not configured: ships data unavailable";
     logger.warn("🚢 AIS: no API key set, skipping");
     return;
   }
@@ -141,214 +92,168 @@ function connect(): void {
   logger.info("🚢 AIS: connecting to aisstream.io...");
 
   try {
-    // Force Node's TLS stack via explicit https agent
     const agent = new https.Agent({ rejectUnauthorized: true });
-    const ws = new WebSocketClient(AISSTREAM_WS_URL, { agent });
+    const ws = new WebSocket(AISSTREAM_WS_URL, { agent });
     wsConnection = ws;
 
     ws.on("open", () => {
+      if (!started) {
+        ws.close();
+        return;
+      }
       lastError = null;
       const subscription = {
         APIKey: apiKey,
         BoundingBoxes: [
           [
-            [-90, -180],
-            [90, 180],
+            [GeoLimit.MinLatitude, GeoLimit.MinLongitude],
+            [GeoLimit.MaxLatitude, GeoLimit.MaxLongitude],
           ],
         ],
-        FilterMessageTypes: ["PositionReport", "ShipStaticData"],
+        FilterMessageTypes: [AisMessageType.PositionReport, AisMessageType.ShipStaticData],
       };
       ws.send(JSON.stringify(subscription));
       logger.info("🚢 AIS: WebSocket connected, subscription sent");
     });
 
-    ws.on("message", (raw: any) => {
+    ws.on("message", (raw: RawData) => {
       try {
-        const msg = JSON.parse(String(raw));
+        const message = parseAisMessage(raw);
         messageCount++;
         if (messageCount === 1) logger.info("🚢 AIS: first message received");
-        if (messageCount % 10000 === 0)
-          logger.info(
-            `🚢 AIS: ${messageCount} messages, ${vessels.size} vessels`,
-          );
-        handleAisMessage(msg);
+        handleAisMessage(message);
       } catch {
-        // malformed message — skip
+        logger.warn("🚢 AIS: skipped a malformed message");
       }
     });
 
     ws.on("close", (code: number, reason: Buffer) => {
-      const why = reason?.length ? ` — ${reason.toString("utf8")}` : "";
+      const why = reason.length ? `: ${reason.toString("utf8")}` : "";
       logger.warn(`🚢 AIS: WebSocket closed (code: ${code})${why}`);
       wsConnection = null;
       scheduleReconnect();
     });
 
     ws.on("error", (err: Error) => {
-      lastError = `ws error: ${err.message ?? "unknown"}`;
+      lastError = `ws error: ${err.message}`;
       logger.error(`🚢 AIS: ${lastError}`);
     });
   } catch (err) {
     lastError = errorMessage(err, "Connection failed");
-    logger.error(`🚢 AIS: connection failed — ${lastError}`);
+    logger.error(`🚢 AIS: connection failed: ${lastError}`);
     scheduleReconnect();
   }
 }
 
 function scheduleReconnect(): void {
-  if (reconnectTimer) return;
+  if (!started || reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
   }, RECONNECT_DELAY_MS);
 }
 
-// ── Message handling ─────────────────────────────────────────────────
+export function handlePositionReport(
+  message: Readonly<Record<string, unknown>>,
+  metadata: Readonly<Record<string, unknown>>,
+  mmsi: number,
+  now: number,
+): void {
+  if (!isRecord(message.Message)) return;
+  const report = message.Message[AisMessageType.PositionReport];
+  if (!isRecord(report)) return;
+  const latitude = optionalFiniteNumber(report.Latitude) ?? optionalFiniteNumber(metadata.latitude);
+  const longitude = optionalFiniteNumber(report.Longitude) ?? optionalFiniteNumber(metadata.longitude);
+  if (latitude === undefined || longitude === undefined) return;
+  if (!isUsableCoordinate(latitude, longitude)) return;
 
-function handleAisMessage(msg: any): void {
-  const msgType = msg.MessageType;
-  const meta = msg.MetaData;
-  if (!meta?.MMSI) return;
-
-  const mmsi = meta.MMSI as number;
-  const now = Date.now();
-
-  if (msgType === "PositionReport") {
-    const pos = msg.Message?.PositionReport;
-    if (!pos) return;
-
-    const lat = pos.Latitude ?? meta.latitude;
-    const lon = pos.Longitude ?? meta.longitude;
-    if (lat == null || lon == null) return;
-    if (!isUsableCoordinate(lat, lon)) return;
-
-    const existing = vessels.get(mmsi);
-    if (existing) {
-      existing.lat = lat;
-      existing.lon = lon;
-      existing.sog = pos.Sog ?? existing.sog;
-      existing.cog = pos.Cog ?? existing.cog;
-      existing.heading = pos.TrueHeading ?? existing.heading;
-      existing.navStatus = pos.NavigationalStatus ?? existing.navStatus;
-      existing.rot = pos.RateOfTurn ?? existing.rot;
-      existing.lastSeen = now;
-      if (!existing.name && meta.ShipName) {
-        existing.name = meta.ShipName.trim();
-      }
-    } else {
-      vessels.set(mmsi, {
-        mmsi,
-        lat,
-        lon,
-        sog: pos.Sog ?? 0,
-        cog: pos.Cog ?? 0,
-        heading: pos.TrueHeading ?? 0,
-        navStatus: pos.NavigationalStatus ?? 15,
-        rot: pos.RateOfTurn ?? undefined,
-        lastSeen: now,
-        name: meta.ShipName?.trim() || undefined,
-      });
-    }
-  } else if (msgType === "ShipStaticData") {
-    const sd = msg.Message?.ShipStaticData;
-    if (!sd) return;
-
-    const existing = vessels.get(mmsi);
-    if (existing) {
-      if (sd.Name) existing.name = sd.Name.trim().replace(/@+$/, "");
-      if (sd.CallSign) existing.callSign = sd.CallSign.trim();
-      if (sd.ImoNumber && sd.ImoNumber > 0) existing.imo = sd.ImoNumber;
-      if (sd.Type != null) existing.shipType = sd.Type;
-      if (sd.Destination)
-        existing.destination = sd.Destination.trim().replace(/@+$/, "");
-      if (sd.MaximumStaticDraught) existing.draught = sd.MaximumStaticDraught;
-      const eta = formatEta(sd.Eta);
-      if (eta) existing.eta = eta;
-      if (sd.Dimension) {
-        existing.dimA = sd.Dimension.A;
-        existing.dimB = sd.Dimension.B;
-        existing.dimC = sd.Dimension.C;
-        existing.dimD = sd.Dimension.D;
-      }
-      existing.lastSeen = now;
-    } else {
-      const lat = meta.latitude ?? 0;
-      const lon = meta.longitude ?? 0;
-      if (isNullIsland(lat, lon)) return;
-
-      vessels.set(mmsi, {
-        mmsi,
-        lat,
-        lon,
-        sog: 0,
-        cog: 0,
-        heading: 0,
-        navStatus: 15,
-        lastSeen: now,
-        name: sd.Name?.trim().replace(/@+$/, "") || meta.ShipName?.trim(),
-        callSign: sd.CallSign?.trim() || undefined,
-        imo: sd.ImoNumber > 0 ? sd.ImoNumber : undefined,
-        shipType: sd.Type ?? undefined,
-        destination: sd.Destination?.trim().replace(/@+$/, "") || undefined,
-        draught: sd.MaximumStaticDraught || undefined,
-        eta: formatEta(sd.Eta),
-        dimA: sd.Dimension?.A,
-        dimB: sd.Dimension?.B,
-        dimC: sd.Dimension?.C,
-        dimD: sd.Dimension?.D,
-      });
-    }
-  }
+  const previous = vessels.get(mmsi);
+  vessels.set(mmsi, {
+    ...previous,
+    mmsi,
+    lat: latitude,
+    lon: longitude,
+    sog: optionalFiniteNumber(report.Sog) ?? previous?.sog ?? 0,
+    cog: optionalFiniteNumber(report.Cog) ?? previous?.cog ?? 0,
+    heading: optionalFiniteNumber(report.TrueHeading) ?? previous?.heading ?? 0,
+    navStatus: isNumberEnumValue(
+      report.NavigationalStatus,
+      AisNavigationStatus,
+    ) ? report.NavigationalStatus
+      : previous?.navStatus ?? AisNavigationStatus.NotDefined,
+    rot: optionalFiniteNumber(report.RateOfTurn) ?? previous?.rot,
+    name: previous?.name ?? normalizeAisText(metadata.ShipName),
+    lastSeen: now,
+  });
 }
 
-// ── Pruning ──────────────────────────────────────────────────────────
+export function handleShipStaticData(
+  message: Readonly<Record<string, unknown>>,
+  metadata: Readonly<Record<string, unknown>>,
+  mmsi: number,
+  now: number,
+): void {
+  if (!isRecord(message.Message)) return;
+  const staticData = message.Message[AisMessageType.ShipStaticData];
+  if (!isRecord(staticData)) return;
+
+  const previous = vessels.get(mmsi);
+  const latitude = previous?.lat ?? optionalFiniteNumber(metadata.latitude);
+  const longitude = previous?.lon ?? optionalFiniteNumber(metadata.longitude);
+  if (latitude === undefined || longitude === undefined) return;
+  if (!isUsableCoordinate(latitude, longitude)) return;
+
+  const imo = optionalFiniteNumber(staticData.ImoNumber);
+  const draught = optionalFiniteNumber(staticData.MaximumStaticDraught);
+  const dimensions = isRecord(staticData.Dimension) ? staticData.Dimension : null;
+  vessels.set(mmsi, {
+    ...previous,
+    mmsi,
+    lat: latitude,
+    lon: longitude,
+    sog: previous?.sog ?? 0,
+    cog: previous?.cog ?? 0,
+    heading: previous?.heading ?? 0,
+    navStatus: previous?.navStatus ?? AisNavigationStatus.NotDefined,
+    lastSeen: now,
+    name: normalizeAisText(staticData.Name) ?? previous?.name ?? normalizeAisText(metadata.ShipName),
+    callSign: normalizeAisText(staticData.CallSign) ?? previous?.callSign,
+    imo: imo !== undefined && Number.isSafeInteger(imo) && imo > 0
+      ? imo
+      : previous?.imo,
+    shipTypeCode: optionalFiniteNumber(staticData.Type) ?? previous?.shipTypeCode,
+    destination: normalizeAisText(staticData.Destination) ?? previous?.destination,
+    draught: draught !== undefined && draught > 0
+      ? draught
+      : previous?.draught,
+    eta: formatEta(staticData.Eta) ?? previous?.eta,
+    dimA: optionalFiniteNumber(dimensions?.A) ?? previous?.dimA,
+    dimB: optionalFiniteNumber(dimensions?.B) ?? previous?.dimB,
+    dimC: optionalFiniteNumber(dimensions?.C) ?? previous?.dimC,
+    dimD: optionalFiniteNumber(dimensions?.D) ?? previous?.dimD,
+  });
+}
+
+function handleAisMessage(value: unknown): void {
+  if (!isRecord(value) || !isRecord(value.MetaData)) return;
+  const mmsi = optionalFiniteNumber(value.MetaData.MMSI);
+  if (mmsi === undefined || !Number.isSafeInteger(mmsi) || mmsi <= 0) {
+    return;
+  }
+  const now = Date.now();
+  if (value.MessageType === AisMessageType.PositionReport) {
+    handlePositionReport(value, value.MetaData, mmsi, now);
+  } else if (value.MessageType === AisMessageType.ShipStaticData) {
+    handleShipStaticData(value, value.MetaData, mmsi, now);
+  }
+}
 
 function pruneStale(): void {
   const cutoff = Date.now() - MAX_VESSEL_AGE_MS;
-  for (const [mmsi, v] of vessels) {
-    if (v.lastSeen < cutoff) vessels.delete(mmsi);
+  for (const [mmsi, vessel] of vessels) {
+    if (vessel.lastSeen < cutoff) vessels.delete(mmsi);
   }
 }
-
-// ── Convert to client payload ────────────────────────────────────────
-
-function toClientPayload(): object[] {
-  const result: object[] = [];
-  for (const v of vessels.values()) {
-    if (v.lat === 0 && v.lon === 0) continue;
-    const length = (v.dimA ?? 0) + (v.dimB ?? 0);
-    const width = (v.dimC ?? 0) + (v.dimD ?? 0);
-    result.push({
-      mmsi: v.mmsi,
-      lat: v.lat,
-      lon: v.lon,
-      sog: v.sog,
-      cog: v.cog,
-      heading: v.heading,
-      navStatus: v.navStatus,
-      navStatusLabel: NAV_STATUS_LABELS[v.navStatus] ?? "Unknown",
-      rot: v.rot,
-      lastSeen: v.lastSeen,
-      name: v.name,
-      callSign: v.callSign,
-      imo: v.imo,
-      shipType: v.shipType,
-      shipTypeLabel: shipTypeLabel(v.shipType),
-      destination: v.destination,
-      draught: v.draught,
-      eta: v.eta,
-      length: length > 0 ? length : undefined,
-      width: width > 0 ? width : undefined,
-      dimA: v.dimA,
-      dimB: v.dimB,
-      dimC: v.dimC,
-      dimD: v.dimD,
-    });
-  }
-  return result;
-}
-
-// ── Public API ───────────────────────────────────────────────────────
 
 export function startAisPolling(apiKey: string | undefined): void {
   if (started) return;
@@ -375,26 +280,22 @@ export function stopAisPolling(): void {
 }
 
 export function getAisCache(): {
-  data: object[] | null;
+  data: readonly AisVesselRecord[] | null;
   vesselCount: number;
   messageCount: number;
   error: string | null;
   connected: boolean;
 } {
-  const data = vessels.size > 0 ? toClientPayload() : null;
+  const data = vessels.size > 0 ? Array.from(vessels.values()) : null;
   return {
     data,
     vesselCount: vessels.size,
     messageCount,
     error: lastError,
-    connected: wsConnection?.readyState === 1,
+    connected: wsConnection?.readyState === WebSocket.OPEN,
   };
 }
 
-/** TEST-ONLY: reset module state so independent test files don't bleed
- *  into each other. Does NOT touch `wsConnection` or timers — those are
- *  owned by `startAisPolling` / `stopAisPolling` and any test
- *  exercising them is responsible for tearing them down separately. */
 export function __resetAisCacheForTests(): void {
   vessels.clear();
   lastError = null;

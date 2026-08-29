@@ -1,10 +1,7 @@
 import { expect, mock, type Mock } from "bun:test";
 import { act, type ReactElement } from "react";
 import { ResizeHandle } from "@/panes/ResizeHandle";
-import {
-  SplitDirection,
-  type SplitDirectionValue,
-} from "@/panes/workspace/model";
+import { SplitDirection, type SplitDirectionValue } from "@/panes/workspace/model/pane";
 import { DomEvent, DomInputType } from "@/runtime";
 import {
   renderReact,

@@ -15,7 +15,7 @@ The DataWorker owns all geographic source records. React does not own a merged g
 | Owner | Data |
 | --- | --- |
 | Bun server | Server poll state, protected credentials, normalized provider responses, and disposable server caches |
-| DataWorker | Geographic source records, source versions, source status, IndexedDB records, trails, aircraft dossiers, render searches, and scene publication |
+| DataWorker | Geographic source records, source versions, source status, IndexedDB records, trails, aircraft dossiers, Earthquake auxiliary acquisition, render searches, and scene publication |
 | CorrelationWorker | Worker-local copies of geographic records for analysis |
 | RenderWorker | Packed scene records, render selection, search visibility, camera state, and frame state |
 | React | News articles, pane state, controls, bounded query results, and one selected record copy |
@@ -126,10 +126,35 @@ React requests bounded data for a specific UI purpose:
 - One ticker page
 - One selected trail
 - One aircraft dossier
+- One selected Earthquake waveform
+- Current tsunami alerts
 
 `useSourceQuery()` reruns a query when the source version changes. It keeps the last valid page while a new request is active.
 
 The DataWorker limits query results. React never subscribes to the complete geographic collection.
+
+## Earthquake auxiliary path
+
+The selected Earthquake dossier uses the existing DataWorker request and reply
+protocol for auxiliary data.
+
+```text
+selected Earthquake
+  -> React lifecycle request
+  -> DataWorker
+  -> EarthScope waveform or NWS tsunami acquisition
+  -> validated bounded result
+  -> React dossier props
+```
+
+A waveform request starts only for the selected Earthquake. Selection change
+or dossier unmount cancels the worker-owned request. The result is not
+persisted.
+
+Tsunami alerts load when the Earthquake dossier mounts, refresh every five
+minutes, and refresh when the page becomes visible. They are not persisted.
+React owns only the bounded loading and result state needed to render the
+dossier.
 
 ## React contexts
 

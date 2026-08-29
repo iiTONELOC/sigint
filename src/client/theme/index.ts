@@ -1,30 +1,24 @@
 export {
-  LAYER_COLOR_KEYS,
-  LAYER_COLOR_LABELS,
   LAYER_COLOR_METADATA,
-  ThemeColorKey,
   ThemeCssVar,
-  ThemeMode,
   isLayerColorKey,
-  isThemeMode,
   themes,
   type ColorOverrides,
   type LayerColorKey,
   type LayerColorMetadata,
-  type ResolvedThemeMode,
   type Theme,
   type ThemeColors,
-  type ThemeContextValue,
-} from "./model";
-export { ThemeProvider } from "./components";
-export { useTheme } from "./hooks";
+} from "./model/colors";
+export { ThemeMode, isThemeMode, type ResolvedThemeMode } from "./model/themeMode";
+export type { ThemeContextValue } from "./model/context";
+export { ThemeProvider } from "./components/ThemeProvider";
+export { useTheme } from "./hooks/useTheme";
 export {
   applyColorOverrides,
-  applyThemeToRoot,
   createEmptyOverrides,
   filterHeadingColor,
   getColorMap,
-  resolveThemeMode,
-  systemThemeMediaQuery,
   type FeatureColorMap,
-} from "./utils";
+} from "./utils/colors";
+export { applyThemeToRoot } from "./utils/stylesheet";
+export { resolveThemeMode, systemThemeMediaQuery } from "./utils/mode";

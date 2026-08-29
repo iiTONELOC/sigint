@@ -1,16 +1,16 @@
-import { themes } from "@/config/theme";
+import { themes } from "@/theme";
+import { isRenderWorkerColors } from "@/workers/render/protocol";
 import {
-  RenderColorKey,
-  isRenderWorkerColors,
+  RENDER_THEME_COLOR_KEYS,
   type RenderWorkerColors,
-} from "@/workers/render/protocol";
+} from "@shared/domain/theme";
 
 enum RenderThemeFixtureError {
   Invalid = "The render theme fixture is invalid",
 }
 
 export function createRenderThemeFixture(): RenderWorkerColors {
-  const entries = Object.values(RenderColorKey).map((key) => [
+  const entries = RENDER_THEME_COLOR_KEYS.map((key) => [
     key,
     themes.dark.colors[key],
   ]);

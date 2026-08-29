@@ -114,8 +114,7 @@ function mockAllFetch() {
 const TEST_POINT: DataPoint = {
   id: "test-aircraft",
   type: Domain.Aircraft,
-  lat: 40.7,
-  lon: -73.9,
+  position: [-73.9, 40.7],
   timestamp: new Date().toISOString(),
   data: { icao24: "abc123", callsign: "UAL123" },
 };
@@ -123,15 +122,21 @@ const TEST_POINT: DataPoint = {
 // ── Render helper using ref to always get latest context ────────────
 
 async function renderDataContext() {
-  const { DataProvider, useData } = await import(
+  const { DataProvider, useDataContext } = await import(
     "@/context/DataContext?t=" + Math.random()
   );
-  const { ThemeProvider } = await import("@/context/ThemeContext");
+  const { useUI } = await import("@/context/UIContext");
+  const { useWatch } = await import("@/context/WatchContext");
+  const { ThemeProvider } = await import("@/theme");
 
   const ref = { current: null as any };
 
   function Consumer() {
-    ref.current = useData();
+    ref.current = {
+      ...useDataContext(),
+      ...useUI(),
+      ...useWatch(),
+    };
     return null;
   }
 
@@ -310,28 +315,6 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("filters object includes all feature types (incl cyclones)", async () => {
-    const { ref, unmount } = await renderDataContext();
-    expect(ref.current.filters.aircraft).toBeDefined();
-    expect(ref.current.filters.ships).toBeDefined();
-    expect(ref.current.filters.events).toBeDefined();
-    expect(ref.current.filters.quakes).toBeDefined();
-    expect(ref.current.filters.fires).toBeDefined();
-    expect(ref.current.filters.weather).toBeDefined();
-    expect(ref.current.filters.cyclones).toBeDefined();
-    unmount();
-  });
-
-  test("cyclones filter has the documented shape", async () => {
-    const { ref, unmount } = await renderDataContext();
-    const f = ref.current.filters.cyclones;
-    expect(f.enabled).toBe(true);
-    expect(f.minCategory).toBe(0);
-    expect(f.showForecast).toBe(true);
-    expect(f.showCone).toBe(true);
-    unmount();
-  });
-
   test("dataSources includes all 8 sources (cyclones added in step 8)", async () => {
     const { ref, unmount } = await renderDataContext();
     const ids = ref.current.dataSources.map((s: any) => s.id);
@@ -408,14 +391,14 @@ describe("DataContext", () => {
     unmount();
   });
 
-  test("useData throws outside DataProvider", async () => {
-    const { DataContextError, useData } = await import(
+  test("useDataContext throws outside DataProvider", async () => {
+    const { DataContextError, useDataContext } = await import(
       "@/context/DataContext"
     );
-    const { ThemeProvider } = await import("@/context/ThemeContext");
+    const { ThemeProvider } = await import("@/theme");
 
     function Orphan() {
-      useData();
+      useDataContext();
       return null;
     }
 

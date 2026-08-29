@@ -12,9 +12,10 @@ const CODE39: Record<string, string> = {
 };
 
 const QZ = 12;
+const BARCODE_HEIGHT = 30;
 
 // A real barcode must be dark bars on a light field to scan, regardless of UI
-// theme — so these two are intentionally fixed (not sig- tokens that flip).
+// theme, so these colors do not use theme tokens.
 const FIELD = "#f4f6fb";
 const BAR = "#0a0d14";
 
@@ -25,14 +26,14 @@ type Props = {
 
 export function Barcode({ value, className = "" }: Props) {
   const data = `*${value.toUpperCase()}*`;
-  const bars: { x: number; w: number }[] = [];
+  const barWidthByX: Record<number, number> = {};
   let x = QZ;
   for (const ch of data) {
     const pat = CODE39[ch];
     if (!pat) continue;
     for (let e = 0; e < 9; e++) {
       const w = pat[e] === "1" ? 3 : 1;
-      if (e % 2 === 0) bars.push({ x, w });
+      if (e % 2 === 0) barWidthByX[x] = w;
       x += w;
     }
     x += 1;
@@ -41,15 +42,16 @@ export function Barcode({ value, className = "" }: Props) {
 
   return (
     <svg
-      viewBox={`0 0 ${total} 30`}
+      viewBox={`0 0 ${total} ${BARCODE_HEIGHT}`}
       preserveAspectRatio="none"
       className={`block ${className}`}
       role="img"
       aria-label={`Barcode ${value}`}
     >
-      <rect x={0} y={0} width={total} height={30} fill={FIELD} />
-      {bars.map((b) => (
-        <rect key={b.x} x={b.x} y={0} width={b.w} height={30} fill={BAR} />
+      <rect x={0} y={0} width={total} height={BARCODE_HEIGHT} fill={FIELD} />
+      {Object.entries(barWidthByX).map(([barX, width]) => (
+        <rect key={barX} x={Number(barX)} y={0} width={width}
+          height={BARCODE_HEIGHT} fill={BAR} />
       ))}
     </svg>
   );

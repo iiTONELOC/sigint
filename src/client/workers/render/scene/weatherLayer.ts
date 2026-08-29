@@ -1,4 +1,3 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   WEATHER_AREA_FILL,
   weatherAreaKind,
@@ -8,7 +7,8 @@ import {
 import {
   type WeatherSeverity,
   weatherSeverityFromRank,
-} from "@/features/environmental/weather/severity";
+} from "@shared/domain/weather";
+import { MarkerDepthAlpha } from "@/workers/render/primitives/markerStyle";
 import {
   markerPulseIntensity,
   type MarkerVisualRenderer,
@@ -22,28 +22,19 @@ import {
   RenderLayerOrder,
 } from "@/workers/render/scene/sceneLayer";
 import {
-  sceneRecordIsVisible,
+  sceneSourceIncludes,
   type EnabledSceneFilter,
 } from "@/workers/render/scene/visibility";
-import {
-  WeatherSceneAttribute,
-  WeatherSceneSchema,
-} from "@/workers/render/scene/weatherSchema";
 import {
   sceneNumericAttribute,
   type RenderSceneView,
 } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
 import { Domain } from "@shared/domain/identity";
+import { WeatherSceneAttribute } from "@shared/scene";
 
 enum WeatherMarkerScale {
   Selected = 2,
-}
-
-enum WeatherMarkerAlpha {
-  DepthBase = 0.4,
-  DepthGain = 0.6,
-  MarkerGain = 0.8,
 }
 
 enum WeatherMarkerGeometry {
@@ -54,7 +45,7 @@ enum WeatherMarkerGeometry {
 export type WeatherSceneFilter = EnabledSceneFilter;
 
 export type WeatherSceneStyle = Readonly<{
-  context: Ctx;
+  context: OffscreenCanvasRenderingContext2D;
   color: string;
   selectedId: string | null;
   time: number;
@@ -62,7 +53,7 @@ export type WeatherSceneStyle = Readonly<{
 }>;
 
 export type WeatherAreaStyle = Readonly<{
-  context: Ctx;
+  context: OffscreenCanvasRenderingContext2D;
   selectedId: string | null;
   time: number;
 }>;
@@ -85,18 +76,7 @@ export function weatherSceneIncludes(
   index: number,
   filter: WeatherSceneFilter,
 ): boolean {
-  return (
-    view.attributeStride === WeatherSceneSchema.AttributeStride &&
-    view.stringAttributeStride ===
-      WeatherSceneSchema.StringAttributeStride &&
-    sceneRecordIsVisible(
-      view,
-      index,
-      Domain.Weather,
-      filter.enabled,
-      filter,
-    )
-  );
+  return sceneSourceIncludes(Domain.Weather, view, index, filter);
 }
 
 export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
@@ -168,10 +148,10 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
         size,
         color: style.color,
         fillAlpha:
-          (WeatherMarkerAlpha.DepthBase +
-            projection.depth * WeatherMarkerAlpha.DepthGain) *
+        (MarkerDepthAlpha.Base +
+          projection.depth * MarkerDepthAlpha.Gain) *
           marker.alpha *
-          WeatherMarkerAlpha.MarkerGain,
+          MarkerDepthAlpha.StandardGain,
         selected,
         glow: pulse
           ? {

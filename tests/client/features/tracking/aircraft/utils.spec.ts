@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import {
+  type AircraftData,
+  type AircraftPoint,
   MilFilter,
   SquawkBucket,
   SquawkCode,
   SquawkStatus,
+  squawkStatusFor,
+  squawkStatusLabel,
 } from "@shared/domain/aircraft";
-import type { BasePoint } from "@/features/base/types";
-import type {
-  AircraftData,
-  AircraftFilter,
-} from "@/features/tracking/aircraft/types";
 import {
-  getSquawkStatus,
-  getSquawkStatusLabel,
-  matchesAircraftFilter,
   normalizeIcao24,
-} from "@/features/tracking/aircraft/lib/utils";
+} from "@shared/domain/aircraftDossier";
+import {
+  matchesAircraftFilter,
+  type AircraftFilterValues,
+} from "@shared/domain/aircraftFilter";
 
 enum AircraftFixtureCoordinate {
   Origin = 0,
@@ -27,7 +27,6 @@ enum AircraftFixtureText {
   IcaoLower = "abc123",
   IcaoQuoted = "'abc123'",
   IcaoShort = "abc",
-  IcaoShortPadded = "000abc",
   IcaoSpaced = "  abc123  ",
   IcaoUpper = "ABC123",
   InvalidIcao = "xyz123",
@@ -35,10 +34,6 @@ enum AircraftFixtureText {
   UnitedKingdom = "UK",
   UnitedStates = "US",
 }
-
-type AircraftPoint = BasePoint & Readonly<{
-  data: AircraftData;
-}>;
 
 function aircraftPoint(
   data: Partial<AircraftData> = {},
@@ -51,22 +46,24 @@ function aircraftPoint(
       ...data,
     },
     id: "aircraft-fixture",
-    lat: AircraftFixtureCoordinate.Origin,
-    lon: AircraftFixtureCoordinate.Origin,
+    position: [
+      AircraftFixtureCoordinate.Origin,
+      AircraftFixtureCoordinate.Origin,
+    ],
     type: Domain.Aircraft,
   };
 }
 
 function aircraftFilter(
-  values: Partial<AircraftFilter> = {},
-): AircraftFilter {
+  values: Partial<AircraftFilterValues> = {},
+): AircraftFilterValues {
   return {
-    countries: new Set(),
+    countries: [],
     enabled: true,
     milFilter: MilFilter.All,
     showAirborne: true,
     showGround: true,
-    squawks: new Set(),
+    squawks: [],
     ...values,
   };
 }
@@ -82,9 +79,7 @@ describe("normalizeIcao24", () => {
     expect(normalizeIcao24(AircraftFixtureText.IcaoQuoted)).toBe(
       AircraftFixtureText.IcaoLower,
     );
-    expect(normalizeIcao24(AircraftFixtureText.IcaoShort)).toBe(
-      AircraftFixtureText.IcaoShortPadded,
-    );
+    expect(normalizeIcao24(AircraftFixtureText.IcaoShort)).toBeNull();
   });
 
   test("rejects absent and invalid ICAO values", () => {
@@ -96,31 +91,31 @@ describe("normalizeIcao24", () => {
 
 describe("aircraft squawk presentation", () => {
   test("classifies the three emergency codes", () => {
-    expect(getSquawkStatus(SquawkCode.Emergency)).toBe(
+    expect(squawkStatusFor(SquawkCode.Emergency)).toBe(
       SquawkStatus.Emergency,
     );
-    expect(getSquawkStatus(SquawkCode.RadioFailure)).toBe(
+    expect(squawkStatusFor(SquawkCode.RadioFailure)).toBe(
       SquawkStatus.RadioFailure,
     );
-    expect(getSquawkStatus(SquawkCode.Hijack)).toBe(
+    expect(squawkStatusFor(SquawkCode.Hijack)).toBe(
       SquawkStatus.Hijack,
     );
   });
 
   test("classifies other and absent codes as normal", () => {
-    expect(getSquawkStatus(AircraftFixtureText.OtherSquawk)).toBe(
+    expect(squawkStatusFor(AircraftFixtureText.OtherSquawk)).toBe(
       SquawkStatus.Normal,
     );
-    expect(getSquawkStatus()).toBe(SquawkStatus.Normal);
+    expect(squawkStatusFor(undefined)).toBe(SquawkStatus.Normal);
   });
 
   test("resolves the current status labels", () => {
-    expect(getSquawkStatusLabel(SquawkStatus.Emergency)).toBe("EMERGENCY");
-    expect(getSquawkStatusLabel(SquawkStatus.RadioFailure)).toBe(
+    expect(squawkStatusLabel(SquawkStatus.Emergency)).toBe("EMERGENCY");
+    expect(squawkStatusLabel(SquawkStatus.RadioFailure)).toBe(
       "RADIO FAILURE",
     );
-    expect(getSquawkStatusLabel(SquawkStatus.Hijack)).toBe("HIJACK");
-    expect(getSquawkStatusLabel(SquawkStatus.Normal)).toBe("NORMAL");
+    expect(squawkStatusLabel(SquawkStatus.Hijack)).toBe("HIJACK");
+    expect(squawkStatusLabel(SquawkStatus.Normal)).toBe("NORMAL");
   });
 });
 
@@ -199,7 +194,7 @@ describe("matchesAircraftFilter", () => {
 
   test("applies shared squawk buckets", () => {
     const emergencyFilter = aircraftFilter({
-      squawks: new Set([SquawkBucket.Emergency]),
+      squawks: [SquawkBucket.Emergency],
     });
     expect(
       matchesAircraftFilter(
@@ -214,7 +209,7 @@ describe("matchesAircraftFilter", () => {
 
   test("applies origin-country choices", () => {
     const countryFilter = aircraftFilter({
-      countries: new Set([AircraftFixtureText.UnitedStates]),
+      countries: [AircraftFixtureText.UnitedStates],
     });
     expect(
       matchesAircraftFilter(aircraftPoint(), countryFilter),

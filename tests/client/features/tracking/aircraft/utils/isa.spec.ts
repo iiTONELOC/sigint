@@ -4,7 +4,7 @@ import {
   isaSpeedOfSoundKt,
   isaTempC,
   machFromGs,
-} from "@/features/tracking/aircraft/utils";
+} from "@/features/tracking/aircraft/utils/isa";
 import {
   MeasurementFixtureAviationExpected,
   MeasurementFixtureAviationInput,

@@ -1,9 +1,5 @@
-// ── useNewsData ─────────────────────────────────────────────────────
-// Fully async — no sync hydrate call during render.
-// getData() handles hydration internally. Starts empty, data trickles in.
-
 import { useEffect, useState } from "react";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { NewsPolling } from "@shared/domain/newsSource";
 import { SourceStatus } from "@shared/domain/sourceStatus";
 import { newsProvider, type NewsArticle } from "./newsProvider";
 
@@ -36,7 +32,6 @@ export function useNewsData(): UseNewsDataResult {
     let isMounted = true;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    // Subscribe to background refresh completions (boot sequence + intervals)
     newsProvider.onChange(() => {
       if (!isMounted) return;
       const snapshot = newsProvider.getSnapshot();
@@ -46,7 +41,6 @@ export function useNewsData(): UseNewsDataResult {
       setDataSource(statusFor(snapshot.items.length, snapshot.error));
     });
 
-    // Sync read: if provider already has data, show it
     const snap = newsProvider.getSnapshot();
     if (snap.items.length > 0) {
       setData([...snap.items]);
@@ -55,7 +49,6 @@ export function useNewsData(): UseNewsDataResult {
       setDataSource(statusFor(snap.items.length, snap.error));
     }
 
-    // Poll interval — subsequent refreshes after boot.
     intervalId = setInterval(async () => {
       try {
         const result = await newsProvider.refresh();
@@ -73,7 +66,7 @@ export function useNewsData(): UseNewsDataResult {
         setLoading(false);
         setDataSource(SourceStatus.Error);
       }
-    }, POLL_INTERVALS.news);
+    }, NewsPolling.IntervalMs);
 
     return () => {
       isMounted = false;

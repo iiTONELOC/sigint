@@ -206,6 +206,16 @@ The dossier reads the selected record copy. Hooks can request one fresh entity, 
 
 A source version can cause a bounded refresh of current dossier data. The dossier does not subscribe to a full source array.
 
+Aircraft, Cyclone, and Ship dossier maps compose the shared
+`DossierMiniGlobe`. The shared component owns the canvas, land, pointer,
+resize, and zoom shell. Each feature owns its camera and overlay drawing.
+
+For an Earthquake selection, the non-aircraft dossier container sends bounded
+waveform and tsunami requests to the DataWorker. It owns only React lifecycle
+state: it cancels the waveform request when the selection changes or the
+dossier unmounts, and it schedules tsunami refresh intent. Earthquake
+presentation components receive these results through props.
+
 ## Intelligence and alert panes
 
 The intelligence and alert panes read correlation results from `DataContext`.

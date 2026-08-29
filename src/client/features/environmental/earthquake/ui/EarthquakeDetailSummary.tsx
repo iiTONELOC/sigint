@@ -1,19 +1,18 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import { DetailField, DetailFieldAlign } from "@/dossier";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
 import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
 import { formatKmMi } from "@/measurements";
+import type { EarthquakeData } from "@shared/domain/earthquakes";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
 import { estimateMmi, mmiBand, isShallow } from "../intensity";
-import type { EarthquakeData } from "../types";
-import { EarthquakeCopy } from "../formatters";
+import { EarthquakeCopy } from "../formatters/presentation";
 
-enum EarthquakeDetailLabel {
-  Position = "POSITION",
-}
+const EARTHQUAKE_POSITION_LABEL = "POSITION";
 
 function depthClassification(depth: number | undefined): string {
   if (depth === undefined) return EMPTY_TEXT;
@@ -27,6 +26,8 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
   const { depth, felt, significance, status } = d;
   const place = d.location ?? EarthquakeCopy.UnknownLocation;
   const band = mmiBand(estimateMmi(magnitude, depth));
+  const hasFeltReports = felt != null && felt > 0;
+  const position = `${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`;
 
   return (
     <div className={`${band.className} pt-2.5 border-t border-sig-border`}>
@@ -49,22 +50,23 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
           <DetailField
             label={EMPTY_TEXT}
             value={depthClassification(depth)}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
         <div className="flex justify-between gap-4">
           <DetailField label="SIGNIFICANCE" value={significance == null ? NO_VALUE : String(significance)} />
-          <DetailField label="REVIEW" value={status ?? NO_VALUE} align={DetailFieldAlign.Right} />
+          <DetailField label="REVIEW" value={status ?? NO_VALUE} align={PanelSide.Right} />
         </div>
-        {felt != null && felt > 0 && (
-          <div className="flex justify-between gap-4">
+        <div className="flex justify-between gap-4">
+          {hasFeltReports && (
             <DetailField label="FELT" value={`${felt} reports`} />
-            <DetailField label={EarthquakeDetailLabel.Position} value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} align={DetailFieldAlign.Right} />
-          </div>
-        )}
-        {(felt == null || felt === 0) && (
-          <DetailField label={EarthquakeDetailLabel.Position} value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />
-        )}
+          )}
+          <DetailField
+            label={EARTHQUAKE_POSITION_LABEL}
+            value={position}
+            align={hasFeltReports ? PanelSide.Right : PanelSide.Left}
+          />
+        </div>
       </div>
     </div>
   );

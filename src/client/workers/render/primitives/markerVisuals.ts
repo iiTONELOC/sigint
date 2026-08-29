@@ -1,6 +1,10 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
-import type { MarkerGlow } from "@/workers/render/primitives/markerStyle";
+import type {
+  MarkerGlow,
+  MarkerPulseZoom,
+} from "@/workers/render/primitives/markerStyle";
+
+const FULL_CIRCLE_RADIANS = Math.PI * 2;
 
 enum HexChannelBoundary {
   RedStart = 1,
@@ -35,14 +39,9 @@ enum MarkerPulsePolicy {
   IdRadix = 36,
 }
 
-enum MarkerPulseZoom {
+enum DefaultMarkerPulseZoom {
   Floor = 1.3,
   Span = 2,
-}
-
-enum NormalizedIntensity {
-  Minimum = 0,
-  Maximum = 1,
 }
 
 enum ThemeBrightnessPolicy {
@@ -70,13 +69,13 @@ export type PulsingMarker = Readonly<{
   fillAlpha: number;
   selected: boolean;
   glow: PulsingMarkerGlow | null;
-  shape: (size: number) => void;
+  shape?: (size: number) => void;
 }>;
 
 export type MarkerVisualRenderer = Readonly<{
   fade: (color: string, factor: number) => string;
   drawPulsing: (
-    context: Ctx,
+    context: OffscreenCanvasRenderingContext2D,
     time: number,
     marker: PulsingMarker,
   ) => void;
@@ -121,12 +120,16 @@ function toHex(red: number, green: number, blue: number): string {
   return `#${channelHex(red)}${channelHex(green)}${channelHex(blue)}`;
 }
 
-export function markerPulseIntensity(zoomLevel: number): number {
+export function markerPulseIntensity(
+  zoomLevel: number,
+  policy?: MarkerPulseZoom,
+): number {
   return Math.max(
-    NormalizedIntensity.Minimum,
+    0,
     Math.min(
-      NormalizedIntensity.Maximum,
-      (zoomLevel - MarkerPulseZoom.Floor) / MarkerPulseZoom.Span,
+      1,
+      (zoomLevel - (policy?.floor ?? DefaultMarkerPulseZoom.Floor)) /
+        (policy?.span ?? DefaultMarkerPulseZoom.Span),
     ),
   );
 }
@@ -151,7 +154,7 @@ export class MarkerVisuals {
   }
 
   drawGlow(
-    context: Ctx,
+    context: OffscreenCanvasRenderingContext2D,
     color: string,
     alphaHex: string,
     x: number,
@@ -170,7 +173,7 @@ export class MarkerVisuals {
   }
 
   drawPulsing(
-    context: Ctx,
+    context: OffscreenCanvasRenderingContext2D,
     time: number,
     marker: PulsingMarker,
   ): void {
@@ -183,7 +186,18 @@ export class MarkerVisuals {
     }
     context.globalAlpha = marker.fillAlpha;
     context.fillStyle = marker.color;
-    marker.shape(marker.size);
+    if (marker.shape) {
+      marker.shape(marker.size);
+    } else {
+      context.beginPath();
+      context.arc(
+        marker.x,
+        marker.y,
+        marker.size,
+        0,
+        FULL_CIRCLE_RADIANS,
+      );
+    }
     context.fill();
     if (marker.selected) {
       drawSelectionRing(
@@ -199,7 +213,7 @@ export class MarkerVisuals {
   }
 
   private drawPulseGlow(
-    context: Ctx,
+    context: OffscreenCanvasRenderingContext2D,
     time: number,
     marker: PulsingMarker,
     glow: PulsingMarkerGlow,
@@ -216,7 +230,8 @@ export class MarkerVisuals {
         (config.baseAmp + glow.pulseIndex * config.ampGain);
     const radius =
       marker.size *
-      (config.radBase + glow.pulseIndex * config.radGain) *
+      (config.radBase +
+        glow.pulseIndex * (config.radGain ?? config.radBase)) *
       pulse;
     this.drawGlow(
       context,

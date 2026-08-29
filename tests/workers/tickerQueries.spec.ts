@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { AircraftPoint } from "@shared/domain/aircraft";
 import { Domain } from "@shared/domain/identity";
-import { type PointType } from "@shared/domain/pointType";
-import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
-import type { ShipPoint } from "@/features/tracking/ships/data/codec";
+import type { ShipPoint } from "@shared/domain/ships";
 import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries";
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
@@ -15,17 +14,22 @@ function aircraft(
   data: AircraftPoint["data"],
   timestamp = TIMESTAMP,
 ): AircraftPoint {
-  return { id, type: Domain.Aircraft, lat: 35, lon: 139, timestamp, data };
+  return {
+    id,
+    type: Domain.Aircraft,
+    position: [139, 35],
+    timestamp,
+    data,
+  };
 }
 
 function ship(id: string, sog: number): ShipPoint {
   return {
     id,
     type: Domain.Ships,
-    lat: 51,
-    lon: -0.1,
+    position: [-0.1, 51],
     timestamp: TIMESTAMP,
-    data: { name: id, sog },
+    data: { mmsi: 123456789, name: id, sog },
   };
 }
 

@@ -1,6 +1,7 @@
-// ── Inverse projection: screen to lat/lon ────────────────────────────
-// Returns approximate lat/lon for a screen point, so the renderer can narrow
-// its hit test before projecting candidates.
+import {
+  GeoLimit,
+  RADIANS_TO_DEGREES,
+} from "@shared/geo";
 
 export function screenToLatLonGlobe(
   mx: number,
@@ -20,10 +21,13 @@ export function screenToLatLonGlobe(
   const yWorld = ny * cosRx + nz * sinRx;
   const zWorld = -ny * sinRx + nz * cosRx;
   const phi = Math.acos(Math.max(-1, Math.min(1, yWorld)));
-  const lat = 90 - (phi * 180) / Math.PI;
+  const lat = GeoLimit.MaxLatitude - phi * RADIANS_TO_DEGREES;
   const theta = Math.atan2(zWorld, -nx);
-  let lon = ((theta - rotY) * 180) / Math.PI - 180;
-  lon = ((lon + 540) % 360) - 180;
+  let lon =
+    (theta - rotY) * RADIANS_TO_DEGREES - GeoLimit.MaxLongitude;
+  lon =
+    ((lon + GeoLimit.FullLongitudeSpan + GeoLimit.MaxLongitude) %
+      GeoLimit.FullLongitudeSpan) - GeoLimit.MaxLongitude;
   return { lat, lon };
 }
 
@@ -36,7 +40,13 @@ export function screenToLatLonFlat(
   mH: number,
 ): { lat: number; lon: number } {
   return {
-    lat: Math.max(-90, Math.min(90, -((my - flatCy) / (mH / 2)) * 90)),
-    lon: Math.max(-180, Math.min(180, ((mx - flatCx) / (mW / 2)) * 180)),
+    lat: Math.max(GeoLimit.MinLatitude, Math.min(
+      GeoLimit.MaxLatitude,
+      -((my - flatCy) / (mH / 2)) * GeoLimit.MaxLatitude,
+    )),
+    lon: Math.max(GeoLimit.MinLongitude, Math.min(
+      GeoLimit.MaxLongitude,
+      ((mx - flatCx) / (mW / 2)) * GeoLimit.MaxLongitude,
+    )),
   };
 }

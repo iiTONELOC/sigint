@@ -1,12 +1,19 @@
-import { IntelSeverity } from "@shared/domain/correlation";
-import { EMPTY_TEXT } from "@shared/text";
-import { bandValue, type Band } from "@shared/types/bands";
+import {
+  IntelSeverity,
+  intelSeverityBands,
+} from "@shared/domain/correlation";
+import { EMPTY_TEXT, joinSearchText } from "@shared/text";
+import { bandValue } from "@shared/types/bands";
 import {
   FeatureTableAbbreviation,
   type FeatureFeedPresentation,
   type FeatureTablePresentation,
 } from "@/features/base/presentation";
-import type { FireData } from "../types";
+import {
+  FireDayNight,
+  type FireData,
+} from "@shared/domain/fireDayNight";
+import { stringEnumMemberName } from "@shared/types/enum";
 
 export enum FireCopy {
   DefaultSatellite = "VIIRS",
@@ -14,36 +21,25 @@ export enum FireCopy {
   RadiativePower = "FRP",
 }
 
+export enum FirePassLabel {
+  Day = "day",
+  DayUppercase = "DAY",
+  Night = "night",
+  NightUppercase = "NIGHT",
+}
+
 enum FireUnit {
   Kelvin = "K",
   Megawatt = "MW",
 }
 
-enum FireSeverityThreshold {
-  CrisisMinimum = 100,
-  ConflictMinimum = 50,
-  TensionMinimum = 20,
-  ConcernMinimum = 5,
-}
-
-const FIRE_SEVERITY_BANDS: readonly Band<IntelSeverity>[] = [
-  {
-    floor: FireSeverityThreshold.CrisisMinimum,
-    value: IntelSeverity.Crisis,
-  },
-  {
-    floor: FireSeverityThreshold.ConflictMinimum,
-    value: IntelSeverity.Conflict,
-  },
-  {
-    floor: FireSeverityThreshold.TensionMinimum,
-    value: IntelSeverity.Tension,
-  },
-  {
-    floor: FireSeverityThreshold.ConcernMinimum,
-    value: IntelSeverity.Concern,
-  },
-];
+/** Radiative power floors in megawatts. */
+const FIRE_SEVERITY_BANDS = intelSeverityBands({
+  crisis: 100,
+  conflict: 50,
+  tension: 20,
+  concern: 5,
+});
 
 export function formatFirePower(power: number): string {
   return `${power.toFixed(1)} ${FireUnit.Megawatt}`;
@@ -55,6 +51,34 @@ export function formatUnroundedFirePower(power: number): string {
 
 export function formatFireTemperature(temperature: number): string {
   return `${temperature.toFixed(1)} ${FireUnit.Kelvin}`;
+}
+
+function fireDayNightSearchTerm(value: string | undefined): string {
+  return stringEnumMemberName(value, FireDayNight)?.toLowerCase() ?? "";
+}
+
+export function fireSearchText(data: FireData): string {
+  return joinSearchText([
+    data.satellite,
+    data.confidence,
+    data.frp == null ? "" : `${FireCopy.RadiativePower}${data.frp}`,
+    fireDayNightSearchTerm(data.daynight),
+  ]);
+}
+
+export function fireQuerySearchText(data: FireData): string {
+  return joinSearchText([
+    data.confidence,
+    data.satellite,
+    data.frp == null ? "" : `${FireCopy.RadiativePower}${data.frp}`,
+    fireDayNightSearchTerm(data.daynight),
+  ]);
+}
+
+export function fireQueryTableName(data: FireData): string {
+  return data.frp === undefined
+    ? FireCopy.Hotspot
+    : `${FireCopy.RadiativePower} ${formatFirePower(data.frp)}`;
 }
 
 export function fireTablePresentation(

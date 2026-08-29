@@ -1,44 +1,29 @@
-import type { DataPoint } from "@/features/base/dataPoints";
-import { DetailField, DetailFieldAlign } from "@/dossier";
-import { mmsiCountry } from "@/panes/dossier/DossierAtoms";
-import { navStatusMeta, setDrift } from "../shipMeta";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
 import { NO_VALUE } from "@shared/text";
-import { ShipDataLabel, type ShipData } from "../types";
-import {
-  formatShipCourse,
-  formatShipDrift,
-  formatShipHeading,
-  formatShipSpeed,
-} from "../formatters";
+import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
+import { shipPresentation } from "../formatters/presentation";
 
 export function ShipDetailSummary({ item }: { readonly item: DataPoint }) {
-  const d = (item.data as ShipData) ?? {};
-  const nav = navStatusMeta(d.navStatus);
-  const country = d.mmsi ? mmsiCountry(d.mmsi) : null;
-  const kicker = [
-    "AIS VESSEL",
-    d.vesselType && d.vesselType !== ShipDataLabel.Unknown
-      ? d.vesselType
-      : null,
-    country,
-  ]
+  if (item.type !== Domain.Ships) return null;
+  const presentation = shipPresentation(item.data, `MMSI ${item.data.mmsi}`, NO_VALUE);
+  const kicker = ["AIS VESSEL", presentation.description]
     .filter(Boolean)
     .join(" · ");
-  const drift = setDrift(d.heading, d.cog);
-  const headingText = formatShipHeading(d.heading, NO_VALUE);
-  const driftText = formatShipDrift(drift, NO_VALUE);
 
   return (
     <div className="pt-2.5 border-t border-sig-border">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-(length:--sig-text-md) font-bold text-sig-bright leading-snug truncate">
-            {d.name || `MMSI ${d.mmsi}`}
+            {presentation.name}
           </div>
           <div className="text-(length:--sig-text-xs) text-sig-dim mt-1 truncate">{kicker}</div>
         </div>
         <span className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded border border-sig-ships text-sig-ships whitespace-nowrap">
-          {nav.alert ? "⚠ " : ""}{nav.label}
+          {presentation.navigation.alert ? "⚠ " : ""}
+          {presentation.navigation.compactLabel}
         </span>
       </div>
 
@@ -46,28 +31,28 @@ export function ShipDetailSummary({ item }: { readonly item: DataPoint }) {
         <div className="flex justify-between gap-4">
           <DetailField
             label="SPEED"
-            value={formatShipSpeed(d.sog, NO_VALUE)}
+            value={presentation.speedText}
           />
           <DetailField
             label="HEADING"
-            value={headingText}
-            align={DetailFieldAlign.Right}
+            value={presentation.headingText}
+            align={PanelSide.Right}
           />
         </div>
         <div className="flex justify-between gap-4">
           <DetailField
             label="COURSE"
-            value={formatShipCourse(d.cog, NO_VALUE)}
+            value={presentation.courseText}
           />
           <DetailField
             label="DRIFT"
-            value={driftText}
-            align={DetailFieldAlign.Right}
+            value={presentation.driftText}
+            align={PanelSide.Right}
           />
         </div>
         <div className="flex justify-between gap-4">
-          <DetailField label="DESTINATION" value={d.destination || NO_VALUE} />
-          <DetailField label="ETA" value={d.eta || NO_VALUE} align={DetailFieldAlign.Right} />
+          <DetailField label="DESTINATION" value={presentation.destinationText} />
+          <DetailField label="ETA" value={presentation.etaText} align={PanelSide.Right} />
         </div>
       </div>
     </div>

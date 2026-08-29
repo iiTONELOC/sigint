@@ -6,11 +6,7 @@ import {
   test,
 } from "bun:test";
 import { act } from "react";
-import {
-  PaneType,
-  SplitDirection,
-  type PaneTypeValue,
-} from "@/panes/workspace/model";
+import { PaneType, SplitDirection, type PaneTypeValue } from "@/panes/workspace/model/pane";
 import {
   flushReactUpdates,
   waitForReact,

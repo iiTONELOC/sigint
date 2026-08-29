@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { SplitDirection } from "@/panes/workspace/model";
+import { SplitDirection } from "@/panes/workspace/model/pane";
 import { DomEvent } from "@/runtime";
 import {
   dispatchResizePointer,

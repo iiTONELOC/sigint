@@ -1,4 +1,5 @@
 import {
+  afterAll,
   beforeEach,
   describe,
   expect,
@@ -9,16 +10,16 @@ import {
   act,
   createElement,
   type ReactElement,
-  type SetStateAction,
 } from "react";
+import { Circle } from "lucide-react";
 import { TooltipPlacement } from "@/components/Tooltip";
 import { CacheKey } from "@shared/domain/cache";
 import { DeviceType } from "@/layout-mode";
-import {
-  PaneNodeType,
-  PaneType,
-  SplitDirection,
-} from "@/panes/workspace/model";
+import { PaneNodeType, PaneType, SplitDirection } from "@/panes/workspace/model/pane";
+import type {
+  PaneCatalog,
+  PaneDefinition,
+} from "@/panes/workspace/paneCatalog";
 import { DomEvent } from "@/runtime";
 import { SourceStatus } from "@shared/domain/sourceStatus";
 import type {
@@ -61,6 +62,10 @@ enum DesktopFixtureProperty {
   ClientY = "clientY",
   DataTransfer = "dataTransfer",
   Touches = "touches",
+}
+
+enum DesktopFixtureModule {
+  PaneCatalog = "@/panes/workspace/paneCatalog",
 }
 
 enum DesktopLeafId {
@@ -144,6 +149,29 @@ function paneProbe(paneType: PaneTypeValue): () => ReactElement {
   };
 }
 
+const paneCatalogModule = await import(DesktopFixtureModule.PaneCatalog);
+const applicationPaneCatalog = paneCatalogModule.PANE_CATALOG;
+
+function paneDefinition(paneType: PaneTypeValue): PaneDefinition {
+  return {
+    ...applicationPaneCatalog[paneType],
+    component: paneProbe(paneType),
+    icon: Circle,
+    label: paneType,
+  };
+}
+
+const PANE_CATALOG: PaneCatalog = {
+  [PaneType.AlertLog]: paneDefinition(PaneType.AlertLog),
+  [PaneType.DataTable]: paneDefinition(PaneType.DataTable),
+  [PaneType.Dossier]: paneDefinition(PaneType.Dossier),
+  [PaneType.Globe]: paneDefinition(PaneType.Globe),
+  [PaneType.IntelFeed]: paneDefinition(PaneType.IntelFeed),
+  [PaneType.NewsFeed]: paneDefinition(PaneType.NewsFeed),
+  [PaneType.RawConsole]: paneDefinition(PaneType.RawConsole),
+  [PaneType.VideoFeed]: paneDefinition(PaneType.VideoFeed),
+};
+
 function noop(): void {}
 
 mock.module("@/lib/cache/storageService", () => ({
@@ -168,14 +196,10 @@ mock.module("@/lib/runtime/layoutSignals", () => ({
 }));
 
 mock.module("@/context/DataContext", () => ({
-  useData: () => ({
+  useDataContext: () => ({
     activeCount: DesktopFixtureCount.ActiveTracks,
-    chromeHidden: false,
-    colorMap: {},
     counts: {},
     dataSources: [{ status: SourceStatus.Live }],
-    selectedCurrent: null,
-    setChromeHidden: (_value: SetStateAction<boolean>) => undefined,
   }),
 }));
 
@@ -189,32 +213,18 @@ mock.module("@/components/Tooltip", () => ({
   TooltipPlacement,
 }));
 
-mock.module("@/panes/live-traffic/LiveTrafficPane", () => ({
-  LiveTrafficPane: paneProbe(PaneType.Globe),
-}));
-mock.module("@/panes/data-table", () => ({
-  DataTable: paneProbe(PaneType.DataTable),
-}));
-mock.module("@/panes/dossier", () => ({
-  Dossier: paneProbe(PaneType.Dossier),
-}));
-mock.module("@/panes/intel-feed", () => ({
-  IntelFeed: paneProbe(PaneType.IntelFeed),
-}));
-mock.module("@/panes/alert-log", () => ({
-  AlertLog: paneProbe(PaneType.AlertLog),
-}));
-mock.module("@/panes/raw-console", () => ({
-  RawConsole: paneProbe(PaneType.RawConsole),
-}));
-mock.module("@/panes/video-feed", () => ({
-  VideoFeed: paneProbe(PaneType.VideoFeed),
-}));
-mock.module("@/panes/news-feed", () => ({
-  NewsFeed: paneProbe(PaneType.NewsFeed),
+mock.module(DesktopFixtureModule.PaneCatalog, () => ({
+  PANE_CATALOG,
 }));
 const { PaneManager } = await import("@/panes/PaneManager");
 const { collectLeaves, split } = await import("@/panes/paneTree");
+
+afterAll(() => {
+  mock.module(
+    DesktopFixtureModule.PaneCatalog,
+    () => paneCatalogModule,
+  );
+});
 
 beforeEach(() => {
   cacheValues.clear();
@@ -303,6 +313,10 @@ function requireLeaf(id: DesktopLeafId): HTMLElement {
     throw new TypeError(DesktopTestErrorMessage.LeafMissing);
   }
   return leaf;
+}
+
+function leafIsHidden(id: DesktopLeafId): boolean {
+  return requireLeaf(id).closest("[hidden]") !== null;
 }
 
 function requireToolbar(container: HTMLDivElement): HTMLElement {
@@ -497,9 +511,21 @@ describe("PaneManager desktop controls", () => {
         PaneType.DataTable,
       ),
     );
-    const { minimize } = requirePaneHeaderControls(
+    const { maximize, minimize } = requirePaneHeaderControls(
       requireLeaf(DesktopLeafId.DataTable),
     );
+
+    act(() => maximize.click());
+    await flushReactUpdates();
+    expect(leafIsHidden(DesktopLeafId.Globe)).toBe(true);
+    expect(leafIsHidden(DesktopLeafId.DataTable)).toBe(false);
+
+    const restore = requirePaneHeaderControls(
+      requireLeaf(DesktopLeafId.DataTable),
+    ).maximize;
+    act(() => restore.click());
+    await flushReactUpdates();
+    expect(leafIsHidden(DesktopLeafId.Globe)).toBe(false);
 
     act(() => minimize.click());
     await waitForReact(

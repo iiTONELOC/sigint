@@ -13,20 +13,31 @@ import {
   type QueryableSourceId,
   type QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
-import { isSourceId } from "@/workers/data/sourceIds";
+import { isSourceIdValue } from "@shared/source";
 import type { PointUiQueryResult } from "@/workers/data/uiQuery";
 import {
   parseAircraftDossier,
   type AircraftDossier,
 } from "@shared/domain/aircraftDossier";
 import {
+  parseTsunamiAlerts,
+  parseWaveformRequest,
+  parseWaveformResult,
+  type TsunamiAlert,
+  type WaveformRequest,
+  type WaveformResult,
+} from "@shared/domain/earthquakes";
+import { parseCycloneDossierBundle } from "@/features/environmental/cyclones/data/codec";
+import type { CycloneDossierBundle } from "@shared/domain/cyclones";
+import {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
+  type DataWorkerProtocolVersion,
 } from "@/workers/data/messageType";
 
 export {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
 };
 
 export type DataWorkerCacheEntry = Readonly<{
@@ -37,30 +48,37 @@ export type DataWorkerCacheEntry = Readonly<{
 export type DataWorkerPointSource = SourceId;
 export type DataWorkerQueryableSource = QueryableSourceId;
 
-export type AnySourceEntity =
-  DataPoint;
+export type AnySourceEntity = DataPoint;
 
 export type AnySourceQueryResult = PointUiQueryResult<
   QueryableSourceEntities[QueryableSourceId]
 >;
 
-type SourceEntityBody = Readonly<{
-  type: DataWorkerMessageType.SourceEntity;
-  source: QueryableSourceId;
-  sourceVersion: number;
-  value: AnySourceEntity | null;
-}>;
+type MessageBody<
+  TType extends DataWorkerMessageType,
+  TFields extends object = Record<never, never>,
+> = Readonly<{ type: TType } & TFields>;
 
-type SourceQueryBody = Readonly<{
-  type: DataWorkerMessageType.SourceQuery;
-  source: QueryableSourceId;
-  sourceVersion: number;
-  result: AnySourceQueryResult;
-}>;
+type SourceEntityBody = MessageBody<
+  DataWorkerMessageType.SourceEntity,
+  {
+    source: QueryableSourceId;
+    sourceVersion: number;
+    value: AnySourceEntity | null;
+  }
+>;
+
+type SourceQueryBody = MessageBody<
+  DataWorkerMessageType.SourceQuery,
+  {
+    source: QueryableSourceId;
+    sourceVersion: number;
+    result: AnySourceQueryResult;
+  }
+>;
 
 type QuerySourceCommandBody = {
-  [TId in QueryableSourceId]: Readonly<{
-    type: DataWorkerMessageType.QuerySource;
+  [TId in QueryableSourceId]: MessageBody<DataWorkerMessageType.QuerySource, {
     source: TId;
     query: QueryableSourceShapes[TId]["query"];
   }>;
@@ -82,108 +100,98 @@ export type DataWorkerEnvelope = Readonly<{
 }>;
 
 export type DataWorkerCommandBody =
-  | Readonly<{ type: DataWorkerMessageType.Init }>
-  | Readonly<{
-      type: DataWorkerMessageType.ConnectRender;
+  | MessageBody<DataWorkerMessageType.Init>
+  | MessageBody<DataWorkerMessageType.ConnectRender, {
       port: MessagePort;
       renderSessionId: string;
     }>
-  | Readonly<{
-      type: DataWorkerMessageType.ConnectCorrelation;
+  | MessageBody<DataWorkerMessageType.ConnectCorrelation, {
       port: MessagePort;
       correlationSessionId: string;
     }>
-  | Readonly<{
-      type: DataWorkerMessageType.RefreshSource;
-      source: DataWorkerPointSource;
-    }>
-  | Readonly<{
-      type: DataWorkerMessageType.ListSourceEntities;
-      source: DataWorkerPointSource;
-    }>
-  | Readonly<{
-      type: DataWorkerMessageType.GetSourceEntity;
+  | MessageBody<DataWorkerMessageType.GetSourceEntity, {
       source: DataWorkerQueryableSource;
       id: string;
     }>
   | QuerySourceCommandBody
-  | Readonly<{ type: DataWorkerMessageType.GetTrail; id: string }>
-  | Readonly<{
-      type: DataWorkerMessageType.GetAircraftDossier;
+  | MessageBody<DataWorkerMessageType.GetTrail, { id: string }>
+  | MessageBody<DataWorkerMessageType.GetAircraftDossier, {
       entityId: string;
     }>
-  | Readonly<{ type: DataWorkerMessageType.Get; key: string }>
-  | Readonly<{
-      type: DataWorkerMessageType.Set;
+  | MessageBody<DataWorkerMessageType.GetCycloneDossier, { entityId: string }>
+  | MessageBody<DataWorkerMessageType.GetEarthquakeWaveform, {
+      request: WaveformRequest;
+    }>
+  | MessageBody<DataWorkerMessageType.CancelEarthquakeWaveform>
+  | MessageBody<DataWorkerMessageType.GetTsunamiAlerts>
+  | MessageBody<DataWorkerMessageType.Get, { key: string }>
+  | MessageBody<DataWorkerMessageType.Set, {
       key: string;
       value: unknown;
     }>
-  | Readonly<{
-      type: DataWorkerMessageType.SetDeferred;
+  | MessageBody<DataWorkerMessageType.SetDeferred, {
       key: string;
       value: unknown;
     }>
-  | Readonly<{
-      type: DataWorkerMessageType.ImportJson;
+  | MessageBody<DataWorkerMessageType.ImportJson, {
       key: string;
       json: string;
     }>
-  | Readonly<{ type: DataWorkerMessageType.Delete; key: string }>
-  | Readonly<{ type: DataWorkerMessageType.Clear }>
-  | Readonly<{ type: DataWorkerMessageType.Flush }>
-  | Readonly<{ type: DataWorkerMessageType.Estimate; key: string }>;
+  | MessageBody<DataWorkerMessageType.Delete, { key: string }>
+  | MessageBody<DataWorkerMessageType.Clear>
+  | MessageBody<DataWorkerMessageType.Flush>
+  | MessageBody<DataWorkerMessageType.Estimate, { key: string }>;
 
 type WithEnvelope<T> = T extends object ? T & DataWorkerEnvelope : never;
 
 export type DataWorkerCommand = WithEnvelope<DataWorkerCommandBody>;
 
-export type DataWorkerEvent =
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.Ready;
-        entries: readonly DataWorkerCacheEntry[];
-      }>)
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.Value;
-        value: unknown;
-      }>)
-  | (DataWorkerEnvelope &
-      Readonly<{ type: DataWorkerMessageType.Size; bytes: number }>)
-  | (DataWorkerEnvelope &
-      Readonly<{ type: DataWorkerMessageType.Complete }>)
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.SourceSnapshot;
-        snapshot: DataWorkerSourceSnapshot;
-      }>)
-  | (DataWorkerEnvelope & SourceEntityBody)
-  | (DataWorkerEnvelope & SourceQueryBody)
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.Trail;
-        id: string;
-        entry: TrailEntry | null;
-      }>)
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.AircraftDossier;
-        entityId: string;
-        dossier: AircraftDossier | null;
-      }>)
-  | (DataWorkerEnvelope &
-      Readonly<{
-        type: DataWorkerMessageType.Error;
-        message: string;
-      }>);
+export type DataWorkerEventBody =
+  | MessageBody<DataWorkerMessageType.Ready, {
+      entries: readonly DataWorkerCacheEntry[];
+    }>
+  | MessageBody<DataWorkerMessageType.Value, {
+      value: unknown;
+    }>
+  | MessageBody<DataWorkerMessageType.Size, { bytes: number }>
+  | MessageBody<DataWorkerMessageType.Complete>
+  | MessageBody<DataWorkerMessageType.SourceSnapshot, {
+      snapshot: DataWorkerSourceSnapshot;
+    }>
+  | SourceEntityBody
+  | SourceQueryBody
+  | MessageBody<DataWorkerMessageType.Trail, {
+      id: string;
+      entry: TrailEntry | null;
+    }>
+  | MessageBody<DataWorkerMessageType.AircraftDossier, {
+      entityId: string;
+      dossier: AircraftDossier | null;
+    }>
+  | MessageBody<DataWorkerMessageType.CycloneDossier, {
+      dossier: CycloneDossierBundle | null;
+    }>
+  | MessageBody<DataWorkerMessageType.EarthquakeWaveform, {
+      result: WaveformResult;
+    }>
+  | MessageBody<DataWorkerMessageType.TsunamiAlerts, {
+      alerts: readonly TsunamiAlert[];
+    }>
+  | MessageBody<DataWorkerMessageType.Error, {
+      message: string;
+    }>;
 
-export function createDataWorkerCommand<T extends DataWorkerCommandBody>(
+export type DataWorkerEvent = WithEnvelope<DataWorkerEventBody>;
+
+export function createDataWorkerMessage<
+  T extends DataWorkerCommandBody | DataWorkerEventBody,
+>(
   body: T,
   requestId: number | null,
 ): T & DataWorkerEnvelope {
   return {
     ...body,
-    protocolVersion: DataWorkerProtocolVersion.Current,
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
     requestId,
   };
 }
@@ -191,11 +199,7 @@ export function createDataWorkerCommand<T extends DataWorkerCommandBody>(
 function parseEnvelope(
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerEnvelope | null {
-  if (
-    value.protocolVersion !== DataWorkerProtocolVersion.Current
-  ) {
-    return null;
-  }
+  if (value.protocolVersion !== DATA_WORKER_PROTOCOL_VERSION) return null;
   const requestId = value.requestId;
   if (
     requestId !== null &&
@@ -206,7 +210,7 @@ function parseEnvelope(
     return null;
   }
   return {
-    protocolVersion: DataWorkerProtocolVersion.Current,
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
     requestId,
   };
 }
@@ -224,7 +228,7 @@ function parseSourceSnapshot(
 ): DataWorkerSourceSnapshot | null {
   if (
     !isRecord(value) ||
-    !isSourceId(value.source) ||
+    !isSourceIdValue(value.source) ||
     typeof value.version !== "number" ||
     !Number.isSafeInteger(value.version) ||
     value.version < 0 ||
@@ -256,14 +260,6 @@ function parseSourceCommand(
   envelope: DataWorkerEnvelope,
   value: Readonly<Record<string, unknown>>,
 ): DataWorkerCommand | null {
-  if (
-    (value.type === DataWorkerMessageType.RefreshSource ||
-      value.type === DataWorkerMessageType.ListSourceEntities) &&
-    isSourceId(value.source)
-  ) {
-    return { ...envelope, type: value.type, source: value.source };
-  }
-
   if (!isQueryableSourceId(value.source)) return null;
 
   if (
@@ -334,6 +330,34 @@ function parseCacheCommand(
     };
   }
 
+  if (
+    value.type === DataWorkerMessageType.GetCycloneDossier &&
+    typeof value.entityId === "string" &&
+    value.entityId.length > 0
+  ) return { ...envelope, type: value.type, entityId: value.entityId };
+
+  return null;
+}
+
+function parseEarthquakeAuxiliaryCommand(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerCommand | null {
+  if (value.type === DataWorkerMessageType.GetEarthquakeWaveform) {
+    const request = parseWaveformRequest(value.request);
+    if (!request) return null;
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.GetEarthquakeWaveform,
+      request,
+    };
+  }
+  if (
+    value.type === DataWorkerMessageType.CancelEarthquakeWaveform ||
+    value.type === DataWorkerMessageType.GetTsunamiAlerts
+  ) {
+    return { ...envelope, type: value.type };
+  }
   return null;
 }
 
@@ -375,6 +399,9 @@ export function parseDataWorkerCommand(
   const sourceCommand = parseSourceCommand(envelope, value);
   if (sourceCommand) return sourceCommand;
 
+  const auxiliaryCommand = parseEarthquakeAuxiliaryCommand(envelope, value);
+  if (auxiliaryCommand) return auxiliaryCommand;
+
   const cacheCommand = parseCacheCommand(envelope, value);
   if (cacheCommand) return cacheCommand;
 
@@ -408,9 +435,7 @@ export function parseDataWorkerCommand(
 }
 
 function isSourceVersion(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-  );
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function parseSimpleCacheEvent(
@@ -497,6 +522,40 @@ function parseAircraftDossierEvent(
   };
 }
 
+function parseCycloneDossierEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
+  if (value.type !== DataWorkerMessageType.CycloneDossier) return null;
+  const dossier = value.dossier === null
+    ? null
+    : parseCycloneDossierBundle(value.dossier);
+  return value.dossier !== null && dossier === null
+    ? null
+    : { ...envelope, type: value.type, dossier };
+}
+
+function parseEarthquakeAuxiliaryEvent(
+  envelope: DataWorkerEnvelope,
+  value: Readonly<Record<string, unknown>>,
+): DataWorkerEvent | null {
+  if (value.type === DataWorkerMessageType.EarthquakeWaveform) {
+    const result = parseWaveformResult(value.result);
+    if (!result) return null;
+    return {
+      ...envelope,
+      type: DataWorkerMessageType.EarthquakeWaveform,
+      result,
+    };
+  }
+  if (value.type === DataWorkerMessageType.TsunamiAlerts) {
+    const alerts = parseTsunamiAlerts(value.alerts);
+    if (!alerts) return null;
+    return { ...envelope, type: DataWorkerMessageType.TsunamiAlerts, alerts };
+  }
+  return null;
+}
+
 function parseReadyEvent(
   envelope: DataWorkerEnvelope,
   value: Readonly<Record<string, unknown>>,
@@ -523,6 +582,8 @@ function parseCacheEvent(
   return parseSimpleCacheEvent(envelope, value) ??
     parseTrailEvent(envelope, value) ??
     parseAircraftDossierEvent(envelope, value) ??
+    parseCycloneDossierEvent(envelope, value) ??
+    parseEarthquakeAuxiliaryEvent(envelope, value) ??
     parseReadyEvent(envelope, value);
 }
 

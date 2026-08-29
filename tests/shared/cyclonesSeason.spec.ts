@@ -2,8 +2,6 @@ import { describe, test, expect } from "bun:test";
 import {
   ACTIVE_BASINS,
   CycloneBasin,
-  basinSeasonActive,
-  anyBasinActive,
   anyActiveBasinInSeason,
   shouldShowCyclonesToggle,
 } from "@shared/cyclonesSeason";
@@ -12,128 +10,6 @@ import {
 // so dyno-vs-laptop TZ skew can't drift the boundary.
 const utc = (year: number, month: number, day: number): Date =>
   new Date(Date.UTC(year, month - 1, day));
-
-// ── Northern Hemisphere basins (AL / EP / CP) ─────────────────────
-// Window: May 15 – Dec 15 inclusive.
-
-describe("basinSeasonActive — Northern Hemisphere (AL/EP/CP)", () => {
-  const NORTH: CycloneBasin[] = [
-    CycloneBasin.Atlantic,
-    CycloneBasin.EasternPacific,
-    CycloneBasin.CentralPacific,
-  ];
-
-  test("Jun 1 → in season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 6, 1))).toBe(true);
-  });
-
-  test("Aug 15 → in season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 8, 15))).toBe(true);
-  });
-
-  test("Nov 30 → in season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 11, 30))).toBe(true);
-  });
-
-  test("Jan 15 → out of season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 1, 15))).toBe(false);
-  });
-
-  test("Mar 1 → out of season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 3, 1))).toBe(false);
-  });
-
-  test("May 15 (low boundary, inclusive) → in season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 5, 15))).toBe(true);
-  });
-
-  test("May 14 (one day before boundary) → out of season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 5, 14))).toBe(false);
-  });
-
-  test("Dec 15 (high boundary, inclusive) → in season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 12, 15))).toBe(true);
-  });
-
-  test("Dec 16 (one day after boundary) → out of season", () => {
-    for (const b of NORTH) expect(basinSeasonActive(b, utc(2026, 12, 16))).toBe(false);
-  });
-});
-
-// ── Southern Hemisphere basin (SH) ────────────────────────────────
-// Window: Oct 15 – May 15 inclusive (wraps year boundary).
-
-describe("basinSeasonActive — Southern Hemisphere (SH)", () => {
-  test("Jan 15 → in season (mid-summer)", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 1, 15))).toBe(true);
-  });
-
-  test("Mar 1 → in season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 3, 1))).toBe(true);
-  });
-
-  test("Nov 30 → in season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 11, 30))).toBe(true);
-  });
-
-  test("Jul 1 → out of season (austral winter)", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 7, 1))).toBe(false);
-  });
-
-  test("Oct 15 (low boundary, inclusive) → in season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 10, 15))).toBe(true);
-  });
-
-  test("Oct 14 (one day before boundary) → out of season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 10, 14))).toBe(false);
-  });
-
-  test("May 15 (high boundary, inclusive) → in season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 5, 15))).toBe(true);
-  });
-
-  test("May 16 (one day after boundary) → out of season", () => {
-    expect(basinSeasonActive(CycloneBasin.SouthernHemisphere, utc(2026, 5, 16))).toBe(false);
-  });
-});
-
-// ── Year-round basins (WP / IO) ───────────────────────────────────
-
-describe("basinSeasonActive — year-round basins (WP/IO)", () => {
-  const YEAR_ROUND: CycloneBasin[] = [CycloneBasin.WesternPacific, CycloneBasin.IndianOcean];
-  const sampleDays = [
-    utc(2026, 1, 1),
-    utc(2026, 4, 30),
-    utc(2026, 7, 15),
-    utc(2026, 10, 14),
-    utc(2026, 12, 31),
-  ];
-
-  test("WP and IO are in season every day of the year", () => {
-    for (const b of YEAR_ROUND) {
-      for (const d of sampleDays) {
-        expect(basinSeasonActive(b, d)).toBe(true);
-      }
-    }
-  });
-});
-
-// ── anyBasinActive ────────────────────────────────────────────────
-
-describe("anyBasinActive", () => {
-  test("returns true year-round (WP/IO are always in season)", () => {
-    const sampleDays = [
-      utc(2026, 1, 15),
-      utc(2026, 5, 14),
-      utc(2026, 7, 1),
-      utc(2026, 10, 14),
-      utc(2026, 12, 16),
-    ];
-    for (const d of sampleDays) {
-      expect(anyBasinActive(d)).toBe(true);
-    }
-  });
-});
 
 // ── ACTIVE_BASINS + anyActiveBasinInSeason ────────────────────────
 

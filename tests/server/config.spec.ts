@@ -12,7 +12,7 @@ function baseEnv(
   };
 }
 
-describe("loadConfig — happy path", () => {
+describe("loadConfig: happy path", () => {
   test("returns a config with all fields populated", () => {
     const cfg = loadConfig(
       baseEnv({
@@ -21,7 +21,6 @@ describe("loadConfig — happy path", () => {
         SIGINT_RATE_LIMIT_PER_MINUTE: "120",
         SIGINT_TRUSTED_PROXY_HOPS: "1",
         AISSTREAM_API_KEY: "ais-key",
-        FIRMS_MAP_KEY: "firms-key",
         DOMAIN: "example.com",
       }),
     );
@@ -31,11 +30,10 @@ describe("loadConfig — happy path", () => {
     expect(cfg.rateLimitPerMinute).toBe(120);
     expect(cfg.trustedProxyHops).toBe(1);
     expect(cfg.aisstreamApiKey).toBe("ais-key");
-    expect(cfg.firmsMapKey).toBe("firms-key");
     expect(cfg.domain).toBe("example.com");
   });
 
-  test("returns a Readonly object — mutation throws in strict mode", () => {
+  test("returns a Readonly object; mutation throws in strict mode", () => {
     const cfg = loadConfig(baseEnv());
     expect(() => {
       (cfg as { port: number }).port = 9999;
@@ -43,7 +41,7 @@ describe("loadConfig — happy path", () => {
   });
 });
 
-describe("loadConfig — defaults", () => {
+describe("loadConfig: defaults", () => {
   test("port defaults to 5500", () => {
     expect(loadConfig(baseEnv()).port).toBe(5500);
   });
@@ -71,7 +69,6 @@ describe("loadConfig — defaults", () => {
   test("optional secrets are undefined when not set", () => {
     const cfg = loadConfig(baseEnv());
     expect(cfg.aisstreamApiKey).toBeUndefined();
-    expect(cfg.firmsMapKey).toBeUndefined();
     expect(cfg.domain).toBeUndefined();
   });
 
@@ -89,7 +86,7 @@ describe("loadConfig — defaults", () => {
   });
 });
 
-describe("loadConfig — serverSecret validation", () => {
+describe("loadConfig: serverSecret validation", () => {
   test("throws ConfigError when SIGINT_SERVER_SECRET missing", () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
   });
@@ -120,7 +117,7 @@ describe("loadConfig — serverSecret validation", () => {
   });
 });
 
-describe("loadConfig — port validation", () => {
+describe("loadConfig: port validation", () => {
   test("parses numeric PORT", () => {
     expect(loadConfig(baseEnv({ PORT: "8080" })).port).toBe(8080);
   });
@@ -146,7 +143,7 @@ describe("loadConfig — port validation", () => {
   });
 });
 
-describe("loadConfig — rateLimitPerMinute validation", () => {
+describe("loadConfig: rateLimitPerMinute validation", () => {
   test("parses numeric value", () => {
     expect(
       loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: "200" }))
@@ -179,7 +176,7 @@ describe("loadConfig — rateLimitPerMinute validation", () => {
   });
 });
 
-describe("loadConfig — trustedProxyHops validation", () => {
+describe("loadConfig: trustedProxyHops validation", () => {
   test("parses zero (direct source IP)", () => {
     expect(
       loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "0" })).trustedProxyHops,
@@ -213,10 +210,17 @@ describe("loadConfig — trustedProxyHops validation", () => {
 
 describe("ConfigError class", () => {
   test("is an Error subclass", () => {
-    expect(new ConfigError("test")).toBeInstanceOf(Error);
+    expect(new ConfigError({
+      kind: ConfigErrorKind.Required,
+      field: ConfigField.ServerSecret,
+    })).toBeInstanceOf(Error);
   });
 
   test("has name 'ConfigError'", () => {
-    expect(new ConfigError("test").name).toBe("ConfigError");
+    expect(new ConfigError({
+      kind: ConfigErrorKind.Required,
+      field: ConfigField.ServerSecret,
+    }).name).toBe("ConfigError");
   });
 });
+import { ConfigErrorKind, ConfigField } from "../../src/server/config";

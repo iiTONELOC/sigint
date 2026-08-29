@@ -1,15 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DeviceType,
-  LayoutMode,
-  ViewportOrientation,
-} from "@/layout-mode/model";
+import { DeviceType, LayoutMode, ViewportOrientation } from "@/layout-mode/model/layoutMode";
 import {
   nextLayoutMode,
   parseLayoutMode,
   usesMobileLayout,
   viewportOrientation,
-} from "@/layout-mode/utils";
+} from "@/layout-mode/utils/layout";
 
 enum LayoutFixtureDimension {
   Narrow = 390,

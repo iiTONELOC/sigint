@@ -1,10 +1,13 @@
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
-import type {
-  ForecastPoint,
-  ModelTrack,
-  PastTrackPoint,
-  WindRadii,
-} from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  CYCLONE_STRONG_WIND_RADIUS_KT,
+  type ForecastPoint,
+  type ModelTrack,
+  type PastTrackPoint,
+  type WindRadii,
+} from "@shared/domain/cyclones";
 import {
   SceneBinding,
   type SceneCommandPublisher,
@@ -19,17 +22,14 @@ import {
   CycloneSceneAttribute,
   CycloneSceneDefault,
   CycloneSceneRole,
-  CycloneSceneSchema,
   CycloneSceneStringAttribute,
   CycloneSceneText,
   CycloneWindQuadrant,
-  CycloneWindThreshold,
-  cycloneForecastPathSceneId,
   cycloneForecastSceneId,
   cycloneModelPathSceneId,
   cyclonePastPathSceneId,
   cycloneWindRadiusSceneId,
-} from "@/workers/render/scene/cycloneSchema";
+} from "@shared/scene";
 import { Domain } from "@shared/domain/identity";
 import type { GeoLineString, GeoPoint } from "@shared/geo";
 
@@ -42,7 +42,7 @@ export type CycloneSceneRecord = Readonly<{
   maxWindKt: number;
   forecastHour: number;
   errorRadiusNm: number;
-  windThresholdKt: CycloneWindThreshold;
+  windThresholdKt: number;
   windRadii: readonly number[];
   modelCode: string;
   geometry: SceneGeometryInput | null;
@@ -66,7 +66,7 @@ function baseRecord(
     maxWindKt: cyclone.data.maxWindKt,
     forecastHour: CycloneSceneDefault.Numeric,
     errorRadiusNm: CycloneSceneDefault.Numeric,
-    windThresholdKt: CycloneWindThreshold.None,
+    windThresholdKt: CycloneSceneDefault.Numeric,
     windRadii: [],
     modelCode: CycloneSceneText.Empty,
     geometry: null,
@@ -94,26 +94,6 @@ function forecastRecord(
   };
 }
 
-function forecastPathRecord(
-  cyclone: CyclonePoint,
-): CycloneSceneRecord | null {
-  if (cyclone.data.forecast.length === 0) return null;
-  const line: GeoPoint[] = [
-    linePoint(cyclone.lat, cyclone.lon),
-    ...cyclone.data.forecast.map((forecast) =>
-      linePoint(forecast.lat, forecast.lon),
-    ),
-  ];
-  return {
-    ...baseRecord(
-      cyclone,
-      cycloneForecastPathSceneId(cyclone.id),
-      CycloneSceneRole.ForecastPath,
-    ),
-    geometry: scenePolylineGeometry([line]),
-  };
-}
-
 function pastPathRecord(
   cyclone: CyclonePoint,
   pastTrack: readonly PastTrackPoint[],
@@ -136,7 +116,7 @@ function pastPathRecord(
 function windRadiusRecord(
   cyclone: CyclonePoint,
   wind: WindRadii,
-  threshold: CycloneWindThreshold,
+  threshold: number,
   quadrants: readonly number[] | null,
 ): CycloneSceneRecord | null {
   if (!quadrants) return null;
@@ -188,8 +168,6 @@ export class CycloneSceneRecordProjector {
         forecastRecord(cyclone, forecast),
       ),
     ];
-    const forecastPath = forecastPathRecord(cyclone);
-    if (forecastPath) records.push(forecastPath);
     const pastPath = pastPathRecord(cyclone, cyclone.data.pastTrack ?? []);
     if (pastPath) records.push(pastPath);
     this.appendWindRadiusRecords(records, cyclone);
@@ -207,19 +185,19 @@ export class CycloneSceneRecordProjector {
       windRadiusRecord(
         cyclone,
         wind,
-        CycloneWindThreshold.Gale,
+        CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
         wind.kt34,
       ),
       windRadiusRecord(
         cyclone,
         wind,
-        CycloneWindThreshold.Storm,
+        CYCLONE_STRONG_WIND_RADIUS_KT,
         wind.kt50,
       ),
       windRadiusRecord(
         cyclone,
         wind,
-        CycloneWindThreshold.Hurricane,
+        CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt,
         wind.kt64,
       ),
     ];
@@ -251,8 +229,6 @@ export class CycloneSceneBinding extends SceneBinding<
     super(
       new ScenePatchCodec<CyclonePoint, CycloneSceneRecord>({
         source: Domain.Cyclones,
-        attributeStride: CycloneSceneSchema.AttributeStride,
-        stringAttributeStride: CycloneSceneSchema.StringAttributeStride,
         records: (cyclone) => projector.project(cyclone),
         position: (record) => record.position,
         timestamp: sceneTimestamp,

@@ -21,31 +21,31 @@ const STATIC_CSP_DIRECTIVES = [
   "form-action 'self'",
 ].join("; ");
 
+const STATIC_SECURITY_HEADERS = {
+  "Content-Security-Policy": STATIC_CSP_DIRECTIVES,
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "0",
+};
+
+const PRODUCTION_SECURITY_HEADERS = {
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+};
+
 export type SecurityHeaders = Readonly<{
   withSecurityHeaders(response: Response): Response;
   cspDirectives: string;
 }>;
 
 export function createSecurityHeaders(config: ServerConfig): SecurityHeaders {
-  const headers: ReadonlyArray<readonly [string, string]> = Object.freeze([
-    ["Content-Security-Policy", STATIC_CSP_DIRECTIVES],
-    ["X-Content-Type-Options", "nosniff"],
-    ["X-Frame-Options", "DENY"],
-    ["Referrer-Policy", "strict-origin-when-cross-origin"],
-    ["Permissions-Policy", "camera=(), microphone=(), geolocation=()"],
-    ["X-XSS-Protection", "0"],
-    ...(config.isProduction
-      ? ([
-          [
-            "Strict-Transport-Security",
-            "max-age=31536000; includeSubDomains",
-          ] as const,
-        ] as const)
-      : ([] as const)),
-  ]);
+  const headers = config.isProduction
+    ? { ...STATIC_SECURITY_HEADERS, ...PRODUCTION_SECURITY_HEADERS }
+    : STATIC_SECURITY_HEADERS;
 
   function withSecurityHeaders(response: Response): Response {
-    for (const [key, value] of headers) {
+    for (const [key, value] of Object.entries(headers)) {
       response.headers.set(key, value);
     }
     return response;

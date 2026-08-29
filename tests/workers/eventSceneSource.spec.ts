@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { EventPoint } from "@/features/intel/events/data/codec";
 import { IntelSeverity } from "@shared/domain/correlation";
-import { EventSceneBinding } from "@/workers/data/render-codecs/eventSceneBinding";
+import { eventSceneBinding } from "@/workers/data/sources/events";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   EventSource,
   eventWindowDurationMs,
 } from "@/workers/data/sources/events";
-import { EventSceneAttribute } from "@/workers/render/scene/eventSchema";
+import { EventSceneAttribute } from "@shared/scene";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
@@ -38,7 +38,7 @@ describe("event scene source", () => {
       event("event-a", observedAt, IntelSeverity.Concern),
     ];
     const scenePatches: SceneSourcePatch[] = [];
-    const binding = new EventSceneBinding((command) => {
+    const binding = eventSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         scenePatches.push(command);
       }

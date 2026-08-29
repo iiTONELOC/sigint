@@ -1,28 +1,7 @@
-// ── Server-side aircraft metadata enrichment ─────────────────────────
-// Reads the per-record metadata block (resolved type, registration,
-// operator, manufacturer, model, category, military flag) from the
-// read-only SQLite DB at src/server/data/ac-db.sqlite, generated at
-// build time by scripts/build-aircraft-db.ts from the source NDJSON.
-//
-// Heap impact: the prior in-memory Map kept ~617 k records resident
-// (~300 MB after parse). The SQLite path opens a single connection,
-// caches one prepared statement, and answers each lookup in <0.05 ms
-// — the ~300 MB heap savings is the entire point of this module.
-//
-// The exported function signatures and the returned record shape are
-// identical to the prior Map-based path. aircraftCache.ts (the only
-// non-test caller) is unchanged: it still awaits loadMetadataDb()
-// during sweep warm-up and passes the (now-unused) Map argument to
-// enrichRecord. enrichRecord ignores its second parameter and reads
-// from the cached SQLite handle instead.
-//
-// classifyMilitary lives in src/server/data/militaryRules.ts so the
-// build script and runtime apply the exact same three-rule logic. It
-// is re-exported here so existing test imports still resolve.
-
 import { Database, type Statement } from "bun:sqlite";
+import { classifyRecon } from "@shared/domain/aircraft";
+import { normalizeIcao24 } from "@shared/domain/aircraftDossier";
 import { classifyMilitary } from "../data/militaryRules";
-import { classifyRecon } from "../data/reconRules";
 import { countryFromIcao24 } from "../data/icao24CountryRanges";
 import { createLogger, type Logger } from "../lib/logger";
 
@@ -38,7 +17,7 @@ export { classifyMilitary } from "../data/militaryRules";
 
 /** Operator-visible warning fires when the SQLite metadata DB is
  *  older than this. 90 days matches the typical OpenSky aircraft
- *  database refresh cadence — past this point new tail registrations
+ *  database refresh cadence. Past this point, new tail registrations
  *  and operator changes start to dominate the DB-miss rate. Exported
  *  so the spec can construct boundary fixtures. */
 export const AC_DB_STALE_THRESHOLD_MS = 90 * 24 * 3600 * 1000;
@@ -55,12 +34,6 @@ export type AircraftMetadataRecord = {
   categoryDescription?: string;
   military: boolean;
 };
-
-// ── Lazy SQLite handle ───────────────────────────────────────────
-// Opens read-only on first lookup, reuses one prepared statement for
-// every query. Booting the dyno no longer touches this DB at all —
-// the first /api/aircraft/states sweep triggers the open via
-// loadMetadataDb's warm-up call from aircraftCache.ts.
 
 const DEFAULT_DB_PATH = "src/server/data/ac-db.sqlite";
 
@@ -85,12 +58,29 @@ type DbRow = {
   military: number;
 };
 
+function metadataRecord(
+  icao24: string,
+  row: DbRow,
+): AircraftMetadataRecord {
+  return {
+    icao24,
+    resolvedType: row.resolved_type,
+    typecode: row.typecode ?? undefined,
+    model: row.model ?? undefined,
+    manufacturerName: row.manufacturer_name ?? undefined,
+    registration: row.registration ?? undefined,
+    operator: row.operator ?? undefined,
+    operatorIcao: row.operator_icao ?? undefined,
+    categoryDescription: row.category_description ?? undefined,
+    military: row.military === 1,
+  };
+}
+
 let metadataDbPath: string = DEFAULT_DB_PATH;
 let cachedDb: Database | null = null;
 let cachedSelect: Statement<DbRow, [string]> | null = null;
-// Sticky flag — once we've determined the SQLite file is missing,
-// stop re-checking on every lookup. Mirrors the old Map-based path's
-// "warn once, fall through" behavior.
+// After the SQLite file is confirmed missing, skip later checks. This retains
+// the previous warning-once behavior.
 let dbMissing = false;
 
 async function initializeDb(): Promise<void> {
@@ -98,13 +88,13 @@ async function initializeDb(): Promise<void> {
   const file = Bun.file(metadataDbPath);
   if (!(await file.exists())) {
     logger.warn(
-      `✈️  enrichment DB not found at ${metadataDbPath} — skipping`,
+      `✈️  enrichment DB not found at ${metadataDbPath}: skipping`,
     );
     dbMissing = true;
     return;
   }
   // Freshness check via Bun.file.lastModified (epoch ms). Best-effort:
-  // if lastModified is 0 or unreadable, skip the warn — the open below
+  // If lastModified is 0 or unreadable, skip the warning. The open below
   // will surface any real I/O error.
   const mtimeMs = file.lastModified;
   if (mtimeMs > 0) {
@@ -113,7 +103,7 @@ async function initializeDb(): Promise<void> {
       const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
       const builtAt = new Date(mtimeMs).toISOString();
       logger.warn(
-        `⚠️  ac-db.sqlite is ${ageDays} days old — regenerate via 'bun run build:aircraft-db' (last built ${builtAt})`,
+        `⚠️  ac-db.sqlite is ${ageDays} days old. Regenerate via 'bun run build:aircraft-db' (last built ${builtAt})`,
       );
     }
   }
@@ -128,17 +118,9 @@ async function initializeDb(): Promise<void> {
   );
 }
 
-/** Warm-up the SQLite handle. Returns an (empty) Map only because the
- *  prior NDJSON-based signature handed back a Map<icao24, record> for
- *  aircraftCache.ts to thread into enrichRecord. The Map is unused —
- *  enrichRecord reads from the cached prepared statement directly —
- *  so signature parity is preserved without the ~300 MB heap cost.
- *
- *  When `path` differs from the cached path, the prior connection is
- *  closed and the cache is reset (test-fixture support). */
 export async function loadMetadataDb(
   path: string = DEFAULT_DB_PATH,
-): Promise<Map<string, AircraftMetadataRecord>> {
+): Promise<void> {
   if (path !== metadataDbPath) {
     if (cachedDb) cachedDb.close();
     cachedDb = null;
@@ -147,7 +129,17 @@ export async function loadMetadataDb(
     metadataDbPath = path;
   }
   await initializeDb();
-  return new Map<string, AircraftMetadataRecord>();
+}
+
+/** Read one aircraft directly from the local metadata owner. */
+export async function lookupAircraftMetadata(
+  icao24: string,
+): Promise<AircraftMetadataRecord | null> {
+  await initializeDb();
+  const normalized = normalizeIcao24(icao24);
+  if (!normalized || !cachedSelect) return null;
+  const row = cachedSelect.get(normalized) ?? null;
+  return row ? metadataRecord(normalized, row) : null;
 }
 
 /** TEST-ONLY: close the cached SQLite handle and reset the path so
@@ -161,19 +153,12 @@ export function __resetMetadataDbCacheForTests(): void {
   metadataDbPath = DEFAULT_DB_PATH;
 }
 
-// ── Per-record enrichment ────────────────────────────────────────
-// Extends the raw adsb.fi record with the metadata fields the client
-// reads. Identical output shape to the prior Map-based path; the
-// `_db` parameter is preserved for signature parity but is ignored —
-// every lookup goes through the cached prepared statement.
-
-export function enrichRecord(
-  rec: unknown,
-  _db: Map<string, AircraftMetadataRecord>,
-): Record<string, unknown> {
+export function enrichRecord(rec: unknown): Record<string, unknown> {
   if (!rec || typeof rec !== "object") return {};
   const r = rec as Record<string, unknown>;
-  const hex = typeof r.hex === "string" ? r.hex.toLowerCase() : "";
+  const hex = normalizeIcao24(
+    typeof r.hex === "string" ? r.hex : undefined,
+  ) ?? "";
   const liveTypecode = typeof r.t === "string" ? r.t : undefined;
 
   // cachedSelect is populated by initializeDb() during loadMetadataDb().
@@ -181,24 +166,18 @@ export function enrichRecord(
   // invoking enrichRecord, so cachedSelect is either set or the DB is
   // confirmed missing.
   const row = hex && cachedSelect ? (cachedSelect.get(hex) ?? null) : null;
+  const metadata = row ? metadataRecord(hex, row) : null;
 
-  // originCountry derives from the ICAO 24-bit registration block —
-  // deterministic given the hex, so the same value applies on DB
-  // hit and DB miss. Falls through to "" when the hex is unmapped
-  // (preserving the prior empty-string baseline for any consumer
-  // checking falsy).
+  // originCountry derives from the ICAO 24-bit registration block. It behaves
+  // the same on DB hits and misses and remains empty when the hex is unmapped.
   const originCountry = countryFromIcao24(hex);
 
-  // recon is deterministic from the hex (a fixed fleet list), so it applies
-  // identically on DB hit and miss — same as originCountry.
+  // Recon depends only on the hex, so it behaves the same on hits and misses.
   const recon = classifyRecon(hex);
 
-  if (!row) {
-    // No DB row (or hex unavailable / DB missing) — fall back to the
-    // live typecode + hex range so AE-prefix mil aircraft and live
-    // mil typecodes are still tagged. operator is undefined here
-    // because there's no DB-side operator string to consult, exactly
-    // like the prior Map-miss path.
+  if (!metadata) {
+    // With no DB row, use the live typecode and hex range. This retains
+    // military detection while the operator remains unavailable.
     return {
       ...r,
       acType: "Unknown",
@@ -215,21 +194,20 @@ export function enrichRecord(
     };
   }
 
-  // adsb.fi's live `t` field wins over the DB typecode when present —
-  // the DB is a snapshot and the live record has the freshest value.
-  const typecode = liveTypecode ?? row.typecode;
+  // The live typecode wins because the database is a snapshot.
+  const typecode = liveTypecode ?? metadata.typecode;
   return {
     ...r,
-    acType: row.resolved_type,
+    acType: metadata.resolvedType,
     typecode,
-    model: row.model ?? undefined,
-    manufacturerName: row.manufacturer_name ?? undefined,
-    registration: row.registration ?? undefined,
-    operator: row.operator ?? undefined,
-    operatorIcao: row.operator_icao ?? undefined,
-    categoryDescription: row.category_description ?? undefined,
+    model: metadata.model,
+    manufacturerName: metadata.manufacturerName,
+    registration: metadata.registration,
+    operator: metadata.operator,
+    operatorIcao: metadata.operatorIcao,
+    categoryDescription: metadata.categoryDescription,
     originCountry,
-    military: row.military === 1,
+    military: metadata.military,
     recon,
   };
 }

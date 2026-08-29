@@ -9,9 +9,6 @@ export {
   PaneMobileHeight,
   PaneMobileRatio,
   PaneNodeType,
-  PaneResizeMetric,
-  PANE_RESIZE_AXIS_POLICY,
-  type PaneResizeAxisPolicy,
   PaneSearchIndex,
   PaneType,
   PaneTreeArity,
@@ -25,7 +22,12 @@ export {
   type PaneSplitNodeType,
   type PaneTypeValue,
   type SplitDirectionValue,
-} from "./model";
+} from "./model/pane";
+export {
+  PaneResizeMetric,
+  PANE_RESIZE_AXIS_POLICY,
+  type PaneResizeAxisPolicy,
+} from "./model/resize";
 export {
   changePaneTypeInLayout,
   closePaneTypeInLayout,
@@ -34,10 +36,9 @@ export {
   insertPaneBesideInLayout,
   minimizePaneLayout,
   openDossierInLayout,
-  paneDropZoneForPoint,
   resizePaneLayout,
   restorePaneLayout,
   splitPaneLayout,
   swapPanesInLayout,
-  type PaneDropBounds,
-} from "./utils";
+} from "./utils/operations";
+export { paneDropZoneForPoint, type PaneDropBounds } from "./utils/dropZone";

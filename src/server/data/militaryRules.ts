@@ -1,20 +1,3 @@
-// ── Aircraft military classification rules ────────────────────────
-// Single source of truth for the three OR'd rules used to flag an
-// aircraft as military. Imported by:
-//   - scripts/build-aircraft-db.ts — applied at build time, baked
-//     into the read-only SQLite DB as the `military` column.
-//   - src/server/api/aircraftEnrichment.ts — applied at runtime when
-//     enrichRecord falls through to a DB-miss (so AE-prefix mil
-//     aircraft and live mil typecodes are still tagged even when the
-//     DB has no entry yet).
-//
-// Rules (any one suffices):
-//   1. typecode in MIL_TYPECODES (e.g. F35, B52, P8, REAP)
-//   2. operator string contains a MIL_OPERATOR_KEYWORDS entry
-//      (case-insensitive substring match — covers AF/Navy/Army across
-//       a handful of languages used in the source DB)
-//   3. icao24 hex falls in 0xAE0000–0xAFFFFF (US DoD reserved range)
-
 export const MIL_TYPECODES = new Set([
   "F16",
   "F15",
@@ -107,7 +90,7 @@ export function classifyMilitary(
       if (opLower.includes(kw)) return true;
     }
   }
-  const hex = parseInt(icao24, 16);
+  const hex = Number.parseInt(icao24, 16);
   if (hex >= US_MIL_HEX_LO && hex <= US_MIL_HEX_HI) return true;
   return false;
 }

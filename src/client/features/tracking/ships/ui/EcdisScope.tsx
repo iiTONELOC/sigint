@@ -1,81 +1,138 @@
-// North-up ECDIS/radar scope: own-ship at center, a bright HEADING line (bow),
-// a dashed COURSE vector (COG, length ∝ SOG), range rings + compass ticks. The
-// angle between heading line and course vector is the set/drift, shown the way a
-// bridge display shows it. Accent rides the ships layer color (--dossier-accent).
+import { CompassPoint } from "@shared/domain/compass";
+import { TurnDeg } from "@shared/geo";
 
-const C = 160;
-const R = 148;
-const TICKS = Array.from({ length: 36 }, (_, i) => i * 10);
-const CONTACTS: ReadonlyArray<[number, number]> = [[40, 250], [262, 120], [212, 252]];
+type CardinalCompassPoint = CompassPoint.North | CompassPoint.East |
+  CompassPoint.South | CompassPoint.West;
 
-function brg(deg: number, r: number): [number, number] {
-  const a = ((deg - 90) * Math.PI) / 180;
-  return [C + Math.cos(a) * r, C + Math.sin(a) * r];
+const GEOMETRY = Object.freeze({
+  arrow: { angle: 4, inset: 12 },
+  cardinal: { baselineOffset: 4, fontSize: 13, inset: 26 },
+  center: 160,
+  heading: { inset: 8, invalid: 511, markerBottom: 16, markerTop: 6 },
+  radius: 148,
+  status: { baselineOffset: 4, cornerRadius: 2, fontSize: 12, fontWeight: 700, halfWidth: 34, height: 18 },
+  tick: { interval: 10, majorInset: 12, majorInterval: 30, minorInset: 6 },
+  vector: { baseLength: 30, maximumLength: 120, speedScale: 4 },
+  vessel: { bowOffset: 13, halfWidth: 6, shoulderOffset: 4, sternOffset: 11 },
+  viewSize: 320,
+});
+
+const STYLE = Object.freeze({
+  accent: "var(--dossier-accent)",
+  dash: { axis: "2 4", course: "5 4" },
+  gridClassName: "stroke-sig-border",
+  noFill: "none",
+  strokeWidth: { axis: 0.6, course: 2, heading: 1.5, majorTick: 1.3, minorTick: 0.8, ring: 1, vessel: 1.6 },
+  textAnchor: "middle",
+  textClassName: "fill-sig-bright font-mono",
+  vesselFill: "color-mix(in srgb, var(--dossier-accent) 20%, transparent)",
+});
+
+const RING_FRACTIONS: readonly number[] = [1, 0.66, 0.33];
+
+const CARDINAL_BEARING: Readonly<Record<CardinalCompassPoint, number>> = {
+  [CompassPoint.North]: 0,
+  [CompassPoint.East]: TurnDeg.Quarter,
+  [CompassPoint.South]: TurnDeg.Half,
+  [CompassPoint.West]: TurnDeg.Half + TurnDeg.Quarter,
+};
+
+const TICK_BEARINGS = Array.from(
+  { length: TurnDeg.Full / GEOMETRY.tick.interval },
+  (_, index) => index * GEOMETRY.tick.interval,
+);
+const NO_VALUE_LABEL = "-";
+
+function bearingPoint(degrees: number, radius: number): [number, number] {
+  const angle = ((degrees - TurnDeg.Quarter) * Math.PI) / TurnDeg.Half;
+  return [
+    GEOMETRY.center + Math.cos(angle) * radius,
+    GEOMETRY.center + Math.sin(angle) * radius,
+  ];
 }
 
-export function EcdisScope({
-  heading,
-  cog,
-  sog,
-}: {
-  readonly heading?: number;
-  readonly cog?: number;
-  readonly sog?: number;
-}) {
-  const hasHeading = heading != null && heading !== 511;
-  const hasCog = cog != null;
-  const vecLen = Math.min(120, 30 + (sog ?? 0) * 4);
+type EcdisScopeProps = Readonly<{ cog?: number; heading?: number; sog?: number }>;
 
-  const [hx, hy] = hasHeading ? brg(heading, R - 8) : [C, C];
-  const [vx, vy] = hasCog ? brg(cog, vecLen) : [C, C];
-  const [al, ar] = hasCog ? [brg(cog - 4, vecLen - 12), brg(cog + 4, vecLen - 12)] : [[C, C], [C, C]];
+export function EcdisScope({ heading, cog, sog }: EcdisScopeProps) {
+  const { center, radius } = GEOMETRY;
+  const hasHeading = heading != null && heading !== GEOMETRY.heading.invalid;
+  const hasCog = cog != null;
+  const vectorLength = Math.min(
+    GEOMETRY.vector.maximumLength,
+    GEOMETRY.vector.baseLength + (sog ?? 0) * GEOMETRY.vector.speedScale,
+  );
+  const [headingX, headingY] = hasHeading
+    ? bearingPoint(heading, radius - GEOMETRY.heading.inset)
+    : [center, center];
+  const [vectorX, vectorY] = hasCog
+    ? bearingPoint(cog, vectorLength)
+    : [center, center];
+  const arrowRadius = vectorLength - GEOMETRY.arrow.inset;
+  const [arrowLeft, arrowRight] = hasCog
+    ? [
+        bearingPoint(cog - GEOMETRY.arrow.angle, arrowRadius),
+        bearingPoint(cog + GEOMETRY.arrow.angle, arrowRadius),
+      ]
+    : [[center, center], [center, center]];
+  const headingLabel = hasHeading ? `HDG ${Math.round(heading)}` : `HDG ${NO_VALUE_LABEL}`;
+  const courseLabel = hasCog ? `COG ${Math.round(cog)}` : `COG ${NO_VALUE_LABEL}`;
 
   return (
-    <svg viewBox="0 0 320 320" className="block mx-auto w-full max-w-75" role="img" aria-label="Navigation scope">
-      {[R, R * 0.66, R * 0.33].map((r) => (
-        <circle key={r} cx={C} cy={C} r={r} fill="none" className="stroke-sig-border" strokeWidth="1" />
+    <svg viewBox={`0 0 ${GEOMETRY.viewSize} ${GEOMETRY.viewSize}`}
+      className="block mx-auto w-full max-w-75" role="img" aria-label="Navigation scope">
+      {RING_FRACTIONS.map((fraction) => (
+        <circle key={fraction} cx={center} cy={center} r={radius * fraction}
+          fill={STYLE.noFill} className={STYLE.gridClassName} strokeWidth={STYLE.strokeWidth.ring} />
       ))}
-      <circle cx={C} cy={C} r={R} fill="none" stroke="var(--dossier-accent)" strokeOpacity="0.5" strokeWidth="1.5" />
+      <circle cx={center} cy={center} r={radius} fill={STYLE.noFill}
+        stroke={STYLE.accent} strokeOpacity="0.5" strokeWidth={STYLE.strokeWidth.heading} />
+      <path d={`M${center},${center - radius} V${center + radius} M${center - radius},${center} H${center + radius}`}
+        className={STYLE.gridClassName} fill={STYLE.noFill} strokeWidth={STYLE.strokeWidth.axis}
+        strokeDasharray={STYLE.dash.axis} />
 
-      <line x1={C} y1={C - R} x2={C} y2={C + R} className="stroke-sig-border" strokeWidth="0.6" strokeDasharray="2 4" />
-      <line x1={C - R} y1={C} x2={C + R} y2={C} className="stroke-sig-border" strokeWidth="0.6" strokeDasharray="2 4" />
-
-      {TICKS.map((d) => {
-        const major = d % 30 === 0;
-        const [x1, y1] = brg(d, R);
-        const [x2, y2] = brg(d, R - (major ? 12 : 6));
-        return <line key={d} x1={x1} y1={y1} x2={x2} y2={y2} className="stroke-sig-dim" strokeWidth={major ? 1.3 : 0.8} />;
+      {TICK_BEARINGS.map((bearing) => {
+        const major = bearing % GEOMETRY.tick.majorInterval === 0;
+        const [outerX, outerY] = bearingPoint(bearing, radius);
+        const [innerX, innerY] = bearingPoint(
+          bearing,
+          radius - (major ? GEOMETRY.tick.majorInset : GEOMETRY.tick.minorInset),
+        );
+        return <line key={bearing} x1={outerX} y1={outerY} x2={innerX} y2={innerY} className="stroke-sig-dim"
+          strokeWidth={major
+            ? STYLE.strokeWidth.majorTick
+            : STYLE.strokeWidth.minorTick} />;
       })}
-      {["N", "E", "S", "W"].map((c, i) => {
-        const [x, y] = brg(i * 90, R - 26);
-        return <text key={c} x={x} y={y + 4} textAnchor="middle" className="fill-sig-bright font-mono" fontSize={13}>{c}</text>;
+      {Object.entries(CARDINAL_BEARING).map(([point, bearing]) => {
+        const [x, y] = bearingPoint(bearing, radius - GEOMETRY.cardinal.inset);
+        return <text key={point} x={x} y={y + GEOMETRY.cardinal.baselineOffset}
+          textAnchor={STYLE.textAnchor} className={STYLE.textClassName}
+          fontSize={GEOMETRY.cardinal.fontSize}>{point}</text>;
       })}
 
-      {CONTACTS.map(([x, y]) => (
-        <path key={`${x}-${y}`} d={`M${x},${y - 5} L${x + 4},${y + 3} L${x - 4},${y + 3} Z`} className="fill-sig-dim" fillOpacity="0.6" />
-      ))}
+      {hasCog && <>
+        <line x1={center} y1={center} x2={vectorX} y2={vectorY}
+          stroke={STYLE.accent} strokeWidth={STYLE.strokeWidth.course} strokeDasharray={STYLE.dash.course} />
+        <path d={`M${vectorX},${vectorY} L${arrowLeft[0]},${arrowLeft[1]} L${arrowRight[0]},${arrowRight[1]} Z`}
+          fill={STYLE.accent} />
+      </>}
+      {hasHeading && <line x1={center} y1={center} x2={headingX} y2={headingY}
+        className="stroke-sig-bright" strokeWidth={STYLE.strokeWidth.heading} />}
 
-      {hasCog && (
-        <>
-          <line x1={C} y1={C} x2={vx} y2={vy} stroke="var(--dossier-accent)" strokeWidth="2" strokeDasharray="5 4" />
-          <path d={`M${vx},${vy} L${al[0]},${al[1]} L${ar[0]},${ar[1]} Z`} fill="var(--dossier-accent)" />
-        </>
-      )}
-      {hasHeading && <line x1={C} y1={C} x2={hx} y2={hy} className="stroke-sig-bright" strokeWidth="1.5" />}
-
-      <g transform={`rotate(${hasHeading ? heading : 0} ${C} ${C})`}>
-        <path
-          d={`M${C},${C - 13} L${C + 6},${C - 4} L${C + 6},${C + 11} L${C - 6},${C + 11} L${C - 6},${C - 4} Z`}
-          fill="color-mix(in srgb, var(--dossier-accent) 20%, transparent)"
-          stroke="var(--dossier-accent)"
-          strokeWidth="1.6"
-        />
+      <g transform={`rotate(${hasHeading ? heading : 0} ${center} ${center})`}>
+        <path d={`M${center},${center - GEOMETRY.vessel.bowOffset} L${center + GEOMETRY.vessel.halfWidth},${center - GEOMETRY.vessel.shoulderOffset} L${center + GEOMETRY.vessel.halfWidth},${center + GEOMETRY.vessel.sternOffset} L${center - GEOMETRY.vessel.halfWidth},${center + GEOMETRY.vessel.sternOffset} L${center - GEOMETRY.vessel.halfWidth},${center - GEOMETRY.vessel.shoulderOffset} Z`}
+          fill={STYLE.vesselFill} stroke={STYLE.accent} strokeWidth={STYLE.strokeWidth.vessel} />
       </g>
 
-      <path d={`M${C - 6},6 L${C + 6},6 L${C},16 Z`} className="fill-sig-bright" />
-      <rect x={C - 34} y={C + R - 18} width={68} height={18} rx={2} className="fill-sig-bg stroke-sig-dim" />
-      <text x={C} y={C + R - 4} textAnchor="middle" className="fill-sig-bright font-mono" fontSize={12} fontWeight={700}>
-        {hasHeading ? `HDG ${Math.round(heading)}` : "HDG —"} · {hasCog ? `COG ${Math.round(cog)}` : "COG —"}
+      <path d={`M${center - GEOMETRY.vessel.halfWidth},${GEOMETRY.heading.markerTop} L${center + GEOMETRY.vessel.halfWidth},${GEOMETRY.heading.markerTop} L${center},${GEOMETRY.heading.markerBottom} Z`}
+        className="fill-sig-bright" />
+      <rect x={center - GEOMETRY.status.halfWidth}
+        y={center + radius - GEOMETRY.status.height}
+        width={GEOMETRY.status.halfWidth * 2} height={GEOMETRY.status.height}
+        rx={GEOMETRY.status.cornerRadius} className="fill-sig-bg stroke-sig-dim" />
+      <text x={center} y={center + radius - GEOMETRY.status.baselineOffset}
+        textAnchor={STYLE.textAnchor} className={STYLE.textClassName}
+        fontSize={GEOMETRY.status.fontSize} fontWeight={GEOMETRY.status.fontWeight}>
+        {headingLabel} · {courseLabel}
       </text>
     </svg>
   );

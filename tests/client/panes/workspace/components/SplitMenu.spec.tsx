@@ -2,11 +2,12 @@ import { describe, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { Circle } from "lucide-react";
 import { SplitMenu } from "@/panes/SplitMenu";
-import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
 import {
-  PaneType,
-  type PaneTypeValue,
-} from "@/panes/workspace/model";
+  PANE_CATALOG,
+  type PaneCatalog,
+  type PaneDefinition,
+} from "@/panes/workspace/paneCatalog";
+import { PaneType, type PaneTypeValue } from "@/panes/workspace/model/pane";
 import { renderReact } from "../../../../support/react";
 
 enum SplitMenuFixtureCount {
@@ -26,47 +27,24 @@ function FixturePane() {
   return null;
 }
 
+function fixturePane(paneType: PaneType): PaneDefinition {
+  return {
+    ...PANE_CATALOG[paneType],
+    component: FixturePane,
+    icon: Circle,
+    label: paneType,
+  };
+}
+
 const FIXTURE_CATALOG: PaneCatalog = {
-  [PaneType.AlertLog]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.AlertLog,
-  },
-  [PaneType.DataTable]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.DataTable,
-  },
-  [PaneType.Dossier]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.Dossier,
-  },
-  [PaneType.Globe]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.Globe,
-  },
-  [PaneType.IntelFeed]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.IntelFeed,
-  },
-  [PaneType.NewsFeed]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.NewsFeed,
-  },
-  [PaneType.RawConsole]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.RawConsole,
-  },
-  [PaneType.VideoFeed]: {
-    component: FixturePane,
-    icon: Circle,
-    label: PaneType.VideoFeed,
-  },
+  [PaneType.AlertLog]: fixturePane(PaneType.AlertLog),
+  [PaneType.DataTable]: fixturePane(PaneType.DataTable),
+  [PaneType.Dossier]: fixturePane(PaneType.Dossier),
+  [PaneType.Globe]: fixturePane(PaneType.Globe),
+  [PaneType.IntelFeed]: fixturePane(PaneType.IntelFeed),
+  [PaneType.NewsFeed]: fixturePane(PaneType.NewsFeed),
+  [PaneType.RawConsole]: fixturePane(PaneType.RawConsole),
+  [PaneType.VideoFeed]: fixturePane(PaneType.VideoFeed),
 };
 
 function splitButtons(): HTMLButtonElement[] {

@@ -4,9 +4,8 @@ import {
   SETTINGS_ABOUT_SOURCE_METADATA,
   SettingsAboutCopy,
   SettingsAboutSource,
-  SettingsClassName,
-  SettingsIconSize,
-} from "../../model";
+} from "../../model/about";
+import { SettingsClassName, SettingsIconSize } from "../../model/presentation";
 
 export function AboutTab() {
   return (

@@ -1,7 +1,5 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
-
 export function drawSelectionRing(
-  context: Ctx,
+  context: OffscreenCanvasRenderingContext2D,
   x: number,
   y: number,
   size: number,

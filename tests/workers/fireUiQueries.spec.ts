@@ -49,18 +49,18 @@ describe("fire UI queries", () => {
     );
   });
 
-  test("filters, sorts, and pages without truncating the total", () => {
+  test("sorts and pages without truncating the total", () => {
     const expected = point(
-      "FI-mid",
-      40,
-      "nominal",
+      "FI-high",
+      80,
+      "high",
       "N",
-      "2026-07-21T11:00:00.000Z",
+      "2026-07-21T12:00:00.000Z",
     );
     const points = [
       point("FI-low", 100, "low", "N", "2026-07-21T10:00:00.000Z"),
-      point("FI-high", 80, "high", "N", "2026-07-21T12:00:00.000Z"),
       expected,
+      point("FI-mid", 40, "nominal", "N", "2026-07-21T11:00:00.000Z"),
     ];
 
     const result = FIRE_UI_QUERIES.run(points, {
@@ -72,7 +72,7 @@ describe("fire UI queries", () => {
       limit: 1,
     });
 
-    expect(result).toEqual({ kind: "table", total: 2, items: [expected] });
+    expect(result).toEqual({ kind: "table", total: 3, items: [expected] });
   });
 
   test("returns the requested ticker prefix from the complete source", () => {

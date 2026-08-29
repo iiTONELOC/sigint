@@ -1,7 +1,6 @@
-import { IntelSeverity } from "@shared/domain/correlation";
-import { upperBoundValue, type UpperBoundBand } from "./ramp";
+import { bandValue, type Band } from "@shared/types/bands";
 
-export enum EventToneThreshold {
+enum EventToneThreshold {
   CrisisMaximum = -15,
   ConflictMaximum = -10,
   NegativeMaximum = -5,
@@ -10,7 +9,7 @@ export enum EventToneThreshold {
   SlightPositiveMaximum = 5,
 }
 
-export enum EventAssessmentLabel {
+enum EventAssessmentLabel {
   VeryNegative = "very negative",
   Negative = "negative",
   SlightlyNegative = "slightly negative",
@@ -29,73 +28,39 @@ enum EventImpactThreshold {
   CooperationMaximum = 5,
 }
 
-type EventToneBand = Readonly<{
-  label: EventAssessmentLabel;
-  severity: IntelSeverity;
-}>;
-
-const TONE_BANDS: readonly UpperBoundBand<EventToneBand>[] = [
+const TONE_BANDS: readonly Band<EventAssessmentLabel>[] = [
   {
-    max: EventToneThreshold.CrisisMaximum,
-    value: {
-      label: EventAssessmentLabel.VeryNegative,
-      severity: IntelSeverity.Crisis,
-    },
+    floor: -EventToneThreshold.CrisisMaximum,
+    value: EventAssessmentLabel.VeryNegative,
   },
   {
-    max: EventToneThreshold.ConflictMaximum,
-    value: {
-      label: EventAssessmentLabel.Negative,
-      severity: IntelSeverity.Conflict,
-    },
+    floor: -EventToneThreshold.ConflictMaximum,
+    value: EventAssessmentLabel.Negative,
   },
   {
-    max: EventToneThreshold.NegativeMaximum,
-    value: {
-      label: EventAssessmentLabel.Negative,
-      severity: IntelSeverity.Tension,
-    },
+    floor: -EventToneThreshold.NegativeMaximum,
+    value: EventAssessmentLabel.Negative,
   },
   {
-    max: EventToneThreshold.ConcernMaximum,
-    value: {
-      label: EventAssessmentLabel.SlightlyNegative,
-      severity: IntelSeverity.Concern,
-    },
+    floor: -EventToneThreshold.ConcernMaximum,
+    value: EventAssessmentLabel.SlightlyNegative,
   },
   {
-    max: EventToneThreshold.NeutralMaximum,
-    value: {
-      label: EventAssessmentLabel.Neutral,
-      severity: IntelSeverity.Monitoring,
-    },
+    floor: -EventToneThreshold.NeutralMaximum,
+    value: EventAssessmentLabel.Neutral,
   },
   {
-    max: EventToneThreshold.SlightPositiveMaximum,
-    value: {
-      label: EventAssessmentLabel.SlightlyPositive,
-      severity: IntelSeverity.Monitoring,
-    },
+    floor: -EventToneThreshold.SlightPositiveMaximum,
+    value: EventAssessmentLabel.SlightlyPositive,
   },
 ];
 
-const TONE_FALLBACK: EventToneBand = {
-  label: EventAssessmentLabel.Positive,
-  severity: IntelSeverity.Monitoring,
-};
-
-export type EventToneClassification = Readonly<{
-  category: string;
-  severity: IntelSeverity;
-}>;
-
-export function classifyEventTone(tone: number): EventToneClassification {
-  const { severity } = upperBoundValue(tone, TONE_BANDS, TONE_FALLBACK);
-  return { category: IntelSeverity[severity], severity };
+function toneBand(tone: number): EventAssessmentLabel {
+  return bandValue(-tone, TONE_BANDS, EventAssessmentLabel.Positive);
 }
 
 export function eventToneLabel(tone: number): EventAssessmentLabel {
-  return upperBoundValue(tone, TONE_BANDS, TONE_FALLBACK).label;
+  return toneBand(tone);
 }
 
 export function eventImpactLabel(score: number): EventAssessmentLabel {

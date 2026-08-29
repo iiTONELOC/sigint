@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { MS_PER_HOUR } from "@shared/time";
-import { WeatherSeverity } from "@/features/environmental/weather/severity";
+import { WeatherSeverity } from "@shared/domain/weather";
 import { type PointType } from "@shared/domain/pointType";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { NewsArticle } from "@/features/news";
@@ -74,8 +74,7 @@ function makeAircraft(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ac-${++_idCounter}`,
     type: Domain.Aircraft,
-    lat: overrides.lat ?? 40.0,
-    lon: overrides.lon ?? -74.0,
+    position: [overrides.lon ?? -74.0, overrides.lat ?? 40.0],
     timestamp:
       overrides.timestamp ?? new Date(Date.now() - 60_000).toISOString(),
     data: {
@@ -106,8 +105,7 @@ function makeShip(overrides: Record<string, any> = {}): DataPoint {
   return {
     id: `ship-${++_idCounter}`,
     type: Domain.Ships,
-    lat: overrides.lat ?? 30.0,
-    lon: overrides.lon ?? -90.0,
+    position: [overrides.lon ?? -90.0, overrides.lat ?? 30.0],
     timestamp:
       overrides.timestamp ?? new Date(Date.now() - 60_000).toISOString(),
     data: {

@@ -1,7 +1,7 @@
 import type { IntelProduct } from "@/lib/correlation";
 import { IconStrokeWidth } from "@/features/base/types";
-import { IntelFeedIconSize } from "../model";
-import { summarizeIntelProducts } from "../utils";
+import { IntelFeedIconSize } from "../model/feed";
+import { summarizeIntelProducts } from "../utils/products";
 
 export function IntelProductSummary({
   products,

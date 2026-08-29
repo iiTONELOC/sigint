@@ -1,15 +1,10 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { useEffect, useState } from "react";
-import { Plane, ExternalLink, LocateFixed } from "lucide-react";
-import type {
-  AircraftPoint,
-} from "@/features/tracking/aircraft/data/codec";
-import { formatLat, formatLon } from "@/geo";
+import { Plane } from "lucide-react";
+import type { FeatureDossierProps } from "@/features/base/presentation";
 import { useTrail } from "@/features/base/useTrail";
 import { useAircraftDossier } from "../hooks/useAircraftDossier";
 import { Domain } from "@shared/domain/identity";
-import { SquawkStatus } from "@shared/domain/aircraft";
-import { GeoMeasurement, TurnDeg } from "@shared/geo";
+import { GeoMeasurement } from "@shared/geo";
 import {
   recordLatitude,
   recordLongitude,
@@ -17,48 +12,36 @@ import {
 import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
-import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
+import {
+  AircraftChipTone,
+  AircraftIdentityTicket,
+  type AircraftChip,
+} from "./AircraftIdentityTicket";
 import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
 import {
-  aircraftDelayTone,
-  AircraftChipTone,
-  type AircraftChip,
-  Card,
-  Label,
-  RouteEndpoint,
-  SectionLabel,
-  StatCell,
-} from "./dossierKit";
-import {
-  ktToMph,
-  metersPerSecondToFeetPerMinute,
-} from "@/measurements";
-import { isaTempC, machFromGs } from "../utils";
-import {
-  getSquawkStatus,
-  sourceLabel,
-  windComponents,
-} from "@/features/tracking/aircraft/lib/utils";
+  DossierCard,
+  DossierLabel,
+  DossierLinkGrid,
+  DossierPositionRow,
+  DossierSectionLabel,
+  DossierStatCell,
+  DossierToolbar,
+  useDossierFocus,
+} from "@/dossier";
+import { machFromGs } from "../utils/isa";
 import {
   AircraftRouteSource,
   aircraftAirportCode,
 } from "@shared/domain/aircraftDossier";
 import { DossierFallback } from "@/panes/dossier/dossierFallback";
 import {
-  DossierToolbar,
-  formatEpoch,
-  useDossierFocus,
-} from "@/panes/dossier/DossierAtoms";
-import { AircraftDataLabel } from "../types";
+  aircraftBadgePresentation,
+  AircraftDataLabel,
+  aircraftExternalLinks,
+  AircraftLinkSurface,
+} from "../formatters/presentation";
 
-type Props = {
-  readonly item: AircraftPoint;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
+type Props = FeatureDossierProps<Domain.Aircraft>;
 
 enum AircraftDossierLabel {
   Military = "MIL",
@@ -70,14 +53,76 @@ enum AircraftDossierClassName {
   SectionSpacing = "mt-2",
 }
 
-enum AircraftWindPrefix {
-  Headwind = "H",
-  Tailwind = "T",
+enum AircraftDelayMinutes {
+  OnTimeMaximum = 0,
+  WarningMaximum = 15,
+  LateMaximum = 60,
 }
 
-enum AircraftDriftSide {
-  Left = "L",
-  Right = "R",
+enum AircraftEpochMetric {
+  MillisecondsPerSecond = 1000,
+}
+
+enum AircraftTimeFieldFormat {
+  TwoDigit = "2-digit",
+}
+
+type RouteEndpointProps = Readonly<{
+  actual?: boolean;
+  gate?: string;
+  label: string;
+  late?: boolean;
+  name: string;
+  time?: string;
+}>;
+
+function aircraftDelayTone(minutes: number): AircraftChipTone {
+  if (minutes <= AircraftDelayMinutes.OnTimeMaximum) {
+    return AircraftChipTone.OnTime;
+  }
+  if (minutes <= AircraftDelayMinutes.WarningMaximum) {
+    return AircraftChipTone.Warning;
+  }
+  return minutes <= AircraftDelayMinutes.LateMaximum
+    ? AircraftChipTone.Late
+    : AircraftChipTone.Critical;
+}
+
+function formatEpoch(epoch: number): string {
+  return new Date(
+    epoch * AircraftEpochMetric.MillisecondsPerSecond,
+  ).toLocaleTimeString("en-US", {
+    hour: AircraftTimeFieldFormat.TwoDigit,
+    minute: AircraftTimeFieldFormat.TwoDigit,
+    hour12: true,
+    timeZoneName: "short",
+  });
+}
+
+function RouteEndpoint({
+  actual,
+  gate,
+  label,
+  late,
+  name,
+  time,
+}: RouteEndpointProps) {
+  return (
+    <DossierCard className="p-2.5">
+      <DossierLabel>{gate ? `${label} · GATE ${gate}` : label}</DossierLabel>
+      <div className="text-(length:--sig-text-sm) text-sig-bright mt-1">
+        {name}
+      </div>
+      {time && (
+        <div
+          className={`text-(length:--sig-text-xs) mt-1 ${late ? "text-sig-warn" : "text-sig-text"}`}
+        >
+          {time}
+          {actual ? "" : " est"}
+        </div>
+      )}
+    </DossierCard>
+  );
 }
 
 function onTimeChip(
@@ -116,22 +161,6 @@ function wakeCategory(category: string | undefined): string | null {
     : null;
 }
 
-function verticalSpeedFeet(
-  verticalRate: number | undefined,
-): number {
-  return verticalRate != null
-    ? Math.round(metersPerSecondToFeetPerMinute(verticalRate))
-    : 0;
-}
-
-function hasEmergencySquawk(
-  squawk: string | undefined,
-): boolean {
-  return squawk
-    ? getSquawkStatus(squawk) !== SquawkStatus.Normal
-    : false;
-}
-
 function aircraftSpeedText(
   mach: number | undefined,
   tas: number | undefined,
@@ -150,90 +179,18 @@ function aircraftSpeedText(
   };
 }
 
-function isaText(
-  outsideAirTemperature: number | undefined,
-  altitude: number,
-): string | null {
-  if (typeof outsideAirTemperature !== "number") return null;
-  const deviation = Math.round(
-    outsideAirTemperature - isaTempC(altitude),
-  );
-  const sign = deviation >= 0 ? "+" : "";
-  return `ISA ${sign}${deviation}`;
-}
-
-function windComponentText(
-  windDirection: number | undefined,
-  windSpeed: number | undefined,
-  heading: number,
-): string | null {
-  const component = windComponents(
-    windDirection,
-    windSpeed,
-    heading,
-  );
-  if (!component) return null;
-  const alongTrack = component.head >= 0
-    ? `${AircraftWindPrefix.Headwind}${component.head}`
-    : `${AircraftWindPrefix.Tailwind}${Math.abs(component.head)}`;
-  return `${alongTrack} · X${component.cross}${component.side}`;
-}
-
-function aircraftDriftText(
-  heading: number,
-  trueHeading: number | undefined,
-): string | null {
-  if (typeof trueHeading !== "number") return null;
-  let difference = heading - trueHeading;
-  while (difference > TurnDeg.Half) difference -= TurnDeg.Full;
-  while (difference < -TurnDeg.Half) difference += TurnDeg.Full;
-  if (Math.abs(difference) < 1) return "0°";
-  const side = difference > 0
-    ? AircraftDriftSide.Right
-    : AircraftDriftSide.Left;
-  return `${Math.abs(Math.round(difference))}° ${side}`;
-}
-
-function aircraftIntelLinks(
-  callsign: string,
-  icao24: string,
-  registration: string,
-): Array<readonly [string, string]> {
-  const links: Array<readonly [string, string]> = [];
-  if (callsign.trim()) {
-    links.push(
-      [
-        "FlightAware",
-        `https://flightaware.com/live/flight/${callsign.trim()}`,
-      ],
-      [
-        "FlightRadar24",
-        `https://www.flightradar24.com/${callsign.trim()}`,
-      ],
-    );
-  }
-  links.push(
-    ["ADS-B Exchange", `https://globe.adsbexchange.com/?icao=${icao24}`],
-    ["Planespotters", `https://www.planespotters.net/hex/${icao24.toUpperCase()}`],
-  );
-  if (registration) {
-    links.push([
-      "JetPhotos",
-      `https://www.jetphotos.com/registration/${registration}`,
-    ]);
-  }
-  return links;
-}
-
 export function AircraftDossier({
   item,
+  requestItem,
   isolateMode,
   onLocate,
   onFocus,
   onSolo,
   onClose,
 }: Props) {
-  const dossier = useAircraftDossier(item.id);
+  const requestKey =
+    requestItem?.type === Domain.Aircraft ? requestItem : null;
+  const dossier = useAircraftDossier(item.id, requestKey);
   const [photoError, setPhotoError] = useState(false);
   useEffect(() => {
     setPhotoError(false);
@@ -248,13 +205,8 @@ export function AircraftDossier({
     altitude = 0,
     speed = 0,
     heading = 0,
-    squawk,
-    onGround,
     originCountry = "",
-    verticalRate,
     registration: liveReg,
-    operator: liveOp,
-    operatorIcao,
     model: liveModel,
     manufacturerName: liveMfr,
     acType: liveAcType,
@@ -262,20 +214,7 @@ export function AircraftDossier({
     military: isMilitary,
     recon: isRecon,
     mach,
-    trueHeading,
     tas,
-    windDir,
-    windSpd,
-    oat,
-    tat,
-    navQnh,
-    navModes,
-    navHeading,
-    navAltitudeMcp,
-    navAltitudeFms,
-    rssi,
-    nacP,
-    adsbType,
   } = acData;
 
   const { photo, loading: photoLoading } = useAircraftPhoto(icao24, liveReg || undefined);
@@ -300,29 +239,21 @@ export function AircraftDossier({
   const typeFullName = dossier?.aircraft?.Type ?? "";
   const acTypeShort = liveAcType || (dossier?.aircraft?.ICAOTypeCode ?? "");
   const displayModel = liveModel ?? "";
-  const modelFamily = displayModel.split(/[\s/-]/)[0] ?? "";
-  const typeBadge = modelFamily.length >= 3 ? modelFamily : acTypeShort;
-  const owner =
-    dossier?.aircraft?.RegisteredOwners ?? liveOp ?? operatorIcao ?? "";
+  const badge = aircraftBadgePresentation({
+    ...acData,
+    acType: acTypeShort,
+    model: displayModel,
+    registration: reg,
+  });
+  const typeBadge = badge.typeBadge;
+  const owner = dossier?.aircraft?.RegisteredOwners ?? badge.operator;
   const { route } = dossier ?? {};
 
-  const speedFooter = `${ktToMph(speed)} mph`;
-  const fpm = verticalSpeedFeet(verticalRate);
-  const emergency = hasEmergencySquawk(squawk);
   const wake = wakeCategory(categoryDescription);
-  const selectedAlt = navAltitudeMcp ?? navAltitudeFms;
 
   const speedText = aircraftSpeedText(mach, tas, speed, altitude);
   const machText = speedText.mach;
   const tasText = speedText.tas;
-  const isaDisplay = isaText(oat, altitude);
-  const tatText = typeof tat === "number" ? `${Math.round(tat)}°C` : null;
-  const windCompText = windComponentText(windDir, windSpd, heading);
-  const driftText = aircraftDriftText(heading, trueHeading);
-  const rssiText = typeof rssi === "number" ? `${Math.round(rssi)} dB` : null;
-  const accText = typeof nacP === "number" ? `${nacP}` : null;
-  const sourceText = sourceLabel(adsbType);
-
   const trail = [
     ...recordedTrail,
     {
@@ -341,18 +272,9 @@ export function AircraftDossier({
   const arrLate =
     !!chip && chip.label !== AircraftDossierLabel.OnTime;
 
-  const links = aircraftIntelLinks(callsign, icao24, reg);
-
-  const coords = (
-    <div className="flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5">
-      <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
-        <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden={true} />
-        POSITION
-      </span>
-      <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">
-        {formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}
-      </span>
-    </div>
+  const links = aircraftExternalLinks(
+    { ...acData, registration: reg },
+    AircraftLinkSurface.Dossier,
   );
 
   return (
@@ -383,7 +305,7 @@ export function AircraftDossier({
 
         {route && (
           <section className="sec flightplan min-w-0 flex flex-col">
-            <SectionLabel>FLIGHT PLAN</SectionLabel>
+            <DossierSectionLabel>FLIGHT PLAN</DossierSectionLabel>
             <div className="flex flex-col gap-2">
               <RouteEndpoint
                 label="DEPART"
@@ -402,15 +324,15 @@ export function AircraftDossier({
               />
             </div>
             <div className={`grid grid-cols-3 gap-2 ${AircraftDossierClassName.SectionSpacing}`}>
-              {route.distance != null && <StatCell label="DIST nm" value={String(route.distance)} />}
+              {route.distance != null && <DossierStatCell label="DIST nm" value={String(route.distance)} />}
               {route.filedAltitude != null && (
-                <StatCell label="FILED ALT" value={`FL${route.filedAltitude / GeoMeasurement.FeetPerFlightLevel}`} />
+                <DossierStatCell label="FILED ALT" value={`FL${route.filedAltitude / GeoMeasurement.FeetPerFlightLevel}`} />
               )}
-              {route.filedSpeed != null && <StatCell label="FILED kn" value={String(route.filedSpeed)} />}
+              {route.filedSpeed != null && <DossierStatCell label="FILED kn" value={String(route.filedSpeed)} />}
             </div>
             {route.filedRoute && (
-              <Card className={`p-2.5 ${AircraftDossierClassName.SectionSpacing}`}>
-                <Label className="mb-1.5">FILED ROUTE</Label>
+              <DossierCard className={`p-2.5 ${AircraftDossierClassName.SectionSpacing}`}>
+                <DossierLabel className="mb-1.5">FILED ROUTE</DossierLabel>
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto sigint-scroll">
                   {route.filedRoute
                     .trim()
@@ -425,7 +347,7 @@ export function AircraftDossier({
                       </span>
                     ))}
                 </div>
-              </Card>
+              </DossierCard>
             )}
             {route.source === AircraftRouteSource.HexDb && (
               <div className="text-(length:--sig-text-xs) text-sig-dim/60 mt-1">
@@ -436,7 +358,7 @@ export function AircraftDossier({
         )}
 
         <section className="sec route min-w-0 flex flex-col">
-          <SectionLabel>ROUTE</SectionLabel>
+          <DossierSectionLabel>ROUTE</DossierSectionLabel>
           <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-0">
             <AircraftRouteMap
               originCode={originCode}
@@ -454,7 +376,10 @@ export function AircraftDossier({
               }}
             />
           </div>
-          <div className={AircraftDossierClassName.SectionSpacing}>{coords}</div>
+          <DossierPositionRow
+            item={item}
+            className={AircraftDossierClassName.SectionSpacing}
+          />
           {route && (
             <div className={AircraftDossierClassName.SectionSpacing}>
               <RouteProgress
@@ -468,50 +393,14 @@ export function AircraftDossier({
         </section>
 
         <section className="sec telemetry min-w-0 flex flex-col">
-          <SectionLabel>LIVE TELEMETRY</SectionLabel>
-          <AircraftTelemetryPFD
-            speed={speed}
-            speedFooter={speedFooter}
-            heading={heading}
-            selectedHeading={navHeading}
-            altitude={altitude}
-            selectedAlt={selectedAlt}
-            onGround={onGround}
-            fpm={fpm}
-            squawk={squawk}
-            emergency={emergency}
-            windDir={windDir}
-            windSpd={windSpd}
-            oat={oat}
-            navQnh={navQnh}
-            navModes={navModes}
-            windCompText={windCompText}
-            isaText={isaDisplay}
-            tatText={tatText}
-            rssiText={rssiText}
-            accText={accText}
-            sourceText={sourceText}
-            driftText={driftText}
-          />
+          <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
+          <AircraftTelemetryPFD data={acData} />
         </section>
       </div>
 
       <section className="intel">
-        <SectionLabel>INTEL LINKS</SectionLabel>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2">
-          {links.map(([label, href]) => (
-            <a
-              key={label}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
-            >
-              <span className="truncate">{label}</span>
-              <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden={true} />
-            </a>
-          ))}
-        </div>
+        <DossierSectionLabel>INTEL LINKS</DossierSectionLabel>
+        <DossierLinkGrid links={links} />
       </section>
       </div>
     </div>

@@ -1,13 +1,12 @@
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
 import {
-  acceptCorrelationDataCommand,
   CorrelationDataCommandType,
   CorrelationDataProtocolVersion,
   createCorrelationDataCommand,
   parseCorrelationDataCommand,
-  type CorrelationDataProtocolState,
 } from "@/workers/correlation/dataChannel";
+import { SessionSequenceState } from "@/workers/render/sceneProtocol";
 
 describe("correlation data channel", () => {
   test("validates a complete source rebase", () => {
@@ -68,16 +67,13 @@ describe("correlation data channel", () => {
   });
 
   test("accepts only increasing commands for its session", () => {
-    const state: CorrelationDataProtocolState = {
-      sessionId: "correlation-session",
-      sequence: 0,
-    };
+    const state = new SessionSequenceState("correlation-session");
     const command = createCorrelationDataCommand(
       { type: CorrelationDataCommandType.Bind },
       "correlation-session",
       1,
     );
-    expect(acceptCorrelationDataCommand(state, command)).toBe(true);
-    expect(acceptCorrelationDataCommand(state, command)).toBe(false);
+    expect(state.accept(command)).toBe(true);
+    expect(state.accept(command)).toBe(false);
   });
 });

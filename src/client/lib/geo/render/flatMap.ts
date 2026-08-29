@@ -1,11 +1,12 @@
 import type { Projected } from "@/lib/geo/render/types";
+import { GeoLimit } from "@shared/geo";
 
-export const FLAT_MAP_POLICY = {
+export const FLAT_MAP_POLICY = Object.freeze({
   widthFraction: 0.92,
   heightFraction: 0.84,
-  longitudeSpan: 180,
-  latitudeSpan: 90,
-} as const;
+  longitudeSpan: GeoLimit.MaxLongitude,
+  latitudeSpan: GeoLimit.MaxLatitude,
+});
 
 export type FlatMetrics = Readonly<{
   mW: number;

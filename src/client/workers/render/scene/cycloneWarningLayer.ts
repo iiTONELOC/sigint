@@ -1,12 +1,7 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   SceneAreaLayer,
   sceneAreaAlpha,
 } from "@/workers/render/scene/areaLayer";
-import {
-  CycloneWarningSceneAttribute,
-  CycloneWarningSceneSchema,
-} from "@/workers/render/scene/cycloneWarningSchema";
 import {
   RenderLayerOrder,
 } from "@/workers/render/scene/sceneLayer";
@@ -21,13 +16,15 @@ import {
 import {
   areaKindFromRank,
   AreaKind,
-} from "@/workers/render/protocol";
+} from "@shared/domain/cyclones";
 import { Domain } from "@shared/domain/identity";
+import { sceneSchemaMatches } from "@shared/domain/pointSource";
+import { CycloneWarningSceneAttribute } from "@shared/scene";
 
 export type CycloneWarningSceneFilter = EnabledSceneFilter;
 
 export type CycloneWarningSceneStyle = Readonly<{
-  context: Ctx;
+  context: OffscreenCanvasRenderingContext2D;
   selectedId: string | null;
   time: number;
   warningColor: string;
@@ -53,10 +50,11 @@ export function cycloneWarningSceneIncludes(
   filter: CycloneWarningSceneFilter,
 ): boolean {
   return (
-    view.attributeStride ===
-      CycloneWarningSceneSchema.AttributeStride &&
-    view.stringAttributeStride ===
-      CycloneWarningSceneSchema.StringAttributeStride &&
+    sceneSchemaMatches(
+      Domain.CycloneWarnings,
+      view.attributeStride,
+      view.stringAttributeStride,
+    ) &&
     sceneRecordIsVisible(
       view,
       index,

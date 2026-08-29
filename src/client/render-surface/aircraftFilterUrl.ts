@@ -4,11 +4,11 @@ import {
 } from "@shared/domain/aircraft";
 import {
   DEFAULT_AIRCRAFT_FILTER_VALUES,
+  type AircraftFilterValues,
 } from "@shared/domain/aircraftFilter";
 import { isEnumValue } from "@shared/types/enum";
 import {
   RenderGlobeCommandKind,
-  type RenderAircraftFilter,
 } from "@/workers/render/protocol";
 import type {
   RenderGlobeStateStore,
@@ -97,7 +97,7 @@ function parseCountries(params: URLSearchParams): readonly string[] {
 
 export function parseAircraftFilterSearch(
   search: string,
-): RenderAircraftFilter {
+): AircraftFilterValues {
   const params = new URLSearchParams(search);
   const militaryQuery = (
     params.get(AircraftFilterQuery.Military) ?? ""
@@ -154,7 +154,7 @@ function setListQuery(
 
 export function createAircraftFilterUrl(
   location: RenderUrlLocation,
-  filter: RenderAircraftFilter,
+  filter: AircraftFilterValues,
 ): string {
   const params = new URLSearchParams(location.search);
   setBooleanQuery(params, AircraftFilterQuery.Enabled, filter.enabled);
@@ -210,7 +210,7 @@ export class AircraftFilterUrlAdapter {
     this.replace(this.options.globeState.read().aircraftFilter);
   };
 
-  private replace(filter: RenderAircraftFilter): void {
+  private replace(filter: AircraftFilterValues): void {
     const location = this.options.readLocation();
     const current =
       `${location.pathname}${location.search}${location.hash}`;

@@ -1,17 +1,18 @@
-export enum DataWorkerProtocolVersion {
-  Current = 11,
-}
+export const DATA_WORKER_PROTOCOL_VERSION = 13;
+export type DataWorkerProtocolVersion = typeof DATA_WORKER_PROTOCOL_VERSION;
 
 export enum DataWorkerMessageType {
   Init = "init",
   ConnectRender = "connectRender",
   ConnectCorrelation = "connectCorrelation",
-  RefreshSource = "refreshSource",
-  ListSourceEntities = "listSourceEntities",
   GetSourceEntity = "getSourceEntity",
   QuerySource = "querySource",
   GetTrail = "getTrail",
   GetAircraftDossier = "getAircraftDossier",
+  GetCycloneDossier = "getCycloneDossier",
+  GetEarthquakeWaveform = "getEarthquakeWaveform",
+  CancelEarthquakeWaveform = "cancelEarthquakeWaveform",
+  GetTsunamiAlerts = "getTsunamiAlerts",
   Get = "get",
   Set = "set",
   SetDeferred = "setDeferred",
@@ -29,5 +30,8 @@ export enum DataWorkerMessageType {
   SourceSnapshot = "sourceSnapshot",
   Trail = "trail",
   AircraftDossier = "aircraftDossier",
+  CycloneDossier = "cycloneDossier",
+  EarthquakeWaveform = "earthquakeWaveform",
+  TsunamiAlerts = "tsunamiAlerts",
   Error = "error",
 }

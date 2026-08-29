@@ -1,11 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import {
+  LAYER_COLOR_METADATA,
   themes,
-  LAYER_COLOR_KEYS,
-  LAYER_COLOR_LABELS,
   applyColorOverrides,
   getColorMap,
-} from "@/config/theme";
+} from "@/theme";
 import { Domain } from "@shared/domain/identity";
 
 // ── WCAG contrast helpers (Hard Rule 15) ───────────────────────────
@@ -72,21 +71,22 @@ describe("theme config", () => {
     }
   });
 
-  test("LAYER_COLOR_KEYS has 7 entries (adds cyclones in step 2)", () => {
-    expect(LAYER_COLOR_KEYS.length).toBe(7);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Aircraft);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Ships);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Events);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Quakes);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Fires);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Weather);
-    expect(LAYER_COLOR_KEYS).toContain(Domain.Cyclones);
+  test("layer color metadata owns all 7 configurable layers", () => {
+    const keys = Object.keys(LAYER_COLOR_METADATA);
+    expect(keys).toHaveLength(7);
+    expect(keys).toContain(Domain.Aircraft);
+    expect(keys).toContain(Domain.Ships);
+    expect(keys).toContain(Domain.Events);
+    expect(keys).toContain(Domain.Quakes);
+    expect(keys).toContain(Domain.Fires);
+    expect(keys).toContain(Domain.Weather);
+    expect(keys).toContain(Domain.Cyclones);
   });
 
   test("every layer key has a label", () => {
-    for (const key of LAYER_COLOR_KEYS) {
-      expect(LAYER_COLOR_LABELS[key]).toBeDefined();
-      expect(typeof LAYER_COLOR_LABELS[key]).toBe("string");
+    for (const metadata of Object.values(LAYER_COLOR_METADATA)) {
+      expect(metadata.label).toBeDefined();
+      expect(typeof metadata.label).toBe("string");
     }
   });
 
@@ -108,7 +108,7 @@ describe("theme config", () => {
     // 7 user-customizable layers + 2 render aliases ("cyclones-forecast" and
     // "cyclones-warning") that mirror the cyclones color so forecast-track
     // points and warning areas (read by raw type) never resolve to undefined.
-    expect(Object.keys(map).length).toBe(9);
+    expect(Object.keys(map)).toHaveLength(9);
     expect(map.aircraft).toBe(themes.dark.colors.aircraft);
     expect(map.ships).toBe(themes.dark.colors.ships);
     expect(map.cyclones).toBe(themes.dark.colors.cyclones);
@@ -132,9 +132,10 @@ describe("theme config", () => {
   });
 
   test("cyclone color label is human-readable", () => {
-    expect(LAYER_COLOR_LABELS.cyclones).toBeDefined();
-    expect(typeof LAYER_COLOR_LABELS.cyclones).toBe("string");
-    expect(LAYER_COLOR_LABELS.cyclones.length).toBeGreaterThan(0);
+    const label = LAYER_COLOR_METADATA[Domain.Cyclones].label;
+    expect(label).toBeDefined();
+    expect(typeof label).toBe("string");
+    expect(label.length).toBeGreaterThan(0);
   });
 
   // ── WCAG 2.2 AA contrast (Hard Rule 15) ─────────────────────────

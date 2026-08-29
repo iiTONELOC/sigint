@@ -6,7 +6,7 @@ import {
   type GeoMultiPolygon,
   type GeoPoint,
 } from "@shared/geo";
-import type { ForecastPoint } from "../types";
+import type { ForecastPoint } from "@shared/domain/cyclones";
 
 export enum LandfallKind {
   Onshore = "onshore",

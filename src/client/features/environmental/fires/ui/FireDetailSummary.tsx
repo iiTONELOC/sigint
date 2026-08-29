@@ -1,11 +1,13 @@
 import type { DataPoint } from "@/features/base/dataPoints";
-import { DetailField, DetailFieldAlign } from "@/dossier";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
 import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { formatPixelKm } from "../formatters";
+import { FirePassLabel } from "../formatters/presentation";
+import { formatPixelKm } from "../formatters/units";
 import { NO_VALUE } from "@shared/text";
 import {
   confidenceMeta,
@@ -13,7 +15,7 @@ import {
   frpBand,
 } from "../intensity";
 import { FireDayNight } from "@shared/domain/fireDayNight";
-import { FirePassLabel, type FireData } from "../types";
+import type { FireData } from "@shared/domain/fireDayNight";
 
 export function FireDetailSummary({ item }: { readonly item: DataPoint }) {
   const d = item.data as FireData;
@@ -48,7 +50,7 @@ export function FireDetailSummary({ item }: { readonly item: DataPoint }) {
           <DetailField
             label=""
             value={anomaly ?? ""}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
         <div className="flex justify-between gap-4">
@@ -56,7 +58,7 @@ export function FireDetailSummary({ item }: { readonly item: DataPoint }) {
           <DetailField
             label="PASS"
             value={isNight ? FirePassLabel.Night : FirePassLabel.Day}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
         <DetailField label="POSITION" value={`${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`} />

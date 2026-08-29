@@ -145,7 +145,7 @@ describe("RenderLayerCatalog", () => {
       catalog.nearest(SceneHitKind.Point, 0, 0, 10, 10)
         ?.identity.source,
     ).toBe(
-      Domain.Aircraft,
+      Domain.Ships,
     );
     expect(
       catalog.selectionAnchor(Domain.Ships, Domain.Ships),

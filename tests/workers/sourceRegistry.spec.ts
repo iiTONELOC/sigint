@@ -1,31 +1,25 @@
-import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
 import { Domain } from "@shared/domain/identity";
 import { describe, expect, test } from "bun:test";
-import { type SourceId } from "@shared/source";
-import {
-  POINT_SOURCE_DEFINITIONS,
-  getPointSourceDefinition,
-} from "@/workers/data/sources/registry";
-import { RENDER_SOURCE_IDS } from "@/workers/data/sourceIds";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
+import { RENDER_SOURCE_IDS } from "@shared/source";
 
 describe("point source registry", () => {
   test("defines each render source one time", () => {
+    const definitions = RENDER_SOURCE_IDS.map((source) =>
+      getPointSourceDefinition(source),
+    );
     expect(
-      POINT_SOURCE_DEFINITIONS.map((definition) => definition.id),
+      definitions.map((definition) => definition.id),
     ).toEqual(Array.from(RENDER_SOURCE_IDS));
     expect(
-      new Set(
-        POINT_SOURCE_DEFINITIONS.map((definition) => definition.cacheKey),
-      ).size,
-    ).toBe(POINT_SOURCE_DEFINITIONS.length);
+      new Set(definitions.map((definition) => definition.cacheKey)).size,
+    ).toBe(definitions.length);
   });
 
-  test("keeps source policy in the registry", () => {
-    const aircraft = getPointSourceDefinition(Domain.Aircraft);
-    expect(aircraft.pollIntervalMs).toBeGreaterThan(0);
-    expect(aircraft.emptyResultIsComplete).toBe(true);
-
+  test("returns the registry-owned source facts", () => {
     const events = getPointSourceDefinition(Domain.Events);
-    expect(events.completeness).toBe(SourceCompletenessPolicy.Partial);
+    expect(events.id).toBe(Domain.Events);
+    expect(events.pointType).toBe(Domain.Events);
+    expect(events.pollIntervalMs).toBeGreaterThan(0);
   });
 });

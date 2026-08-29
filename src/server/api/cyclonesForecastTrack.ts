@@ -1,135 +1,161 @@
-// Real NHC CurrentStorms.json carries no inline forecast — the per-hour
-// positions live only inside the storm's forecastTrack.kmzFile (TRACK.kmz).
-// This fetches+parses that KMZ and the cone, and enriches each storm record
-// before the cache write, so the client reads data.forecast / officialCone
-// as plain fields with no per-storm fan-out.
-//
-// SSRF: kmzFile URLs come from NHC's payload, never from a client request.
-
 import { getStormProducts } from "./cyclonesCache";
 import { getCycloneCone } from "./cyclonesConeCache";
 import { getCycloneAtcf, getCycloneModels } from "./cyclonesAtcfCache";
-import { unzipSingleEntryKmz } from "./zipReader";
-import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
+import { fetchKmz } from "./zipReader";
 import { createLogger } from "../lib/logger";
 import { isFiniteCoordinate } from "../lib/geoValidation";
+import type { CycloneCoordinates, NhcForecastPoint } from "@shared/domain/cyclones";
+import { BLANK_SEPARATOR } from "@shared/text";
 
 const logger = createLogger({ service: "nhc" });
 
-// Field names match what client parseNhc.toForecastPoint maps from.
-export type TrackForecastPoint = {
-  fcstHour: number;
-  validTime: string;
-  latitude: number;
-  longitude: number;
-  maxWind: number;
-};
-
-function descriptionOf(placemark: string): string {
-  const m = /<description>\s*(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/description>/i.exec(
-    placemark,
-  );
-  return m?.[1] ?? "";
+enum KmlElement {
+  Coordinates = "coordinates",
+  Description = "description",
+  Point = "point",
 }
 
-/** Pull the first lon,lat pair out of a `<Point><coordinates>` block. */
-function pointCoords(placemark: string): { lon: number; lat: number } | null {
-  const m = /<Point>[\s\S]*?<coordinates>\s*([^<]*?)\s*<\/coordinates>/i.exec(
-    placemark,
-  );
-  if (!m?.[1]) return null;
-  const first = m[1].trim().split(/\s+/)[0];
-  if (!first) return null;
-  const parts = first.split(",");
-  const lon = Number.parseFloat(parts[0] ?? "");
-  const lat = Number.parseFloat(parts[1] ?? "");
+enum ForecastLabel {
+  Forecast = "forecast",
+  Hour = "hr",
+  Knots = "knots",
+  MaximumWind = "maximum wind:",
+  ValidAt = "valid at:",
+}
+
+enum CdataMarker {
+  Open = "<![CDATA[",
+  Close = "]]>",
+}
+
+function elementText(source: string, element: KmlElement, from = 0): string | null {
+  const lowercaseSource = source.toLowerCase();
+  const openTag = `<${element}>`;
+  const closeTag = `</${element}>`;
+  const openIndex = lowercaseSource.indexOf(openTag, from);
+  if (openIndex < 0) return null;
+  const start = openIndex + openTag.length;
+  const end = lowercaseSource.indexOf(closeTag, start);
+  return end < 0 ? null : source.slice(start, end).trim();
+}
+
+function descriptionOf(placemark: string): string {
+  const description = elementText(placemark, KmlElement.Description);
+  if (!description?.toUpperCase().startsWith(CdataMarker.Open)) return description ?? "";
+  const content = description.slice(CdataMarker.Open.length);
+  return content.endsWith(CdataMarker.Close)
+    ? content.slice(0, -CdataMarker.Close.length).trim()
+    : content;
+}
+
+function pointCoordinates(placemark: string): CycloneCoordinates | null {
+  const pointIndex = placemark.toLowerCase().indexOf(`<${KmlElement.Point}>`);
+  if (pointIndex < 0) return null;
+  const coordinates = elementText(placemark, KmlElement.Coordinates, pointIndex);
+  const firstCoordinate = coordinates?.split(/\s+/)[0];
+  if (!firstCoordinate) return null;
+  const coordinateParts = firstCoordinate.split(",");
+  const lon = Number.parseFloat(coordinateParts[0] ?? "");
+  const lat = Number.parseFloat(coordinateParts[1] ?? "");
   if (!isFiniteCoordinate(lat, lon)) return null;
   return { lon, lat };
 }
 
-function forecastHourOf(desc: string): number | null {
-  if (desc.search(/Forecast/i) < 0) return null;
-  const m = /(\d+)\s*hr\s+Forecast/i.exec(desc);
-  if (m?.[1]) return Number.parseInt(m[1], 10);
-  return 0; // initial-position placemark says just "Forecast"
+function forecastHourOf(normalizedDescription: string): number | null {
+  if (!normalizedDescription.includes(ForecastLabel.Forecast)) return null;
+  const marker = `${ForecastLabel.Hour}${BLANK_SEPARATOR}${ForecastLabel.Forecast}`;
+  let markerIndex = normalizedDescription.indexOf(marker);
+  while (markerIndex >= 0) {
+    let digitEnd = markerIndex;
+    while (normalizedDescription[digitEnd - 1] === BLANK_SEPARATOR) digitEnd -= 1;
+    let digitStart = digitEnd;
+    while (digitStart > 0 && /\d/.test(normalizedDescription[digitStart - 1] ?? "")) digitStart -= 1;
+    if (digitStart < digitEnd) return Number(normalizedDescription.slice(digitStart, digitEnd));
+    markerIndex = normalizedDescription.indexOf(marker, markerIndex + marker.length);
+  }
+  return 0;
 }
 
-function maxWindKnotsOf(desc: string): number {
-  const m = /Maximum Wind:\s*(\d+)\s*knots/i.exec(desc);
-  return m?.[1] ? Number.parseInt(m[1], 10) : 0;
+function maxWindKnotsOf(normalizedDescription: string): number {
+  const labelIndex = normalizedDescription.indexOf(ForecastLabel.MaximumWind);
+  if (labelIndex < 0) return 0;
+  let cursor = labelIndex + ForecastLabel.MaximumWind.length;
+  if (normalizedDescription[cursor] === BLANK_SEPARATOR) cursor += 1;
+  const digitStart = cursor;
+  while (/\d/.test(normalizedDescription[cursor] ?? "")) cursor += 1;
+  if (cursor === digitStart) return 0;
+  const windKnots = Number(normalizedDescription.slice(digitStart, cursor));
+  if (normalizedDescription[cursor] === BLANK_SEPARATOR) cursor += 1;
+  return normalizedDescription.startsWith(ForecastLabel.Knots, cursor) ? windKnots : 0;
 }
 
-// NHC publishes only a localized string here, no machine timestamp — passed
-// through verbatim and never parsed into a Date downstream.
-function validTimeOf(desc: string): string {
-  const m = /Valid at:\s*([^<]*?)\s*<\/td>/i.exec(desc);
-  if (m?.[1]) return m[1].trim();
-  const m2 = /Valid at:\s*([^\n<]+)/i.exec(desc);
-  return m2?.[1] ? m2[1].trim() : "";
+function validTimeOf(description: string): string {
+  const lower = description.toLowerCase();
+  const labelIndex = lower.indexOf(ForecastLabel.ValidAt);
+  if (labelIndex < 0) return "";
+  const start = labelIndex + ForecastLabel.ValidAt.length;
+  const lineEnd = description.indexOf("\n", start);
+  const tagEnd = description.indexOf("<", start);
+  const end = Math.min(description.length, ...[lineEnd, tagEnd].filter((index) => index >= 0));
+  return description.slice(start, end).trim();
 }
 
-export function parseTrackKml(kml: string): TrackForecastPoint[] {
-  const chunks = kml.split(/<Placemark\b/i).slice(1);
-  const points: TrackForecastPoint[] = [];
-  for (const chunk of chunks) {
-    if (chunk.search(/<Point>/i) < 0) continue; // skip LineStrings
-    const desc = descriptionOf(chunk);
-    const fcstHour = forecastHourOf(desc);
-    if (fcstHour == null) continue;
-    const coords = pointCoords(chunk);
-    if (!coords) continue;
+export function parseTrackKml(kml: string): NhcForecastPoint[] {
+  const placemarks = kml.split(/<Placemark\b/i).slice(1);
+  const points: NhcForecastPoint[] = [];
+  for (const placemark of placemarks) {
+    if (!placemark.toLowerCase().includes(`<${KmlElement.Point}>`)) continue;
+    const description = descriptionOf(placemark);
+    const normalizedDescription = description.toLowerCase().replace(/\s+/g, BLANK_SEPARATOR);
+    const forecastHour = forecastHourOf(normalizedDescription);
+    if (forecastHour === null) continue;
+    const coordinates = pointCoordinates(placemark);
+    if (!coordinates) continue;
     points.push({
-      fcstHour,
-      validTime: validTimeOf(desc),
-      latitude: coords.lat,
-      longitude: coords.lon,
-      maxWind: maxWindKnotsOf(desc),
+      fcstHour: forecastHour,
+      validTime: validTimeOf(description),
+      latitude: coordinates.lat,
+      longitude: coordinates.lon,
+      maxWind: maxWindKnotsOf(normalizedDescription),
     });
   }
-  points.sort((a, b) => a.fcstHour - b.fcstHour);
+  points.sort((left, right) => left.fcstHour - right.fcstHour);
   return points;
 }
 
-// Returns [] on any failure — a track outage must not block the storm render.
-async function fetchForecastTrack(stormId: string): Promise<TrackForecastPoint[]> {
+async function fetchForecastTrack(stormId: string): Promise<NhcForecastPoint[]> {
   const products = getStormProducts(stormId);
   const url = products?.trackKmzUrl;
   if (!url) return [];
   try {
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_STANDARD_MS);
-    if (!res.ok) return [];
-    const buf = await res.arrayBuffer();
-    const kml = await unzipSingleEntryKmz(new Uint8Array(buf));
-    return parseTrackKml(kml);
+    const kml = await fetchKmz(url);
+    return kml === null ? [] : parseTrackKml(kml);
   } catch {
     return [];
   }
 }
 
-// Attaches forecast + officialCone onto each storm in place, before the cache
-// write. Per-storm failures are non-fatal — the storm renders with what succeeded.
+/** Add available forecast products without removing inline source data. */
 export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
   await Promise.all(
-    activeStorms.map(async (s) => {
-      if (!s || typeof s !== "object") return;
-      const obj = s as Record<string, unknown>;
-      const rawId = obj.id;
-      if (typeof rawId !== "string") return;
-      const stormId = rawId.toUpperCase();
+    activeStorms.map(async (storm) => {
+      if (!storm || typeof storm !== "object") return;
+      const record = storm as Record<string, unknown>;
+      const sourceId = record.id;
+      if (typeof sourceId !== "string") return;
+      const stormId = sourceId.toUpperCase();
       const [forecast, coneResult, atcf, modelsResult] = await Promise.all([
         fetchForecastTrack(stormId),
         getCycloneCone(stormId).catch(() => ({ cone: null })),
         getCycloneAtcf(stormId).catch(() => ({ radii: null, track: [] })),
         getCycloneModels(stormId).catch(() => ({ models: [] })),
       ]);
-      // Gap-fill, never destroy: a fixture (or NHC payload) that already inlines
-      // a forecast keeps it when the product fetch returns nothing.
-      if (forecast.length > 0) obj.forecast = forecast;
-      else if (!Array.isArray(obj.forecast)) obj.forecast = [];
-      if (coneResult.cone) obj.officialCone = coneResult.cone;
-      if (atcf.radii) obj.windRadii = atcf.radii;
-      if (atcf.track && atcf.track.length > 0) obj.pastTrack = atcf.track;
-      if (modelsResult.models.length > 0) obj.models = modelsResult.models;
+      if (forecast.length > 0) record.forecast = forecast;
+      else if (!Array.isArray(record.forecast)) record.forecast = [];
+      if (coneResult.cone) record.officialCone = coneResult.cone;
+      if (atcf.radii) record.windRadii = atcf.radii;
+      if (atcf.track.length > 0) record.pastTrack = atcf.track;
+      if (modelsResult.models.length > 0) record.models = modelsResult.models;
     }),
   );
   logger.info("🌀 NHC: forecast track + cone enrichment complete");

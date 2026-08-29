@@ -5,11 +5,13 @@ import {
 } from "@shared/domain/compass";
 import { AngleConversion, TurnDeg } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";
+import { windRadiiBandColor } from "../classification";
 import {
-  CycloneWindThreshold,
-  windRadiiBandColor,
-} from "../classification";
-import type { WindRadii } from "../types";
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  CYCLONE_STRONG_WIND_RADIUS_KT,
+  type WindRadii,
+} from "@shared/domain/cyclones";
 
 enum WindRoseGeometry {
   ViewBox = 150,
@@ -41,13 +43,8 @@ enum WindRosePrecision {
   Transform = 2,
 }
 
-enum WindRoseValue {
-  Zero = 0,
-}
-
-enum WindRoseText {
-  Separator = " · ",
-}
+const WIND_ROSE_ZERO = 0;
+const WIND_ROSE_SEPARATOR = " · ";
 
 enum WindRoseSwatchGeometry {
   Size = 10,
@@ -88,7 +85,7 @@ function wedgePath(
   nauticalMiles: number,
   pixelsPerNauticalMile: number,
 ): string {
-  if (nauticalMiles <= WindRoseValue.Zero) return EMPTY_TEXT;
+  if (nauticalMiles <= WIND_ROSE_ZERO) return EMPTY_TEXT;
   const radius = nauticalMiles * pixelsPerNauticalMile;
   const [startX, startY] = polarPoint(startDegrees, radius);
   const [endX, endY] = polarPoint(
@@ -141,26 +138,26 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
   const center = windRoseCenter();
   const radius = windRoseRadius();
   const bands: ReadonlyArray<readonly [number, number[] | null]> = [
-    [CycloneWindThreshold.HurricaneOne, radii.kt64],
-    [CycloneWindThreshold.StrongWindRadiusKnots, radii.kt50],
-    [CycloneWindThreshold.TropicalStorm, radii.kt34],
+    [CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt, radii.kt64],
+    [CYCLONE_STRONG_WIND_RADIUS_KT, radii.kt50],
+    [CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt, radii.kt34],
   ];
   const present = bands.filter(
     (band): band is readonly [number, number[]] => band[1] != null,
   );
-  if (present.length === WindRoseValue.Zero) return null;
+  if (present.length === WIND_ROSE_ZERO) return null;
 
   const maxNauticalMiles = Math.max(
     ...present.flatMap(([, quadrants]) => quadrants),
   );
-  const pixelsPerNauticalMile = maxNauticalMiles > WindRoseValue.Zero
+  const pixelsPerNauticalMile = maxNauticalMiles > WIND_ROSE_ZERO
     ? (radius * WindRoseGeometry.PetalScale) /
       maxNauticalMiles
-    : WindRoseValue.Zero;
+    : WIND_ROSE_ZERO;
   const rotation = radii.lon;
   const quadrantLabels = WIND_ROSE_BEARINGS.map((bearing) =>
     compassPointForDegrees(bearing + TurnDeg.Quarter / 2)
-  ).join(WindRoseText.Separator);
+  ).join(WIND_ROSE_SEPARATOR);
 
   return (
     <div className="@container/rose bg-sig-panel border border-sig-border rounded-[12px] p-3 h-full flex items-center">
@@ -213,7 +210,7 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
                 WIND_ROSE_BEARINGS.map((start, index) => {
                   const path = wedgePath(
                     start,
-                    quadrants[index] ?? WindRoseValue.Zero,
+                    quadrants[index] ?? WIND_ROSE_ZERO,
                     pixelsPerNauticalMile,
                   );
                   if (path === EMPTY_TEXT) return null;
@@ -254,7 +251,7 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
               </div>
               <div className="flex items-center gap-2 text-(length:--sig-text-xs) text-sig-text font-mono">
                 <span className="w-2.5 shrink-0" aria-hidden />
-                {quadrants.join(WindRoseText.Separator)}{" "}
+                {quadrants.join(WIND_ROSE_SEPARATOR)}{" "}
                 <span className="text-sig-dim">nm</span>
               </div>
             </div>

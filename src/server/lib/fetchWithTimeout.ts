@@ -6,8 +6,8 @@
 export const FETCH_TIMEOUT_STANDARD_MS = 8_000;
 /** Large payloads (full NHC/FIRMS/aircraft feeds). */
 export const FETCH_TIMEOUT_LARGE_MS = 30_000;
-/** FlightAware dossier pages — heavier HTML, needs more headroom. */
-export const FETCH_TIMEOUT_FLIGHTAWARE_MS = 12_000;
+/** FlightAware dossier pages on the foreground selection path. */
+export const FETCH_TIMEOUT_FLIGHTAWARE_MS = 2_500;
 
 export async function fetchWithTimeout(
   url: string,

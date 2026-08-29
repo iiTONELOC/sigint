@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { ThemeContext, type ThemeContextValue } from "../model";
+import { ThemeContext, type ThemeContextValue } from "../model/context";
 
 enum ThemeHookError {
   ProviderRequired = "useTheme must be used within ThemeProvider",

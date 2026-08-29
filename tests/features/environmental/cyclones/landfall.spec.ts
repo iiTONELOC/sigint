@@ -7,7 +7,7 @@ import {
 import {
   Category,
   type ForecastPoint,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import type { GeoMultiPolygon } from "@shared/geo";
 
 const LAND: GeoMultiPolygon = [

@@ -11,8 +11,8 @@ import {
   type DataWorkerTransport,
 } from "@/lib/cache/dataWorkerClient";
 import {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
   parseDataWorkerCommand,
   parseDataWorkerEvent,
   type DataWorkerCommand,
@@ -65,7 +65,7 @@ function event(
 ): unknown {
   return {
     ...value,
-    protocolVersion: DataWorkerProtocolVersion.Current,
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
     requestId,
   };
 }
@@ -82,7 +82,7 @@ describe("DataWorker protocol", () => {
     expect(
       parseDataWorkerCommand({
         type: DataWorkerMessageType.Set,
-        protocolVersion: DataWorkerProtocolVersion.Current,
+        protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
         requestId: 1,
         key: 42,
       }),
@@ -240,22 +240,6 @@ describe("createDataWorkerClient", () => {
     expect(received).toEqual([12]);
     expect(client.getSourceSnapshot(Domain.Earthquake)?.count).toBe(12);
     unsubscribe();
-  });
-
-  test("requests an explicit source refresh", async () => {
-    const harness = createWorkerHarness();
-    const client = createDataWorkerClient(harness.transport);
-    const pending = client.refreshSource(Domain.Earthquake);
-    const command = latestCommand(harness);
-    expect(command.type).toBe(DataWorkerMessageType.RefreshSource);
-
-    harness.emit(
-      event(command.requestId, {
-        type: DataWorkerMessageType.Complete,
-      }),
-    );
-
-    await pending;
   });
 
   test("returns one validated source entity with its dataset version", async () => {
@@ -449,7 +433,7 @@ describe("createDataWorkerClient", () => {
 
     harness.emit({
       type: DataWorkerMessageType.Ready,
-      protocolVersion: DataWorkerProtocolVersion.Current - 1,
+      protocolVersion: DATA_WORKER_PROTOCOL_VERSION - 1,
       requestId: command.requestId,
       entries: [],
     });

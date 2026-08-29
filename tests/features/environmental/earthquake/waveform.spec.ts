@@ -6,7 +6,7 @@ import {
 import {
   WaveformStatus,
   WaveformUnavailableReason,
-} from "@/features/environmental/earthquake/model";
+} from "@shared/domain/earthquakes";
 
 enum WaveformFixtureCoordinate {
   Latitude = 18.4511666666667,

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { getColorMap, ThemeMode, useTheme } from "@/theme";
+import { getColorMap, useTheme } from "@/theme";
 import { LayoutMode, useLayoutMode } from "@/layout-mode";
 
 import { featureList } from "@/features/registry";
-import type { AircraftFilter } from "@/features/tracking/aircraft/types";
-import { AircraftFilterControl } from "@/features/tracking/aircraft";
+import type { AircraftFilterValues } from "@shared/domain/aircraftFilter";
+import { AircraftFilterControl } from "@/features/tracking/aircraft/ui/AircraftFilterControl";
 import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
 import {
   AlertTriangle,
@@ -18,7 +18,7 @@ import {
   type FeatureIconStyle,
 } from "@/features/base/presentation";
 import { shouldShowCyclonesToggle } from "../../shared/cyclonesSeason";
-import { useAlwaysShowCyclones } from "@/preferences/cyclones";
+import { useAlwaysShowCyclones } from "@/preferences/cyclones/useAlwaysShowCyclones";
 import {
   buildSourceStatusMap,
   type SourceStatusEntry,
@@ -26,6 +26,7 @@ import {
 import { Domain } from "@shared/domain/identity";
 import { isSourceDown, SourceStatus } from "@shared/domain/sourceStatus";
 import { SettingsModal } from "@/settings";
+import { ButtonType } from "@/lib/ui/button";
 
 enum HeaderLabel {
   Hide = "Hide",
@@ -91,9 +92,9 @@ type HeaderProps = {
   readonly toggleLayer: (key: string) => void;
   readonly counts: Record<string, number>;
   readonly dataSources: readonly SourceStatusEntry[];
-  readonly aircraftFilter: AircraftFilter;
+  readonly aircraftFilter: AircraftFilterValues;
   readonly setAircraftFilter: React.Dispatch<
-    React.SetStateAction<AircraftFilter>
+    React.SetStateAction<AircraftFilterValues>
   >;
   readonly availableCountries: string[];
   readonly searchSlot?: React.ReactNode;
@@ -132,7 +133,7 @@ function LayerToggle({
       placement={TooltipPlacement.Bottom}
     >
       <button
-        type="button"
+        type={ButtonType.Button}
         onClick={onToggle}
         aria-label={`Toggle ${label} layer`}
         aria-pressed={on}
@@ -203,7 +204,7 @@ function Toggles({
   availableCountries,
   searchSlot,
 }: Readonly<HeaderProps>) {
-  const { theme, resolvedMode } = useTheme();
+  const { theme } = useTheme();
   const colors = theme.colors;
   const colorMap = getColorMap(theme);
   const sourceStatusMap = useMemo(
@@ -254,20 +255,7 @@ function Toggles({
             aircraftFilter={aircraftFilter}
             setAircraftFilter={setAircraftFilter}
             aircraftCount={counts[Domain.Aircraft] ?? 0}
-            aircraftColor={
-              colorMap[Domain.Aircraft] ?? colors.aircraft
-            }
             availableCountries={availableCountries}
-            colors={{
-              panel: colors.panel,
-              border: colors.border,
-              bright:
-                resolvedMode === ThemeMode.Dark
-                  ? "#00b8d4"
-                  : colors.accent,
-              dim: colors.dim,
-              danger: colors.danger,
-            }}
         />
         </div>
       </div>
@@ -309,6 +297,7 @@ function LayoutModeToggle() {
       placement={TooltipPlacement.Bottom}
     >
       <button
+        type={ButtonType.Button}
         data-tour={HeaderTourTarget.LayoutMode}
         onClick={cycleMode}
         className={`p-1.5 rounded transition-colors touch-target flex items-center justify-center gap-1 ${
@@ -379,7 +368,7 @@ function SettingsButton({
 }) {
   const button = (
     <button
-      type="button"
+      type={ButtonType.Button}
       data-tour={HeaderTourTarget.Settings}
       aria-label={HeaderLabel.OpenSettings}
       onClick={onOpen}

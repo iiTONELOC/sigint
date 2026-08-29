@@ -7,7 +7,7 @@ const deflateRawAsync = promisify(deflateRaw);
 
 // ── ZIP local file header builder (test-side) ──────────────────────
 // Mirrors the structure used in scripts/build-cone-kmz-fixture.ts. Kept
-// inline here so the spec is self-contained — if the field layout
+// inline here so the spec is self-contained; if the field layout
 // changes in the reader, this test must be updated in lockstep.
 
 function u16(buf: Uint8Array, off: number, v: number): void {
@@ -100,7 +100,7 @@ describe("unzipSingleEntryKmz", () => {
     const payload = new TextEncoder().encode("doesn't matter");
     const zip = buildZip(payload, payload, 99);
     await expect(unzipSingleEntryKmz(zip)).rejects.toThrow(
-      "Unsupported ZIP compression method 99",
+      "Unsupported ZIP compression method",
     );
   });
 

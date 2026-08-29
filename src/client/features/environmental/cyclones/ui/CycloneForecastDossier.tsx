@@ -1,32 +1,23 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Wind } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
 import { NO_VALUE } from "@shared/text";
-import type { DataPoint } from "@/features/base/dataPoints";
+import type { FeatureDossierProps } from "@/features/base/presentation";
 import { formatLat, formatLon } from "@/geo";
-import { formatKtMph, nmToKm } from "@/measurements";
-import type { CycloneForecastPointData } from "../types";
+import { formatKtMph } from "@/measurements";
 import {
+  CYCLONE_CATEGORY_METADATA,
+  SaffirSimpson,
+} from "@shared/domain/cyclones";
+import {
+  DossierRow,
+  DossierSection,
   DossierToolbar,
-  Section,
-  Row,
   useDossierFocus,
-} from "@/panes/dossier/DossierAtoms";
-import { CATEGORY_LABEL } from "../classification";
+} from "@/dossier";
 import { leadTime } from "../forecastDefinition";
-import { SaffirSimpson } from "../types";
+import { formatNmKm, formatPressureMb } from "../formatters/units";
 
-type Props = {
-  readonly item: DataPoint & {
-    type: Domain.CyclonesForecast;
-    data: CycloneForecastPointData;
-  };
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
+type Props = FeatureDossierProps<Domain.CyclonesForecast>;
 
 export function CycloneForecastDossier({
   item,
@@ -37,13 +28,11 @@ export function CycloneForecastDossier({
   onClose,
 }: Props) {
   const d = item.data;
-  const category = CATEGORY_LABEL[d.category] ?? d.category;
+  const category = CYCLONE_CATEGORY_METADATA[d.category].label;
   const closeBtnRef = useDossierFocus(item.id);
   const badge = d.saffirSimpson > SaffirSimpson.None
     ? `CAT ${d.saffirSimpson}`
     : null;
-  const errKm = nmToKm(d.errorRadiusNm);
-
   return (
     <div className="h-full flex flex-col">
       <DossierToolbar
@@ -60,33 +49,30 @@ export function CycloneForecastDossier({
       />
       <div className="flex-1 overflow-y-auto sigint-scroll">
         <div className="p-3 space-y-3">
-          <Section title="FORECAST">
-            <Row label="STORM" value={d.parentName} />
-            <Row label="BASIN" value={d.parentBasin} />
-            <Row label="LEAD TIME" value={leadTime(d.fcstHour)} />
-            <Row label="VALID" value={d.validTime || NO_VALUE} />
-          </Section>
+          <DossierSection title="FORECAST">
+            <DossierRow label="STORM" value={d.parentName} />
+            <DossierRow label="BASIN" value={d.parentBasin} />
+            <DossierRow label="LEAD TIME" value={leadTime(d.fcstHour)} />
+            <DossierRow label="VALID" value={d.validTime || NO_VALUE} />
+          </DossierSection>
 
-          <Section title="INTENSITY">
-            <Row label="WINDS" value={formatKtMph(d.maxWindKt)} />
+          <DossierSection title="INTENSITY">
+            <DossierRow label="WINDS" value={formatKtMph(d.maxWindKt)} />
             {d.minPressureMb != null && (
-              <Row label="PRESSURE" value={`${d.minPressureMb} mb`} />
+              <DossierRow label="PRESSURE" value={formatPressureMb(d.minPressureMb)} />
             )}
-            <Row label="CLASS" value={category} />
-          </Section>
+            <DossierRow label="CLASS" value={category} />
+          </DossierSection>
 
-          <Section title="POSITION">
+          <DossierSection title="POSITION">
             <div className="text-(length:--sig-text-sm) font-mono text-sig-bright">
               {formatLat(item.lat)}, {formatLon(item.lon)}
             </div>
-          </Section>
+          </DossierSection>
 
-          <Section title="UNCERTAINTY">
-            <Row
-              label="TRACK ERROR"
-              value={`${d.errorRadiusNm} nm (${errKm} km)`}
-            />
-          </Section>
+          <DossierSection title="UNCERTAINTY">
+            <DossierRow label="TRACK ERROR" value={formatNmKm(d.errorRadiusNm)} />
+          </DossierSection>
         </div>
       </div>
     </div>

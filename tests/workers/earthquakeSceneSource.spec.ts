@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  parseEarthquakeFeed,
+  EARTHQUAKE_FEED,
   type EarthquakePoint,
 } from "@/features/environmental/earthquake/data/source";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
@@ -9,10 +9,10 @@ import {
   type PointSourceCacheSnapshot,
 } from "@/workers/data/sourceRuntime";
 import {
-  EarthquakeSceneBinding,
+  earthquakeSceneBinding,
   EarthquakeSource,
 } from "@/workers/data/sources/earthquakes";
-import { EarthquakeSceneAttribute } from "@/workers/render/scene/earthquakeSchema";
+import { EarthquakeSceneAttribute } from "@shared/scene";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
@@ -54,7 +54,7 @@ function point(
 }
 
 describe("earthquake scene source", () => {
-  test("validates the complete feed without truncation", () => {
+  test("validates the complete feed without truncation", async () => {
     const features = Array.from(
       { length: EarthquakeFeedFixture.Count },
       (_, index) => ({
@@ -82,7 +82,11 @@ describe("earthquake scene source", () => {
       }),
     );
 
-    const points = parseEarthquakeFeed({ features });
+    const snapshot = await EARTHQUAKE_FEED.fetchSnapshot(
+      Date.now,
+      async () => Response.json({ features }),
+    );
+    const points = snapshot.entities;
 
     expect(points).toHaveLength(EarthquakeFeedFixture.Count);
     expect(points.at(-1)?.id).toBe(
@@ -95,7 +99,7 @@ describe("earthquake scene source", () => {
     let observedAt = EarthquakeTestInstant.SceneNow;
     const patches: SceneSourcePatch[] = [];
     const searches: SceneSourceSearch[] = [];
-    const binding = new EarthquakeSceneBinding((command) => {
+    const binding = earthquakeSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         patches.push(command);
       } else {
@@ -152,7 +156,7 @@ describe("earthquake scene source", () => {
     > = [];
     let fetchCount = 0;
     let currentTime = EarthquakeTestInstant.SceneNow;
-    const binding = new EarthquakeSceneBinding((command) => {
+    const binding = earthquakeSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         patches.push(command);
       }

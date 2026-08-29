@@ -1,6 +1,3 @@
-export { LayoutModeProvider } from "./components";
-export { useIsMobileLayout, useLayoutMode } from "./hooks";
-export {
-  DeviceType,
-  LayoutMode,
-} from "./model";
+export { LayoutModeProvider } from "./components/LayoutModeProvider";
+export { useIsMobileLayout, useLayoutMode } from "./hooks/useLayoutMode";
+export { DeviceType, LayoutMode, PanelSide } from "./model/layoutMode";

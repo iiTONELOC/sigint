@@ -1,9 +1,5 @@
+import { PanelSide } from "@/layout-mode/model/layoutMode";
 import type { ReactNode } from "react";
-
-export enum DetailFieldAlign {
-  Left = "left",
-  Right = "right",
-}
 
 enum DetailFieldClassName {
   Root = "min-w-0",
@@ -15,20 +11,20 @@ enum DetailFieldClassName {
 type DetailFieldProps = Readonly<{
   label: string;
   value: ReactNode;
-  align?: DetailFieldAlign;
+  align?: PanelSide;
   valueClass?: string;
 }>;
 
 export function DetailField({
   label,
   value,
-  align = DetailFieldAlign.Left,
+  align = PanelSide.Left,
   valueClass = "",
 }: DetailFieldProps) {
   return (
     <div
       className={
-        align === DetailFieldAlign.Right
+        align === PanelSide.Right
           ? DetailFieldClassName.RootRight
           : DetailFieldClassName.Root
       }

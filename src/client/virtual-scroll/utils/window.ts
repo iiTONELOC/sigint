@@ -1,4 +1,4 @@
-import { VirtualScrollPolicy } from "../model";
+import { VirtualScrollPolicy } from "../model/policy";
 
 export type VirtualWindowInput = Readonly<{
   itemCount: number;

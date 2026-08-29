@@ -2,7 +2,6 @@ import { formatKmMi } from "@/measurements";
 import {
   isShallow,
   MmiCssColor,
-  mmiBand,
 } from "../intensity";
 
 enum DepthProfileGeometry {
@@ -48,18 +47,17 @@ function depthToRadius(kilometers: number): number {
 }
 
 export function DepthProfile({
+  bandClassName,
   depthKm,
-  mmi,
 }: {
+  readonly bandClassName: string;
   readonly depthKm: number;
-  readonly mmi: number;
 }) {
-  const band = mmiBand(mmi);
   const shallow = isShallow(depthKm);
   const focusY = DepthProfileGeometry.CenterY - depthToRadius(depthKm);
   const surfaceTopY =
     DepthProfileGeometry.CenterY - DepthProfileGeometry.SurfaceRadius;
-  const rootClass = `${band.className} w-full max-w-80 mx-auto`;
+  const rootClass = `${bandClassName} w-full max-w-80 mx-auto`;
 
   return (
     <div className={rootClass}>

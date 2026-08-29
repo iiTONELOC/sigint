@@ -3,20 +3,18 @@ import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   CycloneSceneBinding,
 } from "@/workers/data/render-codecs/cycloneSceneBinding";
+import { Category, CYCLONE_CATEGORY_METADATA } from "@shared/domain/cyclones";
 import {
   CycloneSceneAttribute,
   CycloneSceneRole,
-  CycloneSceneSchema,
-  CycloneWindThreshold,
-  cycloneForecastPathSceneId,
   cycloneForecastSceneId,
   cycloneModelPathSceneId,
   cyclonePastPathSceneId,
   cycloneWindRadiusSceneId,
-} from "@/workers/render/scene/cycloneSchema";
+  SceneGeometryKind,
+} from "@shared/scene";
 import {
   SceneDataCommandType,
-  SceneGeometryKind,
   type SceneSourceCommandBody,
 } from "@/workers/render/sceneProtocol";
 import { testCycloneScenePoint } from "../_support/cyclone";
@@ -33,7 +31,7 @@ function roles(command: Extract<
   for (let index = 0; index < command.handles.length; index += 1) {
     roles.push(
       command.attributes[
-        index * CycloneSceneSchema.AttributeStride +
+        index * command.attributeStride +
           CycloneSceneAttribute.Role
       ] ?? -1,
     );
@@ -62,11 +60,10 @@ describe("cyclone scene publication", () => {
     expect(command.sceneIds).toEqual([
       point.id,
       cycloneForecastSceneId(point.data.stormId, 24),
-      cycloneForecastPathSceneId(point.id),
       cyclonePastPathSceneId(point.id),
       cycloneWindRadiusSceneId(
         point.id,
-        CycloneWindThreshold.Gale,
+        CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
       ),
       cycloneModelPathSceneId(point.id, "OFCL"),
     ]);
@@ -76,7 +73,6 @@ describe("cyclone scene publication", () => {
     expect(roles(command)).toEqual([
       CycloneSceneRole.Current,
       CycloneSceneRole.Forecast,
-      CycloneSceneRole.ForecastPath,
       CycloneSceneRole.PastPath,
       CycloneSceneRole.WindRadius,
       CycloneSceneRole.ModelPath,
@@ -84,7 +80,6 @@ describe("cyclone scene publication", () => {
     expect(Array.from(command.geometryKinds)).toEqual([
       SceneGeometryKind.None,
       SceneGeometryKind.None,
-      SceneGeometryKind.Polyline,
       SceneGeometryKind.Polyline,
       SceneGeometryKind.None,
       SceneGeometryKind.Polyline,
@@ -124,7 +119,7 @@ describe("cyclone scene publication", () => {
     if (command?.type !== SceneDataCommandType.SourcePatch) return;
     expect(command.kind).toBe(DatasetPatchKind.Patch);
     expect(command.sceneIds).toEqual([point.id]);
-    expect(Array.from(command.deletedHandles)).toHaveLength(5);
+    expect(Array.from(command.deletedHandles)).toHaveLength(4);
     expect(command.handles[0]).toBe(1);
   });
 });

@@ -1,34 +1,7 @@
 import type { DataType } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
+import { ThemeColorKey } from "@shared/domain/theme";
 import { ThemeMode, type ResolvedThemeMode } from "./themeMode";
-
-export enum ThemeColorKey {
-  Background = "bg",
-  Panel = "panel",
-  Border = "border",
-  Accent = "accent",
-  Coast = "coast",
-  CoastFill = "coastFill",
-  Ocean = "ocean",
-  OceanDeep = "oceanDeep",
-  Grid = "grid",
-  Ships = "ships",
-  Aircraft = "aircraft",
-  Events = "events",
-  Quakes = "quakes",
-  Fires = "fires",
-  Weather = "weather",
-  Cyclones = "cyclones",
-  Recon = "recon",
-  Military = "military",
-  CycloneWarning = "cycWarning",
-  CycloneWatch = "cycWatch",
-  Text = "text",
-  Dim = "dim",
-  Bright = "bright",
-  Danger = "danger",
-  Warning = "warn",
-}
 
 export enum ThemeCssVar {
   Accent = "var(--sigint-accent)",
@@ -37,6 +10,17 @@ export enum ThemeCssVar {
 }
 
 export type ThemeColors = Readonly<Record<ThemeColorKey, string>>;
+
+const AIRCRAFT_ALERT_COLORS: Pick<
+  ThemeColors,
+  | ThemeColorKey.AircraftEmergency
+  | ThemeColorKey.AircraftHijack
+  | ThemeColorKey.AircraftRadioFailure
+> = {
+  [ThemeColorKey.AircraftEmergency]: "#ff3333",
+  [ThemeColorKey.AircraftHijack]: "#cc44ff",
+  [ThemeColorKey.AircraftRadioFailure]: "#ff8800",
+};
 
 export type Theme = Readonly<{
   colors: ThemeColors;
@@ -56,6 +40,7 @@ export const themes: Readonly<Record<ResolvedThemeMode, Theme>> = {
       [ThemeColorKey.Grid]: "#3a4d66",
       [ThemeColorKey.Ships]: "#00d4f0",
       [ThemeColorKey.Aircraft]: "#ffcc00",
+      ...AIRCRAFT_ALERT_COLORS,
       [ThemeColorKey.Events]: "#dd44aa",
       [ThemeColorKey.Quakes]: "#66ff44",
       [ThemeColorKey.Fires]: "#ff6600",
@@ -85,6 +70,7 @@ export const themes: Readonly<Record<ResolvedThemeMode, Theme>> = {
       [ThemeColorKey.Grid]: "#4a5568",
       [ThemeColorKey.Ships]: "#7b2d8e",
       [ThemeColorKey.Aircraft]: "#1a8a6e",
+      ...AIRCRAFT_ALERT_COLORS,
       [ThemeColorKey.Events]: "#e62e8a",
       [ThemeColorKey.Quakes]: "#2b5fb3",
       [ThemeColorKey.Fires]: "#cc2200",
@@ -147,15 +133,6 @@ export function isLayerColorKey(value: unknown): value is LayerColorKey {
     Object.hasOwn(LAYER_COLOR_METADATA, value)
   );
 }
-
-export const LAYER_COLOR_KEYS: readonly LayerColorKey[] = Object.values(
-  Domain,
-).filter(isLayerColorKey);
-
-export const LAYER_COLOR_LABELS: Readonly<Record<LayerColorKey, string>> =
-  Object.fromEntries(
-    LAYER_COLOR_KEYS.map((key) => [key, LAYER_COLOR_METADATA[key].label]),
-  ) as Record<LayerColorKey, string>;
 
 export type ColorOverrides = Readonly<
   Record<

@@ -4,11 +4,8 @@ import { cacheDelete } from "@/lib/cache";
 import { ButtonType } from "@/lib/ui/button";
 import { CacheKey } from "@shared/domain/cache";
 import { NewsSource } from "@shared/domain/newsSource";
-import {
-  SettingsClassName,
-  SettingsIconSize,
-  SettingsNewsCopy,
-} from "../../model";
+import { SettingsClassName, SettingsIconSize } from "../../model/presentation";
+import { SettingsNewsCopy } from "../../model/about";
 
 export function NewsFeedsTab() {
   const handleClearCache = useCallback(async () => {

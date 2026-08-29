@@ -6,12 +6,8 @@ import { IconStrokeWidth } from "@/features/base/types";
 import { featureRegistry } from "@/features/registry";
 import { ButtonType } from "@/lib/ui/button";
 import { relativeAge } from "@/time";
-import type { IntelFeedStyleAttributes } from "../hooks";
-import {
-  IntelFeedClassName,
-  IntelFeedCopy,
-  IntelFeedIconSize,
-} from "../model";
+import type { IntelFeedStyleAttributes } from "../hooks/useIntelFeedStylesheet";
+import { IntelFeedClassName, IntelFeedCopy, IntelFeedIconSize } from "../model/feed";
 import { IntelSeverityBadge } from "./IntelFeedBadges";
 
 type RawIntelFeedProps = Readonly<{
@@ -41,7 +37,7 @@ export function RawIntelFeed({
           className="absolute inset-x-0"
         >
           {visibleItems.map((item) => {
-            const feature = featureRegistry.get(item.type);
+            const feature = featureRegistry[item.type];
             if (!feature) return null;
 
             const Icon = feature.icon;

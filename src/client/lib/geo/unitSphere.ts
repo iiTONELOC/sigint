@@ -1,8 +1,16 @@
-export type UnitVector = Readonly<{
+import {
+  DEGREES_TO_RADIANS,
+  EARTH_RADIUS_METERS,
+  RADIANS_TO_DEGREES,
+} from "@shared/geo";
+
+export type ProjectedUnitVectorBuffer = {
   x: number;
   y: number;
   z: number;
-}>;
+};
+
+export type UnitVector = Readonly<ProjectedUnitVectorBuffer>;
 
 export type GlobeRotationMatrix = Readonly<{
   m00: number;
@@ -16,14 +24,15 @@ export type GlobeRotationMatrix = Readonly<{
   m22: number;
 }>;
 
-export type ProjectedUnitVectorBuffer = {
-  x: number;
-  y: number;
-  z: number;
-};
 export type ProjectedUnitVector = Readonly<ProjectedUnitVectorBuffer>;
 
-const DEGREES_TO_RADIANS = Math.PI / 180;
+function createVector(
+  x: number,
+  y: number,
+  z: number,
+): ProjectedUnitVectorBuffer {
+  return { x, y, z };
+}
 
 export function geographicToUnitVector(
   latitude: number,
@@ -32,11 +41,11 @@ export function geographicToUnitVector(
   const latitudeRadians = latitude * DEGREES_TO_RADIANS;
   const longitudeRadians = longitude * DEGREES_TO_RADIANS;
   const latitudeRadius = Math.cos(latitudeRadians);
-  return {
-    x: latitudeRadius * Math.cos(longitudeRadians),
-    y: Math.sin(latitudeRadians),
-    z: -latitudeRadius * Math.sin(longitudeRadians),
-  };
+  return createVector(
+    latitudeRadius * Math.cos(longitudeRadians),
+    Math.sin(latitudeRadians),
+    -latitudeRadius * Math.sin(longitudeRadians),
+  );
 }
 export type GeographicMotion = Readonly<{
   latitude: number;
@@ -52,8 +61,6 @@ export type GeographicPosition = Readonly<{
   longitude: number;
 }>;
 
-const EARTH_RADIUS_METERS = 6_371_000;
-const RADIANS_TO_DEGREES = 1 / DEGREES_TO_RADIANS;
 const MIN_LONGITUDE_RADIUS = 1e-9;
 
 export function createGeographicMotion(
@@ -72,16 +79,12 @@ export function createGeographicMotion(
   const headingCosine = Math.cos(headingRadians);
   const headingSine = Math.sin(headingRadians);
   const angularRate = speedMetersPerSecond / EARTH_RADIUS_METERS;
-  const north = {
-    x: -latitudeSine * longitudeCosine,
-    y: latitudeCosine,
-    z: latitudeSine * longitudeSine,
-  };
-  const east = {
-    x: -longitudeSine,
-    y: 0,
-    z: -longitudeCosine,
-  };
+  const north = createVector(
+    -latitudeSine * longitudeCosine,
+    latitudeCosine,
+    latitudeSine * longitudeSine,
+  );
+  const east = createVector(-longitudeSine, 0, -longitudeCosine);
   const longitudeRadius =
     Math.abs(latitudeCosine) < MIN_LONGITUDE_RADIUS ? null : latitudeCosine;
 
@@ -93,11 +96,11 @@ export function createGeographicMotion(
       ? (angularRate * headingSine * RADIANS_TO_DEGREES) / longitudeRadius
       : 0,
     unit: geographicToUnitVector(latitude, longitude),
-    unitVelocity: {
-      x: angularRate * (north.x * headingCosine + east.x * headingSine),
-      y: angularRate * (north.y * headingCosine + east.y * headingSine),
-      z: angularRate * (north.z * headingCosine + east.z * headingSine),
-    },
+    unitVelocity: createVector(
+      angularRate * (north.x * headingCosine + east.x * headingSine),
+      angularRate * (north.y * headingCosine + east.y * headingSine),
+      angularRate * (north.z * headingCosine + east.z * headingSine),
+    ),
   };
 }
 
@@ -110,7 +113,7 @@ export function advanceUnitMotion(
   const z = motion.unit.z + motion.unitVelocity.z * elapsedSeconds;
   const length = Math.hypot(x, y, z);
   if (length === 0) return motion.unit;
-  return { x: x / length, y: y / length, z: z / length };
+  return createVector(x / length, y / length, z / length);
 }
 
 export function advanceGeographicMotion(
@@ -174,7 +177,7 @@ export function projectUnitVector(
   centerY: number,
   radius: number,
 ): ProjectedUnitVector {
-  const output: ProjectedUnitVectorBuffer = { x: 0, y: 0, z: 0 };
+  const output = createVector(0, 0, 0);
   projectUnitVectorInto(
     unit,
     matrix,

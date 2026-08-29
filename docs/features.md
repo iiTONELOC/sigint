@@ -8,20 +8,22 @@ Related documents: [Architecture](./architecture.md), [Data flow](./data-flow.md
 
 SIGINT separates source ownership from React presentation.
 
-A geographic source class owns source behavior in the DataWorker. A feature definition owns React labels, icons, detail rows, ticker content, and search text.
+The point-source registry owns source identity, point types, cache keys, and
+client poll cadence. A geographic source class owns retrieval and dataset
+behavior in the DataWorker. A feature definition owns React labels, icons,
+detail rows, ticker content, and search text.
 
 ## Geographic source class
 
-Each geographic source extends `GeoDataSource`.
+Each geographic source extends `GeoDataSource` and consumes its definition from
+the point-source registry.
 
-The class declares these facts:
+The class declares these source-specific facts:
 
-- Source policy
 - Geographic carrier
 - Motion type
 - Entity lifetime
-- Point type
-- UI query descriptor
+- Optional retry interval
 - Cache parser
 - Fetch function
 - Record-change test
@@ -30,16 +32,17 @@ The source runtime supplies common cache, refresh, status, reconciliation, and q
 
 ## Source policy
 
-Each source policy contains these fields:
+Each point-source registry definition contains these fields:
 
 - Source identifier
+- Point type
+- Optional interaction point types
 - Cache key
 - Poll interval
-- Optional retry interval
-- Completeness policy
-- Empty-result policy
 
-`src/client/workers/data/sources/registry.ts` maps source identifiers to the shared source policy.
+`src/client/workers/data/sources/registry.ts` is the sole owner of those facts.
+The source class can add a source-specific retry interval. Each fetch snapshot,
+not the registry, states whether its result is complete or partial.
 
 Do not define a second cache key or poll interval in React.
 
@@ -53,7 +56,9 @@ The `DatasetStore` creates versioned rebases and incremental patches. React does
 
 ## Query registration
 
-`src/client/workers/data/queryableSources.ts` binds each queryable source to these items:
+Each feature's `data/uiQueries.ts` owns its bounded query implementation and
+codecs. `src/client/workers/data/queryableSources.ts` binds each queryable
+source to these items:
 
 - Entity type
 - UI query implementation
@@ -125,9 +130,39 @@ The DataWorker also owns aircraft trails and aircraft dossier caching.
 
 The server collects AIS records. The DataWorker owns the browser ship dataset.
 
-`ShipSource` declares moving, ephemeral position records. `ShipSceneBinding` supplies ship scene attributes and motion positions.
+`src/shared/domain/ships.ts` owns the raw server record, normalized Ship point,
+AIS vocabularies, and shared Ship metadata. Normalized points carry one
+`GeoPoint` position and retain raw AIS facts for presentation and rendering.
+
+`ShipSource` owns the browser request lifecycle and declares moving, ephemeral
+position records. `ShipSceneBinding` supplies ship scene attributes and motion
+positions.
 
 The DataWorker records ship trails with the ship trail policy.
+
+## Earthquakes
+
+`src/client/features/environmental/earthquake/data/source.ts` acquires and
+normalizes the USGS feed. `src/shared/domain/earthquakes.ts` owns the normalized
+Earthquake payload and the cross-runtime waveform and tsunami contracts. The
+DataWorker owns the cached geographic dataset and publishes its scene patches.
+
+Waveforms and tsunami alerts are bounded dossier data. React sends lifecycle
+requests to the DataWorker; the worker performs EarthScope and NWS acquisition.
+React presentation components receive the validated results through props and
+do not fetch or parse provider records.
+
+## Fires
+
+The server polls the keyless NASA FIRMS 24-hour VIIRS feeds in NOAA-20,
+S-NPP, and NOAA-21 failover order. The first nonempty feed supplies the
+snapshot. The server does not union the feeds, and it retains the last good
+cache when every feed fails or returns no records.
+
+`src/shared/domain/fireDayNight.ts` owns the normalized Fire payload and
+confidence vocabulary. The DataWorker owns Fire cache hydration, refresh,
+replacement, bounded UI queries, and scene publication. React receives only
+source status, bounded query results, and the selected record.
 
 ## Environmental and intelligence sources
 
@@ -146,9 +181,10 @@ The React news provider supplies the news pane and correlation requests.
 Use this sequence:
 
 1. Define the source record and parser.
-2. Define the source policy in the source registry.
-3. Implement the `GeoDataSource` class.
-4. Define bounded UI queries and codecs.
+2. Define the source in the point-source registry.
+3. Implement the `GeoDataSource` class by consuming that registry definition.
+4. Define bounded UI queries and codecs in the feature and register them in
+   `queryableSources.ts`.
 5. Register the source in `SourceCatalog`.
 6. Define the scene schema and scene binding.
 7. Define the RenderWorker layer.

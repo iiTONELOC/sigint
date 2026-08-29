@@ -10,8 +10,7 @@ import {
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useFreshEntity } from "@/features/base/useFreshEntity";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
-import { getColorMap } from "@/config/theme";
-import { useTheme } from "@/context/ThemeContext";
+import { getColorMap, useTheme } from "@/theme";
 import {
   readRenderGlobeState,
   setRenderIsolation,

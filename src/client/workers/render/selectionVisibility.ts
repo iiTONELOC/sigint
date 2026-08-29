@@ -5,7 +5,7 @@ import {
 } from "@/workers/render/protocol";
 import type {
   RenderSourceId,
-} from "@/workers/data/sourceIds";
+} from "@shared/source";
 import { Domain } from "@shared/domain/identity";
 
 export type SelectionVisibility = Readonly<{

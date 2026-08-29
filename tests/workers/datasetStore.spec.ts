@@ -15,7 +15,7 @@ const second: TestEntity = { id: "second", value: 2 };
 
 describe("dataset store", () => {
   test("applies complete and partial source semantics", async () => {
-    const store = createDatasetStore<TestEntity>({ maxQueryItems: 2 });
+    const store = createDatasetStore<TestEntity>({});
 
     const initial = await store.applySnapshot({
       version: 1,
@@ -45,7 +45,6 @@ describe("dataset store", () => {
 
   test("omits unchanged records from a later patch", async () => {
     const store = createDatasetStore<TestEntity>({
-      maxQueryItems: 2,
       hasChanged: (previous, next) => previous.value !== next.value,
     });
     await store.applySnapshot({
@@ -65,25 +64,5 @@ describe("dataset store", () => {
 
     expect(patch.upserts).toEqual([{ id: "second", value: 3 }]);
     expect(patch.deletedIds).toEqual([]);
-  });
-
-  test("bounds query results without truncating the total", async () => {
-    const store = createDatasetStore<TestEntity>({ maxQueryItems: 1 });
-    await store.applySnapshot({
-      version: 1,
-      completeness: SourceCompleteness.Complete,
-      entities: [first, second],
-    });
-
-    const result = await store.query({
-      offset: 0,
-      limit: 20,
-      match: () => true,
-      compare: (left, right) => left.id.localeCompare(right.id),
-    });
-
-    expect(result.total).toBe(2);
-    expect(result.items).toEqual([first]);
-    expect(result.version).toBe(1);
   });
 });

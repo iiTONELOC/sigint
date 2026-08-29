@@ -1,160 +1,112 @@
-import { parsePointList } from "@/features/base/pointCodec";
+import { parsePoints } from "@/features/base/pointCodec";
 import {
+  decodeShipPoints,
   isShipPoint,
-  SHIP_NUMBER_FIELDS,
-  SHIP_STRING_FIELDS,
-  type ShipPoint,
+  parseLegacyShipPoint,
+  parseShipServerPayload,
+  shipDataEquals,
 } from "@/features/tracking/ships/data/codec";
-import {
-  fetchShipSnapshot,
-  type ShipFetchSnapshot,
-} from "@/features/tracking/ships/data/fetch";
-import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
-import {
+import { authenticatedFetch } from "@/lib/net/authService";
+import { ktToMps } from "@/measurements";
+import type {
   SceneBinding,
-  type SceneCommandPublisher,
+  SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
 import {
-  ScenePatchCodec,
-} from "@/workers/data/render-codecs/sceneCodec";
-import {
-  movingSceneMotionPosition,
-  movingScenePosition,
-  movingSceneRecords,
-  movingSceneTimestamp,
-  writeMovingSceneAttributes,
+  movingSceneBinding,
   type MovingSceneRecord,
   type MovingSceneTrailReader,
 } from "@/workers/data/render-codecs/movingSceneRecord";
 import {
-  EntityLifetime,
   GeoCarrier,
-  GeoDataSource,
-  GeoMotion,
-  type SourcePatchObserver,
-  type SourcePolicy,
+  MovingPointSource,
+  recordChanged,
+  type PointSourceOptions,
 } from "@/workers/data/source-model/dataSource";
-import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import {
-  ShipSceneAttribute,
-  ShipSceneSchema,
-} from "@/workers/render/scene/shipSchema";
+  SourceFetchError,
+  SourceFetchFailure,
+  type SourceFailureMessages,
+} from "@/workers/data/source-model/remoteSource";
+import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import { Domain } from "@shared/domain/identity";
+import {
+  SHIPS_LATEST_ROUTE,
+  type ShipPoint,
+} from "@shared/domain/ships";
+import { SourceCompleteness } from "@shared/source";
+import { ShipSceneAttribute } from "@shared/scene";
 
-export const SHIP_SOURCE = getPointSourceDefinition(Domain.Ships);
+const SHIP_SOURCE_FAILURE_MESSAGES = {
+  [SourceFetchFailure.Request]: "The ships endpoint rejected the request",
+  [SourceFetchFailure.Payload]: "The ships response format is invalid",
+} satisfies SourceFailureMessages;
 
-export type ShipSourceOptions = Readonly<{
-  fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<ShipPoint>>;
-  patchObservers?: readonly SourcePatchObserver<ShipPoint>[];
-}>;
-
-export function parseShipCache(
-  value: unknown,
-): readonly ShipPoint[] | null {
-  return parsePointList(value, isShipPoint);
+/** The server states whether the AIS stream was connected and complete. */
+async function fetchShipSnapshot(): Promise<
+  PointSourceFetchSnapshot<ShipPoint>
+> {
+  const response = await authenticatedFetch(SHIPS_LATEST_ROUTE);
+  if (!response.ok) {
+    throw new SourceFetchError(
+      SourceFetchFailure.Request,
+      SHIP_SOURCE_FAILURE_MESSAGES,
+      response.status,
+    );
+  }
+  const payload = parseShipServerPayload(await response.json());
+  if (!payload) {
+    throw new SourceFetchError(
+      SourceFetchFailure.Payload,
+      SHIP_SOURCE_FAILURE_MESSAGES,
+    );
+  }
+  return {
+    completeness:
+      payload.connected &&
+      payload.vesselCount === payload.vessels.length
+        ? SourceCompleteness.Complete
+        : SourceCompleteness.Partial,
+    entities: decodeShipPoints(payload),
+    observedAt: Date.now(),
+  };
 }
 
-function shipChanged(
-  previous: ShipPoint,
-  next: ShipPoint,
-): boolean {
-  return (
-    previous.lat !== next.lat ||
-    previous.lon !== next.lon ||
-    previous.timestamp !== next.timestamp ||
-    SHIP_STRING_FIELDS.some(
-      (key) => previous.data[key] !== next.data[key],
-    ) ||
-    SHIP_NUMBER_FIELDS.some(
-      (key) => previous.data[key] !== next.data[key],
-    )
+function parseShipCache(value: unknown): readonly ShipPoint[] | null {
+  return parsePoints(value, (candidate) =>
+    isShipPoint(candidate) ? candidate : parseLegacyShipPoint(candidate),
   );
 }
 
-function normalizeSnapshot(
-  snapshot: ShipFetchSnapshot,
-): PointSourceFetchSnapshot<ShipPoint> {
-  return snapshot;
-}
-
-async function fetchLiveShips(): Promise<
-  PointSourceFetchSnapshot<ShipPoint>
-> {
-  return normalizeSnapshot(await fetchShipSnapshot());
-}
-
-export class ShipSource extends GeoDataSource<ShipPoint> {
-  readonly policy: SourcePolicy = SHIP_SOURCE;
-  readonly carrier = GeoCarrier.Position;
-  readonly motion = GeoMotion.Moving;
-  readonly lifetime = EntityLifetime.Ephemeral;
-  readonly pointType = Domain.Ships;
-  readonly queries = SHIP_UI_QUERIES;
-
-  private readonly fetchOverride:
-    | (() => Promise<PointSourceFetchSnapshot<ShipPoint>>)
-    | null;
-
-  constructor(options: ShipSourceOptions = {}) {
-    super(options.patchObservers);
-    this.fetchOverride = options.fetchSnapshot ?? null;
-  }
-
-  protected parseCache(value: unknown): readonly ShipPoint[] | null {
-    return parseShipCache(value);
-  }
-
-  protected fetchSnapshot(): Promise<PointSourceFetchSnapshot<ShipPoint>> {
-    return this.fetchOverride?.() ?? fetchLiveShips();
-  }
-
-  protected hasChanged(
-    previous: ShipPoint,
-    next: ShipPoint,
-  ): boolean {
-    return shipChanged(previous, next);
+export class ShipSource extends MovingPointSource<Domain.Ships, ShipPoint> {
+  constructor(options: PointSourceOptions<ShipPoint> = {}) {
+    super({
+      policy: getPointSourceDefinition(Domain.Ships),
+      carrier: GeoCarrier.Position,
+      parseCache: parseShipCache,
+      fetchSnapshot: options.fetchSnapshot ?? fetchShipSnapshot,
+      hasChanged: recordChanged(shipDataEquals),
+      ...(options.patchObservers
+        ? { patchObservers: options.patchObservers }
+        : {}),
+    });
   }
 }
 
-export class ShipSceneBinding extends SceneBinding<
-  ShipPoint,
-  MovingSceneRecord<ShipPoint>
-> {
-  constructor(
-    trails: MovingSceneTrailReader,
-    publishScene: SceneCommandPublisher,
-  ) {
-    super(
-      new ScenePatchCodec<
-        ShipPoint,
-        MovingSceneRecord<ShipPoint>
-      >({
-        source: Domain.Ships,
-        attributeStride: ShipSceneSchema.AttributeStride,
-        stringAttributeStride: ShipSceneSchema.StringAttributeStride,
-        records: (point) =>
-          movingSceneRecords(Domain.Ships, trails, point),
-        position: movingScenePosition,
-        motionPosition: movingSceneMotionPosition,
-        timestamp: movingSceneTimestamp,
-        writeAttributes: (record, target, offset) => {
-          const point = record.entity;
-          target[offset + ShipSceneAttribute.Heading] =
-            point.data.heading ?? 0;
-          writeMovingSceneAttributes(
-            record,
-            target,
-            offset + ShipSceneSchema.MotionAttributeOffset,
-            {
-              directionDegrees:
-                point.data.cog ?? point.data.heading ?? 0,
-              speedMetersPerSecond: point.data.speedMps ?? 0,
-            },
-          );
-        },
-      }),
-      publishScene,
-    );
-  }
+export function shipSceneBinding(
+  trails: MovingSceneTrailReader,
+  publishScene: SceneCommandPublisher,
+): SceneBinding<ShipPoint, MovingSceneRecord<ShipPoint>> {
+  return movingSceneBinding(publishScene, {
+    source: Domain.Ships,
+    trails,
+    motion: (point) => ({
+      directionDegrees: point.data.cog ?? point.data.heading ?? 0,
+      speedMetersPerSecond: ktToMps(point.data.sog ?? 0),
+    }),
+    writeAttributes: (point, target, offset) => {
+      target[offset + ShipSceneAttribute.Heading] = point.data.heading ?? 0;
+    },
+  });
 }

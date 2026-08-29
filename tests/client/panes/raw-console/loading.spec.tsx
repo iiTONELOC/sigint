@@ -1,14 +1,27 @@
 import { describe, test } from "bun:test";
-import {
-  RawConsoleSkeleton,
-  RawConsoleSkeletonCopy,
-} from "@/panes/raw-console/RawConsoleSkeleton";
+import { PaneSkeleton } from "@/panes/workspace/paneCatalog";
+import { PaneType } from "@/panes/workspace/model/pane";
 import { expectBusyStatus, renderReact } from "../../../support/react";
 
-describe("RawConsoleSkeleton", () => {
-  test("exposes its loading state", () => {
-    const { container } = renderReact(<RawConsoleSkeleton />);
+type LazyPaneType = Exclude<PaneType, PaneType.Globe>;
 
-    expectBusyStatus(container, RawConsoleSkeletonCopy.Loading);
-  });
+const LOADING_LABELS: Readonly<Record<LazyPaneType, string>> = {
+  [PaneType.AlertLog]: "Loading alerts",
+  [PaneType.DataTable]: "Loading data table",
+  [PaneType.Dossier]: "Loading dossier",
+  [PaneType.IntelFeed]: "Loading intel feed",
+  [PaneType.NewsFeed]: "Loading news feed",
+  [PaneType.RawConsole]: "Loading console",
+  [PaneType.VideoFeed]: "Loading video feed",
+};
+
+describe("PaneSkeleton", () => {
+  for (const paneType of Object.values(PaneType)) {
+    if (paneType === PaneType.Globe) continue;
+    test(`exposes the ${paneType} loading state`, () => {
+      const { container } = renderReact(<PaneSkeleton paneType={paneType} />);
+
+      expectBusyStatus(container, LOADING_LABELS[paneType]);
+    });
+  }
 });

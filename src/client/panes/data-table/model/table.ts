@@ -1,3 +1,4 @@
+import { PanelSide } from "@/layout-mode/model/layoutMode";
 import { TableSortKey } from "@/workers/data/uiQuery";
 
 export enum DataTableVirtualization {
@@ -14,11 +15,6 @@ export enum DataTableIconSize {
   SortInactive = 9,
   SortActive = 10,
   Control = 11,
-}
-
-export enum DataTableColumnAlignment {
-  Left = "left",
-  Right = "right",
 }
 
 export enum DataTableAriaSort {
@@ -53,7 +49,7 @@ export enum DataTableClassName {
 }
 
 export type DataTableColumnMetadata = Readonly<{
-  alignment: DataTableColumnAlignment;
+  alignment: PanelSide;
   hideOnMobile: boolean;
   label: string;
   tooltip: string;
@@ -66,7 +62,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Type,
     {
-      alignment: DataTableColumnAlignment.Left,
+      alignment: PanelSide.Left,
       hideOnMobile: false,
       label: "TYPE",
       tooltip: "Entity type",
@@ -75,7 +71,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Name,
     {
-      alignment: DataTableColumnAlignment.Left,
+      alignment: PanelSide.Left,
       hideOnMobile: false,
       label: "NAME",
       tooltip: "Callsign / name / headline",
@@ -84,7 +80,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Value1,
     {
-      alignment: DataTableColumnAlignment.Left,
+      alignment: PanelSide.Left,
       hideOnMobile: true,
       label: "CLS",
       tooltip: "Classification (aircraft type, vessel type, category, magnitude)",
@@ -93,7 +89,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Value2,
     {
-      alignment: DataTableColumnAlignment.Right,
+      alignment: PanelSide.Right,
       hideOnMobile: false,
       label: "DTL",
       tooltip: "Detail (altitude, speed, severity, FRP)",
@@ -102,7 +98,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Latitude,
     {
-      alignment: DataTableColumnAlignment.Right,
+      alignment: PanelSide.Right,
       hideOnMobile: false,
       label: "LAT",
       tooltip: "Latitude",
@@ -111,7 +107,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Longitude,
     {
-      alignment: DataTableColumnAlignment.Right,
+      alignment: PanelSide.Right,
       hideOnMobile: true,
       label: "LON",
       tooltip: "Longitude",
@@ -120,7 +116,7 @@ export const DATA_TABLE_COLUMNS: ReadonlyMap<
   [
     TableSortKey.Age,
     {
-      alignment: DataTableColumnAlignment.Right,
+      alignment: PanelSide.Right,
       hideOnMobile: false,
       label: "AGE",
       tooltip: "Time since last update",

@@ -5,19 +5,19 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import { CycloneFeatureLabel, type CycloneWarningData } from "./types";
+import type { CycloneWarningData } from "@shared/domain/cyclones";
 import { buildWarningDetailRows } from "./warningDetailRows";
 import {
   cycloneFeedPresentation,
   cycloneTablePresentation,
-} from "./formatters";
+} from "./formatters/presentation";
 
 export const cycloneWarningFeature = defineFeature<
   CycloneWarningData,
   Domain.CyclonesWarning
 >({
   id: Domain.CyclonesWarning,
-  label: CycloneFeatureLabel.TropicalAlert,
+  label: "TROPICAL ALERT",
   icon: TriangleAlert,
   iconStyle: FeatureIconStyle.Stroked,
   colorClassName: FeatureColorClassName.Cyclones,

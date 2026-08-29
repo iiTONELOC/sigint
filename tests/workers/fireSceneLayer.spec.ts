@@ -1,20 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
-import { FireConfidenceLevel } from "@/features/environmental/fires/data/source";
 import type {
   MarkerVisualRenderer,
   PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
 import { IsolateMode } from "@/workers/render/protocol";
 import {
-  FireLayer,
-  fireSceneIncludes,
-  type FireSceneFilter,
-} from "@/workers/render/scene/fireLayer";
-import { FireSceneSchema } from "@/workers/render/scene/fireSchema";
+  PulsingPointLayer,
+} from "@/workers/render/scene/sceneLayer";
+import type { EnabledSceneFilter } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
 import {
@@ -35,15 +32,12 @@ const view = {
     TestInstant.EventSceneNow - 30 * MS_PER_MINUTE,
     TestInstant.EventSceneNow - MS_PER_DAY,
   ]),
-  attributes: new Float32Array([
-    35,
-    FireConfidenceLevel.High,
-    10,
-    FireConfidenceLevel.Nominal,
-  ]),
-  attributeStride: FireSceneSchema.AttributeStride,
+  attributes: new Float32Array([35, 10]),
+  attributeStride:
+    getPointSourceDefinition(Domain.Fire).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array(),
-  stringAttributeStride: FireSceneSchema.StringAttributeStride,
+  stringAttributeStride:
+    getPointSourceDefinition(Domain.Fire).sceneSchema.stringAttributeStride,
   dictionary: [],
   geometries: [null, null],
 } satisfies RenderSceneView;
@@ -63,11 +57,10 @@ const frame = {
 };
 
 function filter(
-  values: Partial<FireSceneFilter> = {},
-): FireSceneFilter {
+  values: Partial<EnabledSceneFilter> = {},
+): EnabledSceneFilter {
   return {
     enabled: true,
-    minimumConfidence: FireConfidenceLevel.Low,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -91,13 +84,10 @@ function visuals(
 }
 
 describe("fire scene layer", () => {
-  test("owns confidence, visibility, hit, selection, and animation", () => {
-    const layer = new FireLayer(visuals());
+  test("owns visibility, hit, selection, and animation", () => {
+    const layer = new PulsingPointLayer(Domain.Fire, visuals());
     layer.apply(sceneRebaseCommand(Domain.Fire, view));
-    layer.project(
-      frame,
-      filter({ minimumConfidence: FireConfidenceLevel.High }),
-    );
+    layer.project(frame, filter());
 
     expect(
       layer.nearest(SceneHitKind.Point, 120, 90, 20, 10)
@@ -111,18 +101,12 @@ describe("fire scene layer", () => {
       depth: 1,
     });
     expect(layer.includesEntity("FI-low", filter())).toBe(true);
-    expect(
-      layer.includesEntity(
-        "FI-low",
-        filter({ minimumConfidence: FireConfidenceLevel.High }),
-      ),
-    ).toBe(false);
     expect(layer.hasTimeAnimation(false)).toBe(true);
     expect(layer.hasTimeAnimation(true)).toBe(false);
   });
 
   test("uses source search handles and shared isolation", () => {
-    const layer = new FireLayer(visuals());
+    const layer = new PulsingPointLayer(Domain.Fire, visuals());
     layer.apply(sceneRebaseCommand(Domain.Fire, view));
     layer.apply(sceneSearchCommand(Domain.Fire, [2], 1));
     layer.project(frame, filter());
@@ -153,11 +137,14 @@ describe("fire scene layer", () => {
   test("preserves age, size, pulse, and selection drawing", () => {
     const markers: PulsingMarker[] = [];
     const fades: number[] = [];
-    const layer = new FireLayer(visuals(markers, fades));
+    const layer = new PulsingPointLayer(
+      Domain.Fire,
+      visuals(markers, fades),
+    );
     layer.apply(sceneRebaseCommand(Domain.Fire, view));
     layer.project(frame, filter());
     layer.draw({
-      context: {} as Ctx,
+      context: {} as OffscreenCanvasRenderingContext2D,
       color: "#ff5500",
       selectedId: "FI-high",
       time: 1,
@@ -176,12 +163,12 @@ describe("fire scene layer", () => {
   });
 
   test("rejects an incompatible schema", () => {
-    expect(
-      fireSceneIncludes(
-        { ...view, attributeStride: 1 },
-        0,
-        filter(),
-      ),
-    ).toBe(false);
+    const layer = new PulsingPointLayer(Domain.Fire, visuals());
+    layer.apply(sceneRebaseCommand(
+      Domain.Fire,
+      { ...view, attributeStride: 2 },
+    ));
+    layer.project(frame, filter());
+    expect(layer.includesEntity("FI-high", filter())).toBe(false);
   });
 });

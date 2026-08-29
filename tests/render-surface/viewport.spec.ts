@@ -17,6 +17,7 @@ describe("render surface viewport", () => {
       width: 640,
       height: 360,
       devicePixelRatio: 2,
+      isMobile: true,
     });
   });
 

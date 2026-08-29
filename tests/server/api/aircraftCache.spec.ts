@@ -9,14 +9,12 @@ import {
 import {
   AIRCRAFT_TILES,
   ADSB_BASE_URL,
+  AircraftTileResultKind,
   AircraftSourcePolicy,
   TILE_RADIUS_NM,
-  dedupByHex,
   normalizeAdsbPayload,
   parseRetryAfter,
   fetchTileWithRetry,
-  sweepTiles,
-  resolveAircraftFixtureOverride,
   getAircraftCache,
   createSweepState,
   ingestTile,
@@ -25,14 +23,16 @@ import {
   runSweep,
   __resetAircraftCacheForTests,
   type SweepState,
-  type AircraftTileResult,
 } from "../../../src/server/api/aircraftCache";
+import { FixtureOverrideOwner } from "../../../src/server/lib/fixtureOverride";
+import { ConfigField } from "../../../src/server/config";
 import { isRecord } from "../../../src/shared/geo";
+import { Domain } from "../../../src/shared/domain/identity";
 
 // ── Tile coverage ──────────────────────────────────────────────────
 
 describe("AIRCRAFT_TILES", () => {
-  test("ships exactly 108 tiles (post tile-coverage audit — see commit body)", () => {
+  test("ships exactly 108 tiles (post tile-coverage audit, see commit body)", () => {
     // Audit dropped 6 structurally-dead tiles (Ukraine war zone,
     // Iraq/Iran restricted airspace, Chinese ADS-B publishing
     // restrictions in 3 Beijing-region tiles) and added 1 (Hawaii,
@@ -111,49 +111,20 @@ describe("normalizeAdsbPayload", () => {
   });
 });
 
-// ── dedupByHex ─────────────────────────────────────────────────────
 
-describe("dedupByHex", () => {
-  test("merges duplicate hex entries (later wins)", () => {
-    const result = dedupByHex([
-      { hex: "abc", note: "first" },
-      { hex: "def", note: "other" },
-      { hex: "abc", note: "later wins" },
-    ]);
-    expect(result).toHaveLength(2);
-    const found = result.find(
-      (r) => (r as { hex: string }).hex.toLowerCase() === "abc",
-    );
-    expect((found as { note: string })?.note).toBe("later wins");
-  });
-
-  test("dedupes case-insensitively (AbC and abc are the same aircraft)", () => {
-    const result = dedupByHex([{ hex: "AbC" }, { hex: "abc" }]);
-    expect(result).toHaveLength(1);
-  });
-
-  test("drops records with no hex", () => {
-    const result = dedupByHex([{ hex: "abc" }, {}, { hex: "" }, { hex: null }]);
-    expect(result).toHaveLength(1);
-  });
-
-  test("preserves records with distinct hex", () => {
-    const result = dedupByHex([
-      { hex: "a1" },
-      { hex: "b2" },
-      { hex: "c3" },
-      { hex: "d4" },
-    ]);
-    expect(result).toHaveLength(4);
-  });
-});
 
 // ── AIRCRAFT_FIXTURE dev-only override ────────────────────────────
 
-describe("resolveAircraftFixtureOverride", () => {
+const aircraftFixtureOverride = new FixtureOverrideOwner(
+  Domain.Aircraft,
+  ConfigField.AircraftFixture,
+);
+const invalidFixtureMessage = new RegExp(`Invalid ${ConfigField.AircraftFixture}`);
+
+describe("FixtureOverrideOwner", () => {
   test("returns null when fixture overrides disabled", async () => {
     expect(
-      await resolveAircraftFixtureOverride({
+      await aircraftFixtureOverride.resolve({
         enabled: false,
         label: "test-snapshot",
       }),
@@ -162,7 +133,7 @@ describe("resolveAircraftFixtureOverride", () => {
 
   test("returns null when no label is set", async () => {
     expect(
-      await resolveAircraftFixtureOverride({
+      await aircraftFixtureOverride.resolve({
         enabled: true,
         label: undefined,
       }),
@@ -170,7 +141,7 @@ describe("resolveAircraftFixtureOverride", () => {
   });
 
   test("loads the fixture when enabled and label matches a real one", async () => {
-    const result = await resolveAircraftFixtureOverride({
+    const result = await aircraftFixtureOverride.resolve({
       enabled: true,
       label: "test-snapshot",
     });
@@ -182,24 +153,24 @@ describe("resolveAircraftFixtureOverride", () => {
 
   test("rejects path-traversal labels", async () => {
     await expect(
-      resolveAircraftFixtureOverride({
+      aircraftFixtureOverride.resolve({
         enabled: true,
         label: "../../../etc/passwd",
       }),
-    ).rejects.toThrow(/Invalid AIRCRAFT_FIXTURE/);
+    ).rejects.toThrow(invalidFixtureMessage);
   });
 
   test("rejects shell-special and uppercase characters via regex allowlist", async () => {
     for (const bad of ["foo;bar", "foo$bar", "foo bar", "FOO", "../foo"]) {
       await expect(
-        resolveAircraftFixtureOverride({ enabled: true, label: bad }),
-      ).rejects.toThrow(/Invalid AIRCRAFT_FIXTURE/);
+        aircraftFixtureOverride.resolve({ enabled: true, label: bad }),
+      ).rejects.toThrow(invalidFixtureMessage);
     }
   });
 
   test("throws fixture-not-found when the label is well-formed but the file is missing", async () => {
     await expect(
-      resolveAircraftFixtureOverride({
+      aircraftFixtureOverride.resolve({
         enabled: true,
         label: "totally-nonexistent-aircraft-fixture",
       }),
@@ -261,8 +232,10 @@ describe("fetchTileWithRetry", () => {
 
     expect(calls).toBe(2);
     expect(sleeps).toEqual([30_000]);
-    expect(result.kind).toBe("complete");
-    if (result.kind !== "complete") throw new Error("Expected tile data");
+    expect(result.kind).toBe(AircraftTileResultKind.Complete);
+    if (result.kind !== AircraftTileResultKind.Complete) {
+      throw new Error("Expected tile data");
+    }
     expect(result.records).toHaveLength(1);
   });
 
@@ -288,7 +261,10 @@ describe("fetchTileWithRetry", () => {
     });
 
     expect(sleeps).toEqual([10_000]);
-    expect(result).toEqual({ kind: "complete", records: [] });
+    expect(result).toEqual({
+      kind: AircraftTileResultKind.Complete,
+      records: [],
+    });
   });
 
   test("reports retry exhaustion without pretending the tile was empty", async () => {
@@ -300,8 +276,10 @@ describe("fetchTileWithRetry", () => {
 
     const result = await fetchTileWithRetry(40, -100, async () => {});
     expect(calls).toBe(2);
-    expect(result.kind).toBe("failed");
-    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.kind).toBe(AircraftTileResultKind.Failed);
+    if (result.kind !== AircraftTileResultKind.Failed) {
+      throw new Error("Expected tile failure");
+    }
     expect(result.error.code).toBe(SourceErrorCode.RateLimited);
   });
 
@@ -318,8 +296,10 @@ describe("fetchTileWithRetry", () => {
     });
     expect(calls).toBe(1);
     expect(sleeps).toEqual([]);
-    expect(result.kind).toBe("failed");
-    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.kind).toBe(AircraftTileResultKind.Failed);
+    if (result.kind !== AircraftTileResultKind.Failed) {
+      throw new Error("Expected tile failure");
+    }
     expect(result.error.code).toBe(SourceErrorCode.HttpError);
   });
 
@@ -331,71 +311,11 @@ describe("fetchTileWithRetry", () => {
       })) as unknown as typeof globalThis.fetch;
 
     const result = await fetchTileWithRetry(40, -100);
-    expect(result.kind).toBe("failed");
-    if (result.kind !== "failed") throw new Error("Expected tile failure");
+    expect(result.kind).toBe(AircraftTileResultKind.Failed);
+    if (result.kind !== AircraftTileResultKind.Failed) {
+      throw new Error("Expected tile failure");
+    }
     expect(result.error.code).toBe(SourceErrorCode.InvalidPayload);
-  });
-});
-
-describe("sweepTiles", () => {
-  test("paces request starts without adding response time", async () => {
-    const sleeps: number[] = [];
-    let now = 0;
-    const fetchFn = async (): Promise<AircraftTileResult> => {
-      now += 2_000;
-      return {
-        kind: "complete",
-        records: [{ hex: "x" }],
-      };
-    };
-
-    await sweepTiles(
-      [
-        [1, 1],
-        [2, 2],
-        [3, 3],
-      ],
-      fetchFn,
-      async (ms) => {
-        sleeps.push(ms);
-        now += ms;
-      },
-      () => now,
-    );
-
-    expect(sleeps).toEqual([1_000, 1_000]);
-  });
-
-  test("keeps records and completeness counts distinct", async () => {
-    const fetchFn = async (
-      latitude: number,
-    ): Promise<AircraftTileResult> =>
-      latitude === 1
-        ? {
-            kind: "complete",
-            records: [{ hex: "tile-1" }],
-          }
-        : {
-            kind: "failed",
-            error: {
-              code: SourceErrorCode.NetworkError,
-              message: "offline",
-            },
-          };
-
-    const result = await sweepTiles(
-      [
-        [1, 1],
-        [2, 2],
-      ],
-      fetchFn,
-      async () => {},
-    );
-
-    expect(result.records).toEqual([{ hex: "tile-1" }]);
-    expect(result.successfulScopes).toBe(1);
-    expect(result.failedScopes).toBe(1);
-    expect(result.error?.code).toBe(SourceErrorCode.NetworkError);
   });
 });
 
@@ -532,7 +452,7 @@ describe("ingestTile", () => {
   test("completed reflects reads from any point during the sweep (no mid-merge state visible)", () => {
     // The "atomic swap" guarantee: after each ingestTile call returns,
     // completed contains a fully merged view. There is no observable
-    // intermediate state in single-threaded JS — but verify the post-
+    // intermediate state in single-threaded JS, but verify the post-
     // condition explicitly so the contract is locked down.
     const state = createSweepState();
     const beforeFirst = state.completed.size;
@@ -598,7 +518,7 @@ describe("runSweep source state", () => {
     await runSweep(
       async () => {
         now += 2_000;
-        return { kind: "complete", records: [] };
+        return { kind: AircraftTileResultKind.Complete, records: [] };
       },
       async (ms) => {
         sleeps.push(ms);
@@ -614,7 +534,7 @@ describe("runSweep source state", () => {
   test("a complete empty sweep authoritatively clears the prior snapshot", async () => {
     await runSweep(
       async () => ({
-        kind: "complete",
+        kind: AircraftTileResultKind.Complete,
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
@@ -622,7 +542,10 @@ describe("runSweep source state", () => {
     expect(getAircraftCache().aircraftCount).toBe(1);
 
     await runSweep(
-      async () => ({ kind: "complete", records: [] }),
+      async () => ({
+        kind: AircraftTileResultKind.Complete,
+        records: [],
+      }),
       noSleep,
     );
 
@@ -638,7 +561,7 @@ describe("runSweep source state", () => {
   test("a partial sweep retains aircraft absent from failed tiles", async () => {
     await runSweep(
       async () => ({
-        kind: "complete",
+        kind: AircraftTileResultKind.Complete,
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
@@ -649,9 +572,9 @@ describe("runSweep source state", () => {
       async () => {
         calls++;
         return calls === 1
-          ? { kind: "complete", records: [] }
+          ? { kind: AircraftTileResultKind.Complete, records: [] }
           : {
-              kind: "failed",
+              kind: AircraftTileResultKind.Failed,
               error: {
                 code: SourceErrorCode.NetworkError,
                 message: "offline",
@@ -673,7 +596,7 @@ describe("runSweep source state", () => {
   test("an unavailable sweep retains the warm snapshot without inferring absence", async () => {
     await runSweep(
       async () => ({
-        kind: "complete",
+        kind: AircraftTileResultKind.Complete,
         records: [{ hex: "warm-aircraft" }],
       }),
       noSleep,
@@ -681,7 +604,7 @@ describe("runSweep source state", () => {
 
     await runSweep(
       async () => ({
-        kind: "failed",
+        kind: AircraftTileResultKind.Failed,
         error: {
           code: SourceErrorCode.RateLimited,
           message: "limited",

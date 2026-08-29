@@ -16,7 +16,6 @@
     "start": "NODE_ENV=production bun src/server/index.prod.ts",
     "build:aircraft-db": "bun run scripts/build-aircraft-db.ts",
     "build:airports": "bun run scripts/build-airports.ts",
-    "probe:tiles": "bun run scripts/probe-aircraft-tiles.ts",
     "build": "bun run build:aircraft-db && bun run build.ts && bun run postbuild.ts",
     "audit": "bun audit",
     "docker:dev:up": "docker compose -f docker-compose.dev.yml up",
@@ -37,6 +36,12 @@
     "test:e2e:debug": "playwright test --debug",
     "docker:test": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit",
     "docker:test:clean": "docker compose -f docker-compose.test.yml down -v"
+  },
+  "dis": {
+    "gates": {
+      "test": "bun test",
+      "types": "bun run tsc --noEmit"
+    }
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.8",

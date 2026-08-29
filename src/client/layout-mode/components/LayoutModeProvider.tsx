@@ -8,14 +8,14 @@ import {
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
 import { DomEvent } from "@/runtime";
-import { LayoutMode, ViewportOrientation } from "../model";
+import { LayoutMode, ViewportOrientation } from "../model/layoutMode";
+import { detectDeviceType } from "../utils/device";
 import {
-  detectDeviceType,
   nextLayoutMode,
   parseLayoutMode,
   usesMobileLayout,
   viewportOrientation,
-} from "../utils";
+} from "../utils/layout";
 import { LayoutModeContext, type LayoutModeContextValue } from "./context";
 
 function currentOrientation(): ViewportOrientation {

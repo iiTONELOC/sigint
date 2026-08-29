@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { themes } from "@/config/theme";
+import { themes } from "@/theme";
 import {
   RenderThemeAdapter,
   readRenderTheme,
@@ -7,9 +7,10 @@ import {
   type RenderThemeStyle,
 } from "@/render-surface/renderTheme";
 import {
-  RenderColorKey,
+  RENDER_THEME_COLOR_KEYS,
+  ThemeColorKey,
   type RenderWorkerColors,
-} from "@/workers/render/protocol";
+} from "@shared/domain/theme";
 import {
   createRenderThemeFixture,
 } from "../fixtures/renderTheme";
@@ -26,14 +27,14 @@ describe("RenderThemeAdapter", () => {
   test("reads the complete render palette from CSS variables", () => {
     const theme = createRenderThemeFixture();
     const values = new Map(
-      Object.values(RenderColorKey).map((key) => [
+      RENDER_THEME_COLOR_KEYS.map((key) => [
         renderColorCssVariable(key),
         theme[key],
       ]),
     );
 
     expect(readRenderTheme(createStyle(values))).toEqual(theme);
-    values.delete(renderColorCssVariable(RenderColorKey.Accent));
+    values.delete(renderColorCssVariable(ThemeColorKey.Accent));
     expect(readRenderTheme(createStyle(values))).toBeNull();
   });
 
@@ -41,7 +42,7 @@ describe("RenderThemeAdapter", () => {
     const root = document.documentElement;
     const initial = createRenderThemeFixture();
     const values = new Map(
-      Object.values(RenderColorKey).map((key) => [
+      RENDER_THEME_COLOR_KEYS.map((key) => [
         renderColorCssVariable(key),
         initial[key],
       ]),
@@ -66,7 +67,7 @@ describe("RenderThemeAdapter", () => {
 
     adapter.start();
     values.set(
-      renderColorCssVariable(RenderColorKey.Accent),
+      renderColorCssVariable(ThemeColorKey.Accent),
       themes.light.colors.accent,
     );
     notify();

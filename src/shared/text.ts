@@ -21,6 +21,18 @@ export function textOrEmpty(value: unknown): string {
   return isText(value) ? value : EMPTY_TEXT;
 }
 
+export function optionalString(value: unknown): string | undefined {
+  return isText(value) ? value : undefined;
+}
+
 export function nonEmptyText(value: unknown): string | undefined {
   return isText(value) && value.length > 0 ? value : undefined;
+}
+
+export function joinSearchText(
+  segments: readonly (string | undefined)[],
+): string {
+  return segments
+    .filter((segment): segment is string => nonEmptyText(segment) !== undefined)
+    .join(BLANK_SEPARATOR);
 }

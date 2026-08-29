@@ -1,8 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import { act, useState } from "react";
+import type { AircraftPoint } from "@shared/domain/aircraft";
 import type {
   AircraftDossier,
 } from "@shared/domain/aircraftDossier";
+import { Domain } from "@shared/domain/identity";
 import { renderHook } from "../../../../../support/react";
 
 enum AircraftDossierHookFixture {
@@ -16,7 +18,6 @@ enum AircraftDossierHookCount {
   RefreshRequest = 2,
 }
 
-let sourceVersion = AircraftDossierHookCount.InitialRequest;
 let requestCount = 0;
 const refreshGate = Promise.withResolvers<void>();
 const initialDossier = dossier(AircraftDossierHookFixture.InitialIcao24);
@@ -27,10 +28,6 @@ const refreshedDossier = dossier(
 function dossier(icao24: string): AircraftDossier {
   return { icao24, aircraft: null, route: null };
 }
-
-mock.module("@/features/base/useSourceQuery", () => ({
-  useSourceSnapshot: () => ({ version: sourceVersion }),
-}));
 
 mock.module("@/lib/cache/dataWorkerClient", () => ({
   getDataWorkerClient: () => ({
@@ -52,14 +49,25 @@ const { useAircraftDossier } = await import(
 describe("useAircraftDossier", () => {
   test("keeps the current dossier while refreshed data loads", async () => {
     const { result, waitFor } = renderHook(() => {
-      const [, renderSourceVersion] = useState(sourceVersion);
+      const [requestKey, setRequestKey] = useState<AircraftPoint>({
+        id: AircraftDossierHookFixture.EntityId,
+        type: Domain.Aircraft,
+        position: [0, 0],
+        data: { icao24: AircraftDossierHookFixture.InitialIcao24 },
+      });
       return {
         dossier: useAircraftDossier(
           AircraftDossierHookFixture.EntityId,
+          requestKey,
         ),
         refresh: () => {
-          sourceVersion += AircraftDossierHookCount.InitialRequest;
-          renderSourceVersion(sourceVersion);
+          setRequestKey((current) => ({
+            ...current,
+            data: {
+              ...current.data,
+              icao24: AircraftDossierHookFixture.RefreshedIcao24,
+            },
+          }));
         },
       };
     });

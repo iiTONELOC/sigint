@@ -9,13 +9,17 @@ import { AIRCRAFT_UI_QUERIES } from "@/features/tracking/aircraft/data/uiQueries
 import { SHIP_UI_QUERIES } from "@/features/tracking/ships/data/uiQueries";
 import type { EarthquakePoint } from "@/features/environmental/earthquake/data/source";
 import type { FirePoint } from "@/features/environmental/fires/data/source";
-import type { WeatherPoint } from "@/features/environmental/weather/types";
+import type { WeatherPoint } from "@shared/domain/weather";
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
-import type { CycloneWarningPoint } from "@/features/environmental/cyclones/types";
+import type { CycloneWarningPoint } from "@shared/domain/cyclones";
 import type { EventPoint } from "@/features/intel/events/data/codec";
-import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
-import type { ShipPoint } from "@/features/tracking/ships/data/codec";
+import type { AircraftPoint } from "@shared/domain/aircraft";
+import type { ShipPoint } from "@shared/domain/ships";
 import type { DataPoint } from "@/features/base/dataPoints";
+import {
+  isRenderSourceId,
+  type RenderSourceId,
+} from "@shared/source";
 import {
   isCycloneSourceEntity,
 } from "@/features/environmental/cyclones/data/forecastProjection";
@@ -47,7 +51,7 @@ export type QueryableSourceEntities = {
   [Domain.Weather]: WeatherPoint;
 };
 
-export type QueryableSourceId = keyof QueryableSourceEntities;
+export type QueryableSourceId = RenderSourceId;
 
 export type QueryableSourceShapes = {
   [TId in QueryableSourceId]: {
@@ -57,24 +61,19 @@ export type QueryableSourceShapes = {
   };
 };
 
-const QUERIES: {
-  [TId in QueryableSourceId]: PointUiQueries<QueryableSourceEntities[TId]>;
-} = {
-  [Domain.Aircraft]: AIRCRAFT_UI_QUERIES,
-  [Domain.Cyclones]: CYCLONE_UI_QUERIES,
-  [Domain.CycloneWarnings]: CYCLONE_WARNING_UI_QUERIES,
-  [Domain.Earthquake]: EARTHQUAKE_UI_QUERIES,
-  [Domain.Events]: EVENT_UI_QUERIES,
-  [Domain.Fire]: FIRE_UI_QUERIES,
-  [Domain.Ships]: SHIP_UI_QUERIES,
-  [Domain.Weather]: WEATHER_UI_QUERIES,
-};
-
 export type QueryableSourceCodec<TId extends QueryableSourceId> = Readonly<{
   parseEntity: (value: unknown) => DataPoint | null;
   parseResult: (
     value: unknown,
   ) => PointUiQueryResult<QueryableSourceEntities[TId]> | null;
+  findSearchIds: (
+    points: readonly QueryableSourceEntities[TId][],
+    text: string,
+  ) => string[];
+  run: (
+    points: readonly QueryableSourceEntities[TId][],
+    query: PointUiQuery,
+  ) => PointUiQueryResult<QueryableSourceEntities[TId]>;
   buildQueryCommand: (
     envelope: DataWorkerEnvelope,
     rawQuery: unknown,
@@ -109,6 +108,8 @@ function codecFor<TId extends QueryableSourceId>(
   return {
     parseEntity,
     parseResult: queries.parseResult,
+    findSearchIds: queries.findSearchIds,
+    run: queries.run,
     buildQueryCommand: (envelope, rawQuery) => {
       const query = queries.parseQuery(rawQuery);
       return query
@@ -157,21 +158,21 @@ function codecFor<TId extends QueryableSourceId>(
 }
 
 export const QUERYABLE_SOURCE_CODECS: QueryableSourceCodecs = {
-  [Domain.Aircraft]: codecFor(Domain.Aircraft, QUERIES.aircraft),
+  [Domain.Aircraft]: codecFor(Domain.Aircraft, AIRCRAFT_UI_QUERIES),
   [Domain.Cyclones]: codecFor(
     Domain.Cyclones,
-    QUERIES.cyclones,
+    CYCLONE_UI_QUERIES,
     (value) => (isCycloneSourceEntity(value) ? value : null),
   ),
   [Domain.CycloneWarnings]: codecFor(
     Domain.CycloneWarnings,
-    QUERIES.cycloneWarnings,
+    CYCLONE_WARNING_UI_QUERIES,
   ),
-  [Domain.Earthquake]: codecFor(Domain.Earthquake, QUERIES.earthquake),
-  [Domain.Events]: codecFor(Domain.Events, QUERIES.events),
-  [Domain.Fire]: codecFor(Domain.Fire, QUERIES.fire),
-  [Domain.Ships]: codecFor(Domain.Ships, QUERIES.ships),
-  [Domain.Weather]: codecFor(Domain.Weather, QUERIES.weather),
+  [Domain.Earthquake]: codecFor(Domain.Earthquake, EARTHQUAKE_UI_QUERIES),
+  [Domain.Events]: codecFor(Domain.Events, EVENT_UI_QUERIES),
+  [Domain.Fire]: codecFor(Domain.Fire, FIRE_UI_QUERIES),
+  [Domain.Ships]: codecFor(Domain.Ships, SHIP_UI_QUERIES),
+  [Domain.Weather]: codecFor(Domain.Weather, WEATHER_UI_QUERIES),
 };
 
 export const QUERYABLE_SOURCE_IDS = Object.keys(
@@ -181,10 +182,7 @@ export const QUERYABLE_SOURCE_IDS = Object.keys(
 export function isQueryableSourceId(
   value: unknown,
 ): value is QueryableSourceId {
-  return (
-    typeof value === "string" &&
-    Object.hasOwn(QUERYABLE_SOURCE_CODECS, value)
-  );
+  return isRenderSourceId(value);
 }
 
 /**
@@ -211,7 +209,7 @@ export function findQueryableSearchIds<TId extends QueryableSourceId>(
   points: readonly QueryableSourceEntities[TId][],
   text: string,
 ): string[] {
-  return QUERIES[source].findSearchIds(points, text);
+  return QUERYABLE_SOURCE_CODECS[source].findSearchIds(points, text);
 }
 
 /** The part of a source runtime the query handlers need. */
@@ -255,7 +253,7 @@ export function createSourceAnswers<TId extends QueryableSourceId>(
       codec.buildQueryEvent(
         envelope,
         owner.snapshot().version,
-        QUERIES[source].run(owner.values(), query),
+        codec.run(owner.values(), query),
       ),
   };
 }

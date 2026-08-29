@@ -2,13 +2,12 @@ import {
   RenderCycloneLayer,
   RenderGlobeCommandKind,
   RenderProjectionMode,
-  type RenderAircraftFilter,
-  type RenderCycloneFilter,
   type RenderGlobeCommand,
   type RenderGlobeStateSnapshot,
-  type RenderLayerId,
   type SelectedIsolateMode,
 } from "@/workers/render/protocol";
+import type { RenderLayerId } from "@/workers/render/policy";
+import type { AircraftFilterValues } from "@shared/domain/aircraftFilter";
 import {
   RenderGlobeStateController,
   restoreRenderGlobeStateCommands,
@@ -109,7 +108,7 @@ export function toggleRenderLayer(layer: RenderLayerId): void {
 }
 
 export function setRenderAircraftFilter(
-  filter: RenderAircraftFilter,
+  filter: AircraftFilterValues,
 ): void {
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.SetAircraftFilter,
@@ -117,55 +116,42 @@ export function setRenderAircraftFilter(
   });
 }
 
-export function setRenderEarthquakeFilter(
-  minimumMagnitude: number,
-): void {
-  renderGlobeStateStore.dispatch({
-    kind: RenderGlobeCommandKind.SetEarthquakeFilter,
-    minimumMagnitude,
-  });
-}
-
-export function setRenderFireFilter(
-  minimumConfidence: number,
-): void {
-  renderGlobeStateStore.dispatch({
-    kind: RenderGlobeCommandKind.SetFireFilter,
-    minimumConfidence,
-  });
-}
-
-export function setRenderCycloneFilter(
-  filter: RenderCycloneFilter,
-): void {
-  renderGlobeStateStore.dispatch({
-    kind: RenderGlobeCommandKind.SetCycloneFilter,
-    filter,
-  });
-}
-
 export function toggleRenderCycloneLayer(
+  entityId: string,
   layer: RenderCycloneLayer,
 ): void {
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.ToggleCycloneLayer,
+    entityId,
     layer,
   });
 }
 
-export function toggleRenderCycloneModel(model: string): void {
+export function toggleRenderCycloneModel(
+  entityId: string,
+  model: string,
+): void {
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.ToggleCycloneModel,
+    entityId,
     model,
   });
 }
 
 export function toggleAllRenderCycloneModels(
+  entityId: string,
   models: readonly string[],
 ): void {
   renderGlobeStateStore.dispatch({
     kind: RenderGlobeCommandKind.ToggleAllCycloneModels,
+    entityId,
     models,
+  });
+}
+
+export function toggleRenderCycloneWarnings(): void {
+  renderGlobeStateStore.dispatch({
+    kind: RenderGlobeCommandKind.ToggleCycloneWarnings,
   });
 }
 

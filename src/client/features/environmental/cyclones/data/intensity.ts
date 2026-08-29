@@ -4,7 +4,7 @@
 // Rapid Intensification per the NHC definition: a max-sustained-wind
 // increase of >= 30 kt within any 24 h window.
 
-import type { CycloneData, PastTrackPoint } from "../types";
+import type { CycloneData, PastTrackPoint } from "@shared/domain/cyclones";
 import { MS_PER_HOUR } from "@shared/time";
 
 /** One sample on the intensity curve: lead time (h) + max wind (kt). */
@@ -288,6 +288,3 @@ export function pressureRateHpaPerH(storm: CycloneData): number | null {
   if (!change || change.elapsedHours <= 0) return null;
   return (change.currentMb - change.previousMb) / change.elapsedHours;
 }
-
-// Re-export for callers that only need the forecast point type alongside.
-export type { ForecastPoint } from "../types";

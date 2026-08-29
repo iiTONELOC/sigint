@@ -1,8 +1,21 @@
 import { Camera } from "lucide-react";
 import { Barcode } from "@/components/Barcode";
-import { DetailField, DetailFieldAlign } from "@/dossier";
-import type { AircraftChip } from "./dossierKit";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
+import type { AircraftPhoto as AircraftPhotoData } from "../hooks/useAircraftPhoto";
 import { NO_VALUE } from "@shared/text";
+
+export enum AircraftChipTone {
+  Critical = "text-sig-danger border-sig-danger/40 bg-sig-danger/10",
+  Late = "text-sig-fires border-sig-fires/40 bg-sig-fires/10",
+  OnTime = "text-sig-quakes border-sig-quakes/40 bg-sig-quakes/10",
+  Warning = "text-sig-warn border-sig-warn/40 bg-sig-warn/10",
+}
+
+export type AircraftChip = Readonly<{
+  label: string;
+  tone: AircraftChipTone;
+}>;
 
 enum AircraftPhotoPlateGeometry {
   CenterX = 100,
@@ -61,14 +74,8 @@ function NoPhotoPlate() {
   );
 }
 
-type Photo = {
-  readonly src?: string;
-  readonly link?: string;
-  readonly photographer?: string;
-};
-
 type Props = {
-  readonly photo: Photo | null;
+  readonly photo: AircraftPhotoData | null;
   readonly photoLoading: boolean;
   readonly photoError: boolean;
   readonly onPhotoError: () => void;
@@ -91,7 +98,7 @@ type AircraftPhotoProps = Readonly<{
   fallbackText: string;
   loading: boolean;
   onError: () => void;
-  photo: Photo | null;
+  photo: AircraftPhotoData | null;
 }>;
 
 function AircraftPhoto({
@@ -196,7 +203,7 @@ export function AircraftIdentityTicket({
           <DetailField
             label="ORIGIN"
             value={originCountry}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         )}
       </div>

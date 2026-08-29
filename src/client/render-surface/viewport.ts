@@ -1,4 +1,5 @@
 import type { RenderViewportPayload } from "@/workers/render/protocol";
+import { isMobileWidth } from "@/config/breakpoints";
 
 export type ViewportObserver = Readonly<{
   observe: (element: Element) => void;
@@ -20,9 +21,11 @@ export function measureRenderViewport(
   devicePixelRatio: number,
   maximumDevicePixelRatio: number,
 ): RenderViewportPayload {
+  const width = Math.max(0, host.clientWidth);
   return {
-    width: Math.max(0, host.clientWidth),
+    width,
     height: Math.max(0, host.clientHeight),
+    isMobile: isMobileWidth(width),
     devicePixelRatio: Math.max(
       1,
       Math.min(devicePixelRatio, maximumDevicePixelRatio),

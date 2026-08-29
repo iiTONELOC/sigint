@@ -13,6 +13,8 @@ export type SourceId =
   | Domain.Fire
   | Domain.News;
 
+export type RenderSourceId = Exclude<SourceId, Domain.News>;
+
 export const SOURCE_IDS: readonly SourceId[] = [
   Domain.Aircraft,
   Domain.Ships,
@@ -25,10 +27,18 @@ export const SOURCE_IDS: readonly SourceId[] = [
   Domain.News,
 ];
 
+export const RENDER_SOURCE_IDS: readonly RenderSourceId[] = SOURCE_IDS.filter(
+  (source): source is RenderSourceId => source !== Domain.News,
+);
+
 const SOURCE_ID_VALUES: ReadonlySet<string> = new Set(SOURCE_IDS);
 
 export function isSourceIdValue(value: unknown): value is SourceId {
   return typeof value === "string" && SOURCE_ID_VALUES.has(value);
+}
+
+export function isRenderSourceId(value: unknown): value is RenderSourceId {
+  return isSourceIdValue(value) && value !== Domain.News;
 }
 
 export enum SourcePhase {

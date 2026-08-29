@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import { SquawkStatus } from "@shared/domain/aircraft";
+import type { AircraftPoint } from "@shared/domain/aircraft";
+import { ktToMps } from "@/measurements";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
 } from "@/workers/render/sceneProtocol";
 import {
-  AircraftSceneBinding,
+  aircraftSceneBinding,
   AircraftSource,
-  type AircraftPoint,
 } from "@/workers/data/sources/aircraft";
 import type {
   MovingSceneTrailReader,
@@ -20,21 +20,19 @@ function aircraft(
   heading: number,
   latitude = 10,
   longitude = 20,
-  speedMetersPerSecond = 200,
+  speedKnots = 200,
 ): AircraftPoint {
   return {
     id: "Aabc123",
     type: Domain.Aircraft,
-    lat: latitude,
-    lon: longitude,
+    position: [longitude, latitude],
     timestamp: "2026-07-21T00:00:00.000Z",
     data: {
       heading,
-      speedMps: speedMetersPerSecond,
+      speed: speedKnots,
       military: true,
       recon: false,
       onGround: false,
-      squawkStatus: SquawkStatus.Normal,
       originCountry: "United States",
     },
   };
@@ -56,7 +54,7 @@ function aircraftTrailReader(): MovingSceneTrailReader {
 describe("AircraftSource", () => {
   test("publishes a typed rebase and omits an unchanged refresh", async () => {
     const scenePatches: SceneSourcePatch[] = [];
-    const binding = new AircraftSceneBinding(
+    const binding = aircraftSceneBinding(
       aircraftTrailReader(),
       (command) => {
         if (command.type === SceneDataCommandType.SourcePatch) {
@@ -91,7 +89,7 @@ describe("AircraftSource", () => {
       1,
       0,
       90,
-      200,
+      Math.fround(ktToMps(200)),
     ]);
     expect(scenePatches[0]?.motionPositions).toBeInstanceOf(
       Float64Array,
@@ -121,7 +119,7 @@ describe("AircraftSource", () => {
 
   test("keeps the trail origin while current position and motion change", () => {
     const patches: SceneSourcePatch[] = [];
-    const binding = new AircraftSceneBinding(
+    const binding = aircraftSceneBinding(
       aircraftTrailReader(),
       (command) => {
         if (command.type === SceneDataCommandType.SourcePatch) {
@@ -148,7 +146,7 @@ describe("AircraftSource", () => {
       1,
       0,
       180,
-      250,
+      Math.fround(ktToMps(250)),
     ]);
     expect(Array.from(patches[1]?.positions ?? [])).toEqual([
       20.0001,
@@ -165,7 +163,7 @@ describe("AircraftSource", () => {
 
   test("uses raw aircraft position when no trail point exists", () => {
     const patches: SceneSourcePatch[] = [];
-    const binding = new AircraftSceneBinding(
+    const binding = aircraftSceneBinding(
       { lastPoint: () => null },
       (command) => {
         if (command.type === SceneDataCommandType.SourcePatch) {

@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   Monitor,
   MonitorSmartphone,
@@ -8,33 +7,28 @@ import {
   Sun,
 } from "lucide-react";
 import {
-  LAYER_COLOR_KEYS,
-  LAYER_COLOR_LABELS,
+  LAYER_COLOR_METADATA,
   ThemeMode,
+  isLayerColorKey,
   themes,
   type ColorOverrides,
   type LayerColorKey,
   type ResolvedThemeMode,
 } from "@/theme";
-import { cacheGet, cacheSet } from "@/lib/cache";
 import { ButtonType } from "@/lib/ui/button";
 import { LayoutMode, useLayoutMode } from "@/layout-mode";
+import { setAlwaysShowCyclones } from "@/preferences/cyclones/store";
+import { useAlwaysShowCyclones } from "@/preferences/cyclones/useAlwaysShowCyclones";
+import { setUnitsMode } from "@/preferences/units/store";
+import { UnitMode } from "@/preferences/units/model";
+import { useUnitsMode } from "@/preferences/units/useUnitsMode";
 import {
-  setAlwaysShowCyclones,
-  useAlwaysShowCyclones,
-} from "@/preferences/cyclones";
-import {
-  setUnitsMode,
-  UnitMode,
-  useUnitsMode,
-} from "@/preferences/units";
+  setTickerSpeed,
+  useTickerSpeed,
+} from "@/preferences";
 import { DomInputType } from "@/runtime";
 import { TickerSpeedPolicy } from "@/shell/ticker";
-import { CacheKey } from "@shared/domain/cache";
-import {
-  SettingsClassName,
-  SettingsIconSize,
-} from "../../model";
+import { SettingsClassName, SettingsIconSize } from "../../model/presentation";
 
 type AppearanceTabProps = Readonly<{
   colorOverrides: ColorOverrides;
@@ -156,25 +150,9 @@ export function AppearanceTab({
   const defaults = themes[resolvedMode].colors;
   const overrides = colorOverrides[resolvedMode];
   const hasAnyOverride = Object.keys(overrides).length > 0;
-  const [tickerSpeed, setTickerSpeed] = useState(
-    TickerSpeedPolicy.Default,
-  );
-
-  useEffect(() => {
-    cacheGet<number>(CacheKey.TickerSpeed).then((saved) => {
-      if (typeof saved === "number") setTickerSpeed(saved);
-    });
-  }, []);
-
-  const handleTickerSpeed = useCallback((value: number) => {
-    setTickerSpeed(value);
-    cacheSet(CacheKey.TickerSpeed, value);
-  }, []);
+  const tickerSpeed = useTickerSpeed();
 
   const alwaysShowCyclones = useAlwaysShowCyclones();
-  const handleAlwaysShowCyclones = useCallback((value: boolean) => {
-    setAlwaysShowCyclones(value);
-  }, []);
   const unitsMode = useUnitsMode();
 
   return (
@@ -247,9 +225,9 @@ export function AppearanceTab({
             max={TickerSpeedPolicy.Max}
             step={TickerSpeedPolicy.SliderStep}
             value={tickerSpeed}
-            onChange={(event) =>
-              handleTickerSpeed(Number(event.target.value))
-            }
+            onChange={(event) => {
+              setTickerSpeed(Number(event.target.value));
+            }}
             className="flex-1 accent-sig-accent cursor-pointer"
             title={`Ticker speed: ${tickerSpeed} px/s`}
           />
@@ -280,9 +258,9 @@ export function AppearanceTab({
           <input
             type={DomInputType.Checkbox}
             checked={alwaysShowCyclones}
-            onChange={(event) =>
-              handleAlwaysShowCyclones(event.target.checked)
-            }
+            onChange={(event) => {
+              setAlwaysShowCyclones(event.target.checked);
+            }}
             aria-label="Always show cyclones layer toggle"
             className="w-4 h-4 accent-sig-accent cursor-pointer shrink-0"
           />
@@ -306,8 +284,9 @@ export function AppearanceTab({
           )}
         </div>
         <div className={SettingsClassName.DataList}>
-          {LAYER_COLOR_KEYS.map((key) => {
-            const defaultColor = defaults[key];
+          {Object.entries(LAYER_COLOR_METADATA).map(([key, metadata]) => {
+            if (!isLayerColorKey(key)) return null;
+            const defaultColor = defaults[metadata.themeColor];
             const currentColor = overrides[key] ?? defaultColor;
             const isOverridden = key in overrides;
 
@@ -321,12 +300,12 @@ export function AppearanceTab({
                   value={currentColor}
                   onChange={(event) => setLayerColor(key, event.target.value)}
                   className={AppearanceClassName.ColorInput}
-                  title={`Select color for ${LAYER_COLOR_LABELS[key]}`}
-                  aria-label={`Select color for ${LAYER_COLOR_LABELS[key]}`}
+                  title={`Select color for ${metadata.label}`}
+                  aria-label={`Select color for ${metadata.label}`}
                 />
                 <div className={SettingsClassName.DataText}>
                   <div className={SettingsClassName.ItemTitle}>
-                    {LAYER_COLOR_LABELS[key]}
+                    {metadata.label}
                   </div>
                   <div className="text-xs text-sig-dim font-mono">
                     {currentColor.toUpperCase()}

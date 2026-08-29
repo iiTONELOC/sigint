@@ -4,13 +4,8 @@ import type { LayoutPreset } from "./paneTree";
 import { leafCount } from "./paneTree";
 import { useWalkthroughStepId, WalkthroughStepId } from "@/walkthrough";
 import { ButtonType } from "@/lib/ui/button";
-import { PaneWorkspaceIconMetric } from "@/panes/workspace/model";
+import { PaneIdSequence, PaneWorkspaceIconMetric } from "@/panes/workspace/model/pane";
 import { DomEvent, DomInputType, DomKey } from "@/runtime";
-
-enum LayoutPresetOccurrence {
-  Start = 0,
-  Step = 1,
-}
 
 type LayoutPresetRow = {
   readonly index: number;
@@ -32,8 +27,8 @@ function layoutPresetRows(presets: readonly LayoutPreset[]): LayoutPresetRow[] {
   const occurrences = new Map<string, number>();
   return presets.map((preset, index) => {
     const identity = JSON.stringify([preset.name, preset.state.root.id]);
-    const occurrence = occurrences.get(identity) ?? LayoutPresetOccurrence.Start;
-    occurrences.set(identity, occurrence + LayoutPresetOccurrence.Step);
+    const occurrence = occurrences.get(identity) ?? PaneIdSequence.Start;
+    occurrences.set(identity, occurrence + PaneIdSequence.Step);
     return {
       index,
       key: JSON.stringify([identity, occurrence]),
@@ -90,7 +85,7 @@ export function LayoutPresetMenu({
     <div
       ref={menuRef}
       data-wt-menu=""
-      className="absolute right-0 top-full mt-0.5 z-80 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52"
+      className="absolute right-0 top-full mt-0.5 z-(--layer-menu) bg-sig-panel border border-sig-border/60 rounded shadow-lg py-1 min-w-52"
     >
       <div className="px-2 py-1 text-sig-dim text-[10px] tracking-wider font-semibold border-b border-sig-border/30">
         LAYOUT PRESETS

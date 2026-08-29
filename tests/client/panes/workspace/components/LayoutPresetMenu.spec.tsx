@@ -7,7 +7,7 @@ import {
   PaneNodeType,
   PaneType,
   SplitDirection,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import { DomEvent, DomInputType, DomKey } from "@/runtime";
 import {
   renderReact,

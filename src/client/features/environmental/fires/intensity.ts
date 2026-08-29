@@ -1,4 +1,5 @@
 import { NO_VALUE } from "@shared/text";
+import { FireConfidenceCode } from "@shared/domain/fireDayNight";
 
 export enum FrpBandId {
   Extreme = 500,
@@ -6,11 +7,6 @@ export enum FrpBandId {
   High = 50,
   Moderate = 10,
   Low = 0,
-}
-
-export enum FireCssColor {
-  Accent = "var(--dossier-accent)",
-  Intensity = "var(--intensity-color)",
 }
 
 export enum FireTemperatureThreshold {
@@ -34,15 +30,6 @@ export enum FireConfidenceBand {
   High = 2,
 }
 
-enum FireConfidenceCode {
-  High = "high",
-  HighShort = "h",
-  Low = "low",
-  LowShort = "l",
-  Nominal = "nominal",
-  NominalShort = "n",
-}
-
 enum FireConfidenceThreshold {
   Nominal = 30,
   High = 80,
@@ -62,73 +49,56 @@ export type ConfidenceMeta = Readonly<{
   meaning: string;
 }>;
 
+type FrpBandMetadata = Omit<FrpBand, "id" | "min">;
+type ConfidenceMetadata = Omit<ConfidenceMeta, "level">;
+
+const FRP_BAND_METADATA: Readonly<Record<FrpBandId, FrpBandMetadata>> = {
+  [FrpBandId.Extreme]: {
+    label: "EXTREME",
+    className: "[--dossier-accent:#d97706] [--intensity-color:#fde047]",
+  },
+  [FrpBandId.VeryHigh]: {
+    label: "VERY HIGH",
+    className: "[--dossier-accent:#ea580c] [--intensity-color:#fb923c]",
+  },
+  [FrpBandId.High]: {
+    label: FireIntensityLabel.High,
+    className: "[--dossier-accent:#e25406] [--intensity-color:#f97316]",
+  },
+  [FrpBandId.Moderate]: {
+    label: "MODERATE",
+    className: "[--dossier-accent:#c2410c] [--intensity-color:#ea580c]",
+  },
+  [FrpBandId.Low]: {
+    label: FireIntensityLabel.Low,
+    className: "[--dossier-accent:#9a3412] [--intensity-color:#9a3412]",
+  },
+};
+
+const CONFIDENCE_METADATA: Readonly<
+  Record<FireConfidenceBand, ConfidenceMetadata>
+> = {
+  [FireConfidenceBand.Unknown]: { label: NO_VALUE, meaning: "unrated" },
+  [FireConfidenceBand.Low]: {
+    label: FireIntensityLabel.Low,
+    meaning: "weak or sun-glint",
+  },
+  [FireConfidenceBand.Nominal]: {
+    label: "NOMINAL",
+    meaning: "clean, strong signal",
+  },
+  [FireConfidenceBand.High]: {
+    label: FireIntensityLabel.High,
+    meaning: "saturated pixel",
+  },
+};
+
 function frpBandDefinition(id: FrpBandId): FrpBand {
-  switch (id) {
-    case FrpBandId.Extreme:
-      return {
-        id,
-        min: id,
-        label: "EXTREME",
-        className: "[--dossier-accent:#d97706] [--intensity-color:#fde047]",
-      };
-    case FrpBandId.VeryHigh:
-      return {
-        id,
-        min: id,
-        label: "VERY HIGH",
-        className: "[--dossier-accent:#ea580c] [--intensity-color:#fb923c]",
-      };
-    case FrpBandId.High:
-      return {
-        id,
-        min: id,
-        label: FireIntensityLabel.High,
-        className: "[--dossier-accent:#e25406] [--intensity-color:#f97316]",
-      };
-    case FrpBandId.Moderate:
-      return {
-        id,
-        min: id,
-        label: "MODERATE",
-        className: "[--dossier-accent:#c2410c] [--intensity-color:#ea580c]",
-      };
-    default:
-      return {
-        id: FrpBandId.Low,
-        min: FrpBandId.Low,
-        label: FireIntensityLabel.Low,
-        className: "[--dossier-accent:#9a3412] [--intensity-color:#9a3412]",
-      };
-  }
+  return { id, min: id, ...FRP_BAND_METADATA[id] };
 }
 
 function confidenceDefinition(id: FireConfidenceBand): ConfidenceMeta {
-  switch (id) {
-    case FireConfidenceBand.High:
-      return {
-        level: id,
-        label: FireIntensityLabel.High,
-        meaning: "saturated pixel",
-      };
-    case FireConfidenceBand.Nominal:
-      return {
-        level: id,
-        label: "NOMINAL",
-        meaning: "clean, strong signal",
-      };
-    case FireConfidenceBand.Low:
-      return {
-        level: id,
-        label: FireIntensityLabel.Low,
-        meaning: "weak or sun-glint",
-      };
-    default:
-      return {
-        level: FireConfidenceBand.Unknown,
-        label: NO_VALUE,
-        meaning: "unrated",
-      };
-  }
+  return { level: id, ...CONFIDENCE_METADATA[id] };
 }
 
 export function frpScale(): readonly FrpBand[] {

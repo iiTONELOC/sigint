@@ -6,7 +6,7 @@ import {
   setWalkthroughStyleRule,
   WalkthroughStyleSlot,
 } from "../utils/stylesheet";
-import { WalkthroughRingColor } from "../model";
+import { WalkthroughRingColor } from "../model/vocabulary";
 
 type HighlightRingProps = Readonly<{
   color?: WalkthroughRingColor;
@@ -67,7 +67,7 @@ export function HighlightRing({
       data-wt-ring=""
       data-wt-ring-color={color}
       data-wt-style={slot}
-      className="absolute z-9998 rounded-[6px] border-2 pointer-events-none [animation:pulse_1.5s_infinite]"
+      className="walkthrough-highlight absolute z-(--layer-attention) rounded-[6px] border-2 pointer-events-none animate-walkthrough-pulse"
     />,
     document.body,
   );

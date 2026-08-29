@@ -1,158 +1,64 @@
+import { parsePoints } from "@/features/base/pointCodec";
 import {
-  FIRE_FEED_POLICY,
-  fetchFires,
-  fireConfidenceLevel,
-  isFireFetchError,
+  FIRE_FEED,
   parseFirePoint,
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
-import { FIRE_UI_QUERIES } from "@/features/environmental/fires/data/uiQueries";
 import {
-  SceneBinding,
+  pointSceneBinding,
+  type SceneBinding,
   type SceneCommandPublisher,
 } from "@/workers/data/render-codecs/sceneBinding";
 import {
-  ScenePatchCodec,
-  sceneTimestamp,
-  singleSceneRecord,
-} from "@/workers/data/render-codecs/sceneCodec";
-import {
-  EntityLifetime,
   GeoCarrier,
-  StationaryGeoDataSource,
-  type SourcePolicy,
+  StationaryPointSource,
+  feedFetch,
+  recordChanged,
+  type PointSourceOptions,
 } from "@/workers/data/source-model/dataSource";
-import { recordPosition } from "@/workers/data/source-model/position";
-import type {
-  PointSourceFetchSnapshot,
-  PointSourceSchedule,
-} from "@/workers/data/sourceRuntime";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
-import {
-  FireSceneAttribute,
-  FireSceneSchema,
-} from "@/workers/render/scene/fireSchema";
+import { SourceFetchError } from "@/workers/data/source-model/remoteSource";
+import { fireDataEquals } from "@shared/domain/fireDayNight";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import { SourceStatus } from "@shared/domain/sourceStatus";
-import { SourceCompleteness } from "@shared/source";
-
-enum FireSceneDefault {
-  Numeric = 0,
-}
+import { FireSceneAttribute } from "@shared/scene";
 
 export enum FireHttpStatus {
   ServiceUnavailable = 503,
 }
 
-export const FIRE_SOURCE: SourcePolicy = {
-  ...getPointSourceDefinition(Domain.Fire),
-  retryIntervalMs: FIRE_FEED_POLICY.retryIntervalMs,
-};
-
-export type FireSourceOptions = Readonly<{
-  fetchPoints?: () => Promise<FirePoint[]>;
-  now?: () => number;
-  schedule?: PointSourceSchedule;
-}>;
-
 function fireFailureStatus(error: unknown): SourceStatus {
-  return isFireFetchError(error) &&
+  return error instanceof SourceFetchError &&
     error.httpStatus === FireHttpStatus.ServiceUnavailable
     ? SourceStatus.Unavailable
     : SourceStatus.Error;
 }
 
-function parseFireCache(value: unknown): readonly FirePoint[] | null {
-  if (!Array.isArray(value)) return null;
-  const points: FirePoint[] = [];
-  for (const candidate of value) {
-    const point = parseFirePoint(candidate);
-    if (!point) return null;
-    points.push(point);
-  }
-  return points;
-}
-
-function fireChanged(previous: FirePoint, next: FirePoint): boolean {
-  return (
-    previous.lat !== next.lat ||
-    previous.lon !== next.lon ||
-    previous.timestamp !== next.timestamp ||
-    previous.data.brightness !== next.data.brightness ||
-    previous.data.frp !== next.data.frp ||
-    previous.data.confidence !== next.data.confidence ||
-    previous.data.satellite !== next.data.satellite ||
-    previous.data.instrument !== next.data.instrument ||
-    previous.data.scan !== next.data.scan ||
-    previous.data.track !== next.data.track ||
-    previous.data.brightT31 !== next.data.brightT31 ||
-    previous.data.daynight !== next.data.daynight ||
-    previous.data.acqDate !== next.data.acqDate ||
-    previous.data.acqTime !== next.data.acqTime ||
-    previous.data.complexSize !== next.data.complexSize ||
-    previous.data.complexFrp !== next.data.complexFrp
-  );
-}
-
-export class FireSource extends StationaryGeoDataSource<FirePoint> {
-  readonly policy = FIRE_SOURCE;
-  readonly carrier = GeoCarrier.Position;
-  readonly lifetime = EntityLifetime.Ephemeral;
-  readonly pointType = Domain.Fires;
-  readonly queries = FIRE_UI_QUERIES;
-
-  private readonly fetchPoints: () => Promise<FirePoint[]>;
-  private readonly now: () => number;
-
-  constructor(options: FireSourceOptions = {}) {
-    super(
-      [],
-      {
-        failureStatus: fireFailureStatus,
-        ...(options.schedule ? { schedule: options.schedule } : {}),
-      },
-    );
-    this.fetchPoints = options.fetchPoints ?? fetchFires;
-    this.now = options.now ?? Date.now;
-  }
-
-  protected parseCache(value: unknown): readonly FirePoint[] | null {
-    return parseFireCache(value);
-  }
-
-  protected async fetchSnapshot(): Promise<
-    PointSourceFetchSnapshot<FirePoint>
-  > {
-    return {
-      completeness: SourceCompleteness.Complete,
-      entities: await this.fetchPoints(),
-      observedAt: this.now(),
-    };
-  }
-
-  protected hasChanged(previous: FirePoint, next: FirePoint): boolean {
-    return fireChanged(previous, next);
+export class FireSource extends StationaryPointSource<
+  Domain.Fire,
+  FirePoint
+> {
+  constructor(options: PointSourceOptions<FirePoint> = {}) {
+    super({
+      policy: getPointSourceDefinition(Domain.Fire),
+      carrier: GeoCarrier.Position,
+      parseCache: (value) => parsePoints(value, parseFirePoint),
+      fetchSnapshot: feedFetch(options, FIRE_FEED),
+      hasChanged: recordChanged(fireDataEquals),
+      failureStatus: fireFailureStatus,
+      ...(options.schedule ? { schedule: options.schedule } : {}),
+    });
   }
 }
 
-export class FireSceneBinding extends SceneBinding<FirePoint> {
-  constructor(publishScene: SceneCommandPublisher) {
-    super(
-      new ScenePatchCodec<FirePoint>({
-        source: Domain.Fire,
-        attributeStride: FireSceneSchema.AttributeStride,
-        stringAttributeStride: FireSceneSchema.StringAttributeStride,
-        records: singleSceneRecord,
-        position: recordPosition,
-        timestamp: sceneTimestamp,
-        writeAttributes: (point, target, offset) => {
-          target[offset + FireSceneAttribute.RadiativePower] =
-            point.data.frp ?? FireSceneDefault.Numeric;
-          target[offset + FireSceneAttribute.Confidence] =
-            fireConfidenceLevel(point.data.confidence);
-        },
-      }),
-      publishScene,
-    );
-  }
+export function fireSceneBinding(
+  publishScene: SceneCommandPublisher,
+): SceneBinding<FirePoint> {
+  return pointSceneBinding(publishScene, {
+    source: Domain.Fire,
+    writeAttributes: (point, target, offset) => {
+      target[offset + FireSceneAttribute.RadiativePower] =
+        point.data.frp ?? 0;
+    },
+  });
 }

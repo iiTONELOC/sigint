@@ -20,7 +20,7 @@ import {
   parseSceneInterestCommand,
   SceneDataCommandType,
   SceneInterestCommandType,
-  SceneProtocolState,
+  SessionSequenceState,
 } from "@/workers/render/sceneProtocol";
 import {
   SelectionOverlayStore,
@@ -36,10 +36,10 @@ describe("selection overlay channel", () => {
     const scenePublisher = new ScenePublisher();
     const interestPublisher = new SceneInterestPublisher();
     const overlayStore = new SelectionOverlayStore();
-    const dataState = new SceneProtocolState(
+    const dataState = new SessionSequenceState(
       SelectionOverlayChannelFixture.SessionId,
     );
-    const renderState = new SceneProtocolState(
+    const renderState = new SessionSequenceState(
       SelectionOverlayChannelFixture.SessionId,
     );
     const selected: RenderSelectionSnapshot = {

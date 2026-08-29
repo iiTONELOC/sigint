@@ -1,5 +1,5 @@
 import { RuntimeStylesheet } from "@/styles";
-import type { Theme } from "../model";
+import type { Theme } from "../model/colors";
 
 enum ThemeStylesheetOwner {
   Root = "theme-root",

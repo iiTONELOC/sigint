@@ -5,9 +5,6 @@ import {
   geoPointsEqual,
 } from "@shared/geo";
 import {
-  CYCLONE_UI_QUERIES,
-} from "@/features/environmental/cyclones/data/uiQueries";
-import {
   cycloneForecastProjection,
   type CycloneForecastPoint,
 } from "@/features/environmental/cyclones/data/forecastProjection";
@@ -24,23 +21,18 @@ import type {
   ModelTrackPoint,
   PastTrackPoint,
   WindRadii,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import {
   EntityLifetime,
   GeoCarrier,
   GeoDataSource,
   GeoMotion,
-  type SourcePolicy,
 } from "@/workers/data/source-model/dataSource";
 import type {
   PointSourceFetchSnapshot,
   PointSourceSchedule,
 } from "@/workers/data/sourceRuntime";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
-
-export const CYCLONE_SOURCE_POLICY: SourcePolicy = {
-  ...getPointSourceDefinition(Domain.Cyclones),
-};
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 
 export type CycloneSourceOptions = Readonly<{
   fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<CyclonePoint>>;
@@ -208,12 +200,10 @@ export function reconcileCyclonePoint(
 }
 
 export class CycloneSource extends GeoDataSource<CyclonePoint> {
-  readonly policy = CYCLONE_SOURCE_POLICY;
+  readonly policy = getPointSourceDefinition(Domain.Cyclones);
   readonly carrier = GeoCarrier.Path;
   readonly motion = GeoMotion.Moving;
   readonly lifetime = EntityLifetime.Persistent;
-  readonly pointType = Domain.Cyclones;
-  readonly queries = CYCLONE_UI_QUERIES;
 
   private readonly fetchSnapshotOverride:
     | (() => Promise<PointSourceFetchSnapshot<CyclonePoint>>)

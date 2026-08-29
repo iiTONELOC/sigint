@@ -5,13 +5,20 @@ import {
   type FeatureFeedPresentation,
   type FeatureTablePresentation,
 } from "@/features/base/presentation";
-import { weatherSeverityRank } from "../severity";
-import type { WeatherData } from "../types";
+import {
+  type WeatherData,
+  type WeatherSeverity,
+  weatherSeverityRank,
+} from "@shared/domain/weather";
 
 export enum WeatherCopy {
   Alert = "Weather Alert",
   DefaultSender = "NWS",
   TickerAlert = "Weather alert",
+}
+
+export function weatherSeverityLabel(severity: WeatherSeverity): string {
+  return severity.toUpperCase();
 }
 
 export function primaryWeatherArea(area: string | undefined): string {

@@ -12,9 +12,9 @@ import {
   MovingScenePositionAccessor,
 } from "@/workers/render/scene/movingScenePosition";
 import {
-  MovingSceneMotionPositionSchema,
-  MovingSceneSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+  MOVING_SCENE_ATTRIBUTE_COUNT,
+  SCENE_POSITION_COUNT,
+} from "@shared/scene";
 import type {
   RenderSceneView,
 } from "@/workers/render/sceneStore";
@@ -65,14 +65,14 @@ function movingView(
       motionLatitude,
     ]),
     motionPositionStride:
-      MovingSceneMotionPositionSchema.MotionPositionStride,
+      SCENE_POSITION_COUNT,
     unitVectors: new Float32Array([unit.x, unit.y, unit.z]),
     timestamps: new Float64Array([timestamp]),
     attributes: new Float32Array([
       directionDegrees,
       speedMetersPerSecond,
     ]),
-    attributeStride: MovingSceneSchema.AttributeStride,
+    attributeStride: MOVING_SCENE_ATTRIBUTE_COUNT,
     stringAttributes: new Uint32Array(),
     stringAttributeStride: 0,
     dictionary: [],
@@ -85,7 +85,7 @@ function movingAccessor(
 ): MovingScenePositionAccessor {
   return new MovingScenePositionAccessor({
     attributeOffset: 0,
-    attributeStride: MovingSceneSchema.AttributeStride,
+    attributeStride: MOVING_SCENE_ATTRIBUTE_COUNT,
     maximumAgeMs: TRAIL_POLICY[source].maxExtrapolationMs,
   });
 }

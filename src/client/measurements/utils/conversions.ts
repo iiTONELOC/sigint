@@ -1,4 +1,4 @@
-import { MeasurementConversionFactor } from "../model";
+import { MeasurementConversionFactor } from "../model/conversion";
 
 export function kelvinToC(kelvin: number): number {
   return kelvin - MeasurementConversionFactor.KelvinOffset;

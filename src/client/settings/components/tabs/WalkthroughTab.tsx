@@ -7,11 +7,7 @@ import {
   WalkthroughLaunchMode,
 } from "@/walkthrough";
 import { CacheKey } from "@shared/domain/cache";
-import {
-  SettingsClassName,
-  SettingsIconSize,
-  SettingsTiming,
-} from "../../model";
+import { SettingsClassName, SettingsIconSize, SettingsTiming } from "../../model/presentation";
 
 type WalkthroughTabProps = Readonly<{
   onClose: () => void;

@@ -1,4 +1,5 @@
-import { CycloneWindThreshold, windColor } from "../classification";
+import { windColor } from "../classification";
+import { Category, CYCLONE_CATEGORY_METADATA } from "@shared/domain/cyclones";
 
 enum WindsockAngle {
   LimpDegrees = 60,
@@ -19,9 +20,7 @@ enum WindsockFraction {
   Maximum = 1,
 }
 
-enum WindsockPolicy {
-  FullExtensionMultiplier = 2,
-}
+const WINDSOCK_FULL_EXTENSION_MULTIPLIER = 2;
 
 enum WindsockOpacity {
   MinimumStreak = 0.15,
@@ -33,9 +32,7 @@ enum WindsockPrecision {
   Timing = 2,
 }
 
-enum WindsockAnimation {
-  Repeat = "indefinite",
-}
+const WINDSOCK_ANIMATION_REPEAT = "indefinite";
 
 enum WindsockGeometry {
   PivotX = 7,
@@ -48,20 +45,18 @@ enum WindsockSvgAttribute {
   Opacity = "opacity",
 }
 
-enum WindsockClassName {
-  MotionReduceHidden = "motion-reduce:hidden",
-}
+const WINDSOCK_MOTION_REDUCE_HIDDEN = "motion-reduce:hidden";
 
-const STREAKS = [
-  { d: "M0,12 q5,-3 10,0 t10,0", delaySeconds: 0 },
-  { d: "M0,16 h18", delaySeconds: 0.3 },
-  { d: "M0,20 q5,3 10,0 t10,0", delaySeconds: 0.6 },
-];
+const STREAK_DELAY_BY_PATH: Readonly<Record<string, number>> = {
+  "M0,12 q5,-3 10,0 t10,0": 0,
+  "M0,16 h18": 0.3,
+  "M0,20 q5,3 10,0 t10,0": 0.6,
+};
 
 function windFraction(maxWindKt: number): number {
   const fullExtensionKnots =
-    CycloneWindThreshold.HurricaneOne *
-    WindsockPolicy.FullExtensionMultiplier;
+    CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt *
+    WINDSOCK_FULL_EXTENSION_MULTIPLIER;
   return Math.min(
     WindsockFraction.Maximum,
     Math.max(WindsockFraction.Minimum, maxWindKt / fullExtensionKnots),
@@ -73,7 +68,9 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
-  if (maxWindKt < CycloneWindThreshold.TropicalStorm) return null;
+  if (
+    maxWindKt < CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt
+  ) return null;
   const color = windColor(maxWindKt);
   const t = windFraction(maxWindKt);
   const droop = lerp(
@@ -120,8 +117,8 @@ export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
             type="rotate"
             values={`-${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY};${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY};-${sway} ${WindsockGeometry.PivotX} ${WindsockGeometry.PivotY}`}
             dur={`${flutter}s`}
-            repeatCount={WindsockAnimation.Repeat}
-            className={WindsockClassName.MotionReduceHidden}
+            repeatCount={WINDSOCK_ANIMATION_REPEAT}
+            className={WINDSOCK_MOTION_REDUCE_HIDDEN}
           />
           <polygon points="7,6 19,8 19,24 7,26" fill={color} fillOpacity="0.95" />
           <polygon points="19,8 30,10.5 30,21.5 19,24" fill={color} fillOpacity="0.78" />
@@ -129,10 +126,10 @@ export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
         </g>
       </g>
       <g className="text-sig-dim">
-        {STREAKS.map((streakDefinition) => (
+        {Object.entries(STREAK_DELAY_BY_PATH).map(([path, delaySeconds]) => (
           <path
-            key={streakDefinition.d}
-            d={streakDefinition.d}
+            key={path}
+            d={path}
             fill="none"
             stroke="currentColor"
             strokeWidth="1.5"
@@ -144,18 +141,18 @@ export function CycloneWindsock({ maxWindKt }: { readonly maxWindKt: number }) {
               type="translate"
               values={`0 0;${WindsockGeometry.StreakDistance} 0`}
               dur={`${streak}s`}
-              begin={`${streakDefinition.delaySeconds}s`}
-              repeatCount={WindsockAnimation.Repeat}
-              className={WindsockClassName.MotionReduceHidden}
+              begin={`${delaySeconds}s`}
+              repeatCount={WINDSOCK_ANIMATION_REPEAT}
+              className={WINDSOCK_MOTION_REDUCE_HIDDEN}
             />
             <animate
               attributeName={WindsockSvgAttribute.Opacity}
               values="0;1;1;0"
               keyTimes="0;0.25;0.75;1"
               dur={`${streak}s`}
-              begin={`${streakDefinition.delaySeconds}s`}
-              repeatCount={WindsockAnimation.Repeat}
-              className={WindsockClassName.MotionReduceHidden}
+              begin={`${delaySeconds}s`}
+              repeatCount={WINDSOCK_ANIMATION_REPEAT}
+              className={WINDSOCK_MOTION_REDUCE_HIDDEN}
             />
           </path>
         ))}

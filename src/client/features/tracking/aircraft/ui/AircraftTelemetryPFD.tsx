@@ -1,11 +1,17 @@
-import { PanelSide } from "@/workers/render/protocol";
-import { DetailField, DetailFieldAlign } from "@/dossier";
+import { PanelSide } from "@/layout-mode/model/layoutMode";
+import { DetailField, DossierCard } from "@/dossier";
 import { Tape } from "./instruments/Tape";
 import { HeadingHSI } from "./instruments/HeadingHSI";
 import { VerticalSpeed } from "./instruments/VerticalSpeed";
-import { isaTempC } from "../utils";
-import { AircraftFlightStatusLabel } from "../types";
-import { Card } from "./dossierKit";
+import { ktToMph } from "@/measurements";
+import { TurnDeg } from "@shared/geo";
+import type { AircraftData } from "@shared/domain/aircraft";
+import { isaTempC } from "../utils/isa";
+import {
+  aircraftEmergencyPresentation,
+  AircraftFlightStatusLabel,
+  aircraftVerticalSpeedFpm,
+} from "../formatters/presentation";
 import { EMPTY_TEXT } from "@shared/text";
 
 enum AircraftTelemetryValue {
@@ -53,8 +59,18 @@ enum AircraftTelemetryPrecision {
   AltitudeThousands = 1,
 }
 
+enum AircraftWindPrefix {
+  Headwind = "H",
+  Tailwind = "T",
+}
+
+enum AircraftDriftSide {
+  Left = "L",
+  Right = "R",
+}
+
 type TelemetryStat = Readonly<{
-  label: AircraftTelemetryLabel;
+  label: string;
   value: string;
 }>;
 
@@ -76,37 +92,70 @@ function Corner({
   );
 }
 
-type Props = {
-  readonly speed: number;
-  readonly speedFooter: string;
-  readonly heading: number;
-  readonly selectedHeading?: number;
-  readonly altitude: number;
-  readonly selectedAlt?: number;
-  readonly onGround?: boolean;
-  readonly fpm: number;
-  readonly squawk?: string;
-  readonly emergency: boolean;
-  readonly windDir?: number;
-  readonly windSpd?: number;
-  readonly oat?: number;
-  readonly navQnh?: number;
-  readonly navModes?: readonly string[];
-  readonly windCompText?: string | null;
-  readonly isaText?: string | null;
-  readonly tatText?: string | null;
-  readonly rssiText?: string | null;
-  readonly accText?: string | null;
-  readonly sourceText?: string | null;
-  readonly driftText?: string | null;
-};
-
 function windText(
   direction: number | undefined,
   speed: number | undefined,
 ): string | null {
   if (direction == null || speed == null) return null;
   return `${Math.round(direction)}° / ${Math.round(speed)} kt`;
+}
+
+function windComponents(
+  windDirection: number | undefined,
+  windSpeed: number | undefined,
+  track: number | undefined,
+): Readonly<{ head: number; cross: number; side: AircraftDriftSide }> | null {
+  if (
+    windDirection === undefined ||
+    windSpeed === undefined ||
+    track === undefined
+  ) {
+    return null;
+  }
+  const angle = ((windDirection - track) * Math.PI) / TurnDeg.Half;
+  const head = Math.round(windSpeed * Math.cos(angle));
+  const cross = windSpeed * Math.sin(angle);
+  return {
+    head,
+    cross: Math.round(Math.abs(cross)),
+    side: cross >= 0 ? AircraftDriftSide.Right : AircraftDriftSide.Left,
+  };
+}
+
+function windComponentText(data: AircraftData): string | null {
+  const component = windComponents(data.windDir, data.windSpd, data.heading);
+  if (!component) return null;
+  const alongTrack = component.head >= 0
+    ? `${AircraftWindPrefix.Headwind}${component.head}`
+    : `${AircraftWindPrefix.Tailwind}${Math.abs(component.head)}`;
+  return `${alongTrack} · X${component.cross}${component.side}`;
+}
+
+function isaText(data: AircraftData): string | null {
+  if (data.oat === undefined) return null;
+  const deviation = Math.round(data.oat - isaTempC(data.altitude ?? 0));
+  return `ISA ${deviation >= 0 ? "+" : EMPTY_TEXT}${deviation}`;
+}
+
+function driftText(data: AircraftData): string | null {
+  if (data.heading === undefined || data.trueHeading === undefined) return null;
+  let difference = data.heading - data.trueHeading;
+  while (difference > TurnDeg.Half) difference -= TurnDeg.Full;
+  while (difference < -TurnDeg.Half) difference += TurnDeg.Full;
+  if (Math.abs(difference) < 1) return "0°";
+  const side = difference > 0
+    ? AircraftDriftSide.Right
+    : AircraftDriftSide.Left;
+  return `${Math.abs(Math.round(difference))}° ${side}`;
+}
+
+function sourceLabel(type: string | undefined): string | null {
+  if (!type) return null;
+  if (type.startsWith("adsb") || type.startsWith("adsr")) return "ADS-B";
+  if (type.startsWith("mlat")) return "MLAT";
+  if (type.startsWith("tisb")) return "TIS-B";
+  if (type.startsWith("mode_s")) return "MODE-S";
+  return type.toUpperCase();
 }
 
 function autopilotText(modes: readonly string[] | undefined): string | null {
@@ -132,56 +181,30 @@ function outsideAirTemperatureText(
   return `${prefix}${Math.round(value)}°C`;
 }
 
-function appendTelemetryStat(
-  stats: TelemetryStat[],
-  label: AircraftTelemetryLabel,
-  value: string | null | undefined,
-): void {
-  if (value) stats.push({ label, value });
-}
-
-function buildTelemetryStats(props: Props): TelemetryStat[] {
+function buildTelemetryStats(data: AircraftData): TelemetryStat[] {
+  const valueByLabel: Partial<
+    Record<AircraftTelemetryLabel, string | null | undefined>
+  > = {
+    [AircraftTelemetryLabel.Wind]: windText(data.windDir, data.windSpd),
+    [AircraftTelemetryLabel.WindComponent]: windComponentText(data),
+    [AircraftTelemetryLabel.Drift]: driftText(data),
+    [AircraftTelemetryLabel.OutsideAirTemperature]: outsideAirTemperatureText(
+      data.oat,
+      data.altitude ?? 0,
+    ),
+    [AircraftTelemetryLabel.IsaDeviation]: isaText(data),
+    [AircraftTelemetryLabel.TotalAirTemperature]: data.tat === undefined
+      ? null
+      : `${Math.round(data.tat)}°C`,
+    [AircraftTelemetryLabel.Pressure]: data.navQnh === undefined
+      ? null
+      : `${Math.round(data.navQnh)} hPa`,
+    [AircraftTelemetryLabel.Autopilot]: autopilotText(data.navModes),
+  };
   const stats: TelemetryStat[] = [];
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.Wind,
-    windText(props.windDir, props.windSpd),
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.WindComponent,
-    props.windCompText,
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.Drift,
-    props.driftText,
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.OutsideAirTemperature,
-    outsideAirTemperatureText(props.oat, props.altitude),
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.IsaDeviation,
-    props.isaText,
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.TotalAirTemperature,
-    props.tatText,
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.Pressure,
-    props.navQnh != null ? `${Math.round(props.navQnh)} hPa` : null,
-  );
-  appendTelemetryStat(
-    stats,
-    AircraftTelemetryLabel.Autopilot,
-    autopilotText(props.navModes),
-  );
+  for (const [label, value] of Object.entries(valueByLabel)) {
+    if (value) stats.push({ label, value });
+  }
   return stats;
 }
 
@@ -204,23 +227,13 @@ function telemetryRows(
   return rows;
 }
 
-export function AircraftTelemetryPFD(props: Props) {
-  const {
-    speed,
-    speedFooter,
-    heading,
-    selectedHeading,
-    altitude,
-    selectedAlt,
-    onGround,
-    fpm,
-    squawk,
-    emergency,
-    rssiText,
-    accText,
-    sourceText,
-  } = props;
-  const statRows = telemetryRows(buildTelemetryStats(props));
+export function AircraftTelemetryPFD({ data }: Readonly<{ data: AircraftData }>) {
+  const speed = data.speed ?? 0;
+  const heading = data.heading ?? 0;
+  const altitude = data.altitude ?? 0;
+  const fpm = aircraftVerticalSpeedFpm(data.verticalRate);
+  const emergency = aircraftEmergencyPresentation(data).active;
+  const statRows = telemetryRows(buildTelemetryStats(data));
 
   return (
     <div className="flex flex-col gap-2">
@@ -233,26 +246,26 @@ export function AircraftTelemetryPFD(props: Props) {
             pxPer={AircraftTelemetryValue.SpeedPixelsPerUnit}
             side={PanelSide.Right}
             header="KT"
-            footer={speedFooter}
+            footer={`${ktToMph(speed)} mph`}
             format={String}
           />
         </div>
         <div className="relative flex-1 min-w-28">
-          <HeadingHSI heading={heading} selectedHeading={selectedHeading} />
+          <HeadingHSI heading={heading} selectedHeading={data.navHeading} />
           <Corner
             pos={AircraftTelemetryCornerPosition.Source}
             label={AircraftTelemetryLabel.Source}
-            value={sourceText}
+            value={sourceLabel(data.adsbType)}
           />
           <Corner
             pos={AircraftTelemetryCornerPosition.Signal}
             label={AircraftTelemetryLabel.Signal}
-            value={rssiText}
+            value={data.rssi === undefined ? null : `${Math.round(data.rssi)} dB`}
           />
           <Corner
             pos={AircraftTelemetryCornerPosition.Accuracy}
             label={AircraftTelemetryLabel.Accuracy}
-            value={accText}
+            value={data.nacP === undefined ? null : `${data.nacP}`}
           />
         </div>
         <div className={AircraftTelemetryClassName.SideTape}>
@@ -264,7 +277,7 @@ export function AircraftTelemetryPFD(props: Props) {
             side={PanelSide.Left}
             header="FT"
             footer="x1000"
-            selected={selectedAlt}
+            selected={data.navAltitudeMcp ?? data.navAltitudeFms}
             format={(value) => (
               value / AircraftTelemetryValue.AltitudeFooterDivisor
             ).toFixed(AircraftTelemetryPrecision.AltitudeThousands)}
@@ -275,21 +288,21 @@ export function AircraftTelemetryPFD(props: Props) {
         </div>
       </div>
 
-      <Card className="p-3 flex flex-col gap-2">
+      <DossierCard className="p-3 flex flex-col gap-2">
         <div className="flex items-start justify-between gap-3">
           <DetailField
             label={AircraftTelemetryLabel.State}
             value={
-              onGround
+              data.onGround
                 ? AircraftFlightStatusLabel.OnGround
                 : AircraftFlightStatusLabel.Airborne
             }
           />
-          {squawk && (
+          {data.squawk && (
             <DetailField
               label={AircraftTelemetryLabel.Squawk}
-              value={squawk}
-              align={DetailFieldAlign.Right}
+              value={data.squawk}
+              align={PanelSide.Right}
               valueClass={emergency ? "text-sig-danger" : EMPTY_TEXT}
             />
           )}
@@ -303,14 +316,14 @@ export function AircraftTelemetryPFD(props: Props) {
                   <DetailField
                     label={b.label}
                     value={b.value}
-                    align={DetailFieldAlign.Right}
+                    align={PanelSide.Right}
                   />
                 )}
               </div>
             ))}
           </div>
         )}
-      </Card>
+      </DossierCard>
     </div>
   );
 }

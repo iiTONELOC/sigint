@@ -1,8 +1,7 @@
-import "./disablePerfTracks";
 import { App } from "./App";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ThemeProvider } from "./context/ThemeContext";
+import { ThemeProvider } from "@/theme";
 import { cacheInit } from "./lib/cache/storageService";
 import { initBaseline } from "./lib/correlation";
 import { initLand } from "./lib/geo/landService";

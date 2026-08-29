@@ -13,7 +13,7 @@ import {
   type PaneSplitNodeType,
   type PaneTypeValue,
   type SplitDirectionValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -47,7 +47,8 @@ export type LayoutState = {
   }[];
 };
 
-export type LayoutPreset = { name: string; state: LayoutState };
+export type LayoutPreset = Readonly<{ name: string; state: LayoutState }>;
+export type LayoutPresetCatalog = Readonly<Record<string, LayoutPreset>>;
 
 // On mobile these stay full-width: children go below only (no side-by-side
 // h-split, no left/right insert). Enforced in the mobile UI + auto-split logic.
@@ -270,7 +271,7 @@ export async function loadLayout(mobile: boolean): Promise<LayoutState> {
 
     // Fall back to legacy key (migrates existing users)
     const legacy = await cacheGet<LayoutState>(
-      CacheKey.LayoutLegacy, // NOSONAR typescript:S1874: Read only for stored-layout migration.
+      CacheKey.LayoutLegacy,
     );
     const legacyParsed = parseLayout(legacy);
     if (legacyParsed) return legacyParsed;
@@ -285,35 +286,38 @@ export function persistLayout(layout: LayoutState, mobile: boolean) {
 }
 
 // Named presets follow user intent across device-specific live layouts.
-export async function loadPresets(): Promise<LayoutPreset[]> {
+function indexPresets(presets: readonly LayoutPreset[]): LayoutPresetCatalog {
+  const catalog: Record<string, LayoutPreset> = Object.create(null);
+  for (const preset of presets) {
+    if (Object.hasOwn(catalog, preset.name)) continue;
+    catalog[preset.name] = preset;
+  }
+  return catalog;
+}
+
+export async function loadPresets(): Promise<LayoutPresetCatalog> {
   const shared = await cacheGet<LayoutPreset[]>(
     CacheKey.LayoutPresets,
   );
-  if (shared) return shared;
+  if (shared) return indexPresets(shared);
 
   // Merge deprecated stores when the shared store is absent.
   const lists = await Promise.all([
     cacheGet<LayoutPreset[]>(
-      CacheKey.LayoutPresetsDesktopLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+      CacheKey.LayoutPresetsDesktopLegacy,
     ),
     cacheGet<LayoutPreset[]>(
-      CacheKey.LayoutPresetsMobileLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+      CacheKey.LayoutPresetsMobileLegacy,
     ),
     cacheGet<LayoutPreset[]>(
-      CacheKey.LayoutPresetsLegacy, // NOSONAR typescript:S1874: Read only for preset migration.
+      CacheKey.LayoutPresetsLegacy,
     ),
   ]);
-  const seen = new Set<string>();
-  const merged: LayoutPreset[] = [];
-  for (const p of lists.flatMap((l) => l ?? [])) {
-    if (seen.has(p.name)) continue;
-    seen.add(p.name);
-    merged.push(p);
-  }
-  cacheSet(CacheKey.LayoutPresets, merged);
+  const merged = indexPresets(lists.flatMap((list) => list ?? []));
+  cacheSet(CacheKey.LayoutPresets, Object.values(merged));
   return merged;
 }
 
-export function savePresets(presets: LayoutPreset[]) {
-  cacheSet(CacheKey.LayoutPresets, presets);
+export function savePresets(presets: LayoutPresetCatalog) {
+  cacheSet(CacheKey.LayoutPresets, Object.values(presets));
 }

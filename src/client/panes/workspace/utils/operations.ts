@@ -8,7 +8,7 @@ import {
   type PaneEdgeDropZoneValue,
   type PaneTypeValue,
   type SplitDirectionValue,
-} from "../model";
+} from "../model/pane";
 import {
   collectLeaves,
   collectLeafTypes,
@@ -238,7 +238,11 @@ export function restorePaneLayout(
   if (!entry) {
     return layout;
   }
-  const restoredLeaf = leaf(entry.paneType);
+  const restoredLeaf: LeafNode = {
+    id: entry.id,
+    paneType: entry.paneType,
+    type: PaneNodeType.Leaf,
+  };
   const minimized = layout.minimized.filter(
     (_entry, index) => index !== minimizedIndex,
   );

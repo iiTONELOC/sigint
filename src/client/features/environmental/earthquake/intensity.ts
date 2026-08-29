@@ -1,4 +1,4 @@
-export enum MmiBandId {
+enum MmiBandId {
   Extreme = 10,
   Violent = 9,
   Severe = 8,
@@ -31,7 +31,7 @@ enum MmiEstimateFactor {
   Attenuation = 1.8,
 }
 
-export type MmiBand = Readonly<{
+type MmiBand = Readonly<{
   id: MmiBandId;
   level: number;
   roman: string;
@@ -40,94 +40,71 @@ export type MmiBand = Readonly<{
   className: string;
 }>;
 
+type MmiBandMetadata = Omit<MmiBand, "id" | "level">;
+
+const MMI_BAND_METADATA: Readonly<Record<MmiBandId, MmiBandMetadata>> = {
+  [MmiBandId.Extreme]: {
+    roman: "X+",
+    label: "EXTREME",
+    damage: "total destruction",
+    className: "[--dossier-accent:#c01818] [--intensity-color:#9c1414]",
+  },
+  [MmiBandId.Violent]: {
+    roman: "IX",
+    label: "VIOLENT",
+    damage: "heavy damage",
+    className: "[--dossier-accent:#d42424] [--intensity-color:#e02b2b]",
+  },
+  [MmiBandId.Severe]: {
+    roman: "VIII",
+    label: "SEVERE",
+    damage: "moderate-heavy damage",
+    className: "[--dossier-accent:#e07000] [--intensity-color:#ff8c1a]",
+  },
+  [MmiBandId.VeryStrong]: {
+    roman: "VII",
+    label: "VERY STRONG",
+    damage: "moderate damage",
+    className: "[--dossier-accent:#c79400] [--intensity-color:#ffc400]",
+  },
+  [MmiBandId.Strong]: {
+    roman: "VI",
+    label: "STRONG",
+    damage: "light damage",
+    className: "[--dossier-accent:#b59700] [--intensity-color:#ffe000]",
+  },
+  [MmiBandId.Moderate]: {
+    roman: "V",
+    label: "MODERATE",
+    damage: "felt by all",
+    className: "[--dossier-accent:#3fa83f] [--intensity-color:#7ad27a]",
+  },
+  [MmiBandId.Light]: {
+    roman: "IV",
+    label: "LIGHT",
+    damage: "felt indoors",
+    className: "[--dossier-accent:#3592c0] [--intensity-color:#7fc6e6]",
+  },
+  [MmiBandId.Weak]: {
+    roman: "II–III",
+    label: "WEAK",
+    damage: "felt by some",
+    className: "[--dossier-accent:#6677b0] [--intensity-color:#8c9ecf]",
+  },
+  [MmiBandId.NotFelt]: {
+    roman: "I",
+    label: "NOT FELT",
+    damage: "instrumental",
+    className: "[--dossier-accent:#6b7a8d] [--intensity-color:#9aa7b8]",
+  },
+};
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
 function mmiBandDefinition(id: MmiBandId): MmiBand {
-  switch (id) {
-    case MmiBandId.Extreme:
-      return {
-        id,
-        level: id,
-        roman: "X+",
-        label: "EXTREME",
-        damage: "total destruction",
-        className: "[--dossier-accent:#c01818] [--intensity-color:#9c1414]",
-      };
-    case MmiBandId.Violent:
-      return {
-        id,
-        level: id,
-        roman: "IX",
-        label: "VIOLENT",
-        damage: "heavy damage",
-        className: "[--dossier-accent:#d42424] [--intensity-color:#e02b2b]",
-      };
-    case MmiBandId.Severe:
-      return {
-        id,
-        level: id,
-        roman: "VIII",
-        label: "SEVERE",
-        damage: "moderate-heavy damage",
-        className: "[--dossier-accent:#e07000] [--intensity-color:#ff8c1a]",
-      };
-    case MmiBandId.VeryStrong:
-      return {
-        id,
-        level: id,
-        roman: "VII",
-        label: "VERY STRONG",
-        damage: "moderate damage",
-        className: "[--dossier-accent:#c79400] [--intensity-color:#ffc400]",
-      };
-    case MmiBandId.Strong:
-      return {
-        id,
-        level: id,
-        roman: "VI",
-        label: "STRONG",
-        damage: "light damage",
-        className: "[--dossier-accent:#b59700] [--intensity-color:#ffe000]",
-      };
-    case MmiBandId.Moderate:
-      return {
-        id,
-        level: id,
-        roman: "V",
-        label: "MODERATE",
-        damage: "felt by all",
-        className: "[--dossier-accent:#3fa83f] [--intensity-color:#7ad27a]",
-      };
-    case MmiBandId.Light:
-      return {
-        id,
-        level: id,
-        roman: "IV",
-        label: "LIGHT",
-        damage: "felt indoors",
-        className: "[--dossier-accent:#3592c0] [--intensity-color:#7fc6e6]",
-      };
-    case MmiBandId.Weak:
-      return {
-        id,
-        level: id,
-        roman: "II–III",
-        label: "WEAK",
-        damage: "felt by some",
-        className: "[--dossier-accent:#6677b0] [--intensity-color:#8c9ecf]",
-      };
-    default:
-      return {
-        id: MmiBandId.NotFelt,
-        level: MmiBandId.NotFelt,
-        roman: "I",
-        label: "NOT FELT",
-        damage: "instrumental",
-        className: "[--dossier-accent:#6b7a8d] [--intensity-color:#9aa7b8]",
-      };
-  }
+  return { id, level: id, ...MMI_BAND_METADATA[id] };
 }
 
 export function mmiScale(): readonly MmiBand[] {

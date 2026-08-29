@@ -1,11 +1,8 @@
-// ── Correlation engine types ────────────────────────────────────────
-// Shared shape definitions used by every correlation module.
-
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { IntelProductType } from "@shared/domain/correlation";
 import type { NewsArticle } from "@/features/news";
 
-/** A correlated intelligence product — not raw data, derived insight */
+/** A correlated intelligence product with derived insight. */
 export type IntelProduct = {
   id: string;
   type: IntelProductType;

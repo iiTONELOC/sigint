@@ -39,7 +39,7 @@ const {
 } = await import("@/walkthrough");
 const { PaneType } = await import("@/panes/workspace");
 const { CacheKey } = await import("@shared/domain/cache");
-const { ThemeProvider } = await import("@/context/ThemeContext");
+const { ThemeProvider } = await import("@/theme");
 const { DataProvider } = await import("@/context/DataContext");
 const { LayoutModeProvider } = await import("@/layout-mode");
 
@@ -166,15 +166,14 @@ afterEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe("Walkthrough", () => {
-  test("renders overlay with first step title", () => {
+  test("renders the first step content and actions", () => {
     const { unmount } = render();
     expect(document.body.textContent).toContain("Welcome to SIGINT");
-    unmount();
-  });
-
-  test("shows step counter 1 / 13 on first step", () => {
-    const { unmount } = render();
     expect(document.body.textContent).toContain("1 / 13");
+    expect(document.body.textContent).toContain("DON'T SHOW AGAIN");
+    expect(document.body.textContent).toContain(
+      "Real-time global intelligence dashboard",
+    );
     unmount();
   });
 
@@ -265,12 +264,6 @@ describe("Walkthrough", () => {
     unmount();
   });
 
-  test("DON'T SHOW AGAIN button is visible", () => {
-    const { unmount } = render();
-    expect(document.body.textContent).toContain("DON'T SHOW AGAIN");
-    unmount();
-  });
-
   test("DON'T SHOW AGAIN calls onComplete and persists flag", async () => {
     const { unmount, closeCalls } = render();
     clickButton("DON'T SHOW AGAIN");
@@ -333,7 +326,7 @@ describe("Walkthrough", () => {
   test("overlay has correct z-index", () => {
     const { unmount } = render();
     const overlay = document.body.querySelector("[data-wt-overlay]");
-    expect(overlay?.classList.contains("z-9999")).toBe(true);
+    expect(overlay?.classList.contains("z-(--layer-blocking)")).toBe(true);
     unmount();
   });
 
@@ -358,14 +351,6 @@ describe("Walkthrough", () => {
     const overlay = document.body.querySelector("[data-wt-overlay]");
     expect(overlay).not.toBeNull();
     expect(overlay?.classList.contains("pointer-events-none")).toBe(true);
-    unmount();
-  });
-
-  test("step description is visible", () => {
-    const { unmount } = render();
-    expect(document.body.textContent).toContain(
-      "Real-time global intelligence dashboard",
-    );
     unmount();
   });
 

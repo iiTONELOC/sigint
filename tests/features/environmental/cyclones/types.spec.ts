@@ -2,14 +2,14 @@ import { describe, test, expect } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import { CycloneBasin } from "@shared/cyclonesSeason";
+import type { CycloneFilter } from "@/context/DataContext";
 import {
   Category,
   MIN_CATEGORY_CHOICES,
   SaffirSimpson,
   type ForecastPoint,
   type CycloneData,
-  type CycloneFilter,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 // Type-only files have no runtime, but we exercise them by constructing
@@ -89,20 +89,13 @@ describe("cyclones types", () => {
     expect(d.minPressureMb).toBeUndefined();
   });
 
-  test("CycloneFilter has the documented shape", () => {
+  test("CycloneFilter has the count-query shape", () => {
     const f: CycloneFilter = {
       enabled: true,
       minCategory: SaffirSimpson.None,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     expect(f.enabled).toBe(true);
     expect(f.minCategory).toBe(SaffirSimpson.None);
-    expect(f.showForecast).toBe(true);
-    expect(f.showCone).toBe(true);
   });
 
   test("the storm filter offers only the four Saffir-Simpson floors", () => {

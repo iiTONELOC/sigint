@@ -5,12 +5,16 @@ import {
   recordLongitude,
 } from "@/workers/data/source-model/position";
 import { Domain } from "@shared/domain/identity";
+import { classifyRecon } from "@shared/domain/aircraft";
 import { DEGREES_TO_RADIANS, haversineKm, TurnDeg } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { IntelProductType } from "@shared/domain/correlation";
-import { CycloneWindThreshold } from "@/features/environmental/cyclones/classification";
-import type { CycloneData } from "@/features/environmental/cyclones/types";
+import {
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  type CycloneData,
+} from "@shared/domain/cyclones";
 import type { IntelProduct } from "./types";
 
 enum CycloneRulePolicy {
@@ -27,32 +31,14 @@ enum CycloneRulePriority {
   Sheltering = 6,
 }
 
-enum HurricaneHunterTail {
-  // NOAA Aircraft Operations Center: P-3s and the G-IV
-  Noaa42 = "NOAA42",
-  Noaa43 = "NOAA43",
-  Noaa49 = "NOAA49",
-  Noaa56 = "NOAA56",
-  // 53rd WRS WC-130J Hurricane Hunters
-  Teal71 = "TEAL71",
-  Teal72 = "TEAL72",
-  Teal73 = "TEAL73",
-  Teal74 = "TEAL74",
-  Teal75 = "TEAL75",
-  Teal76 = "TEAL76",
-}
-
-const HURRICANE_HUNTER_TAILS: ReadonlySet<string> = new Set(
-  Object.values(HurricaneHunterTail),
-);
-
 type CycloneItem = DataPoint & { type: Domain.Cyclones; data: CycloneData };
 
 function activeCyclones(points: DataPoint[]): CycloneItem[] {
   return points.filter(
     (point): point is CycloneItem =>
       point.type === Domain.Cyclones &&
-      point.data.maxWindKt >= CycloneWindThreshold.TropicalStorm,
+      point.data.maxWindKt >=
+        CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
   );
 }
 
@@ -94,7 +80,7 @@ function detectHurricaneHunter(
     const callsign = item.data.callsign?.trim().toUpperCase() ?? EMPTY_TEXT;
     const isHunter =
       item.data.military === true ||
-      (callsign.length > 0 && HURRICANE_HUNTER_TAILS.has(callsign));
+      classifyRecon(item.data);
     if (!isHunter) continue;
     const dist = haversineKm(
       recordLatitude(item),

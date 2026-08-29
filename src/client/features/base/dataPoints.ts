@@ -1,22 +1,22 @@
 import type { BasePoint } from "./types";
 import { Domain } from "@shared/domain/identity";
-import type { AircraftData } from "@/features/tracking/aircraft/types";
-import type { EarthquakeData } from "@/features/environmental/earthquake/types";
-import type { ShipData } from "@/features/tracking/ships/types";
-import type { EventData } from "@/features/intel/events/types";
-import type { FireData } from "@/features/environmental/fires/types";
-import type { WeatherPoint } from "@/features/environmental/weather/types";
+import type { EarthquakeData } from "@shared/domain/earthquakes";
+import type { AircraftPoint } from "@shared/domain/aircraft";
+import type { ShipPoint } from "@shared/domain/ships";
+import type { EventData } from "@shared/domain/events";
+import type { FireData } from "@shared/domain/fireDayNight";
+import type { WeatherPoint } from "@shared/domain/weather";
 import type {
   CycloneData,
   CycloneForecastPointData,
   CycloneWarningPoint,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 
 // ── DataPoint union ──────────────────────────────────────────────────
 
 export type DataPoint =
-  | (BasePoint & { type: Domain.Ships; data: ShipData })
-  | (BasePoint & { type: Domain.Aircraft; data: AircraftData })
+  | ShipPoint
+  | AircraftPoint
   | (BasePoint & { type: Domain.Events; data: EventData })
   | (BasePoint & { type: Domain.Quakes; data: EarthquakeData })
   | (BasePoint & { type: Domain.Fires; data: FireData })
@@ -30,10 +30,13 @@ export type DataPoint =
 
 export type DataType = DataPoint["type"];
 
+export function canonicalEntityId(point: DataPoint): string {
+  return point.type === Domain.CyclonesForecast
+    ? point.data.parentEntityId
+    : point.id;
+}
+
 export type { PointType } from "@shared/domain/pointType";
 
-// Re-export so existing consumers from this path don't break
-export type { ShipData } from "@/features/tracking/ships/types";
-export type { EventData } from "@/features/intel/events/types";
-export type { FireData } from "@/features/environmental/fires/types";
-export type { CycloneData } from "@/features/environmental/cyclones/types";
+export type { ShipData } from "@shared/domain/ships";
+export type { FireData } from "@shared/domain/fireDayNight";

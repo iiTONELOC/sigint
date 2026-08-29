@@ -1,30 +1,41 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
+import { useEffect, useState } from "react";
+import type {
+  EarthquakeData,
+  TsunamiAlert,
+  WaveformState,
+} from "@shared/domain/earthquakes";
+import {
+  WaveformStatus,
+  WaveformUnavailableReason,
+  waveformUnavailable,
+} from "@shared/domain/earthquakes";
 import { Activity } from "lucide-react";
-import { DossierSectionCard } from "@/dossier";
-import type { DataPoint } from "@/features/base/dataPoints";
-import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
+import {
+  DossierBandScale,
+  DossierLinkRow,
+  DossierSection,
+  DossierSectionCard,
+  DossierToolbar,
+  useDossierFocus,
+} from "@/dossier";
+import type { FeatureDossierProps } from "@/features/base/presentation";
+import { Domain } from "@shared/domain/identity";
+import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
+import { DomEvent, DomVisibilityState } from "@/runtime";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { estimateMmi, mmiBand } from "../intensity";
-import type { EarthquakeData } from "../types";
-import { useTsunamiAlerts } from "../hooks/useTsunamiAlerts";
+import { estimateMmi, mmiBand, mmiScale } from "../intensity";
 import { QuakeIdentityCard } from "./QuakeIdentityCard";
-import { MmiColumn } from "./MmiColumn";
 import { Seismogram } from "./Seismogram";
 import { DepthProfile } from "./DepthProfile";
 import { TsunamiPlacard } from "./TsunamiPlacard";
 import { TsunamiPhysics } from "./TsunamiPhysics";
 
-type Props = {
-  readonly item: DataPoint;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
+const TSUNAMI_REFRESH_INTERVAL_MS = 5 * 60_000;
+
+type Props = FeatureDossierProps<Domain.Quakes>;
 
 export function EarthquakeDossier({
   item,
@@ -34,16 +45,73 @@ export function EarthquakeDossier({
   onSolo,
   onClose,
 }: Props) {
-  const d = item.data as EarthquakeData;
+  const d: EarthquakeData = item.data;
+  const latitude = recordLatitude(item);
+  const longitude = recordLongitude(item);
+  const originTimeIso = item.timestamp;
+  const closeBtnRef = useDossierFocus(item.id);
+  const [waveformState, setWaveformState] = useState<WaveformState>({
+    status: WaveformStatus.Loading,
+  });
+  const [tsunamiAlerts, setTsunamiAlerts] = useState<TsunamiAlert[]>([]);
+
+  useEffect(() => {
+    if (!originTimeIso) {
+      setWaveformState(waveformUnavailable(WaveformUnavailableReason.EventTime));
+      return;
+    }
+    const client = getDataWorkerClient();
+    if (!client) {
+      setWaveformState(
+        waveformUnavailable(WaveformUnavailableReason.StationService),
+      );
+      return;
+    }
+    let cancelled = false;
+    setWaveformState({ status: WaveformStatus.Loading });
+    void client
+      .getEarthquakeWaveform({ latitude, longitude, originTimeIso })
+      .catch(() =>
+        waveformUnavailable(WaveformUnavailableReason.StationService),
+      )
+      .then((result) => {
+        if (!cancelled) setWaveformState(result);
+      });
+    return () => {
+      cancelled = true;
+      client.cancelEarthquakeWaveform();
+    };
+  }, [latitude, longitude, originTimeIso]);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async (): Promise<void> => {
+      const client = getDataWorkerClient();
+      const alerts = client
+        ? await client.getTsunamiAlerts().catch(() => [])
+        : [];
+      if (mounted) setTsunamiAlerts([...alerts]);
+    };
+    void load();
+    const interval = setInterval(() => {
+      void load();
+    }, TSUNAMI_REFRESH_INTERVAL_MS);
+    const onVisible = (): void => {
+      if (document.visibilityState === DomVisibilityState.Visible) void load();
+    };
+    document.addEventListener(DomEvent.VisibilityChange, onVisible);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener(DomEvent.VisibilityChange, onVisible);
+    };
+  }, []);
+
   const magnitude = d.magnitude ?? 0;
-  const { depth, magType, felt, significance, status } = d;
+  const { depth, magType, felt, significance, status, url } = d;
   const place = d.location;
   const tsunami = d.tsunami === true;
-  const { url } = d;
-  const mmi = estimateMmi(magnitude, depth);
-  const band = mmiBand(mmi);
-  const tsunamiAlerts = useTsunamiAlerts();
-  const closeBtnRef = useDossierFocus(item.id);
+  const band = mmiBand(estimateMmi(magnitude, depth));
 
   return (
     <div className={`${band.className} h-full min-w-0 flex flex-col`}>
@@ -63,7 +131,8 @@ export function EarthquakeDossier({
           <QuakeIdentityCard
             magnitude={magnitude}
             magType={magType}
-            mmi={mmi}
+            mmiRoman={band.roman}
+            mmiLabel={band.label}
             depthKm={depth}
             location={place}
             lat={recordLatitude(item)}
@@ -86,41 +155,53 @@ export function EarthquakeDossier({
             ))}
 
           <DossierSectionCard>
-            <Section title="SEISMOGRAM">
-              <Seismogram lat={recordLatitude(item)} lon={recordLongitude(item)} originTimeIso={item.timestamp} mmi={mmi} />
-            </Section>
+            <DossierSection title="SEISMOGRAM">
+              <Seismogram
+                bandClassName={band.className}
+                state={waveformState}
+              />
+            </DossierSection>
           </DossierSectionCard>
 
           <DossierSectionCard>
-            <Section title="SHAKING INTENSITY">
-              <MmiColumn mmi={mmi} />
-            </Section>
+            <DossierSection title="SHAKING INTENSITY">
+              <DossierBandScale
+                activeBand={band}
+                bands={mmiScale()}
+                detail={band.damage}
+                tickLabel={(candidate) => candidate.roman}
+                value={band.roman}
+              />
+            </DossierSection>
           </DossierSectionCard>
 
           <DossierSectionCard>
-            <Section title="HYPOCENTER">
+            <DossierSection title="HYPOCENTER">
               {depth == null ? (
                 <div className="text-(length:--sig-text-xs) text-sig-dim">depth unavailable</div>
               ) : (
-                <DepthProfile depthKm={depth} mmi={mmi} />
+                <DepthProfile
+                  bandClassName={band.className}
+                  depthKm={depth}
+                />
               )}
-            </Section>
+            </DossierSection>
           </DossierSectionCard>
 
           {tsunami && (
             <DossierSectionCard>
-              <Section title="WAVE TRAVEL">
+              <DossierSection title="WAVE TRAVEL">
                 <TsunamiPhysics />
-              </Section>
+              </DossierSection>
             </DossierSectionCard>
           )}
 
           {url && (
             <DossierSectionCard>
-              <Section title="INTEL LINKS">
-                <LinkRow label="USGS Event Detail" href={url} />
-                <LinkRow label="USGS ShakeMap" href={`${url}/shakemap`} />
-              </Section>
+              <DossierSection title="INTEL LINKS">
+                <DossierLinkRow label="USGS Event Detail" href={url} />
+                <DossierLinkRow label="USGS ShakeMap" href={`${url}/shakemap`} />
+              </DossierSection>
             </DossierSectionCard>
           )}
         </div>

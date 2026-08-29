@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
-import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import { ThemeProvider, useTheme } from "@/theme";
 import { cacheClearAll } from "@/lib/cache/storageService";
 import { ThemeMode } from "@/theme";
 import { Domain } from "@shared/domain/identity";

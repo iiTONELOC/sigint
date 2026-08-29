@@ -1,17 +1,19 @@
-import { parseWeatherSeverity } from "@/features/environmental/weather/severity";
 import {
   WEATHER_TEXT_FIELDS,
+  parseWeatherSeverity,
   type WeatherPoint,
   type WeatherTextField,
-} from "@/features/environmental/weather/types";
+} from "@shared/domain/weather";
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
-import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
+import {
+  NWS_ALERTS_TRANSPORT,
+  NWS_SOURCE_FAILURE_MESSAGES,
+} from "@/workers/data/source-model/feeds";
 import {
   RemoteSource,
   type SourceFailureMessages,
   type SourceTransport,
 } from "@/workers/data/source-model/remoteSource";
-import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
 import { EMPTY_TEXT, nonEmptyText } from "@shared/text";
@@ -21,11 +23,6 @@ import {
   isRecord,
   parseGeoJsonPolygonGeometry,
 } from "@shared/geo";
-
-enum WeatherFetchMessage {
-  Request = "The weather alerts request failed",
-  Payload = "The weather alerts response was not NWS GeoJSON",
-}
 
 enum WeatherPayloadField {
   Features = "features",
@@ -37,8 +34,14 @@ enum WeatherPayloadField {
   Severity = "severity",
 }
 
-const ID_PREFIX = "WX";
-const ID_TAIL_LENGTH = 12;
+enum WeatherIdentity {
+  Prefix = "WX",
+}
+
+enum WeatherIdentityPolicy {
+  TailLength = 12,
+}
+
 const ID_DISALLOWED = /[^a-zA-Z0-9]/g;
 
 function alertId(value: unknown): string | null {
@@ -46,8 +49,8 @@ function alertId(value: unknown): string | null {
   if (!source) return null;
   const tail = source
     .replace(ID_DISALLOWED, EMPTY_TEXT)
-    .slice(-ID_TAIL_LENGTH);
-  return tail.length > 0 ? `${ID_PREFIX}${tail}` : null;
+    .slice(-WeatherIdentityPolicy.TailLength);
+  return tail.length > 0 ? `${WeatherIdentity.Prefix}${tail}` : null;
 }
 
 function alertText(
@@ -65,7 +68,7 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
   protected readonly transport: SourceTransport = NWS_ALERTS_TRANSPORT;
 
   protected readonly failureMessages: SourceFailureMessages =
-    WeatherFetchMessage;
+    NWS_SOURCE_FAILURE_MESSAGES[Domain.Weather];
 
   protected readonly completeness: DatasetCompleteness =
     SourceCompleteness.Complete;
@@ -111,10 +114,4 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
   }
 }
 
-const WEATHER_ALERT_FEED = new WeatherAlertFeed();
-
-export function fetchWeatherSnapshot(
-  now: () => number = Date.now,
-): Promise<PointSourceFetchSnapshot<WeatherPoint>> {
-  return WEATHER_ALERT_FEED.fetchSnapshot(now);
-}
+export const WEATHER_ALERT_FEED = new WeatherAlertFeed();

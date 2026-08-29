@@ -26,24 +26,9 @@ export type DatasetPatch<TEntity extends DatasetEntity> = Readonly<{
   deletedIds: readonly string[];
 }>;
 
-export type DatasetQuery<TEntity extends DatasetEntity> = Readonly<{
-  offset: number;
-  limit: number;
-  match: (entity: TEntity) => boolean;
-  compare: (left: TEntity, right: TEntity) => number;
-}>;
-
-export type DatasetQueryResult<TEntity extends DatasetEntity> = Readonly<{
-  version: number;
-  total: number;
-  items: readonly TEntity[];
-}>;
-
 export type DatasetStoreOptions<
   TEntity extends DatasetEntity = DatasetEntity,
 > = Readonly<{
-  maxQueryItems: number;
-  maxQueryOffset?: number;
   batchSize?: number;
   yieldTask?: () => Promise<void>;
   hasChanged?: (previous: TEntity, next: TEntity) => boolean;
@@ -57,19 +42,14 @@ export type DatasetStore<TEntity extends DatasetEntity> = Readonly<{
   size: () => number;
   version: () => number;
   values: () => IterableIterator<TEntity>;
-  query: (
-    query: DatasetQuery<TEntity>,
-  ) => Promise<DatasetQueryResult<TEntity>>;
 }>;
 
 enum DatasetStoreDefault {
   BatchSize = 4_096,
-  MaxQueryOffset = 10_000,
 }
 
 enum DatasetStoreErrorKind {
   DuplicateId = "Duplicate dataset id",
-  InvalidMaxQueryItems = "maxQueryItems must be a positive integer",
   NonIncreasingVersion = "Dataset versions must increase",
 }
 
@@ -91,36 +71,10 @@ function yieldToEventLoop(): Promise<void> {
   });
 }
 
-function validateOptions(
-  options: Readonly<{ maxQueryItems: number }>,
-): void {
-  if (!Number.isSafeInteger(options.maxQueryItems) || options.maxQueryItems < 1) {
-    throw new DatasetStoreError(DatasetStoreErrorKind.InvalidMaxQueryItems);
-  }
-}
-
 function validateSnapshotVersion(current: number, next: number): void {
   if (!Number.isSafeInteger(next) || next <= current) {
     throw new DatasetStoreError(DatasetStoreErrorKind.NonIncreasingVersion);
   }
-}
-
-function insertCandidate<TEntity>(
-  selected: TEntity[],
-  entity: TEntity,
-  capacity: number,
-  compare: (left: TEntity, right: TEntity) => number,
-): void {
-  if (capacity === 0) return;
-  const index = selected.findIndex(
-    (candidate) => compare(entity, candidate) < 0,
-  );
-  if (index < 0) {
-    selected.push(entity);
-  } else {
-    selected.splice(index, 0, entity);
-  }
-  if (selected.length > capacity) selected.pop();
 }
 
 class InMemoryDatasetStore<TEntity extends DatasetEntity>
@@ -131,21 +85,15 @@ class InMemoryDatasetStore<TEntity extends DatasetEntity>
     previous: TEntity,
     next: TEntity,
   ) => boolean;
-  private readonly maxQueryItems: number;
-  private readonly maxQueryOffset: number;
   private readonly yieldTask: () => Promise<void>;
   private currentVersion = 0;
   private entities = new Map<string, TEntity>();
 
   constructor(options: DatasetStoreOptions<TEntity>) {
-    validateOptions(options);
     this.batchSize = options.batchSize ?? DatasetStoreDefault.BatchSize;
     this.hasChanged =
       options.hasChanged ??
       ((previous: TEntity, next: TEntity) => previous !== next);
-    this.maxQueryItems = options.maxQueryItems;
-    this.maxQueryOffset =
-      options.maxQueryOffset ?? DatasetStoreDefault.MaxQueryOffset;
     this.yieldTask = options.yieldTask ?? yieldToEventLoop;
   }
 
@@ -188,38 +136,6 @@ class InMemoryDatasetStore<TEntity extends DatasetEntity>
 
   values(): IterableIterator<TEntity> {
     return this.entities.values();
-  }
-
-  async query(
-    query: DatasetQuery<TEntity>,
-  ): Promise<DatasetQueryResult<TEntity>> {
-    const limit = Math.max(
-      0,
-      Math.min(Math.trunc(query.limit), this.maxQueryItems),
-    );
-    const offset = Math.max(
-      0,
-      Math.min(Math.trunc(query.offset), this.maxQueryOffset),
-    );
-    const capacity = offset + limit;
-    const selected: TEntity[] = [];
-    let processed = 0;
-    let total = 0;
-
-    for (const entity of this.entities.values()) {
-      if (query.match(entity)) {
-        total += 1;
-        insertCandidate(selected, entity, capacity, query.compare);
-      }
-      processed += 1;
-      await this.yieldAfterBatch(processed);
-    }
-
-    return {
-      version: this.currentVersion,
-      total,
-      items: selected.slice(offset, offset + limit),
-    };
   }
 
   private async applyComplete(

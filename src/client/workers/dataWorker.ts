@@ -1,22 +1,37 @@
 import { Domain } from "@shared/domain/identity";
+import type { DataPoint } from "@/features/base/dataPoints";
 import {
-  AircraftSceneBinding,
+  aircraftSceneBinding,
   AircraftSource,
 } from "@/workers/data/sources/aircraft";
 import {
-  ShipSceneBinding,
+  shipSceneBinding,
   ShipSource,
 } from "@/workers/data/sources/ships";
 import {
-  EVENT_SOURCE_POLICY,
+  eventSceneBinding,
   EventSource,
 } from "@/workers/data/sources/events";
 import {
-  EarthquakeSceneBinding,
+  earthquakeSceneBinding,
   EarthquakeSource,
 } from "@/workers/data/sources/earthquakes";
+import { fetchWaveform } from "@/features/environmental/earthquake/data/waveform";
+import { fetchTsunamiAlerts } from "@/features/environmental/earthquake/data/tsunamiAlerts";
+import { authenticatedFetch } from "@/lib/net/authService";
 import {
-  FireSceneBinding,
+  parseCycloneDossierCacheEntry,
+  parseCycloneDossierResult,
+} from "@/features/environmental/cyclones/data/codec";
+import {
+  CYCLONE_DOSSIER_CACHE_PREFIX,
+  CycloneRoute,
+  parseCycloneStormId,
+  type CycloneDossierBundle,
+  type CycloneDossierResult,
+} from "@shared/domain/cyclones";
+import {
+  fireSceneBinding,
   FireSource,
 } from "@/workers/data/sources/fires";
 import {
@@ -25,35 +40,34 @@ import {
 } from "@/features/environmental/cyclones/warningSource";
 import {
   WeatherAlertSource,
-  WeatherSceneBinding,
+  weatherSceneBinding,
 } from "@/features/environmental/weather/source";
-import {
-  CycloneSource,
-} from "@/workers/data/sources/cyclones";
+import { CycloneSource } from "@/workers/data/sources/cyclones";
 import { ScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
-import { EventSceneBinding } from "@/workers/data/render-codecs/eventSceneBinding";
 import { CycloneSceneBinding } from "@/workers/data/render-codecs/cycloneSceneBinding";
 import {
   TRAIL_RECORDER_POLICY,
   createTrailRecorder,
 } from "@/workers/data/trails/trailRecorder";
 import { ObservedTrailBinding } from "@/workers/data/trails/observedTrailBinding";
+import { SelectionInterestService } from "@/workers/data/selectionInterestService";
 import {
-  SelectionInterestService,
-} from "@/workers/data/selectionInterestService";
-import {
-  AIRCRAFT_DOSSIER_CACHE_POLICY,
   AircraftDossierService,
 } from "@/workers/data/aircraftDossierService";
 import { trailObservations } from "@/lib/geo/trails/observations";
 import {
   QUERYABLE_SOURCE_IDS,
+  type QueryableSourceEntities,
   type QueryableSourceId,
 } from "@/workers/data/queryableSources";
 import {
   SourceCatalog,
   type CatalogRenderBinding,
+  type CatalogSource,
 } from "@/workers/data/sourceCatalog";
+import type {
+  SourceHost,
+} from "@/workers/data/source-model/dataSource";
 import { createDeferredWriteCoordinator } from "@/lib/cache/deferredWriteCoordinator";
 import {
   DATA_CACHE_POLICY,
@@ -61,12 +75,13 @@ import {
 } from "@/workers/data/cacheStore";
 import { mainThreadCacheEntries } from "@/workers/data/cacheOwnership";
 import {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
+  createDataWorkerMessage,
   parseDataWorkerCommand,
   type DataWorkerCommand,
   type DataWorkerEnvelope,
-  type DataWorkerEvent,
+  type DataWorkerEventBody,
   type DataWorkerSourceSnapshot,
 } from "@/workers/data/protocol";
 import {
@@ -76,7 +91,8 @@ import {
 import {
   parseSceneInterestCommand,
   SceneInterestCommandType,
-  SceneProtocolState,
+  SessionSequenceState,
+  type ScenePublishCommandBody,
 } from "@/workers/render/sceneProtocol";
 import type {
   DatasetEntity,
@@ -88,38 +104,29 @@ type CommandOf<TType extends DataWorkerMessageType> = Extract<
   { type: TType }
 >;
 
-enum DataWorkerError {
-  InactiveSource = "The requested source is not active",
-  OperationFailed = "DataWorker operation failed",
-}
+const DATA_WORKER_OPERATION_FAILED = "DataWorker operation failed";
+const CYCLONE_DOSSIER_CACHE_FRESHNESS_MS = 3_600_000;
 
 const store = createDataCacheStore(indexedDB);
 const scenePublisher = new ScenePublisher();
 const sourceCatalog = new SourceCatalog();
-const eventSceneBinding = new EventSceneBinding((patch) => {
-  scenePublisher.publish(patch);
-});
-const earthquakeSceneBinding = new EarthquakeSceneBinding((command) => {
+
+function publishScene(command: ScenePublishCommandBody): void {
   scenePublisher.publish(command);
-});
-const fireSceneBinding = new FireSceneBinding((command) => {
-  scenePublisher.publish(command);
-});
-const weatherSceneBinding = new WeatherSceneBinding((command) => {
-  scenePublisher.publish(command);
-});
-const cycloneWarningSceneBinding = new CycloneWarningSceneBinding(
-  (command) => {
-    scenePublisher.publish(command);
-  },
-);
-const cycloneSceneBinding = new CycloneSceneBinding((command) => {
-  scenePublisher.publish(command);
-});
+}
+
+const eventScene = eventSceneBinding(publishScene);
+const earthquakeScene = earthquakeSceneBinding(publishScene);
+const fireScene = fireSceneBinding(publishScene);
+const weatherScene = weatherSceneBinding(publishScene);
+const cycloneWarningSceneBinding = new CycloneWarningSceneBinding(publishScene);
+const cycloneSceneBinding = new CycloneSceneBinding(publishScene);
 let renderPort: MessagePort | null = null;
 let correlationPort: MessagePort | null = null;
 let correlationSessionId: string | null = null;
 let correlationSequence = 0;
+let earthquakeWaveformController: AbortController | null = null;
+const pendingCycloneDossiers = new Map<string, Promise<CycloneDossierResult>>();
 
 const coordinator = createDeferredWriteCoordinator<unknown>({
   minWriteIntervalMs: DATA_CACHE_POLICY.minWriteIntervalMs,
@@ -132,15 +139,16 @@ const coordinator = createDeferredWriteCoordinator<unknown>({
   write: store.set,
 });
 
-function post(event: DataWorkerEvent): void {
-  globalThis.postMessage(event);
+function respond<T extends DataWorkerEventBody>(
+  requestId: number | null,
+  body: T,
+): void {
+  globalThis.postMessage(createDataWorkerMessage(body, requestId));
 }
 
 function publishSource(snapshot: DataWorkerSourceSnapshot): void {
-  post({
+  respond(null, {
     type: DataWorkerMessageType.SourceSnapshot,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: null,
     snapshot,
   });
   rebaseCorrelation(snapshot.source);
@@ -174,17 +182,13 @@ const trailRecorder = createTrailRecorder({
     coordinator.setDeferred(TRAIL_RECORDER_POLICY.cacheKey, value);
   },
 });
-const aircraftSceneBinding = new AircraftSceneBinding(
+const aircraftScene = aircraftSceneBinding(
   trailRecorder,
-  (patch) => {
-    scenePublisher.publish(patch);
-  },
+  publishScene,
 );
-const shipSceneBinding = new ShipSceneBinding(
+const shipScene = shipSceneBinding(
   trailRecorder,
-  (patch) => {
-    scenePublisher.publish(patch);
-  },
+  publishScene,
 );
 const aircraftOwner = new AircraftSource({
   patchObservers: [
@@ -197,20 +201,11 @@ const aircraftOwner = new AircraftSource({
 });
 const aircraftDossier = new AircraftDossierService({
   entities: aircraftOwner,
-  readCache: () => store.get(AIRCRAFT_DOSSIER_CACHE_POLICY.key),
-  persistCache: (snapshot) => {
-    coordinator.setDeferred(
-      AIRCRAFT_DOSSIER_CACHE_POLICY.key,
-      snapshot,
-    );
-  },
 });
 const selectionInterest = new SelectionInterestService(
   trailRecorder,
   aircraftDossier,
-  (overlay) => {
-    scenePublisher.publish(overlay);
-  },
+  publishScene,
 );
 trailRecorder.subscribe((source) => {
   selectionInterest.refresh(source);
@@ -254,50 +249,34 @@ function sourceRenderBinding<TEntity extends DatasetEntity>(
   };
 }
 
-const aircraftRender = sourceRenderBinding(
-  Domain.Aircraft,
-  aircraftOwner,
-  aircraftSceneBinding,
-);
-aircraftOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: aircraftRender.publishPatch,
-});
+type RegisteredSource<TId extends QueryableSourceId> =
+  CatalogSource<QueryableSourceEntities[TId]> &
+  RenderRebasePublisher &
+  Readonly<{
+    attach: (host: SourceHost<QueryableSourceEntities[TId]>) => void;
+    policy: Readonly<{ id: TId }>;
+  }>;
+
+function registerSource<TId extends QueryableSourceId>(
+  owner: RegisteredSource<TId>,
+  scene: RenderScenePublisher<QueryableSourceEntities[TId]>,
+  resolveEntity?: (id: string) => DataPoint | null,
+): void {
+  const source = owner.policy.id;
+  const render = sourceRenderBinding(source, owner, scene);
+  owner.attach({
+    readCache: (key) => store.get(key),
+    persistCache: (key, value) => {
+      coordinator.setDeferred(key, value);
+    },
+    publishStatus: publishSource,
+    publishPatch: render.publishPatch,
+  });
+  sourceCatalog.register(source, owner, render, resolveEntity);
+}
 
 const earthquakeOwner = new EarthquakeSource();
-const earthquakeRender = sourceRenderBinding(
-  Domain.Earthquake,
-  earthquakeOwner,
-  earthquakeSceneBinding,
-);
-earthquakeOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: earthquakeRender.publishPatch,
-});
-
 const fireOwner = new FireSource();
-const fireRender = sourceRenderBinding(
-  Domain.Fire,
-  fireOwner,
-  fireSceneBinding,
-);
-fireOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: fireRender.publishPatch,
-});
-
 const shipOwner = new ShipSource({
   patchObservers: [
     new ObservedTrailBinding(
@@ -307,149 +286,42 @@ const shipOwner = new ShipSource({
     ),
   ],
 });
-const shipRender = sourceRenderBinding(
-  Domain.Ships,
-  shipOwner,
-  shipSceneBinding,
-);
-shipOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: shipRender.publishPatch,
-});
-
 const eventOwner = new EventSource();
-const eventRender = sourceRenderBinding(
-  Domain.Events,
-  eventOwner,
-  eventSceneBinding,
-);
-eventOwner.attach({
-  readCache: () => store.get(EVENT_SOURCE_POLICY.cacheKey),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: eventRender.publishPatch,
-});
-
 const weatherOwner = new WeatherAlertSource();
-const weatherRender = sourceRenderBinding(
-  Domain.Weather,
-  weatherOwner,
-  weatherSceneBinding,
-);
-weatherOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, value) => {
-    coordinator.setDeferred(key, value);
-  },
-  publishStatus: publishSource,
-  publishPatch: weatherRender.publishPatch,
-});
-
 const cycloneOwner = new CycloneSource();
-const cycloneRender = sourceRenderBinding(
-  Domain.Cyclones,
-  cycloneOwner,
-  cycloneSceneBinding,
-);
-cycloneOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, snapshot) => {
-    coordinator.setDeferred(key, snapshot);
-  },
-  publishStatus: publishSource,
-  publishPatch: cycloneRender.publishPatch,
-});
-
 const cycloneWarningOwner = new CycloneWarningSource();
-const cycloneWarningRender = sourceRenderBinding(
-  Domain.CycloneWarnings,
+
+registerSource(aircraftOwner, aircraftScene);
+registerSource(
   cycloneWarningOwner,
   cycloneWarningSceneBinding,
 );
-cycloneWarningOwner.attach({
-  readCache: (key) => store.get(key),
-  persistCache: (key, value) => {
-    coordinator.setDeferred(key, value);
-  },
-  publishStatus: publishSource,
-  publishPatch: cycloneWarningRender.publishPatch,
-});
-
-sourceCatalog.register(
-  Domain.Aircraft,
-  aircraftOwner,
-  aircraftRender,
-);
-sourceCatalog.register(
-  Domain.CycloneWarnings,
-  cycloneWarningOwner,
-  cycloneWarningRender,
-);
-sourceCatalog.register(
-  Domain.Cyclones,
+registerSource(
   cycloneOwner,
-  cycloneRender,
+  cycloneSceneBinding,
   (id) => cycloneOwner.resolveEntity(id),
 );
-sourceCatalog.register(
-  Domain.Earthquake,
-  earthquakeOwner,
-  earthquakeRender,
-);
-sourceCatalog.register(
-  Domain.Events,
-  eventOwner,
-  eventRender,
-);
-sourceCatalog.register(
-  Domain.Fire,
-  fireOwner,
-  fireRender,
-);
-sourceCatalog.register(
-  Domain.Ships,
-  shipOwner,
-  shipRender,
-);
-sourceCatalog.register(
-  Domain.Weather,
-  weatherOwner,
-  weatherRender,
-);
-
-type InactiveSourceError = Error & Readonly<{ source: string }>;
-
-function inactiveSourceError(source: string): InactiveSourceError {
-  return Object.assign(new Error(DataWorkerError.InactiveSource), {
-    source,
-  });
-}
+registerSource(earthquakeOwner, earthquakeScene);
+registerSource(eventOwner, eventScene);
+registerSource(fireOwner, fireScene);
+registerSource(shipOwner, shipScene);
+registerSource(weatherOwner, weatherScene);
 
 function complete(requestId: number | null): void {
   if (requestId === null) return;
-  post({
+  respond(requestId, {
     type: DataWorkerMessageType.Complete,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId,
   });
 }
 
 function fail(requestId: number | null, error: unknown): void {
   if (requestId === null) return;
-  post({
+  respond(requestId, {
     type: DataWorkerMessageType.Error,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId,
     message:
       error instanceof Error
         ? error.message
-        : DataWorkerError.OperationFailed,
+        : DATA_WORKER_OPERATION_FAILED,
   });
 }
 
@@ -464,10 +336,8 @@ async function handleInit(
   command: CommandOf<DataWorkerMessageType.Init>,
 ): Promise<void> {
   await store.open();
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.Ready,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     entries: mainThreadCacheEntries(await store.getAll()),
   });
   void startOwners();
@@ -478,7 +348,7 @@ function handleConnectRender(
 ): void {
   renderPort?.close();
   renderPort = command.port;
-  const interestState = new SceneProtocolState(
+  const interestState = new SessionSequenceState(
     command.renderSessionId,
   );
   sourceCatalog.resetRenderSearch();
@@ -521,33 +391,9 @@ function handleConnectCorrelation(
   complete(command.requestId);
 }
 
-async function handleRefreshSource(
-  command: CommandOf<DataWorkerMessageType.RefreshSource>,
-): Promise<void> {
-  if (!sourceCatalog.has(command.source)) {
-    throw inactiveSourceError(command.source);
-  }
-  await sourceCatalog.refresh(command.source);
-  complete(command.requestId);
-}
-
-function handleListSourceEntities(
-  command: CommandOf<DataWorkerMessageType.ListSourceEntities>,
-): void {
-  if (!sourceCatalog.has(command.source)) {
-    throw inactiveSourceError(command.source);
-  }
-  post({
-    type: DataWorkerMessageType.Value,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
-    value: sourceCatalog.values(command.source),
-  });
-}
-
 function envelopeFor(requestId: number | null): DataWorkerEnvelope {
   return {
-    protocolVersion: DataWorkerProtocolVersion.Current,
+    protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
     requestId,
   };
 }
@@ -564,7 +410,7 @@ function handleGetSourceEntity(
     envelopeFor(command.requestId),
     command.id,
   );
-  if (event) post(event);
+  if (event) globalThis.postMessage(event);
 }
 
 function handleQuerySource(
@@ -575,16 +421,14 @@ function handleQuerySource(
     envelopeFor(command.requestId),
     command.query,
   );
-  if (event) post(event);
+  if (event) globalThis.postMessage(event);
 }
 
 function handleGetTrail(
   command: CommandOf<DataWorkerMessageType.GetTrail>,
 ): void {
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.Trail,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     id: command.id,
     entry: trailRecorder.get(command.id),
   });
@@ -593,22 +437,94 @@ function handleGetTrail(
 async function handleGetAircraftDossier(
   command: CommandOf<DataWorkerMessageType.GetAircraftDossier>,
 ): Promise<void> {
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.AircraftDossier,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     entityId: command.entityId,
     dossier: await aircraftDossier.get(command.entityId),
+  });
+}
+
+async function fetchCycloneDossier(
+  stormId: string,
+): Promise<CycloneDossierResult> {
+  const response = await authenticatedFetch(
+    `${CycloneRoute.Dossier}/${encodeURIComponent(stormId)}`,
+  );
+  const result = response.ok
+    ? parseCycloneDossierResult(await response.json())
+    : null;
+  if (!result) throw new Error(DATA_WORKER_OPERATION_FAILED);
+  return result;
+}
+
+async function cycloneDossierForEntity(
+  entityId: string,
+): Promise<CycloneDossierBundle | null> {
+  const stormId = parseCycloneStormId(cycloneOwner.get(entityId)?.data.stormId);
+  if (!stormId) return null;
+  const key = `${CYCLONE_DOSSIER_CACHE_PREFIX}${stormId}`;
+  const cached = parseCycloneDossierCacheEntry(await store.get(key));
+  if (cached && Date.now() - cached.fetchedAt < CYCLONE_DOSSIER_CACHE_FRESHNESS_MS) {
+    return cached.bundle;
+  }
+  try {
+    const request = pendingCycloneDossiers.get(stormId) ??
+      fetchCycloneDossier(stormId).finally(() => {
+        pendingCycloneDossiers.delete(stormId);
+      });
+    pendingCycloneDossiers.set(stormId, request);
+    const { dossier, fetchedAt } = await request;
+    if (dossier) await coordinator.set(key, { bundle: dossier, fetchedAt });
+    return dossier ?? cached?.bundle ?? null;
+  } catch {
+    return cached?.bundle ?? null;
+  }
+}
+
+async function handleGetEarthquakeWaveform(
+  command: CommandOf<DataWorkerMessageType.GetEarthquakeWaveform>,
+): Promise<void> {
+  earthquakeWaveformController?.abort();
+  const controller = new AbortController();
+  earthquakeWaveformController = controller;
+  try {
+    const request = command.request;
+    const result = await fetchWaveform(
+      request.latitude,
+      request.longitude,
+      request.originTimeIso,
+      { signal: controller.signal },
+    );
+    respond(command.requestId, {
+      type: DataWorkerMessageType.EarthquakeWaveform,
+      result,
+    });
+  } finally {
+    if (earthquakeWaveformController === controller) {
+      earthquakeWaveformController = null;
+    }
+  }
+}
+
+function handleCancelEarthquakeWaveform(): void {
+  earthquakeWaveformController?.abort();
+  earthquakeWaveformController = null;
+}
+
+async function handleGetTsunamiAlerts(
+  command: CommandOf<DataWorkerMessageType.GetTsunamiAlerts>,
+): Promise<void> {
+  respond(command.requestId, {
+    type: DataWorkerMessageType.TsunamiAlerts,
+    alerts: await fetchTsunamiAlerts(),
   });
 }
 
 async function handleGet(
   command: CommandOf<DataWorkerMessageType.Get>,
 ): Promise<void> {
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.Value,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     value: await store.get(command.key),
   });
 }
@@ -618,10 +534,8 @@ async function handleImportJson(
 ): Promise<void> {
   const value: unknown = JSON.parse(command.json);
   await coordinator.set(command.key, value);
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.Value,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     value,
   });
 }
@@ -629,10 +543,8 @@ async function handleImportJson(
 async function handleEstimate(
   command: CommandOf<DataWorkerMessageType.Estimate>,
 ): Promise<void> {
-  post({
+  respond(command.requestId, {
     type: DataWorkerMessageType.Size,
-    protocolVersion: DataWorkerProtocolVersion.Current,
-    requestId: command.requestId,
     bytes: await store.estimate(command.key),
   });
 }
@@ -645,10 +557,6 @@ async function dispatch(command: DataWorkerCommand): Promise<void> {
       return handleConnectRender(command);
     case DataWorkerMessageType.ConnectCorrelation:
       return handleConnectCorrelation(command);
-    case DataWorkerMessageType.RefreshSource:
-      return handleRefreshSource(command);
-    case DataWorkerMessageType.ListSourceEntities:
-      return handleListSourceEntities(command);
     case DataWorkerMessageType.GetSourceEntity:
       return handleGetSourceEntity(command);
     case DataWorkerMessageType.QuerySource:
@@ -657,6 +565,17 @@ async function dispatch(command: DataWorkerCommand): Promise<void> {
       return handleGetTrail(command);
     case DataWorkerMessageType.GetAircraftDossier:
       return handleGetAircraftDossier(command);
+    case DataWorkerMessageType.GetCycloneDossier:
+      return respond(command.requestId, {
+        type: DataWorkerMessageType.CycloneDossier,
+        dossier: await cycloneDossierForEntity(command.entityId),
+      });
+    case DataWorkerMessageType.GetEarthquakeWaveform:
+      return handleGetEarthquakeWaveform(command);
+    case DataWorkerMessageType.CancelEarthquakeWaveform:
+      return handleCancelEarthquakeWaveform();
+    case DataWorkerMessageType.GetTsunamiAlerts:
+      return handleGetTsunamiAlerts(command);
     case DataWorkerMessageType.Get:
       return handleGet(command);
     case DataWorkerMessageType.ImportJson:

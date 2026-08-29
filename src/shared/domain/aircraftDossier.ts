@@ -1,4 +1,5 @@
-import { GeoLimit, isRecord } from "@shared/geo";
+import { GeoLimit, isRecord, type GeoPoint } from "@shared/geo";
+import { isOptionalFiniteNumber } from "@shared/types/numbers";
 
 const AIRCRAFT_ICAO24_PATTERN = /^[0-9a-f]{6}$/i;
 
@@ -20,6 +21,11 @@ export type AircraftRouteWaypoint = readonly [
   latitude: number,
   longitude: number,
 ];
+
+/** Waypoints as lon/lat points for the geo render helpers. */
+export function routeGeoPoints(points: readonly AircraftRouteWaypoint[]): GeoPoint[] {
+  return points.map(([latitude, longitude]) => [longitude, latitude]);
+}
 
 export type AircraftRouteEndpoint = Readonly<{
   iata?: string;
@@ -63,6 +69,11 @@ export type AircraftDossier = Readonly<{
   route: AircraftRoute | null;
 }>;
 
+export type SplitRoute = Readonly<{
+  flown: readonly AircraftRouteWaypoint[];
+  remaining: readonly AircraftRouteWaypoint[];
+}>;
+
 export function aircraftAirportCode(
   endpoint: AircraftRouteEndpoint | undefined,
 ): string {
@@ -73,13 +84,67 @@ export function isAircraftIcao24(value: string): boolean {
   return AIRCRAFT_ICAO24_PATTERN.test(value);
 }
 
-function isOptionalString(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === "string";
+export function normalizeIcao24(value: string | undefined): string | null {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^['"]|['"]$/g, "");
+  return isAircraftIcao24(normalized) ? normalized : null;
 }
 
-function isOptionalNumber(value: unknown): value is number | undefined {
-  return value === undefined ||
-    (typeof value === "number" && Number.isFinite(value));
+export function splitRouteAtAircraft(
+  route: readonly AircraftRouteWaypoint[],
+  latitude: number,
+  longitude: number,
+): SplitRoute {
+  let segmentIndex = 0;
+  let segmentFraction = 0;
+  let nearestDistance = Infinity;
+  for (let index = 0; index < route.length - 1; index++) {
+    const start = route[index];
+    const end = route[index + 1];
+    if (!start || !end) continue;
+    const longitudeDelta = end[1] - start[1];
+    const latitudeDelta = end[0] - start[0];
+    const segmentLength =
+      longitudeDelta * longitudeDelta + latitudeDelta * latitudeDelta;
+    const fraction = segmentLength > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((longitude - start[1]) * longitudeDelta +
+              (latitude - start[0]) * latitudeDelta) /
+              segmentLength,
+          ),
+        )
+      : 0;
+    const projectedLongitude = start[1] + fraction * longitudeDelta;
+    const projectedLatitude = start[0] + fraction * latitudeDelta;
+    const distance =
+      (longitude - projectedLongitude) ** 2 +
+      (latitude - projectedLatitude) ** 2;
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      segmentIndex = index;
+      segmentFraction = fraction;
+    }
+  }
+  const start = route[segmentIndex];
+  const end = route[segmentIndex + 1];
+  if (!start || !end) return { flown: route, remaining: route };
+  const splitPoint: AircraftRouteWaypoint = [
+    start[0] + segmentFraction * (end[0] - start[0]),
+    start[1] + segmentFraction * (end[1] - start[1]),
+  ];
+  return {
+    flown: [...route.slice(0, segmentIndex + 1), splitPoint],
+    remaining: [splitPoint, ...route.slice(segmentIndex + 1)],
+  };
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
 }
 
 function isOptionalBoolean(value: unknown): value is boolean | undefined {
@@ -152,15 +217,15 @@ export function isAircraftRoute(value: unknown): value is AircraftRoute {
     isAircraftRouteEndpoint(value.origin) &&
     isAircraftRouteEndpoint(value.destination) &&
     isOptionalString(value.status) &&
-    isOptionalNumber(value.departureTime) &&
-    isOptionalNumber(value.arrivalTime) &&
+    isOptionalFiniteNumber(value.departureTime) &&
+    isOptionalFiniteNumber(value.arrivalTime) &&
     isOptionalBoolean(value.departureActual) &&
     isOptionalBoolean(value.arrivalActual) &&
     hasValidDelays(value.delays) &&
     isOptionalString(value.filedRoute) &&
-    isOptionalNumber(value.filedAltitude) &&
-    isOptionalNumber(value.filedSpeed) &&
-    isOptionalNumber(value.distance) &&
+    isOptionalFiniteNumber(value.filedAltitude) &&
+    isOptionalFiniteNumber(value.filedSpeed) &&
+    isOptionalFiniteNumber(value.distance) &&
     isOptionalString(value.airline) &&
     hasValidWaypoints(value.waypoints);
 }

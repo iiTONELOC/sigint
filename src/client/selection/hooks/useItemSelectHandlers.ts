@@ -1,8 +1,8 @@
 import { useCallback, type KeyboardEvent, type MouseEvent } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DomKey } from "@/runtime";
-import type { SelectionIdSetter } from "../model";
-import { revealThenClear } from "../utils";
+import type { SelectionIdSetter } from "../model/types";
+import { revealThenClear } from "../utils/pulse";
 
 function isRowActivationKey(key: string): boolean {
   return key === DomKey.Enter || key === DomKey.Space;

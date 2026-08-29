@@ -1,14 +1,17 @@
 import { useId } from "react";
 import { TrendingUp } from "lucide-react";
 import { formatKtShort } from "@/measurements";
-import type { CycloneData } from "../types";
+import {
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  cycloneCategoryShortLabel,
+  type CycloneData,
+} from "@shared/domain/cyclones";
 import {
   analyzeIntensity,
   peakForecastWindKt,
 } from "../data/intensity";
 import {
-  CycloneBandLabel,
-  CycloneWindThreshold,
   SAFFIR_SIMPSON,
   windColor,
 } from "../classification";
@@ -22,13 +25,11 @@ enum IntensityChartGeometry {
   MaximumKnots = 150,
 }
 
-// Saffir-Simpson lower bounds (kt). Bands shade the chart so a viewer reads
-// the line's height as a category, not just a number.
 const SS_BANDS = [
   ...SAFFIR_SIMPSON.map((b) => ({ label: b.label, kt: b.minKt })),
   {
-    label: CycloneBandLabel.TropicalStorm,
-    kt: CycloneWindThreshold.TropicalStorm,
+    label: cycloneCategoryShortLabel(Category.TropicalStorm),
+    kt: CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
   },
 ];
 

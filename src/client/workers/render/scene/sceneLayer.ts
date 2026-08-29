@@ -1,6 +1,31 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
-import { pointTypeForSource } from "@/workers/data/sources/registry";
+import {
+  IntelSeverity,
+  parseIntelSeverity,
+} from "@shared/domain/correlation";
+import { Domain } from "@shared/domain/identity";
+import {
+  getPointSourceDefinition,
+} from "@shared/domain/pointSource";
+import {
+  EarthquakeSceneAttribute,
+  EventSceneAttribute,
+  FireSceneAttribute,
+} from "@shared/scene";
+import type { RenderSourceId } from "@shared/source";
+import { MS_PER_DAY, MS_PER_HOUR } from "@shared/time";
+import {
+  MarkerAgeSpan,
+  MarkerDepthAlpha,
+  sourceMarkerAgeAlpha,
+  sourceMarkerFillAlpha,
+  sourceMarkerPulseIndex,
+  sourceMarkerSize,
+  type MarkerSourcePolicy,
+} from "@/workers/render/primitives/markerStyle";
+import {
+  markerPulseIntensity,
+  type MarkerVisualRenderer,
+} from "@/workers/render/primitives/markerVisuals";
 import {
   ProjectedSceneLayer,
   SceneHitKind,
@@ -18,10 +43,16 @@ import {
 } from "@/workers/render/sceneProtocol";
 import {
   SceneStore,
+  sceneNumericAttribute,
   type RenderSceneRecord,
   type RenderSceneView,
 } from "@/workers/render/sceneStore";
 import type { RenderSelectionIdentity } from "@/workers/render/protocol";
+import {
+  sceneSourceIncludes,
+  type EnabledSceneFilter,
+} from "@/workers/render/scene/visibility";
+import { zoomScale } from "@/workers/render/workerMath";
 
 export enum RenderLayerOrder {
   Aircraft = 0,
@@ -31,16 +62,152 @@ export enum RenderLayerOrder {
   Earthquake = 4,
   CycloneWarning = 5,
   Weather = 6,
-  CycloneForecast = 7,
   Cyclones = 8,
 }
+
+type PulsingPointLayerDefinition = Readonly<{
+  includeThreshold?: boolean;
+  markerPolicy: MarkerSourcePolicy;
+  metricAttribute: number;
+  normalizeMetric?: (metric: number) => number;
+  order: RenderLayerOrder;
+}>;
+
+const PULSING_POINT_LAYER_DEFINITIONS = {
+  [Domain.Fire]: {
+    markerPolicy: {
+      ageAlphaByMaximumMs: {
+        [MS_PER_HOUR]: 1,
+        [3 * MS_PER_HOUR]: 0.9,
+        [6 * MS_PER_HOUR]: 0.8,
+        [MS_PER_DAY / 2]: 0.65,
+      },
+      agedAlpha: 0.5,
+      animationThreshold: 15,
+      glow: {
+        idSliceFrom: 2,
+        rate: 0.6,
+        baseAmp: 0.05,
+        ampGain: 0.15,
+        radBase: 1.5,
+        alphaHex: "30",
+        glowMul: 0.35,
+      },
+      markerAlphaGain: 0.5,
+      maximumSize: 4.5,
+      pulseSpan: 85,
+      pulseZoom: { floor: 1.5, span: 2.5 },
+      selectedScale: 2,
+      sizeByMaximum: {
+        1: 0.8,
+        5: 1,
+        10: 1.3,
+        25: 1.8,
+        50: 2.5,
+        100: 3.5,
+      },
+    },
+    metricAttribute: FireSceneAttribute.RadiativePower,
+    order: RenderLayerOrder.Fire,
+  },
+  [Domain.Events]: {
+    markerPolicy: {
+      ageAlphaByMaximumMs: {
+        [MS_PER_HOUR]: 1,
+        [MarkerAgeSpan.RecentHours * MS_PER_HOUR]: 0.9,
+        [MS_PER_DAY]: 0.75,
+        [MarkerAgeSpan.SeveralDays * MS_PER_DAY]: 0.6,
+      },
+      agedAlpha: 0.45,
+      animationThreshold: IntelSeverity.Tension,
+      glow: {
+        idSliceFrom: 2,
+        rate: 0.5,
+        baseAmp: 0.1,
+        ampGain: 0.2,
+        radBase: 1.8,
+        radGain: 1.2,
+        alphaHex: "30",
+        glowMul: 0.4,
+      },
+      markerAlphaGain: 0.75,
+      maximumSize: 3.5,
+      pulseBase: IntelSeverity.Concern,
+      pulseSpan: 3,
+      selectedScale: 2,
+      sizeByMaximum: {
+        [IntelSeverity.Concern]: 1,
+        [IntelSeverity.Tension]: 1.3,
+        [IntelSeverity.Conflict]: 1.8,
+        [IntelSeverity.Crisis]: 2.5,
+      },
+    },
+    includeThreshold: true,
+    metricAttribute: EventSceneAttribute.Severity,
+    normalizeMetric: parseIntelSeverity,
+    order: RenderLayerOrder.Events,
+  },
+  [Domain.Earthquake]: {
+    markerPolicy: {
+      ageAlphaByMaximumMs: {
+        [MS_PER_HOUR]: 1,
+        [MarkerAgeSpan.RecentHours * MS_PER_HOUR]: 0.9,
+        [MS_PER_DAY]: 0.8,
+        [MarkerAgeSpan.SeveralDays * MS_PER_DAY]: 0.65,
+      },
+      agedAlpha: 0.5,
+      animationThreshold: 3,
+      glow: {
+        idSliceFrom: 1,
+        rate: 0.7,
+        baseAmp: 0.1,
+        ampGain: 0.2,
+        radBase: 1.8,
+        radGain: 1.5,
+        alphaHex: "40",
+        glowMul: 0.5,
+      },
+      markerAlphaGain: MarkerDepthAlpha.StandardGain,
+      maximumSize: 10,
+      pulseSpan: 4,
+      selectedScale: 2,
+      sizeByMaximum: {
+        1: 1.2,
+        2: 1.5,
+        3: 2,
+        4: 3,
+        5: 4.5,
+        6: 6,
+        7: 8,
+      },
+    },
+    metricAttribute: EarthquakeSceneAttribute.Magnitude,
+    order: RenderLayerOrder.Earthquake,
+  },
+} satisfies Readonly<
+  Partial<Record<RenderSourceId, PulsingPointLayerDefinition>>
+>;
+
+export type PulsingPointLayerSource =
+  keyof typeof PULSING_POINT_LAYER_DEFINITIONS;
+
+export type PulsingPointSceneStyle = Readonly<{
+  color: string;
+  context: OffscreenCanvasRenderingContext2D;
+  now: number;
+  selectedId: string | null;
+  time: number;
+  zoomLevel: number;
+}>;
 
 export type SceneLayerProjectionFrame = Omit<
   SceneProjectionFrame,
   "includes"
 >;
 
-export type SceneLayerStyle = Readonly<{ context: Ctx }>;
+export type SceneLayerStyle = Readonly<{
+  context: OffscreenCanvasRenderingContext2D;
+}>;
 
 export type RenderLayerSelectionTarget = Readonly<{
   identity: RenderSelectionIdentity;
@@ -139,7 +306,7 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
       source: this.source,
       entityId: hit.entityId,
       interactionId: hit.entityId,
-      pointType: pointTypeForSource(this.source),
+      pointType: getPointSourceDefinition(this.source).pointType,
     };
   }
 
@@ -198,7 +365,7 @@ export abstract class SceneLayer<TFilter> implements RenderLayer {
       source: this.source,
       entityId: record.entityId,
       interactionId: record.entityId,
-      pointType: pointTypeForSource(this.source),
+      pointType: getPointSourceDefinition(this.source).pointType,
     };
   }
 
@@ -325,4 +492,130 @@ export abstract class ScenePointLayer<
     index: number,
     style: TStyle,
   ): void;
+}
+
+function pulsingPointDefinition(
+  source: PulsingPointLayerSource,
+): PulsingPointLayerDefinition {
+  return PULSING_POINT_LAYER_DEFINITIONS[source];
+}
+
+function pulsingPointMetric(
+  view: RenderSceneView,
+  index: number,
+  definition: PulsingPointLayerDefinition,
+): number {
+  const metric = sceneNumericAttribute(
+    view,
+    index,
+    definition.metricAttribute,
+  );
+  return definition.normalizeMetric?.(metric) ?? metric;
+}
+
+function passesMarkerThreshold(
+  metric: number,
+  definition: PulsingPointLayerDefinition,
+): boolean {
+  return definition.includeThreshold === true
+    ? metric >= definition.markerPolicy.animationThreshold
+    : metric > definition.markerPolicy.animationThreshold;
+}
+
+export class PulsingPointLayer extends ScenePointLayer<
+  EnabledSceneFilter,
+  PulsingPointSceneStyle
+> {
+  readonly order: RenderLayerOrder;
+
+  private animated = false;
+  private readonly definition: PulsingPointLayerDefinition;
+  private readonly pulsingSource: PulsingPointLayerSource;
+  private readonly visuals: MarkerVisualRenderer;
+
+  constructor(
+    source: PulsingPointLayerSource,
+    visuals: MarkerVisualRenderer,
+  ) {
+    super(source);
+    this.definition = pulsingPointDefinition(source);
+    this.order = this.definition.order;
+    this.pulsingSource = source;
+    this.visuals = visuals;
+  }
+
+  override project(
+    frame: SceneLayerProjectionFrame,
+    filter: EnabledSceneFilter,
+  ): void {
+    super.project(frame, filter);
+    const view = this.view;
+    this.animated = false;
+    if (!view) return;
+    for (const index of this.visibleIndices()) {
+      const metric = pulsingPointMetric(
+        view,
+        index,
+        this.definition,
+      );
+      if (!passesMarkerThreshold(metric, this.definition)) continue;
+      this.animated = true;
+      return;
+    }
+  }
+
+  override hasTimeAnimation(reducedMotion: boolean): boolean {
+    return !reducedMotion && this.animated;
+  }
+
+  protected includes(
+    view: RenderSceneView,
+    index: number,
+    filter: EnabledSceneFilter,
+  ): boolean {
+    return sceneSourceIncludes(this.pulsingSource, view, index, filter);
+  }
+
+  protected drawRecord(
+    view: RenderSceneView,
+    index: number,
+    style: PulsingPointSceneStyle,
+  ): void {
+    const projection = this.projection.projection(index);
+    const entityId = view.entityIds[index];
+    const timestamp = view.timestamps[index];
+    if (!projection || !entityId || timestamp === undefined) return;
+
+    const policy = this.definition.markerPolicy;
+    const metric = pulsingPointMetric(view, index, this.definition);
+    const alpha = sourceMarkerAgeAlpha(timestamp, style.now, policy);
+    const selected = entityId === style.selectedId;
+    const size =
+      sourceMarkerSize(metric, selected, policy) *
+      zoomScale(style.zoomLevel);
+    const color = this.visuals.fade(style.color, alpha);
+    this.visuals.drawPulsing(style.context, style.time, {
+      x: projection.x,
+      y: projection.y,
+      size,
+      color,
+      fillAlpha: sourceMarkerFillAlpha(
+        projection.depth,
+        alpha,
+        policy,
+      ),
+      selected,
+      glow: passesMarkerThreshold(metric, this.definition)
+        ? {
+            intensity: markerPulseIntensity(
+              style.zoomLevel,
+              policy.pulseZoom,
+            ),
+            pulseIndex: sourceMarkerPulseIndex(metric, policy),
+            id: entityId,
+            config: policy.glow,
+          }
+        : null,
+    });
+  }
 }

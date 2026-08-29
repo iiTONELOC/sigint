@@ -11,13 +11,11 @@ import {
   SaffirSimpson,
   type CycloneForecastPointData,
   type ForecastPoint,
-} from "@/features/environmental/cyclones/types";
-import {
-  cycloneForecastSceneId,
-} from "@/workers/render/scene/cycloneSchema";
+} from "@shared/domain/cyclones";
 import { isNhcBasin } from "@shared/cyclonesSeason";
 import { Domain } from "@shared/domain/identity";
 import { isRecord } from "@shared/geo";
+import { cycloneForecastSceneId } from "@shared/scene";
 import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
 
 /** Bounded UI projection for one forecast scene interaction. */

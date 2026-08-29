@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
+import { ButtonType } from "@/lib/ui/button";
 import { DomEvent } from "@/runtime";
 
 enum ConnectionStatusTiming {
@@ -35,9 +36,9 @@ enum ConnectionStatusAsset {
 }
 
 enum ConnectionStatusClassName {
-  PullLayer = "fixed top-0 inset-x-0 z-9998 flex items-center justify-center pointer-events-none",
+  PullLayer = "fixed top-0 inset-x-0 z-(--layer-attention) flex items-center justify-center pointer-events-none",
   Spinning = "animate-spin",
-  StatusBar = "fixed top-0 inset-x-0 z-9999 flex items-center justify-center gap-2 py-1 text-[11px] font-semibold tracking-widest transition-all duration-300",
+  StatusBar = "fixed top-0 inset-x-0 z-(--layer-blocking) flex items-center justify-center gap-2 py-1 text-[11px] font-semibold tracking-widest transition-all duration-300",
 }
 
 /** Show connection changes and provide touch refresh. */
@@ -210,6 +211,7 @@ export function ConnectionStatus() {
           {online ? "RECONNECTED" : "OFFLINE: CACHED DATA ONLY"}
           {!online && (
             <button
+              type={ButtonType.Button}
               onClick={doRetry}
               disabled={retrying}
               className="ml-2 px-2 py-0.5 rounded border border-white/30 text-[10px] tracking-wider hover:bg-white/10 transition-colors flex items-center gap-1 disabled:opacity-50"

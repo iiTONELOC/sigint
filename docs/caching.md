@@ -115,6 +115,17 @@ The DataWorker owns the aircraft dossier service and its cache. The service uses
 
 React requests one dossier by entity identifier. React does not read the complete dossier cache.
 
+## Earthquake data
+
+The normalized USGS Earthquake dataset follows the geographic source cache
+path and uses its registry-owned cache key.
+
+Selected-event waveforms and current tsunami alerts are different. The
+DataWorker acquires these bounded auxiliary results on demand, but does not
+persist them. They have no cache key. A selection change or dossier unmount
+cancels the active waveform request; tsunami alerts follow the dossier refresh
+lifecycle.
+
 ## Layout caches
 
 `PaneManager` owns desktop and mobile layout state. These layouts use different cache keys.
@@ -146,3 +157,4 @@ The next source lifecycle starts from an empty browser cache.
 - Keep desktop and mobile pane layouts separate.
 - Keep service-worker assets separate from live source data.
 - Keep trail policy source-specific and bounded.
+- Keep Earthquake waveform and tsunami auxiliary results nonpersistent.

@@ -9,13 +9,13 @@ import {
   PaneMobileHeight,
   PaneMobileRatio,
   PaneNodeType,
-  PaneResizeMetric,
   PaneType,
   PaneTreeArity,
   PaneWorkspaceIconMetric,
   PaneWorkspaceMenuMetric,
   SplitDirection,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
+import { PaneResizeMetric } from "@/panes/workspace/model/resize";
 
 enum PaneModelCount {
   One = 1,

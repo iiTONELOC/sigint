@@ -1,4 +1,4 @@
-import { formatTempCF } from "../formatters";
+import { formatTempCF } from "../formatters/units";
 import {
   fireAnomalyStrength,
   FireTemperatureThreshold,

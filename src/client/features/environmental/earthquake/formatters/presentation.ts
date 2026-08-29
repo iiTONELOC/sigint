@@ -1,45 +1,30 @@
-import { IntelSeverity } from "@shared/domain/correlation";
+import {
+  IntelSeverity,
+  intelSeverityBands,
+} from "@shared/domain/correlation";
+import type { EarthquakeData } from "@shared/domain/earthquakes";
 import { EMPTY_TEXT } from "@shared/text";
-import { bandValue, type Band } from "@shared/types/bands";
+import { bandValue } from "@shared/types/bands";
 import {
   FeatureTableAbbreviation,
   type FeatureFeedPresentation,
   type FeatureTablePresentation,
 } from "@/features/base/presentation";
-import type { EarthquakeData } from "../types";
 
 export enum EarthquakeCopy {
   Source = "USGS",
   UnknownLocation = "Unknown location",
 }
 
-enum EarthquakeSeverityThreshold {
-  CrisisMinimum = 6,
-  ConflictMinimum = 5,
-  TensionMinimum = 4,
-  ConcernMinimum = 3,
-}
+/** Magnitude floors. */
+const EARTHQUAKE_SEVERITY_BANDS = intelSeverityBands({
+  crisis: 6,
+  conflict: 5,
+  tension: 4,
+  concern: 3,
+});
 
-const EARTHQUAKE_SEVERITY_BANDS: readonly Band<IntelSeverity>[] = [
-  {
-    floor: EarthquakeSeverityThreshold.CrisisMinimum,
-    value: IntelSeverity.Crisis,
-  },
-  {
-    floor: EarthquakeSeverityThreshold.ConflictMinimum,
-    value: IntelSeverity.Conflict,
-  },
-  {
-    floor: EarthquakeSeverityThreshold.TensionMinimum,
-    value: IntelSeverity.Tension,
-  },
-  {
-    floor: EarthquakeSeverityThreshold.ConcernMinimum,
-    value: IntelSeverity.Concern,
-  },
-];
-
-export function formatEarthquakeDepth(depth: number): string {
+function formatEarthquakeDepth(depth: number): string {
   return `${depth.toFixed(1)} km`;
 }
 

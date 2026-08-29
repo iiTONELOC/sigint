@@ -1,5 +1,17 @@
 import type { AuthGuards } from "./auth";
 import type { SecurityHeaders } from "./securityHeaders";
+import { EventApiMessage, EventEndpoint } from "@shared/domain/events";
+import { AircraftApiRoute } from "@shared/domain/aircraft";
+import { FIRE_LATEST_ROUTE } from "@shared/domain/fireDayNight";
+import { NEWS_LATEST_ROUTE } from "@shared/domain/newsSource";
+import {
+  AUTH_TOKEN_ROUTE,
+  HttpContentCoding,
+  HttpHeader,
+  HttpMediaType,
+  HttpMethod,
+  HttpStatus,
+} from "@shared/http";
 import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
@@ -8,20 +20,25 @@ import { getCyclonesCache } from "./cyclonesCache";
 import { getAircraftCache } from "./aircraftCache";
 import {
   getAircraftDossier,
-  isValidIcao24,
   isValidCallsign,
 } from "./dossierCache";
+import { normalizeIcao24 } from "@shared/domain/aircraftDossier";
 import { getCycloneDossier } from "./cyclonesDossierCache";
-import { getCycloneCone } from "./cyclonesConeCache";
-import { getCycloneModels } from "./cyclonesAtcfCache";
+import { CycloneRoute, parseCycloneStormId } from "@shared/domain/cyclones";
+import {
+  SHIPS_LATEST_ROUTE,
+  SHIP_DATA_UNAVAILABLE_MESSAGE,
+} from "@shared/domain/ships";
 import { gzip } from "zlib";
 import { promisify } from "util";
 
 const gzipAsync = promisify(gzip);
 
-const STORM_ID_RE = /^(?:AL|EP|CP)\d{2}\d{4}$/i;
-function isValidStormId(value: string): boolean {
-  return STORM_ID_RE.test(value);
+enum ApiErrorMessage {
+  MethodNotAllowed = "Method Not Allowed",
+  InvalidStormId = "Invalid stormId",
+  InvalidIcao24 = "Invalid ICAO24 hex code",
+  AircraftNotFound = "Aircraft not found",
 }
 
 export type ApiDeps = Readonly<{
@@ -42,26 +59,22 @@ export function createApiRoutes(deps: ApiDeps) {
 
   async function jsonResponse(req: Request, body: unknown): Promise<Response> {
     const json = JSON.stringify(body);
-    const acceptEncoding = req.headers.get("accept-encoding") ?? "";
-    if (acceptEncoding.includes("gzip")) {
+    const acceptEncoding = req.headers.get(HttpHeader.AcceptEncoding) ?? "";
+    if (acceptEncoding.includes(HttpContentCoding.Gzip)) {
       const compressed = (await gzipAsync(Buffer.from(json))) as Uint8Array;
-      // Copy into a fresh ArrayBuffer-backed Uint8Array. The DOM lib's BodyInit
-      // rejects ArrayBufferLike (potentially SharedArrayBuffer) backing, which
-      // a raw Buffer/gzip output reports; Uint8Array.from guarantees an
-      // ArrayBuffer and so is unambiguously a BodyInit.
-      const body = Uint8Array.from(compressed);
+      const compressedBody = Uint8Array.from(compressed);
       return withSecurityHeaders(
-        new Response(body, {
+        new Response(compressedBody, {
           headers: {
-            "Content-Type": "application/json",
-            "Content-Encoding": "gzip",
+            [HttpHeader.ContentType]: HttpMediaType.Json,
+            [HttpHeader.ContentEncoding]: HttpContentCoding.Gzip,
           },
         }),
       );
     }
     return withSecurityHeaders(
       new Response(json, {
-        headers: { "Content-Type": "application/json" },
+        headers: { [HttpHeader.ContentType]: HttpMediaType.Json },
       }),
     );
   }
@@ -73,7 +86,11 @@ export function createApiRoutes(deps: ApiDeps) {
   // ── Route guards ─────────────────────────────────────────────────────
   // Every authed route repeated the same guardAuth check; the param routes
   // also repeated the method-405 + stormId validation. These wrap it once.
-  type Handler = (req: any) => Promise<Response>;
+  type RouteRequest = Request &
+    Readonly<{
+      params?: Readonly<Record<string, string | undefined>>;
+    }>;
+  type Handler = (req: RouteRequest) => Promise<Response>;
 
   function authedGet(handler: (req: Request) => Promise<Response>) {
     return {
@@ -85,9 +102,7 @@ export function createApiRoutes(deps: ApiDeps) {
     };
   }
 
-  /** Authed GET over a polling cache: 503 (with the cache's error) until the
-   *  cache is ready, then the built body. Collapses the repeated
-   *  "get cache → if empty return 503 → jsonResponse" shape. */
+  /** Return an authenticated cached response or 503 until ready. */
   function authedCachedGet<C extends { error?: string | null }>(
     getCache: () => C,
     isReady: (cache: C) => boolean,
@@ -97,7 +112,10 @@ export function createApiRoutes(deps: ApiDeps) {
     return authedGet(async (req) => {
       const cache = getCache();
       if (!isReady(cache)) {
-        return jsonError({ error: cache.error ?? emptyMessage }, 503);
+        return jsonError(
+          { error: cache.error ?? emptyMessage },
+          HttpStatus.ServiceUnavailable,
+        );
       }
       return jsonResponse(req, buildBody(cache));
     });
@@ -107,9 +125,11 @@ export function createApiRoutes(deps: ApiDeps) {
     return async (req) => {
       const blocked = await guardAuth(req);
       if (blocked) return blocked;
-      if (req.method !== "GET") {
+      if (req.method !== HttpMethod.Get) {
         return withSecurityHeaders(
-          new Response("Method Not Allowed", { status: 405 }),
+          new Response(ApiErrorMessage.MethodNotAllowed, {
+            status: HttpStatus.MethodNotAllowed,
+          }),
         );
       }
       return handler(req);
@@ -117,65 +137,68 @@ export function createApiRoutes(deps: ApiDeps) {
   }
 
   function authedStormGet(
-    handler: (req: any, stormId: string) => Promise<Response>,
+    handler: (req: RouteRequest, stormId: string) => Promise<Response>,
   ): Handler {
     return authedFnGet(async (req) => {
-      const stormId = String(req.params?.stormId ?? "");
-      if (!isValidStormId(stormId)) {
-        return jsonError({ error: "Invalid stormId" }, 400);
+      const stormId = parseCycloneStormId(req.params?.stormId);
+      if (!stormId) {
+        return jsonError(
+          { error: ApiErrorMessage.InvalidStormId },
+          HttpStatus.BadRequest,
+        );
       }
-      return handler(req, stormId.toUpperCase());
+      return handler(req, stormId);
     });
   }
 
   return {
-    "/api/auth/token": {
+    [AUTH_TOKEN_ROUTE]: {
       async GET(req: Request) {
         const blocked = guardRateLimit(req);
         if (blocked) return blocked;
 
         const token = await generateToken();
         const res = new Response(JSON.stringify({ ok: true }), {
-          status: 200,
+          status: HttpStatus.Ok,
           headers: {
-            "Content-Type": "application/json",
+            [HttpHeader.ContentType]: HttpMediaType.Json,
           },
         });
-        res.headers.append("Set-Cookie", tokenCookieHeader(token));
-        res.headers.append("Set-Cookie", expireOldCookieHeader());
+        res.headers.append(HttpHeader.SetCookie, tokenCookieHeader(token));
+        res.headers.append(HttpHeader.SetCookie, expireOldCookieHeader());
         return withSecurityHeaders(res);
       },
     },
 
-    "/api/events/latest": authedCachedGet(
+    [EventEndpoint.Latest]: authedCachedGet(
       getGdeltCache,
       (c) => Boolean(c.data),
-      "No data available yet",
+      EventApiMessage.Unavailable,
       (c) => ({ data: c.data, fetchedAt: c.fetchedAt }),
     ),
 
-    "/api/ships/latest": authedCachedGet(
+    [SHIPS_LATEST_ROUTE]: authedCachedGet(
       getAisCache,
       (c) => Boolean(c.data),
-      "No AIS data available yet",
+      SHIP_DATA_UNAVAILABLE_MESSAGE,
       (c) => ({ data: c.data, vesselCount: c.vesselCount, connected: c.connected }),
     ),
 
-    "/api/fires/latest": authedCachedGet(
+    [FIRE_LATEST_ROUTE]: authedCachedGet(
       getFirmsCache,
       (c) => Boolean(c.data),
       "No fire data available yet",
       (c) => ({ data: c.data, fetchedAt: c.fetchedAt, fireCount: c.fireCount }),
     ),
 
-    "/api/cyclones/latest": authedCachedGet(
+    [CycloneRoute.Latest]: authedCachedGet(
       getCyclonesCache,
       (c) => Boolean(c.body),
       "No cyclone data available yet",
       (c) => ({ activeStorms: c.body?.activeStorms, fetchedAt: c.fetchedAt, stormCount: c.stormCount }),
     ),
 
-    "/api/aircraft/states": authedGet(async (req) => {
+    [AircraftApiRoute.States]: authedGet(async (req) => {
       const cache = getAircraftCache();
       return jsonResponse(req, {
         ac: cache.body?.ac ?? [],
@@ -186,17 +209,21 @@ export function createApiRoutes(deps: ApiDeps) {
       });
     }),
 
-    "/api/news/latest": authedCachedGet(
+    [NEWS_LATEST_ROUTE]: authedCachedGet(
       getNewsCache,
       (c) => c.items.length > 0,
       "No news data available yet",
       (c) => ({ items: c.items, fetchedAt: c.fetchedAt, itemCount: c.itemCount }),
     ),
 
-    "/api/dossier/aircraft/:icao24": authedFnGet(async (req) => {
+    [`${AircraftApiRoute.Dossier}/:icao24`]: authedFnGet(async (req) => {
       const { icao24 = "" } = req.params ?? {};
-      if (!isValidIcao24(String(icao24))) {
-        return jsonError({ error: "Invalid ICAO24 hex code" }, 400);
+      const normalizedIcao24 = normalizeIcao24(String(icao24));
+      if (!normalizedIcao24) {
+        return jsonError(
+          { error: ApiErrorMessage.InvalidIcao24 },
+          HttpStatus.BadRequest,
+        );
       }
 
       const url = new URL(req.url);
@@ -204,24 +231,20 @@ export function createApiRoutes(deps: ApiDeps) {
       const callsign =
         callsignRaw && isValidCallsign(callsignRaw) ? callsignRaw : undefined;
 
-      const dossier = await getAircraftDossier(String(icao24), callsign);
+      const dossier = await getAircraftDossier(normalizedIcao24, callsign);
       if (!dossier) {
-        return jsonError({ error: "Aircraft not found" }, 404);
+        return jsonError(
+          { error: ApiErrorMessage.AircraftNotFound },
+          HttpStatus.NotFound,
+        );
       }
 
       return jsonResponse(req, { dossier });
     }),
 
-    "/api/dossier/cyclone/:stormId": authedStormGet(async (req, stormId) =>
+    [`${CycloneRoute.Dossier}/:stormId`]: authedStormGet(async (req, stormId) =>
       jsonResponse(req, await getCycloneDossier(stormId)),
     ),
 
-    "/api/cyclones/:stormId/cone": authedStormGet(async (req, stormId) =>
-      jsonResponse(req, await getCycloneCone(stormId)),
-    ),
-
-    "/api/cyclones/:stormId/models": authedStormGet(async (req, stormId) =>
-      jsonResponse(req, await getCycloneModels(stormId)),
-    ),
   };
 }

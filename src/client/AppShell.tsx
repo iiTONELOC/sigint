@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import { useIsMobileLayout } from "@/layout-mode";
 import { Header } from "@/components/Header";
 import { Search } from "@/components/Search";
@@ -14,6 +15,7 @@ import {
 } from "@/walkthrough";
 import { cacheGet, cacheGetEnum, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
+import { ButtonType } from "@/lib/ui/button";
 import { GripHorizontal } from "lucide-react";
 
 enum TickerMode {
@@ -61,13 +63,15 @@ export function AppShell() {
     aircraftFilter,
     setAircraftFilter,
     availableCountries,
-    chromeHidden,
     tickerItems,
     dataSources,
+  } = useDataContext();
+  const {
+    chromeHidden,
     handleSearchSelect,
     handleSearchZoomTo,
     handleSearchCommit,
-  } = useData();
+  } = useUI();
 
   const isMobileLayout = useIsMobileLayout();
 
@@ -193,6 +197,7 @@ export function AppShell() {
                 </span>
                 <span className="hidden md:inline">LIVE FEED</span>
                 <button
+                  type={ButtonType.Button}
                   onClick={cycleTickerMode}
                   className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim/50 hover:text-sig-accent/60 transition-colors cursor-pointer bg-transparent border-none group touch-target"
                 >
@@ -212,7 +217,7 @@ export function AppShell() {
             </div>
           ) : (
             <button
-              type="button"
+              type={ButtonType.Button}
               title="Show live feed"
               className={`w-full shrink-0 ${TickerClassName.Surface} cursor-pointer hover:bg-sig-accent/5 transition-colors`}
               style={{

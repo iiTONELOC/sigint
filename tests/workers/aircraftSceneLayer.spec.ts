@@ -1,25 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import {
   IsolateMode,
-  type RenderAircraftFilter,
 } from "@/workers/render/protocol";
+import type { AircraftFilterValues } from "@shared/domain/aircraftFilter";
 import {
   AircraftLayer,
   aircraftSceneIncludes,
   type AircraftSceneFilter,
 } from "@/workers/render/scene/aircraftLayer";
 import {
+  AIRCRAFT_SCENE_SQUAWK_CODES,
+  SCENE_POSITION_COUNT,
   AircraftSceneFlag,
-  AircraftSceneSchema,
-  AircraftSceneSquawk,
-} from "@/workers/render/scene/aircraftSchema";
-import {
-  MovingSceneMotionPositionSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+} from "@shared/scene";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
-import { MilFilter, SquawkBucket } from "@shared/domain/aircraft";
+import {
+  MilFilter,
+  SquawkBucket,
+  SquawkStatus,
+} from "@shared/domain/aircraft";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import {
   advanceGeographicMotion,
   createGeographicMotion,
@@ -39,38 +41,40 @@ const view = {
   positions: new Float64Array(6),
   motionPositions: new Float64Array(6),
   motionPositionStride:
-    MovingSceneMotionPositionSchema.MotionPositionStride,
+    SCENE_POSITION_COUNT,
   unitVectors: new Float32Array(9),
   timestamps: new Float64Array(3),
   attributes: new Float32Array([
     10,
     0,
-    AircraftSceneSquawk.Emergency,
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Emergency],
     0,
     0,
     20,
     AircraftSceneFlag.Military +
       AircraftSceneFlag.OnGround,
-    AircraftSceneSquawk.Normal,
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal],
     0,
     0,
     30,
     AircraftSceneFlag.Military +
       AircraftSceneFlag.Recon,
-    AircraftSceneSquawk.Hijack,
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Hijack],
     0,
     0,
   ]),
-  attributeStride: AircraftSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array([1, 2, 1]),
-  stringAttributeStride: AircraftSceneSchema.StringAttributeStride,
+  stringAttributeStride:
+    getPointSourceDefinition(Domain.Aircraft).sceneSchema.stringAttributeStride,
   dictionary: ["United States", "Canada"],
   geometries: [null, null, null],
 } satisfies RenderSceneView;
 
 function filter(
-  values: Partial<RenderAircraftFilter> = {},
-): RenderAircraftFilter {
+  values: Partial<AircraftFilterValues> = {},
+): AircraftFilterValues {
   return {
     enabled: true,
     showAirborne: true,
@@ -134,7 +138,7 @@ describe("aircraft scene layer", () => {
       positions: new Float64Array([20, 10]),
       motionPositions: new Float64Array([0, 0]),
       motionPositionStride:
-        MovingSceneMotionPositionSchema.MotionPositionStride,
+        SCENE_POSITION_COUNT,
       unitVectors: new Float32Array([
         rawUnit.x,
         rawUnit.y,
@@ -144,14 +148,15 @@ describe("aircraft scene layer", () => {
       attributes: new Float32Array([
         90,
         0,
-        AircraftSceneSquawk.Normal,
+        AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal],
         90,
         1_000,
       ]),
-      attributeStride: AircraftSceneSchema.AttributeStride,
+      attributeStride:
+        getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride,
       stringAttributes: new Uint32Array([0]),
       stringAttributeStride:
-        AircraftSceneSchema.StringAttributeStride,
+        getPointSourceDefinition(Domain.Aircraft).sceneSchema.stringAttributeStride,
       dictionary: [],
       geometries: [null],
     } satisfies RenderSceneView;

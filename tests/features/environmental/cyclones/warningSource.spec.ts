@@ -5,21 +5,20 @@ import {
   type GeoJsonPolygon,
   type GeoPoint,
 } from "@shared/geo";
-import { AreaKind } from "@/workers/render/protocol";
+import {
+  AreaKind,
+  CycloneWarningField,
+  type CycloneWarningPoint,
+} from "@shared/domain/cyclones";
 import { parseCycloneWarningCache } from "@/features/environmental/cyclones/data/warningCodec";
 import {
   CycloneWarningSceneBinding,
   CycloneWarningSource,
-  CYCLONE_WARNING_SOURCE_POLICY,
 } from "@/features/environmental/cyclones/warningSource";
-import {
-  CycloneWarningField,
-  type CycloneWarningPoint,
-} from "@/features/environmental/cyclones/types";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   CycloneWarningSceneAttribute,
-} from "@/workers/render/scene/cycloneWarningSchema";
+} from "@shared/scene";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
@@ -171,9 +170,10 @@ describe("cyclone warning change detection", () => {
 });
 
 describe("cyclone warning source policy", () => {
-  test("declares the warning identity once", () => {
-    expect(CYCLONE_WARNING_SOURCE_POLICY.id).toBe(Domain.CycloneWarnings);
-    expect(new CycloneWarningSource().pointType).toBe(Domain.CyclonesWarning);
+  test("consumes the registered warning identity", () => {
+    const policy = new CycloneWarningSource().policy;
+    expect(policy.id).toBe(Domain.CycloneWarnings);
+    expect(policy.pointType).toBe(Domain.CyclonesWarning);
   });
 });
 

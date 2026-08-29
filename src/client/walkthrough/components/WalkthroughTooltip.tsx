@@ -5,17 +5,9 @@ import type {
 } from "react";
 import { ChevronLeft, ChevronRight, GripHorizontal, X } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
-import {
-  WalkthroughPhase,
-  WalkthroughStepMode,
-  type WalkthroughStep,
-} from "../model";
-import { WalkthroughStyleSlot } from "../utils";
-
-type KeywordRule = Readonly<{
-  className: WalkthroughKeywordClassName;
-  pattern: RegExp;
-}>;
+import { WalkthroughPhase, WalkthroughStepMode } from "../model/vocabulary";
+import type { WalkthroughStep } from "../model/types";
+import { WalkthroughStyleSlot } from "../utils/stylesheet";
 
 enum WalkthroughKeywordClassName {
   Accent = "text-sig-accent",
@@ -29,33 +21,41 @@ enum WalkthroughKeywordClassName {
   Weather = "text-sig-weather",
 }
 
-const KEYWORD_RULES: readonly KeywordRule[] = [
-  { pattern: /\baircraft\b/gi, className: WalkthroughKeywordClassName.Aircraft },
-  { pattern: /\b(?:vessels?|ships?)\b/gi, className: WalkthroughKeywordClassName.Ships },
-  { pattern: /\bAIS\b/g, className: WalkthroughKeywordClassName.Ships },
-  { pattern: /\b(?:seismic|earthquakes?)\b/gi, className: WalkthroughKeywordClassName.Quakes },
-  { pattern: /\bfire(?:s|\.?)\b/gi, className: WalkthroughKeywordClassName.Fires },
-  { pattern: /\bFIRMS\b/g, className: WalkthroughKeywordClassName.Fires },
-  { pattern: /\bweather\b/gi, className: WalkthroughKeywordClassName.Weather },
-  { pattern: /\bGDELT\b/g, className: WalkthroughKeywordClassName.Events },
-  { pattern: /\bevents?\b/gi, className: WalkthroughKeywordClassName.Events },
-  { pattern: /\b(?:NEWS FEED|VIEWS|INTEL FEED)\b/g, className: WalkthroughKeywordClassName.Accent },
-  { pattern: /\bALERTS\b/g, className: WalkthroughKeywordClassName.Danger },
-  { pattern: /\b(?:save icon|VIDEO FEED)\b/gi, className: WalkthroughKeywordClassName.Warning },
-  { pattern: /\bbookmark icon\b/gi, className: WalkthroughKeywordClassName.Events },
-];
+const KEYWORD_PATTERNS = {
+  [WalkthroughKeywordClassName.Accent]: [/\b(?:NEWS FEED|VIEWS|INTEL FEED)\b/g],
+  [WalkthroughKeywordClassName.Aircraft]: [/\baircraft\b/gi],
+  [WalkthroughKeywordClassName.Danger]: [/\bALERTS\b/g],
+  [WalkthroughKeywordClassName.Events]: [
+    /\bGDELT\b/g, /\bevents?\b/gi, /\bbookmark icon\b/gi,
+  ],
+  [WalkthroughKeywordClassName.Fires]: [/\bfire(?:s|\.?)\b/gi, /\bFIRMS\b/g],
+  [WalkthroughKeywordClassName.Quakes]: [/\b(?:seismic|earthquakes?)\b/gi],
+  [WalkthroughKeywordClassName.Ships]: [
+    /\b(?:vessels?|ships?)\b/gi, /\bAIS\b/g,
+  ],
+  [WalkthroughKeywordClassName.Warning]: [/\b(?:save icon|VIDEO FEED)\b/gi],
+  [WalkthroughKeywordClassName.Weather]: [/\bweather\b/gi],
+} satisfies Readonly<
+  Record<WalkthroughKeywordClassName, readonly RegExp[]>
+>;
 
 function colorizedDescription(text: string): ReactNode {
   const parts: ReactNode[] = [];
   let remaining = text;
   let key = 0;
   while (remaining) {
-    let earliest: { rule: KeywordRule; index: number; text: string } | null = null;
-    for (const rule of KEYWORD_RULES) {
-      rule.pattern.lastIndex = 0;
-      const match = rule.pattern.exec(remaining);
-      if (match && (!earliest || match.index < earliest.index)) {
-        earliest = { rule, index: match.index, text: match[0] };
+    let earliest: {
+      className: WalkthroughKeywordClassName;
+      index: number;
+      text: string;
+    } | null = null;
+    for (const className of Object.values(WalkthroughKeywordClassName)) {
+      for (const pattern of KEYWORD_PATTERNS[className]) {
+        pattern.lastIndex = 0;
+        const match = pattern.exec(remaining);
+        if (match && (!earliest || match.index < earliest.index)) {
+          earliest = { className, index: match.index, text: match[0] };
+        }
       }
     }
     if (!earliest) {
@@ -64,7 +64,7 @@ function colorizedDescription(text: string): ReactNode {
     }
     if (earliest.index > 0) parts.push(remaining.slice(0, earliest.index));
     parts.push(
-      <span key={key++} className={`${earliest.rule.className} font-semibold`}>
+      <span key={key++} className={`${earliest.className} font-semibold`}>
         {earliest.text}
       </span>,
     );
@@ -85,8 +85,8 @@ type WalkthroughTooltipProps = Readonly<{
   ready: boolean;
   step: WalkthroughStep;
   stepIndex: number;
-  tooltipRef: RefObject<HTMLDivElement | null>;
-  totalSteps: number;
+  steps: readonly WalkthroughStep[];
+  tooltipRef: RefObject<HTMLDialogElement | null>;
 }>;
 
 enum WalkthroughTooltipIconMetric {
@@ -120,30 +120,25 @@ function MobileActionTooltip({
   onSkip,
   step,
   stepIndex,
-  totalSteps,
-}: Readonly<{
-  onSkip: () => void;
-  step: WalkthroughStep;
-  stepIndex: number;
-  totalSteps: number;
-}>) {
+  steps,
+}: Pick<WalkthroughTooltipProps, "onSkip" | "step" | "stepIndex" | "steps">) {
   return (
     <div className="bg-sig-panel border border-sig-accent/60 rounded-lg shadow-2xl overflow-hidden">
       <div className="h-0.5 bg-sig-warn" />
       <div className="px-3 py-2 flex items-center gap-2">
-        <span className="text-[10px] text-sig-dim tracking-widest font-semibold shrink-0">
-          {stepIndex + 1}/{totalSteps}
+        <span className="text-(length:--sig-text-sm) text-sig-dim tracking-widest font-semibold shrink-0">
+          {stepIndex + 1}/{steps.length}
         </span>
-        <span className="text-[11px] font-semibold text-sig-bright tracking-wider truncate">
+        <span className="text-(length:--sig-text-md) font-semibold text-sig-bright tracking-wider truncate">
           {step.title}
         </span>
-        <span className="text-[9px] text-sig-warn/70 tracking-wider animate-pulse shrink-0 ml-auto">
+        <span className="text-(length:--sig-text-xs) text-sig-warn/70 tracking-wider animate-walkthrough-pulse shrink-0 ml-auto">
           DO THIS
         </span>
         <button
           type={ButtonType.Button}
           onClick={onSkip}
-          className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-0.5"
+          className="shrink-0 px-1.5 py-0.5 rounded text-(length:--sig-text-sm) font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-0.5"
         >
           <X
             size={WalkthroughTooltipIconMetric.MobileCloseSize}
@@ -159,29 +154,32 @@ function MobileActionTooltip({
 function StepProgress({
   action,
   stepIndex,
-  totalSteps,
+  steps,
 }: Readonly<{
   action: boolean;
   stepIndex: number;
-  totalSteps: number;
+  steps: readonly WalkthroughStep[];
 }>) {
+  const value = stepIndex + 1;
   return (
-    <div
-      role="progressbar"
-      aria-label="Walkthrough progress"
-      aria-valuemin={1}
-      aria-valuemax={totalSteps}
-      aria-valuenow={stepIndex + 1}
-      className="flex items-center gap-1 mb-4"
-    >
-      {Array.from({ length: totalSteps }).map((_, index) => (
-        <div
-          key={index}
-          aria-hidden="true"
-          className={`h-1 rounded-full transition-all ${progressClassName(index, stepIndex, action)}`}
-        />
-      ))}
-    </div>
+    <>
+      <progress
+        aria-label="Walkthrough progress"
+        className="sr-only"
+        max={steps.length}
+        value={value}
+      >
+        {value} of {steps.length}
+      </progress>
+      <div aria-hidden="true" className="flex items-center gap-1 mb-4">
+        {steps.map((progressStep, index) => (
+          <div
+            key={progressStep.id}
+            className={`h-1 rounded-full transition-all ${progressClassName(index, stepIndex, action)}`}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -194,7 +192,7 @@ function FullTooltip({
   phase,
   step,
   stepIndex,
-  totalSteps,
+  steps,
 }: Omit<
   WalkthroughTooltipProps,
   | "dragging"
@@ -203,6 +201,7 @@ function FullTooltip({
   | "tooltipRef"
 >) {
   const action = step.mode === WalkthroughStepMode.Action;
+  const totalSteps = steps.length;
   const lastStep = stepIndex === totalSteps - 1;
   const nextLabel =
     (phase === WalkthroughPhase.Advanced && lastStep) ||
@@ -218,10 +217,10 @@ function FullTooltip({
       </div>
       <div className="px-4 pt-0 pb-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] text-sig-dim tracking-widest font-semibold">
+          <span className="text-(length:--sig-text-sm) text-sig-dim tracking-widest font-semibold">
             {stepIndex + 1} / {totalSteps}
           </span>
-          <span className="text-[10px] tracking-wider uppercase">
+          <span className="text-(length:--sig-text-sm) tracking-wider uppercase">
             {action ? (
               <span className="text-sig-warn">DO THIS</span>
             ) : (
@@ -239,14 +238,14 @@ function FullTooltip({
         <StepProgress
           action={action}
           stepIndex={stepIndex}
-          totalSteps={totalSteps}
+          steps={steps}
         />
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type={ButtonType.Button}
             onClick={onSkip}
-            className="px-2 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-1"
+            className="px-2 py-1.5 rounded text-(length:--sig-text-md) font-semibold tracking-wider text-sig-dim hover:text-sig-text transition-colors flex items-center gap-1"
           >
             <X
               size={WalkthroughTooltipIconMetric.CloseSize}
@@ -257,7 +256,7 @@ function FullTooltip({
           <button
             type={ButtonType.Button}
             onClick={onDismiss}
-            className="px-2 py-1.5 rounded text-[10px] tracking-wider text-sig-dim/50 hover:text-sig-dim transition-colors"
+            className="px-2 py-1.5 rounded text-(length:--sig-text-sm) tracking-wider text-sig-dim/50 hover:text-sig-dim transition-colors"
           >
             DON&apos;T SHOW AGAIN
           </button>
@@ -266,7 +265,7 @@ function FullTooltip({
             <button
               type={ButtonType.Button}
               onClick={onBack}
-              className="px-2.5 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors flex items-center gap-1"
+              className="px-2.5 py-1.5 rounded text-(length:--sig-text-md) font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors flex items-center gap-1"
             >
               <ChevronLeft
                 size={WalkthroughTooltipIconMetric.BackSize}
@@ -279,7 +278,7 @@ function FullTooltip({
             <button
               type={ButtonType.Button}
               onClick={onNext}
-              className="px-3 py-1.5 rounded text-[11px] font-semibold tracking-wider text-sig-bg bg-sig-accent hover:bg-sig-accent/90 transition-colors flex items-center gap-1"
+              className="px-3 py-1.5 rounded text-(length:--sig-text-md) font-semibold tracking-wider text-sig-bg bg-sig-accent hover:bg-sig-accent/90 transition-colors flex items-center gap-1"
             >
               {nextLabel}
               <ChevronRight
@@ -289,7 +288,7 @@ function FullTooltip({
             </button>
           )}
           {action && (
-            <span className="text-[10px] text-sig-warn/70 tracking-wider animate-pulse">
+            <span className="text-(length:--sig-text-sm) text-sig-warn/70 tracking-wider animate-walkthrough-pulse">
               WAITING FOR ACTION...
             </span>
           )}
@@ -302,26 +301,21 @@ function FullTooltip({
 export function WalkthroughTooltip(props: WalkthroughTooltipProps) {
   const action = props.step.mode === WalkthroughStepMode.Action;
   return (
-    <div
+    <dialog
+      open
       ref={props.tooltipRef}
-      role="dialog"
       aria-label={props.step.title}
       data-wt-dragging={props.dragging}
       data-wt-ready={props.ready}
       data-wt-style={WalkthroughStyleSlot.Tooltip}
       onPointerDown={props.onPointerDown}
-      className="absolute invisible data-[wt-ready=true]:visible cursor-grab active:cursor-grabbing"
+      className="walkthrough-tooltip absolute invisible data-[wt-ready=true]:visible cursor-grab active:cursor-grabbing bg-transparent border-0 p-0 m-0 max-w-none text-inherit"
     >
       {props.isMobile && action ? (
-        <MobileActionTooltip
-          onSkip={props.onSkip}
-          step={props.step}
-          stepIndex={props.stepIndex}
-          totalSteps={props.totalSteps}
-        />
+        <MobileActionTooltip {...props} />
       ) : (
         <FullTooltip {...props} />
       )}
-    </div>
+    </dialog>
   );
 }

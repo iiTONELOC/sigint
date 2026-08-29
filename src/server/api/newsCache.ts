@@ -1,19 +1,11 @@
-// ── RSS News Cache ──────────────────────────────────────────────────
-// Server-side polling cache for RSS news feeds (CORS bypass).
-// Follows gdeltCache/firmsCache contract:
-//   startNewsPolling() / stopNewsPolling() / getNewsCache()
-// No server-side persistence. Memory repopulates on restart.
-
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
 import { decodeHtmlEntities } from "../lib/htmlEntities";
-import { NewsSource } from "@shared/domain/newsSource";
+import { NewsPolling, NewsSource } from "@shared/domain/newsSource";
 
 const logger = createLogger({ service: "news" });
-
-const POLL_INTERVAL_MS = 10 * 60_000; // 10 minutes
 
 enum NewsHashPolicy {
   Radix = 36,
@@ -43,20 +35,14 @@ enum NewsRegexFlag {
   DotAll = "s",
 }
 
-// ── Feed sources ────────────────────────────────────────────────────
-
-type FeedSource = { name: string; url: string };
-
-const FEEDS: FeedSource[] = [
-  { name: NewsSource.Reuters, url: "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US" },
-  { name: NewsSource.NewYorkTimes, url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
-  { name: NewsSource.Bbc, url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
-  { name: NewsSource.AlJazeera, url: "https://www.aljazeera.com/xml/rss/all.xml" },
-  { name: NewsSource.Guardian, url: "https://www.theguardian.com/world/rss" },
-  { name: NewsSource.Npr, url: "https://feeds.npr.org/1004/rss.xml" },
-];
-
-// ── News item shape ─────────────────────────────────────────────────
+const FEED_URL_BY_SOURCE: Readonly<Record<NewsSource, string>> = {
+  [NewsSource.Reuters]: "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&ceid=US:en&hl=en-US&gl=US",
+  [NewsSource.NewYorkTimes]: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+  [NewsSource.Bbc]: "https://feeds.bbci.co.uk/news/world/rss.xml",
+  [NewsSource.AlJazeera]: "https://www.aljazeera.com/xml/rss/all.xml",
+  [NewsSource.Guardian]: "https://www.theguardian.com/world/rss",
+  [NewsSource.Npr]: "https://feeds.npr.org/1004/rss.xml",
+};
 
 export type NewsItem = {
   id: string;
@@ -67,8 +53,6 @@ export type NewsItem = {
   description: string;
 };
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
 function stripHtml(html: string): string {
   const text = decodeHtmlEntities(html).replace(/<[^<>]*>/g, " ");
   return text.replace(/\s+/g, " ").trim();
@@ -77,12 +61,10 @@ function stripHtml(html: string): string {
 function hashUrl(url: string): string {
   let hash = 0;
   for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0; // NOSONAR: Stable IDs require UTF-16 units and signed 32-bit wrapping.
+    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
   }
   return `NW${Math.abs(hash).toString(NewsHashPolicy.Radix)}`;
 }
-
-// ── RSS/Atom XML parser ─────────────────────────────────────────────
 
 function extractTag(xml: string, tag: string): string {
   const tagPattern = new RegExp(
@@ -162,27 +144,26 @@ function parseRssItems(xml: string, sourceName: string): NewsItem[] {
   return items;
 }
 
-// ── Fetch single feed ───────────────────────────────────────────────
-
-async function fetchFeed(feed: FeedSource): Promise<NewsItem[]> {
+async function fetchFeed(
+  source: string,
+  url: string,
+): Promise<NewsItem[]> {
   try {
-    const res = await fetchWithTimeout(feed.url, 15_000, {
+    const res = await fetchWithTimeout(url, 15_000, {
       headers: {
         Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
       },
     });
     if (!res.ok) {
-      logger.warn(`📰 ${feed.name}: HTTP ${res.status}`);
+      logger.warn(`📰 ${source}: HTTP ${res.status}`);
       return [];
     }
-    return parseRssItems(await res.text(), feed.name);
+    return parseRssItems(await res.text(), source);
   } catch (err) {
-    logger.warn(`📰 ${feed.name}: ${errorMessage(err, "Unknown error")}`);
+    logger.warn(`📰 ${source}: ${errorMessage(err, "Unknown error")}`);
     return [];
   }
 }
-
-// ── Cache state ─────────────────────────────────────────────────────
 
 type NewsCache = {
   items: NewsItem[];
@@ -193,20 +174,20 @@ type NewsCache = {
 
 let cache: NewsCache = { items: [], fetchedAt: 0, itemCount: 0, error: null };
 
-// ── Poll pipeline ───────────────────────────────────────────────────
-
 async function fetchAllNews(): Promise<void> {
   const errors: string[] = [];
   const allItems: NewsItem[] = [];
 
-  const results = await Promise.allSettled(FEEDS.map((f) => fetchFeed(f)));
+  const feeds = Object.entries(FEED_URL_BY_SOURCE);
+  const results = await Promise.allSettled(
+    feeds.map(([source, url]) => fetchFeed(source, url)),
+  );
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
     if (r.status === PromiseResultState.Fulfilled) allItems.push(...r.value);
-    else errors.push(`${FEEDS[i]!.name}: ${r.reason}`);
+    else errors.push(`${feeds[i]![0]}: ${r.reason}`);
   }
 
-  // Dedup by URL
   const seen = new Set<string>();
   const deduped: NewsItem[] = [];
   for (const item of allItems) {
@@ -215,11 +196,9 @@ async function fetchAllNews(): Promise<void> {
     deduped.push(item);
   }
 
-  // Sort newest first, cap at 200
   deduped.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   const capped = deduped.slice(0, 200);
 
-  // Retain stale cache if upstream returned 0 items
   if (capped.length > 0 || cache.items.length === 0) {
     cache = {
       items: capped,
@@ -231,12 +210,10 @@ async function fetchAllNews(): Promise<void> {
     cache = { ...cache, error: errors.join("; ") };
   }
 
-  logger.info(`📰 News: ${capped.length} items from ${FEEDS.length} feeds (${errors.length} errors)`);
+  logger.info(`📰 News: ${capped.length} items from ${feeds.length} feeds (${errors.length} errors)`);
 }
 
-// ── Public API (matches gdeltCache/firmsCache contract) ─────────────
-
-const poller = createPoller(fetchAllNews, POLL_INTERVAL_MS);
+const poller = createPoller(fetchAllNews, NewsPolling.IntervalMs);
 
 export function startNewsPolling(): void {
   poller.start();

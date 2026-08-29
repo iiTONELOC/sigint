@@ -1,4 +1,4 @@
-import type { PanelSide } from "@/workers/render/protocol";
+import type { PanelSide } from "@/layout-mode/model/layoutMode";
 import type { DataPoint } from "@/features/base/dataPoints";
 
 export type GlobeVisualizationProps = {

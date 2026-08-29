@@ -1,14 +1,14 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import { useTheme } from "@/theme";
 import { useVirtualScroll } from "@/virtual-scroll";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
-import { Domain } from "@shared/domain/identity";
 import type { PointType } from "@shared/domain/pointType";
 import { useItemSelectHandlers } from "@/selection";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { WatchSource } from "@/context/WatchContext";
+import { useWatch, WatchSource } from "@/context/WatchContext";
 import { ButtonType } from "@/lib/ui/button";
 import { EMPTY_TEXT } from "@shared/text";
 import { featureRegistry } from "@/features/registry";
@@ -22,8 +22,6 @@ import {
   Clock,
 } from "lucide-react";
 import { relativeAge } from "@/time";
-import { FireCopy } from "@/features/environmental/fires/formatters";
-import { primaryWeatherArea } from "@/features/environmental/weather/formatters";
 
 enum AlertLogVirtualization {
   Overscan = 6,
@@ -114,20 +112,9 @@ function persistDismissed(ids: Set<string>): void {
 }
 
 function getDetail(item: DataPoint): string {
-  switch (item.type) {
-    case Domain.Aircraft:
-      return `${item.data.callsign?.trim() || item.data.icao24 || EMPTY_TEXT}${AlertLogText.FactorSeparator}${item.data.originCountry || EMPTY_TEXT}`;
-    case Domain.Events:
-      return item.data.headline || EMPTY_TEXT;
-    case Domain.Quakes:
-      return item.data.location || EMPTY_TEXT;
-    case Domain.Fires:
-      return `${item.data.satellite || FireCopy.DefaultSatellite}${AlertLogText.FactorSeparator}${item.data.confidence || EMPTY_TEXT}`;
-    case Domain.Weather:
-      return primaryWeatherArea(item.data.areaDesc);
-    default:
-      return EMPTY_TEXT;
-  }
+  const detail =
+    featureRegistry[item.type]?.alertDetail?.(item.data) ?? [];
+  return detail.join(AlertLogText.FactorSeparator) || EMPTY_TEXT;
 }
 
 function alertScorePresentation(score: number): AlertScorePresentation {
@@ -151,17 +138,19 @@ function alertRowBackgroundClass(
 }
 
 export function AlertLogPane() {
+  const { correlation } = useDataContext();
   const {
     selectedCurrent,
     setSelected,
     selectAndZoom,
     setRevealId,
     colorMap,
-    correlation,
+  } = useUI();
+  const {
     watchActive,
     watchMode,
     watchProgress,
-  } = useData();
+  } = useWatch();
   const { theme } = useTheme();
 
   const alerts = correlation.alerts;
@@ -292,6 +281,7 @@ export function AlertLogPane() {
         </span>
 
         <button
+          type={ButtonType.Button}
           onClick={() => setFilterType(null)}
           className={`touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border ${
             filterType === null
@@ -302,10 +292,11 @@ export function AlertLogPane() {
           ALL
         </button>
         {filterTypes.map((type) => {
-          const Icon = featureRegistry.get(type)?.icon ?? Activity;
+          const Icon = featureRegistry[type]?.icon ?? Activity;
           const color = colorMap[type] ?? theme.colors.dim;
           return (
             <button
+              type={ButtonType.Button}
               key={type}
               onClick={() =>
                 setFilterType(filterType === type ? null : type)
@@ -330,6 +321,7 @@ export function AlertLogPane() {
 
         {dismissed.size > 0 && (
           <button
+            type={ButtonType.Button}
             onClick={clearAllDismissed}
             className="touch-target px-1.5 py-0.5 rounded text-[10px] tracking-wider font-semibold shrink-0 transition-colors border text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"
             title={`Restore ${dismissed.size} dismissed alert${dismissed.size > 1 ? "s" : ""}`}
@@ -344,6 +336,7 @@ export function AlertLogPane() {
         )}
 
         <button
+          type={ButtonType.Button}
           onClick={() =>
             setSortBy((current) =>
               current === AlertSort.Score
@@ -398,7 +391,7 @@ export function AlertLogPane() {
           >
             {visibleAlerts.map((alert) => {
               const Icon =
-                featureRegistry.get(alert.item.type)?.icon ?? Activity;
+                featureRegistry[alert.item.type]?.icon ?? Activity;
               const color = colorMap[alert.item.type] ?? theme.colors.dim;
               const isSelected = selectedCurrent?.id === alert.item.id;
               const isWatchTarget =
@@ -459,6 +452,7 @@ export function AlertLogPane() {
                     </span>
                     <div className="ml-auto flex items-center shrink-0 pointer-events-auto">
                       <button
+                        type={ButtonType.Button}
                         onClick={(e) => dismissAlert(alert.item.id, e)}
                         className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-danger transition-colors"
                         title="Dismiss alert"
@@ -469,6 +463,7 @@ export function AlertLogPane() {
                         />
                       </button>
                       <button
+                        type={ButtonType.Button}
                         onClick={(e) => handleZoom(alert.item, e)}
                         className="min-h-11 min-w-11 flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
                         title="Zoom to"

@@ -1,11 +1,8 @@
 import { useEffect, useRef } from "react";
 import { PaneType, type PaneTypeValue } from "@/panes/workspace";
-import {
-  WalkthroughStepId,
-  WalkthroughStepMode,
-  type WalkthroughStep,
-} from "../model";
-import { requestWalkthroughUndo } from "../utils";
+import { WalkthroughStepId, WalkthroughStepMode } from "../model/vocabulary";
+import type { WalkthroughStep } from "../model/types";
+import { requestWalkthroughUndo } from "../utils/signals";
 
 type UseWalkthroughActionCompletionOptions = Readonly<{
   chromeHidden: boolean;
@@ -51,8 +48,7 @@ export function useWalkthroughActionCompletion({
 
   useEffect(() => {
     if (
-      !step ||
-      step.mode !== WalkthroughStepMode.Action ||
+      step?.mode !== WalkthroughStepMode.Action ||
       !step.completionCheck
     ) {
       return;
@@ -119,8 +115,7 @@ export function useWalkthroughActionCompletion({
 
   useEffect(() => {
     if (
-      !step ||
-      step.mode !== WalkthroughStepMode.Action ||
+      step?.mode !== WalkthroughStepMode.Action ||
       !step.expectedPaneType
     ) {
       previousLeafTypesRef.current = leafTypes;

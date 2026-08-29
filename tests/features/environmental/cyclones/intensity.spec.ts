@@ -16,7 +16,7 @@ import {
   SaffirSimpson,
   type CycloneData,
   type ForecastPoint,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 
 function fp(fcstHour: number, maxWindKt: number): ForecastPoint {
   return {

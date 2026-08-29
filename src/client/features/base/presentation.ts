@@ -1,8 +1,9 @@
 import type { ComponentType } from "react";
 import type { LucideIcon, LucideProps } from "lucide-react";
 import type { IntelSeverity } from "@shared/domain/correlation";
+import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { EMPTY_TEXT } from "@shared/text";
-import type { DataType } from "./dataPoints";
+import type { DataPoint, DataType } from "./dataPoints";
 import { IconStrokeWidth } from "./types";
 
 enum FeatureIconFill {
@@ -33,6 +34,11 @@ export enum FeatureTableAbbreviation {
   Weather = "WX",
 }
 
+export enum FeaturePresentationText {
+  Separator = " · ",
+  Unknown = "Unknown",
+}
+
 export type FeatureIconProps = Pick<LucideProps, "fill" | "strokeWidth">;
 
 export type FeatureTablePresentation = Readonly<{
@@ -55,8 +61,28 @@ export type FeatureFeedPresentation = Readonly<{
 
 export type TickerRendererProps = Readonly<{
   data: unknown;
-  textColor: string;
-  dimColor: string;
+}>;
+
+export type FeatureSearchPresentation = Readonly<{
+  primary: string;
+  secondary: string;
+}>;
+
+type FeaturePoint<TType extends DataType> = Extract<
+  DataPoint,
+  Readonly<{ type: TType }>
+>;
+
+export type FeatureDossierProps<
+  TType extends DataType = DataType,
+> = Readonly<{
+  item: FeaturePoint<TType>;
+  requestItem?: DataPoint | null;
+  isolateMode: SelectedIsolateMode;
+  onLocate: () => void;
+  onFocus: () => void;
+  onSolo: () => void;
+  onClose: () => void;
 }>;
 
 export type FeatureDefinition = Readonly<{
@@ -71,6 +97,13 @@ export type FeatureDefinition = Readonly<{
   tablePresentation: (data: unknown, id: string) => FeatureTablePresentation;
   feedPresentation: (data: unknown, id: string) => FeatureFeedPresentation;
   TickerContent: ComponentType<TickerRendererProps>;
+  alertDetail?: (data: unknown) => readonly string[];
+  DetailSummary?: ComponentType<Readonly<{ item: DataPoint }>> | null;
+  searchPresentation: (
+    data: unknown,
+    id: string,
+  ) => FeatureSearchPresentation | null;
+  tickerSummary?: (data: unknown) => readonly string[];
   getSearchText?: (data: unknown) => string;
 }>;
 
@@ -86,13 +119,23 @@ type TypedFeatureDefinition<TData, TType extends DataType> = Readonly<{
   tablePresentation: (data: TData, id: string) => FeatureTablePresentation;
   feedPresentation: (data: TData, id: string) => FeatureFeedPresentation;
   TickerContent: ComponentType<TickerRendererProps>;
+  alertDetail?: (data: TData) => readonly string[];
+  DetailSummary?: ComponentType<Readonly<{ item: DataPoint }>> | null;
+  searchPresentation?: (
+    data: TData,
+    id: string,
+  ) => FeatureSearchPresentation;
+  tickerSummary?: (data: TData) => readonly string[];
   getSearchText?: (data: TData) => string;
 }>;
 
 export function defineFeature<TData, TType extends DataType>(
   definition: TypedFeatureDefinition<TData, TType>,
 ): FeatureDefinition {
+  const alertDetail = definition.alertDetail;
   const getSearchText = definition.getSearchText;
+  const searchPresentation = definition.searchPresentation;
+  const tickerSummary = definition.tickerSummary;
   return {
     id: definition.id,
     label: definition.label,
@@ -112,6 +155,11 @@ export function defineFeature<TData, TType extends DataType>(
     feedPresentation: (data, id) =>
       definition.feedPresentation(data as TData, id),
     TickerContent: definition.TickerContent,
+    alertDetail: (data) => alertDetail?.(data as TData) ?? [],
+    DetailSummary: definition.DetailSummary,
+    searchPresentation: (data, id) =>
+      searchPresentation?.(data as TData, id) ?? null,
+    tickerSummary: (data) => tickerSummary?.(data as TData) ?? [],
     ...(getSearchText
       ? { getSearchText: (data: unknown) => getSearchText(data as TData) }
       : {}),

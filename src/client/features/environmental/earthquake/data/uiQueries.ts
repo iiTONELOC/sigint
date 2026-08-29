@@ -5,47 +5,36 @@ import {
 import {
   alwaysInTicker,
   createPointUiQueries,
-  matchesThresholdFilter,
   neverTickerPriority,
   noFilterFacet,
-  type PointUiQuery,
-  type PointUiQueryResult,
 } from "@/workers/data/uiQuery";
+import type { EarthquakeData } from "@shared/domain/earthquakes";
+import { joinSearchText } from "@shared/text";
+import { earthquakeTablePresentation } from "../formatters/presentation";
 
-export type { TableSortDirection, TableSortKey } from "@/workers/data/uiQuery";
+export function earthquakeSearchText(data: EarthquakeData): string {
+  return joinSearchText([
+    data.location,
+    data.magnitude === undefined ? "" : `M${data.magnitude}`,
+    data.alert,
+    data.eventType,
+  ]);
+}
 
-export type EarthquakeUiQuery = PointUiQuery;
-export type EarthquakeUiQueryResult = PointUiQueryResult<EarthquakePoint>;
-
-
-function magnitudeLabel(point: EarthquakePoint): string {
-  return point.data.magnitude === undefined
-    ? ""
-    : `M${point.data.magnitude}`;
+function tablePresentation(point: EarthquakePoint) {
+  return earthquakeTablePresentation(point.data, point.id);
 }
 
 export const EARTHQUAKE_UI_QUERIES = createPointUiQueries<EarthquakePoint>({
   parseEntity: parseEarthquakePoint,
-  searchText: (point) =>
-    [
-      point.data.location,
-      magnitudeLabel(point),
-      point.data.alert,
-      point.data.eventType,
-    ]
-      .filter((segment): segment is string => Boolean(segment))
-      .join(" "),
-  primaryLabel: (point) => point.data.location || point.id,
-  nameLabel: (point) => point.data.location || point.id,
-  value1: (point) => point.data.magnitude ?? 0,
-  value1Label: magnitudeLabel,
-  value2: (point) => point.data.depth ?? 0,
-  includeInTable: (point, minValue) => {
-    const magnitude = point.data.magnitude;
-    return !(magnitude !== undefined && minValue > 0 && magnitude < minValue);
-  },
-  matchesFilter: (point, filter) =>
-    matchesThresholdFilter(filter, "minMagnitude", point.data.magnitude ?? null),
+  searchText: (point) => earthquakeSearchText(point.data),
+  primaryLabel: (point) => tablePresentation(point).name,
+  nameLabel: (point) => tablePresentation(point).name,
+  value1: (point) => tablePresentation(point).classificationRank,
+  value1Label: (point) => tablePresentation(point).classification,
+  value2: (point) => tablePresentation(point).detailRank,
+  includeInTable: () => true,
+  matchesFilter: (_point, filter) => filter === true,
   includeInTicker: alwaysInTicker,
   tickerPriority: neverTickerPriority,
   filterFacet: noFilterFacet,

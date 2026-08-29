@@ -15,15 +15,15 @@ import {
 } from "../_support/cyclone";
 import {
   cycloneForecastSceneId,
-} from "@/workers/render/scene/cycloneSchema";
+} from "@shared/scene";
 import { Domain } from "@shared/domain/identity";
-import { sourceForPointType } from "@/workers/data/sources/registry";
+import { sourceForPointType } from "@shared/domain/pointSource";
 import {
   cycloneForecastPoint,
 } from "@/features/environmental/cyclones/data/forecastProjection";
 import {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
   parseDataWorkerEvent,
 } from "@/workers/data/protocol";
 
@@ -45,7 +45,7 @@ describe("cyclone source reconciliation", () => {
     );
     const event = parseDataWorkerEvent({
       type: DataWorkerMessageType.SourceEntity,
-      protocolVersion: DataWorkerProtocolVersion.Current,
+      protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
       requestId: 1,
       source: Domain.Cyclones,
       sourceVersion: 1,

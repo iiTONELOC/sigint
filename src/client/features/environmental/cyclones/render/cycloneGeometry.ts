@@ -1,33 +1,17 @@
 // ── Shared cyclone render geometry ───────────────────────────────────
-// Pure, DOM-free geometry shared by BOTH the globe worker (render/cyclones.ts)
+// Geometry and painters shared by BOTH the globe worker (scene/cycloneLayer.ts)
 // and the dossier mini-map (CycloneForecastMiniMap). Single source of truth so
 // the two surfaces draw identical cones, wind footprints, and tracks.
 //
-// Everything is parameterised by a `proj` callback so it works for the worker's
-// projGlobe and the mini-map's local projection alike. No canvas calls here —
-// these return point arrays the caller strokes/fills.
+// Geometry is parameterised by a `proj` callback so it works for the worker's
+// projGlobe and the mini-map's local projection alike. The painters take a
+// canvas context and the pre-computed screen points.
 
-import type { ProjFn } from "@/lib/geo/render/types";
-
-export type { Projected } from "@/lib/geo/render/types";
-export type { ProjFn };
-
-export type Ctx = OffscreenCanvasRenderingContext2D;
-export type LatLon = { lat: number; lon: number };
-
-export const NM_PER_DEG = 60;
-
-/** Wind-radii band thresholds → display color, hottest reddest. Matches the
- *  dossier wind rose and the globe. Single source. */
-export const WIND_RADII_BANDS = [
-  { kt: 34, color: "#4ad2ff", alpha: 0.12 },
-  { kt: 50, color: "#ffd24a", alpha: 0.16 },
-  { kt: 64, color: "#ff5d5d", alpha: 0.2 },
-] as const;
-
-export function windRadiiBandColor(thresholdKt: number): string {
-  return WIND_RADII_BANDS.find((b) => b.kt === thresholdKt)?.color ?? "#4ad2ff";
-}
+import type { ProjFn, Pt, RenderContext2D } from "@/lib/geo/render/types";
+import { strokePoints, tracePoints } from "@/lib/geo/render/path";
+import type { CycloneForecastFact } from "@shared/domain/cyclones";
+import { GeoMeasurement } from "@shared/geo";
+import { windColor, windRadiiBandColor } from "../classification";
 
 // Quadrant center bearings (compass deg, 0=N clockwise): NE, SE, SW, NW.
 const WR_QUAD_CENTER = [45, 135, 225, 315];
@@ -72,7 +56,7 @@ export type ConeSegment = {
   quad: [Point2, Point2, Point2, Point2];
   /** taper factor 0 (near) → 1 (far), for alpha fade */
   t: number;
-  /** forecast max wind (kt) at this band's NEAR point — for intensity coloring,
+  /** forecast max wind (kt) at this band's NEAR point, for intensity coloring,
    *  so each band reads as the intensity at the position it leaves. 0 when the
    *  forecast carries no wind. */
   maxWindKt: number;
@@ -125,7 +109,7 @@ function riveNormals(pts: ConePoint[]): void {
 export function segmentedConeSegments(
   eyeX: number,
   eyeY: number,
-  forecast: ReadonlyArray<{ lat: number; lon: number; fcstHour: number; errorRadiusNm: number; maxWindKt?: number }>,
+  forecast: ReadonlyArray<CycloneForecastFact>,
   proj: ProjFn,
   eyeWindKt = 0,
 ): ConeSegment[] {
@@ -138,7 +122,10 @@ export function segmentedConeSegments(
     const pxPerDeg = Math.hypot(nb.x - p.x, nb.y - p.y);
     pts.push({
       x: p.x, y: p.y,
-      r: (fc.errorRadiusNm / NM_PER_DEG) * pxPerDeg,
+      r:
+        (fc.errorRadiusNm /
+          GeoMeasurement.NauticalMilesPerDegree) *
+        pxPerDeg,
       h: fc.fcstHour,
       w: fc.maxWindKt ?? 0,
       nx: 0, ny: 0,
@@ -156,7 +143,7 @@ export function segmentedConeSegments(
     segs.push({
       t: B.h / maxH,
       // Color by the NEAR point so the band leaving each position reads as the
-      // intensity AT that position — the band off the eye matches the storm's
+  // intensity AT that position, the band off the eye matches the storm's
       // current category, not the next forecast point's.
       maxWindKt: A.w,
       quad: [
@@ -170,10 +157,109 @@ export function segmentedConeSegments(
   return segs;
 }
 
-/** Project a lat/lon polyline to visible screen points (z>0). */
-export function projectTrack(track: ReadonlyArray<LatLon>, proj: ProjFn): Array<[number, number]> {
-  return track
-    .map((p) => proj(p.lat, p.lon))
-    .filter((p) => p.z > 0)
-    .map((p) => [p.x, p.y] as [number, number]);
+export type WindRadiiBand = Readonly<{
+  threshold: number;
+  quadrants: readonly number[];
+  fillAlpha: number;
+}>;
+
+/** The eye on screen plus the scale that turns nautical miles into pixels. */
+export type EyeScale = Pt & Readonly<{ pixelsPerNm: number }>;
+
+const WIND_BAND_RIM_WIDTH = 1;
+
+/** Fill each wind band around the eye; a positive `strokeAlpha` also rims it. */
+export function paintWindRadiiBands(
+  context: RenderContext2D,
+  eye: EyeScale,
+  bands: Iterable<WindRadiiBand>,
+  strokeAlpha = 0,
+): void {
+  for (const band of bands) {
+    const points = windRadiiBandPoints(band.quadrants, eye.x, eye.y, eye.pixelsPerNm);
+    if (points.length === 0) continue;
+    tracePoints(context, points, true);
+    context.fillStyle = windRadiiBandColor(band.threshold);
+    context.globalAlpha = band.fillAlpha;
+    context.fill();
+    if (strokeAlpha <= 0) continue;
+    context.globalAlpha = strokeAlpha;
+    context.lineWidth = WIND_BAND_RIM_WIDTH;
+    context.strokeStyle = windRadiiBandColor(band.threshold);
+    context.stroke();
+  }
+}
+
+enum ConeFill {
+  BaseAlpha = 0.3,
+  FadeSpan = 0.18,
+}
+
+enum ConeStroke {
+  DividerStrokeWidth = 1,
+  RimStrokeWidth = 1.25,
+  DividerFadeSpan = 0.3,
+  RimFadeSpan = 0.35,
+  DividerBaseAlpha = 0.5,
+  RimBaseAlpha = 0.6,
+}
+
+export type ConePaint = Readonly<{
+  /** Multiplies every alpha; 1 on a flat surface. */
+  depthAlpha: number;
+  /** Colour for a segment whose forecast carries no wind. */
+  fallbackColor: string;
+  /** Stroke the outer rims and the segment dividers as the globe does. */
+  rims: boolean;
+}>;
+
+function paintConeRims(
+  context: RenderContext2D,
+  segment: ConeSegment,
+  color: string,
+  depthAlpha: number,
+): void {
+  const [nearLeft, farLeft, farRight, nearRight] = segment.quad;
+  context.strokeStyle = color;
+  context.lineWidth = ConeStroke.RimStrokeWidth;
+  context.globalAlpha =
+    depthAlpha * (ConeStroke.RimBaseAlpha - ConeStroke.RimFadeSpan * segment.t);
+  strokePoints(context, [nearLeft, farLeft]);
+  strokePoints(context, [nearRight, farRight]);
+  context.lineWidth = ConeStroke.DividerStrokeWidth;
+  context.globalAlpha =
+    depthAlpha * (ConeStroke.DividerBaseAlpha - ConeStroke.DividerFadeSpan * segment.t);
+  strokePoints(context, [farLeft, farRight]);
+}
+
+/** Fill each cone segment by its intensity, fading towards the far end. */
+export function paintConeSegments(
+  context: RenderContext2D,
+  segments: readonly ConeSegment[],
+  paint: ConePaint,
+): void {
+  for (const segment of segments) {
+    const color = segment.maxWindKt > 0 ? windColor(segment.maxWindKt) : paint.fallbackColor;
+    tracePoints(context, segment.quad, true);
+    context.fillStyle = color;
+    context.globalAlpha =
+      paint.depthAlpha * (ConeFill.BaseAlpha - ConeFill.FadeSpan * segment.t);
+    context.fill();
+    if (paint.rims) paintConeRims(context, segment, color, paint.depthAlpha);
+  }
+}
+
+/** An X at the genesis point; the caller sets stroke colour, width, and alpha. */
+export function drawGenesisMark(
+  context: RenderContext2D,
+  x: number,
+  y: number,
+  armLength: number,
+): void {
+  context.beginPath();
+  context.moveTo(x - armLength, y - armLength);
+  context.lineTo(x + armLength, y + armLength);
+  context.moveTo(x - armLength, y + armLength);
+  context.lineTo(x + armLength, y - armLength);
+  context.stroke();
 }

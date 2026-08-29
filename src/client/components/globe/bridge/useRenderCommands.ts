@@ -1,14 +1,12 @@
 import { useEffect } from "react";
 import type { GlobeVisualizationProps } from "@/components/globe/types";
+import { canonicalEntityId } from "@/features/base/dataPoints";
 import { sendRenderSurfaceCommand } from "@/render-surface/element";
 import {
   RenderFocusKind,
   RenderMessageType,
 } from "@/workers/render/protocol";
-import {
-  canonicalEntityId,
-  sourceForPointType,
-} from "@/workers/data/sources/registry";
+import { sourceForPointType } from "@shared/domain/pointSource";
 
 type RenderCommandOptions = Readonly<{
   host: HTMLElement | null;

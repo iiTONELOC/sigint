@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
+import { AircraftApiRoute } from "../src/shared/domain/aircraft";
 /**
  * scripts/capture-fixture.ts
  *
  * Capture a live data snapshot into tests/fixtures/<source>/<label>.json
  * for use as an E2E / regression / off-season-development fixture.
  *
- * Fixtures are test-only and never served from public/ — anything under
+ * Fixtures are test-only and never served from public/. Anything under
  * public/ goes to the live internet, and fake storm data must not be
  * reachable from a production deploy. bun:test loads fixtures via
  * Bun.file("tests/fixtures/...").json(); Playwright mocks via
@@ -17,10 +18,10 @@
  *   bun run scripts/capture-fixture.ts cyclones live
  *   bun run scripts/capture-fixture.ts weather snapshot-2026-04-26
  *
- * Sources that require auth (ships / events / fires) need a local server
+ * Sources that require auth (aircraft / ships / events / fires) need a server
  * running on http://localhost:5500 (override via SIGINT_FIXTURE_SERVER env).
  *
- * SSRF (OWASP A10): the URL list is a hardcoded allowlist — `source` is
+ * SSRF (OWASP A10): the URL list is a hardcoded allowlist. `source` is
  * validated against it, never interpolated. `label` is constrained to
  * /^[a-z0-9][a-z0-9-]{0,63}$/i so the output path stays in the intended
  * directory.
@@ -41,7 +42,7 @@ export const SOURCES: Record<string, SourceSpec> = {
     url: "https://www.nhc.noaa.gov/CurrentStorms.json",
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
   },
-  aircraft: { url: `${SERVER_BASE}/api/aircraft/states`, needsAuth: true },
+  aircraft: { url: `${SERVER_BASE}${AircraftApiRoute.States}`, needsAuth: true },
   weather: {
     url: "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
     headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
@@ -65,13 +66,22 @@ export function sanitizeLabel(input: string): string | null {
 
 const TOKEN_COOKIE_RE = /sigint_token=[^;]+/;
 
-async function getAuthCookie(): Promise<string> {
+async function getAuthCookie(): Promise<string | null> {
   const res = await fetch(`${SERVER_BASE}/api/auth/token`);
-  if (!res.ok) throw new Error(`auth/token: ${res.status}`);
+  if (!res.ok) {
+    console.error(`auth/token request failed: ${res.status}`);
+    return null;
+  }
   const setCookie = res.headers.get("set-cookie");
-  if (!setCookie) throw new Error("auth/token: no Set-Cookie header");
+  if (!setCookie) {
+    console.error("auth/token response has no Set-Cookie header");
+    return null;
+  }
   const match = TOKEN_COOKIE_RE.exec(setCookie);
-  if (!match) throw new Error("auth/token: missing sigint_token cookie");
+  if (!match) {
+    console.error("auth/token response has no sigint_token cookie");
+    return null;
+  }
   return match[0];
 }
 
@@ -97,7 +107,7 @@ async function main(): Promise<void> {
   const safeLabel = sanitizeLabel(label);
   if (!safeLabel) {
     console.error(
-      `Invalid label "${label}". Must match /^[a-z0-9][a-z0-9-]{0,63}$/i.`,
+      `Invalid label "${label}". Must match /${LABEL_RE.source}/i.`,
     );
     process.exit(1);
   }
@@ -105,7 +115,9 @@ async function main(): Promise<void> {
   const headers: Record<string, string> = { ...spec.headers };
   if (spec.needsAuth) {
     console.log(`auth: requesting cookie from ${SERVER_BASE}/api/auth/token`);
-    headers.Cookie = await getAuthCookie();
+    const cookie = await getAuthCookie();
+    if (!cookie) process.exit(1);
+    headers.Cookie = cookie;
   }
 
   console.log(`fetch: ${spec.url}`);

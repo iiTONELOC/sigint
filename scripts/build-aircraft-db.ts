@@ -1,23 +1,4 @@
 #!/usr/bin/env bun
-// ── NDJSON → SQLite metadata DB build step ─────────────────────────
-// Reads src/server/data/ac-db.ndjson (the source of truth, 52 MB,
-// ~617k records) and writes src/server/data/ac-db.sqlite — a
-// read-only, indexed-by-icao24 SQLite database the runtime opens
-// once on first lookup. Drops the ~300 MB resident heap that the
-// in-memory Map version was costing per dyno.
-//
-// Runtime contract (mirrored in aircraftEnrichment.ts):
-//   - icao24 is the primary key (lowercase, 6-hex).
-//   - resolved_type is NOT NULL — defaults to "Unknown" when the
-//     source row has no usable r/tc/mf/md/ca to derive a label from.
-//   - military is computed at build time via classifyMilitary, baked
-//     into the row as INTEGER 0/1 so runtime lookups are pure SELECT.
-//
-// Failure mode: any malformed NDJSON line (bad JSON, missing icao24)
-// fails the build with a non-zero exit. The NDJSON in the repo is
-// produced by scripts/convert-aircraft-csv.ts and is expected to be
-// well-formed; a parse error here means the source is corrupt and
-// silently skipping it would ship an incomplete DB.
 
 import { Database } from "bun:sqlite";
 import { unlink } from "fs/promises";
@@ -26,19 +7,50 @@ import { classifyMilitary } from "../src/server/data/militaryRules";
 const DEFAULT_INPUT = "src/server/data/ac-db.ndjson";
 const DEFAULT_OUTPUT = "src/server/data/ac-db.sqlite";
 
-// ── Source-row shape (NDJSON compact-key form, mirrors
-// convert-aircraft-csv.ts output: { i, r, tc, md, mf, rg, op, oi, ca }).
-type SourceRow = {
-  i?: string;
-  r?: string;
-  tc?: string;
-  md?: string;
-  mf?: string;
-  rg?: string;
-  op?: string;
-  oi?: string;
-  ca?: string;
-};
+export enum AircraftDatabaseField {
+  Icao24 = "i",
+  ResolvedType = "r",
+  Typecode = "tc",
+  Model = "md",
+  Manufacturer = "mf",
+  Registration = "rg",
+  Operator = "op",
+  OperatorIcao = "oi",
+  Category = "ca",
+}
+
+export enum AircraftDatabaseErrorKind {
+  InputMissing = "input-missing",
+  MalformedJson = "malformed-json",
+  MissingIcao24 = "missing-icao24",
+}
+
+export class AircraftDatabaseError extends Error {
+  constructor(
+    readonly kind: AircraftDatabaseErrorKind,
+    readonly inputPath: string,
+    readonly lineNumber?: number,
+  ) {
+    const location =
+      lineNumber === undefined ? inputPath : `${inputPath}:${lineNumber}`;
+    let message: string;
+    switch (kind) {
+      case AircraftDatabaseErrorKind.InputMissing:
+        message = `Input NDJSON not found: ${inputPath}`;
+        break;
+      case AircraftDatabaseErrorKind.MalformedJson:
+        message = `Malformed JSON at ${location}; refusing to build`;
+        break;
+      case AircraftDatabaseErrorKind.MissingIcao24:
+        message = `Missing icao24 (i) at ${location}; refusing to build`;
+        break;
+    }
+    super(message);
+    this.name = "AircraftDatabaseError";
+  }
+}
+
+type SourceRow = Partial<Record<AircraftDatabaseField, string>>;
 
 export type BuildResult = { records: number };
 
@@ -64,74 +76,80 @@ const INSERT_SQL = `
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
-/** Build the SQLite metadata DB at outputPath from the NDJSON file
- *  at inputPath. Throws on any malformed line. Caller is responsible
- *  for surfacing the error message + exit code. */
+/** Build the SQLite metadata database from a compact NDJSON source. */
 export async function buildAircraftDb(
   inputPath: string = DEFAULT_INPUT,
   outputPath: string = DEFAULT_OUTPUT,
 ): Promise<BuildResult> {
   const inputFile = Bun.file(inputPath);
   if (!(await inputFile.exists())) {
-    throw new Error(`Input NDJSON not found: ${inputPath}`);
+    throw new AircraftDatabaseError(
+      AircraftDatabaseErrorKind.InputMissing,
+      inputPath,
+    );
   }
 
-  // Replace any prior build artifact — bun:sqlite refuses to recreate
-  // a table on an existing DB unless we drop the file first.
   if (await Bun.file(outputPath).exists()) {
     await unlink(outputPath);
   }
 
   const db = new Database(outputPath, { create: true });
-  // journal_mode=OFF + synchronous=OFF = no rollback journal, no fsyncs.
-  // Build is a one-shot offline step; durability isn't a concern. The
-  // resulting DB is opened read-only at runtime, so these settings only
-  // affect the ~10s build window.
-  db.exec("PRAGMA journal_mode=OFF;");
-  db.exec("PRAGMA synchronous=OFF;");
-  db.exec(SCHEMA_SQL);
+  db.run("PRAGMA journal_mode=OFF;");
+  db.run("PRAGMA synchronous=OFF;");
+  db.run(SCHEMA_SQL);
 
   const insert = db.prepare(INSERT_SQL);
   const text = await inputFile.text();
 
   let records = 0;
-  let lineNo = 0;
+  let lineNumber = 0;
   const tx = db.transaction((lines: readonly string[]) => {
     for (const line of lines) {
-      lineNo++;
-      if (line.length === 0) continue;
+      lineNumber += 1;
+      if (line.length === 0) {
+        continue;
+      }
       let row: SourceRow;
       try {
         row = JSON.parse(line) as SourceRow;
       } catch {
-        throw new Error(
-          `Malformed JSON at ${inputPath}:${lineNo} — refusing to build`,
+        throw new AircraftDatabaseError(
+          AircraftDatabaseErrorKind.MalformedJson,
+          inputPath,
+          lineNumber,
         );
       }
-      if (!row.i) {
-        throw new Error(
-          `Missing icao24 (\`i\`) at ${inputPath}:${lineNo} — refusing to build`,
+      const icao24 = row[AircraftDatabaseField.Icao24];
+      if (!icao24) {
+        throw new AircraftDatabaseError(
+          AircraftDatabaseErrorKind.MissingIcao24,
+          inputPath,
+          lineNumber,
         );
       }
-      const military = classifyMilitary(row.i, row.tc, row.op) ? 1 : 0;
+      const military = classifyMilitary(
+        icao24,
+        row[AircraftDatabaseField.Typecode],
+        row[AircraftDatabaseField.Operator],
+      )
+        ? 1
+        : 0;
       insert.run(
-        row.i,
-        row.r ?? "Unknown",
-        row.tc ?? null,
-        row.md ?? null,
-        row.mf ?? null,
-        row.rg ?? null,
-        row.op ?? null,
-        row.oi ?? null,
-        row.ca ?? null,
+        icao24,
+        row[AircraftDatabaseField.ResolvedType] ?? "Unknown",
+        row[AircraftDatabaseField.Typecode] ?? null,
+        row[AircraftDatabaseField.Model] ?? null,
+        row[AircraftDatabaseField.Manufacturer] ?? null,
+        row[AircraftDatabaseField.Registration] ?? null,
+        row[AircraftDatabaseField.Operator] ?? null,
+        row[AircraftDatabaseField.OperatorIcao] ?? null,
+        row[AircraftDatabaseField.Category] ?? null,
         military,
       );
-      records++;
+      records += 1;
     }
   });
 
-  // Split into lines once. Bun handles multi-MB strings easily; the
-  // 52 MB NDJSON parses into ~617k entries without issue.
   const lines = text.split("\n");
   tx(lines);
 

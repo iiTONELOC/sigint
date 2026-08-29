@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { PaneTypeValue } from "@/panes/workspace";
-import {
-  WalkthroughLaunchMode,
-  WalkthroughStepId,
-} from "../model";
+import { WalkthroughLaunchMode, WalkthroughStepId } from "../model/vocabulary";
 
 type Listener = () => void;
 type ChannelListener<Arguments extends readonly unknown[]> = (

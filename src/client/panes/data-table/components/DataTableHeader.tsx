@@ -1,6 +1,8 @@
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 import { IconStrokeWidth } from "@/features/base/types";
+import { PanelSide } from "@/layout-mode";
+import { ButtonType } from "@/lib/ui/button";
 import { DomTableScope } from "@/runtime";
 import {
   TableSortDirection,
@@ -9,12 +11,11 @@ import {
 import {
   DataTableAriaSort,
   DataTableClassName,
-  DataTableColumnAlignment,
   DataTableCopy,
   DataTableIconSize,
   dataTableColumns,
   dataTableGridClass,
-} from "../model";
+} from "../model/table";
 
 type DataTableHeaderProps = Readonly<{
   isMobile: boolean;
@@ -49,7 +50,7 @@ export function DataTableHeader({
             const ascending =
               active && sortDirection === TableSortDirection.Ascending;
             const rightAligned =
-              metadata.alignment === DataTableColumnAlignment.Right;
+              metadata.alignment === PanelSide.Right;
             return (
               <th
                 key={key}
@@ -63,6 +64,7 @@ export function DataTableHeader({
               >
                 <Tooltip content={metadata.tooltip} placement="bottom">
                   <button
+                    type={ButtonType.Button}
                     onClick={() => onSort(key)}
                     className={`w-full flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
                       active

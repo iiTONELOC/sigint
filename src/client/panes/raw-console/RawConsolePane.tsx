@@ -4,8 +4,11 @@ import {
   useCallback,
   type CSSProperties,
 } from "react";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import { Terminal, Copy, Check } from "lucide-react";
+import { PaneWorkspaceIconMetric } from "@/panes/workspace/model/pane";
+import { ButtonType } from "@/lib/ui/button";
 
 const JSON_PUNCTUATION_CLASS = "text-sig-dim";
 const JSON_KEY_CLASS = "text-sig-accent";
@@ -154,7 +157,8 @@ function HighlightedJson({ json }: { readonly json: string }) {
 // ── Component ───────────────────────────────────────────────────────
 
 export function RawConsolePane() {
-  const { selectedCurrent, counts, activeCount } = useData();
+  const { counts, activeCount } = useDataContext();
+  const { selectedCurrent } = useUI();
   const [copied, setCopied] = useState(false);
 
   const jsonStr = useMemo(() => {
@@ -213,20 +217,32 @@ export function RawConsolePane() {
     <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
       {/* Header */}
       <div className="shrink-0 flex items-center gap-1.5 px-2 py-1 border-b border-sig-border/40">
-        <Terminal size={11} strokeWidth={2.5} className="text-sig-accent" />
+        <Terminal
+          size={PaneWorkspaceIconMetric.ToolbarSize}
+          strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+          className={JSON_KEY_CLASS}
+        />
         <span className="text-sig-accent text-(length:--sig-text-sm) tracking-wider font-semibold">
           {selectedCurrent ? "ENTITY DATA" : "SYSTEM STATUS"}
         </span>
         <div className="flex-1" />
         <button
+          type={ButtonType.Button}
           onClick={handleCopy}
           className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
           title="Copy to clipboard"
         >
           {copied ? (
-            <Check size={10} strokeWidth={2.5} className="text-sig-accent" />
+            <Check
+              size={PaneWorkspaceIconMetric.CompactSize}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+              className={JSON_KEY_CLASS}
+            />
           ) : (
-            <Copy size={10} strokeWidth={2.5} />
+            <Copy
+              size={PaneWorkspaceIconMetric.CompactSize}
+              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+            />
           )}
           {copied ? "COPIED" : "COPY"}
         </button>
@@ -236,8 +252,8 @@ export function RawConsolePane() {
       <div className="flex-1 overflow-auto sigint-scroll p-2">
         <div className="text-sig-dim text-(length:--sig-text-sm) tracking-wider mb-1">
           {selectedCurrent
-            ? `// Selected: ${selectedCurrent.type} — ${selectedCurrent.id}`
-            : "// No entity selected — showing system status"}
+            ? `// Selected: ${selectedCurrent.type}, ${selectedCurrent.id}`
+            : "// No entity selected, showing system status"}
         </div>
         <pre className="text-(length:--sig-text-sm) font-mono whitespace-pre leading-relaxed overflow-x-auto">
           <HighlightedJson json={displayStr} />

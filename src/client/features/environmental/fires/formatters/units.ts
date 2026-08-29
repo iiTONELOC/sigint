@@ -4,7 +4,8 @@ import {
   kilometersToMeters,
   metersToFeet,
 } from "@/measurements";
-import { resolveUnitMode, UnitMode } from "@/preferences/units";
+import { resolveUnitMode } from "@/preferences/units/store";
+import { UnitMode } from "@/preferences/units/model";
 
 export function formatPixelKm(
   scanKilometers: number,

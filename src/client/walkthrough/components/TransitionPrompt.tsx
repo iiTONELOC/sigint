@@ -17,7 +17,7 @@ export function TransitionPrompt({
   onDecline,
 }: TransitionPromptProps) {
   return createPortal(
-    <div className="fixed inset-0 z-9999 flex items-center justify-center">
+    <div className="fixed inset-0 z-(--layer-blocking) flex items-center justify-center">
       <svg
         aria-hidden="true"
         className="absolute inset-0 w-full h-full fill-black/70"

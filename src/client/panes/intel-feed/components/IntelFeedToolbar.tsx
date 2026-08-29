@@ -2,11 +2,8 @@ import { Eye, Filter, List } from "lucide-react";
 import type { DataType } from "@/features/base/dataPoints";
 import { IconStrokeWidth } from "@/features/base/types";
 import { featureList } from "@/features/registry";
-import {
-  IntelFeedClassName,
-  IntelFeedCopy,
-  IntelFeedIconSize,
-} from "../model";
+import { ButtonType } from "@/lib/ui/button";
+import { IntelFeedClassName, IntelFeedCopy, IntelFeedIconSize } from "../model/feed";
 
 type IntelFeedToolbarProps = Readonly<{
   feedFilter: DataType | null;
@@ -32,6 +29,7 @@ export function IntelFeedToolbar({
   return (
     <div className="shrink-0 flex items-center gap-1 px-2 py-1 border-b border-sig-border/40 flex-wrap">
       <button
+        type={ButtonType.Button}
         onClick={() => onRawViewChange(false)}
         className={`flex items-center gap-1 touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wider font-semibold shrink-0 transition-colors border ${
           isRawView
@@ -46,6 +44,7 @@ export function IntelFeedToolbar({
         {IntelFeedCopy.Intel}
       </button>
       <button
+        type={ButtonType.Button}
         onClick={() => onRawViewChange(true)}
         className={`flex items-center gap-1 touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wider font-semibold shrink-0 transition-colors border ${
           isRawView
@@ -69,6 +68,7 @@ export function IntelFeedToolbar({
             className="text-sig-dim shrink-0"
           />
           <button
+            type={ButtonType.Button}
             onClick={() => onFeedFilterChange(null)}
             className={`touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wider font-semibold shrink-0 transition-colors border ${
               feedFilter === null
@@ -86,6 +86,7 @@ export function IntelFeedToolbar({
               const count = typeCounts[feature.id] ?? 0;
               return (
                 <button
+                  type={ButtonType.Button}
                   key={feature.id}
                   aria-label={`${feature.label}: ${count}`}
                   onClick={() =>

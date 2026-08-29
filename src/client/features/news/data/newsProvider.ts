@@ -1,6 +1,7 @@
 import { authenticatedFetch } from "@/lib/net/authService";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
+import { NEWS_LATEST_ROUTE } from "@shared/domain/newsSource";
 
 export type NewsArticle = Readonly<{
   readonly id: string;
@@ -17,10 +18,6 @@ type NewsSnapshot = Readonly<{
   readonly loading: boolean;
   readonly lastUpdatedAt: number | null;
 }>;
-
-enum NewsEndpoint {
-  Latest = "/api/news/latest",
-}
 
 enum NewsTiming {
   MaximumCacheAgeMs = 43_200_000,
@@ -104,7 +101,7 @@ class NewsProvider {
 
   private async doRefresh(): Promise<NewsArticle[]> {
     try {
-      const res = await authenticatedFetch(NewsEndpoint.Latest);
+      const res = await authenticatedFetch(NEWS_LATEST_ROUTE);
       if (!res.ok) {
         throw new NewsProviderError(
           NewsProviderErrorKind.RequestRejected,

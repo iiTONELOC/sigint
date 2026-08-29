@@ -8,9 +8,10 @@ import {
   WaveformChannel,
   WaveformStatus,
   WaveformUnavailableReason,
+  waveformUnavailable,
   type Waveform,
   type WaveformResult,
-} from "../model";
+} from "@shared/domain/earthquakes";
 
 export type WaveformFetcher = (
   url: string,
@@ -95,17 +96,12 @@ type TraceWindow = Readonly<{
   start: string;
 }>;
 
-type ChannelSearchResult =
-  | Readonly<{
-      channels: readonly StationChannel[];
-      status: WaveformStatus.Ready;
-    }>
-  | Readonly<{ status: WaveformStatus.Failed }>;
-
 type ParsedTimeseries = Readonly<{
   sampleRate: number;
   samples: number[];
 }>;
+
+type ServiceParameter = readonly [WaveformServiceToken, string];
 
 function squaredChordDistance(
   origin: UnitVector,
@@ -178,28 +174,28 @@ function stationUrl(
   radius: WaveformSearchRadius,
   window: TraceWindow,
 ): string {
-  const url = new URL(WaveformEndpoint.Station);
-  url.searchParams.set(WaveformServiceToken.Latitude, String(latitude));
-  url.searchParams.set(WaveformServiceToken.Longitude, String(longitude));
-  url.searchParams.set(WaveformServiceToken.MaximumRadius, String(radius));
-  url.searchParams.set(
-    WaveformServiceToken.Channel,
-    Object.values(WaveformChannel).join(WaveformServiceToken.Comma),
-  );
-  url.searchParams.set(WaveformServiceToken.StartTime, window.start);
-  url.searchParams.set(WaveformServiceToken.EndTime, window.end);
-  url.searchParams.set(
-    WaveformServiceToken.IncludeRestricted,
-    WaveformServiceToken.False,
-  );
-  url.searchParams.set(
-    WaveformServiceToken.Level,
-    WaveformServiceToken.Channel,
-  );
-  url.searchParams.set(
-    WaveformServiceToken.Format,
-    WaveformServiceToken.Text,
-  );
+  return serviceUrl(WaveformEndpoint.Station, [
+    [WaveformServiceToken.Latitude, String(latitude)],
+    [WaveformServiceToken.Longitude, String(longitude)],
+    [WaveformServiceToken.MaximumRadius, String(radius)],
+    [
+      WaveformServiceToken.Channel,
+      Object.values(WaveformChannel).join(WaveformServiceToken.Comma),
+    ],
+    [WaveformServiceToken.StartTime, window.start],
+    [WaveformServiceToken.EndTime, window.end],
+    [WaveformServiceToken.IncludeRestricted, WaveformServiceToken.False],
+    [WaveformServiceToken.Level, WaveformServiceToken.Channel],
+    [WaveformServiceToken.Format, WaveformServiceToken.Text],
+  ]);
+}
+
+function serviceUrl(
+  endpoint: WaveformEndpoint,
+  parameters: readonly ServiceParameter[],
+): string {
+  const url = new URL(endpoint);
+  for (const [key, value] of parameters) url.searchParams.set(key, value);
   return url.toString();
 }
 
@@ -210,19 +206,15 @@ async function nearbyChannels(
   window: TraceWindow,
   fetcher: WaveformFetcher,
   signal: AbortSignal | undefined,
-): Promise<ChannelSearchResult> {
+): Promise<StationChannel[] | null> {
   try {
     const response = await fetcher(
       stationUrl(latitude, longitude, radius, window),
       { signal },
     );
-    if (!response.ok) return { status: WaveformStatus.Failed };
-    return {
-      channels: parseChannels(await response.text()),
-      status: WaveformStatus.Ready,
-    };
+    return response.ok ? parseChannels(await response.text()) : null;
   } catch {
-    return { status: WaveformStatus.Failed };
+    return null;
   }
 }
 
@@ -319,22 +311,17 @@ async function tryTrace(
   fetcher: WaveformFetcher,
   signal: AbortSignal | undefined,
 ): Promise<Waveform | null> {
-  const url = new URL(WaveformEndpoint.Timeseries);
-  url.searchParams.set(WaveformServiceToken.Network, channel.network);
-  url.searchParams.set(WaveformServiceToken.Station, channel.station);
-  url.searchParams.set(WaveformServiceToken.Location, channel.location);
-  url.searchParams.set(WaveformServiceToken.ChannelShort, channel.channel);
-  url.searchParams.set(WaveformServiceToken.StartTime, start);
-  url.searchParams.set(
-    WaveformServiceToken.Duration,
-    String(WaveformPolicy.WindowSeconds),
-  );
-  url.searchParams.set(
-    WaveformServiceToken.Format,
-    WaveformServiceToken.AsciiTwoColumn,
-  );
+  const url = serviceUrl(WaveformEndpoint.Timeseries, [
+    [WaveformServiceToken.Network, channel.network],
+    [WaveformServiceToken.Station, channel.station],
+    [WaveformServiceToken.Location, channel.location],
+    [WaveformServiceToken.ChannelShort, channel.channel],
+    [WaveformServiceToken.StartTime, start],
+    [WaveformServiceToken.Duration, String(WaveformPolicy.WindowSeconds)],
+    [WaveformServiceToken.Format, WaveformServiceToken.AsciiTwoColumn],
+  ]);
   try {
-    const response = await fetcher(url.toString(), { signal });
+    const response = await fetcher(url, { signal });
     if (!response.ok) return null;
     const parsed = parseTimeseries(await response.text());
     if (!parsed) return null;
@@ -358,28 +345,6 @@ function searchRadii(): WaveformSearchRadius[] {
   );
 }
 
-async function firstRecordedTrace(
-  channels: readonly RankedChannel[],
-  window: TraceWindow,
-  fetcher: WaveformFetcher,
-  signal: AbortSignal | undefined,
-  attemptedChannels: Set<string>,
-): Promise<Waveform | null> {
-  for (const channel of channels) {
-    const key = channelKey(channel);
-    if (attemptedChannels.has(key)) continue;
-    attemptedChannels.add(key);
-    const waveform = await tryTrace(
-      channel,
-      window.start,
-      fetcher,
-      signal,
-    );
-    if (waveform) return waveform;
-  }
-  return null;
-}
-
 export async function fetchWaveform(
   latitude: number,
   longitude: number,
@@ -388,19 +353,16 @@ export async function fetchWaveform(
 ): Promise<WaveformResult> {
   const window = traceWindow(originTimeIso);
   if (!window) {
-    return {
-      reason: WaveformUnavailableReason.EventTime,
-      status: WaveformStatus.Unavailable,
-    };
+    return waveformUnavailable(WaveformUnavailableReason.EventTime);
   }
   const fetcher: WaveformFetcher =
     options.fetcher ?? ((url, init) => globalThis.fetch(url, init));
   const attemptedChannels = new Set<string>();
   let stationServiceResponded = false;
-  let stationFound = false;
+  let stationCount = 0;
 
   for (const radius of searchRadii()) {
-    const result = await nearbyChannels(
+    const nearby = await nearbyChannels(
       latitude,
       longitude,
       radius,
@@ -408,31 +370,29 @@ export async function fetchWaveform(
       fetcher,
       options.signal,
     );
-    if (result.status === WaveformStatus.Failed) continue;
+    if (!nearby) continue;
     stationServiceResponded = true;
-    const channels = rankChannels(latitude, longitude, result.channels);
-    if (channels.length > 0) stationFound = true;
-    const waveform = await firstRecordedTrace(
-      channels,
-      window,
-      fetcher,
-      options.signal,
-      attemptedChannels,
-    );
-    if (waveform) {
-      return { status: WaveformStatus.Ready, waveform };
+    const channels = rankChannels(latitude, longitude, nearby);
+    stationCount += channels.length;
+    for (const channel of channels) {
+      const key = channelKey(channel);
+      if (attemptedChannels.has(key)) continue;
+      attemptedChannels.add(key);
+      const waveform = await tryTrace(
+        channel,
+        window.start,
+        fetcher,
+        options.signal,
+      );
+      if (waveform) return { status: WaveformStatus.Ready, waveform };
     }
   }
   if (!stationServiceResponded) {
-    return {
-      reason: WaveformUnavailableReason.StationService,
-      status: WaveformStatus.Unavailable,
-    };
+    return waveformUnavailable(WaveformUnavailableReason.StationService);
   }
-  return {
-    reason: stationFound
+  return waveformUnavailable(
+    stationCount > 0
       ? WaveformUnavailableReason.RecordedTrace
       : WaveformUnavailableReason.Station,
-    status: WaveformStatus.Unavailable,
-  };
+  );
 }

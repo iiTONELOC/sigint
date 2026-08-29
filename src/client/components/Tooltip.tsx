@@ -12,8 +12,6 @@ import {
 import { createPortal } from "react-dom";
 import { isMobileWidth } from "@/config/breakpoints";
 
-// ── Types ────────────────────────────────────────────────────────────
-
 export enum TooltipPlacement {
   Bottom = "bottom",
   Left = "left",
@@ -39,8 +37,6 @@ type TooltipProps = {
   readonly disabled?: boolean;
   readonly shortcut?: string;
 };
-
-// ── Positioning ──────────────────────────────────────────────────────
 
 enum TooltipMetric {
   DefaultDelayMs = 400,
@@ -128,8 +124,6 @@ function computePosition(
   };
 }
 
-// ── Component ────────────────────────────────────────────────────────
-
 export function Tooltip({
   content,
   children,
@@ -216,7 +210,7 @@ export function Tooltip({
           <div
             ref={tooltipRef}
             role="tooltip"
-            className="fixed z-40 pointer-events-none"
+            className="fixed z-(--layer-tooltip) pointer-events-none"
             style={{
               left: position?.x ?? TooltipMetric.HiddenCoordinatePx,
               top: position?.y ?? TooltipMetric.HiddenCoordinatePx,

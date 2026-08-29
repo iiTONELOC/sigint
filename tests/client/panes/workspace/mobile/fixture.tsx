@@ -4,7 +4,6 @@ import {
   createElement,
   type ComponentType,
   type ReactElement,
-  type SetStateAction,
 } from "react";
 import {
   PaneLayoutRatio,
@@ -13,7 +12,7 @@ import {
   type PaneEdgeDropZoneValue,
   type PaneTypeValue,
   type SplitDirectionValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import {
   collectLeaves,
   type LayoutNode,
@@ -26,7 +25,11 @@ import {
   renderReact,
   type ReactRenderResult,
 } from "../../../../support/react";
-import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
+import {
+  PANE_CATALOG as APPLICATION_PANE_CATALOG,
+  type PaneCatalog,
+  type PaneDefinition,
+} from "@/panes/workspace/paneCatalog";
 
 export enum MobileFixtureAttribute {
   BlockId = "data-block-id",
@@ -147,16 +150,12 @@ export type MobileFixtureCallbacks = Readonly<{
       zone: PaneEdgeDropZoneValue,
     ) => void
   >;
-  minimizePane: Mock<
-    (leafId: string, paneType: PaneTypeValue) => void
-  >;
   onDeletePreset: Mock<(index: number) => void>;
   onLoadPreset: Mock<(preset: LayoutPreset) => void>;
   onSavePreset: Mock<(name: string) => void>;
   onUpdatePreset: Mock<(index: number) => void>;
   resizeSplit: Mock<(splitId: string, ratio: number) => void>;
   restorePane: Mock<(index: number) => void>;
-  setActiveMobilePane: Mock<(index: number) => void>;
   splitPane: Mock<
     (
       leafId: string,
@@ -185,60 +184,56 @@ function paneProbe(paneType: PaneTypeValue): ComponentType {
   };
 }
 
+function paneDefinition(
+  paneType: PaneType,
+  label: MobileFixtureLabel,
+): PaneDefinition {
+  return {
+    ...APPLICATION_PANE_CATALOG[paneType],
+    component: paneProbe(paneType),
+    icon: Circle,
+    label,
+  };
+}
+
 const PANE_CATALOG: PaneCatalog = {
-  [PaneType.AlertLog]: {
-    component: paneProbe(PaneType.AlertLog),
-    icon: Circle,
-    label: MobileFixtureLabel.AlertLog,
-  },
-  [PaneType.DataTable]: {
-    component: paneProbe(PaneType.DataTable),
-    icon: Circle,
-    label: MobileFixtureLabel.DataTable,
-  },
-  [PaneType.Dossier]: {
-    component: paneProbe(PaneType.Dossier),
-    icon: Circle,
-    label: MobileFixtureLabel.Dossier,
-  },
-  [PaneType.Globe]: {
-    component: paneProbe(PaneType.Globe),
-    icon: Circle,
-    label: MobileFixtureLabel.Globe,
-  },
-  [PaneType.IntelFeed]: {
-    component: paneProbe(PaneType.IntelFeed),
-    icon: Circle,
-    label: MobileFixtureLabel.IntelFeed,
-  },
-  [PaneType.NewsFeed]: {
-    component: paneProbe(PaneType.NewsFeed),
-    icon: Circle,
-    label: MobileFixtureLabel.NewsFeed,
-  },
-  [PaneType.RawConsole]: {
-    component: paneProbe(PaneType.RawConsole),
-    icon: Circle,
-    label: MobileFixtureLabel.RawConsole,
-  },
-  [PaneType.VideoFeed]: {
-    component: paneProbe(PaneType.VideoFeed),
-    icon: Circle,
-    label: MobileFixtureLabel.VideoFeed,
-  },
+  [PaneType.AlertLog]: paneDefinition(
+    PaneType.AlertLog,
+    MobileFixtureLabel.AlertLog,
+  ),
+  [PaneType.DataTable]: paneDefinition(
+    PaneType.DataTable,
+    MobileFixtureLabel.DataTable,
+  ),
+  [PaneType.Dossier]: paneDefinition(
+    PaneType.Dossier,
+    MobileFixtureLabel.Dossier,
+  ),
+  [PaneType.Globe]: paneDefinition(PaneType.Globe, MobileFixtureLabel.Globe),
+  [PaneType.IntelFeed]: paneDefinition(
+    PaneType.IntelFeed,
+    MobileFixtureLabel.IntelFeed,
+  ),
+  [PaneType.NewsFeed]: paneDefinition(
+    PaneType.NewsFeed,
+    MobileFixtureLabel.NewsFeed,
+  ),
+  [PaneType.RawConsole]: paneDefinition(
+    PaneType.RawConsole,
+    MobileFixtureLabel.RawConsole,
+  ),
+  [PaneType.VideoFeed]: paneDefinition(
+    PaneType.VideoFeed,
+    MobileFixtureLabel.VideoFeed,
+  ),
 };
 
 let fixtureChromeHidden = false;
 
-mock.module("@/context/DataContext", () => ({
-  useData: () => ({
-    activeCount: MobileFixtureMetric.ActiveTracks,
+mock.module("@/context/UIContext", () => ({
+  useUI: () => ({
     chromeHidden: fixtureChromeHidden,
     colorMap: {},
-    counts: {},
-    dataSources: [],
-    selectedCurrent: null,
-    setChromeHidden: (_value: SetStateAction<boolean>) => undefined,
   }),
 }));
 
@@ -344,16 +339,12 @@ function fixtureCallbacks(): MobileFixtureCallbacks {
         _zone: PaneEdgeDropZoneValue,
       ) => undefined,
     ),
-    minimizePane: mock(
-      (_leafId: string, _paneType: PaneTypeValue) => undefined,
-    ),
     onDeletePreset: mock((_index: number) => undefined),
     onLoadPreset: mock((_preset: LayoutPreset) => undefined),
     onSavePreset: mock((_name: string) => undefined),
     onUpdatePreset: mock((_index: number) => undefined),
     resizeSplit: mock((_splitId: string, _ratio: number) => undefined),
     restorePane: mock((_index: number) => undefined),
-    setActiveMobilePane: mock((_index: number) => undefined),
     splitPane: mock(
       (
         _leafId: string,
@@ -386,7 +377,6 @@ function mobileElement(
   return (
     <PaneMobile
       activeCount={MobileFixtureMetric.ActiveTracks}
-      activeMobilePane={MobileFixtureIndex.First}
       allLeaves={collectLeaves(state.layout.root)}
       availableTypes={state.availableTypes}
       changePaneType={callbacks.changePaneType}
@@ -396,7 +386,6 @@ function mobileElement(
       insertPaneBeside={callbacks.insertPaneBeside}
       layout={state.layout}
       leafCount={collectLeaves(state.layout.root).length}
-      minimizePane={callbacks.minimizePane}
       onDeletePreset={callbacks.onDeletePreset}
       onLoadPreset={callbacks.onLoadPreset}
       onSavePreset={callbacks.onSavePreset}
@@ -406,7 +395,6 @@ function mobileElement(
       presetsLoaded={state.presetsLoaded}
       resizeSplit={callbacks.resizeSplit}
       restorePane={callbacks.restorePane}
-      setActiveMobilePane={callbacks.setActiveMobilePane}
       splitPane={callbacks.splitPane}
       swapPanes={callbacks.swapPanes}
     />

@@ -16,9 +16,7 @@ export enum EventFieldLabel {
   Mentions = "Mentions",
   Source = "Source",
   Origin = "Origin",
-  Language = "Language",
   Location = "Location",
-  Context = "Context",
   Time = "Time",
   Article = "Article",
 }

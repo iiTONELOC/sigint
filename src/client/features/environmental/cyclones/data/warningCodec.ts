@@ -3,18 +3,18 @@ import {
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
-import { AreaKind } from "@/workers/render/protocol";
+import {
+  AreaKind,
+  CYCLONE_WARNING_FIELDS,
+  type CycloneWarningData,
+  type CycloneWarningPoint,
+} from "@shared/domain/cyclones";
 import {
   isRecord,
   parseGeoJsonPolygonGeometry,
   parseGeoPoint,
 } from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
-import {
-  CYCLONE_WARNING_FIELDS,
-  type CycloneWarningData,
-  type CycloneWarningPoint,
-} from "@/features/environmental/cyclones/types";
 
 function isWarningData(value: unknown): value is CycloneWarningData {
   return (

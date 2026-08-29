@@ -1,17 +1,6 @@
-// Per-key in-memory cache with revalidation + stale-while-revalidate + access-
-// based retention. The cyclone cone / ATCF / dossier caches were three copies of
-// the same Map<key, {value, expiresAt, fetchedAt}> + purge + "fresh? → fetch →
-// cache; on failure serve stale" logic. This is the one copy.
-//
-// Retention is decoupled from freshness: `ttlMs` controls when an entry is
-// REVALIDATED on access; `retentionMs` controls when an UNACCESSED entry is
-// evicted. So an actively-polled key (e.g. a live storm) is never dropped — its
-// value is refreshed in place and kept — while a key nothing has asked for in a
-// while (a dissipated storm) is eventually purged. `fetch` receives the previous
-// value so it can revalidate cheaply (e.g. a conditional GET that 304s).
-
 /** How often unaccessed entries are swept. Shared by every per-key cache. */
 export const PURGE_INTERVAL_MS = 10 * 60_000;
+const DEFAULT_RETENTION_MULTIPLIER = 6;
 
 export type PerKeyCacheResult<T> = { value: T; fetchedAt: number };
 
@@ -25,9 +14,7 @@ export type PerKeyCacheOptions<T> = {
   emptyValue: T;
   /** `prev` is the currently-cached value (if any), for conditional revalidation. */
   fetch: (key: string, prev: T | undefined) => Promise<T>;
-  /** When a fresh fetch resolves to a value matching this, don't overwrite a
-   *  good cached entry — keep serving stale (dossier outage semantics). When
-   *  omitted, every resolved value is cached (cone/atcf cache nulls for the TTL). */
+  /** Keep a prior value when a fetch returns an empty value. */
   isEmpty?: (value: T) => boolean;
 };
 
@@ -44,7 +31,8 @@ export function createPerKeyCache<T>(opts: PerKeyCacheOptions<T>): PerKeyCache<T
     lastAccess: number;
   };
   const cache = new Map<string, Entry>();
-  const retentionMs = opts.retentionMs ?? opts.ttlMs * 6;
+  const retentionMs =
+    opts.retentionMs ?? opts.ttlMs * DEFAULT_RETENTION_MULTIPLIER;
 
   setInterval(() => {
     const now = Date.now();
@@ -65,7 +53,6 @@ export function createPerKeyCache<T>(opts: PerKeyCacheOptions<T>): PerKeyCache<T
     try {
       const value = await opts.fetch(key, existing?.value);
       if (opts.isEmpty?.(value)) {
-        // Don't cache the empty result — keep the last good entry if present.
         if (existing) return { value: existing.value, fetchedAt: existing.fetchedAt };
         return { value, fetchedAt: now };
       }

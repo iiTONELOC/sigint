@@ -7,17 +7,15 @@ import {
   WalkthroughRingColor,
   WalkthroughStepId,
   WalkthroughStepMode,
-  type WalkthroughStep,
-} from "../model";
-import { useWalkthroughTooltip } from "../hooks";
+} from "../model/vocabulary";
+import type { WalkthroughStep } from "../model/types";
+import { useWalkthroughTooltip } from "../hooks/useWalkthroughTooltip";
 import {
   removeWalkthroughStyleRule,
   setWalkthroughStyleRule,
-  walkthroughCutoutRect,
-  WalkthroughRadius,
   WalkthroughStyleSlot,
-  type WalkthroughRect,
-} from "../utils";
+} from "../utils/stylesheet";
+import { walkthroughCutoutRect, WalkthroughRadius, type WalkthroughRect } from "../utils/geometry";
 import { ClickIndicator } from "./ClickIndicator";
 import { HighlightRing } from "./HighlightRing";
 import { LandingZone } from "./LandingZone";
@@ -35,7 +33,7 @@ type WalkthroughStepOverlayProps = Readonly<{
   selectedId: string | null;
   step: WalkthroughStep;
   stepIndex: number;
-  totalSteps: number;
+  steps: readonly WalkthroughStep[];
 }>;
 
 enum WalkthroughSvgId {
@@ -45,38 +43,48 @@ enum WalkthroughSvgId {
 type WalkthroughHighlight = Readonly<{
   color: WalkthroughRingColor;
   selector: string;
-  slot: WalkthroughStyleSlot;
 }>;
 
-function highlights(step: WalkthroughStep): readonly WalkthroughHighlight[] {
-  return [
-    step.buttonSelector && {
-      color: step.buttonColor ?? WalkthroughRingColor.Accent,
-      selector: step.buttonSelector,
-      slot: WalkthroughStyleSlot.HighlightPrimary,
-    },
-    step.highlightSelector && {
-      color: step.highlightColor ?? WalkthroughRingColor.Warning,
-      selector: step.highlightSelector,
-      slot: WalkthroughStyleSlot.HighlightSecondary,
-    },
-    step.tertiarySelector && {
-      color: step.buttonColor ?? WalkthroughRingColor.Warning,
-      selector: step.tertiarySelector,
-      slot: WalkthroughStyleSlot.HighlightTertiary,
-    },
-    step.quaternarySelector && {
-      color: WalkthroughRingColor.Magenta,
-      selector: step.quaternarySelector,
-      slot: WalkthroughStyleSlot.HighlightQuaternary,
-    },
-  ].filter((value): value is WalkthroughHighlight => Boolean(value));
+type WalkthroughHighlightCatalog = Partial<
+  Record<WalkthroughStyleSlot, WalkthroughHighlight | undefined>
+>;
+
+function highlight(
+  selector: string | undefined,
+  color: WalkthroughRingColor,
+): WalkthroughHighlight | undefined {
+  return selector ? { color, selector } : undefined;
+}
+
+function highlights(step: WalkthroughStep): WalkthroughHighlightCatalog {
+  return {
+    [WalkthroughStyleSlot.HighlightPrimary]: highlight(
+      step.buttonSelector,
+      step.buttonColor ?? WalkthroughRingColor.Accent,
+    ),
+    [WalkthroughStyleSlot.HighlightSecondary]: highlight(
+      step.highlightSelector,
+      step.highlightColor ?? WalkthroughRingColor.Warning,
+    ),
+    [WalkthroughStyleSlot.HighlightTertiary]: highlight(
+      step.tertiarySelector,
+      step.buttonColor ?? WalkthroughRingColor.Warning,
+    ),
+    [WalkthroughStyleSlot.HighlightQuaternary]: highlight(
+      step.quaternarySelector,
+      WalkthroughRingColor.Magenta,
+    ),
+  };
 }
 
 function WalkthroughHighlights({ step }: Readonly<{ step: WalkthroughStep }>) {
-  return highlights(step).map((highlight) => (
-    <HighlightRing key={highlight.slot} {...highlight} />
-  ));
+  const catalog = highlights(step);
+  return Object.values(WalkthroughStyleSlot).map((slot) => {
+    const highlight = catalog[slot];
+    return highlight ? (
+      <HighlightRing key={slot} slot={slot} {...highlight} />
+    ) : null;
+  });
 }
 
 function WalkthroughCutout({
@@ -105,7 +113,7 @@ function WalkthroughCutout({
             <rect
               data-wt-style={WalkthroughStyleSlot.MaskCutout}
               rx={WalkthroughRadius.Cutout}
-              className="fill-black"
+              className="walkthrough-mask-cutout fill-black"
             />
           </mask>
         </defs>
@@ -117,7 +125,7 @@ function WalkthroughCutout({
       <div
         aria-hidden={true}
         data-wt-style={WalkthroughStyleSlot.Cutout}
-        className="absolute border-2 border-sig-accent/60 rounded-lg pointer-events-none shadow-[0_0_0_4px_rgba(0,212,240,0.12),0_0_20px_rgba(0,212,240,0.08)]"
+        className="walkthrough-cutout absolute border-2 border-sig-accent/60 rounded-lg pointer-events-none"
       />
     </>
   );
@@ -161,7 +169,7 @@ export function WalkthroughStepOverlay({
   selectedId,
   step,
   stepIndex,
-  totalSteps,
+  steps,
 }: WalkthroughStepOverlayProps) {
   const tooltip = useWalkthroughTooltip({ isMobile, step });
   const action = step.mode === WalkthroughStepMode.Action;
@@ -185,7 +193,7 @@ export function WalkthroughStepOverlay({
       {createPortal(
         <div
           data-wt-overlay=""
-          className="fixed inset-0 z-9999 pointer-events-none overscroll-contain"
+          className="fixed inset-0 z-(--layer-blocking) pointer-events-none overscroll-contain"
         >
           {showCutout && tooltip.targetRect && (
             <WalkthroughCutout targetRect={tooltip.targetRect} />
@@ -202,8 +210,8 @@ export function WalkthroughStepOverlay({
             ready={tooltip.ready}
             step={step}
             stepIndex={stepIndex}
+            steps={steps}
             tooltipRef={tooltip.tooltipRef}
-            totalSteps={totalSteps}
           />
         </div>,
         document.body,

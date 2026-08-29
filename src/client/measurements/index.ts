@@ -1,4 +1,4 @@
-export { formatKmMi, formatKtMph, formatKtShort } from "./formatters";
+export { formatKmMi, formatKtMph, formatKtShort } from "./formatters/units";
 export {
   cToF,
   feetPerMinuteToMetersPerSecond,
@@ -11,4 +11,4 @@ export {
   metersToFeet,
   metersPerSecondToFeetPerMinute,
   nmToKm,
-} from "./utils";
+} from "./utils/conversions";

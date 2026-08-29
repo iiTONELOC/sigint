@@ -1,8 +1,4 @@
-import {
-  PaneDropZone,
-  PaneDropZoneThreshold,
-  type PaneDropZoneValue,
-} from "../model";
+import { PaneDropZone, PaneDropZoneThreshold, type PaneDropZoneValue } from "../model/pane";
 
 export type PaneDropBounds = Readonly<{
   height: number;

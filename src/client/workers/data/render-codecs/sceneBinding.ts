@@ -2,10 +2,21 @@ import type {
   DatasetEntity,
   DatasetPatch,
 } from "@/workers/data/datasetStore";
+import {
+  recordPosition,
+  type PositionedRecord,
+} from "@/workers/data/source-model/position";
 import type {
   SceneSourceCommandBody,
 } from "@/workers/render/sceneProtocol";
-import { ScenePatchCodec } from "./sceneCodec";
+import type { RenderSourceId } from "@shared/source";
+import {
+  ScenePatchCodec,
+  sceneTimestamp,
+  singleSceneRecord,
+  type SceneGeometryInput,
+  type SceneTimestampedEntity,
+} from "./sceneCodec";
 
 export type SceneCommandPublisher = (
   command: SceneSourceCommandBody,
@@ -39,4 +50,34 @@ export class SceneBinding<
       this.codec.encodeSearch(entityIds, searchRevision, active),
     );
   }
+}
+
+export type PointSceneRecord = DatasetEntity &
+  PositionedRecord &
+  SceneTimestampedEntity;
+
+export type PointSceneSpec<TRecord extends PointSceneRecord> = Readonly<{
+  source: RenderSourceId;
+  geometry?: (record: TRecord) => SceneGeometryInput | null;
+  writeAttributes: (
+    record: TRecord,
+    target: Float32Array<ArrayBuffer>,
+    offset: number,
+  ) => void;
+}>;
+
+/** One scene record per entity, positioned and timestamped by the record. */
+export function pointSceneBinding<TRecord extends PointSceneRecord>(
+  publishScene: SceneCommandPublisher,
+  spec: PointSceneSpec<TRecord>,
+): SceneBinding<TRecord> {
+  return new SceneBinding(
+    new ScenePatchCodec<TRecord>({
+      ...spec,
+      records: singleSceneRecord,
+      position: recordPosition,
+      timestamp: sceneTimestamp,
+    }),
+    publishScene,
+  );
 }

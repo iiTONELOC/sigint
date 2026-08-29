@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DeviceType,
-  LayoutMode,
-  ViewportOrientation,
-} from "@/layout-mode/model";
+import { DeviceType, LayoutMode, ViewportOrientation } from "@/layout-mode/model/layoutMode";
 
 enum LayoutModeEnumCount {
   TwoValues = 2,

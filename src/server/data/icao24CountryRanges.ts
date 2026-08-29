@@ -1,41 +1,10 @@
-// ── ICAO 24-bit address → country mapping ─────────────────────────
-// Source: ICAO Annex 10 Volume III, Part I, Chapter 9, Appendix to
-// Chapter 9 — "ICAO 24-bit aircraft address allocation". Each
-// contracting state is allotted a contiguous block of 24-bit hex
-// addresses; aircraft registered in that state are issued addresses
-// from that block. The mapping is stable: blocks are revised
-// infrequently (decade-scale), so a static table is the right
-// representation.
-//
-// Format: ISO English country name, matching the existing fixture
-// values in tests/lib/services.spec.ts ("United States", "Canada",
-// "France", etc.) and the dossier ORIGIN-row display.
-//
-// Coverage: this v1 list covers every state with > ~100 active
-// aircraft on commercial/private registers (~80 entries); together
-// they account for >99 % of global ADS-B traffic. The long tail of
-// micro-states with sub-1024 address blocks (Tonga, Kiribati, etc.)
-// is not yet enumerated — those hexes fall through to "" (same as
-// today's behavior for every aircraft) so this commit is strictly
-// additive. A future ticket can fill the tail.
-//
-// Data correctness: each entry comes directly from ICAO's published
-// Annex 10 allocation table. Blocks are stored as inclusive [start,
-// end] pairs in numeric form so the binary-search lookup compares
-// integers, not hex strings. The list is sorted by `start` ascending
-// — a sort assertion in the spec catches any future merge mistake.
-
 export type Icao24Range = {
-  /** Inclusive low bound of the hex block, parsed to a number. */
   readonly start: number;
-  /** Inclusive high bound of the hex block. */
   readonly end: number;
-  /** ISO English country name. */
   readonly country: string;
 };
 
 export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
-  // ── AFI region (Africa) — 000000–3FFFFF block ─────────────────
   { start: 0x004000, end: 0x0043ff, country: "Zimbabwe" },
   { start: 0x006000, end: 0x006fff, country: "Mozambique" },
   { start: 0x008000, end: 0x00ffff, country: "South Africa" },
@@ -91,13 +60,9 @@ export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
   { start: 0x0a4000, end: 0x0a4fff, country: "Algeria" },
   { start: 0x0a8000, end: 0x0a8fff, country: "Bahamas" },
 
-  // ── NAM region (North America) — 0C0000–0DFFFF block ────────
   { start: 0x0c0000, end: 0x0c0fff, country: "Mexico" },
 
-  // ── EUR region — 100000–4FFFFF block ─────────────────────────
-  // Russian Federation occupies the entire 1xxxxx mega-block.
   { start: 0x100000, end: 0x1fffff, country: "Russian Federation" },
-  // Italy / Spain / France / Germany — four contiguous /17 blocks.
   { start: 0x300000, end: 0x33ffff, country: "Italy" },
   { start: 0x340000, end: 0x37ffff, country: "Spain" },
   { start: 0x380000, end: 0x3bffff, country: "France" },
@@ -127,7 +92,6 @@ export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
   { start: 0x4d2000, end: 0x4d23ff, country: "Malta" },
   { start: 0x4d4000, end: 0x4d43ff, country: "Monaco" },
 
-  // ── AS region (Asia) — 700000–8FFFFF block ──────────────────
   { start: 0x700000, end: 0x7003ff, country: "Afghanistan" },
   { start: 0x702000, end: 0x7023ff, country: "Bangladesh" },
   { start: 0x704000, end: 0x7043ff, country: "Myanmar" },
@@ -162,8 +126,6 @@ export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
   { start: 0x8a0000, end: 0x8a7fff, country: "Indonesia" },
   { start: 0x8a8000, end: 0x8a8fff, country: "Brunei" },
 
-  // ── NAM — A00000–CFFFFF block ─────────────────────────────────
-  // United States is the largest single allocation: 1,048,576 hexes.
   { start: 0xa00000, end: 0xafffff, country: "United States" },
   { start: 0xc00000, end: 0xc3ffff, country: "Canada" },
   { start: 0xc80000, end: 0xc87fff, country: "New Zealand" },
@@ -171,7 +133,6 @@ export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
   { start: 0xc8a000, end: 0xc8a3ff, country: "Nauru" },
   { start: 0xc8c000, end: 0xc8c3ff, country: "Saint Lucia" },
 
-  // ── SAM region (South America) — E00000–EFFFFF block ────────
   { start: 0xe00000, end: 0xe3ffff, country: "Argentina" },
   { start: 0xe40000, end: 0xe7ffff, country: "Brazil" },
   { start: 0xe80000, end: 0xe80fff, country: "Chile" },
@@ -182,22 +143,11 @@ export const ICAO24_COUNTRY_RANGES: ReadonlyArray<Icao24Range> = [
   { start: 0xe94000, end: 0xe94fff, country: "Bolivia" },
 ];
 
-/** Look up the country for an ICAO 24-bit address.
- *
- *  Returns the matched country name, or "" when:
- *  - input isn't a valid hex string (NaN after parseInt)
- *  - the hex falls in an unallocated region (test ranges, gaps)
- *  - the hex is mapped to a country not yet enumerated in v1
- *
- *  Empty-string return matches the prior `originCountry: ""` baseline,
- *  so this function is strictly additive — every consumer's empty-
- *  string fallback path remains exercised. */
+/** Return the allocated country, or an empty string when none is known. */
 export function countryFromIcao24(icao24: string): string {
   if (typeof icao24 !== "string" || icao24.length === 0) return "";
   const n = Number.parseInt(icao24, 16);
   if (!Number.isFinite(n) || n < 0) return "";
-  // Binary search — array is sorted by `start` ascending. We're
-  // looking for the largest `start` ≤ n, then range-check `end`.
   let lo = 0;
   let hi = ICAO24_COUNTRY_RANGES.length - 1;
   let candidate: Icao24Range | null = null;

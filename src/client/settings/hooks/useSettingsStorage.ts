@@ -8,24 +8,20 @@ import {
 import { ClientErrorMessage } from "@/errors";
 import { DomElementTag, DomInputType } from "@/runtime";
 import { CacheKey } from "@shared/domain/cache";
-import { SettingsTiming } from "../model";
-import {
-  exportSettingsBackup,
-  importSettingsBackup,
-  SettingsImportError,
-} from "../utils";
+import { SettingsTiming } from "../model/presentation";
+import { exportSettingsBackup, importSettingsBackup, SettingsImportError } from "../utils/transfer";
 
 enum SettingsImportFileType {
   Json = ".json",
 }
 
 const LAYOUT_RESET_CACHE_KEYS: readonly CacheKey[] = [
-  CacheKey.LayoutLegacy, // NOSONAR typescript:S1874: Reset removes stored legacy layout data.
+  CacheKey.LayoutLegacy,
   CacheKey.LayoutDesktop,
   CacheKey.LayoutMobile,
-  CacheKey.LayoutPresetsLegacy, // NOSONAR typescript:S1874: Reset removes stored legacy preset data.
-  CacheKey.LayoutPresetsDesktopLegacy, // NOSONAR typescript:S1874: Reset removes stored legacy desktop presets.
-  CacheKey.LayoutPresetsMobileLegacy, // NOSONAR typescript:S1874: Reset removes stored legacy mobile presets.
+  CacheKey.LayoutPresetsLegacy,
+  CacheKey.LayoutPresetsDesktopLegacy,
+  CacheKey.LayoutPresetsMobileLegacy,
 ];
 
 type SettingsStorageState = Readonly<{

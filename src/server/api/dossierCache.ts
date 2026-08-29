@@ -1,8 +1,12 @@
 import {
   fetchWithTimeout,
-  FETCH_TIMEOUT_STANDARD_MS,
   FETCH_TIMEOUT_FLIGHTAWARE_MS,
+  FETCH_TIMEOUT_STANDARD_MS,
 } from "../lib/fetchWithTimeout";
+import {
+  lookupAircraftMetadata,
+  type AircraftMetadataRecord,
+} from "./aircraftEnrichment";
 import {
   AircraftRouteLimit,
   AircraftRoutePolylineLimit,
@@ -20,18 +24,19 @@ import {
   MS_PER_MINUTE,
   SECONDS_PER_MINUTE,
 } from "@shared/time";
+import { isOptionalFiniteNumber } from "@shared/types/numbers";
 
-enum AircraftDossierProviderEndpoint {
-  FlightAware = "https://www.flightaware.com/live/flight",
-  HexDb = "https://hexdb.io",
-}
+const AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS = {
+  [AircraftRouteSource.FlightAware]:
+    "https://www.flightaware.com/live/flight",
+  [AircraftRouteSource.HexDb]: "https://hexdb.io",
+} satisfies Readonly<Record<AircraftRouteSource, string>>;
 
-enum AircraftDossierCacheTime {
-  StandardMs = 30 * MS_PER_MINUTE, // NOSONAR: shared time units own conversion.
-  FiveMinutesMs = 5 * MS_PER_MINUTE, // NOSONAR: shared time units own conversion.
-  FailureMs = 2 * MS_PER_MINUTE, // NOSONAR: shared time units own conversion.
-  SweepMs = 10 * MS_PER_MINUTE, // NOSONAR: shared time units own conversion.
-}
+const AIRCRAFT_DOSSIER_CACHE_TIME = Object.freeze({
+  enrichedMs: 5 * MS_PER_MINUTE,
+  standardMs: 30 * MS_PER_MINUTE,
+  sweepMs: 10 * MS_PER_MINUTE,
+});
 
 enum AircraftDossierDelay {
   MinimumLateSeconds = 300,
@@ -45,10 +50,6 @@ enum HexDbResponseStatus {
 
 const CALLSIGN_RE = /^[A-Z0-9]{2,10}$/i;
 const ICAO_AIRPORT_RE = /^[A-Z]{4}$/i;
-
-export function isValidIcao24(value: string): boolean {
-  return isAircraftIcao24(value);
-}
 
 export function isValidCallsign(value: string): boolean {
   return CALLSIGN_RE.test(value);
@@ -71,26 +72,39 @@ function sanitizeIcaoAirport(raw: string): string | null {
 
 // ── Cache ────────────────────────────────────────────────────────────
 
-type CacheEntry<T> = { data: T; expiresAt: number };
+type CacheEntry<T> = {
+  data: T;
+  receivedAt: number;
+  expiresAt: number;
+};
 
 const textCache = new Map<string, CacheEntry<unknown>>();
 
-function getCached<T>(key: string): T | null {
+function getCachedEntry<T>(key: string): CacheEntry<T> | null {
   const entry = textCache.get(key);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
     textCache.delete(key);
     return null;
   }
-  return entry.data as T;
+  return entry as CacheEntry<T>;
+}
+
+function getCached<T>(key: string): T | null {
+  return getCachedEntry<T>(key)?.data ?? null;
 }
 
 function setCached<T>(
   key: string,
   data: T,
-  ttl: number = AircraftDossierCacheTime.StandardMs,
+  ttl: number = AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
 ): void {
-  textCache.set(key, { data, expiresAt: Date.now() + ttl });
+  const receivedAt = Date.now();
+  textCache.set(key, {
+    data,
+    receivedAt,
+    expiresAt: receivedAt + ttl,
+  });
 }
 
 setInterval(() => {
@@ -98,7 +112,7 @@ setInterval(() => {
   for (const [key, entry] of textCache) {
     if (now > entry.expiresAt) textCache.delete(key);
   }
-}, AircraftDossierCacheTime.SweepMs);
+}, AIRCRAFT_DOSSIER_CACHE_TIME.sweepMs);
 
 // ── hexdb.io types ───────────────────────────────────────────────────
 
@@ -124,16 +138,11 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === "string";
 }
 
-function isOptionalNumber(value: unknown): value is number | undefined {
-  return value === undefined ||
-    (typeof value === "number" && Number.isFinite(value));
-}
-
 function isHexDbRoute(value: unknown): value is HexDbRoute {
   return isRecord(value) &&
     isOptionalString(value.flight) &&
     isOptionalString(value.route) &&
-    isOptionalNumber(value.updatetime) &&
+    isOptionalFiniteNumber(value.updatetime) &&
     isOptionalString(value.status);
 }
 
@@ -143,8 +152,8 @@ function isHexDbAirport(value: unknown): value is HexDbAirport {
     isOptionalString(value.country_code) &&
     isOptionalString(value.iata) &&
     isOptionalString(value.icao) &&
-    isOptionalNumber(value.latitude) &&
-    isOptionalNumber(value.longitude) &&
+    isOptionalFiniteNumber(value.latitude) &&
+    isOptionalFiniteNumber(value.longitude) &&
     isOptionalString(value.region_name);
 }
 
@@ -401,49 +410,31 @@ function flightAwareRoute(flight: FAflightData): AircraftRoute {
   };
 }
 
-function cacheMissingFlightAwareRoute(
-  cacheKey: string,
-  duration: AircraftDossierCacheTime,
-): null {
-  setCached(cacheKey, false, duration);
-  return null;
-}
-
 async function scrapeFlightAware(
   callsign: string,
 ): Promise<AircraftRoute | null> {
   const cacheKey = `fa:${callsign}`;
-  const cached = getCached<AircraftRoute | false>(cacheKey);
-  if (cached !== null) return cached || null;
+  const cached = getCached<AircraftRoute>(cacheKey);
+  if (cached) return cached;
 
   try {
     const url =
-      `${AircraftDossierProviderEndpoint.FlightAware}/${encodeURIComponent(callsign)}`;
-    const res = await fetchWithTimeout(url, FETCH_TIMEOUT_FLIGHTAWARE_MS);
-    if (!res.ok) {
-      return cacheMissingFlightAwareRoute(
-        cacheKey,
-        AircraftDossierCacheTime.FiveMinutesMs,
-      );
-    }
+      `${AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS[AircraftRouteSource.FlightAware]}/${encodeURIComponent(callsign)}`;
+    const res = await fetchWithTimeout(
+      url,
+      FETCH_TIMEOUT_FLIGHTAWARE_MS,
+    );
+    if (!res.ok) return null;
 
     const html = await res.text();
     const flight = parseFlightAwareData(html);
-    if (!flight) {
-      return cacheMissingFlightAwareRoute(
-        cacheKey,
-        AircraftDossierCacheTime.FiveMinutesMs,
-      );
-    }
+    if (!flight) return null;
 
     const route = flightAwareRoute(flight);
-    setCached(cacheKey, route, AircraftDossierCacheTime.FiveMinutesMs);
+    setCached(cacheKey, route, AIRCRAFT_DOSSIER_CACHE_TIME.enrichedMs);
     return route;
   } catch {
-    return cacheMissingFlightAwareRoute(
-      cacheKey,
-      AircraftDossierCacheTime.FailureMs,
-    );
+    return null;
   }
 }
 
@@ -466,7 +457,7 @@ async function fetchAircraftInfo(
 
   try {
     const res = await fetchWithTimeout(
-      `${AircraftDossierProviderEndpoint.HexDb}/api/v1/aircraft/${hex}`,
+      `${AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS[AircraftRouteSource.HexDb]}/api/v1/aircraft/${hex}`,
       FETCH_TIMEOUT_STANDARD_MS,
     );
     if (!res.ok) return null;
@@ -478,11 +469,34 @@ async function fetchAircraftInfo(
       return null;
     }
     if (!isAircraftDossierAircraft(data)) return null;
-    setCached(cacheKey, data);
+    setCached(cacheKey, data, AIRCRAFT_DOSSIER_CACHE_TIME.enrichedMs);
     return data;
   } catch {
     return null;
   }
+}
+
+function dossierAircraftFromMetadata(
+  metadata: AircraftMetadataRecord | null,
+): AircraftDossierAircraft | null {
+  if (!metadata) return null;
+  return {
+    ICAOTypeCode: metadata.typecode,
+    Manufacturer: metadata.manufacturerName,
+    ModeS: metadata.icao24.toUpperCase(),
+    OperatorFlagCode: metadata.operatorIcao,
+    RegisteredOwners: metadata.operator,
+    Registration: metadata.registration,
+    Type: metadata.model ?? metadata.resolvedType,
+  };
+}
+
+async function fetchLocalAircraftInfo(
+  hex: string,
+): Promise<AircraftDossierAircraft | null> {
+  return dossierAircraftFromMetadata(
+    await lookupAircraftMetadata(hex),
+  );
 }
 
 function airportCity(airport: HexDbAirport | null): string | undefined {
@@ -493,37 +507,37 @@ function airportCity(airport: HexDbAirport | null): string | undefined {
   return `${airport.airport}${country}`;
 }
 
+function airportWaypoint(
+  airport: HexDbAirport | null,
+): AircraftRouteWaypoint | undefined {
+  if (
+    airport?.latitude === undefined ||
+    airport.longitude === undefined
+  ) {
+    return undefined;
+  }
+  return [airport.latitude, airport.longitude];
+}
+
 async function fetchHexDbRoute(
   callsign: string,
 ): Promise<AircraftRoute | null> {
   const cacheKey = `hexroute:${callsign}`;
-  const cached = getCached<AircraftRoute | false>(cacheKey);
-  if (cached !== null) return cached || null;
+  const cached = getCached<AircraftRoute>(cacheKey);
+  if (cached) return cached;
 
   try {
     const res = await fetchWithTimeout(
-      `${AircraftDossierProviderEndpoint.HexDb}/api/v1/route/icao/${callsign}`,
+      `${AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS[AircraftRouteSource.HexDb]}/api/v1/route/icao/${callsign}`,
       FETCH_TIMEOUT_STANDARD_MS,
     );
-    if (!res.ok) {
-      setCached(
-        cacheKey,
-        false,
-        AircraftDossierCacheTime.StandardMs,
-      );
-      return null;
-    }
+    if (!res.ok) return null;
     const value: unknown = await res.json();
     if (
       !isHexDbRoute(value) ||
       value.status === HexDbResponseStatus.NotFound ||
       !value.route
     ) {
-      setCached(
-        cacheKey,
-        false,
-        AircraftDossierCacheTime.StandardMs,
-      );
       return null;
     }
     const routeText = value.route;
@@ -537,6 +551,8 @@ async function fetchHexDbRoute(
       originIcao ? fetchAirport(originIcao) : Promise.resolve(null),
       destIcao ? fetchAirport(destIcao) : Promise.resolve(null),
     ]);
+    const originWaypoint = airportWaypoint(originAirport);
+    const destinationWaypoint = airportWaypoint(destAirport);
 
     const route: AircraftRoute = {
       source: AircraftRouteSource.HexDb,
@@ -552,20 +568,19 @@ async function fetchHexDbRoute(
         name: destAirport?.airport,
         city: airportCity(destAirport),
       },
+      waypoints:
+        originWaypoint && destinationWaypoint
+          ? [originWaypoint, destinationWaypoint]
+          : undefined,
     };
 
     setCached(
       cacheKey,
       route,
-      AircraftDossierCacheTime.StandardMs,
+      AIRCRAFT_DOSSIER_CACHE_TIME.enrichedMs,
     );
     return route;
   } catch {
-    setCached(
-      cacheKey,
-      false,
-      AircraftDossierCacheTime.FiveMinutesMs,
-    );
     return null;
   }
 }
@@ -577,7 +592,7 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
 
   try {
     const res = await fetchWithTimeout(
-      `${AircraftDossierProviderEndpoint.HexDb}/api/v1/airport/icao/${icao}`,
+      `${AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS[AircraftRouteSource.HexDb]}/api/v1/airport/icao/${icao}`,
       FETCH_TIMEOUT_STANDARD_MS,
     );
     if (!res.ok) return null;
@@ -598,50 +613,94 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
 
 // ── Composite dossier fetch ──────────────────────────────────────────
 
-export async function getAircraftDossier(icao24Raw: string, callsignRaw?: string): Promise<AircraftDossier | null> {
+function hasAircraftDossierEnrichment(
+  aircraft: AircraftDossierAircraft | null,
+  route: AircraftRoute | null,
+): boolean {
+  return aircraft !== null || route !== null;
+}
+
+export async function getAircraftDossier(
+  icao24Raw: string,
+  callsignRaw?: string,
+): Promise<AircraftDossier | null> {
   const hex = sanitizeIcao24(icao24Raw);
   if (!hex) return null;
 
-  const cacheKey = `dossier:${hex}:${callsignRaw ?? ""}`;
-  const cached = getCached<AircraftDossier>(cacheKey);
-  if (cached) return cached;
-
   const callsign = callsignRaw ? sanitizeCallsign(callsignRaw) : null;
+  const cacheKey = `dossier:${hex}:${callsign ?? ""}`;
+  const cachedEntry = getCachedEntry<AircraftDossier>(cacheKey);
+  const fallbackEntry = cachedEntry &&
+      hasAircraftDossierEnrichment(
+        cachedEntry.data.aircraft,
+        cachedEntry.data.route,
+      )
+    ? cachedEntry
+    : null;
+  if (
+    fallbackEntry &&
+    Date.now() - fallbackEntry.receivedAt <=
+      AIRCRAFT_DOSSIER_CACHE_TIME.enrichedMs
+  ) {
+    return fallbackEntry.data;
+  }
+
+  const hexDbAircraft = fetchAircraftInfo(hex);
+  const hexDbRoute = callsign
+    ? fetchHexDbRoute(callsign)
+    : Promise.resolve(null);
 
   const [aircraft, route] = await Promise.all([
-    fetchAircraftInfo(hex),
+    fetchLocalAircraftInfo(hex),
     callsign ? fetchRoute(callsign) : Promise.resolve(null),
   ]);
 
   const dossier: AircraftDossier = {
     icao24: hex,
-    aircraft,
-    route,
+    aircraft: aircraft ?? fallbackEntry?.data.aircraft ?? null,
+    route: route ?? fallbackEntry?.data.route ?? null,
   };
 
-  // Cache dossier for shorter TTL if we have live FA data
-  const ttl = route?.source === AircraftRouteSource.FlightAware
-    ? AircraftDossierCacheTime.FiveMinutesMs
-    : AircraftDossierCacheTime.StandardMs;
-  setCached(cacheKey, dossier, ttl);
+  if (hasAircraftDossierEnrichment(aircraft, route)) {
+    setCached(cacheKey, dossier, AIRCRAFT_DOSSIER_CACHE_TIME.standardMs);
+  }
+  void refreshHexDbDossier(
+    cacheKey,
+    dossier,
+    hexDbAircraft,
+    hexDbRoute,
+  );
   return dossier;
 }
 
-// ── Route fetch (FA primary, hexdb fallback) ─────────────────────────
+async function refreshHexDbDossier(
+  cacheKey: string,
+  foreground: AircraftDossier,
+  aircraftRequest: Promise<AircraftDossierAircraft | null>,
+  routeRequest: Promise<AircraftRoute | null>,
+): Promise<void> {
+  const [aircraft, route] = await Promise.all([
+    aircraftRequest,
+    routeRequest,
+  ]);
+  if (!aircraft && !route) return;
+  const cached = getCachedEntry<AircraftDossier>(cacheKey)?.data ?? foreground;
+  const enriched: AircraftDossier = {
+    ...cached,
+    aircraft: aircraft ?? cached.aircraft,
+    route: cached.route ?? route,
+  };
+  setCached(
+    cacheKey,
+    enriched,
+    AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
+  );
+}
+
+// ── Foreground route fetch ───────────────────────────────────────────
 
 async function fetchRoute(
   callsign: string,
 ): Promise<AircraftRoute | null> {
-  const faRoute = await scrapeFlightAware(callsign);
-  if (faRoute) return faRoute;
-
-  return fetchHexDbRoute(callsign);
-}
-
-// ── Airport lookup (standalone) ──────────────────────────────────────
-
-export async function getAirportInfo(icaoRaw: string): Promise<HexDbAirport | null> {
-  const icao = sanitizeIcaoAirport(icaoRaw);
-  if (!icao) return null;
-  return fetchAirport(icao);
+  return scrapeFlightAware(callsign);
 }

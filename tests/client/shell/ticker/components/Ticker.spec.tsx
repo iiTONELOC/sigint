@@ -35,7 +35,7 @@ enum TickerComponentMetric {
   FrameResume = 200_000,
   FrameStart = 1_000,
   NarrowWidth = 100,
-  StoppedIntervalCount = 3,
+  StoppedIntervalCount = 2,
   WideWidth = 1_200,
 }
 

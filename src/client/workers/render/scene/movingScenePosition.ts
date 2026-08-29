@@ -1,15 +1,23 @@
 import {
+  TRAIL_POLICY,
+  type TrackSource,
+} from "@/lib/geo/trails/trailStore";
+import {
+  getPointSourceDefinition,
+  motionAttributeOffsetForSource,
+} from "@shared/domain/pointSource";
+import {
   advanceGeographicMotion,
   advanceUnitMotion,
   createGeographicMotion,
   type GeographicMotion,
 } from "@/lib/geo/unitSphere";
 import {
+  MOVING_SCENE_ATTRIBUTE_COUNT,
+  SCENE_POSITION_COUNT,
   MovingSceneAttribute,
-  MovingSceneMotionPosition,
-  MovingSceneMotionPositionSchema,
-  MovingSceneSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+  ScenePositionOffset,
+} from "@shared/scene";
 import {
   scenePositionFromRecord,
   scenePositionFromView,
@@ -208,11 +216,11 @@ export class MovingScenePositionAccessor
       index * view.motionPositionStride;
     const longitude =
       view.motionPositions[
-        motionPositionOffset + MovingSceneMotionPosition.Longitude
+        motionPositionOffset + ScenePositionOffset.Longitude
       ];
     const latitude =
       view.motionPositions[
-        motionPositionOffset + MovingSceneMotionPosition.Latitude
+        motionPositionOffset + ScenePositionOffset.Latitude
       ];
     if (longitude === undefined || latitude === undefined) return null;
     return this.input(
@@ -262,7 +270,7 @@ export class MovingScenePositionAccessor
     return (
       attributeStride === this.options.attributeStride &&
       this.options.attributeOffset +
-        MovingSceneSchema.AttributeStride <=
+        MOVING_SCENE_ATTRIBUTE_COUNT <=
         attributeStride
     );
   }
@@ -274,7 +282,19 @@ export class MovingScenePositionAccessor
     return (
       this.hasCompatibleAttributes(attributeStride) &&
       motionPositionStride ===
-        MovingSceneMotionPositionSchema.MotionPositionStride
+        SCENE_POSITION_COUNT
     );
   }
+}
+
+/** The position accessor a moving source layer projects through. */
+export function movingPositionAccessor(
+  source: TrackSource,
+): MovingScenePositionAccessor {
+  return new MovingScenePositionAccessor({
+    attributeOffset: motionAttributeOffsetForSource(source),
+    attributeStride:
+      getPointSourceDefinition(source).sceneSchema.attributeStride,
+    maximumAgeMs: TRAIL_POLICY[source].maxExtrapolationMs,
+  });
 }

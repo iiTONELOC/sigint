@@ -5,9 +5,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import {
-  UnitMode,
-} from "@/preferences/units";
+import { UnitMode } from "@/preferences/units/model";
 import {
   beginFixtureUnitModeWrite,
   cleanupPreferenceFixture,

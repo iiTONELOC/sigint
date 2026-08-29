@@ -1,19 +1,28 @@
-// ── Auth service ─────────────────────────────────────────────────────
-// Token lives in an HttpOnly cookie set by the server — never in JS.
-// The browser includes it automatically on same-origin requests.
-// On 401, we hit the token endpoint to get a fresh cookie, then retry.
+import { AUTH_TOKEN_ROUTE, HttpStatus } from "@shared/http";
 
-const TOKEN_URL = "/api/auth/token";
+const AUTH_REQUEST_CREDENTIALS: RequestCredentials = "same-origin";
+const TOKEN_REFRESH_FAILURE = "Token refresh failed";
+
+class AuthServiceError extends Error {
+  readonly kind = TOKEN_REFRESH_FAILURE;
+
+  constructor(readonly httpStatus: number) {
+    super(`${TOKEN_REFRESH_FAILURE}: ${httpStatus}`);
+  }
+}
 
 let inflightRefresh: Promise<void> | null = null;
 
 async function refreshCookie(): Promise<void> {
   if (inflightRefresh) return inflightRefresh;
   inflightRefresh = (async () => {
-    const res = await fetch(TOKEN_URL, { credentials: "same-origin" });
-    if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
-    // Wait a tick for the browser to process Set-Cookie before
-    // subsequent fetch() calls include it
+    const res = await fetch(AUTH_TOKEN_ROUTE, {
+      credentials: AUTH_REQUEST_CREDENTIALS,
+    });
+    if (!res.ok) {
+      throw new AuthServiceError(res.status);
+    }
+    // Allow Set-Cookie processing before retries.
     await new Promise((r) => setTimeout(r, 0));
   })();
   try {
@@ -34,14 +43,14 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   let response = await fetch(url, {
     ...init,
-    credentials: "same-origin",
+    credentials: AUTH_REQUEST_CREDENTIALS,
   });
 
-  if (response.status === 401) {
+  if (response.status === HttpStatus.Unauthorized) {
     await refreshCookie();
     response = await fetch(url, {
       ...init,
-      credentials: "same-origin",
+      credentials: AUTH_REQUEST_CREDENTIALS,
     });
   }
 

@@ -4,8 +4,8 @@ import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import { ScenePublisher } from "@/workers/data/render-codecs/scenePublisher";
 import {
   SceneDataCommandType,
-  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
+import { SceneGeometryKind } from "@shared/scene";
 
 describe("scene publisher", () => {
   test("binds and transfers typed source patches in sequence", () => {

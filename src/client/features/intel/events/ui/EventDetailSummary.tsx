@@ -1,16 +1,14 @@
-import { DetailField, DetailFieldAlign } from "@/dossier";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { NO_VALUE } from "@shared/text";
-import { EventCopy, EventFieldLabel } from "../formatters";
-import type { EventData } from "../types";
-import { eventImpactLabel } from "../utils";
-
-enum EventDetailClassName {
-  Category = "shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded border border-current whitespace-nowrap uppercase text-sig-events",
-}
+import { EventCopy, EventFieldLabel } from "../formatters/copy";
+import type { EventData } from "@shared/domain/events";
+import { Domain } from "@shared/domain/identity";
+import { eventImpactLabel } from "../utils/tone";
 
 export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
-  const d = (item.data as EventData) ?? {};
+  const d: EventData = item.type === Domain.Events ? item.data : {};
   const headline = d.headline || EventCopy.DefaultTitle;
   const actors = [d.actor1, d.actor2].filter(Boolean).join(" → ");
 
@@ -25,7 +23,7 @@ export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
         </div>
         {d.category && (
           <span
-            className={EventDetailClassName.Category}
+            className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-1.5 py-0.5 rounded border border-current whitespace-nowrap uppercase text-sig-events"
           >
             {d.category}
           </span>
@@ -41,7 +39,7 @@ export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
           <DetailField
             label={EventFieldLabel.Tone.toUpperCase()}
             value={d.tone == null ? NO_VALUE : d.tone.toFixed(1)}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
         <div className="flex justify-between gap-4">
@@ -52,7 +50,7 @@ export function EventDetailSummary({ item }: { readonly item: DataPoint }) {
           <DetailField
             label={EventFieldLabel.Source.toUpperCase()}
             value={d.source ?? NO_VALUE}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
       </div>

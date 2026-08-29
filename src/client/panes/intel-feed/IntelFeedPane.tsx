@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Domain } from "@shared/domain/identity";
-import { WatchSource } from "@/context/WatchContext";
-import { useData } from "@/context/DataContext";
+import { useWatch, WatchSource } from "@/context/WatchContext";
+import { useDataContext } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import type { DataType } from "@/features/base/dataPoints";
 import { useSourceTables } from "@/features/base/useSourceTables";
 import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
@@ -11,28 +12,26 @@ import {
   TableSortDirection,
   TableSortKey,
 } from "@/workers/data/uiQuery";
-import {
-  IntelFeedToolbar,
-  IntelProductList,
-  RawIntelFeed,
-} from "./components";
-import { useIntelFeedStylesheet } from "./hooks";
-import { IntelFeedVirtualization } from "./model";
-import { compareNewestFirst } from "./utils";
+import { IntelFeedToolbar } from "./components/IntelFeedToolbar";
+import { IntelProductList } from "./components/IntelProductList";
+import { RawIntelFeed } from "./components/RawIntelFeed";
+import { useIntelFeedStylesheet } from "./hooks/useIntelFeedStylesheet";
+import { IntelFeedVirtualization } from "./model/feed";
+import { compareNewestFirst } from "./utils/sort";
 
 export function IntelFeedPane() {
+  const { correlation, layers } = useDataContext();
   const {
     selectedCurrent,
     setSelected,
     selectAndZoom,
     setRevealId,
-    correlation,
+  } = useUI();
+  const {
     watchActive,
     watchMode,
     watchProgress,
-    earthquakeFilter,
-    fireFilter,
-  } = useData();
+  } = useWatch();
   const [isRawView, setIsRawView] = useState(false);
   const [feedFilter, setFeedFilter] = useState<DataType | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -57,22 +56,15 @@ export function IntelFeedPane() {
     return product?.id ?? null;
   }, [correlation.products, isIntelActive, watchMode.currentId]);
 
-  const minValues = useMemo(
-    () => ({
-      [Domain.Earthquake]: earthquakeFilter.minMagnitude,
-      [Domain.Fire]: fireFilter.minConfidence,
-    }),
-    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
-  );
   const disabled = useMemo(
     () => ({
       [Domain.Aircraft]: true,
       [Domain.Cyclones]: true,
-      [Domain.Earthquake]: !earthquakeFilter.enabled,
-      [Domain.Fire]: !fireFilter.enabled,
+      [Domain.Earthquake]: !layers[Domain.Quakes],
+      [Domain.Fire]: !layers[Domain.Fires],
       [Domain.Ships]: true,
     }),
-    [earthquakeFilter.enabled, fireFilter.enabled],
+    [layers],
   );
   const {
     prefixes: rawPrefixes,
@@ -83,7 +75,6 @@ export function IntelFeedPane() {
     sortDirection: TableSortDirection.Ascending,
     limit: sourcePrefixLimit,
     pointType: feedFilter,
-    minValues,
     disabled,
   });
 

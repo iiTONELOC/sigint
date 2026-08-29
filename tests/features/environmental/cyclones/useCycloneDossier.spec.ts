@@ -1,124 +1,114 @@
 /// <reference lib="dom" />
 import {
-  afterEach,
   beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
-import { useCycloneDossier } from "@/features/environmental/cyclones/hooks/useCycloneDossier";
-import { cacheClearAll } from "@/lib/cache/storageService";
+import type { CycloneDossierBundle } from "@shared/domain/cyclones";
+import { EMPTY_TEXT } from "@shared/text";
 import { renderHook } from "../../../support/react";
-import {
-  installFetchMock,
-  type RestoreFetch,
-} from "../../../support/network";
 
 enum CycloneDossierFixtureId {
-  MalformedInput = "BOGUS-ID",
-  RemoteFailure = "AL992024",
-  SuccessfulBundle = "AL142024",
+  MalformedEntity = "BOGUS-ID",
+  RemoteFailureEntity = "CYAL992024",
+  SuccessfulEntity = "CYAL142024",
+  SuccessfulStorm = "AL142024",
 }
 
-enum CycloneDossierHttpStatus {
-  InternalServerError = 500,
-  Ok = 200,
-}
-
-// Unique storm identifiers prevent cache writes from crossing test boundaries.
-const SAMPLE_BUNDLE = {
-  stormId: CycloneDossierFixtureId.SuccessfulBundle,
+const SAMPLE_BUNDLE: CycloneDossierBundle = {
+  stormId: CycloneDossierFixtureId.SuccessfulStorm,
   advisory: {
     advisoryNumber: "13",
     issuedAt: "400 AM CDT Tue Oct 08 2024",
     body: "...EXTREMELY POWERFUL HURRICANE MILTON...",
+    nextAdvisory: EMPTY_TEXT,
   },
   discussion: {
     advisoryNumber: "13",
     issuedAt: "400 AM CDT Tue Oct 08 2024",
     body: "Air Force Hurricane Hunters and NOAA aircraft...",
+    nextAdvisory: EMPTY_TEXT,
   },
 };
 
+const WORKER_FAILURE = "Simulated DataWorker failure";
+let requestCount = 0;
+let lastEntityId = EMPTY_TEXT;
+let workerResult: CycloneDossierBundle | null = SAMPLE_BUNDLE;
+let workerRejects = false;
+
+mock.module("@/lib/cache/dataWorkerClient", () => ({
+  getDataWorkerClient: () => ({
+    getCycloneDossier: async (
+      entityId: string,
+    ): Promise<CycloneDossierBundle | null> => {
+      requestCount += 1;
+      lastEntityId = entityId;
+      if (workerRejects) throw new Error(WORKER_FAILURE);
+      return workerResult;
+    },
+  }),
+}));
+
+const { useCycloneDossier } = await import(
+  "@/features/environmental/cyclones/hooks/useCycloneDossier"
+);
+
 describe("useCycloneDossier", () => {
-  let restoreFetch: RestoreFetch;
-  let fetchCount: number;
-  let lastUrl: string;
-  let serverResponse: unknown;
-  let serverStatus: CycloneDossierHttpStatus;
-
-  beforeEach(async () => {
-    await cacheClearAll();
-    fetchCount = 0;
-    lastUrl = "";
-    serverResponse = { dossier: SAMPLE_BUNDLE, fetchedAt: Date.now() };
-    serverStatus = CycloneDossierHttpStatus.Ok;
-    restoreFetch = installFetchMock(async (input) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-
-      lastUrl = url;
-      fetchCount += 1;
-
-      return new Response(JSON.stringify(serverResponse), {
-        status: serverStatus,
-      });
-    });
+  beforeEach(() => {
+    requestCount = 0;
+    lastEntityId = EMPTY_TEXT;
+    workerResult = SAMPLE_BUNDLE;
+    workerRejects = false;
   });
 
-  afterEach(() => {
-    restoreFetch();
-  });
-
-  test("fetches dossier from /api/dossier/cyclone/:stormId on mount", async () => {
+  test("requests the dossier from DataWorker on mount", async () => {
     const { result, waitFor, unmount } = renderHook(() =>
-      useCycloneDossier(CycloneDossierFixtureId.SuccessfulBundle),
+      useCycloneDossier(CycloneDossierFixtureId.SuccessfulEntity),
     );
     await waitFor(() => result.current.dossier !== null);
 
     expect(result.current.dossier?.stormId).toBe(
-      CycloneDossierFixtureId.SuccessfulBundle,
+      CycloneDossierFixtureId.SuccessfulStorm,
     );
     expect(result.current.dossier?.advisory?.advisoryNumber).toBe("13");
     expect(result.current.loading).toBe(false);
-    expect(lastUrl).toContain(
-      `/api/dossier/cyclone/${CycloneDossierFixtureId.SuccessfulBundle}`,
-    );
+    expect(lastEntityId).toBe(CycloneDossierFixtureId.SuccessfulEntity);
     unmount();
   });
 
-  test("returns null and skips fetch when stormId is null", async () => {
+  test("returns null and skips DataWorker when entityId is null", async () => {
     const { result, unmount } = renderHook(() => useCycloneDossier(null));
 
     expect(result.current.dossier).toBeNull();
     expect(result.current.loading).toBe(false);
-    expect(fetchCount).toBe(0);
+    expect(requestCount).toBe(0);
     unmount();
   });
 
-  test("rejects malformed stormId without hitting the network", async () => {
-    const { result, unmount } = renderHook(() =>
-      useCycloneDossier(CycloneDossierFixtureId.MalformedInput),
+  test("returns null when DataWorker rejects a malformed entity", async () => {
+    workerResult = null;
+    const { result, waitFor, unmount } = renderHook(() =>
+      useCycloneDossier(CycloneDossierFixtureId.MalformedEntity),
     );
+    await waitFor(() => !result.current.loading);
 
     expect(result.current.dossier).toBeNull();
     expect(result.current.loading).toBe(false);
-    expect(fetchCount).toBe(0);
+    expect(requestCount).toBe(1);
     unmount();
   });
 
-  test("server 500 enters the error state with no dossier", async () => {
-    serverStatus = CycloneDossierHttpStatus.InternalServerError;
+  test("DataWorker failure leaves no dossier after loading completes", async () => {
+    workerRejects = true;
     const { result, waitFor, unmount } = renderHook(() =>
-      useCycloneDossier(CycloneDossierFixtureId.RemoteFailure),
+      useCycloneDossier(CycloneDossierFixtureId.RemoteFailureEntity),
     );
-    await waitFor(() => result.current.error !== null);
+    await waitFor(() => !result.current.loading);
 
-    expect(result.current.error).not.toBeNull();
+    expect(requestCount).toBe(1);
     expect(result.current.dossier).toBeNull();
     expect(result.current.loading).toBe(false);
     unmount();

@@ -10,14 +10,14 @@ describe("feature registry", () => {
   });
 
   test("featureRegistry resolves 'cyclones' to a FeatureDefinition", () => {
-    const def = featureRegistry.get(Domain.Cyclones);
+    const def = featureRegistry[Domain.Cyclones];
     expect(def).toBeDefined();
     expect(def?.id).toBe(Domain.Cyclones);
     expect(def?.label.length).toBeGreaterThan(0);
   });
 
   test("featureRegistry size matches featureList length (no duplicates)", () => {
-    expect(featureRegistry.size).toBe(featureList.length);
+    expect(Object.keys(featureRegistry)).toHaveLength(featureList.length);
   });
 
   test("registry covers every DataPoint type in scope", () => {
@@ -42,7 +42,7 @@ describe("feature registry", () => {
   });
 
   test("featureRegistry resolves 'cyclones-forecast' to a FeatureDefinition", () => {
-    const def = featureRegistry.get(Domain.CyclonesForecast);
+    const def = featureRegistry[Domain.CyclonesForecast];
     expect(def).toBeDefined();
     expect(def?.id).toBe(Domain.CyclonesForecast);
     expect(def?.label.length).toBeGreaterThan(0);

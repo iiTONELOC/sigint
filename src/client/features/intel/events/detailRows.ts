@@ -4,9 +4,9 @@ import {
   relativeAge,
 } from "@/time";
 import { IntelSeverity } from "@shared/domain/correlation";
-import { EventFieldLabel } from "./formatters";
-import type { EventData } from "./types";
-import { eventToneLabel } from "./utils";
+import { EventFieldLabel } from "./formatters/copy";
+import type { EventData } from "@shared/domain/events";
+import { eventToneLabel } from "./utils/tone";
 
 function toneLabel(tone: number): string {
   return `${tone.toFixed(1)} ${eventToneLabel(tone).toUpperCase()}`;
@@ -46,16 +46,8 @@ export function buildEventDetailRows(
     rows.push([EventFieldLabel.Origin, data.sourceCountry]);
   }
 
-  if (data.language) {
-    rows.push([EventFieldLabel.Language, data.language.toUpperCase()]);
-  }
-
   if (data.locationName) {
     rows.push([EventFieldLabel.Location, data.locationName]);
-  }
-
-  if (data.snippet) {
-    rows.push([EventFieldLabel.Context, data.snippet]);
   }
 
   if (timestamp) {

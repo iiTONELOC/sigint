@@ -36,9 +36,7 @@ describe("point source runtime", () => {
     const patches: unknown[] = [];
     const runtime = createPointSourceRuntime<TestEntity>({
       id: Domain.Events,
-      cacheKey: "events",
       pollIntervalMs: 1_000,
-      maxQueryItems: 20,
       readCache: async () => ({
         schema: PointSourceCacheSchema.Current,
         timestamp: 10,
@@ -90,9 +88,7 @@ describe("point source runtime", () => {
     ];
     const runtime = createPointSourceRuntime<TestEntity>({
       id: Domain.Events,
-      cacheKey: "events",
       pollIntervalMs: 1_000,
-      maxQueryItems: 1,
       readCache: async () => null,
       parseCache,
       persistCache: async () => undefined,
@@ -109,13 +105,5 @@ describe("point source runtime", () => {
     await runtime.refresh();
 
     expect(runtime.get("second")).toEqual({ id: "second", value: 2 });
-    const result = await runtime.query({
-      offset: 0,
-      limit: 10,
-      match: () => true,
-      compare: (left, right) => left.id.localeCompare(right.id),
-    });
-    expect(result.total).toBe(2);
-    expect(result.items).toHaveLength(1);
   });
 });

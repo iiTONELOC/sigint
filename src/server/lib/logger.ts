@@ -1,20 +1,11 @@
-// Structured logger primitive. Bun-native.
-//
-// Output shape: one JSON object per line, written to the configured sink.
-// Required fields per entry: timestamp (UTC ISO-8601), level, service,
-// message. Optional context fields: requestId, actorId, action,
-// statusCode, durationMs, errorClass, errorMessage — plus arbitrary
-// caller-supplied fields.
-//
-// Forbidden keys (token, password, apiKey, cookie, secret,
-// authorization, refreshToken, ...) are redacted at top and one level
-// of nesting. Message strings are scrubbed for known auth-cookie
-// patterns. Logging is best-effort: a sink that throws never
-// propagates to the caller.
-
 export const REDACTED = "[REDACTED]";
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+export enum LogLevel {
+  Debug = "debug",
+  Info = "info",
+  Warn = "warn",
+  Error = "error",
+}
 
 export type LogSink = {
   write(chunk: Uint8Array): Promise<void> | void;
@@ -34,10 +25,10 @@ export type Logger = Readonly<{
 }>;
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
+  [LogLevel.Debug]: 0,
+  [LogLevel.Info]: 1,
+  [LogLevel.Warn]: 2,
+  [LogLevel.Error]: 3,
 };
 
 const REDACT_KEYS: ReadonlySet<string> = new Set([
@@ -128,7 +119,7 @@ const defaultSink: LogSink = {
 
 export function createLogger(options: LoggerOptions): Logger {
   const { service } = options;
-  const minLevel: LogLevel = options.level ?? "info";
+  const minLevel: LogLevel = options.level ?? LogLevel.Info;
   const sink: LogSink = options.sink ?? defaultSink;
 
   function emit(
@@ -138,8 +129,7 @@ export function createLogger(options: LoggerOptions): Logger {
   ): void {
     if (!shouldEmit(minLevel, level)) return;
 
-    // Extract Error before redaction — recursion into plain objects
-    // would strip the constructor name off an Error.
+    // Extract errors before recursive redaction removes the class name.
     const { remaining, errorClass, errorMessage } = fields
       ? extractError(fields)
       : { remaining: {} };
@@ -172,16 +162,16 @@ export function createLogger(options: LoggerOptions): Logger {
 
   return {
     debug(message, fields) {
-      emit("debug", message, fields);
+      emit(LogLevel.Debug, message, fields);
     },
     info(message, fields) {
-      emit("info", message, fields);
+      emit(LogLevel.Info, message, fields);
     },
     warn(message, fields) {
-      emit("warn", message, fields);
+      emit(LogLevel.Warn, message, fields);
     },
     error(message, fields) {
-      emit("error", message, fields);
+      emit(LogLevel.Error, message, fields);
     },
   };
 }

@@ -1,9 +1,10 @@
 import { ThemeStylesheetEvent } from "@/theme/utils/stylesheet";
+import { isRenderWorkerColors } from "@/workers/render/protocol";
 import {
-  RenderColorKey,
-  isRenderWorkerColors,
+  RENDER_THEME_COLOR_KEYS,
+  type RenderThemeColorKey,
   type RenderWorkerColors,
-} from "@/workers/render/protocol";
+} from "@shared/domain/theme";
 
 enum RenderThemeObservedAttribute {
   Style = "style",
@@ -26,14 +27,14 @@ export type RenderThemeAdapterOptions = Readonly<{
   setRenderTheme: (theme: RenderWorkerColors) => void;
 }>;
 
-export function renderColorCssVariable(key: RenderColorKey): string {
+export function renderColorCssVariable(key: RenderThemeColorKey): string {
   return `--sigint-${key}`;
 }
 
 export function readRenderTheme(
   style: RenderThemeStyle,
 ): RenderWorkerColors | null {
-  const entries = Object.values(RenderColorKey).map((key) => [
+  const entries = RENDER_THEME_COLOR_KEYS.map((key) => [
     key,
     style.getPropertyValue(renderColorCssVariable(key)).trim(),
   ]);

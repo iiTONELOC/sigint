@@ -1,10 +1,10 @@
 import {
-  PanelSide,
   RenderCursor,
   RenderInteractionKind,
   type RenderInteractionPayload,
   isRenderSelectionSnapshot,
 } from "@/workers/render/protocol";
+import { PanelSide } from "@/layout-mode/model/layoutMode";
 import { isRecord } from "@shared/geo";
 import { isEnumValue } from "@shared/types/enum";
 import {

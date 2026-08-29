@@ -75,6 +75,7 @@ export const EARTH_RADIUS_KM = GeoMeasurement.EarthRadiusKilometers;
 export const EARTH_RADIUS_METERS = GeoMeasurement.EarthRadiusMeters;
 export const DEGREES_TO_RADIANS =
   AngleConversion.RadiansPerDegree;
+export const RADIANS_TO_DEGREES = 1 / DEGREES_TO_RADIANS;
 
 export function haversineKm(
   lat1: number,

@@ -1,10 +1,15 @@
 import { describe, test, expect } from "bun:test";
-import { classifyRecon, RECON_HEX } from "../../../src/server/data/reconRules";
+import {
+  AIRCRAFT_RECON_PROFILES,
+  classifyRecon,
+} from "@shared/domain/aircraft";
 
 describe("classifyRecon", () => {
   test("flags every hex in the recon fleet", () => {
-    for (const hex of RECON_HEX) {
-      expect(classifyRecon(hex)).toBe(true);
+    for (const profile of Object.values(AIRCRAFT_RECON_PROFILES)) {
+      for (const hex of profile.icao24) {
+        expect(classifyRecon(hex)).toBe(true);
+      }
     }
   });
 
@@ -25,6 +30,10 @@ describe("classifyRecon", () => {
   });
 
   test("covers the full known fleet (12 airframes)", () => {
-    expect(RECON_HEX.size).toBe(12);
+    expect(
+      Object.values(AIRCRAFT_RECON_PROFILES).flatMap(
+        (profile) => profile.icao24,
+      ),
+    ).toHaveLength(12);
   });
 });

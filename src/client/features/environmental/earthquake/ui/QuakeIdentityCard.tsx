@@ -1,17 +1,19 @@
 import { AgeStyle, relativeAge } from "@/time";
 import {
+  DossierIdentityCard,
   DossierMetric,
   DossierMetricValueClass,
 } from "@/dossier";
 import { formatLat, formatLon } from "@/geo";
 import { formatKmMi } from "@/measurements";
-import { mmiBand, isShallow } from "../intensity";
-import { EarthquakeCopy } from "../formatters";
+import { isShallow } from "../intensity";
+import { EarthquakeCopy } from "../formatters/presentation";
 
 export function QuakeIdentityCard({
   magnitude,
   magType,
-  mmi,
+  mmiRoman,
+  mmiLabel,
   depthKm,
   location,
   lat,
@@ -23,7 +25,8 @@ export function QuakeIdentityCard({
 }: {
   readonly magnitude: number;
   readonly magType?: string;
-  readonly mmi: number;
+  readonly mmiRoman: string;
+  readonly mmiLabel: string;
   readonly depthKm?: number;
   readonly location?: string;
   readonly lat: number;
@@ -33,79 +36,69 @@ export function QuakeIdentityCard({
   readonly timestamp?: string;
   readonly status?: string;
 }) {
-  const band = mmiBand(mmi);
   const age = timestamp
     ? relativeAge(new Date(timestamp).getTime(), AgeStyle.Verbose)
     : null;
-  const cardClass = `${band.className} relative rounded-2xl overflow-hidden border border-(--dossier-accent)/40 bg-sig-panel`;
+  const source = [EarthquakeCopy.Source, status].filter(Boolean).join(" · ");
 
   return (
-    <div className={cardClass}>
-      <div className="absolute inset-0 bg-(--dossier-accent)/6 pointer-events-none" />
-      <div className="relative h-1 bg-(--dossier-accent)" />
-      <div className="relative px-4 pt-3 pb-3">
-        <div className="absolute top-3 right-4 flex flex-col items-center justify-center min-w-14 h-14 px-2.5 rounded-[12px] border-2 border-(--dossier-accent) text-(--dossier-accent)">
-          <span className="text-(length:--sig-text-lg) font-bold leading-none whitespace-nowrap">{band.roman}</span>
-          <span className="text-(length:--sig-text-xs) tracking-widest mt-0.5">MMI</span>
-        </div>
+    <DossierIdentityCard age={age} source={source}>
+      <div className="absolute top-3 right-4 flex flex-col items-center justify-center min-w-14 h-14 px-2.5 rounded-[12px] border-2 border-(--dossier-accent) text-(--dossier-accent)">
+        <span className="text-(length:--sig-text-lg) font-bold leading-none whitespace-nowrap">{mmiRoman}</span>
+        <span className="text-(length:--sig-text-xs) tracking-widest mt-0.5">MMI</span>
+      </div>
 
-        <div className="pr-24 text-(length:--sig-text-xs) tracking-widest text-(--dossier-accent) font-semibold">
-          SEISMIC EVENT · {band.label}
-        </div>
-        <div className="pr-24 text-(length:--sig-text-md) text-sig-bright font-bold tracking-wide leading-snug mt-1 mb-3">
-          {location || EarthquakeCopy.UnknownLocation}
-        </div>
+      <div className="pr-24 text-(length:--sig-text-xs) tracking-widest text-(--dossier-accent) font-semibold">
+        SEISMIC EVENT · {mmiLabel}
+      </div>
+      <div className="pr-24 text-(length:--sig-text-md) text-sig-bright font-bold tracking-wide leading-snug mt-1 mb-3">
+        {location || EarthquakeCopy.UnknownLocation}
+      </div>
 
-        <div className="flex items-end gap-5 flex-wrap">
+      <div className="flex items-end gap-5 flex-wrap">
+        <DossierMetric
+          label="MAGNITUDE"
+          valueClass={DossierMetricValueClass.Title}
+          value={
+            <>
+              {magnitude.toFixed(1)}
+              {magType && (
+                <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">
+                  {magType}
+                </span>
+              )}
+            </>
+          }
+        />
+
+        {depthKm != null && (
           <DossierMetric
-            label="MAGNITUDE"
-            valueClass={DossierMetricValueClass.Title}
-            value={
+            value={formatKmMi(depthKm)}
+            label={
               <>
-                {magnitude.toFixed(1)}
-                {magType && (
-                  <span className="text-(length:--sig-text-sm) text-sig-dim ml-1">
-                    {magType}
-                  </span>
-                )}
+                DEPTH · {isShallow(depthKm) ? "shallow" : "deep"}
               </>
             }
           />
+        )}
 
-          {depthKm != null && (
-            <DossierMetric
-              value={formatKmMi(depthKm)}
-              label={
-                <>
-                  DEPTH · {isShallow(depthKm) ? "shallow" : "deep"}
-                </>
-              }
-            />
-          )}
+        <DossierMetric
+          label="POSITION"
+          value={
+            <>
+              {formatLat(lat)}, {formatLon(lon)}
+            </>
+          }
+        />
 
-          <DossierMetric
-            label="POSITION"
-            value={
-              <>
-                {formatLat(lat)}, {formatLon(lon)}
-              </>
-            }
-          />
+        {significance != null && (
+          <DossierMetric label="SIGNIFICANCE" value={significance} />
+        )}
 
-          {significance != null && (
-            <DossierMetric label="SIGNIFICANCE" value={significance} />
-          )}
-
-          {felt != null && felt > 0 && (
-            <DossierMetric label="FELT REPORTS" value={felt} />
-          )}
-        </div>
+        {felt != null && felt > 0 && (
+          <DossierMetric label="FELT REPORTS" value={felt} />
+        )}
       </div>
-
-      <div className="relative flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t border-(--dossier-accent)/20 bg-sig-bg/40 px-4 py-2 text-(length:--sig-text-xs) text-sig-dim">
-        <span className="shrink-0">SOURCE <span className="text-sig-text">{EarthquakeCopy.Source}{status ? ` · ${status}` : ""}</span></span>
-        {age && <span className="min-w-0">{age}</span>}
-      </div>
-    </div>
+    </DossierIdentityCard>
   );
 }

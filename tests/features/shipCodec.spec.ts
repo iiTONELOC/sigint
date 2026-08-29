@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
-import { type PointType } from "@shared/domain/pointType";
+import { AisNavigationStatus } from "@shared/domain/ships";
 import {
   decodeShipPoints,
   parseShipServerPayload,
@@ -13,8 +13,7 @@ const vessel = {
   sog: 12.5,
   cog: 180,
   heading: 175,
-  navStatus: 0,
-  navStatusLabel: "Under way",
+  navStatus: AisNavigationStatus.UnderWayUsingEngine,
   lastSeen: 1_750_000_000_000,
 };
 
@@ -33,19 +32,18 @@ describe("ship response codec", () => {
     })[0]).toMatchObject({
       id: "S123456789",
       type: Domain.Ships,
-      lat: 51.5,
-      lon: -0.1,
+      position: [-0.1, 51.5],
     });
   });
 
-  test("rejects malformed fields and filters null island", () => {
-    expect(
-      parseShipServerPayload({
-        data: [{ ...vessel, heading: "north" }],
-        vesselCount: 1,
-        connected: true,
-      }),
-    ).toBeNull();
+  test("skips malformed fields and filters null island", () => {
+    const mixed = parseShipServerPayload({
+      data: [vessel, { ...vessel, heading: "north" }],
+      vesselCount: 2,
+      connected: true,
+    });
+    expect(mixed?.vessels).toHaveLength(1);
+    expect(mixed?.vesselCount).toBe(2);
     const payload = parseShipServerPayload({
       data: [{ ...vessel, lat: 0, lon: 0 }],
       vesselCount: 1,

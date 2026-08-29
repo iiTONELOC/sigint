@@ -9,11 +9,11 @@ import {
 import {
   createSceneCommand,
   SceneDataCommandType,
-  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 import {
-  MovingSceneMotionPositionSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+  SCENE_POSITION_COUNT,
+  SceneGeometryKind,
+} from "@shared/scene";
 
 describe("render scene store", () => {
   test("applies changed handles without rebuilding retained records", () => {
@@ -34,7 +34,7 @@ describe("render scene store", () => {
         30.123456789012,
       ]),
       motionPositionStride:
-        MovingSceneMotionPositionSchema.MotionPositionStride,
+        SCENE_POSITION_COUNT,
       unitVectors: new Float32Array([1, 0, 0, 0, 1, 0]),
       timestamps: new Float64Array([100, 200]),
       attributes: new Float32Array([1, 2]),
@@ -71,7 +71,7 @@ describe("render scene store", () => {
         11.123456789012,
       ]),
       motionPositionStride:
-        MovingSceneMotionPositionSchema.MotionPositionStride,
+        SCENE_POSITION_COUNT,
       unitVectors: new Float32Array([0, 0, 1]),
       timestamps: new Float64Array([300]),
       attributes: new Float32Array([3]),

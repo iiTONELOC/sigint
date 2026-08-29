@@ -32,13 +32,13 @@ import {
   type PaneDropZoneValue,
   type PaneEdgeDropZoneValue,
   type SplitDirectionValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import { PANE_CATALOG } from "@/panes/workspace/paneCatalog";
 import { paneDropZoneForPoint } from "@/panes/workspace/utils/dropZone";
 import { DomEvent } from "@/runtime";
 
 enum DesktopPaneClassName {
-  Ghost = "absolute z-20 pointer-events-none bg-[rgba(0,212,240,0.12)] border-2 border-[rgba(0,212,240,0.4)] rounded transition-all duration-100 ease-out",
+  Ghost = "absolute z-(--layer-pane-overlay) pointer-events-none bg-[rgba(0,212,240,0.12)] border-2 border-[rgba(0,212,240,0.4)] rounded transition-all duration-100 ease-out",
   GhostBottom = "bottom-1 inset-x-1 h-[calc(50%_-_6px)]",
   GhostCenter = "inset-1",
   GhostLabel = "absolute inset-0 flex items-center justify-center text-sig-accent font-bold tracking-widest text-(length:--sig-text-btn) [text-shadow:0_1px_4px_rgba(0,0,0,0.6)]",
@@ -46,7 +46,7 @@ enum DesktopPaneClassName {
   GhostRight = "inset-y-1 right-1 w-[calc(50%_-_6px)]",
   GhostTop = "top-1 inset-x-1 h-[calc(50%_-_6px)]",
   Leaf = "flex flex-col min-w-0 min-h-0 overflow-hidden w-full h-full relative",
-  NodeContent = "overflow-hidden min-w-0 min-h-0",
+  NodeContent = "overflow-hidden min-w-0 min-h-0 w-full h-full",
   PaneBody = "flex-1 relative overflow-hidden",
   Split = "w-full h-full min-w-0 min-h-0 overflow-hidden",
 }
@@ -112,6 +112,7 @@ type DesktopPaneContext = Readonly<{
   dropOnPane: (targetLeafId: string) => void;
   dropZone: PaneDropZoneValue | null;
   insertPaneBeside: DesktopPaneTreeProps["insertPaneBeside"];
+  maximizedLeafId: string | null;
   minimizePane: DesktopPaneTreeProps["minimizePane"];
   openSplitMenu: (
     leafId: string,
@@ -120,6 +121,7 @@ type DesktopPaneContext = Readonly<{
   ) => void;
   resizeSplit: DesktopPaneTreeProps["resizeSplit"];
   setDragSourceId: (leafId: string) => void;
+  setMaximizedLeafId: (leafId: string | null) => void;
   setDragTarget: (
     leafId: string | null,
     zone: PaneDropZoneValue | null,
@@ -141,6 +143,41 @@ type DesktopPaneDragHandlers = Readonly<{
   onDragOver?: (event: DragEvent<HTMLDivElement>) => void;
   onDrop?: (event: DragEvent<HTMLDivElement>) => void;
 }>;
+
+function useBrowserFullscreen(
+  paneRef: RefObject<HTMLDivElement | null>,
+) {
+  const [active, setActive] = useState(false);
+  const synchronize = useCallback(() => {
+    setActive(document.fullscreenElement === paneRef.current);
+  }, [paneRef]);
+  const toggle = useCallback(() => {
+    const pane = paneRef.current;
+    if (!pane) {
+      return;
+    }
+    const operation = document.fullscreenElement === pane
+      ? document.exitFullscreen()
+      : pane.requestFullscreen();
+    void operation.catch(synchronize);
+  }, [paneRef, synchronize]);
+
+  useEffect(() => {
+    document.addEventListener(DomEvent.FullscreenChange, synchronize);
+    synchronize();
+    return () =>
+      document.removeEventListener(DomEvent.FullscreenChange, synchronize);
+  }, [synchronize]);
+
+  return { active, toggle };
+}
+
+function containsLeafId(node: LayoutNode, leafId: string): boolean {
+  return node.type === PaneNodeType.Leaf
+    ? node.id === leafId
+    : containsLeafId(node.children[0], leafId) ||
+        containsLeafId(node.children[1], leafId);
+}
 
 function ghostClassName(zone: PaneDropZoneValue): DesktopPaneClassName {
   switch (zone) {
@@ -174,16 +211,6 @@ function ghostLabel(zone: PaneDropZoneValue): DesktopPaneCopy {
     default:
       throw new TypeError(DesktopPaneErrorMessage.UnsupportedDropZone);
   }
-}
-
-function paneOptions(currentType: PaneType) {
-  return Object.values(PaneTypeId)
-    .filter((paneType) => paneType !== currentType)
-    .map((paneType) => ({
-      icon: PANE_CATALOG[paneType].icon,
-      id: paneType,
-      label: PANE_CATALOG[paneType].label,
-    }));
 }
 
 function paneAtPoint(
@@ -378,9 +405,14 @@ function DesktopGlobeStatus({
 }
 
 function DesktopLeafHeader({
+  browserFullscreen,
   context,
   node,
-}: Readonly<{ context: DesktopPaneContext; node: LeafNode }>) {
+}: Readonly<{
+  browserFullscreen: ReturnType<typeof useBrowserFullscreen>;
+  context: DesktopPaneContext;
+  node: LeafNode;
+}>) {
   const definition = PANE_CATALOG[node.paneType];
   const status =
     node.paneType === PaneTypeId.Globe ? (
@@ -389,8 +421,14 @@ function DesktopLeafHeader({
         dataSources={context.dataSources}
       />
     ) : undefined;
+  const minimize = () => {
+    context.setMaximizedLeafId(null);
+    context.minimizePane(node.id, node.paneType);
+  };
   return (
     <PaneHeader
+      isFullscreen={browserFullscreen.active}
+      isMaximized={context.maximizedLeafId === node.id}
       label={definition.label}
       icon={definition.icon}
       leafId={node.id}
@@ -398,12 +436,16 @@ function DesktopLeafHeader({
       statusSlot={status}
       onSplitH={splitHandler(context, node.id, SplitDirection.Horizontal)}
       onSplitV={splitHandler(context, node.id, SplitDirection.Vertical)}
-      onMinimize={() => context.minimizePane(node.id, node.paneType)}
+      onMinimize={minimize}
+      onToggleMaximize={() => context.setMaximizedLeafId(
+        context.maximizedLeafId === node.id ? null : node.id,
+      )}
+      onToggleFullscreen={browserFullscreen.toggle}
       onClose={context.canClose ? () => context.closePane(node.id) : undefined}
       onChangePaneType={(paneType) =>
         context.changePaneType(node.id, paneType)
       }
-      paneOptions={paneOptions(node.paneType)}
+      paneCatalog={PANE_CATALOG}
       onDragStart={context.setDragSourceId}
       onDragEnd={context.clearDrag}
       onDrop={context.dropOnPane}
@@ -419,6 +461,8 @@ function DesktopPaneLeaf({
   context,
   node,
 }: Readonly<{ context: DesktopPaneContext; node: LeafNode }>) {
+  const paneRef = useRef<HTMLDivElement>(null);
+  const browserFullscreen = useBrowserFullscreen(paneRef);
   const definition = PANE_CATALOG[node.paneType];
   const PaneComponent = definition.component;
   const isDragOver =
@@ -429,6 +473,7 @@ function DesktopPaneLeaf({
 
   return (
     <div
+      ref={paneRef}
       data-pane-leaf-id={node.id}
       data-tour={
         node.paneType === PaneTypeId.Globe ? "globe-pane" : undefined
@@ -440,7 +485,11 @@ function DesktopPaneLeaf({
     >
       <DesktopPaneGhost zone={zone} />
       <div className="relative">
-        <DesktopLeafHeader context={context} node={node} />
+        <DesktopLeafHeader
+          browserFullscreen={browserFullscreen}
+          context={context}
+          node={node}
+        />
       </div>
       <div className={DesktopPaneClassName.PaneBody}>
         <PaneComponent />
@@ -462,17 +511,35 @@ function DesktopPaneNode({
       />
     );
   }
+  const maximizedLeafId = context.maximizedLeafId;
   return (
-    <div className={DesktopPaneClassName.Split} style={splitStyle(node)}>
-      <div className={DesktopPaneClassName.NodeContent}>
+    <div
+      className={DesktopPaneClassName.Split}
+      style={maximizedLeafId === null ? splitStyle(node) : { display: "block" }}
+    >
+      <div
+        className={DesktopPaneClassName.NodeContent}
+        hidden={
+          maximizedLeafId !== null &&
+          !containsLeafId(node.children[0], maximizedLeafId)
+        }
+      >
         <DesktopPaneNode context={context} node={node.children[0]} />
       </div>
-      <ResizeHandle
-        splitId={node.id}
-        direction={node.direction}
-        onResize={context.resizeSplit}
-      />
-      <div className={DesktopPaneClassName.NodeContent}>
+      {maximizedLeafId === null && (
+        <ResizeHandle
+          splitId={node.id}
+          direction={node.direction}
+          onResize={context.resizeSplit}
+        />
+      )}
+      <div
+        className={DesktopPaneClassName.NodeContent}
+        hidden={
+          maximizedLeafId !== null &&
+          !containsLeafId(node.children[1], maximizedLeafId)
+        }
+      >
         <DesktopPaneNode context={context} node={node.children[1]} />
       </div>
     </div>
@@ -496,7 +563,10 @@ export function DesktopPaneTree({
   const [dragTargetId, setDragTargetId] = useState<string | null>(null);
   const [dropZone, setDropZone] = useState<PaneDropZoneValue | null>(null);
   const [splitMenu, setSplitMenu] = useState<SplitMenuState | null>(null);
+  const [maximizedLeafId, setMaximizedLeafId] = useState<string | null>(null);
   const splitMenuRef = useRef<HTMLDivElement>(null);
+  const activeMaximizedLeafId = maximizedLeafId !== null &&
+    containsLeafId(root, maximizedLeafId) ? maximizedLeafId : null;
 
   const clearDrag = useCallback(() => {
     setDragSourceId(null);
@@ -575,10 +645,12 @@ export function DesktopPaneTree({
     dropOnPane,
     dropZone,
     insertPaneBeside,
+    maximizedLeafId: activeMaximizedLeafId,
     minimizePane,
     openSplitMenu,
     resizeSplit,
     setDragSourceId,
+    setMaximizedLeafId,
     setDragTarget,
   };
 

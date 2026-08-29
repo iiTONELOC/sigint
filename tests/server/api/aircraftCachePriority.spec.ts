@@ -1,18 +1,18 @@
-// ── Aircraft cold-start UX — priority tile ordering on first sweep ──
-// Verifies the hand-ordered priority list is walked on the very first
-// sweep after process start so cold-start visitors see CONUS / EU /
-// APAC hubs first. Later sweeps retain a stable declared order.
+// ── Aircraft cold-start priority tile ordering on first sweep ──
+// Verifies the ranked tiles are walked on the first sweep after process
+// start. Later sweeps retain the declared tile order.
 
 import { describe, test, expect, afterEach } from "bun:test";
 import {
   AIRCRAFT_TILES,
-  PRIORITY_TILES,
+  AircraftTileResultKind,
   buildFirstSweepOrder,
   runSweep,
   __resetFirstSweepForTests,
   __resetAircraftCacheForTests,
   type AircraftTileResult,
 } from "../../../src/server/api/aircraftCache";
+import type { AircraftTile } from "../../../src/server/api/aircraftTiles";
 
 // runSweep mutates module-level state (`sweepState`, `lastFetchedAt`,
 // `lastError`). Full reset between tests prevents this file's runs
@@ -23,50 +23,60 @@ afterEach(() => {
 
 // Tuple equality matching `buildFirstSweepOrder`'s declared contract.
 function sameTile(
-  a: readonly [number, number],
-  b: readonly [number, number],
+  a: AircraftTile,
+  b: AircraftTile,
 ): boolean {
   return a[0] === b[0] && a[1] === b[1];
 }
 
-describe("PRIORITY_TILES", () => {
-  test("every priority tile exists in AIRCRAFT_TILES (exact tuple match)", () => {
-    for (const p of PRIORITY_TILES) {
-      const found = AIRCRAFT_TILES.some((t) => sameTile(t, p));
-      expect(found).toBe(true);
+describe("AIRCRAFT_TILES first-sweep ranks", () => {
+  test("every first-sweep rank is an integer", () => {
+    const ranked = AIRCRAFT_TILES.filter(([, , rank]) => rank !== undefined);
+    for (const [, , rank] of ranked) {
+      expect(Number.isInteger(rank)).toBe(true);
     }
   });
 
-  test("contains no duplicate tuples", () => {
-    for (let i = 0; i < PRIORITY_TILES.length; i++) {
-      const a = PRIORITY_TILES[i];
+  test("contains no duplicate ranks", () => {
+    const ranked = AIRCRAFT_TILES.filter(([, , rank]) => rank !== undefined);
+    for (let i = 0; i < ranked.length; i++) {
+      const a = ranked[i];
       if (!a) continue;
-      for (let j = i + 1; j < PRIORITY_TILES.length; j++) {
-        const b = PRIORITY_TILES[j];
+      for (let j = i + 1; j < ranked.length; j++) {
+        const b = ranked[j];
         if (!b) continue;
-        expect(sameTile(a, b)).toBe(false);
+        expect(a[2]).not.toBe(b[2]);
       }
     }
   });
 
-  test("ships exactly 20 priority tiles", () => {
-    expect(PRIORITY_TILES).toHaveLength(20);
+  test("ships exactly 20 ranked tiles", () => {
+    expect(
+      AIRCRAFT_TILES.filter(([, , rank]) => rank !== undefined),
+    ).toHaveLength(20);
   });
 });
 
 describe("buildFirstSweepOrder", () => {
-  test("emits priority tiles first, in declared order", () => {
-    const order = buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
-    for (let i = 0; i < PRIORITY_TILES.length; i++) {
+  test("emits ranked tiles first, in rank order", () => {
+    const order = buildFirstSweepOrder(AIRCRAFT_TILES);
+    const ranked = AIRCRAFT_TILES
+      .filter(([, , rank]) => rank !== undefined)
+      .sort(
+        (a, b) =>
+          (a[2] ?? Number.MAX_SAFE_INTEGER) -
+          (b[2] ?? Number.MAX_SAFE_INTEGER),
+      );
+    for (let i = 0; i < ranked.length; i++) {
       const o = order[i];
-      const p = PRIORITY_TILES[i];
+      const p = ranked[i];
       if (!o || !p) throw new Error("unexpected gap in priority order");
       expect(sameTile(o, p)).toBe(true);
     }
   });
 
   test("never emits a tile twice (priority + tail disjoint)", () => {
-    const order = buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
+    const order = buildFirstSweepOrder(AIRCRAFT_TILES);
     for (let i = 0; i < order.length; i++) {
       const a = order[i];
       if (!a) continue;
@@ -79,18 +89,18 @@ describe("buildFirstSweepOrder", () => {
   });
 
   test("total length equals AIRCRAFT_TILES.length exactly", () => {
-    const order = buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
+    const order = buildFirstSweepOrder(AIRCRAFT_TILES);
     expect(order).toHaveLength(AIRCRAFT_TILES.length);
   });
 
   test("tail retains the declared tile order", () => {
-    const order = buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
+    const order = buildFirstSweepOrder(AIRCRAFT_TILES);
     // Build the expected tail by walking AIRCRAFT_TILES in declared
-    // order, skipping any tile that's in PRIORITY_TILES.
+    // order, skipping tiles that carry a first-sweep rank.
     const expectedTail = AIRCRAFT_TILES.filter(
-      (t) => !PRIORITY_TILES.some((p) => sameTile(t, p)),
+      ([, , rank]) => rank === undefined,
     );
-    const actualTail = order.slice(PRIORITY_TILES.length);
+    const actualTail = order.slice(AIRCRAFT_TILES.length - expectedTail.length);
     expect(actualTail).toHaveLength(expectedTail.length);
     for (let i = 0; i < actualTail.length; i++) {
       const a = actualTail[i];
@@ -110,13 +120,13 @@ describe("runSweep priority ordering", () => {
       lon: number,
     ): Promise<AircraftTileResult> => {
       visited.push([lat, lon]);
-      return { kind: "complete", records: [] };
+      return { kind: AircraftTileResultKind.Complete, records: [] };
     };
     const sleep = async (): Promise<void> => {};
 
     await runSweep(fetchFn, sleep);
 
-    const expected = buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
+    const expected = buildFirstSweepOrder(AIRCRAFT_TILES);
     expect(visited).toHaveLength(expected.length);
     for (let i = 0; i < visited.length; i++) {
       const v = visited[i];
@@ -129,7 +139,7 @@ describe("runSweep priority ordering", () => {
   test("later invocations use stable declared order", async () => {
     __resetFirstSweepForTests();
     const noopFetch = async (): Promise<AircraftTileResult> => ({
-      kind: "complete",
+      kind: AircraftTileResultKind.Complete,
       records: [],
     });
     const sleep = async (): Promise<void> => {};
@@ -142,7 +152,7 @@ describe("runSweep priority ordering", () => {
       lon: number,
     ): Promise<AircraftTileResult> => {
       secondVisited.push([lat, lon]);
-      return { kind: "complete", records: [] };
+      return { kind: AircraftTileResultKind.Complete, records: [] };
     };
 
     await runSweep(recordingFetch, sleep);
@@ -151,7 +161,7 @@ describe("runSweep priority ordering", () => {
     await runSweep(
       async (lat, lon) => {
         thirdVisited.push([lat, lon]);
-        return { kind: "complete", records: [] };
+        return { kind: AircraftTileResultKind.Complete, records: [] };
       },
       sleep,
     );

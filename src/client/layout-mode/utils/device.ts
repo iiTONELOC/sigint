@@ -1,6 +1,4 @@
-import {
-  DeviceType,
-} from "../model";
+import { DeviceType } from "../model/layoutMode";
 
 enum DeviceTouchPointBoundary {
   TabletMinimumExclusive = 1,

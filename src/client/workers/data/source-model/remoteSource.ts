@@ -6,28 +6,49 @@ export enum SourceFetchFailure {
   Payload = "Payload",
 }
 
-export enum HttpHeader {
-  UserAgent = "User-Agent",
-  Accept = "Accept",
-}
-
-export enum MediaType {
-  GeoJson = "application/geo+json",
-}
-
-export const CLIENT_USER_AGENT = "(sigint-dashboard, osint-tool)";
-
-export type SourceFetchError = Error &
-  Readonly<{ failure: SourceFetchFailure }>;
+export type SourceFetch = (
+  input: string,
+  init: RequestInit,
+) => Promise<Response>;
 
 export type SourceTransport = Readonly<{
   url: string;
   headers: Readonly<Record<string, string>>;
+  timeoutMs?: number;
+  fetchImpl?: SourceFetch;
 }>;
 
 export type SourceFailureMessages = Readonly<
   Record<SourceFetchFailure, string>
 >;
+
+export class SourceFetchError extends Error {
+  constructor(
+    readonly failure: SourceFetchFailure,
+    messages: SourceFailureMessages,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(messages[failure]);
+    this.name = SourceFetchError.name;
+  }
+}
+
+function request(
+  fetchImpl: SourceFetch,
+  transport: SourceTransport,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout =
+    transport.timeoutMs === undefined
+      ? null
+      : setTimeout(() => controller.abort(), transport.timeoutMs);
+  return fetchImpl(transport.url, {
+    headers: transport.headers,
+    signal: controller.signal,
+  }).finally(() => {
+    if (timeout !== null) clearTimeout(timeout);
+  });
+}
 
 export abstract class RemoteSource<TEntity extends DatasetEntity> {
   protected abstract readonly transport: SourceTransport;
@@ -39,21 +60,24 @@ export abstract class RemoteSource<TEntity extends DatasetEntity> {
   protected abstract toEntity(
     item: unknown,
     observedAt: number,
+    index: number,
   ): TEntity | null;
 
-  protected failure(failure: SourceFetchFailure): SourceFetchError {
-    return Object.assign(new Error(this.failureMessages[failure]), {
-      failure,
-    });
+  failure(
+    failure: SourceFetchFailure,
+    httpStatus: number | null = null,
+  ): SourceFetchError {
+    return new SourceFetchError(failure, this.failureMessages, httpStatus);
   }
 
   async fetchSnapshot(
     now: () => number = Date.now,
+    fetchImpl: SourceFetch = this.transport.fetchImpl ?? globalThis.fetch,
   ): Promise<PointSourceFetchSnapshot<TEntity>> {
-    const response = await fetch(this.transport.url, {
-      headers: this.transport.headers,
-    });
-    if (!response.ok) throw this.failure(SourceFetchFailure.Request);
+    const response = await request(fetchImpl, this.transport);
+    if (!response.ok) {
+      throw this.failure(SourceFetchFailure.Request, response.status);
+    }
 
     const payload: unknown = await response.json();
     const items = this.items(payload);
@@ -61,8 +85,8 @@ export abstract class RemoteSource<TEntity extends DatasetEntity> {
 
     const observedAt = now();
     const byId = new Map<string, TEntity>();
-    for (const item of items) {
-      const entity = this.toEntity(item, observedAt);
+    for (const [index, item] of items.entries()) {
+      const entity = this.toEntity(item, observedAt, index);
       if (entity) byId.set(entity.id, entity);
     }
     return {

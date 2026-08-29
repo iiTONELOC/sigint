@@ -1,11 +1,41 @@
-// Single owner for the JS-side responsive breakpoints. Mirrors Tailwind's `md`
-// (768px) so DOM-measurement code and CSS agree on where "mobile" ends. Every
-// `window.innerWidth < 768` site reads MOBILE_BREAKPOINT_PX instead.
+enum BreakpointCssVariable {
+  Mobile = "--breakpoint-md",
+}
 
-/** Viewport widths at or below this (px) are treated as mobile. Matches Tailwind `md`. */
-export const MOBILE_BREAKPOINT_PX = 768;
+enum BreakpointCssUnit {
+  Pixels = "px",
+}
 
-/** True when a measured viewport width is in the mobile range. */
+enum BreakpointErrorMessage {
+  InvalidMobile = "The CSS mobile breakpoint must be a positive pixel value",
+}
+
+class BreakpointConfigurationError extends Error {
+  constructor() {
+    super(BreakpointErrorMessage.InvalidMobile);
+    this.name = BreakpointConfigurationError.name;
+  }
+}
+
+let mobileBreakpointPixels: number | null = null;
+
+function getMobileBreakpointPixels(): number {
+  if (mobileBreakpointPixels !== null) return mobileBreakpointPixels;
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(BreakpointCssVariable.Mobile)
+    .trim();
+  const pixels = Number.parseFloat(value);
+  if (
+    !value.endsWith(BreakpointCssUnit.Pixels) ||
+    !Number.isFinite(pixels) ||
+    pixels <= 0
+  ) {
+    throw new BreakpointConfigurationError();
+  }
+  mobileBreakpointPixels = pixels;
+  return pixels;
+}
+
 export function isMobileWidth(widthPx: number): boolean {
-  return widthPx < MOBILE_BREAKPOINT_PX;
+  return widthPx < getMobileBreakpointPixels();
 }

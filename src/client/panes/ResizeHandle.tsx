@@ -11,11 +11,10 @@ import { cn } from "@/lib/ui/utils";
 import { DomInputType, DomKey } from "@/runtime";
 import {
   PaneLayoutRatio,
-  PaneResizeMetric,
-  PANE_RESIZE_AXIS_POLICY,
   SplitDirection,
   type SplitDirectionValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
+import { PaneResizeMetric, PANE_RESIZE_AXIS_POLICY } from "@/panes/workspace/model/resize";
 
 enum ResizeBodyClass {
   SelectionDisabled = "select-none",
@@ -28,7 +27,7 @@ enum ResizeGripId {
 }
 
 enum ResizeHandleClass {
-  Container = "touch-resize relative z-10 flex items-center justify-center touch-none transition-colors",
+  Container = "touch-resize relative z-(--layer-content) flex items-center justify-center touch-none transition-colors",
   Control = "peer absolute m-0 appearance-none border-0 opacity-0 touch-none",
   DragActive = "bg-sig-accent/40",
   DragIdle = "bg-sig-border/30 hover:bg-sig-accent/25",
@@ -60,13 +59,13 @@ const RESIZE_DIRECTION_CLASS: Readonly<
   [SplitDirection.Horizontal]: {
     bodyCursor: "cursor-col-resize",
     gripDirection: "flex-col",
-    hitArea: "inset-y-0 start-1/2 w-11 -translate-x-1/2",
+    hitArea: "inset-y-0 start-1/2 w-full -translate-x-1/2 pointer-coarse:w-11",
     track: "cursor-col-resize w-1.5",
   },
   [SplitDirection.Vertical]: {
     bodyCursor: "cursor-row-resize",
     gripDirection: "flex-row",
-    hitArea: "inset-x-0 top-1/2 h-11 -translate-y-1/2",
+    hitArea: "inset-x-0 top-1/2 h-full -translate-y-1/2 pointer-coarse:h-11",
     track: "cursor-row-resize h-1.5",
   },
 };

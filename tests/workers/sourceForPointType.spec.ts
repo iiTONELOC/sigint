@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
+import { canonicalEntityId } from "@/features/base/dataPoints";
 import {
-  canonicalEntityId,
-  POINT_SOURCE_DEFINITIONS,
+  getPointSourceDefinition,
   sourceForPointType,
-} from "@/workers/data/sources/registry";
+} from "@shared/domain/pointSource";
+import { RENDER_SOURCE_IDS } from "@shared/source";
 import {
   cycloneForecastPoint,
 } from "@/features/environmental/cyclones/data/forecastProjection";
@@ -19,8 +20,9 @@ import {
 // weather alert or storm resolved to no source and cleared the selection.
 describe("sourceForPointType", () => {
   test("every rendered point type resolves to its owning source", () => {
-    for (const definition of POINT_SOURCE_DEFINITIONS) {
-      expect(sourceForPointType(definition.pointType)).toBe(definition.id);
+    for (const source of RENDER_SOURCE_IDS) {
+      const definition = getPointSourceDefinition(source);
+      expect(sourceForPointType(definition.pointType)).toBe(source);
     }
   });
 

@@ -1,20 +1,19 @@
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
+import type { RenderSourceId } from "@shared/source";
 import {
   SceneDataCommandType,
-  SceneGeometryKind,
   SceneProtocolVersion,
   type SceneSearchCommand,
   type SceneSourceCommand,
 } from "@/workers/render/sceneProtocol";
+import {
+  SCENE_POSITION_COUNT,
+  SceneGeometryKind,
+} from "@shared/scene";
 import type {
   RenderSceneGeometry,
   RenderSceneView,
 } from "@/workers/render/sceneStore";
-
-enum TestGeometryComponentCount {
-  Position = 2,
-}
 
 type TestGeometryBuffers = Readonly<{
   geometryKinds: Uint8Array<ArrayBuffer>;
@@ -39,7 +38,8 @@ function testGeometryBuffers(
         for (const part of group) {
           for (const point of part) coordinates.push(...point);
           partEnds.push(
-            coordinates.length / TestGeometryComponentCount.Position,
+            coordinates.length /
+              SCENE_POSITION_COUNT,
           );
         }
         groupEnds.push(partEnds.length);

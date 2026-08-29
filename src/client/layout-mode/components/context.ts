@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { DeviceType, LayoutMode } from "../model";
+import type { DeviceType, LayoutMode } from "../model/layoutMode";
 
 export type LayoutModeContextValue = Readonly<{
   cycleMode: () => void;

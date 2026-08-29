@@ -1,9 +1,5 @@
 import type { IntelSeverity } from "@shared/domain/correlation";
-import {
-  INTEL_SEVERITY_PRESENTATION,
-  IntelFeedCopy,
-  intelPriorityClassName,
-} from "../model";
+import { INTEL_SEVERITY_PRESENTATION, IntelFeedCopy, intelPriorityClassName } from "../model/feed";
 
 export function IntelPriorityBadge({
   priority,

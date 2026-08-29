@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  PaneLayoutRatio,
-  PaneResizeMetric,
-  PANE_RESIZE_AXIS_POLICY,
-  SplitDirection,
-} from "@/panes/workspace/model";
+import { PaneLayoutRatio, SplitDirection } from "@/panes/workspace/model/pane";
+import { PaneResizeMetric, PANE_RESIZE_AXIS_POLICY } from "@/panes/workspace/model/resize";
 import { DomInputType, DomKey } from "@/runtime";
 import {
   dispatchResizeKey,

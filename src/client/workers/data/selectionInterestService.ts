@@ -68,9 +68,6 @@ export class SelectionInterestService {
   refresh(source: TrackSource): boolean {
     if (this.selected?.identity?.source !== source) return false;
     this.publish();
-    if (source === Domain.Aircraft) {
-      this.resolveRoute(this.selected);
-    }
     return true;
   }
 

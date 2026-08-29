@@ -2,11 +2,8 @@ import { Filter } from "lucide-react";
 import type { DataType } from "@/features/base/dataPoints";
 import { featureList } from "@/features/registry";
 import { IconStrokeWidth } from "@/features/base/types";
-import {
-  DataTableClassName,
-  DataTableCopy,
-  DataTableIconSize,
-} from "../model";
+import { ButtonType } from "@/lib/ui/button";
+import { DataTableClassName, DataTableCopy, DataTableIconSize } from "../model/table";
 
 type DataTableToolbarProps = Readonly<{
   featureCounts: Readonly<Partial<Record<DataType, number>>>;
@@ -29,6 +26,7 @@ export function DataTableToolbar({
         className="text-sig-dim shrink-0"
       />
       <button
+        type={ButtonType.Button}
         onClick={() => onTypeFilterChange(null)}
         className={`touch-target px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors border ${
           typeFilter === null
@@ -46,6 +44,7 @@ export function DataTableToolbar({
           const count = featureCounts[feature.id] ?? 0;
           return (
             <button
+              type={ButtonType.Button}
               key={feature.id}
               aria-label={`${feature.label}: ${count}`}
               onClick={() =>

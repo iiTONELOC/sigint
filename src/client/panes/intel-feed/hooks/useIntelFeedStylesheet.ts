@@ -1,9 +1,6 @@
 import { useEffect, useId, useMemo } from "react";
 import { RuntimeStylesheet } from "@/styles";
-import {
-  IntelFeedProgressScale,
-  IntelFeedVirtualization,
-} from "../model";
+import { IntelFeedProgressScale, IntelFeedVirtualization } from "../model/feed";
 
 enum IntelFeedStyleAttribute {
   Progress = "data-intel-feed-progress",

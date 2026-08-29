@@ -1,19 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import type {
   MarkerVisualRenderer,
   PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
 import { IsolateMode } from "@/workers/render/protocol";
 import {
-  EarthquakeLayer,
-  earthquakeSceneIncludes,
-  type EarthquakeSceneFilter,
-} from "@/workers/render/scene/earthquakeLayer";
-import { EarthquakeSceneSchema } from "@/workers/render/scene/earthquakeSchema";
+  PulsingPointLayer,
+} from "@/workers/render/scene/sceneLayer";
+import type { EnabledSceneFilter } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
 import {
@@ -35,10 +33,11 @@ const view = {
     TestInstant.EventSceneNow - 4 * MS_PER_DAY,
   ]),
   attributes: new Float32Array([5, 2]),
-  attributeStride: EarthquakeSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.Earthquake).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array(),
   stringAttributeStride:
-    EarthquakeSceneSchema.StringAttributeStride,
+    getPointSourceDefinition(Domain.Earthquake).sceneSchema.stringAttributeStride,
   dictionary: [],
   geometries: [null, null],
 } satisfies RenderSceneView;
@@ -58,11 +57,10 @@ const frame = {
 };
 
 function filter(
-  values: Partial<EarthquakeSceneFilter> = {},
-): EarthquakeSceneFilter {
+  values: Partial<EnabledSceneFilter> = {},
+): EnabledSceneFilter {
   return {
     enabled: true,
-    minimumMagnitude: 0,
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -86,10 +84,13 @@ function visuals(
 }
 
 describe("earthquake scene layer", () => {
-  test("owns magnitude, visibility, hit, selection, and animation", () => {
-    const layer = new EarthquakeLayer(visuals());
+  test("owns visibility, hit, selection, and animation", () => {
+    const layer = new PulsingPointLayer(
+      Domain.Earthquake,
+      visuals(),
+    );
     layer.apply(sceneRebaseCommand(Domain.Earthquake, view));
-    layer.project(frame, filter({ minimumMagnitude: 4 }));
+    layer.project(frame, filter());
 
     expect(
       layer.nearest(SceneHitKind.Point, 120, 90, 20, 10)
@@ -103,15 +104,15 @@ describe("earthquake scene layer", () => {
       depth: 1,
     });
     expect(layer.includesEntity("Qlow", filter())).toBe(true);
-    expect(
-      layer.includesEntity("Qlow", filter({ minimumMagnitude: 4 })),
-    ).toBe(false);
     expect(layer.hasTimeAnimation(false)).toBe(true);
     expect(layer.hasTimeAnimation(true)).toBe(false);
   });
 
   test("uses source search handles and shared isolation", () => {
-    const layer = new EarthquakeLayer(visuals());
+    const layer = new PulsingPointLayer(
+      Domain.Earthquake,
+      visuals(),
+    );
     layer.apply(sceneRebaseCommand(Domain.Earthquake, view));
     layer.apply(
       sceneSearchCommand(Domain.Earthquake, [2], 1),
@@ -144,11 +145,14 @@ describe("earthquake scene layer", () => {
   test("preserves age, size, pulse, and selection drawing", () => {
     const markers: PulsingMarker[] = [];
     const fades: number[] = [];
-    const layer = new EarthquakeLayer(visuals(markers, fades));
+    const layer = new PulsingPointLayer(
+      Domain.Earthquake,
+      visuals(markers, fades),
+    );
     layer.apply(sceneRebaseCommand(Domain.Earthquake, view));
     layer.project(frame, filter());
     layer.draw({
-      context: {} as Ctx,
+      context: {} as OffscreenCanvasRenderingContext2D,
       color: "#ff00aa",
       selectedId: "Qhigh",
       time: 1,
@@ -167,12 +171,15 @@ describe("earthquake scene layer", () => {
   });
 
   test("rejects an incompatible schema", () => {
-    expect(
-      earthquakeSceneIncludes(
-        { ...view, attributeStride: 2 },
-        0,
-        filter(),
-      ),
-    ).toBe(false);
+    const layer = new PulsingPointLayer(
+      Domain.Earthquake,
+      visuals(),
+    );
+    layer.apply(sceneRebaseCommand(
+      Domain.Earthquake,
+      { ...view, attributeStride: 2 },
+    ));
+    layer.project(frame, filter());
+    expect(layer.includesEntity("Qhigh", filter())).toBe(false);
   });
 });

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   WeatherSeverity,
   weatherSeverityRank,
-} from "@/features/environmental/weather/severity";
+} from "@shared/domain/weather";
 import type {
   MarkerVisualRenderer,
   PulsingMarker,
@@ -18,20 +17,15 @@ import {
   WeatherLayer,
   type WeatherSceneFilter,
 } from "@/workers/render/scene/weatherLayer";
-import {
-  CycloneWarningSceneSchema,
-} from "@/workers/render/scene/cycloneWarningSchema";
-import {
-  WeatherSceneSchema,
-} from "@/workers/render/scene/weatherSchema";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
-import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import {
   areaKindRank,
   AreaKind,
-} from "@/workers/render/protocol";
+} from "@shared/domain/cyclones";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import type { GeoMultiPolygon, GeoPoint } from "@shared/geo";
+import { SceneGeometryKind } from "@shared/scene";
 import { sceneRebaseCommand } from "../_support/scene";
 
 const AREA_GEOMETRY: GeoMultiPolygon = [
@@ -98,9 +92,11 @@ const WEATHER_VIEW = {
   attributes: new Float32Array([
     weatherSeverityRank(WeatherSeverity.Severe),
   ]),
-  attributeStride: WeatherSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.Weather).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array(),
-  stringAttributeStride: WeatherSceneSchema.StringAttributeStride,
+  stringAttributeStride:
+    getPointSourceDefinition(Domain.Weather).sceneSchema.stringAttributeStride,
   dictionary: [],
   geometries: [{
     kind: SceneGeometryKind.Polygon,
@@ -113,9 +109,11 @@ const WARNING_VIEW = {
   sceneIds: ["warning-scene"],
   entityIds: ["warning-entity"],
   attributes: new Float32Array([areaKindRank(AreaKind.Watch)]),
-  attributeStride: CycloneWarningSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.CycloneWarnings).sceneSchema.attributeStride,
   stringAttributeStride:
-    CycloneWarningSceneSchema.StringAttributeStride,
+    getPointSourceDefinition(Domain.CycloneWarnings).sceneSchema
+      .stringAttributeStride,
 } satisfies RenderSceneView;
 
 function filter(): WeatherSceneFilter {
@@ -141,7 +139,7 @@ type FillRecord = Readonly<{
   color: string;
 }>;
 
-function context(fills: FillRecord[]): Ctx {
+function context(fills: FillRecord[]): OffscreenCanvasRenderingContext2D {
   const target = {
     fillStyle: "",
     strokeStyle: "",
@@ -159,7 +157,7 @@ function context(fills: FillRecord[]): Ctx {
     },
     stroke: () => undefined,
   };
-  return target as unknown as Ctx;
+  return target as unknown as OffscreenCanvasRenderingContext2D;
 }
 
 describe("scene area layers", () => {

@@ -6,7 +6,7 @@ import {
   PaneType,
   SplitDirection,
   type PaneTypeValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import {
   changePaneTypeInLayout,
   closePaneLayout,

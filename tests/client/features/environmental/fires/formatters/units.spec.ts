@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  formatPixelKm,
-  formatTempCF,
-} from "@/features/environmental/fires/formatters";
-import {
-  UnitMode,
-} from "@/preferences/units";
+import { formatPixelKm, formatTempCF } from "@/features/environmental/fires/formatters/units";
+import { UnitMode } from "@/preferences/units/model";
 import {
   MeasurementFixtureCopy,
   MeasurementFixtureFireInput,

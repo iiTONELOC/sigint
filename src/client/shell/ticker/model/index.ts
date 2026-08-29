@@ -1,1 +1,0 @@
-export { TickerSpeedPolicy } from "./speed";

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { AircraftPoint } from "@/features/tracking/aircraft/data/codec";
+import type { AircraftPoint } from "@shared/domain/aircraft";
 import {
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
 } from "@/workers/data/protocol";
 import {
   SourceCatalog,
@@ -17,8 +17,7 @@ function aircraft(): AircraftPoint {
   return {
     id: "A1",
     type: Domain.Aircraft,
-    lat: 10,
-    lon: 20,
+    position: [20, 10],
     data: { callsign: "EAGLE" },
   };
 }
@@ -112,7 +111,7 @@ describe("SourceCatalog", () => {
       catalog.entity(
         Domain.Aircraft,
         {
-          protocolVersion: DataWorkerProtocolVersion.Current,
+          protocolVersion: DATA_WORKER_PROTOCOL_VERSION,
           requestId: 7,
         },
         "A1",

@@ -3,20 +3,21 @@ import { Locate } from "lucide-react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { featureRegistry } from "@/features/registry";
 import { IconStrokeWidth } from "@/features/base/types";
+import { ButtonType } from "@/lib/ui/button";
 import { relativeAge } from "@/time";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { useDataTableStylesheet } from "../hooks";
+import { useDataTableStylesheet } from "../hooks/useDataTableStylesheet";
 import {
   DataTableClassName,
   DataTableCoordinate,
   DataTableCopy,
   DataTableIconSize,
   dataTableGridClass,
-} from "../model";
-import { dataPointTablePresentation } from "../utils";
+} from "../model/table";
+import { dataPointTablePresentation } from "../utils/sort";
 
 type DataTableRowsProps = Readonly<{
   isMobile: boolean;
@@ -46,7 +47,7 @@ export function DataTableRows({
     <table className="w-full">
       <tbody {...styleAttributes.body} className="block relative">
         {visibleItems.map((item) => {
-          const feature = featureRegistry.get(item.type);
+          const feature = featureRegistry[item.type];
           if (!feature) return null;
 
           const Icon = feature.icon;
@@ -104,6 +105,7 @@ export function DataTableRows({
               {!isMobile && (
                 <td className="flex justify-center">
                   <button
+                    type={ButtonType.Button}
                     onClick={(event) => onZoomTo(item, event)}
                     className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
                     title={DataTableCopy.ZoomToGlobe}

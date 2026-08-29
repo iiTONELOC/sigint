@@ -8,23 +8,12 @@ import {
 import { CacheKey } from "@shared/domain/cache";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { DomEvent } from "@/runtime";
-import {
-  ThemeContext,
-  ThemeMode,
-  isThemeMode,
-  themes,
-  type ColorOverrides,
-  type LayerColorKey,
-  type ResolvedThemeMode,
-  type ThemeContextValue,
-} from "../model";
-import {
-  applyColorOverrides,
-  applyThemeToRoot,
-  createEmptyOverrides,
-  resolveThemeMode,
-  systemThemeMediaQuery,
-} from "../utils";
+import { ThemeContext, type ThemeContextValue } from "../model/context";
+import { ThemeMode, isThemeMode, type ResolvedThemeMode } from "../model/themeMode";
+import { themes, type ColorOverrides, type LayerColorKey } from "../model/colors";
+import { applyColorOverrides, createEmptyOverrides } from "../utils/colors";
+import { applyThemeToRoot } from "../utils/stylesheet";
+import { resolveThemeMode, systemThemeMediaQuery } from "../utils/mode";
 
 async function loadOverrides(): Promise<ColorOverrides | null> {
   const saved = await cacheGet<ColorOverrides>(CacheKey.ColorOverrides);

@@ -4,14 +4,12 @@ import {
   shipSceneIncludes,
   type ShipSceneFilter,
 } from "@/workers/render/scene/shipLayer";
-import { ShipSceneSchema } from "@/workers/render/scene/shipSchema";
-import {
-  MovingSceneMotionPositionSchema,
-} from "@/workers/render/scene/movingSceneSchema";
 import { IsolateMode } from "@/workers/render/protocol";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
+import { SCENE_POSITION_COUNT } from "@shared/scene";
 import {
   advanceGeographicMotion,
   createGeographicMotion,
@@ -31,13 +29,15 @@ const view = {
   positions: new Float64Array(2),
   motionPositions: new Float64Array(2),
   motionPositionStride:
-    MovingSceneMotionPositionSchema.MotionPositionStride,
+    SCENE_POSITION_COUNT,
   unitVectors: new Float32Array(3),
   timestamps: new Float64Array(1),
   attributes: new Float32Array([90, 0, 0]),
-  attributeStride: ShipSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.Ships).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array(),
-  stringAttributeStride: ShipSceneSchema.StringAttributeStride,
+  stringAttributeStride:
+    getPointSourceDefinition(Domain.Ships).sceneSchema.stringAttributeStride,
   dictionary: [],
   geometries: [null],
 } satisfies RenderSceneView;
@@ -87,7 +87,7 @@ describe("ship scene layer", () => {
       positions: new Float64Array([20, 10]),
       motionPositions: new Float64Array([0, 0]),
       motionPositionStride:
-        MovingSceneMotionPositionSchema.MotionPositionStride,
+        SCENE_POSITION_COUNT,
       unitVectors: new Float32Array([
         rawUnit.x,
         rawUnit.y,
@@ -99,9 +99,11 @@ describe("ship scene layer", () => {
         90,
         1_000,
       ]),
-      attributeStride: ShipSceneSchema.AttributeStride,
+      attributeStride:
+        getPointSourceDefinition(Domain.Ships).sceneSchema.attributeStride,
       stringAttributes: new Uint32Array(),
-      stringAttributeStride: ShipSceneSchema.StringAttributeStride,
+      stringAttributeStride:
+        getPointSourceDefinition(Domain.Ships).sceneSchema.stringAttributeStride,
       dictionary: [],
       geometries: [null],
     } satisfies RenderSceneView;

@@ -1,12 +1,15 @@
 import type {
-  SceneDataCommand,
+  SceneSourceCommand,
   SceneSourcePatch,
 } from "@/workers/render/sceneProtocol";
 import {
-  SceneDataCommandType,
+  SCENE_POSITION_COUNT,
+  SCENE_UNIT_VECTOR_COUNT,
   SceneGeometryKind,
-} from "@/workers/render/sceneProtocol";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
+  ScenePositionOffset,
+  SceneUnitVectorOffset,
+} from "@shared/scene";
+import type { RenderSourceId } from "@shared/source";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import type {
   GeoLineString,
@@ -18,24 +21,8 @@ enum SceneStoragePolicy {
   GrowthFactor = 2,
 }
 
-enum SceneStorageComponentCount {
-  Position = 2,
-  UnitVector = 3,
-}
-
 enum SceneValueDefault {
   Numeric = 0,
-}
-
-enum ScenePositionOffset {
-  Longitude = 0,
-  Latitude = 1,
-}
-
-enum SceneUnitVectorOffset {
-  X = 0,
-  Y = 1,
-  Z = 2,
 }
 
 export enum SceneStoreErrorKind {
@@ -56,11 +43,6 @@ export class SceneStoreError extends Error {
     this.kind = kind;
   }
 }
-
-export type RenderScenePatch = Extract<
-  SceneDataCommand,
-  { type: SceneDataCommandType.SourcePatch }
->;
 
 export type RenderSceneRecord = Readonly<{
   sceneId: string;
@@ -176,13 +158,13 @@ function createStorage(
 ): SceneStorage {
   const active = new Uint8Array(capacity);
   const positions = new Float64Array(
-    capacity * SceneStorageComponentCount.Position,
+    capacity * SCENE_POSITION_COUNT,
   );
   const motionPositions = new Float64Array(
     capacity * motionPositionStride,
   );
   const unitVectors = new Float32Array(
-    capacity * SceneStorageComponentCount.UnitVector,
+    capacity * SCENE_UNIT_VECTOR_COUNT,
   );
   const timestamps = new Float64Array(capacity);
   const attributes = new Float32Array(capacity * attributeStride);
@@ -241,7 +223,7 @@ function geometryPart(
     pointIndex += 1
   ) {
     const offset =
-      pointIndex * SceneStorageComponentCount.Position;
+      pointIndex * SCENE_POSITION_COUNT;
     const longitude = patch.geometryCoordinates[
       offset + ScenePositionOffset.Longitude
     ];
@@ -326,7 +308,7 @@ export class SceneStore {
     this.source = source;
   }
 
-  apply(patch: RenderScenePatch): void {
+  apply(patch: SceneSourceCommand): void {
     this.validatePatch(patch);
     this.applySchema(patch);
     this.applyDictionary(patch);
@@ -384,12 +366,14 @@ export class SceneStore {
     const entityId = this.storage.entityIds[index];
     if (!sceneId || !entityId) return null;
 
-    const positionOffset = index * SceneStorageComponentCount.Position;
+    const positionOffset =
+      index * SCENE_POSITION_COUNT;
     const motionPositionStride = this.motionPositionStride ?? 0;
     const motionPositionOffset = index * motionPositionStride;
     const hasMotionPosition =
-      motionPositionStride === SceneStorageComponentCount.Position;
-    const unitOffset = index * SceneStorageComponentCount.UnitVector;
+      motionPositionStride === SCENE_POSITION_COUNT;
+    const unitOffset =
+      index * SCENE_UNIT_VECTOR_COUNT;
     const stride = this.attributeStride ?? 0;
     return {
       sceneId,
@@ -435,7 +419,7 @@ export class SceneStore {
     };
   }
 
-  private validatePatch(patch: RenderScenePatch): void {
+  private validatePatch(patch: SceneSourceCommand): void {
     if (patch.source !== this.source) {
       throw new SceneStoreError(SceneStoreErrorKind.SourceMismatch);
     }
@@ -470,7 +454,7 @@ export class SceneStore {
     }
   }
 
-  private applySchema(patch: RenderScenePatch): void {
+  private applySchema(patch: SceneSourceCommand): void {
     if (this.attributeStride !== null) return;
     this.attributeStride = patch.attributeStride;
     this.motionPositionStride = patch.motionPositionStride;
@@ -484,7 +468,7 @@ export class SceneStore {
     );
   }
 
-  private applyDictionary(patch: RenderScenePatch): void {
+  private applyDictionary(patch: SceneSourceCommand): void {
     if (patch.kind === DatasetPatchKind.Rebase) this.dictionary = [];
     if (patch.dictionaryStart !== this.dictionary.length) {
       throw new SceneStoreError(
@@ -516,7 +500,7 @@ export class SceneStore {
     this.itemCount = 0;
   }
 
-  private writeRecords(patch: RenderScenePatch): void {
+  private writeRecords(patch: SceneSourceCommand): void {
     for (const [patchIndex, handle] of patch.handles.entries()) {
       const index = handle - 1;
       if (this.storage.active[index] === 1) {
@@ -535,7 +519,7 @@ export class SceneStore {
   }
 
   private writeIdentity(
-    patch: RenderScenePatch,
+    patch: SceneSourceCommand,
     patchIndex: number,
     handle: number,
     index: number,
@@ -553,17 +537,18 @@ export class SceneStore {
   }
 
   private writePosition(
-    patch: RenderScenePatch,
+    patch: SceneSourceCommand,
     patchIndex: number,
     index: number,
   ): void {
     const patchPositionOffset =
-      patchIndex * SceneStorageComponentCount.Position;
-    const positionOffset = index * SceneStorageComponentCount.Position;
+      patchIndex * SCENE_POSITION_COUNT;
+    const positionOffset =
+      index * SCENE_POSITION_COUNT;
     this.storage.positions.set(
       patch.positions.subarray(
         patchPositionOffset,
-        patchPositionOffset + SceneStorageComponentCount.Position,
+        patchPositionOffset + SCENE_POSITION_COUNT,
       ),
       positionOffset,
     );
@@ -580,12 +565,13 @@ export class SceneStore {
     );
 
     const patchUnitOffset =
-      patchIndex * SceneStorageComponentCount.UnitVector;
-    const unitOffset = index * SceneStorageComponentCount.UnitVector;
+      patchIndex * SCENE_UNIT_VECTOR_COUNT;
+    const unitOffset =
+      index * SCENE_UNIT_VECTOR_COUNT;
     this.storage.unitVectors.set(
       patch.unitVectors.subarray(
         patchUnitOffset,
-        patchUnitOffset + SceneStorageComponentCount.UnitVector,
+        patchUnitOffset + SCENE_UNIT_VECTOR_COUNT,
       ),
       unitOffset,
     );
@@ -593,7 +579,7 @@ export class SceneStore {
   }
 
   private writeAttributes(
-    patch: RenderScenePatch,
+    patch: SceneSourceCommand,
     patchIndex: number,
     index: number,
   ): void {

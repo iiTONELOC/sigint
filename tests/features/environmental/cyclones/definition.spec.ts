@@ -4,13 +4,13 @@ import { type PointType } from "@shared/domain/pointType";
 import { CycloneBasin } from "@shared/cyclonesSeason";
 import { CYCLONE_UI_QUERIES } from "@/features/environmental/cyclones/data/uiQueries";
 import { cycloneFeature } from "@/features/environmental/cyclones/definition";
+import type { CycloneFilter } from "@/context/DataContext";
 import {
   Category,
-  HURRICANE_CATEGORY,
   SaffirSimpson,
+  cycloneCategoryForScale,
   type CycloneData,
-  type CycloneFilter,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import type { BasePoint } from "@/features/base/types";
 
 // ── Sample storm helper ────────────────────────────────────────────
@@ -22,7 +22,7 @@ function makeStorm(
   const classification =
     saffirSimpson === SaffirSimpson.None
       ? Category.TropicalStorm
-      : HURRICANE_CATEGORY[saffirSimpson];
+      : cycloneCategoryForScale(saffirSimpson);
   return {
     id: `CYAL05${saffirSimpson}2026`,
     type: Domain.Cyclones,
@@ -66,11 +66,6 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
     const filter: CycloneFilter = {
       enabled: false,
       minCategory: 0,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     expect(
       CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(5), filter),
@@ -84,11 +79,6 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
     const filter: CycloneFilter = {
       enabled: true,
       minCategory: 0,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4, 5] as const) {
       expect(
@@ -101,11 +91,6 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
     const filter: CycloneFilter = {
       enabled: true,
       minCategory: 1,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     expect(
       CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(0), filter),
@@ -122,11 +107,6 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
     const filter: CycloneFilter = {
       enabled: true,
       minCategory: 3,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     expect(
       CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(0), filter),
@@ -152,11 +132,6 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
     const filter: CycloneFilter = {
       enabled: true,
       minCategory: 5,
-      showForecast: true,
-      showCone: true,
-      showWindField: false,
-      showModels: false,
-      showWarnings: true,
     };
     for (const cat of [0, 1, 2, 3, 4] as const) {
       expect(

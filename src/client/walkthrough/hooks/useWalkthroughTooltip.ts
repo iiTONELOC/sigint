@@ -8,21 +8,21 @@ import {
   type RefObject,
 } from "react";
 import { DomElementTag, DomEvent } from "@/runtime";
-import {
-  WalkthroughStepMode,
-  type WalkthroughStep,
-} from "../model";
+import { WalkthroughStepMode } from "../model/vocabulary";
+import type { WalkthroughStep } from "../model/types";
 import {
   computeWalkthroughTooltipPosition,
   getWalkthroughTargetRect,
   WalkthroughSpacing,
-  WalkthroughStyleSlot,
   WalkthroughTooltipWidth,
-  removeWalkthroughStyleRule,
-  setWalkthroughStyleRule,
   type WalkthroughPoint,
   type WalkthroughRect,
-} from "../utils";
+} from "../utils/geometry";
+import {
+  WalkthroughStyleSlot,
+  removeWalkthroughStyleRule,
+  setWalkthroughStyleRule,
+} from "../utils/stylesheet";
 
 type UseWalkthroughTooltipOptions = Readonly<{
   isMobile: boolean;
@@ -41,7 +41,7 @@ type UseWalkthroughTooltipResult = Readonly<{
   onPointerDown: (event: ReactPointerEvent) => void;
   ready: boolean;
   targetRect: WalkthroughRect | null;
-  tooltipRef: RefObject<HTMLDivElement | null>;
+  tooltipRef: RefObject<HTMLDialogElement | null>;
 }>;
 
 enum WalkthroughAnimationFrameId {
@@ -73,7 +73,7 @@ export function useWalkthroughTooltip({
   const [position, setPosition] = useState<WalkthroughPoint | null>(null);
   const [dragOffset, setDragOffset] = useState<WalkthroughPoint | null>(null);
   const [dragging, setDragging] = useState(false);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDialogElement>(null);
   const dragStartRef = useRef<WalkthroughDragStart | null>(null);
   const frameRef = useRef(WalkthroughAnimationFrameId.Initial);
 
@@ -102,7 +102,10 @@ export function useWalkthroughTooltip({
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent) => {
-      if ((event.target as HTMLElement).closest(DomElementTag.Button)) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest(DomElementTag.Button)) {
+        return;
+      }
       if (!position) return;
       event.preventDefault();
       const currentOffset = dragOffset ?? { x: 0, y: 0 };

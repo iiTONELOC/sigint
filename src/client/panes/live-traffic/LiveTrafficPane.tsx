@@ -1,10 +1,11 @@
 import {
-  PanelSide,
   RenderRotationSpeedPolicy,
 } from "@/workers/render/protocol";
+import { PanelSide } from "@/layout-mode/model/layoutMode";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
-import { useData, WatchSource } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
+import { useWatch, WatchSource } from "@/context/WatchContext";
 import { DeviceType, useLayoutMode } from "@/layout-mode";
 import {
   useHasDossier,
@@ -79,6 +80,8 @@ export function LiveTrafficPane() {
     setZoomToId,
     revealId,
     searchText,
+  } = useUI();
+  const {
     watchActive,
     watchPaused,
     watchMode,
@@ -86,7 +89,7 @@ export function LiveTrafficPane() {
     stopWatch,
     pauseWatch,
     resumeWatch,
-  } = useData();
+  } = useWatch();
 
   const [panelSide, setPanelSide] = useState<PanelSide>(PanelSide.Right);
   const [watchMenuOpen, setWatchMenuOpen] = useState(false);
@@ -201,7 +204,7 @@ export function LiveTrafficPane() {
       {!chromeHidden && (
         <div
           data-tour="globe-controls"
-          className="absolute top-2 left-2 md:top-3 md:left-3 z-10 flex items-center gap-1 flex-wrap"
+          className="absolute top-2 left-2 md:top-3 md:left-3 z-(--layer-content) flex items-center gap-1 flex-wrap"
         >
           <Tooltip
             content={flat ? "Switch to globe view" : "Switch to flat map"}
@@ -340,7 +343,7 @@ export function LiveTrafficPane() {
               </div>
             )}
             {watchMenuOpen && !watchActive && (
-              <div className="absolute top-full left-0 mt-1 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-24 z-30">
+              <div className="absolute top-full left-0 mt-1 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-24 z-(--layer-floating)">
                 {Object.values(WatchSource).map((source) => {
                   const Icon = WATCH_SOURCE_ICONS[source];
                   return (
@@ -398,7 +401,6 @@ export function LiveTrafficPane() {
         </div>
       )}
 
-      {/* ── Detail panel ──────────────────────────────────────────── */}
       {!chromeHidden && !hasDossier && !isMobileLayout && (
         <DetailPanel
           item={selectedCurrent}

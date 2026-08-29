@@ -6,7 +6,6 @@ import {
 } from "@/workers/render/globeStateController";
 import {
   IsolateMode,
-  RenderCycloneLayer,
   RenderGlobeCommandKind,
   RenderProjectionMode,
   RenderRotationSpeedPolicy,
@@ -17,11 +16,13 @@ import {
 } from "@shared/domain/aircraft";
 import {
   SaffirSimpson,
-} from "@shared/domain/cycloneClassification";
+} from "@shared/domain/cyclones";
 import { Domain } from "@shared/domain/identity";
 import {
   createRenderThemeFixture,
 } from "../fixtures/renderTheme";
+
+const TEST_CYCLONE_ENTITY_ID = "test-cyclone";
 
 describe("RenderGlobeStateController", () => {
   test("owns every globe rendering default", () => {
@@ -33,19 +34,14 @@ describe("RenderGlobeStateController", () => {
       projection: RenderProjectionMode.Globe,
       rotationEnabled: false,
       rotationSpeed: RenderRotationSpeedPolicy.Default,
-      earthquakeMinimumMagnitude: 0,
-      fireMinimumConfidence: 0,
       aircraftFilter: {
         enabled: true,
         milFilter: MilFilter.All,
       },
       cycloneFilter: {
         minimumCategory: SaffirSimpson.None,
-        showForecast: true,
-        showCone: true,
-        showWindField: false,
-        showModels: false,
         showWarnings: true,
+        overlays: {},
       },
       isolateMode: null,
       reducedMotion: false,
@@ -103,8 +99,7 @@ describe("RenderGlobeStateController", () => {
     expect(controller.sourceIsVisible(Domain.Earthquake)).toBe(false);
 
     controller.apply({
-      kind: RenderGlobeCommandKind.ToggleCycloneLayer,
-      layer: RenderCycloneLayer.Warnings,
+      kind: RenderGlobeCommandKind.ToggleCycloneWarnings,
     });
     expect(controller.sourceIsVisible(Domain.CycloneWarnings)).toBe(
       false,
@@ -128,23 +123,19 @@ describe("RenderGlobeStateController", () => {
     });
     countries.push("CA");
     controller.apply({
-      kind: RenderGlobeCommandKind.SetEarthquakeFilter,
-      minimumMagnitude: 3,
-    });
-    controller.apply({
-      kind: RenderGlobeCommandKind.SetFireFilter,
-      minimumConfidence: 75,
-    });
-    controller.apply({
       kind: RenderGlobeCommandKind.SetCycloneFilter,
       filter: {
         minimumCategory: SaffirSimpson.Cat3,
-        showForecast: false,
-        showCone: false,
-        showWindField: true,
-        showModels: true,
         showWarnings: false,
-        hiddenModels: ["GFS"],
+        overlays: {
+          [TEST_CYCLONE_ENTITY_ID]: {
+            showForecast: false,
+            showCone: false,
+            showWindField: true,
+            showModels: true,
+            hiddenModels: ["GFS"],
+          },
+        },
       },
     });
 
@@ -153,11 +144,14 @@ describe("RenderGlobeStateController", () => {
         enabled: false,
         countries: ["US"],
       },
-      earthquakeMinimumMagnitude: 3,
-      fireMinimumConfidence: 75,
       cycloneFilter: {
         minimumCategory: SaffirSimpson.Cat3,
-        hiddenModels: ["GFS"],
+        showWarnings: false,
+        overlays: {
+          [TEST_CYCLONE_ENTITY_ID]: {
+            hiddenModels: ["GFS"],
+          },
+        },
       },
     });
     expect(controller.sourceIsVisible(Domain.Aircraft)).toBe(false);
@@ -168,27 +162,34 @@ describe("RenderGlobeStateController", () => {
 
     controller.apply({
       kind: RenderGlobeCommandKind.ToggleCycloneModel,
+      entityId: TEST_CYCLONE_ENTITY_ID,
       model: "GFS",
     });
     controller.apply({
       kind: RenderGlobeCommandKind.ToggleCycloneModel,
+      entityId: TEST_CYCLONE_ENTITY_ID,
       model: "GFS",
     });
-    expect(controller.snapshot().cycloneFilter.hiddenModels).toEqual([]);
+    expect(
+      controller.snapshot().cycloneFilter.overlays[TEST_CYCLONE_ENTITY_ID]?.hiddenModels,
+    ).toEqual([]);
 
     controller.apply({
       kind: RenderGlobeCommandKind.ToggleAllCycloneModels,
+      entityId: TEST_CYCLONE_ENTITY_ID,
       models: ["GFS", "ECMWF"],
     });
-    expect(controller.snapshot().cycloneFilter.hiddenModels).toEqual([
-      "GFS",
-      "ECMWF",
-    ]);
+    expect(
+      controller.snapshot().cycloneFilter.overlays[TEST_CYCLONE_ENTITY_ID]?.hiddenModels,
+    ).toEqual(["GFS", "ECMWF"]);
     controller.apply({
       kind: RenderGlobeCommandKind.ToggleAllCycloneModels,
+      entityId: TEST_CYCLONE_ENTITY_ID,
       models: ["GFS", "ECMWF"],
     });
-    expect(controller.snapshot().cycloneFilter.hiddenModels).toEqual([]);
+    expect(
+      controller.snapshot().cycloneFilter.overlays[TEST_CYCLONE_ENTITY_ID]?.hiddenModels,
+    ).toEqual([]);
   });
 
   test("owns semantic isolation state", () => {

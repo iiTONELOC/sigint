@@ -2,43 +2,34 @@ import {
   parseEventCache,
   type EventPoint,
 } from "@/features/intel/events/data/codec";
-import { fetchEventSnapshot } from "@/features/intel/events/data/fetch";
-import { EVENT_UI_QUERIES } from "@/features/intel/events/data/uiQueries";
-import { CacheKey } from "@shared/domain/cache";
-import { POLL_INTERVALS } from "@/lib/cache/pollIntervals";
+import { EVENT_FEED } from "@/features/intel/events/data/fetch";
 import {
-  EntityLifetime,
+  pointSceneBinding,
+  type SceneBinding,
+  type SceneCommandPublisher,
+} from "@/workers/data/render-codecs/sceneBinding";
+import {
   GeoCarrier,
-  StationaryGeoDataSource,
-  type SourcePolicy,
+  StationaryPointSource,
+  feedFetch,
+  recordChanged,
+  type PointSourceOptions,
 } from "@/workers/data/source-model/dataSource";
-import { recordPosition } from "@/workers/data/source-model/position";
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { IntelSeverity } from "@shared/domain/correlation";
+import type { EventData } from "@shared/domain/events";
 import { Domain } from "@shared/domain/identity";
-import { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
-import { geoPointsEqual } from "@shared/geo";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
+import { EventSceneAttribute } from "@shared/scene";
+import { SourceCompleteness } from "@shared/source";
 import {
   DAYS_PER_WEEK,
   MS_PER_DAY,
 } from "@shared/time";
-import { SourceCompleteness } from "@shared/source";
 
 export function eventWindowDurationMs(): number {
   return DAYS_PER_WEEK * MS_PER_DAY;
 }
-
-export const EVENT_SOURCE_POLICY: SourcePolicy = {
-  id: Domain.Events,
-  cacheKey: CacheKey.Events,
-  pollIntervalMs: POLL_INTERVALS.events,
-  completeness: SourceCompletenessPolicy.Partial,
-  emptyResultIsComplete: false,
-};
-
-export type EventSourceOptions = Readonly<{
-  fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<EventPoint>>;
-  now?: () => number;
-}>;
 
 function publishedAt(point: EventPoint): number {
   const parsed = point.timestamp ? Date.parse(point.timestamp) : Number.NaN;
@@ -59,34 +50,32 @@ export function mergeEventWindow(
   return [...byId.values()];
 }
 
-export class EventSource extends StationaryGeoDataSource<EventPoint> {
-  readonly policy = EVENT_SOURCE_POLICY;
-  readonly carrier = GeoCarrier.Position;
-  readonly lifetime = EntityLifetime.Ephemeral;
-  readonly pointType = Domain.Events;
-  readonly queries = EVENT_UI_QUERIES;
+function eventAlertEquals(previous: EventData, next: EventData): boolean {
+  return (
+    previous.severity === next.severity &&
+    previous.headline === next.headline
+  );
+}
 
-  private readonly fetchOverride:
-    | (() => Promise<PointSourceFetchSnapshot<EventPoint>>)
-    | null;
-  private readonly now: () => number;
-
-  constructor(options: EventSourceOptions = {}) {
-    super();
-    this.fetchOverride = options.fetchSnapshot ?? null;
-    this.now = options.now ?? Date.now;
+export class EventSource extends StationaryPointSource<
+  Domain.Events,
+  EventPoint
+> {
+  constructor(options: PointSourceOptions<EventPoint> = {}) {
+    super({
+      policy: getPointSourceDefinition(Domain.Events),
+      carrier: GeoCarrier.Position,
+      parseCache: parseEventCache,
+      fetchSnapshot: feedFetch(options, EVENT_FEED),
+      hasChanged: recordChanged(eventAlertEquals),
+    });
   }
 
-  protected parseCache(value: unknown): readonly EventPoint[] | null {
-    return parseEventCache(value);
-  }
-
-  protected async fetchSnapshot(): Promise<
+  /** A partial feed lands on the retained seven-day window. */
+  protected override async fetchSnapshot(): Promise<
     PointSourceFetchSnapshot<EventPoint>
   > {
-    const snapshot = this.fetchOverride
-      ? await this.fetchOverride()
-      : await fetchEventSnapshot(this.now);
+    const snapshot = await super.fetchSnapshot();
     return {
       completeness: SourceCompleteness.Complete,
       entities: mergeEventWindow(
@@ -97,16 +86,16 @@ export class EventSource extends StationaryGeoDataSource<EventPoint> {
       observedAt: snapshot.observedAt,
     };
   }
+}
 
-  protected hasChanged(
-    previous: EventPoint,
-    next: EventPoint,
-  ): boolean {
-    return (
-      !geoPointsEqual(recordPosition(previous), recordPosition(next)) ||
-      previous.timestamp !== next.timestamp ||
-      previous.data.severity !== next.data.severity ||
-      previous.data.headline !== next.data.headline
-    );
-  }
+export function eventSceneBinding(
+  publishScene: SceneCommandPublisher,
+): SceneBinding<EventPoint> {
+  return pointSceneBinding(publishScene, {
+    source: Domain.Events,
+    writeAttributes: (point, target, offset) => {
+      target[offset + EventSceneAttribute.Severity] =
+        point.data.severity ?? IntelSeverity.Monitoring;
+    },
+  });
 }

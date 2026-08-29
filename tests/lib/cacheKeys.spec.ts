@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { settingsCacheMetadata } from "@/settings/model";
+import { settingsCacheMetadata } from "@/settings/model/cache";
 import { CacheKey, isCacheKey } from "@shared/domain/cache";
 
 enum CacheKeyFixture {

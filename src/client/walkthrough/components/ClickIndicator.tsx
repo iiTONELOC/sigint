@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { DomEvent } from "@/runtime";
-import { WalkthroughClickMode } from "../model";
+import { WalkthroughClickMode } from "../model/vocabulary";
 import { clickIndicatorPoint } from "../utils/clickIndicator";
 import {
   removeWalkthroughStyleRule,
@@ -55,12 +55,12 @@ export function ClickIndicator({ mode }: ClickIndicatorProps) {
       data-wt-indicator=""
       data-wt-click-mode={mode}
       data-wt-style={WalkthroughStyleSlot.Indicator}
-      className="fixed z-9996 pointer-events-none -translate-x-1/2 -translate-y-1/2"
+      className="walkthrough-indicator fixed z-(--layer-guidance) pointer-events-none -translate-x-1/2 -translate-y-1/2"
     >
-      <div className="walkthrough-indicator-ring absolute rounded-full top-1/2 left-1/2 w-20 h-20 -mt-10 -ml-10 border-2 [animation:walkthrough-ring_2s_ease-out_infinite]" />
-      <div className="walkthrough-indicator-ring absolute rounded-full top-1/2 left-1/2 w-20 h-20 -mt-10 -ml-10 border-2 [animation:walkthrough-ring_2s_ease-out_infinite_600ms]" />
-      <div className="walkthrough-indicator-dot absolute rounded-full top-1/2 left-1/2 size-3.5 -mt-1.75 -ml-1.75 [animation:pulse_1.5s_infinite]" />
-      <div className="walkthrough-indicator-label absolute text-[11px] tracking-widest font-bold whitespace-nowrap top-1/2 left-1/2 -translate-x-1/2 translate-y-[30px]">
+      <div className="walkthrough-indicator-ring absolute rounded-full top-1/2 left-1/2 w-20 h-20 -mt-10 -ml-10 border-2 animate-walkthrough-ring" />
+      <div className="walkthrough-indicator-ring absolute rounded-full top-1/2 left-1/2 w-20 h-20 -mt-10 -ml-10 border-2 animate-walkthrough-ring-delayed" />
+      <div className="walkthrough-indicator-dot absolute rounded-full top-1/2 left-1/2 size-3.5 -mt-1.75 -ml-1.75 animate-walkthrough-pulse" />
+      <div className="walkthrough-indicator-label absolute text-(length:--sig-text-md) tracking-widest font-bold whitespace-nowrap top-1/2 left-1/2 -translate-x-1/2 translate-y-7.5">
         {label}
       </div>
     </div>,

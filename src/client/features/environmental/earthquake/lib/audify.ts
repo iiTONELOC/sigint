@@ -1,27 +1,35 @@
-const TARGET_SECONDS = 3.5;
-const MIN_RATE_HZ = 8000;
-const MAX_RATE_HZ = 44100;
-const ONSET_FRACTION = 0.06;
-const PRE_PAD = 0.04;
+enum QuakeAudioPolicy {
+  TargetSeconds = 3.5,
+  MinimumRateHertz = 8000,
+  MaximumRateHertz = 44100,
+  OnsetFraction = 0.06,
+  PrePadFraction = 0.04,
+  MinimumSampleCount = 2,
+  DefaultGain = 0.9,
+}
 
-export type QuakePlayer = {
+type QuakePlayer = {
   stop: () => void;
-  setVolume: (v: number) => void;
 };
 
 function onsetIndex(samples: number[], mid: number, amp: number): number {
-  const threshold = amp * ONSET_FRACTION;
+  const threshold = amp * QuakeAudioPolicy.OnsetFraction;
   for (let i = 0; i < samples.length; i++) {
     if (Math.abs((samples[i] ?? mid) - mid) > threshold) {
-      return Math.max(0, i - Math.round(samples.length * PRE_PAD));
+      return Math.max(
+        0,
+        i - Math.round(samples.length * QuakeAudioPolicy.PrePadFraction),
+      );
     }
   }
   return 0;
 }
 
-export function playQuakeAudio(samples: number[], volume = 0.9): QuakePlayer | null {
+export function playQuakeAudio(
+  samples: number[],
+): QuakePlayer | null {
   const Ctx = globalThis.AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx || samples.length < 2) return null;
+  if (!Ctx || samples.length < QuakeAudioPolicy.MinimumSampleCount) return null;
 
   let min = Infinity;
   let max = -Infinity;
@@ -33,19 +41,26 @@ export function playQuakeAudio(samples: number[], volume = 0.9): QuakePlayer | n
   const amp = (max - min) / 2 || 1;
 
   const slice = samples.slice(onsetIndex(samples, mid, amp));
-  if (slice.length < 2) return null;
+  if (slice.length < QuakeAudioPolicy.MinimumSampleCount) return null;
 
-  const rate = Math.min(MAX_RATE_HZ, Math.max(MIN_RATE_HZ, Math.round(slice.length / TARGET_SECONDS)));
+  const rate = Math.min(
+    QuakeAudioPolicy.MaximumRateHertz,
+    Math.max(
+      QuakeAudioPolicy.MinimumRateHertz,
+      Math.round(slice.length / QuakeAudioPolicy.TargetSeconds),
+    ),
+  );
 
   const ctx = new Ctx();
   const buffer = ctx.createBuffer(1, slice.length, rate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < slice.length; i++) {
-    data[i] = (((slice[i] ?? mid) - mid) / amp) * 0.9;
+    data[i] = (((slice[i] ?? mid) - mid) / amp) *
+      QuakeAudioPolicy.DefaultGain;
   }
 
   const gain = ctx.createGain();
-  gain.gain.value = volume;
+  gain.gain.value = QuakeAudioPolicy.DefaultGain;
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(gain).connect(ctx.destination);
@@ -61,9 +76,6 @@ export function playQuakeAudio(samples: number[], volume = 0.9): QuakePlayer | n
         void 0;
       }
       void ctx.close().catch(() => {});
-    },
-    setVolume: (v: number) => {
-      gain.gain.value = Math.min(1, Math.max(0, v));
     },
   };
 }

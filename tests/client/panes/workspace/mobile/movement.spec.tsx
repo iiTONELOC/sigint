@@ -10,7 +10,7 @@ import {
   PaneType,
   SplitDirection,
   type PaneTypeValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import { flushReactUpdates } from "../../../../support/react";
 import {
   MobileFixtureLabel,

@@ -16,7 +16,7 @@ import {
 export function dataPointTablePresentation(
   item: DataPoint,
 ): FeatureTablePresentation {
-  const feature = featureRegistry.get(item.type);
+  const feature = featureRegistry[item.type];
   return feature
     ? feature.tablePresentation(item.data, item.id)
     : emptyFeatureTablePresentation(item.id, item.type.toUpperCase());

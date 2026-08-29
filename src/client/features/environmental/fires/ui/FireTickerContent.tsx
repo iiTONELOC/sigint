@@ -1,36 +1,32 @@
-import type { FireData } from "../types";
-import type { TickerRendererProps } from "@/features/base/presentation";
+import type { FireData } from "@shared/domain/fireDayNight";
+import {
+  TickerContentShell,
+  type TickerRendererProps,
+} from "@/features/base";
 import { FireDayNight } from "@shared/domain/fireDayNight";
-import { FireCopy, formatFirePower } from "../formatters";
-
-function fireTickerDayNightLabel(
-  value: string | undefined,
-): string | null {
-  if (value === FireDayNight.Day) return "Day";
-  if (value === FireDayNight.Night) return "Night";
-  return null;
-}
+import { stringEnumMemberName } from "@shared/types/enum";
+import { FireCopy, formatFirePower } from "../formatters/presentation";
 
 export function FireTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as FireData;
   const frpLabel =
     d.frp != null && d.frp > 0 ? formatFirePower(d.frp) : "";
   const confLabel = d.confidence ? d.confidence.toUpperCase() : "";
-  const dayNightLabel = fireTickerDayNightLabel(d.daynight);
+  const dayNightLabel = stringEnumMemberName(d.daynight, FireDayNight);
+  const primary = frpLabel
+    ? `${FireCopy.RadiativePower} ${frpLabel}`
+    : FireCopy.Hotspot;
+  const confidence = confLabel ? ` · ${confLabel}` : "";
+  const satellite = d.satellite ?? FireCopy.DefaultSatellite;
+  const pass = dayNightLabel ? ` · ${dayNightLabel}` : "";
+  const brightness = d.brightness
+    ? ` · ${d.brightness.toFixed(0)}K`
+    : "";
 
   return (
-    <div className="leading-snug overflow-hidden">
-      <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-text text-(length:--sig-text-lg)">
-        {frpLabel
-          ? `${FireCopy.RadiativePower} ${frpLabel}`
-          : FireCopy.Hotspot}
-        {confLabel ? ` · ${confLabel}` : ""}
-      </div>
-      <div className="text-ellipsis whitespace-nowrap overflow-hidden text-sig-dim text-(length:--sig-text-sm)">
-        {d.satellite ?? FireCopy.DefaultSatellite}
-        {dayNightLabel ? ` · ${dayNightLabel}` : ""}
-        {d.brightness ? ` · ${d.brightness.toFixed(0)}K` : ""}
-      </div>
-    </div>
+    <TickerContentShell
+      primary={`${primary}${confidence}`}
+      secondary={`${satellite}${pass}${brightness}`}
+    />
   );
 }

@@ -4,8 +4,6 @@ import {
   type DatasetCompleteness,
   type DatasetEntity,
   type DatasetPatch,
-  type DatasetQuery,
-  type DatasetQueryResult,
 } from "@/workers/data/datasetStore";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import { SourceStatus } from "@shared/domain/sourceStatus";
@@ -36,10 +34,8 @@ export type PointSourceSchedule = (
 
 export type PointSourceRuntimeOptions<TEntity extends DatasetEntity> = Readonly<{
   id: SourceId;
-  cacheKey: string;
   pollIntervalMs: number;
   retryIntervalMs?: number;
-  maxQueryItems: number;
   hasChanged?: (previous: TEntity, next: TEntity) => boolean;
   readCache: () => Promise<unknown>;
   parseCache: (value: unknown) => readonly TEntity[] | null;
@@ -57,14 +53,10 @@ export type PointSourceRuntime<TEntity extends DatasetEntity> = Readonly<{
   hydrate: () => Promise<void>;
   refresh: () => Promise<void>;
   start: () => Promise<void>;
-  stop: () => void;
   rebase: () => DatasetPatch<TEntity> | null;
   get: (id: string) => TEntity | null;
   values: () => readonly TEntity[];
   snapshot: () => DataWorkerSourceSnapshot;
-  query: (
-    query: DatasetQuery<TEntity>,
-  ) => Promise<DatasetQueryResult<TEntity>>;
 }>;
 
 type CacheEnvelope = Readonly<{
@@ -119,7 +111,6 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
   options: PointSourceRuntimeOptions<TEntity>,
 ): PointSourceRuntime<TEntity> {
   const store = createDatasetStore<TEntity>({
-    maxQueryItems: options.maxQueryItems,
     ...(options.hasChanged ? { hasChanged: options.hasChanged } : {}),
   });
   const schedule = options.schedule ?? defaultSchedule;
@@ -259,12 +250,6 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       scheduleNext(await runRefresh());
     },
 
-    stop(): void {
-      active = false;
-      cancelScheduled?.();
-      cancelScheduled = null;
-    },
-
     rebase(): DatasetPatch<TEntity> | null {
       const version = store.version();
       if (version === 0) return null;
@@ -286,10 +271,5 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
       return published;
     },
 
-    query(
-      query: DatasetQuery<TEntity>,
-    ): Promise<DatasetQueryResult<TEntity>> {
-      return store.query(query);
-    },
   };
 }

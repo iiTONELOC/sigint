@@ -42,8 +42,10 @@ export function tickerAircraft(
       originCountry: TickerFixtureText.Origin,
     },
     id,
-    lat: TickerFixtureCoordinate.Latitude,
-    lon: TickerFixtureCoordinate.Longitude,
+    position: [
+      TickerFixtureCoordinate.Longitude,
+      TickerFixtureCoordinate.Latitude,
+    ],
     type: Domain.Aircraft,
   };
 }

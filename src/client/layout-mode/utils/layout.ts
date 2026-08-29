@@ -1,8 +1,4 @@
-import {
-  DeviceType,
-  LayoutMode,
-  ViewportOrientation,
-} from "../model";
+import { DeviceType, LayoutMode, ViewportOrientation } from "../model/layoutMode";
 import { isEnumValue } from "@shared/types/enum";
 
 export function parseLayoutMode(value: unknown): LayoutMode | null {

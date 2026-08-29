@@ -3,10 +3,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import {
-  isUnitMode,
-  UnitMode,
-} from "@/preferences/units";
+import { isUnitMode, UnitMode } from "@/preferences/units/model";
 import {
   PreferenceFixtureInvalid,
 } from "../fixtures";

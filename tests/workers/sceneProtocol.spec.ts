@@ -11,11 +11,11 @@ import {
   SceneDataCommandType,
   SceneInterestCommandType,
   SceneProtocolVersion,
-  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
 import {
-  MovingSceneMotionPositionSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+  SCENE_POSITION_COUNT,
+  SceneGeometryKind,
+} from "@shared/scene";
 
 enum MalformedSceneCommandType {
   LegacyData = "data",
@@ -38,7 +38,7 @@ describe("scene data protocol", () => {
           20.123456789012,
         ]),
         motionPositionStride:
-          MovingSceneMotionPositionSchema.MotionPositionStride,
+          SCENE_POSITION_COUNT,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array([100, 90]),
@@ -77,7 +77,7 @@ describe("scene data protocol", () => {
         positions: new Float64Array([10, 20]),
         motionPositions: new Float64Array([10, 20]),
         motionPositionStride:
-          MovingSceneMotionPositionSchema.MotionPositionStride,
+          SCENE_POSITION_COUNT,
         unitVectors: new Float32Array([1, 0, 0]),
         timestamps: new Float64Array([1_000]),
         attributes: new Float32Array([90]),

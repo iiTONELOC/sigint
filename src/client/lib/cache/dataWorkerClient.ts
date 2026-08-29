@@ -4,14 +4,20 @@ import type {
   AircraftDossier,
 } from "@shared/domain/aircraftDossier";
 import type {
+  TsunamiAlert,
+  WaveformRequest,
+  WaveformResult,
+} from "@shared/domain/earthquakes";
+import type { CycloneDossierBundle } from "@shared/domain/cyclones";
+import type {
   QueryableSourceId,
   QueryableSourceShapes,
 } from "@/workers/data/queryableSources";
 import {
-  createDataWorkerCommand,
+  createDataWorkerMessage,
   parseDataWorkerEvent,
+  DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
-  DataWorkerProtocolVersion,
   type DataWorkerCacheEntry,
   type DataWorkerCommandBody,
   type DataWorkerEvent,
@@ -72,44 +78,6 @@ export type DataWorkerTransport = {
   terminate: () => void;
 };
 
-export type DataWorkerClient = Readonly<{
-  init: () => Promise<readonly DataWorkerCacheEntry[]>;
-  connectRender: (port: MessagePort, renderSessionId: string) => Promise<void>;
-  connectCorrelation: (
-    port: MessagePort,
-    correlationSessionId: string,
-  ) => Promise<void>;
-  refreshSource: (source: DataWorkerPointSource) => Promise<void>;
-  listSourceEntities: (source: DataWorkerPointSource) => Promise<unknown>;
-  getTrail: (id: string) => Promise<TrailEntry | null>;
-  getAircraftDossier: (
-    entityId: string,
-  ) => Promise<AircraftDossier | null>;
-  getSourceEntity: (
-    source: DataWorkerQueryableSource,
-    id: string,
-  ) => Promise<DataWorkerSourceEntityResult>;
-  querySource: (
-    request: DataWorkerSourceQueryRequest,
-  ) => Promise<DataWorkerSourceQueryResult>;
-  getSourceSnapshot: (
-    source: DataWorkerPointSource,
-  ) => DataWorkerSourceSnapshot | null;
-  subscribeSource: (
-    source: DataWorkerPointSource,
-    listener: DataWorkerSourceListener,
-  ) => () => void;
-  get: (key: string) => Promise<unknown>;
-  importJson: (key: string, json: string) => Promise<unknown>;
-  set: (key: string, value: unknown) => Promise<void>;
-  setDeferred: (key: string, value: unknown) => void;
-  delete: (key: string) => Promise<void>;
-  clear: () => Promise<void>;
-  flush: () => Promise<void>;
-  estimate: (key: string) => Promise<number>;
-  terminate: () => void;
-}>;
-
 export enum DataWorkerClientError {
   UnexpectedEvent = "DataWorker returned an unexpected event",
   ProtocolIncompatible = "DataWorker protocol is incompatible",
@@ -124,16 +92,28 @@ export enum DataWorkerClientPath {
 }
 
 function unexpectedEvent(expected: string): Error {
-  return Object.assign(
-    new Error(DataWorkerClientError.UnexpectedEvent),
-    { expected },
-  );
+  return Object.assign(new Error(DataWorkerClientError.UnexpectedEvent), {
+    expected,
+  });
 }
 
-export function createDataWorkerClient(
+function postMessageError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error(DataWorkerClientError.PostMessageFailed);
+}
+
+function isEventType<TType extends DataWorkerMessageType>(
+  event: DataWorkerEvent,
+  type: TType,
+): event is Extract<DataWorkerEvent, { type: TType }> {
+  return event.type === type;
+}
+
+function createClient(
   worker: DataWorkerTransport,
   options: DataWorkerClientOptions = {},
-): DataWorkerClient {
+) {
   const requestTimeoutMs =
     options.requestTimeoutMs ?? DATA_WORKER_CLIENT_POLICY.requestTimeoutMs;
   let nextRequestId = 0;
@@ -159,11 +139,9 @@ export function createDataWorkerClient(
       isRecord(message.data) &&
       "protocolVersion" in message.data &&
       message.data.protocolVersion !==
-        DataWorkerProtocolVersion.Current
+        DATA_WORKER_PROTOCOL_VERSION
     ) {
-      rejectAll(
-        new Error(DataWorkerClientError.ProtocolIncompatible),
-      );
+      rejectAll(new Error(DataWorkerClientError.ProtocolIncompatible));
       return;
     }
     const event = parseDataWorkerEvent(message.data);
@@ -190,66 +168,81 @@ export function createDataWorkerClient(
   };
 
   worker.onerror = (event: ErrorEvent) => {
-    rejectAll(
-      new Error(event.message || DataWorkerClientError.WorkerFailed),
-    );
+    rejectAll(new Error(event.message || DataWorkerClientError.WorkerFailed));
   };
 
   const request = (
     body: DataWorkerCommandBody,
     transfer: Transferable[] = [],
+    timeoutMs: number | null = requestTimeoutMs,
   ): Promise<DataWorkerEvent> => {
     if (failed) return Promise.reject(failed);
     nextRequestId++;
     const requestId = nextRequestId;
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        if (!pending.delete(requestId)) return;
-        reject(
-          Object.assign(
-            new Error(DataWorkerClientError.RequestTimedOut),
-            { requestTimeoutMs },
-          ),
-        );
-      }, requestTimeoutMs);
-      const cancelTimeout = (): void => clearTimeout(timeout);
+      const timeout = timeoutMs === null
+        ? null
+        : setTimeout(() => {
+            if (!pending.delete(requestId)) return;
+            reject(
+              Object.assign(
+                new Error(DataWorkerClientError.RequestTimedOut),
+                { requestTimeoutMs: timeoutMs },
+              ),
+            );
+          }, timeoutMs);
+      const cancelTimeout = (): void => {
+        if (timeout !== null) clearTimeout(timeout);
+      };
       pending.set(requestId, { resolve, reject, cancelTimeout });
       try {
         worker.postMessage(
-          createDataWorkerCommand(body, requestId),
+          createDataWorkerMessage(body, requestId),
           transfer,
         );
       } catch (error) {
         pending.delete(requestId);
-        reject(
-          error instanceof Error
-            ? error
-            : new Error(DataWorkerClientError.PostMessageFailed),
-        );
+        reject(postMessageError(error));
         cancelTimeout();
       }
     });
+  };
+
+  const notify = (body: DataWorkerCommandBody): void => {
+    if (failed) return;
+    try {
+      worker.postMessage(createDataWorkerMessage(body, null), []);
+    } catch (error: unknown) {
+      rejectAll(postMessageError(error));
+    }
+  };
+
+  const expectEvent = async <TType extends DataWorkerMessageType>(
+    body: DataWorkerCommandBody,
+    type: TType,
+    expected: string,
+    transfer: Transferable[] = [],
+    timeoutMs: number | null = requestTimeoutMs,
+  ): Promise<Extract<DataWorkerEvent, { type: TType }>> => {
+    const event = await request(body, transfer, timeoutMs);
+    if (!isEventType(event, type)) throw unexpectedEvent(expected);
+    return event;
   };
 
   const requireComplete = async (
     body: DataWorkerCommandBody,
     transfer: Transferable[] = [],
   ): Promise<void> => {
-    const event = await request(body, transfer);
-    if (event.type !== DataWorkerMessageType.Complete) {
-      throw unexpectedEvent("completion");
-    }
+    await expectEvent(body, DataWorkerMessageType.Complete, "completion", transfer);
   };
 
   return {
     async init(): Promise<readonly DataWorkerCacheEntry[]> {
-      const event = await request({
-        type: DataWorkerMessageType.Init,
-      });
-      if (event.type !== DataWorkerMessageType.Ready) {
-        throw unexpectedEvent("cache entries");
-      }
-      return event.entries;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.Init },
+        DataWorkerMessageType.Ready,
+        "cache entries",
+      )).entries;
     },
 
     connectRender(
@@ -280,76 +273,80 @@ export function createDataWorkerClient(
       );
     },
 
-    refreshSource(source: DataWorkerPointSource): Promise<void> {
-      return requireComplete({
-        type: DataWorkerMessageType.RefreshSource,
-        source,
-      });
-    },
-
-    async listSourceEntities(
-      source: DataWorkerPointSource,
-    ): Promise<unknown> {
-      const event = await request({
-        type: DataWorkerMessageType.ListSourceEntities,
-        source,
-      });
-      if (event.type !== DataWorkerMessageType.Value) {
-        throw unexpectedEvent("source entities");
-      }
-      return event.value;
-    },
-
     async getTrail(id: string): Promise<TrailEntry | null> {
-      const event = await request({
-        type: DataWorkerMessageType.GetTrail,
-        id,
-      });
-      if (event.type !== DataWorkerMessageType.Trail) {
-        throw unexpectedEvent("a trail");
-      }
-      return event.entry;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.GetTrail, id },
+        DataWorkerMessageType.Trail,
+        "a trail",
+      )).entry;
     },
 
     async getAircraftDossier(
       entityId: string,
     ): Promise<AircraftDossier | null> {
-      const event = await request({
-        type: DataWorkerMessageType.GetAircraftDossier,
-        entityId,
-      });
-      if (event.type !== DataWorkerMessageType.AircraftDossier) {
-        throw unexpectedEvent("an aircraft dossier");
-      }
-      return event.dossier;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.GetAircraftDossier, entityId },
+        DataWorkerMessageType.AircraftDossier,
+        "an aircraft dossier",
+      )).dossier;
+    },
+
+    async getCycloneDossier(entityId: string): Promise<CycloneDossierBundle | null> {
+      return (await expectEvent(
+        { type: DataWorkerMessageType.GetCycloneDossier, entityId },
+        DataWorkerMessageType.CycloneDossier,
+        "a cyclone dossier",
+      )).dossier;
+    },
+
+    async getEarthquakeWaveform(
+      waveformRequest: WaveformRequest,
+    ): Promise<WaveformResult> {
+      return (await expectEvent(
+        {
+          type: DataWorkerMessageType.GetEarthquakeWaveform,
+          request: waveformRequest,
+        },
+        DataWorkerMessageType.EarthquakeWaveform,
+        "an earthquake waveform",
+        [],
+        null,
+      )).result;
+    },
+
+    cancelEarthquakeWaveform(): void {
+      notify({ type: DataWorkerMessageType.CancelEarthquakeWaveform });
+    },
+
+    async getTsunamiAlerts(): Promise<readonly TsunamiAlert[]> {
+      return (await expectEvent(
+        { type: DataWorkerMessageType.GetTsunamiAlerts },
+        DataWorkerMessageType.TsunamiAlerts,
+        "tsunami alerts",
+        [],
+        null,
+      )).alerts;
     },
 
     async getSourceEntity(
       source: DataWorkerQueryableSource,
       id: string,
     ): Promise<DataWorkerSourceEntityResult> {
-      const event = await request({
-        type: DataWorkerMessageType.GetSourceEntity,
-        source,
-        id,
-      });
-      if (event.type !== DataWorkerMessageType.SourceEntity) {
-        throw unexpectedEvent("source entity");
-      }
-      return event;
+      return expectEvent(
+        { type: DataWorkerMessageType.GetSourceEntity, source, id },
+        DataWorkerMessageType.SourceEntity,
+        "source entity",
+      );
     },
 
     async querySource(
       queryRequest: DataWorkerSourceQueryRequest,
     ): Promise<DataWorkerSourceQueryResult> {
-      const event = await request({
-        type: DataWorkerMessageType.QuerySource,
-        ...queryRequest,
-      });
-      if (event.type !== DataWorkerMessageType.SourceQuery) {
-        throw unexpectedEvent("source query");
-      }
-      return event;
+      return expectEvent(
+        { type: DataWorkerMessageType.QuerySource, ...queryRequest },
+        DataWorkerMessageType.SourceQuery,
+        "source query",
+      );
     },
 
     getSourceSnapshot(
@@ -372,29 +369,22 @@ export function createDataWorkerClient(
     },
 
     async get(key: string): Promise<unknown> {
-      const event = await request({
-        type: DataWorkerMessageType.Get,
-        key,
-      });
-      if (event.type !== DataWorkerMessageType.Value) {
-        throw unexpectedEvent("cache value");
-      }
-      return event.value;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.Get, key },
+        DataWorkerMessageType.Value,
+        "cache value",
+      )).value;
     },
 
     async importJson(
       key: string,
       json: string,
     ): Promise<unknown> {
-      const event = await request({
-        type: DataWorkerMessageType.ImportJson,
-        key,
-        json,
-      });
-      if (event.type !== DataWorkerMessageType.Value) {
-        throw unexpectedEvent("imported value");
-      }
-      return event.value;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.ImportJson, key, json },
+        DataWorkerMessageType.Value,
+        "imported value",
+      )).value;
     },
 
     set(key: string, value: unknown): Promise<void> {
@@ -406,22 +396,7 @@ export function createDataWorkerClient(
     },
 
     setDeferred(key: string, value: unknown): void {
-      if (failed) return;
-      try {
-        worker.postMessage(
-          createDataWorkerCommand(
-            { type: DataWorkerMessageType.SetDeferred, key, value },
-            null,
-          ),
-          [],
-        );
-      } catch (error: unknown) {
-        rejectAll(
-          error instanceof Error
-            ? error
-            : new Error(DataWorkerClientError.PostMessageFailed),
-        );
-      }
+      notify({ type: DataWorkerMessageType.SetDeferred, key, value });
     },
 
     delete(key: string): Promise<void> {
@@ -440,14 +415,11 @@ export function createDataWorkerClient(
     },
 
     async estimate(key: string): Promise<number> {
-      const event = await request({
-        type: DataWorkerMessageType.Estimate,
-        key,
-      });
-      if (event.type !== DataWorkerMessageType.Size) {
-        throw unexpectedEvent("cache size");
-      }
-      return event.bytes;
+      return (await expectEvent(
+        { type: DataWorkerMessageType.Estimate, key },
+        DataWorkerMessageType.Size,
+        "cache size",
+      )).bytes;
     },
 
     terminate(): void {
@@ -457,6 +429,13 @@ export function createDataWorkerClient(
     },
   };
 }
+
+export type DataWorkerClient = Readonly<ReturnType<typeof createClient>>;
+
+export const createDataWorkerClient = (
+  worker: DataWorkerTransport,
+  options: DataWorkerClientOptions = {},
+): DataWorkerClient => createClient(worker, options);
 
 let sharedClient: DataWorkerClient | null | undefined;
 
@@ -471,8 +450,6 @@ export function getDataWorkerClient(): DataWorkerClient | null {
       new Worker(DataWorkerClientPath.Worker, { type: "module" }),
     );
   } catch {
-    // No worker available (test runtime, blocked script). Callers fall back
-    // to their own fetch path rather than losing the feed entirely.
     sharedClient = null;
   }
   return sharedClient;

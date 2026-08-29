@@ -5,10 +5,14 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import type { ShipData } from "./types";
-import { buildShipDetailRows } from "./detailRows";
+import type { ShipData } from "@shared/domain/ships";
+import { ShipDetailSummary } from "./ui/ShipDetailSummary";
 import { ShipTickerContent } from "./ui/ShipTickerContent";
-import { shipFeedPresentation, shipTablePresentation } from "./formatters";
+import { shipFeedPresentation, shipPresentation } from "./formatters/presentation";
+
+enum ShipSummaryText {
+  UnknownVessel = "Unknown vessel",
+}
 
 export const shipsFeature = defineFeature<ShipData, Domain.Ships>({
   id: Domain.Ships,
@@ -16,20 +20,18 @@ export const shipsFeature = defineFeature<ShipData, Domain.Ships>({
   icon: Anchor,
   iconStyle: FeatureIconStyle.Stroked,
   colorClassName: FeatureColorClassName.Ships,
-  buildDetailRows: (data) => buildShipDetailRows(data),
-  tablePresentation: shipTablePresentation,
+  DetailSummary: ShipDetailSummary,
+  buildDetailRows: () => [],
+  tablePresentation: shipPresentation,
   feedPresentation: shipFeedPresentation,
   TickerContent: ShipTickerContent,
-  getSearchText: (data) =>
-    [
-      data.name,
-      data.mmsi != null ? String(data.mmsi) : undefined,
-      data.imo != null ? String(data.imo) : undefined,
-      data.callSign,
-      data.vesselType,
-      data.destination,
-      data.flag,
-    ]
-      .filter(Boolean)
-      .join(" "),
+  tickerSummary: (data) => [data.name || ShipSummaryText.UnknownVessel],
+  getSearchText: (data) => shipPresentation(data, String(data.mmsi)).searchText,
+  searchPresentation: (data, id) => {
+    const presentation = shipPresentation(data, id);
+    return {
+      primary: presentation.name,
+      secondary: presentation.classification,
+    };
+  },
 });

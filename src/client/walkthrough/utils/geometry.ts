@@ -1,7 +1,4 @@
-import {
-  WalkthroughPlacement,
-  WalkthroughStepId,
-} from "../model";
+import { WalkthroughPlacement, WalkthroughStepId } from "../model/vocabulary";
 
 export type WalkthroughRect = Readonly<{
   height: number;

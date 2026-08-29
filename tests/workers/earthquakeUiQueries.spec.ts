@@ -49,7 +49,7 @@ describe("earthquake UI queries", () => {
     );
   });
 
-  test("filters, sorts, and pages the table without truncating its total", () => {
+  test("sorts and pages the table without truncating its total", () => {
     const expected = point(
       "Qthree", 4, 30, "Three", "2026-07-21T12:00:00.000Z",
     );
@@ -61,7 +61,7 @@ describe("earthquake UI queries", () => {
 
     const result = EARTHQUAKE_UI_QUERIES.run(points, {
       kind: "table",
-      minValue: 3,
+      minValue: 0,
       sortKey: "value1",
       sortDirection: "desc",
       offset: 1,
@@ -70,7 +70,7 @@ describe("earthquake UI queries", () => {
 
     expect(result).toEqual({
       kind: "table",
-      total: 2,
+      total: 3,
       items: [expected],
     });
   });

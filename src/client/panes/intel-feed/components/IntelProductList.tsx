@@ -5,7 +5,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { IconStrokeWidth } from "@/features/base/types";
 import type { IntelProduct } from "@/lib/correlation";
 import { DomScrollBehavior, DomScrollBlock } from "@/runtime";
-import { IntelFeedCopy, IntelFeedIconSize } from "../model";
+import { IntelFeedCopy, IntelFeedIconSize } from "../model/feed";
 import { IntelProductRow } from "./IntelProductRow";
 import { IntelProductSummary } from "./IntelProductSummary";
 

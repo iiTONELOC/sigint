@@ -1,4 +1,3 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   drawSceneGeometry,
   type SceneAreaProjection,
@@ -14,21 +13,16 @@ import {
   type SceneLayerProjectionFrame,
 } from "@/workers/render/scene/sceneLayer";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
-import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
-import { AreaKind } from "@/workers/render/protocol";
+import {
+  SCENE_POSITION_COUNT,
+  SceneGeometryKind,
+  ScenePositionOffset,
+} from "@shared/scene";
+import { AreaKind } from "@shared/domain/cyclones";
 import {
   multiPolygonContainsPoint,
   type GeoPoint,
 } from "@shared/geo";
-
-enum SceneAreaComponentCount {
-  Position = 2,
-}
-
-enum SceneAreaPositionOffset {
-  Longitude = 0,
-  Latitude = 1,
-}
 
 enum SceneAreaHitDistance {
   Contained = 0,
@@ -87,14 +81,14 @@ function areaHit(
   const entityId = view.entityIds[index];
   if (!sceneId || !entityId) return null;
   const positionOffset =
-    index * SceneAreaComponentCount.Position;
+    index * SCENE_POSITION_COUNT;
   const longitude =
     view.positions[
-      positionOffset + SceneAreaPositionOffset.Longitude
+      positionOffset + ScenePositionOffset.Longitude
     ];
   const latitude =
     view.positions[
-      positionOffset + SceneAreaPositionOffset.Latitude
+      positionOffset + ScenePositionOffset.Latitude
     ];
   if (longitude === undefined || latitude === undefined) return null;
   return {
@@ -183,7 +177,7 @@ export abstract class SceneAreaLayer<TFilter> extends SceneLayer<TFilter> {
   }
 
   protected drawAreaRecords(
-    context: Ctx,
+    context: OffscreenCanvasRenderingContext2D,
     paint: (
       view: RenderSceneView,
       index: number,

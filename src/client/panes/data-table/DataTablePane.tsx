@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Domain } from "@shared/domain/identity";
 import { isMobileWidth } from "@/config/breakpoints";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import type { DataType } from "@/features/base/dataPoints";
 import { useSourceTables } from "@/features/base/useSourceTables";
 import { mergeSortedPrefixes } from "@/lib/data/mergeSortedPrefix";
@@ -11,23 +12,20 @@ import {
   TableSortDirection,
   TableSortKey,
 } from "@/workers/data/uiQuery";
-import {
-  DataTableHeader,
-  DataTableRows,
-  DataTableToolbar,
-} from "./components";
-import { DataTableCopy, DataTableVirtualization } from "./model";
-import { compareDataTablePoints } from "./utils";
+import { DataTableHeader } from "./components/DataTableHeader";
+import { DataTableRows } from "./components/DataTableRows";
+import { DataTableToolbar } from "./components/DataTableToolbar";
+import { DataTableCopy, DataTableVirtualization } from "./model/table";
+import { compareDataTablePoints } from "./utils/sort";
 
 export function DataTablePane() {
+  const { layers } = useDataContext();
   const {
     selectedCurrent,
     setSelected,
     selectAndZoom,
     setRevealId,
-    earthquakeFilter,
-    fireFilter,
-  } = useData();
+  } = useUI();
   const [sortKey, setSortKey] = useState(TableSortKey.Type);
   const [sortDirection, setSortDirection] = useState(
     TableSortDirection.Ascending,
@@ -38,26 +36,18 @@ export function DataTablePane() {
       DataTableVirtualization.InitialPageMultiplier,
   );
 
-  const minValues = useMemo(
-    () => ({
-      [Domain.Earthquake]: earthquakeFilter.minMagnitude,
-      [Domain.Fire]: fireFilter.minConfidence,
-    }),
-    [earthquakeFilter.minMagnitude, fireFilter.minConfidence],
-  );
   const disabled = useMemo(
     () => ({
-      [Domain.Earthquake]: !earthquakeFilter.enabled,
-      [Domain.Fire]: !fireFilter.enabled,
+      [Domain.Earthquake]: !layers[Domain.Quakes],
+      [Domain.Fire]: !layers[Domain.Fires],
     }),
-    [earthquakeFilter.enabled, fireFilter.enabled],
+    [layers],
   );
   const { prefixes, totals, itemCount } = useSourceTables({
     sortKey,
     sortDirection,
     limit: sourcePrefixLimit,
     pointType: typeFilter,
-    minValues,
     disabled,
   });
 

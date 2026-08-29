@@ -1,8 +1,8 @@
 import {
   IsolateMode,
-  PanelSide,
   type SelectedIsolateMode,
 } from "@/workers/render/protocol";
+import { PanelSide } from "@/layout-mode/model/layoutMode";
 import { useRef, useState, useEffect, useCallback, useReducer } from "react";
 import { Domain } from "@shared/domain/identity";
 import {
@@ -17,13 +17,12 @@ import {
 import { useHasDossier } from "@/lib/runtime/layoutSignals";
 import { DomEvent } from "@/runtime";
 import { getColorMap, ThemeCssVar, useTheme } from "@/theme";
-import { windColor } from "@/features/environmental/cyclones/classification";
 import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { useUnitsMode } from "@/preferences/units";
+import { useUnitsMode } from "@/preferences/units/useUnitsMode";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   featureIconProps,
@@ -31,17 +30,11 @@ import {
 } from "@/features/base/presentation";
 import { featureRegistry } from "@/features/registry";
 import { isHttpUrl } from "@/dossier/detail-panel/utils/httpUrl";
-import { CycloneAdvisoryBlock } from "@/features/environmental/cyclones/ui/CycloneAdvisoryBlock";
 import { CycloneDetailExtras } from "@/features/environmental/cyclones/ui/CycloneDetailExtras";
-import { AircraftDetailSummary } from "@/features/tracking/aircraft/ui/AircraftDetailSummary";
-import { EarthquakeDetailSummary } from "@/features/environmental/earthquake/ui/EarthquakeDetailSummary";
-import { FireDetailSummary } from "@/features/environmental/fires/ui/FireDetailSummary";
-import { WeatherDetailSummary } from "@/features/environmental/weather/ui/WeatherDetailSummary";
-import { EventDetailSummary } from "@/features/intel/events/ui/EventDetailSummary";
-import { ShipDetailSummary } from "@/features/tracking/ships/ui/ShipDetailSummary";
+import { ButtonType } from "@/lib/ui/button";
 
 function getRows(item: DataPoint): [string, string][] {
-  const feature = featureRegistry.get(item.type);
+  const feature = featureRegistry[item.type];
   if (!feature) return [];
   return feature.buildDetailRows(item.data, item.timestamp);
 }
@@ -55,8 +48,6 @@ export type DetailPanelProps = {
   readonly side?: PanelSide;
   readonly onOpenDossier?: () => void;
 };
-
-// ── Desktop drag (free movement) ─────────────────────────────────────
 
 function useDrag() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -115,8 +106,6 @@ function useDrag() {
   return { pos, dragged, onPointerDown, reset };
 }
 
-// ── Mobile bottom-sheet with snap heights ────────────────────────────
-
 enum DetailPanelLabel {
   Close = "Close detail panel",
   Locate = "LOCATE",
@@ -166,7 +155,7 @@ enum DetailPanelScrollPx {
 }
 
 enum DetailPanelClassName {
-  DesktopPanel = "hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-40 bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll",
+  DesktopPanel = "hidden md:block absolute w-72 rounded-md backdrop-blur-sm z-(--layer-tooltip) bg-sig-panel/94 border border-sig-border p-3.5 top-3.5 max-h-[calc(100%-28px)] overflow-y-auto sigint-scroll",
   HeaderRow = "flex items-center gap-1.5",
   SummaryRow = "flex justify-between mb-1.5",
   SummaryRowLabel = "uppercase tracking-wide text-sig-accent text-xs",
@@ -373,7 +362,7 @@ export function DetailPanel({
 
   if (!item) return null;
 
-  const feature = featureRegistry.get(item.type);
+  const feature = featureRegistry[item.type];
   if (!feature) return null;
 
   const Icon = feature.icon;
@@ -399,8 +388,8 @@ export function DetailPanel({
   return (
     <>
       {/* Mobile: bottom sheet; pointer-events-none wrapper lets touches pass through edges */}
-      <div className="fixed inset-x-0 bottom-0 z-40 md:hidden pointer-events-none">
-        <div // NOSONAR typescript:S6848,S1082: Click guard only, so a panel tap cannot fall through to the globe. Not a control: focus or keys here would put a non-interactive container in the tab order. SSDLC 8.2 false positive, owner: DetailPanel.
+      <div className="fixed inset-x-0 bottom-0 z-(--layer-tooltip) md:hidden pointer-events-none">
+        <div
           ref={sheet.sheetRef}
           data-detail-sheet
           className="pointer-events-auto mx-1.5 rounded-t-lg backdrop-blur-sm bg-sig-panel/96 border border-sig-border border-b-0 pt-0 flex flex-col"
@@ -414,7 +403,6 @@ export function DetailPanel({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* ── Fixed top: drag handle + header + buttons ── */}
           <div className="shrink-0 px-2.5">
             {/* Drag handle */}
             <div
@@ -447,7 +435,6 @@ export function DetailPanel({
             />
           </div>
 
-          {/* ── Scrollable body: data rows + coords + links ── */}
           <div className="flex-1 min-h-0 overflow-y-auto sigint-scroll px-2.5 pb-3">
             <PanelBody
               item={item}
@@ -459,7 +446,7 @@ export function DetailPanel({
       </div>
 
       {/* Desktop: draggable floating card */}
-      <div // NOSONAR typescript:S6848,S1082: Click guard only, so a panel tap cannot fall through to the globe. Not a control: focus or keys here would put a non-interactive container in the tab order. SSDLC 8.2 false positive, owner: DetailPanel.
+      <div
         className={`${DetailPanelClassName.DesktopPanel} ${side === PanelSide.Left ? "left-3.5" : "right-3.5"}`}
         style={{ transform: `translate(${drag.pos.x}px, ${drag.pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
@@ -527,6 +514,7 @@ function ModeButton({
 }) {
   return (
     <button
+      type={ButtonType.Button}
       onClick={onClick}
       title={label}
       className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-[10px] tracking-wide min-h-9 ${
@@ -583,24 +571,9 @@ function DetailSummary({
   readonly item: DataPoint;
   readonly dataRows: readonly [string, string][];
 }) {
-  switch (item.type) {
-    case Domain.Aircraft:
-      return <AircraftDetailSummary item={item} />;
-    case Domain.Quakes:
-      return <EarthquakeDetailSummary item={item} />;
-    case Domain.Fires:
-      return <FireDetailSummary item={item} />;
-    case Domain.Weather:
-      return <WeatherDetailSummary item={item} />;
-    case Domain.Events:
-      return <EventDetailSummary item={item} />;
-    case Domain.Ships:
-      return <ShipDetailSummary item={item} />;
-    case Domain.Cyclones:
-      return null;
-    default:
-      return <RowList rows={dataRows} />;
-  }
+  const Summary = featureRegistry[item.type]?.DetailSummary;
+  if (Summary === null) return null;
+  return Summary ? <Summary item={item} /> : <RowList rows={dataRows} />;
 }
 
 function PanelBody({
@@ -626,24 +599,13 @@ function PanelBody({
         </div>
       )}
 
-      {/* Cyclone intensity trend + layer toggles + advisory/discussion text */}
-      {item.type === Domain.Cyclones && (
-        <div
-          style={
-            {
-              "--dossier-accent": windColor(item.data.maxWindKt),
-            } as React.CSSProperties
-          }
-        >
-          <CycloneDetailExtras item={item} />
-          <CycloneAdvisoryBlock stormId={item.data.stormId} />
-        </div>
-      )}
+      {item.type === Domain.Cyclones && <CycloneDetailExtras item={item} />}
 
       {/* Open in Dossier button */}
       {onOpenDossier && (
         <div className="mt-1.5 pt-1.5 border-t border-sig-border">
           <button
+            type={ButtonType.Button}
             onClick={onOpenDossier}
             className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-xs tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
           >
@@ -713,7 +675,7 @@ function PanelHeader({
           </span>
         </div>
         <button
-          type="button"
+          type={ButtonType.Button}
           data-tour="detail-close"
           onClick={onClose}
           aria-label={DetailPanelLabel.Close}

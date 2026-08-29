@@ -1,17 +1,10 @@
 import { Domain } from "@shared/domain/identity";
-// ── Correlation engine entry ────────────────────────────────────────
-// Derives intelligence products from raw DataPoint[] + NewsArticle[].
-//
-// Three outputs:
-//   1. IntelProduct[]  — correlated insights for the Intel Feed
-//   2. ScoredAlert[]   — context-scored alerts for the Alert Log
-//   3. RegionBaseline  — rolling event counts per country (persisted)
-//
-// NOT a provider — consumed synchronously from useMemo in DataContext.
-// Recomputes when allData or news changes.
-
-import type { DataPoint } from "@/features/base/dataPoints";
-import { SquawkCode } from "@shared/domain/aircraft";
+import type { DataPoint, DataType } from "@/features/base/dataPoints";
+import {
+  SquawkCode,
+  squawkStatusFor,
+  squawkStatusLabel,
+} from "@shared/domain/aircraft";
 import { isEnumValue } from "@shared/types/enum";
 import { bandValue, type Band } from "@shared/types/bands";
 import { IntelProductType } from "@shared/domain/correlation";
@@ -37,6 +30,8 @@ import {
 import { detectAnomalies } from "./anomalies";
 import { linkNewsToEvents } from "./news";
 import { detectCycloneRules } from "./cyclones";
+import { WeatherSeverity } from "@shared/domain/weather";
+import { WeatherCopy } from "@/features/environmental/weather/formatters/presentation";
 
 export type {
   IntelProduct,
@@ -63,8 +58,6 @@ export const CORRELATION_POLICY: CorrelationPolicy = {
 };
 
 
-// ── Intel product builder ─────────────────────────────────
-
 const CROSS_SOURCE_PRIORITY = 8;
 const NEWS_LINK_PRIORITY = 3;
 const ANOMALY_BASE_PRIORITY = 5;
@@ -74,12 +67,13 @@ const MAX_CLUSTER_PRIORITY = 8;
 const MIN_CLUSTER_ITEMS = 3;
 const CLUSTER_PRIORITY_DIVISOR = 2;
 const MIN_NEWS_ARTICLES = 1;
+const NEAR_CONFLICT_ZONE_FACTOR = "Near conflict zone";
 
-const CLUSTER_TYPE_LABELS: Readonly<Record<string, string>> = {
-  events: "conflict events",
-  quakes: "seismic events",
-  fires: "fire detections",
-  weather: "weather alerts",
+const CLUSTER_TYPE_LABELS: Readonly<Partial<Record<DataType, string>>> = {
+  [Domain.Events]: "conflict events",
+  [Domain.Quakes]: "seismic events",
+  [Domain.Fires]: "fire detections",
+  [Domain.Weather]: "weather alerts",
 };
 
 type ProductScope = Readonly<{
@@ -240,38 +234,36 @@ function buildProducts(
   return products;
 }
 
-// ── Alert scorer ────────────────────────────────────────────
-
 const ALERT_WINDOW_MS = MS_PER_DAY;
 const DEDUP_WINDOW_MS = 2 * MS_PER_HOUR;
 const MAX_ALERT_SCORE = 10;
 
-const AIRCRAFT_SCORES = {
+const AIRCRAFT_SCORES = Object.freeze({
   emergency: 7,
   radioFailure: 5,
   military: 2,
   correlated: 1,
-} as const;
+});
 
-const EVENT_SCORES = {
+const EVENT_SCORES = Object.freeze({
   correlated: 1,
   elevatedRegion: 2,
   minSeverity: 3,
   elevatedRatio: 2,
   baselineHours: 6,
-} as const;
+});
 
-const QUAKE_SCORES = {
+const QUAKE_SCORES = Object.freeze({
   tsunami: 2,
   unusualRegion: 2,
   correlated: 1,
   minMagnitude: 4,
   quietRegionRate: 0.05,
   quietRegionMagnitude: 3,
-} as const;
+});
 
-const FIRE_SCORES = { correlated: 2, minPower: 30 } as const;
-const WEATHER_SCORES = { extreme: 6, severe: 4, correlated: 2 } as const;
+const FIRE_SCORES = Object.freeze({ correlated: 2, minPower: 30 });
+const WEATHER_SCORES = Object.freeze({ extreme: 6, severe: 4, correlated: 2 });
 
 const EVENT_SEVERITY_SCORES: readonly Band<number>[] = [
   { floor: 5, value: 6 },
@@ -293,15 +285,6 @@ const FIRE_POWER_SCORES: readonly Band<number>[] = [
   { floor: 100, value: 5 },
   { floor: 50, value: 4 },
 ];
-
-const SQUAWK_REASONS: Readonly<Record<SquawkCode, string>> = {
-  [SquawkCode.Emergency]: "EMERGENCY",
-  [SquawkCode.Hijack]: "HIJACK",
-  [SquawkCode.RadioFailure]: "RADIO FAILURE",
-};
-
-const WEATHER_EXTREME = "Extreme";
-const WEATHER_SEVERE = "Severe";
 
 type ScoreContext = Readonly<{
   baseline: RegionBaseline;
@@ -362,10 +345,10 @@ function scoreAircraft(
     context,
     item,
     AIRCRAFT_SCORES.correlated,
-    "Near conflict zone",
+    NEAR_CONFLICT_ZONE_FACTOR,
   );
 
-  const reason = SQUAWK_REASONS[squawk];
+  const reason = squawkStatusLabel(squawkStatusFor(squawk));
   const prefix = isMilitary ? "MIL SQUAWK" : "SQUAWK";
   return finishAlert(item, `${prefix} ${squawk} \u2014 ${reason}`, scoring);
 }
@@ -473,7 +456,7 @@ function scoreFire(
     context,
     item,
     FIRE_SCORES.correlated,
-    "Near conflict zone",
+    NEAR_CONFLICT_ZONE_FACTOR,
   );
 
   return finishAlert(
@@ -488,11 +471,16 @@ function scoreWeather(
   context: ScoreContext,
 ): ScoredAlert | null {
   const severity = item.data.severity ?? "";
-  if (severity !== WEATHER_EXTREME && severity !== WEATHER_SEVERE) return null;
+  if (
+    severity !== WeatherSeverity.Extreme &&
+    severity !== WeatherSeverity.Severe
+  ) {
+    return null;
+  }
 
   const scoring: Scoring = {
     score:
-      severity === WEATHER_EXTREME
+      severity === WeatherSeverity.Extreme
         ? WEATHER_SCORES.extreme
         : WEATHER_SCORES.severe,
     factors: [`${severity} severity`],
@@ -505,7 +493,7 @@ function scoreWeather(
     "Vessels in affected area",
   );
 
-  const event = item.data.event || "WEATHER ALERT";
+  const event = item.data.event || WeatherCopy.Alert.toUpperCase();
   return finishAlert(
     item,
     `${severity.toUpperCase()} \u2014 ${event}`,
@@ -515,15 +503,15 @@ function scoreWeather(
 
 function scoreItem(item: DataPoint, context: ScoreContext): ScoredAlert | null {
   switch (item.type) {
-    case "aircraft":
+    case Domain.Aircraft:
       return scoreAircraft(item, context);
-    case "events":
+    case Domain.Events:
       return scoreEvent(item, context);
-    case "quakes":
+    case Domain.Quakes:
       return scoreQuake(item, context);
-    case "fires":
+    case Domain.Fires:
       return scoreFire(item, context);
-    case "weather":
+    case Domain.Weather:
       return scoreWeather(item, context);
     default:
       return null;
@@ -628,9 +616,12 @@ function scoreAlerts(
   return dedupeAlerts(alerts);
 }
 
-// ── Main public API ─────────────────────────────────────────────────
-
-const intelTypes = new Set(["events", "quakes", "fires", "weather"]);
+const INTEL_TYPES: ReadonlySet<DataType> = new Set([
+  Domain.Events,
+  Domain.Quakes,
+  Domain.Fires,
+  Domain.Weather,
+]);
 
 export function computeCorrelations(
   allData: DataPoint[],
@@ -643,16 +634,16 @@ export function computeCorrelations(
   const recentCutoff = now - CORRELATION_POLICY.recentWindowMs;
   const recentItems = allData.filter((item) => {
     if (
-      !intelTypes.has(item.type) &&
-      item.type !== "aircraft" &&
-      item.type !== "ships"
+      !INTEL_TYPES.has(item.type) &&
+      item.type !== Domain.Aircraft &&
+      item.type !== Domain.Ships
     )
       return false;
     return getTs(item) > recentCutoff;
   });
 
   const clusters = clusterByRegion(
-    recentItems.filter((i) => intelTypes.has(i.type)),
+    recentItems.filter((item) => INTEL_TYPES.has(item.type)),
   );
   const crossCorrelations = findCrossSourceCorrelations(recentItems);
 

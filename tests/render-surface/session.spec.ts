@@ -31,7 +31,12 @@ describe("render surface session", () => {
     sender.send({ type: RenderMessageType.Dispose });
     sender.send({
       type: RenderMessageType.Viewport,
-      payload: { width: 800, height: 600, devicePixelRatio: 2 },
+      payload: {
+        width: 800,
+        height: 600,
+        devicePixelRatio: 2,
+        isMobile: false,
+      },
     });
     sender.send({
       type: RenderMessageType.Selection,
@@ -55,7 +60,12 @@ describe("render surface session", () => {
         protocolVersion: RenderProtocolVersion.Current,
         sessionId: "session-a",
         sequence: 2,
-        payload: { width: 800, height: 600, devicePixelRatio: 2 },
+        payload: {
+          width: 800,
+          height: 600,
+          devicePixelRatio: 2,
+          isMobile: false,
+        },
       },
       {
         type: RenderMessageType.Selection,

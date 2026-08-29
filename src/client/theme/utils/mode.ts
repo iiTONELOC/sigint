@@ -1,4 +1,4 @@
-import { ThemeMode, type ResolvedThemeMode } from "../model";
+import { ThemeMode, type ResolvedThemeMode } from "../model/themeMode";
 
 enum ThemePreferenceMediaQuery {
   Light = "(prefers-color-scheme: light)",

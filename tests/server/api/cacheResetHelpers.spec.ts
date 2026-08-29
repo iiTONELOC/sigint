@@ -1,4 +1,3 @@
-// ── Cache reset helpers — pure test utility ──────────────────────────
 // Each cache module owns module-level state that bleeds between tests
 // when state-mutating paths (websocket handlers, fetch pipelines) are
 // exercised. `__resetXxxCacheForTests()` resets that state to the
@@ -75,7 +74,6 @@ describe("__resetGdeltCacheForTests", () => {
     const c = getGdeltCache();
     expect(c.data).toBeNull();
     expect(c.fetchedAt).toBe(0);
-    expect(c.eventCount).toBe(0);
     expect(c.error).toBeNull();
   });
 });
@@ -93,7 +91,7 @@ describe("__resetNewsCacheForTests", () => {
     __resetNewsCacheForTests();
     const c = getNewsCache();
     expect(Array.isArray(c.items)).toBe(true);
-    expect(c.items.length).toBe(0);
+    expect(c.items).toHaveLength(0);
     expect(c.fetchedAt).toBe(0);
     expect(c.itemCount).toBe(0);
     expect(c.error).toBeNull();

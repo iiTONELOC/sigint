@@ -1,9 +1,22 @@
-import type { LayoutNode, LeafNode } from "../../paneTree";
-import { PaneNodeType, PaneSearchIndex, SplitDirection } from "../model";
+import {
+  FULL_WIDTH_ONLY,
+  type LayoutNode,
+  type LeafNode,
+  type PaneType,
+  type SplitNode,
+} from "../../paneTree";
+import type { PaneCatalog } from "../paneCatalog";
+import { PaneIdSequence, PaneNodeType, PaneSearchIndex, SplitDirection } from "../model/pane";
 
-enum MobileOrderSequence {
-  Start = 0,
-  Step = 1,
+enum MobileSplitTrack {
+  Collapsed = "36px",
+  Flexible = "1fr",
+}
+
+enum MobileTabClassName {
+  Active = "text-sig-accent bg-sig-accent/10",
+  Inactive = "text-sig-dim bg-transparent",
+  Minimized = "text-sig-dim/50 bg-transparent",
 }
 
 export type MobileBlock = {
@@ -12,6 +25,102 @@ export type MobileBlock = {
   readonly node: LayoutNode;
   readonly primaryLeaf: LeafNode;
 };
+
+export type MobileSplitTracks = {
+  readonly first: string;
+  readonly second: string;
+};
+
+export function mobileSplitTracks(
+  node: SplitNode,
+  minimizedLeaves: ReadonlySet<string>,
+): MobileSplitTracks {
+  const proportionalTracks = {
+    first: `${node.ratio}fr`,
+    second: `${1 - node.ratio}fr`,
+  };
+  if (node.direction !== SplitDirection.Horizontal) {
+    return proportionalTracks;
+  }
+  const [firstChild, secondChild] = node.children;
+  const firstMinimized =
+    firstChild.type === PaneNodeType.Leaf && minimizedLeaves.has(firstChild.id);
+  const secondMinimized =
+    secondChild.type === PaneNodeType.Leaf && minimizedLeaves.has(secondChild.id);
+  if (firstMinimized === secondMinimized) {
+    return proportionalTracks;
+  }
+  return firstMinimized
+    ? { first: MobileSplitTrack.Collapsed, second: MobileSplitTrack.Flexible }
+    : { first: MobileSplitTrack.Flexible, second: MobileSplitTrack.Collapsed };
+}
+
+export function horizontalLeafId(
+  splitNode: SplitNode,
+  childNode: LayoutNode,
+): string | undefined {
+  return splitNode.direction === SplitDirection.Horizontal &&
+    childNode.type === PaneNodeType.Leaf
+    ? childNode.id
+    : undefined;
+}
+
+export function mobileTabClassName(
+  active: boolean,
+  minimized: boolean,
+): MobileTabClassName {
+  if (active) return MobileTabClassName.Active;
+  return minimized ? MobileTabClassName.Minimized : MobileTabClassName.Inactive;
+}
+
+export function moveSourcePaneType(
+  leaves: readonly LeafNode[],
+  sourceLeafId: string | null,
+): PaneType | undefined {
+  return sourceLeafId === null
+    ? undefined
+    : leaves.find((leaf) => leaf.id === sourceLeafId)?.paneType;
+}
+
+export function isMoveSourceBlock(
+  block: MobileBlock,
+  sourceLeafId: string | null,
+): boolean {
+  return sourceLeafId !== null && block.leafIds.includes(sourceLeafId);
+}
+
+export function isMoveTargetBlock(
+  block: MobileBlock,
+  sourceLeafId: string | null,
+): boolean {
+  return sourceLeafId !== null && !block.leafIds.includes(sourceLeafId);
+}
+
+export function allowsBesideMove(
+  sourceType: PaneType | undefined,
+  targetType: PaneType,
+): boolean {
+  return sourceType !== undefined &&
+    !FULL_WIDTH_ONLY.has(sourceType) &&
+    !FULL_WIDTH_ONLY.has(targetType);
+}
+
+export function mobileBlockLabel(
+  block: MobileBlock,
+  leaves: readonly LeafNode[],
+  catalog: PaneCatalog,
+): string {
+  if (block.node.type === PaneNodeType.Leaf) {
+    return catalog[block.node.paneType].label;
+  }
+  const labels = block.leafIds.flatMap((id) => {
+    const leaf = leaves.find((candidate) => candidate.id === id);
+    return leaf ? [catalog[leaf.paneType].label] : [];
+  });
+  return labels.length <= 2
+    ? labels.join(" | ")
+    : `${labels[0]} +${labels.length - 1}`;
+}
 
 function appendMissingBlockIds(
   currentOrder: readonly string[],
@@ -41,11 +150,11 @@ export function reconcileMobileBlockOrder(
 
   const nextOrder = [...retainedOrder];
   const insertionIndex = Math.min(firstRemovedIndex, nextOrder.length);
-  let insertionOffset = MobileOrderSequence.Start;
+  let insertionOffset = PaneIdSequence.Start;
   for (const addedId of addedIds) {
     if (!nextOrder.includes(addedId)) {
       nextOrder.splice(insertionIndex + insertionOffset, 0, addedId);
-      insertionOffset += MobileOrderSequence.Step;
+      insertionOffset += PaneIdSequence.Step;
     }
   }
   return nextOrder;

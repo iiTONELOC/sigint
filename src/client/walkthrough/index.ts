@@ -3,6 +3,8 @@ export {
   ESSENTIAL_STEPS,
   MOBILE_ADVANCED_STEPS,
   MOBILE_ESSENTIAL_STEPS,
+} from "./model/sharedSteps";
+export {
   WalkthroughClickMode,
   WalkthroughLaunchMode,
   WalkthroughPhase,
@@ -13,10 +15,9 @@ export {
   WalkthroughStepMode,
   WalkthroughTourTarget,
   walkthroughTourSelector,
-  type WalkthroughCompletionCheck,
-  type WalkthroughStep,
-} from "./model";
-export { Walkthrough } from "./layouts";
+} from "./model/vocabulary";
+export type { WalkthroughCompletionCheck, WalkthroughStep } from "./model/types";
+export { Walkthrough } from "./layouts/Walkthrough";
 export {
   onWalkthroughLaunch,
   onWalkthroughReset,
@@ -34,8 +35,10 @@ export {
   useWalkthroughLeafTypes,
   useWalkthroughPresetCount,
   useWalkthroughStepId,
+} from "./utils/signals";
+export {
   WalkthroughSpacing,
   WalkthroughTooltipWidth,
   type WalkthroughPoint,
   type WalkthroughRect,
-} from "./utils";
+} from "./utils/geometry";

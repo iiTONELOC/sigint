@@ -3,7 +3,7 @@ enum PaneHeaderFixtureAttribute {
 }
 
 enum PaneHeaderFixtureCount {
-  RequiredControls = 5,
+  RequiredControls = 6,
 }
 
 enum PaneHeaderFixtureErrorMessage {
@@ -14,6 +14,7 @@ enum PaneHeaderFixtureErrorMessage {
 export type PaneHeaderControls = Readonly<{
   close: HTMLButtonElement | undefined;
   fullscreen: HTMLButtonElement;
+  maximize: HTMLButtonElement;
   minimize: HTMLButtonElement;
   splitHorizontal: HTMLButtonElement;
   splitVertical: HTMLButtonElement;
@@ -23,11 +24,15 @@ export type PaneHeaderControls = Readonly<{
 export function requirePaneHeaderControls(
   root: ParentNode,
 ): PaneHeaderControls {
-  const buttons = Array.from(root.querySelectorAll("button"));
+  const buttons = Array.from(root.querySelectorAll("button")).filter(
+    (button) =>
+      button.getAttribute(PaneHeaderFixtureAttribute.Draggable) === null,
+  );
   const [
     type,
     splitHorizontal,
     splitVertical,
+    maximize,
     fullscreen,
     minimize,
     close,
@@ -37,6 +42,7 @@ export function requirePaneHeaderControls(
     type === undefined ||
     splitHorizontal === undefined ||
     splitVertical === undefined ||
+    maximize === undefined ||
     fullscreen === undefined ||
     minimize === undefined
   ) {
@@ -45,6 +51,7 @@ export function requirePaneHeaderControls(
   return {
     close,
     fullscreen,
+    maximize,
     minimize,
     splitHorizontal,
     splitVertical,

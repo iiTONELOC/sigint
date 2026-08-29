@@ -10,6 +10,7 @@ import {
 } from "@/workers/render/protocol";
 import { RENDER_POLICY } from "@/workers/render/policy";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
+import { enrichLand } from "@/lib/geo/landService";
 import { DomEvent } from "@/runtime";
 import { isRecord } from "@shared/geo";
 import {
@@ -170,6 +171,9 @@ export class RenderSurfaceSession {
     });
 
     this.initializeWorker(nextCanvas, sessionId);
+    enrichLand((payload) =>
+      this.send({ type: RenderMessageType.Land, payload }),
+    );
     this.startStateAdapters();
     this.disconnectGlobeState = this.globeState.connect((command) =>
       this.send({

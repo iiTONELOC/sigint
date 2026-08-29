@@ -1,10 +1,10 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
-import { Ship, ExternalLink, LocateFixed } from "lucide-react";
-import { DetailField } from "@/dossier";
-import type {
-  ShipPoint,
-} from "@/features/tracking/ships/data/codec";
-import { formatLat, formatLon } from "@/geo";
+import { Ship } from "lucide-react";
+import type { FeatureDossierProps } from "@/features/base/presentation";
+import {
+  DetailField, DossierCard, DossierLabel, DossierLinkGrid, DossierPositionRow,
+  DossierSectionLabel, DossierStatCell, DossierToolbar, useDossierFocus,
+  type DossierLink,
+} from "@/dossier";
 import { AgeStyle, relativeAge } from "@/time";
 import { useTrail } from "@/features/base/useTrail";
 import { Domain } from "@shared/domain/identity";
@@ -12,23 +12,8 @@ import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { DossierToolbar, mmsiCountry, useDossierFocus } from "@/panes/dossier/DossierAtoms";
 import { DossierFallback } from "@/panes/dossier/dossierFallback";
-import {
-  Card,
-  Label,
-  SectionLabel,
-  StatCell,
-} from "@/features/tracking/aircraft/ui/dossierKit";
-import { ShipDataLabel, type ShipData } from "../types";
-import { navStatusMeta, setDrift, shipAnomalies } from "../shipMeta";
-import {
-  formatShipCourse,
-  formatShipDraught,
-  formatShipDrift,
-  formatShipHeading,
-  formatShipSpeed,
-} from "../formatters";
+import { shipAnomalies, shipPresentation } from "../formatters/presentation";
 import { VesselSilhouette } from "./VesselSilhouette";
 import { EcdisScope } from "./EcdisScope";
 import { RateOfTurn } from "./RateOfTurn";
@@ -38,37 +23,13 @@ enum ShipDossierClassName {
   Monospace = "font-mono",
 }
 
-type Props = {
-  readonly item: ShipPoint;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
-
-function vesselTypeLine(
-  vesselType: string | undefined,
-  country: string | null,
-): string {
-  const type =
-    vesselType && vesselType !== ShipDataLabel.Unknown
-      ? vesselType
-      : null;
-  return [type, country].filter(Boolean).join(" · ");
-}
-
-function imoText(imo: number | undefined): number | string {
-  return imo != null && imo > 0
-    ? imo
-    : DossierFallback.Unavailable;
-}
+type Props = FeatureDossierProps<Domain.Ships>;
 
 function intelLinks(
-  mmsi: number | undefined,
+  mmsi: number,
   imo: number | undefined,
-): Array<readonly [string, string]> {
-  const links: Array<readonly [string, string]> = [
+): DossierLink[] {
+  const links: DossierLink[] = [
     ["MarineTraffic", `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${mmsi}`],
     ["VesselFinder", `https://www.vesselfinder.com/vessels?mmsi=${mmsi}`],
   ];
@@ -82,23 +43,15 @@ function intelLinks(
 }
 
 export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onClose }: Props) {
-  const d: ShipData = item.data;
-  const { name, mmsi, imo, callSign, vesselType, navStatus, sog, cog, heading, rot, destination, draught, eta } = d;
-  const country = mmsi ? mmsiCountry(mmsi) : null;
-  const nav = navStatusMeta(navStatus);
+  const d = item.data;
+  const { mmsi, imo, navStatus, sog, cog, heading, rot } = d;
+  const presentation = shipPresentation(d, `MMSI ${mmsi}`, DossierFallback.Unavailable);
   const anomalies = shipAnomalies(navStatus, sog);
-  const drift = setDrift(heading, cog);
   const closeBtnRef = useDossierFocus(item.id);
   const recordedTrail = useTrail(item.id, Domain.Ships);
-  const typeLine = vesselTypeLine(vesselType, country);
   const age = item.timestamp
     ? relativeAge(new Date(item.timestamp).getTime(), AgeStyle.Verbose)
     : null;
-  const driftText = formatShipDrift(drift, DossierFallback.Unavailable);
-  const headingText = formatShipHeading(
-    heading,
-    DossierFallback.Unavailable,
-  );
   const trail = recordedTrail.map((p) => ({ lat: p.lat, lon: p.lon }));
   const links = intelLinks(mmsi, imo);
 
@@ -106,7 +59,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
     <div className="@container/dossier h-full flex flex-col [--dossier-accent:var(--sigint-ships)]">
       <DossierToolbar
         icon={Ship}
-        title={name || `MMSI ${mmsi}`}
+        title={presentation.name}
         subtitle="AIS VESSEL"
         isolateMode={isolateMode}
         onLocate={onLocate}
@@ -119,23 +72,23 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
         <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 @min-[76rem]/dossier:grid-cols-4 gap-2 items-start @min-[40rem]/dossier:items-stretch">
 
           <section className="min-w-0 flex flex-col @min-[40rem]/dossier:col-start-1 @min-[40rem]/dossier:row-start-1 @min-[76rem]/dossier:col-start-1 @min-[76rem]/dossier:row-start-1">
-            <SectionLabel>IDENTITY</SectionLabel>
-            <Card className="relative overflow-hidden flex-1">
+            <DossierSectionLabel>IDENTITY</DossierSectionLabel>
+            <DossierCard className="relative overflow-hidden flex-1">
               <div className="h-1 bg-(--dossier-accent)" />
               <div className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-(length:--sig-text-md) text-sig-bright font-bold leading-snug truncate">{name || `MMSI ${mmsi}`}</div>
-                    {typeLine && <div className="text-(length:--sig-text-xs) text-sig-text mt-0.5 truncate">{typeLine}</div>}
+                    <div className="text-(length:--sig-text-md) text-sig-bright font-bold leading-snug truncate">{presentation.name}</div>
+                    {presentation.description && <div className="text-(length:--sig-text-xs) text-sig-text mt-0.5 truncate">{presentation.description}</div>}
                   </div>
                   <span className="shrink-0 text-(length:--sig-text-xs) font-bold tracking-wider px-2 py-0.5 rounded-full border border-(--dossier-accent)/60 text-(--dossier-accent) bg-(--dossier-accent)/10 whitespace-nowrap">
-                    {nav.alert ? "⚠ " : ""}{nav.label}
+                    {presentation.navigation.alert ? "⚠ " : ""}{presentation.navigation.compactLabel}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3">
-                  <StatCell label="MMSI" value={mmsi ?? DossierFallback.Unavailable} valueClass={ShipDossierClassName.Monospace} />
-                  <StatCell label="IMO" value={imoText(imo)} valueClass={ShipDossierClassName.Monospace} />
-                  <StatCell label="CALL" value={callSign || DossierFallback.Unavailable} valueClass={ShipDossierClassName.Monospace} />
+                  <DossierStatCell label="MMSI" value={mmsi} valueClass={ShipDossierClassName.Monospace} />
+                  <DossierStatCell label="IMO" value={presentation.imoValue} valueClass={ShipDossierClassName.Monospace} />
+                  <DossierStatCell label="CALL" value={presentation.callSignText} valueClass={ShipDossierClassName.Monospace} />
                 </div>
                 {anomalies.length > 0 && (
                   <div className="mt-3 flex flex-col gap-1 rounded-lg border border-sig-warn/30 bg-sig-warn/8 px-2.5 py-2">
@@ -149,92 +102,71 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
                 )}
                 {age && <div className="text-(length:--sig-text-xs) text-sig-dim mt-2">AIS · aisstream.io · {age}</div>}
               </div>
-            </Card>
+            </DossierCard>
           </section>
 
           <section className="min-w-0 flex flex-col order-2 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-1 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-start-2 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
-            <SectionLabel>NAVIGATION</SectionLabel>
-            <Card className="p-3 flex-1 flex flex-col gap-2.5">
+            <DossierSectionLabel>NAVIGATION</DossierSectionLabel>
+            <DossierCard className="p-3 flex-1 flex flex-col gap-2.5">
               <EcdisScope heading={heading} cog={cog} sog={sog} />
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 <DetailField
                   label="HEADING"
-                  value={headingText}
+                  value={presentation.headingText}
                   valueClass={ShipDossierClassName.Monospace}
                 />
                 <DetailField
                   label="COG"
-                  value={formatShipCourse(cog, DossierFallback.Unavailable)}
+                  value={presentation.courseText}
                   valueClass={ShipDossierClassName.Monospace}
                 />
                 <DetailField
                   label="SOG"
-                  value={formatShipSpeed(sog, DossierFallback.Unavailable)}
+                  value={presentation.speedText}
                   valueClass={ShipDossierClassName.Monospace}
                 />
                 <DetailField
                   label="SET / DRIFT"
-                  value={driftText}
+                  value={presentation.driftText}
                   valueClass={ShipDossierClassName.Monospace}
                 />
               </div>
               <div>
-                <Label className="mb-1">RATE OF TURN</Label>
+                <DossierLabel className="mb-1">RATE OF TURN</DossierLabel>
                 <RateOfTurn rot={rot} />
               </div>
-            </Card>
+            </DossierCard>
           </section>
 
           <section className="min-w-0 flex flex-col order-3 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-span-2 @min-[76rem]/dossier:col-start-3 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
-            <SectionLabel>CHART</SectionLabel>
+            <DossierSectionLabel>CHART</DossierSectionLabel>
             <div className="aspect-4/3 @min-[40rem]/dossier:aspect-auto @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-64">
               <ShipMiniMap lat={recordLatitude(item)} lon={recordLongitude(item)} heading={heading} cog={cog} sog={sog} trail={trail} />
             </div>
-            <div className="flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5 mt-2">
-              <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
-                <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden={true} /> POSITION
-              </span>
-              <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">{formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}</span>
-            </div>
+            <DossierPositionRow item={item} className="mt-2" />
           </section>
 
           <section className="min-w-0 flex flex-col order-1 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-1 @min-[76rem]/dossier:col-start-1 @min-[76rem]/dossier:row-start-2">
-            <SectionLabel>VESSEL</SectionLabel>
-            <Card className="p-3 flex-1 flex flex-col gap-3">
-              <VesselSilhouette dimA={d.dimA} dimB={d.dimB} dimC={d.dimC} dimD={d.dimD} length={d.length} width={d.width} draught={draught} />
+            <DossierSectionLabel>VESSEL</DossierSectionLabel>
+            <DossierCard className="p-3 flex-1 flex flex-col gap-3">
+              <VesselSilhouette data={d} />
               <div className="grid grid-cols-2 gap-2">
-                <StatCell label="DESTINATION" value={destination || DossierFallback.Unavailable} />
-                <StatCell label="ETA" value={eta || DossierFallback.Unavailable} />
-                <StatCell
+                <DossierStatCell label="DESTINATION" value={presentation.destinationText} />
+                <DossierStatCell label="ETA" value={presentation.etaText} />
+                <DossierStatCell
                   label="DRAUGHT"
-                  value={formatShipDraught(
-                    draught,
-                    DossierFallback.Unavailable,
-                  )}
+                  value={presentation.draughtText}
                 />
-                <StatCell label="STATUS" value={nav.label} />
+                <DossierStatCell label="STATUS" value={presentation.navigation.compactLabel} />
               </div>
-            </Card>
+            </DossierCard>
           </section>
 
         </div>
 
         <section>
-          <SectionLabel>INTEL LINKS</SectionLabel>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2">
-            {links.map(([label, href]) => (
-              <a
-                key={label}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
-              >
-                <span className="truncate">{label}</span>
-                <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden={true} />
-              </a>
-            ))}
-          </div>
+          <DossierSectionLabel>INTEL LINKS</DossierSectionLabel>
+          <DossierLinkGrid links={links} />
         </section>
       </div>
     </div>

@@ -15,9 +15,8 @@ import {
   __resetMetadataDbCacheForTests,
   __setLoggerForTests,
   AC_DB_STALE_THRESHOLD_MS,
-  type AircraftMetadataRecord,
 } from "../../../src/server/api/aircraftEnrichment";
-import { createLogger } from "../../../src/server/lib/logger";
+import { createLogger, LogLevel } from "../../../src/server/lib/logger";
 import { buildAircraftDb } from "../../../scripts/build-aircraft-db";
 import { mkTmpDir, rmrf } from "../../_support";
 async function setMtimeDaysAgoAsync(
@@ -28,15 +27,19 @@ async function setMtimeDaysAgoAsync(
   await utimes(path, target, target);
 }
 
-// ── Test setup — build a tmp SQLite from the tiny fixture NDJSON ──
+// ── Test setup: build a tmp SQLite from the tiny fixture NDJSON ──
 // The runtime now reads enrichment from a SQLite file, so the test
 // suite builds one out of the existing tiny fixture (round-tripping
-// through the same build script that ships in production). The Map
-// argument that enrichRecord still takes for signature parity is
-// passed empty in every test — actual lookups go through the
-// prepared statement opened by loadMetadataDb(dbPath).
+// through the same build script that ships in production). Runtime
+// lookups use the prepared statement opened by loadMetadataDb(dbPath).
 
 const FIXTURE_NDJSON = "tests/fixtures/aircraft/metadata-db-tiny.ndjson";
+const ORIGIN_COUNTRY_BY_ICAO24 = {
+  "200000": "",
+  "3c0000": "Germany",
+  abc123: "United States",
+  ae9999: "United States",
+};
 
 let tmpDir: string;
 let dbPath: string;
@@ -56,14 +59,14 @@ afterAll(async () => {
   }
 });
 
-// ── classifyMilitary — three OR'd rules ───────────────────────────
+// ── classifyMilitary: three OR'd rules ───────────────────────────
 // Rule 1: typecode in MIL_TYPECODES set
 // Rule 2: operator string contains a military keyword (15-keyword list)
 // Rule 3: hex in US-mil range 0xAE0000–0xAFFFFF
 // (Logic now lives in src/server/data/militaryRules.ts; aircraft
 // Enrichment re-exports for caller compat.)
 
-describe("classifyMilitary — typecode rule", () => {
+describe("classifyMilitary: typecode rule", () => {
   test("known mil typecode (F35) → true", () => {
     expect(classifyMilitary("a1b2c3", "F35")).toBe(true);
   });
@@ -81,7 +84,7 @@ describe("classifyMilitary — typecode rule", () => {
   });
 });
 
-describe("classifyMilitary — operator rule", () => {
+describe("classifyMilitary: operator rule", () => {
   test("'United States Air Force' → true", () => {
     expect(
       classifyMilitary("a1b2c3", undefined, "United States Air Force"),
@@ -107,7 +110,7 @@ describe("classifyMilitary — operator rule", () => {
   });
 });
 
-describe("classifyMilitary — US-mil hex range rule", () => {
+describe("classifyMilitary: US-mil hex range rule", () => {
   test("0xAE0000 (low boundary) → true", () => {
     expect(classifyMilitary("ae0000")).toBe(true);
   });
@@ -140,19 +143,16 @@ describe("classifyMilitary — US-mil hex range rule", () => {
 
 describe("enrichRecord", () => {
   // Wire the prepared-statement cache to the tmp SQLite built from the
-  // tiny fixture. The Map below is preserved for signature parity but
-  // is unused by the SQLite path — every lookup goes through the
-  // prepared SELECT inside enrichRecord.
+  // tiny fixture. Every lookup goes through the prepared SELECT inside
+  // enrichRecord.
   beforeAll(async () => {
     __resetMetadataDbCacheForTests();
     await loadMetadataDb(dbPath);
   });
 
-  const civDb: Map<string, AircraftMetadataRecord> = new Map();
-
   test("merges DB metadata into the raw adsb.fi record", () => {
     const raw = { hex: "abc123", flight: "AAL123", lat: 40, lon: -100 };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.acType).toBe("Boeing 737");
     expect(enriched.registration).toBe("N123AA");
     expect(enriched.operator).toBe("American Airlines");
@@ -161,81 +161,58 @@ describe("enrichRecord", () => {
     expect(enriched.flight).toBe("AAL123");
   });
 
-  test("populates originCountry from icao24 hex range (Annex 10)", () => {
-    // hex 0xABC123 falls in the US block 0xA00000–0xAFFFFF.
-    const raw = { hex: "abc123" };
-    const enriched = enrichRecord(raw, civDb);
-    expect(enriched.originCountry).toBe("United States");
-  });
-
-  test("originCountry derives even on DB miss — same hex-prefix lookup", () => {
-    // ae9999 is in the US-mil hex range (also US block) and absent
-    // from the fixture — DB miss, but originCountry still lands.
-    const raw = { hex: "ae9999" };
-    const enriched = enrichRecord(raw, civDb);
-    expect(enriched.acType).toBe("Unknown");
-    expect(enriched.originCountry).toBe("United States");
-  });
-
-  test("originCountry derives correctly for non-US hex (3c0000 → Germany)", () => {
-    const raw = { hex: "3c0000" };
-    const enriched = enrichRecord(raw, civDb);
-    expect(enriched.originCountry).toBe("Germany");
-  });
-
-  test("originCountry is '' when hex falls outside every Annex 10 block", () => {
-    // 0x200000 is in an unallocated EUR gap.
-    const raw = { hex: "200000" };
-    const enriched = enrichRecord(raw, civDb);
-    expect(enriched.originCountry).toBe("");
-  });
+  for (const [hex, originCountry] of Object.entries(ORIGIN_COUNTRY_BY_ICAO24)) {
+    test(`derives the origin country for ${hex}`, () => {
+      expect(enrichRecord({ hex }).originCountry).toBe(originCountry);
+    });
+  }
 
   test("matches DB key case-insensitively (raw hex may be uppercase)", () => {
     const raw = { hex: "ABC123" };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.acType).toBe("Boeing 737");
   });
 
-  test("missing DB entry — military still derived from hex range (rule 3)", () => {
+  test("missing DB entry still derives military from hex range (rule 3)", () => {
     // ae9999 is in the US-mil hex range but absent from the fixture,
     // so the lookup misses and classifyMilitary fires off the hex.
     const raw = { hex: "ae9999" };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.acType).toBe("Unknown");
     expect(enriched.military).toBe(true); // 0xAE9999 in US-mil range
   });
 
   test("missing DB entry + non-mil hex → military false", () => {
     const raw = { hex: "abc999" };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.military).toBe(false);
   });
 
-  test("missing DB entry — falls back to adsb.fi typecode (`t` field) for mil rule", () => {
+  test("missing DB entry uses the adsb.fi typecode (`t` field) for mil rule", () => {
     // adsb.fi sends typecode in field `t`. If DB has no entry, classifyMilitary
     // should still consider the live `t` field for the typecode rule.
     const raw = { hex: "abc999", t: "F35" };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.military).toBe(true);
   });
 
   test("rejects non-object input gracefully", () => {
-    expect(enrichRecord(null, civDb)).toEqual({});
-    expect(enrichRecord(undefined, civDb)).toEqual({});
-    expect(enrichRecord("string", civDb)).toEqual({});
-    expect(enrichRecord(42, civDb)).toEqual({});
+    expect(enrichRecord(null)).toEqual({});
+    expect(enrichRecord(undefined)).toEqual({});
+    expect(enrichRecord("string")).toEqual({});
+    expect(enrichRecord(42)).toEqual({});
   });
 
   test("missing hex field → returns record with default enrichment, no DB lookup", () => {
     const raw = { flight: "X", lat: 0, lon: 0 };
-    const enriched = enrichRecord(raw, civDb);
+    const enriched = enrichRecord(raw);
     expect(enriched.acType).toBe("Unknown");
     expect(enriched.military).toBe(false);
     expect(enriched.flight).toBe("X");
   });
 });
 
-// ── loadMetadataDb — lazy SQLite open ──────────────────────────
+// ── loadMetadataDb: lazy SQLite open ──────────────────────────
 
 describe("loadMetadataDb", () => {
   test("loads SQLite from path, then caches the prepared statement across calls", async () => {
@@ -244,30 +221,27 @@ describe("loadMetadataDb", () => {
     // statement; the second call is a no-op cache hit that re-uses
     // the same handle. Successful enrichment after both calls
     // demonstrates the prepared statement survived.
-    const a = await loadMetadataDb(dbPath);
-    expect(a).toBeInstanceOf(Map);
+    await loadMetadataDb(dbPath);
+    await loadMetadataDb(dbPath);
 
-    const b = await loadMetadataDb(dbPath);
-    expect(b).toBeInstanceOf(Map);
-
-    const enriched = enrichRecord({ hex: "abc123" }, new Map());
+    const enriched = enrichRecord({ hex: "abc123" });
     expect(enriched.acType).toBe("Boeing 737");
   });
 
-  test("returns an empty Map when the file is missing (best-effort)", async () => {
+  test("returns without data when the file is missing (best-effort)", async () => {
     __resetMetadataDbCacheForTests();
-    const map = await loadMetadataDb(
+    const result = await loadMetadataDb(
       "tests/fixtures/aircraft/does-not-exist.sqlite",
     );
-    expect(map.size).toBe(0);
+    expect(result).toBeUndefined();
   });
 });
 
 // ── DB freshness check at boot ────────────────────────────────────
 // At first SQLite open, ensureDb() reads the file's mtime and warns
 // if the artifact is older than AC_DB_STALE_THRESHOLD_MS (90 days).
-// The warning surfaces operator action — regenerate via
-// `bun run build:aircraft-db` — but never blocks boot.
+// The warning surfaces operator action: regenerate via
+// `bun run build:aircraft-db`, but never blocks boot.
 
 describe("aircraft DB freshness check", () => {
   const FRESH_DB_FIXTURE = "tests/fixtures/aircraft/metadata-db-tiny.ndjson";
@@ -294,7 +268,11 @@ describe("aircraft DB freshness check", () => {
       },
     };
     __setLoggerForTests(
-      createLogger({ service: "aircraft-enrichment", level: "debug", sink }),
+      createLogger({
+        service: "aircraft-enrichment",
+        level: LogLevel.Debug,
+        sink,
+      }),
     );
   }
 

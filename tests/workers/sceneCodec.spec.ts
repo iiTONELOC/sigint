@@ -7,10 +7,10 @@ import {
   scenePolylineGeometry,
   singleSceneRecord,
 } from "@/workers/data/render-codecs/sceneCodec";
-import { SceneGeometryKind } from "@/workers/render/sceneProtocol";
 import {
-  MovingSceneMotionPositionSchema,
-} from "@/workers/render/scene/movingSceneSchema";
+  SCENE_POSITION_COUNT,
+  SceneGeometryKind,
+} from "@shared/scene";
 import {
   GeoJsonGeometryType,
   type GeoJsonPolygonGeometry,
@@ -74,7 +74,6 @@ describe("scene patch codec", () => {
   test("keeps motion positions in a separate Float64 lane", () => {
     const codec = new ScenePatchCodec<TestPoint>({
       source: Domain.Aircraft,
-      attributeStride: 1,
       records: singleSceneRecord,
       position: (point) => [point.lon, point.lat],
       motionPosition: (point) =>
@@ -104,19 +103,18 @@ describe("scene patch codec", () => {
 
     expect(patch.motionPositions).toBeInstanceOf(Float64Array);
     expect(patch.motionPositionStride).toBe(
-      MovingSceneMotionPositionSchema.MotionPositionStride,
+      SCENE_POSITION_COUNT,
     );
     expect(Array.from(patch.motionPositions)).toEqual([
       20.123456789012,
       10.123456789012,
     ]);
-    expect(Array.from(patch.attributes)).toEqual([1]);
+    expect(patch.attributes[0]).toBe(1);
   });
 
   test("encodes patch records and reuses released handles", () => {
     const codec = new ScenePatchCodec<TestPoint>({
       source: Domain.Aircraft,
-      attributeStride: 1,
       records: singleSceneRecord,
       position: (point) => [point.lon, point.lat],
       timestamp: (point) => point.timestamp,
@@ -178,14 +176,13 @@ describe("scene patch codec", () => {
     expect(Array.from(patch.handles)).toEqual([1]);
     expect(Array.from(patch.deletedHandles)).toEqual([2]);
     expect(Array.from(patch.positions)).toEqual([21, 11]);
-    expect(Array.from(patch.attributes)).toEqual([3]);
+    expect(patch.attributes[0]).toBe(3);
     expect(Array.from(reused.handles)).toEqual([2]);
   });
 
   test("projects child records without reusing a deleted child handle", () => {
     const codec = new ScenePatchCodec<TestEntity, TestSceneRecord>({
       source: Domain.Cyclones,
-      attributeStride: 1,
       records: (entity) => entity.records,
       position: (record) => record.position,
       timestamp: (record) => record.timestamp,

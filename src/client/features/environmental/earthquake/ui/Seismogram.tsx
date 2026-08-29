@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
-import { MmiCssColor, mmiBand } from "../intensity";
-import { useWaveform } from "../hooks/useWaveform";
+import { MmiCssColor } from "../intensity";
 import {
   WaveformStatus,
   WaveformUnavailableReason,
-} from "../model";
+  type WaveformState,
+} from "@shared/domain/earthquakes";
 import { playQuakeAudio } from "../lib/audify";
 
 enum SeismogramGeometry {
@@ -14,9 +14,7 @@ enum SeismogramGeometry {
   Padding = 8,
 }
 
-enum SeismogramTiming {
-  AudioDurationMilliseconds = 5_000,
-}
+const SEISMOGRAM_AUDIO_DURATION_MS = 5_000;
 
 enum SeismogramSvgValue {
   IconClass = "w-3 h-3",
@@ -25,18 +23,13 @@ enum SeismogramSvgValue {
   TraceStrokeWidth = "1.1",
 }
 
-function unavailableLabel(reason: WaveformUnavailableReason): string {
-  switch (reason) {
-    case WaveformUnavailableReason.Station:
-      return "no station found near event";
-    case WaveformUnavailableReason.RecordedTrace:
-      return "station trace unavailable for event time";
-    case WaveformUnavailableReason.StationService:
-      return "station service unavailable";
-    default:
-      return "event time unavailable";
-  }
-}
+const UNAVAILABLE_LABEL: Readonly<Record<WaveformUnavailableReason, string>> = {
+  [WaveformUnavailableReason.EventTime]: "event time unavailable",
+  [WaveformUnavailableReason.RecordedTrace]:
+    "station trace unavailable for event time",
+  [WaveformUnavailableReason.Station]: "no station found near event",
+  [WaveformUnavailableReason.StationService]: "station service unavailable",
+};
 
 function tracePath(samples: number[]): string {
   let min = Infinity;
@@ -62,18 +55,12 @@ function tracePath(samples: number[]): string {
 }
 
 export function Seismogram({
-  lat,
-  lon,
-  originTimeIso,
-  mmi,
+  bandClassName,
+  state,
 }: {
-  readonly lat: number;
-  readonly lon: number;
-  readonly originTimeIso?: string;
-  readonly mmi: number;
+  readonly bandClassName: string;
+  readonly state: WaveformState;
 }) {
-  const state = useWaveform(lat, lon, originTimeIso);
-  const band = mmiBand(mmi);
   const [playing, setPlaying] = useState(false);
   const playerRef = useRef<{ stop: () => void } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,7 +72,7 @@ export function Seismogram({
       if (timerRef.current != null) clearTimeout(timerRef.current);
       setPlaying(false);
     };
-  }, [lat, lon, originTimeIso]);
+  }, [state]);
 
   const samples =
     state.status === WaveformStatus.Ready ? state.waveform.rawSamples : null;
@@ -110,7 +97,7 @@ export function Seismogram({
       playerRef.current = null;
       timerRef.current = null;
       setPlaying(false);
-    }, SeismogramTiming.AudioDurationMilliseconds);
+    }, SEISMOGRAM_AUDIO_DURATION_MS);
   };
 
   if (state.status === WaveformStatus.Loading) {
@@ -123,14 +110,14 @@ export function Seismogram({
   if (state.status === WaveformStatus.Unavailable) {
     return (
       <div className="h-23 flex items-center justify-center text-(length:--sig-text-xs) text-sig-dim">
-        {unavailableLabel(state.reason)}
+        {UNAVAILABLE_LABEL[state.reason]}
       </div>
     );
   }
 
   const { waveform } = state;
   return (
-    <div className={band.className}>
+    <div className={bandClassName}>
       <svg
         viewBox={`0 0 ${SeismogramGeometry.ViewBoxWidth} ${SeismogramGeometry.ViewBoxHeight}`}
         preserveAspectRatio="none"

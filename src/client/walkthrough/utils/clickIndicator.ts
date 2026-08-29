@@ -2,7 +2,7 @@ import {
   WalkthroughClickMode,
   WalkthroughTourTarget,
   walkthroughTourSelector,
-} from "../model";
+} from "../model/vocabulary";
 import type { WalkthroughPoint } from "./geometry";
 
 enum ClickIndicatorRatio {

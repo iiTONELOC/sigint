@@ -1,8 +1,4 @@
-export type {
-  BasePoint,
-  DataProvider,
-  ProviderSnapshot,
-} from "./types";
+export type { BasePoint } from "./types";
 
 export {
   defineFeature,
@@ -19,4 +15,5 @@ export {
   type TickerRendererProps,
 } from "./presentation";
 
-export type { DataPoint, DataType, ShipData, EventData } from "./dataPoints";
+export type { DataPoint, DataType, ShipData } from "./dataPoints";
+export { TickerContentShell } from "./TickerContentShell";

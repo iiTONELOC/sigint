@@ -1,5 +1,6 @@
-import { resolveUnitMode, UnitMode } from "@/preferences/units";
-import { kmToMi, ktToKmh, ktToMph } from "../utils";
+import { resolveUnitMode } from "@/preferences/units/store";
+import { UnitMode } from "@/preferences/units/model";
+import { kmToMi, ktToKmh, ktToMph } from "../utils/conversions";
 
 export function formatKmMi(
   kilometers: number,

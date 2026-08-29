@@ -10,12 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import type { AircraftFilter } from "@/features/tracking/aircraft";
-import { useEarthquakeSourceSnapshot } from "@/features/environmental/earthquake";
-import type { EarthquakeFilter } from "@/features/environmental/earthquake/types";
-import { useFireSourceSnapshot } from "@/features/environmental/fires";
-import type { FireFilter } from "@/features/environmental/fires/types";
-import type { CycloneFilter } from "@/features/environmental/cyclones";
+import type { AircraftFilterValues } from "@shared/domain/aircraftFilter";
+import type { MinCategory } from "@shared/domain/cyclones";
 import { useNewsData } from "@/features/news";
 import type { NewsArticle } from "@/features/news";
 import {
@@ -24,7 +20,6 @@ import {
 } from "@/features/base/useSourceCounts";
 import { useSourceSnapshot } from "@/features/base/useSourceQuery";
 import { useSourceTicker } from "@/features/base/useSourceTicker";
-import { useSourceVersions } from "@/features/base/useSourceVersions";
 import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
 import { SourceStatus } from "@shared/domain/sourceStatus";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
@@ -41,83 +36,63 @@ import {
   toggleAllRenderCycloneModels,
   toggleRenderCycloneLayer,
   toggleRenderCycloneModel,
+  toggleRenderCycloneWarnings,
   toggleRenderLayer,
 } from "@/render-surface/globeStateStore";
 import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
 import {
   RenderCycloneLayer,
-  RenderFilterBoundary,
-  isRenderLayerId,
-  type RenderAircraftFilter,
-  type RenderLayerVisibility,
+  type RenderCycloneOverlay,
 } from "@/workers/render/protocol";
+import {
+  isRenderLayerId,
+  type RenderLayerVisibility,
+} from "@/workers/render/policy";
 
-import { UIProvider, useUI } from "@/context/UIContext";
-import { WatchProvider, useWatch } from "@/context/WatchContext";
+import { UIProvider } from "@/context/UIContext";
 
-// Re-export for consumers that imported from here
-export { WatchSource } from "@/context/WatchContext";
-
-// ── Context value type ──────────────────────────────────────────────
+export type CycloneFilter = {
+  enabled: boolean;
+  minCategory: MinCategory;
+};
+import { WatchProvider } from "@/context/WatchContext";
 
 type DataContextValue = {
   newsArticles: NewsArticle[];
   layers: RenderLayerVisibility;
   toggleLayer: (key: string) => void;
-  aircraftFilter: AircraftFilter;
-  setAircraftFilter: React.Dispatch<React.SetStateAction<AircraftFilter>>;
-  filters: Record<string, unknown>;
-  earthquakeFilter: EarthquakeFilter;
-  fireFilter: FireFilter;
+  aircraftFilter: AircraftFilterValues;
+  setAircraftFilter: React.Dispatch<
+    React.SetStateAction<AircraftFilterValues>
+  >;
   counts: Record<string, number>;
   activeCount: number;
-  earthquakeCount: number;
-  fireCount: number;
   tickerItems: DataPoint[];
   availableCountries: string[];
   dataSources: readonly SourceStatusEntry[];
   correlation: CorrelationResult;
-  cycloneFilter: CycloneFilter;
-  toggleCycloneLayer: (layer: RenderCycloneLayer) => void;
-  hiddenModels: ReadonlySet<string>;
-  toggleModel: (model: string) => void;
-  toggleAllModels: (models: readonly string[]) => void;
+  cycloneOverlays: Readonly<Record<string, RenderCycloneOverlay>>;
+  cycloneWarningsVisible: boolean;
+  toggleCycloneLayer: (
+    entityId: string,
+    layer: RenderCycloneLayer,
+  ) => void;
+  toggleCycloneWarnings: () => void;
+  toggleModel: (entityId: string, model: string) => void;
+  toggleAllModels: (
+    entityId: string,
+    models: readonly string[],
+  ) => void;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export enum DataContextError {
-  MissingProvider = "useData must be used within DataProvider",
+  MissingProvider = "useDataContext must be used within DataProvider",
 }
 
 enum CorrelationRequestTiming {
   DebounceMs = 1_000,
-}
-
-function aircraftFilterFromSnapshot(
-  filter: RenderAircraftFilter,
-): AircraftFilter {
-  return {
-    enabled: filter.enabled,
-    showAirborne: filter.showAirborne,
-    showGround: filter.showGround,
-    milFilter: filter.milFilter,
-    squawks: new Set(filter.squawks),
-    countries: new Set(filter.countries),
-  };
-}
-
-function aircraftFilterToSnapshot(
-  filter: AircraftFilter,
-): RenderAircraftFilter {
-  return {
-    enabled: filter.enabled,
-    showAirborne: filter.showAirborne,
-    showGround: filter.showGround,
-    milFilter: filter.milFilter,
-    squawks: [...filter.squawks],
-    countries: [...filter.countries],
-  };
 }
 
 function entryFor(
@@ -131,66 +106,55 @@ function entryFor(
   };
 }
 
-// ── Provider ────────────────────────────────────────────────────────
-// Single component that owns the UI state every pane reads, and nests
-// UIProvider, WatchProvider and DataContext.Provider. It holds no records:
-// every one of those lives in the DataWorker.
-
 export function DataProvider({
   children,
 }: Readonly<{ children: ReactNode }>) {
-  // ── Layers & filters ───────────────────────────────────────────
   const globeState = useRenderGlobeState();
   const layers = globeState.layers;
-  const aircraftFilter = useMemo(
-    () => aircraftFilterFromSnapshot(globeState.aircraftFilter),
-    [globeState.aircraftFilter],
-  );
+  const aircraftFilter = globeState.aircraftFilter;
 
   const setAircraftFilter = useCallback<
-    React.Dispatch<React.SetStateAction<AircraftFilter>>
+    React.Dispatch<React.SetStateAction<AircraftFilterValues>>
   >((update) => {
-    const current = aircraftFilterFromSnapshot(
-      readRenderGlobeState().aircraftFilter,
-    );
+    const current = readRenderGlobeState().aircraftFilter;
     const next =
       typeof update === "function" ? update(current) : update;
-    setRenderAircraftFilter(aircraftFilterToSnapshot(next));
+    setRenderAircraftFilter(next);
   }, []);
 
   const toggleCycloneLayer = useCallback(
-    (layer: RenderCycloneLayer) => {
-      toggleRenderCycloneLayer(layer);
+    (entityId: string, layer: RenderCycloneLayer) => {
+      toggleRenderCycloneLayer(entityId, layer);
     },
     [],
   );
-  const hiddenModels = useMemo<ReadonlySet<string>>(
-    () => new Set(globeState.cycloneFilter.hiddenModels),
-    [globeState.cycloneFilter.hiddenModels],
-  );
-  const toggleModel = useCallback((model: string) => {
-    toggleRenderCycloneModel(model);
+  const toggleModel = useCallback((entityId: string, model: string) => {
+    toggleRenderCycloneModel(entityId, model);
   }, []);
-  const toggleAllModels = useCallback((models: readonly string[]) => {
-    toggleAllRenderCycloneModels(models);
+  const toggleAllModels = useCallback((
+    entityId: string,
+    models: readonly string[],
+  ) => {
+    toggleAllRenderCycloneModels(entityId, models);
   }, []);
 
-  // ── Data hooks ─────────────────────────────────────────────────
-  // Every point source polls, parses and stores in the DataWorker. React asks
-  // it for status, counts and bounded pages; it never holds a record set.
-  // Tropical watch/warning polygons: region geometry, fetched separately from
-  // the DataPoint path and rendered as their own globe layer.
   const { data: newsArticles, dataSource: newsSource } = useNewsData();
   const aircraftSource = useSourceSnapshot(Domain.Aircraft);
   const shipSource = useSourceSnapshot(Domain.Ships);
   const eventSource = useSourceSnapshot(Domain.Events);
   const weatherSource = useSourceSnapshot(Domain.Weather);
   const cycloneSource = useSourceSnapshot(Domain.Cyclones);
-  const earthquakeSource = useEarthquakeSourceSnapshot();
-  const fireSource = useFireSourceSnapshot();
-  const correlationInputVersion = useSourceVersions();
+  const earthquakeSource = useSourceSnapshot(Domain.Earthquake);
+  const fireSource = useSourceSnapshot(Domain.Fire);
+  const correlationInputVersion =
+    (aircraftSource?.version ?? 0) +
+    (shipSource?.version ?? 0) +
+    (eventSource?.version ?? 0) +
+    (earthquakeSource?.version ?? 0) +
+    (fireSource?.version ?? 0) +
+    (weatherSource?.version ?? 0) +
+    (cycloneSource?.version ?? 0);
 
-  // ── Data source status ─────────────────────────────────────────
   const dataSources = useMemo<readonly SourceStatusEntry[]>(
     () => [
       entryFor(Domain.Aircraft, aircraftSource),
@@ -214,74 +178,39 @@ export function DataProvider({
     ],
   );
 
-  // ── Filters ────────────────────────────────────────────────────
-  const earthquakeFilter = useMemo<EarthquakeFilter>(
-    () => ({
-      enabled: layers[Domain.Quakes],
-      minMagnitude: globeState.earthquakeMinimumMagnitude,
-    }),
-    [globeState.earthquakeMinimumMagnitude, layers],
-  );
-  const fireFilter = useMemo<FireFilter>(
-    () => ({
-      enabled: layers[Domain.Fires],
-      minConfidence: globeState.fireMinimumConfidence,
-    }),
-    [globeState.fireMinimumConfidence, layers],
-  );
   const cycloneFilter = useMemo<CycloneFilter>(
     () => ({
       enabled: layers[Domain.Cyclones],
       minCategory: globeState.cycloneFilter.minimumCategory,
-      showForecast: globeState.cycloneFilter.showForecast,
-      showCone: globeState.cycloneFilter.showCone,
-      showWindField: globeState.cycloneFilter.showWindField,
-      showModels: globeState.cycloneFilter.showModels,
-      showWarnings: globeState.cycloneFilter.showWarnings,
-      hiddenModels: [...globeState.cycloneFilter.hiddenModels],
     }),
-    [globeState.cycloneFilter, layers],
+    [globeState.cycloneFilter.minimumCategory, layers],
   );
   const filters = useMemo<Record<string, unknown>>(
     () => ({
       [Domain.Aircraft]: aircraftFilter,
       [Domain.Ships]: layers[Domain.Ships],
-      [Domain.Events]: {
-        enabled: layers[Domain.Events],
-        minSeverity: RenderFilterBoundary.Minimum,
-      },
-      [Domain.Quakes]: earthquakeFilter,
-      [Domain.Fires]: fireFilter,
-      [Domain.Weather]: {
-        enabled: layers[Domain.Weather],
-        minSeverity: RenderFilterBoundary.Minimum,
-      },
+      [Domain.Events]: layers[Domain.Events],
+      [Domain.Quakes]: layers[Domain.Quakes],
+      [Domain.Fires]: layers[Domain.Fires],
+      [Domain.Weather]: layers[Domain.Weather],
       [Domain.Cyclones]: cycloneFilter,
     }),
-    [aircraftFilter, layers, earthquakeFilter, fireFilter, cycloneFilter],
+    [aircraftFilter, layers, cycloneFilter],
   );
 
-  // ── Derived state, counted in the DataWorker ───────────────────
-  // Counts and the country list used to be one O(n) walk of a main-thread
-  // array of every record, which was the stall that froze the DOM on a poll.
-  // Each is a bounded query now, so React holds the numbers and nothing else.
   const counts = useSourceCounts(filters);
   const availableCountries = useAvailableCountries();
-  const earthquakeCount = earthquakeSource?.count ?? 0;
-  const fireCount = fireSource?.count ?? 0;
   const tickerItems = useSourceTicker();
   const activeCount = useMemo(
     () => Object.values(counts).reduce((sum, count) => sum + count, 0),
     [counts],
   );
 
-  // ── Handlers ───────────────────────────────────────────────────
   const toggleLayer = useCallback((key: string) => {
     if (!isRenderLayerId(key)) return;
     toggleRenderLayer(key);
   }, []);
 
-  // ── Correlation engine (Web Worker) ────────────────────────────
   const baselineRef = useRef<RegionBaseline>(loadBaseline());
   const clientRef = useRef<ReturnType<typeof createCorrelationClient> | null>(
     null,
@@ -300,11 +229,6 @@ export function DataProvider({
     baseline: baselineRef.current,
   }));
 
-  // Correlation is intel analysis, not a per-frame concern. The records reach
-  // the worker straight from the DataWorker, so a request carries only news
-  // and the baseline. It still debounces: a source version bump means new
-  // records have already landed there, and a 1 s trailing window collapses a
-  // burst of them into one recompute.
   useEffect(() => {
     let cancelled = false;
     const client = clientRef.current;
@@ -325,7 +249,6 @@ export function DataProvider({
     };
   }, [correlationInputVersion, newsArticles]);
 
-  // ── DataContext value ──────────────────────────────────────────
   const dataValue = useMemo<DataContextValue>(
     () => ({
       newsArticles,
@@ -333,29 +256,25 @@ export function DataProvider({
       toggleLayer,
       aircraftFilter,
       setAircraftFilter,
-      filters,
-      earthquakeFilter,
-      fireFilter,
       counts,
       activeCount,
-      earthquakeCount,
-      fireCount,
       tickerItems,
       availableCountries,
       dataSources,
       correlation,
-      cycloneFilter,
+      cycloneOverlays: globeState.cycloneFilter.overlays,
+      cycloneWarningsVisible: globeState.cycloneFilter.showWarnings,
       toggleCycloneLayer,
-      hiddenModels,
+      toggleCycloneWarnings: toggleRenderCycloneWarnings,
       toggleModel,
       toggleAllModels,
     }),
     [
       newsArticles,
-      layers, toggleLayer, aircraftFilter, filters, earthquakeFilter, fireFilter,
-      counts, activeCount, earthquakeCount, fireCount, tickerItems, availableCountries,
-      dataSources, correlation, cycloneFilter,
-      toggleCycloneLayer, hiddenModels, toggleModel, toggleAllModels,
+      layers, toggleLayer, aircraftFilter,
+      counts, activeCount, tickerItems, availableCountries,
+      dataSources, correlation, globeState.cycloneFilter,
+      toggleCycloneLayer, toggleModel, toggleAllModels,
     ],
   );
 
@@ -370,17 +289,10 @@ export function DataProvider({
   );
 }
 
-// ── Hooks ────────────────────────────────────────────────────────────
-
-/**
- * Combines DataContext, UIContext, and WatchContext for existing consumers.
- */
-export function useData(): DataContextValue & ReturnType<typeof useUI> & ReturnType<typeof useWatch> {
-  const dataCtx = useContext(DataContext);
-  if (!dataCtx) {
+export function useDataContext(): DataContextValue {
+  const context = useContext(DataContext);
+  if (!context) {
     throw new Error(DataContextError.MissingProvider);
   }
-  const uiCtx = useUI();
-  const watchCtx = useWatch();
-  return { ...dataCtx, ...uiCtx, ...watchCtx };
+  return context;
 }

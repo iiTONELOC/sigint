@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceSnapshot } from "@/features/base/useSourceQuery";
-import { sourceForPointType } from "@/workers/data/sources/registry";
+import { sourceForPointType } from "@shared/domain/pointSource";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
 import { QUERYABLE_SOURCE_CODECS } from "@/workers/data/queryableSources";
 

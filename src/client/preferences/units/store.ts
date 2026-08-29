@@ -1,5 +1,5 @@
 import { CacheKey } from "@shared/domain/cache";
-import { createPersistedPreferenceStore } from "../utils";
+import { createPersistedPreferenceStore } from "../utils/persistedPreference";
 import { isUnitMode, UnitMode } from "./model";
 
 export const unitsPreferenceStore = createPersistedPreferenceStore({

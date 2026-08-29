@@ -4,9 +4,15 @@ import {
   isAircraftRoutePolyline,
 } from "@shared/domain/aircraftDossier";
 import {
+  SCENE_POSITION_COUNT,
+  SCENE_UNIT_VECTOR_COUNT,
+  SceneGeometryKind,
+  ScenePositionOffset,
+} from "@shared/scene";
+import {
   isRenderSourceId,
   type RenderSourceId,
-} from "@/workers/data/sourceIds";
+} from "@shared/source";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   isTrackSource,
@@ -36,23 +42,12 @@ export enum SceneInterestCommandType {
   Search = "searchInterest",
 }
 
-export enum SceneGeometryKind {
-  None = 0,
-  Polygon = 1,
-  Polyline = 2,
-}
-
 type TransferUint8Array = Uint8Array<ArrayBuffer>;
 type TransferUint32Array = Uint32Array<ArrayBuffer>;
 type TransferFloat32Array = Float32Array<ArrayBuffer>;
 type TransferFloat64Array = Float64Array<ArrayBuffer>;
 
-enum SceneProtocolComponentCount {
-  Position = 2,
-  UnitVector = 3,
-}
-
-type SceneGeometryBuffers = Readonly<{
+export type SceneGeometryBuffers = Readonly<{
   geometryKinds: TransferUint8Array;
   geometryCoordinates: TransferFloat64Array;
   geometryPartEnds: TransferUint32Array;
@@ -153,7 +148,12 @@ export type SceneCommandBody =
 export type SceneInterestCommand =
   SceneInterestCommandBody & SceneProtocolEnvelope;
 
-export class SceneProtocolState {
+type SessionSequenceEnvelope = Readonly<{
+  sessionId: string;
+  sequence: number;
+}>;
+
+export class SessionSequenceState {
   readonly sessionId: string;
   private sequence = 0;
 
@@ -161,7 +161,7 @@ export class SceneProtocolState {
     this.sessionId = sessionId;
   }
 
-  accept(command: SceneProtocolEnvelope): boolean {
+  accept(command: SessionSequenceEnvelope): boolean {
     if (
       command.sessionId !== this.sessionId ||
       command.sequence <= this.sequence
@@ -220,7 +220,7 @@ function hasValidCoordinatePairs(
   coordinates: TransferFloat64Array,
 ): boolean {
   if (
-    coordinates.length % SceneProtocolComponentCount.Position !==
+    coordinates.length % SCENE_POSITION_COUNT !==
     0
   ) {
     return false;
@@ -228,10 +228,10 @@ function hasValidCoordinatePairs(
   for (
     let offset = 0;
     offset < coordinates.length;
-    offset += SceneProtocolComponentCount.Position
+    offset += SCENE_POSITION_COUNT
   ) {
-    const longitude = coordinates[offset];
-    const latitude = coordinates[offset + 1];
+    const longitude = coordinates[offset + ScenePositionOffset.Longitude];
+    const latitude = coordinates[offset + ScenePositionOffset.Latitude];
     if (
       longitude === undefined ||
       latitude === undefined ||
@@ -277,12 +277,14 @@ function geometryPartIsClosed(
   pointEnd: number,
 ): boolean {
   const firstOffset =
-    pointStart * SceneProtocolComponentCount.Position;
+    pointStart * SCENE_POSITION_COUNT;
   const lastOffset =
-    (pointEnd - 1) * SceneProtocolComponentCount.Position;
+    (pointEnd - 1) * SCENE_POSITION_COUNT;
   return (
-    coordinates[firstOffset] === coordinates[lastOffset] &&
-    coordinates[firstOffset + 1] === coordinates[lastOffset + 1]
+    coordinates[firstOffset + ScenePositionOffset.Longitude] ===
+      coordinates[lastOffset + ScenePositionOffset.Longitude] &&
+    coordinates[firstOffset + ScenePositionOffset.Latitude] ===
+      coordinates[lastOffset + ScenePositionOffset.Latitude]
   );
 }
 
@@ -324,7 +326,7 @@ function geometryPartIsValid(
   const minimum =
     kind === SceneGeometryKind.Polygon
       ? GeoLimit.MinRingPointCount
-      : SceneProtocolComponentCount.Position;
+      : SCENE_POSITION_COUNT;
   return (
     pointEnd - pointStart >= minimum &&
     (kind !== SceneGeometryKind.Polygon ||
@@ -400,7 +402,7 @@ function hasValidGeometryBuffers(
   ) {
     return false;
   }
-  const geometry = {
+  const geometryBuffers = {
     geometryKinds: value.geometryKinds,
     geometryCoordinates: value.geometryCoordinates,
     geometryPartEnds: value.geometryPartEnds,
@@ -408,27 +410,27 @@ function hasValidGeometryBuffers(
     geometryRecordEnds: value.geometryRecordEnds,
   };
   const pointCount =
-    geometry.geometryCoordinates.length /
-    SceneProtocolComponentCount.Position;
+    geometryBuffers.geometryCoordinates.length /
+    SCENE_POSITION_COUNT;
   return (
     hasValidCumulativeEnds(
-      geometry.geometryPartEnds,
+      geometryBuffers.geometryPartEnds,
       pointCount,
       0,
     ) &&
     hasValidCumulativeEnds(
-      geometry.geometryGroupEnds,
-      geometry.geometryPartEnds.length,
+      geometryBuffers.geometryGroupEnds,
+      geometryBuffers.geometryPartEnds.length,
       1,
     ) &&
     hasValidCumulativeEnds(
-      geometry.geometryRecordEnds,
-      geometry.geometryGroupEnds.length,
+      geometryBuffers.geometryRecordEnds,
+      geometryBuffers.geometryGroupEnds.length,
       0,
     ) &&
-    geometry.geometryKinds.every(geometryKindIsValid) &&
-    geometry.geometryRecordEnds.every((_end, recordIndex) =>
-      hasValidGeometryRecord(geometry, recordIndex),
+    geometryBuffers.geometryKinds.every(geometryKindIsValid) &&
+    geometryBuffers.geometryRecordEnds.every((_end, recordIndex) =>
+      hasValidGeometryRecord(geometryBuffers, recordIndex),
     )
   );
 }
@@ -454,7 +456,7 @@ function hasValidPatchBuffers(
     !isNonNegativeInteger(attributeStride) ||
     !isNonNegativeInteger(motionPositionStride) ||
     (motionPositionStride !== 0 &&
-      motionPositionStride !== SceneProtocolComponentCount.Position) ||
+      motionPositionStride !== SCENE_POSITION_COUNT) ||
     !isNonNegativeInteger(stringAttributeStride) ||
     !isNonNegativeInteger(dictionaryStart)
   ) {
@@ -473,10 +475,10 @@ function hasValidPatchBuffers(
     value.sceneIds.length === count &&
     value.entityIds.length === count &&
     value.positions.length ===
-      count * SceneProtocolComponentCount.Position &&
+      count * SCENE_POSITION_COUNT &&
     value.motionPositions.length === count * motionPositionStride &&
     value.unitVectors.length ===
-      count * SceneProtocolComponentCount.UnitVector &&
+      count * SCENE_UNIT_VECTOR_COUNT &&
     value.timestamps.length === count &&
     value.positions.every(Number.isFinite) &&
     value.motionPositions.every(Number.isFinite) &&

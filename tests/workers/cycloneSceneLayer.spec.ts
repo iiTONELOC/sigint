@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import {
   SaffirSimpson,
   type MinCategory,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import {
   CycloneSceneBinding,
 } from "@/workers/data/render-codecs/cycloneSceneBinding";
@@ -14,10 +13,11 @@ import {
 } from "@/workers/render/scene/cycloneLayer";
 import {
   cycloneForecastSceneId,
-} from "@/workers/render/scene/cycloneSchema";
+} from "@shared/scene";
 import {
   SceneHitKind,
 } from "@/workers/render/scene/projectedLayer";
+import { DEFAULT_RENDER_CYCLONE_OVERLAY } from "@/workers/render/protocol";
 import {
   createSceneCommand,
   SceneDataCommandType,
@@ -45,7 +45,7 @@ type DrawRecord = Readonly<{
   strokes: unknown[];
 }>;
 
-function context(records: DrawRecord): Ctx {
+function context(records: DrawRecord): OffscreenCanvasRenderingContext2D {
   const target = {
     fillStyle: "",
     strokeStyle: "",
@@ -69,7 +69,7 @@ function context(records: DrawRecord): Ctx {
       addColorStop: () => undefined,
     }),
   };
-  return target as unknown as Ctx;
+  return target as unknown as OffscreenCanvasRenderingContext2D;
 }
 
 function frame() {
@@ -95,10 +95,14 @@ function filter(
   return {
     enabled: true,
     minCategory,
-    showForecast,
-    showWindField: true,
-    showModels: true,
-    hiddenModels: new Set<string>(),
+    overlays: {
+      [testCycloneScenePoint().id]: {
+        ...DEFAULT_RENDER_CYCLONE_OVERLAY,
+        showForecast,
+        showWindField: true,
+        showModels: true,
+      },
+    },
     isolateMode: null,
     isolatedId: null,
     isolatedType: null,
@@ -200,7 +204,6 @@ describe("cyclone scene layer", () => {
       selectedId: forecastId,
       time: 1,
       reducedMotion: false,
-      showCone: true,
     });
 
     expect(records.fills[0]).toBe("#ff2b3d");

@@ -9,8 +9,8 @@ import { SceneStore } from "@/workers/render/sceneStore";
 import {
   createSceneCommand,
   SceneDataCommandType,
-  SceneGeometryKind,
 } from "@/workers/render/sceneProtocol";
+import { SceneGeometryKind } from "@shared/scene";
 
 describe("projected scene layer", () => {
   test("projects active records and uses visible hit buckets", () => {

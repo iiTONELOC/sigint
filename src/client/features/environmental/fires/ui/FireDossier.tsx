@@ -1,36 +1,29 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
 import { Flame } from "lucide-react";
+import type { FeatureDossierProps } from "@/features/base/presentation";
+import { Domain } from "@shared/domain/identity";
 import {
+  DossierBandScale,
+  DossierLinkRow,
   DossierMetric,
   DossierMetricValueClass,
+  DossierSection,
   DossierSectionCard,
+  DossierToolbar,
+  useDossierFocus,
 } from "@/dossier";
-import type { DataPoint } from "@/features/base/dataPoints";
-import { DossierToolbar, Section, LinkRow, useDossierFocus } from "@/panes/dossier/DossierAtoms";
-import type { FireData } from "../types";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { frpBand } from "../intensity";
+import { frpBand, frpScale } from "../intensity";
 import { FireIdentityCard } from "./FireIdentityCard";
 import { ThermalSignature } from "./ThermalSignature";
-import { FrpScale } from "./FrpScale";
 import { DetectionFootprint } from "./DetectionFootprint";
-import { FireCopy, formatFirePower } from "../formatters";
+import { FireCopy, formatFirePower } from "../formatters/presentation";
 
-type Props = {
-  readonly item: DataPoint;
-  readonly isolateMode: SelectedIsolateMode;
-  readonly onLocate: () => void;
-  readonly onFocus: () => void;
-  readonly onSolo: () => void;
-  readonly onClose: () => void;
-};
+type Props = FeatureDossierProps<Domain.Fires>;
 
-enum FireComplexValue {
-  MinimumClusterDetections = 2,
-}
+const MINIMUM_FIRE_COMPLEX_DETECTIONS = 2;
 
 export function FireDossier({
   item,
@@ -40,7 +33,7 @@ export function FireDossier({
   onSolo,
   onClose,
 }: Props) {
-  const d = (item.data as FireData) ?? {};
+  const d = item.data;
   const frp = d.frp ?? 0;
   const band = frpBand(frp);
   const fireK = d.brightness;
@@ -87,22 +80,27 @@ export function FireDossier({
 
             {hasThermal && (
               <DossierSectionCard>
-                <Section title="THERMAL SIGNATURE">
+                <DossierSection title="THERMAL SIGNATURE">
                   <ThermalSignature fireK={fireK} bgK={bgK} frp={frp} />
-                </Section>
+                </DossierSection>
               </DossierSectionCard>
             )}
 
             <DossierSectionCard>
-              <Section title="INTENSITY">
-                <FrpScale frp={frp} />
-              </Section>
+              <DossierSection title="INTENSITY">
+                <DossierBandScale
+                  activeBand={band}
+                  bands={frpScale()}
+                  detail="fire radiative power"
+                  tickLabel={(candidate) => candidate.min}
+                  value={formatFirePower(frp)}
+                />
+              </DossierSection>
             </DossierSectionCard>
 
             <DossierSectionCard>
-              <Section title="FIRE COMPLEX">
-                {(d.complexSize ?? 0) >=
-                FireComplexValue.MinimumClusterDetections ? (
+              <DossierSection title="FIRE COMPLEX">
+                {(d.complexSize ?? 0) >= MINIMUM_FIRE_COMPLEX_DETECTIONS ? (
                   <div className="flex items-end gap-6 flex-wrap">
                     <DossierMetric
                       label="DETECTIONS"
@@ -121,28 +119,28 @@ export function FireDossier({
                 ) : (
                   <div className="text-(length:--sig-text-xs) text-sig-dim">isolated detection</div>
                 )}
-              </Section>
+              </DossierSection>
             </DossierSectionCard>
 
             {scan != null && track != null && (
               <DossierSectionCard>
-                <Section title="DETECTION FOOTPRINT">
+                <DossierSection title="DETECTION FOOTPRINT">
                   <DetectionFootprint scan={scan} track={track} />
-                </Section>
+                </DossierSection>
               </DossierSectionCard>
             )}
 
             <DossierSectionCard>
-              <Section title="INTEL LINKS">
-                <LinkRow
+              <DossierSection title="INTEL LINKS">
+                <DossierLinkRow
                   label="NASA FIRMS Map"
                   href={`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${recordLongitude(item)},${recordLatitude(item)},10z`}
                 />
-                <LinkRow
+                <DossierLinkRow
                   label="Google Maps (Satellite)"
                   href={`https://www.google.com/maps/@${recordLatitude(item)},${recordLongitude(item)},14z/data=!3m1!1e1`}
                 />
-              </Section>
+              </DossierSection>
             </DossierSectionCard>
           </div>
         </div>

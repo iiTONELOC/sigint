@@ -1,21 +1,27 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { setVideoPresetCount, useWalkthroughActive } from "@/walkthrough";
+import { ButtonType } from "@/lib/ui/button";
 import {
   Square,
   Columns2,
   LayoutGrid,
+  Grid3X3,
   Loader2,
   Bookmark,
   Minimize,
   Fullscreen,
+  type LucideIcon,
 } from "lucide-react";
 import type {
   Channel,
+  ChannelCatalog,
   GridLayout,
   Preset,
+  PresetCatalog,
   SlotState,
   SavedState,
 } from "./videoFeedTypes";
+import { EMPTY_VIDEO_SLOT_STATE } from "./videoFeedTypes";
 import { fetchNewsChannels } from "./channelService";
 import {
   saveState,
@@ -24,6 +30,7 @@ import {
   savePresets,
   restoreChannels,
   buildSavedState,
+  addPreset,
 } from "./videoFeedPersistence";
 import { VideoSlot } from "./VideoSlot";
 import { PresetMenu } from "./PresetMenu";
@@ -41,81 +48,36 @@ enum VideoFeedControlClassName {
   Inactive = "text-sig-dim bg-transparent hover:text-sig-bright",
 }
 
-enum VideoGridSvgStroke {
-  Round = "round",
-}
-
-type VideoGridIconProps = Readonly<{
-  grid: GridLayout;
+type VideoGridView = Readonly<{
+  className: string;
+  icon: LucideIcon;
 }>;
 
-function VideoGridIcon({ grid }: VideoGridIconProps) {
-  switch (grid) {
-    case 1:
-      return (
-        <Square
-          size={VideoFeedIconMetric.ToolbarSize}
-          strokeWidth={VideoFeedIconMetric.StrokeWidth}
-        />
-      );
-    case 2:
-      return (
-        <Columns2
-          size={VideoFeedIconMetric.ToolbarSize}
-          strokeWidth={VideoFeedIconMetric.StrokeWidth}
-        />
-      );
-    case 4:
-      return (
-        <LayoutGrid
-          size={VideoFeedIconMetric.ToolbarSize}
-          strokeWidth={VideoFeedIconMetric.StrokeWidth}
-        />
-      );
-    default:
-      return (
-        <svg
-          width={VideoFeedIconMetric.ToolbarSize}
-          height={VideoFeedIconMetric.ToolbarSize}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={VideoFeedIconMetric.StrokeWidth}
-          strokeLinecap={VideoGridSvgStroke.Round}
-          strokeLinejoin={VideoGridSvgStroke.Round}
-        >
-          <rect x="1" y="1" width="6" height="6" />
-          <rect x="9" y="1" width="6" height="6" />
-          <rect x="17" y="1" width="6" height="6" />
-          <rect x="1" y="9" width="6" height="6" />
-          <rect x="9" y="9" width="6" height="6" />
-          <rect x="17" y="9" width="6" height="6" />
-          <rect x="1" y="17" width="6" height="6" />
-          <rect x="9" y="17" width="6" height="6" />
-          <rect x="17" y="17" width="6" height="6" />
-        </svg>
-      );
-  }
-}
+const GRID_VIEW_BY_LAYOUT: Readonly<Record<GridLayout, VideoGridView>> = {
+  1: { className: "grid-cols-1 grid-rows-1", icon: Square },
+  2: { className: "grid-cols-1 grid-rows-2", icon: Columns2 },
+  4: { className: "grid-cols-2 grid-rows-2", icon: LayoutGrid },
+  9: { className: "grid-cols-3 grid-rows-3", icon: Grid3X3 },
+};
+
+const GRID_LAYOUT_ORDER: readonly GridLayout[] = [1, 2, 4, 9];
 
 export function VideoFeedPane() {
-  const [channels, setChannels] = useState<Channel[]>([]);
+  const [channels, setChannels] = useState<ChannelCatalog>({});
   const [loading, setLoading] = useState(true);
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<Preset[]>([]);
+  const [presets, setPresets] = useState<PresetCatalog>({});
 
   useEffect(() => {
     loadPresets().then(setPresets);
   }, []);
 
-  // Push video preset count for walkthrough
   useEffect(() => {
-    setVideoPresetCount(presets.length);
+    setVideoPresetCount(Object.keys(presets).length);
   }, [presets]);
 
   const paneRef = useRef<HTMLDivElement>(null);
 
-  // Restore saved state or default
   const [savedState, setSavedState] = useState<SavedState | null>(null);
   useEffect(() => {
     loadState().then(setSavedState);
@@ -123,66 +85,73 @@ export function VideoFeedPane() {
 
   const [gridLayout, setGridLayout] = useState<GridLayout>(1);
   const [slots, setSlots] = useState<SlotState[]>([
-    { channel: null, error: false, loading: false },
+    EMPTY_VIDEO_SLOT_STATE,
   ]);
-  const [mutedSlot, setMutedSlot] = useState<number | null>(null);
+  const [unmutedSlot, setUnmutedSlot] = useState<number | null>(null);
   const restoredRef = useRef(false);
 
-  // ── Promote: temporarily show one slot as 1×1 ──────────────────
-  const [promotedIdx, setPromotedIdx] = useState<number | null>(null);
-  const [prePromoteGrid, setPrePromoteGrid] = useState<GridLayout | null>(null);
+  const [promotedSlotIndex, setPromotedSlotIndex] = useState<number | null>(
+    null,
+  );
 
   const handlePromote = useCallback(
-    (idx: number) => {
-      setPrePromoteGrid(gridLayout);
-      setPromotedIdx(idx);
-    },
-    [gridLayout],
+    (slotIndex: number) => setPromotedSlotIndex(slotIndex),
+    [],
   );
 
   const handleRestoreGrid = useCallback(() => {
-    setPromotedIdx(null);
-    setPrePromoteGrid(null);
+    setPromotedSlotIndex(null);
   }, []);
 
   const handlePaneFullscreen = useCallback(() => {
-    const el = paneRef.current;
-    if (!el) return;
+    const paneElement = paneRef.current;
+    if (!paneElement) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     } else {
-      el.requestFullscreen().catch(() => {});
+      paneElement.requestFullscreen().catch(() => {});
     }
   }, []);
 
-  // Fetch channels
   useEffect(() => {
-    fetchNewsChannels().then((chs) => {
-      setChannels(chs);
+    fetchNewsChannels().then((loadedChannels) => {
+      setChannels(loadedChannels);
       setLoading(false);
     });
   }, []);
 
-  // Restore saved state once both savedState and channels are ready
+  const channelList = useMemo(() => Object.values(channels), [channels]);
+
   useEffect(() => {
-    if (!savedState || channels.length === 0 || restoredRef.current) return;
+    if (!savedState || channelList.length === 0 || restoredRef.current) return;
     restoredRef.current = true;
     if (savedState.grid) setGridLayout(savedState.grid);
-    if (savedState.unmutedSlot != null) setMutedSlot(savedState.unmutedSlot);
+    if (savedState.unmutedSlot != null) {
+      setUnmutedSlot(savedState.unmutedSlot);
+    }
     if (savedState.slots) {
       const restored = restoreChannels(savedState.slots, channels);
       setSlots(restored);
     }
-  }, [savedState, channels]);
+  }, [channelList.length, channels, savedState]);
 
-  // Walkthrough: override to 2x1 NBC News NOW + OAN Encore when active
   const walkthroughActive = useWalkthroughActive();
   const walkthroughSetRef = useRef(false);
   useEffect(() => {
-    if (!walkthroughActive || channels.length === 0 || walkthroughSetRef.current) return;
+    if (
+      !walkthroughActive ||
+      channelList.length === 0 ||
+      walkthroughSetRef.current
+    ) {
+      return;
+    }
     walkthroughSetRef.current = true;
-    const nbc = channels.find((c) => c.name.toLowerCase().includes("nbc news now"));
-    const oan = channels.find((c) => c.name.toLowerCase().includes("oan"));
+    const nbc = channelList.find((channel) =>
+      channel.name.toLowerCase().includes("nbc news now"),
+    );
+    const oan = channelList.find((channel) =>
+      channel.name.toLowerCase().includes("oan"),
+    );
     if (nbc || oan) {
       setGridLayout(2);
       setSlots([
@@ -190,85 +159,90 @@ export function VideoFeedPane() {
         { channel: oan ?? null, error: false, loading: false },
       ]);
     }
-  }, [walkthroughActive, channels]);
+  }, [channelList, walkthroughActive]);
 
-  // Adjust slot count when grid changes
   useEffect(() => {
-    setSlots((prev) => {
+    setSlots((currentSlots) => {
       const needed = gridLayout;
-      if (prev.length === needed) return prev;
-      if (prev.length < needed) {
+      if (currentSlots.length === needed) return currentSlots;
+      if (currentSlots.length < needed) {
         return [
-          ...prev,
-          ...Array.from({ length: needed - prev.length }, () => ({
-            channel: null as Channel | null,
-            error: false,
-            loading: false,
-          })),
+          ...currentSlots,
+          ...Array.from(
+            { length: needed - currentSlots.length },
+            () => EMPTY_VIDEO_SLOT_STATE,
+          ),
         ];
       }
-      return prev.slice(0, needed);
+      return currentSlots.slice(0, needed);
     });
   }, [gridLayout]);
 
-  // Auto-save whenever slots or grid change
   useEffect(() => {
-    const hasContent = slots.some((s) => s.channel !== null);
+    const hasContent = slots.some((slot) => slot.channel !== null);
     if (!restoredRef.current && !hasContent) return;
-    saveState(gridLayout, slots, mutedSlot);
-  }, [gridLayout, slots, mutedSlot]);
+    saveState(gridLayout, slots, unmutedSlot);
+  }, [gridLayout, slots, unmutedSlot]);
 
-  const assignChannel = useCallback(
-    (idx: number, ch: Channel) => {
-      setSlots((prev) => {
-        const next = [...prev];
-        if (next[idx]) next[idx] = { channel: ch, error: false, loading: true };
-        return next;
+  const updateSlot = useCallback(
+    (slotIndex: number, updates: Partial<SlotState>) => {
+      setSlots((currentSlots) => {
+        const currentSlot = currentSlots[slotIndex];
+        if (!currentSlot) return currentSlots;
+        const updatedSlots = [...currentSlots];
+        updatedSlots[slotIndex] = { ...currentSlot, ...updates };
+        return updatedSlots;
       });
-      if (gridLayout === 1) setMutedSlot(0);
     },
-    [gridLayout],
+    [],
   );
 
-  const clearSlot = useCallback((idx: number) => {
-    setSlots((prev) => {
-      const next = [...prev];
-      if (next[idx])
-        next[idx] = { channel: null, error: false, loading: false };
-      return next;
-    });
+  const assignChannel = useCallback(
+    (slotIndex: number, channel: Channel) => {
+      updateSlot(slotIndex, {
+        channel,
+        error: false,
+        loading: true,
+      });
+      if (gridLayout === 1) setUnmutedSlot(0);
+    },
+    [gridLayout, updateSlot],
+  );
+
+  const clearSlot = useCallback(
+    (slotIndex: number) => updateSlot(slotIndex, EMPTY_VIDEO_SLOT_STATE),
+    [updateSlot],
+  );
+
+  const slotError = useCallback(
+    (slotIndex: number) =>
+      updateSlot(slotIndex, { error: true, loading: false }),
+    [updateSlot],
+  );
+
+  const slotLoaded = useCallback(
+    (slotIndex: number) =>
+      updateSlot(slotIndex, { error: false, loading: false }),
+    [updateSlot],
+  );
+
+  const toggleMute = useCallback((slotIndex: number) => {
+    setUnmutedSlot((currentIndex) =>
+      currentIndex === slotIndex ? null : slotIndex,
+    );
   }, []);
 
-  const slotError = useCallback((idx: number) => {
-    setSlots((prev) => {
-      const next = [...prev];
-      if (next[idx]) next[idx] = { ...next[idx]!, error: true, loading: false };
-      return next;
-    });
+  const persistPresets = useCallback((updated: PresetCatalog) => {
+    setPresets(updated);
+    savePresets(updated);
   }, []);
 
-  const slotLoaded = useCallback((idx: number) => {
-    setSlots((prev) => {
-      const next = [...prev];
-      if (next[idx])
-        next[idx] = { ...next[idx]!, loading: false, error: false };
-      return next;
-    });
-  }, []);
-
-  const toggleMute = useCallback((idx: number) => {
-    setMutedSlot((prev) => (prev === idx ? null : idx));
-  }, []);
-
-  // Preset handlers
   const handleSavePreset = useCallback(
     (name: string) => {
       const state = buildSavedState(gridLayout, slots);
-      const updated = [...presets, { name, state }];
-      setPresets(updated);
-      savePresets(updated);
+      persistPresets(addPreset(presets, { name, state }));
     },
-    [gridLayout, slots, presets],
+    [gridLayout, persistPresets, presets, slots],
   );
 
   const handleLoadPreset = useCallback(
@@ -277,8 +251,9 @@ export function VideoFeedPane() {
       const restored = restoreChannels(preset.state.slots, channels);
       const needed = preset.state.grid;
       if (restored.length < needed) {
-        while (restored.length < needed)
-          restored.push({ channel: null, error: false, loading: false });
+        while (restored.length < needed) {
+          restored.push(EMPTY_VIDEO_SLOT_STATE);
+        }
       }
       setSlots(restored.slice(0, needed));
     },
@@ -286,44 +261,34 @@ export function VideoFeedPane() {
   );
 
   const handleDeletePreset = useCallback(
-    (idx: number) => {
-      const updated = presets.filter((_, i) => i !== idx);
-      setPresets(updated);
-      savePresets(updated);
+    (presetKey: string) => {
+      if (!Object.hasOwn(presets, presetKey)) return;
+      const updated: Record<string, Preset> = { ...presets };
+      delete updated[presetKey];
+      persistPresets(updated);
     },
-    [presets],
+    [persistPresets, presets],
   );
 
   const handleUpdatePreset = useCallback(
-    (idx: number) => {
+    (presetKey: string) => {
+      const preset = presets[presetKey];
+      if (!preset) return;
       const state = buildSavedState(gridLayout, slots);
-      const updated = presets.map((p, i) => (i === idx ? { ...p, state } : p));
-      setPresets(updated);
-      savePresets(updated);
+      persistPresets(
+        { ...presets, [presetKey]: { ...preset, state } },
+      );
     },
-    [gridLayout, slots, presets],
+    [gridLayout, persistPresets, presets, slots],
   );
 
-  const gridClass = useMemo(() => {
-    if (promotedIdx !== null) return "grid-cols-1 grid-rows-1";
-    switch (gridLayout) {
-      case 1:
-        return "grid-cols-1 grid-rows-1";
-      case 2:
-        return "grid-cols-1 grid-rows-2";
-      case 4:
-        return "grid-cols-2 grid-rows-2";
-      case 9:
-        return "grid-cols-3 grid-rows-3";
-    }
-  }, [gridLayout, promotedIdx]);
-
-  const visibleSlots = useMemo(() => {
-    if (promotedIdx !== null && slots[promotedIdx]) {
-      return [{ slot: slots[promotedIdx]!, idx: promotedIdx }];
-    }
-    return slots.map((slot, idx) => ({ slot, idx }));
-  }, [slots, promotedIdx]);
+  const gridClass =
+    GRID_VIEW_BY_LAYOUT[promotedSlotIndex === null ? gridLayout : 1]
+      .className;
+  const visibleSlots =
+    promotedSlotIndex === null
+      ? slots
+      : slots.slice(promotedSlotIndex, promotedSlotIndex + 1);
 
   return (
     <div
@@ -331,9 +296,9 @@ export function VideoFeedPane() {
       className="w-full h-full flex flex-col bg-black overflow-hidden"
     >
       <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-sig-border/40 bg-sig-panel/80 relative">
-        {/* Restore grid button */}
-        {promotedIdx !== null && (
+        {promotedSlotIndex !== null && (
           <button
+            type={ButtonType.Button}
             onClick={handleRestoreGrid}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) font-semibold tracking-wider bg-sig-accent/10 border border-sig-accent/30 hover:bg-sig-accent/20 transition-colors mr-auto"
           >
@@ -342,34 +307,40 @@ export function VideoFeedPane() {
               strokeWidth={VideoFeedIconMetric.StrokeWidth}
             />
             RESTORE{" "}
-            {videoGridLabel(prePromoteGrid)}
+            {videoGridLabel(gridLayout)}
           </button>
         )}
 
         <div className="flex items-center gap-0.5">
-          {([1, 2, 4, 9] as GridLayout[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => {
-                setGridLayout(g);
-                setPromotedIdx(null);
-                setPrePromoteGrid(null);
-              }}
-              className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
-                gridLayout === g
-                  ? VideoFeedControlClassName.Active
-                  : VideoFeedControlClassName.Inactive
-              }`}
-              title={videoGridLabel(g)}
-            >
-              <VideoGridIcon grid={g} />
-            </button>
-          ))}
+          {GRID_LAYOUT_ORDER.map((layout) => {
+            const GridIcon = GRID_VIEW_BY_LAYOUT[layout].icon;
+            return (
+              <button
+                type={ButtonType.Button}
+                key={layout}
+                onClick={() => {
+                  setGridLayout(layout);
+                  setPromotedSlotIndex(null);
+                }}
+                className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
+                  gridLayout === layout
+                    ? VideoFeedControlClassName.Active
+                    : VideoFeedControlClassName.Inactive
+                }`}
+                title={videoGridLabel(layout)}
+              >
+                <GridIcon
+                  size={VideoFeedIconMetric.ToolbarSize}
+                  strokeWidth={VideoFeedIconMetric.StrokeWidth}
+                />
+              </button>
+            );
+          })}
         </div>
         <div className={VideoFeedControlClassName.Divider} />
-        {/* Presets button */}
         <button
-          onClick={() => setShowPresets((v) => !v)}
+          type={ButtonType.Button}
+          onClick={() => setShowPresets((visible) => !visible)}
           className={`p-1.5 touch-target flex items-center justify-center rounded transition-colors border-none ${
             showPresets
               ? VideoFeedControlClassName.Active
@@ -390,11 +361,12 @@ export function VideoFeedPane() {
               className="animate-spin"
             />
           ) : (
-            `${channels.length} ch`
+            `${channelList.length} ch`
           )}
         </span>
         <div className={VideoFeedControlClassName.Divider} />
         <button
+          type={ButtonType.Button}
           onClick={handlePaneFullscreen}
           className="p-1.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
           title="Fullscreen pane"
@@ -417,23 +389,30 @@ export function VideoFeedPane() {
       </div>
 
       <div className={`flex-1 grid ${gridClass} gap-0.5 p-0.5 min-h-0`}>
-        {visibleSlots.map(({ slot, idx }) => (
-          <VideoSlot
-            key={`slot-${idx}`}
-            slot={slot}
-            slotIdx={idx}
-            channels={channels}
-            onAssign={assignChannel}
-            onClear={clearSlot}
-            onSlotError={slotError}
-            onSlotLoaded={slotLoaded}
-            muted={mutedSlot !== idx}
-            onToggleMute={toggleMute}
-            gridSize={promotedIdx !== null ? 1 : gridLayout}
-            onPromote={gridLayout > 1 ? handlePromote : undefined}
-            onUnfocus={promotedIdx === idx ? handleRestoreGrid : undefined}
-          />
-        ))}
+        {visibleSlots.map((slot, visibleIndex) => {
+          const slotIndex = promotedSlotIndex ?? visibleIndex;
+          return (
+            <VideoSlot
+              key={`slot-${slotIndex}`}
+              slot={slot}
+              slotIndex={slotIndex}
+              channels={channels}
+              onAssign={assignChannel}
+              onClear={clearSlot}
+              onSlotError={slotError}
+              onSlotLoaded={slotLoaded}
+              muted={unmutedSlot !== slotIndex}
+              onToggleMute={toggleMute}
+              gridSize={promotedSlotIndex !== null ? 1 : gridLayout}
+              onPromote={gridLayout > 1 ? handlePromote : undefined}
+              onUnfocus={
+                promotedSlotIndex === slotIndex
+                  ? handleRestoreGrid
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );

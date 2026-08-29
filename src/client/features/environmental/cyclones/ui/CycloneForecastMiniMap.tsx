@@ -1,341 +1,264 @@
-// ── CycloneForecastMiniMap ───────────────────────────────────────────
-// Interactive orthographic-globe minimap of the storm track — same technique as
-// the aircraft route map: a <canvas> that reuses the globe's own renderers
-// (projGlobe + drawLand + drawGrid) so the basemap matches the main globe, with
-// drag-to-pan and +/- zoom. Draws cyclone geometry instead of a route: observed
-// past track (genesis→now), dashed forecast track, cone (error-radius discs),
-// category-colored forecast points, and spaghetti model guidance when supplied.
-
-import { useEffect, useRef, useState } from "react";
-import { useTheme } from "@/context/ThemeContext";
-import { getLand, enrichLand } from "@/lib/geo/landService";
-import { projectGeographicPoint as projGlobe } from "@/lib/geo/unitSphere";
-import { drawLand } from "@/lib/geo/render/land";
-import { drawGrid } from "@/lib/geo/render/grid";
-import type { ForecastPoint, PastTrackPoint, WindRadii, ModelTrack } from "../types";
-import { windColor, modelColor, categoryShort, SAFFIR_LEGEND } from "../classification";
+import { useDataContext } from "@/context/DataContext";
 import {
-  NM_PER_DEG,
-  windRadiiBandColor,
-  windRadiiBandPoints,
+  DossierMiniGlobe,
+  type DossierMiniGlobeCamera,
+  type DossierMiniGlobeDrawContext,
+} from "@/dossier";
+import {
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  CYCLONE_STRONG_WIND_RADIUS_KT,
+  type CycloneCoordinates,
+  type CycloneForecastFact,
+  type ForecastPoint,
+  type ModelTrack,
+  type PastTrackPoint,
+  type WindRadii,
+} from "@shared/domain/cyclones";
+import { AngleConversion, GeoLimit, GeoMeasurement, TurnDeg, type GeoPoint } from "@shared/geo";
+import { DEFAULT_RENDER_CYCLONE_OVERLAY, type RenderCycloneOverlay } from "@/workers/render/protocol";
+import type { ProjFn } from "@/lib/geo/render/types";
+import { strokeGeoPath } from "@/lib/geo/render/path";
+import type { CyclonePoint } from "../data/codec";
+import { categoryShort, modelColor, SAFFIR_LEGEND, windColor } from "../classification";
+import {
+  drawGenesisMark,
+  paintConeSegments,
+  paintWindRadiiBands,
   segmentedConeSegments,
 } from "../render/cycloneGeometry";
+import { CycloneLayerToggles } from "./CycloneLayerToggles";
+import { CycloneModelLegend } from "./CycloneModelLegend";
 
-const PAD = 8;
-const rad = (d: number) => (d * Math.PI) / 180;
+const FULL_CIRCLE_RADIANS =
+  TurnDeg.Full * AngleConversion.RadiansPerDegree;
+
+enum CycloneMiniMapPolicy {
+  MaximumRadiusScale = 9,
+  MaximumZoom = 8,
+  MinimumRadiusFactor = 0.05,
+  MinimumSpanDegrees = 1,
+  MinimumZoom = 0.5,
+  TrackFrameRatio = 0.8,
+}
+
+function degreesToRadians(degrees: number): number {
+  return degrees * AngleConversion.RadiansPerDegree;
+}
+
+type CycloneMiniMapScene = Readonly<{
+  accent: string;
+  context: CanvasRenderingContext2D;
+  current: Pick<CycloneForecastFact, "lat" | "lon" | "maxWindKt">;
+  project: ProjFn;
+}>;
+
+function geoPoints(points: readonly CycloneCoordinates[]): GeoPoint[] {
+  return points.map((point) => [point.lon, point.lat]);
+}
+
+function drawModelTracks(scene: CycloneMiniMapScene, models: readonly ModelTrack[]): void {
+  const { context, project } = scene;
+  context.globalAlpha = 0.7;
+  context.lineWidth = 1.25;
+  for (const model of models) {
+    context.strokeStyle = modelColor(model.model);
+    strokeGeoPath(context, project, geoPoints(model.points));
+  }
+  context.globalAlpha = 1;
+}
+
+function drawCone(scene: CycloneMiniMapScene, forecast: readonly ForecastPoint[]): void {
+  const { accent, context, current, project } = scene;
+  const eye = project(current.lat, current.lon);
+  if (eye.z <= 0) return;
+  paintConeSegments(
+    context,
+    segmentedConeSegments(eye.x, eye.y, forecast, project, current.maxWindKt),
+    { depthAlpha: 1, fallbackColor: accent, rims: false },
+  );
+  context.globalAlpha = 1;
+}
+
+function drawWindField(
+  scene: CycloneMiniMapScene,
+  windRadii: WindRadii,
+  pixelsPerNauticalMile: number,
+): void {
+  const { context, current, project } = scene;
+  const eye = project(current.lat, current.lon);
+  if (eye.z <= 0) return;
+  const bands: ReadonlyArray<readonly [number, readonly number[] | null]> = [
+    [CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt, windRadii.kt34],
+    [CYCLONE_STRONG_WIND_RADIUS_KT, windRadii.kt50],
+    [CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt, windRadii.kt64],
+  ];
+  paintWindRadiiBands(
+    context,
+    { x: eye.x, y: eye.y, pixelsPerNm: pixelsPerNauticalMile },
+    bands.flatMap(([threshold, quadrants]) =>
+      quadrants ? [{ threshold, quadrants, fillAlpha: 0.18 }] : []),
+    0.9,
+  );
+  context.globalAlpha = 1;
+}
+
+function drawOfficialTrack(
+  scene: CycloneMiniMapScene,
+  pastTrack: readonly PastTrackPoint[] | undefined,
+  forecast: readonly ForecastPoint[],
+): void {
+  const { accent, context, current, project } = scene;
+  context.strokeStyle = accent;
+  context.lineWidth = 1.5;
+  if (pastTrack && pastTrack.length > 0) {
+    context.globalAlpha = 0.5;
+    strokeGeoPath(context, project, geoPoints([...pastTrack, current]));
+    const genesisPoint = pastTrack[0];
+    if (genesisPoint) {
+      const genesis = project(genesisPoint.lat, genesisPoint.lon);
+      if (genesis.z > 0) drawGenesisMark(context, genesis.x, genesis.y, 3);
+    }
+  }
+  context.globalAlpha = 0.85;
+  context.setLineDash([4, 3]);
+  strokeGeoPath(context, project, geoPoints([current, ...forecast]));
+  context.setLineDash([]);
+  context.globalAlpha = 1;
+  for (const forecastPoint of forecast) {
+    const point = project(forecastPoint.lat, forecastPoint.lon);
+    if (point.z <= 0) continue;
+    const color = windColor(forecastPoint.maxWindKt);
+    context.beginPath();
+    context.arc(point.x, point.y, 2.5, 0, FULL_CIRCLE_RADIANS);
+    context.fillStyle = color;
+    context.fill();
+    context.font = "600 9px 'JetBrains Mono', monospace";
+    context.textAlign = "left";
+    context.textBaseline = "bottom";
+    context.fillText(categoryShort(forecastPoint.maxWindKt), point.x + 4, point.y - 3);
+  }
+  context.textAlign = "start";
+  context.textBaseline = "alphabetic";
+}
+
+function drawCurrentEye(scene: CycloneMiniMapScene): void {
+  const { accent, context, current, project } = scene;
+  const point = project(current.lat, current.lon);
+  if (point.z <= 0) return;
+  context.beginPath();
+  context.arc(point.x, point.y, 3.5, 0, FULL_CIRCLE_RADIANS);
+  context.fillStyle = windColor(current.maxWindKt);
+  context.fill();
+  context.beginPath();
+  context.arc(point.x, point.y, 6, 0, FULL_CIRCLE_RADIANS);
+  context.strokeStyle = accent;
+  context.lineWidth = 1.25;
+  context.stroke();
+}
 
 export function CycloneForecastMiniMap({
-  current,
-  forecast,
-  pastTrack,
-  windRadii,
-  models,
-  showForecast = true,
-  showCone = true,
-  showWindField = false,
-  showModels = false,
-}: {
-  readonly current: { lat: number; lon: number; maxWindKt: number };
-  readonly forecast: ForecastPoint[];
-  readonly pastTrack?: PastTrackPoint[];
-  readonly windRadii?: WindRadii;
-  readonly models?: ModelTrack[];
-  /** Gate the forecast track + past track (TRACK toggle). */
-  readonly showForecast?: boolean;
-  /** Gate the cone discs (CONE toggle). */
-  readonly showCone?: boolean;
-  /** Gate the 34/50/64-kt wind radii at the eye (WIND FIELD toggle). */
-  readonly showWindField?: boolean;
-  /** Gate the spaghetti model tracks (MODELS toggle). */
-  readonly showModels?: boolean;
-}) {
-  const { theme } = useTheme();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const panRef = useRef({ ry: 0, rx: 0 });
-  const dimsRef = useRef({ r: 1 });
-  const [land, setLand] = useState(() => getLand());
-  const [zoom, setZoom] = useState(1);
-  const colors = theme.colors;
+  item,
+  mapClassName = "h-72",
+}: Readonly<{ item: CyclonePoint; mapClassName?: string }>) {
+  const { cycloneOverlays } = useDataContext();
+  const overlay = cycloneOverlays[item.id] ?? DEFAULT_RENDER_CYCLONE_OVERLAY;
+  const models = item.data.models ?? [];
+  const visibleModels = models.filter((model) => !overlay.hiddenModels.includes(model.model));
+  return (
+    <div className="flex flex-col gap-2 flex-1 min-h-0">
+      <CycloneLayerToggles entityId={item.id} overlay={overlay} />
+      <div className={mapClassName}>
+        <CycloneForecastCanvas item={item} models={visibleModels} overlay={overlay} />
+      </div>
+      {overlay.showModels && models.length > 0 && (
+        <CycloneModelLegend entityId={item.id} models={models} hiddenModels={overlay.hiddenModels} />
+      )}
+    </div>
+  );
+}
 
-  // Frame the whole track (past + forecast) so it fits, recentered on its midpoint.
-  const all = [
-    ...(pastTrack ?? []).map((p) => ({ lat: p.lat, lon: p.lon })),
-    { lat: current.lat, lon: current.lon },
-    ...forecast.map((f) => ({ lat: f.lat, lon: f.lon })),
-  ];
-  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
-  for (const p of all) {
-    minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
-    minLon = Math.min(minLon, p.lon); maxLon = Math.max(maxLon, p.lon);
+function CycloneForecastCanvas({
+  item,
+  models,
+  overlay,
+}: Readonly<{ item: CyclonePoint; models: readonly ModelTrack[]; overlay: RenderCycloneOverlay }>) {
+  const current = { lat: item.lat, lon: item.lon, maxWindKt: item.data.maxWindKt };
+  const forecast = item.data.forecast;
+  const pastTrack = item.data.pastTrack;
+  const windRadii = item.data.windRadii;
+  const { showCone, showForecast, showModels, showWindField } = overlay;
+
+  const trackPoints = [...(pastTrack ?? []), current, ...forecast];
+  let minLat = GeoLimit.MaxLatitude;
+  let maxLat = GeoLimit.MinLatitude;
+  let minLon = GeoLimit.MaxLongitude;
+  let maxLon = GeoLimit.MinLongitude;
+  for (const point of trackPoints) {
+    minLat = Math.min(minLat, point.lat);
+    maxLat = Math.max(maxLat, point.lat);
+    minLon = Math.min(minLon, point.lon);
+    maxLon = Math.max(maxLon, point.lon);
   }
   const midLat = (minLat + maxLat) / 2;
   const midLon = (minLon + maxLon) / 2;
-  const spanDeg = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(rad(midLat)), 1);
+  const latitudeSpan = maxLat - minLat;
+  const longitudeSpan = (maxLon - minLon) * Math.cos(degreesToRadians(midLat));
+  const spanDeg = Math.max(latitudeSpan, longitudeSpan, CycloneMiniMapPolicy.MinimumSpanDegrees);
 
-  useEffect(() => {
-    panRef.current = { ry: 0, rx: 0 };
-    setZoom(1);
-  }, [current.lat, current.lon]);
-
-  useEffect(() => {
-    if (land.length === 0) enrichLand((l) => setLand(l));
-  }, [land.length]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const draw = () => {
-      const cssW = canvas.clientWidth || 264;
-      const cssH = canvas.clientHeight || 200;
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(cssW * dpr);
-      canvas.height = Math.round(cssH * dpr);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, cssW, cssH);
-
-      const cx = cssW / 2;
-      const cy = cssH / 2;
-      const frameR = Math.min(cssW, cssH) / 2 - PAD;
-      // Globe radius so the track span fills ~80% of the frame.
-      const r = Math.min((frameR * 0.8) / Math.max(Math.sin(rad(spanDeg / 2)), 0.05), frameR * 9) * zoom;
-      const ry = Math.PI / 2 - rad(midLon + 180) + panRef.current.ry;
-      const rx = rad(midLat) + panRef.current.rx;
-      dimsRef.current.r = r;
-      const proj = (la: number, lo: number) => projGlobe(la, lo, cx, cy, r, ry, rx);
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = colors.oceanDeep;
-      ctx.fill();
-      ctx.clip();
-
-      drawGrid(ctx, proj, { isFlat: false, accentColor: colors.grid });
-      drawLand(ctx, proj, {
-        colors,
-        isFlat: false,
-        horizon: { gcx: cx, gcy: cy, gr: r },
-      });
-
-      // Cone + track use the storm's Saffir-Simpson category color (matches the
-      // rest of the dossier), not the generic cyclones-layer red.
-      const accent = windColor(current.maxWindKt);
-      const strokeLine = (pts: { lat: number; lon: number }[], dash: number[]) => {
-        ctx.setLineDash(dash);
-        ctx.beginPath();
-        let pen = false;
-        for (const p of pts) {
-          const pp = proj(p.lat, p.lon);
-          if (pp.z > 0) {
-            if (pen) ctx.lineTo(pp.x, pp.y);
-            else { ctx.moveTo(pp.x, pp.y); pen = true; }
-          } else pen = false;
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
-      };
-
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      // Spaghetti model tracks — thin muted lines beneath the official track
-      // (MODELS toggle).
-      if (showModels && models) {
-        ctx.globalAlpha = 0.7;
-        ctx.lineWidth = 1.25;
-        for (const m of models) {
-          ctx.strokeStyle = modelColor(m.model);
-          strokeLine(m.points, []);
-        }
-        ctx.globalAlpha = 1;
-      }
-
-      // Cone — tapered segmented band matching the globe (shared geometry).
-      if (showCone) {
-        const eye = proj(current.lat, current.lon);
-        if (eye.z > 0) {
-          for (const seg of segmentedConeSegments(eye.x, eye.y, forecast, proj, current.maxWindKt)) {
-            ctx.beginPath();
-            seg.quad.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-            ctx.closePath();
-            // Color each band by its far-point forecast intensity so the cone
-            // cools as the storm weakens — matches the forecast dots.
-            ctx.fillStyle = seg.maxWindKt > 0 ? windColor(seg.maxWindKt) : accent;
-            ctx.globalAlpha = 0.3 - 0.18 * seg.t;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-          }
-        }
-      }
-
-      // Wind radii at the eye — 34/50/64-kt footprint, shared band geometry.
-      if (showWindField && windRadii) {
-        const eye = proj(current.lat, current.lon);
-        if (eye.z > 0) {
-          const pxPerNm = rad(1) * r / NM_PER_DEG;
-          const bands: ReadonlyArray<readonly [number, number[] | null]> = [
-            [34, windRadii.kt34],
-            [50, windRadii.kt50],
-            [64, windRadii.kt64],
-          ];
-          for (const [kt, q] of bands) {
-            if (!q) continue;
-            const pts = windRadiiBandPoints(q, eye.x, eye.y, pxPerNm);
-            if (pts.length === 0) continue;
-            ctx.beginPath();
-            pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-            ctx.closePath();
-            ctx.fillStyle = windRadiiBandColor(kt);
-            ctx.globalAlpha = 0.18;
-            ctx.fill();
-            ctx.globalAlpha = 0.9;
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = windRadiiBandColor(kt);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-          }
-        }
-      }
-
-      // Observed past track (genesis → now), solid (TRACK toggle).
-      if (showForecast && pastTrack && pastTrack.length >= 1) {
-        ctx.strokeStyle = accent;
-        ctx.globalAlpha = 0.5;
-        ctx.lineWidth = 1.5;
-        strokeLine([...pastTrack, { lat: current.lat, lon: current.lon }], []);
-        ctx.globalAlpha = 1;
-        const genesis = pastTrack.at(0);
-        if (genesis) {
-          const genesisPoint = proj(genesis.lat, genesis.lon);
-          if (genesisPoint.z > 0) {
-            ctx.strokeStyle = accent;
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(genesisPoint.x - 3, genesisPoint.y - 3);
-            ctx.lineTo(genesisPoint.x + 3, genesisPoint.y + 3);
-            ctx.moveTo(genesisPoint.x - 3, genesisPoint.y + 3);
-            ctx.lineTo(genesisPoint.x + 3, genesisPoint.y - 3);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // Forecast track (dashed) eye → forecast points (TRACK toggle).
-      if (showForecast) {
-        ctx.strokeStyle = accent;
-        ctx.globalAlpha = 0.85;
-        ctx.lineWidth = 1.5;
-        strokeLine([{ lat: current.lat, lon: current.lon }, ...forecast], [4, 3]);
-        ctx.globalAlpha = 1;
-      }
-
-      // Forecast points — category-colored dots, each tagged with its category.
-      for (const f of showForecast ? forecast : []) {
-        const p = proj(f.lat, f.lon);
-        if (p.z <= 0) continue;
-        const col = windColor(f.maxWindKt);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = col;
-        ctx.fill();
-        // Category tag above-right of the dot.
-        ctx.font = "600 9px 'JetBrains Mono', monospace";
-        ctx.fillStyle = col;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(categoryShort(f.maxWindKt), p.x + 4, p.y - 3);
-      }
-      ctx.textAlign = "start";
-      ctx.textBaseline = "alphabetic";
-
-      // Current eye — bullseye in the storm color.
-      const pe = proj(current.lat, current.lon);
-      if (pe.z > 0) {
-        ctx.beginPath();
-        ctx.arc(pe.x, pe.y, 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = windColor(current.maxWindKt);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(pe.x, pe.y, 6, 0, Math.PI * 2);
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 1.25;
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // Rim.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = colors.coast;
-      ctx.globalAlpha = 0.4;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    };
-
-    let dragging = false;
-    let lx = 0, ly = 0;
-    const onDown = (e: PointerEvent) => {
-      dragging = true; lx = e.clientX; ly = e.clientY;
-      canvas.setPointerCapture?.(e.pointerId);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      const rr = dimsRef.current.r || 1;
-      panRef.current.ry += (e.clientX - lx) / rr;
-      panRef.current.rx = Math.max(-1.2, Math.min(1.2, panRef.current.rx + (e.clientY - ly) / rr));
-      lx = e.clientX; ly = e.clientY;
-      draw();
-    };
-    const onUp = (e: PointerEvent) => {
-      dragging = false;
-      canvas.releasePointerCapture?.(e.pointerId);
-    };
-
-    draw();
-    const ro = new ResizeObserver(draw);
-    ro.observe(canvas);
-    canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
-    return () => {
-      ro.disconnect();
-      canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
-    };
-  }, [current.lat, current.lon, current.maxWindKt, forecast, pastTrack, windRadii, models, showForecast, showCone, showWindField, showModels, land, colors, midLat, midLon, spanDeg, zoom]);
-
-  const zoomBtn =
-    "w-6 h-6 flex items-center justify-center rounded bg-sig-panel/80 border border-sig-border/60 text-sig-dim hover:text-(--dossier-accent) hover:border-(--dossier-accent)/50 transition-colors touch-target";
+  const spanRadius = Math.max(
+    Math.sin(degreesToRadians(spanDeg / 2)),
+    CycloneMiniMapPolicy.MinimumRadiusFactor,
+  );
+  const camera: DossierMiniGlobeCamera = {
+    centerLatitude: midLat,
+    centerLongitude: midLon,
+    maximumZoom: CycloneMiniMapPolicy.MaximumZoom,
+    minimumZoom: CycloneMiniMapPolicy.MinimumZoom,
+    radiusScale: Math.min(
+      CycloneMiniMapPolicy.TrackFrameRatio / spanRadius,
+      CycloneMiniMapPolicy.MaximumRadiusScale,
+    ),
+    spanDegrees: spanDeg,
+  };
+  const drawOverlay = ({
+    colors,
+    context,
+    project,
+    radius,
+  }: DossierMiniGlobeDrawContext): void => {
+    const accent = windColor(current.maxWindKt);
+    const scene: CycloneMiniMapScene = { accent, context, current, project };
+    if (showModels && models.length > 0) drawModelTracks(scene, models);
+    if (showCone) drawCone(scene, forecast);
+    if (showWindField && windRadii) {
+      const pixelsPerNauticalMile =
+        degreesToRadians(1) * radius / GeoMeasurement.NauticalMilesPerDegree;
+      drawWindField(scene, windRadii, pixelsPerNauticalMile);
+    }
+    if (showForecast) drawOfficialTrack(scene, pastTrack, forecast);
+    drawCurrentEye(scene);
+  };
 
   return (
-    <div className="relative w-full h-full min-h-48">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full block rounded-[10px] border border-sig-border touch-none cursor-grab active:cursor-grabbing"
-        aria-label="Forecast track — storm position, past track, and forecast over coastline"
-      />
-      <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">
-        <button type="button" className={zoomBtn} aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(8, z * 1.4))}>+</button>
-        <button type="button" className={zoomBtn} aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.5, z / 1.4))}>−</button>
-      </div>
-      {/* Saffir-Simpson key — color, category, wind range — so the cone/dot
-          colors read as categories on the map. */}
+    <DossierMiniGlobe
+      ariaLabel="Forecast track: storm position, past track, and forecast over coastline"
+      camera={camera}
+      drawOverlay={drawOverlay}
+      reserveMinimumHeight={true}
+      resetKey={`${current.lat}:${current.lon}`}
+    >
       <div className="absolute bottom-1.5 left-1.5 flex flex-col gap-px rounded bg-sig-bg/70 backdrop-blur-sm px-1.5 py-1 text-(length:--sig-text-xs) leading-tight">
-        {SAFFIR_LEGEND.map((b) => (
-          <span key={b.label} className="flex items-center gap-1.5 whitespace-nowrap">
-            <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: b.color }} />
-            <span className="font-semibold w-5" style={{ color: b.color }}>{b.label}</span>
-            <span className="text-sig-dim">{b.range}</span>
+        {SAFFIR_LEGEND.map((band) => (
+          <span key={band.label} className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="w-2 h-2 rounded-[2px] shrink-0" style={{ backgroundColor: band.color }} />
+            <span className="font-semibold w-5" style={{ color: band.color }}>
+              {band.label}
+            </span>
+            <span className="text-sig-dim">{band.range}</span>
           </span>
         ))}
       </div>
-    </div>
+    </DossierMiniGlobe>
   );
 }

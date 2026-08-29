@@ -3,13 +3,21 @@ import {
   type DatasetEntity,
   type DatasetPatch,
 } from "@/workers/data/datasetStore";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
+import type { RenderSourceId } from "@shared/source";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import {
   SceneDataCommandType,
-  SceneGeometryKind,
+  type SceneGeometryBuffers,
   type SceneSourcePatch,
   type SceneSourceSearch,
 } from "@/workers/render/sceneProtocol";
+import {
+  SCENE_POSITION_COUNT,
+  SCENE_UNIT_VECTOR_COUNT,
+  SceneGeometryKind,
+  ScenePositionOffset,
+  SceneUnitVectorOffset,
+} from "@shared/scene";
 import { geographicToUnitVector } from "@/lib/geo/unitSphere";
 import {
   GeoLimit,
@@ -22,28 +30,11 @@ import {
 } from "@shared/geo";
 import { SceneHandleAllocator } from "./sceneHandleAllocator";
 
-enum SceneComponentCount {
-  Position = 2,
-  UnitVector = 3,
-}
-
-enum ScenePositionOffset {
-  Longitude = 0,
-  Latitude = 1,
-}
-
-enum SceneUnitVectorOffset {
-  X = 0,
-  Y = 1,
-  Z = 2,
-}
-
 enum SceneDefault {
   Timestamp = 0,
 }
 
 export enum SceneCodecErrorKind {
-  InvalidAttributeStride = "The scene attribute stride must be a nonnegative integer",
   DuplicateSceneId = "A scene patch must contain unique scene identifiers",
   InvalidGeometry = "The scene geometry must contain valid topology",
   InvalidPatchMembership = "A scene entity cannot be both upserted and deleted",
@@ -69,7 +60,6 @@ export type ScenePatchCodecOptions<
   TRecord extends DatasetEntity,
 > = Readonly<{
   source: RenderSourceId;
-  attributeStride: number;
   records: (entity: TEntity) => readonly TRecord[];
   position: (record: TRecord) => GeoPoint;
   motionPosition?: (record: TRecord) => GeoPoint;
@@ -80,7 +70,6 @@ export type ScenePatchCodecOptions<
     target: Float32Array<ArrayBuffer>,
     offset: number,
   ) => void;
-  stringAttributeStride?: number;
   writeStringAttributes?: (
     record: TRecord,
     target: Uint32Array<ArrayBuffer>,
@@ -130,14 +119,6 @@ type ScenePatchAllocation = Readonly<{
   stringAttributes: Uint32Array<ArrayBuffer>;
 }>;
 
-type SceneGeometryBuffers = Readonly<{
-  geometryKinds: Uint8Array<ArrayBuffer>;
-  geometryCoordinates: Float64Array<ArrayBuffer>;
-  geometryPartEnds: Uint32Array<ArrayBuffer>;
-  geometryGroupEnds: Uint32Array<ArrayBuffer>;
-  geometryRecordEnds: Uint32Array<ArrayBuffer>;
-}>;
-
 type SceneGeometryAllocation = {
   kinds: number[];
   coordinates: number[];
@@ -164,12 +145,6 @@ export function sceneTimestamp(entity: SceneTimestampedEntity): number {
   return Number.isFinite(timestamp) ? timestamp : SceneDefault.Timestamp;
 }
 
-function validateAttributeStride(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new SceneCodecError(SceneCodecErrorKind.InvalidAttributeStride);
-  }
-}
-
 export class ScenePatchCodec<
   TEntity extends DatasetEntity,
   TRecord extends DatasetEntity = TEntity,
@@ -178,17 +153,18 @@ export class ScenePatchCodec<
   private readonly dictionaryValues: string[] = [];
   private readonly entityIdBySceneId = new Map<string, string>();
   private readonly handleAllocator = new SceneHandleAllocator();
+  private readonly attributeStride: number;
   private readonly motionPositionStride: number;
   private readonly options: ScenePatchCodecOptions<TEntity, TRecord>;
   private readonly sceneIdsByEntityId = new Map<string, Set<string>>();
   private readonly stringAttributeStride: number;
 
   constructor(options: ScenePatchCodecOptions<TEntity, TRecord>) {
-    validateAttributeStride(options.attributeStride);
-    this.stringAttributeStride = options.stringAttributeStride ?? 0;
-    validateAttributeStride(this.stringAttributeStride);
+    const sceneSchema = getPointSourceDefinition(options.source).sceneSchema;
+    this.attributeStride = sceneSchema.attributeStride;
+    this.stringAttributeStride = sceneSchema.stringAttributeStride;
     this.motionPositionStride = options.motionPosition
-      ? SceneComponentCount.Position
+      ? SCENE_POSITION_COUNT
       : 0;
     this.options = options;
   }
@@ -217,7 +193,7 @@ export class ScenePatchCodec<
       kind: patch.kind,
       ...allocation,
       ...geometry,
-      attributeStride: this.options.attributeStride,
+      attributeStride: this.attributeStride,
       motionPositionStride: this.motionPositionStride,
       stringAttributeStride: this.stringAttributeStride,
       dictionaryStart,
@@ -255,13 +231,17 @@ export class ScenePatchCodec<
       handles: new Uint32Array(count),
       sceneIds: new Array<string>(count),
       entityIds: new Array<string>(count),
-      positions: new Float64Array(count * SceneComponentCount.Position),
+      positions: new Float64Array(
+        count * SCENE_POSITION_COUNT,
+      ),
       motionPositions: new Float64Array(
         count * this.motionPositionStride,
       ),
-      unitVectors: new Float32Array(count * SceneComponentCount.UnitVector),
+      unitVectors: new Float32Array(
+        count * SCENE_UNIT_VECTOR_COUNT,
+      ),
       timestamps: new Float64Array(count),
-      attributes: new Float32Array(count * this.options.attributeStride),
+      attributes: new Float32Array(count * this.attributeStride),
       stringAttributes: new Uint32Array(
         count * this.stringAttributeStride,
       ),
@@ -329,7 +309,8 @@ export class ScenePatchCodec<
       );
     }
     allocation.partEnds.push(
-      allocation.coordinates.length / SceneComponentCount.Position,
+      allocation.coordinates.length /
+        SCENE_POSITION_COUNT,
     );
   }
 
@@ -356,7 +337,7 @@ export class ScenePatchCodec<
     this.options.writeAttributes(
       projected.record,
       allocation.attributes,
-      index * this.options.attributeStride,
+      index * this.attributeStride,
     );
     this.options.writeStringAttributes?.(
       projected.record,
@@ -372,7 +353,8 @@ export class ScenePatchCodec<
     longitude: number,
     latitude: number,
   ): void {
-    const positionOffset = index * SceneComponentCount.Position;
+    const positionOffset =
+      index * SCENE_POSITION_COUNT;
     allocation.positions[
       positionOffset + ScenePositionOffset.Longitude
     ] = longitude;
@@ -381,7 +363,8 @@ export class ScenePatchCodec<
     ] = latitude;
 
     const unit = geographicToUnitVector(latitude, longitude);
-    const unitOffset = index * SceneComponentCount.UnitVector;
+    const unitOffset =
+      index * SCENE_UNIT_VECTOR_COUNT;
     allocation.unitVectors[unitOffset + SceneUnitVectorOffset.X] = unit.x;
     allocation.unitVectors[unitOffset + SceneUnitVectorOffset.Y] = unit.y;
     allocation.unitVectors[unitOffset + SceneUnitVectorOffset.Z] = unit.z;
@@ -463,7 +446,7 @@ export class ScenePatchCodec<
     const minimum =
       kind === SceneGeometryKind.Polygon
         ? GeoLimit.MinRingPointCount
-        : SceneComponentCount.Position;
+        : SCENE_POSITION_COUNT;
     const first = part[0];
     const last = part.at(-1);
     if (

@@ -1,4 +1,3 @@
-import { POINT_UI_QUERY_POLICY } from "@/features/base/uiQueryPolicy";
 import type {
   DatasetEntity,
   DatasetPatch,
@@ -10,12 +9,18 @@ import {
   type PointSourceRuntime,
   type PointSourceSchedule,
 } from "@/workers/data/sourceRuntime";
-import type { PointUiQueries, TimestampedPoint } from "@/workers/data/uiQuery";
-import type { PointType } from "@shared/domain/pointType";
-import type { SourceCompletenessPolicy } from "@shared/domain/sourcePolicy";
+import type { TimestampedPoint } from "@/workers/data/uiQuery";
+import type { PointSourceDefinition } from "@shared/domain/pointSource";
 import type { SourceStatus } from "@shared/domain/sourceStatus";
-import type { SourceId } from "@shared/source";
+import type { RenderSourceId, SourceId } from "@shared/source";
 import type { CacheKey } from "@shared/domain/cache";
+import { geoPointsEqual } from "@shared/geo";
+import { SourceCompleteness } from "@shared/source";
+import {
+  recordPosition,
+  type PositionedRecord,
+} from "@/workers/data/source-model/position";
+import type { RemoteSource } from "@/workers/data/source-model/remoteSource";
 
 export enum SourceDomainKind {
   Geo = "geo",
@@ -37,15 +42,6 @@ export enum EntityLifetime {
   Ephemeral = "ephemeral",
   Persistent = "persistent",
 }
-
-export type SourcePolicy = Readonly<{
-  id: SourceId;
-  cacheKey: CacheKey;
-  pollIntervalMs: number;
-  retryIntervalMs?: number;
-  completeness: SourceCompletenessPolicy;
-  emptyResultIsComplete: boolean;
-}>;
 
 export type SourceRecord = DatasetEntity & TimestampedPoint;
 
@@ -76,8 +72,7 @@ export type DataSourceRuntimeOptions = Readonly<{
 
 export abstract class DataSource<TEntity extends SourceRecord> {
   abstract readonly kind: SourceDomainKind;
-  abstract readonly policy: SourcePolicy;
-  abstract readonly queries: PointUiQueries<TEntity>;
+  abstract readonly policy: PointSourceDefinition;
 
   protected abstract parseCache(value: unknown): readonly TEntity[] | null;
   protected abstract fetchSnapshot(): Promise<
@@ -102,12 +97,10 @@ export abstract class DataSource<TEntity extends SourceRecord> {
     this.attachedHost = host;
     this.runtime = createPointSourceRuntime<TEntity>({
       id: this.policy.id,
-      cacheKey: this.policy.cacheKey,
       pollIntervalMs: this.policy.pollIntervalMs,
       ...(this.policy.retryIntervalMs === undefined
         ? {}
         : { retryIntervalMs: this.policy.retryIntervalMs }),
-      maxQueryItems: POINT_UI_QUERY_POLICY.datasetQueryLimit,
       hasChanged: (previous, next) => this.hasChanged(previous, next),
       readCache: () => host.readCache(this.policy.cacheKey),
       parseCache: (value) => this.parseCache(value),
@@ -176,7 +169,6 @@ export abstract class GeoDataSource<
   abstract readonly carrier: GeoCarrier;
   abstract readonly motion: GeoMotion;
   abstract readonly lifetime: EntityLifetime;
-  abstract readonly pointType: PointType;
 
   publishRebase(): void {
     const patch = this.requireRuntime().rebase();
@@ -188,4 +180,104 @@ export abstract class StationaryGeoDataSource<
   TEntity extends SourceRecord,
 > extends GeoDataSource<TEntity> {
   readonly motion = GeoMotion.Stationary;
+}
+export type PointSourceOptions<TEntity extends SourceRecord> = Readonly<{
+  fetchPoints?: () => Promise<readonly TEntity[]>;
+  fetchSnapshot?: () => Promise<PointSourceFetchSnapshot<TEntity>>;
+  now?: () => number;
+  patchObservers?: readonly SourcePatchObserver<TEntity>[];
+  schedule?: PointSourceSchedule;
+}>;
+
+export type PointSourceSpec<
+  TEntity extends SourceRecord,
+  TId extends RenderSourceId = RenderSourceId,
+> = Readonly<{
+  policy: PointSourceDefinition<TId>;
+  carrier: GeoCarrier;
+  parseCache: (value: unknown) => readonly TEntity[] | null;
+  fetchSnapshot: () => Promise<PointSourceFetchSnapshot<TEntity>>;
+  hasChanged: (previous: TEntity, next: TEntity) => boolean;
+  failureStatus?: (error: unknown) => SourceStatus;
+  patchObservers?: readonly SourcePatchObserver<TEntity>[];
+  schedule?: PointSourceSchedule;
+}>;
+
+/** One geo source described by its spec instead of a subclass. */
+abstract class SpecPointSource<
+  TId extends RenderSourceId,
+  TEntity extends SourceRecord,
+> extends GeoDataSource<TEntity> {
+  readonly policy: PointSourceDefinition<TId>;
+  readonly carrier: GeoCarrier;
+  readonly lifetime = EntityLifetime.Ephemeral;
+
+  private readonly spec: PointSourceSpec<TEntity, TId>;
+
+  constructor(spec: PointSourceSpec<TEntity, TId>) {
+    super(spec.patchObservers ?? [], {
+      ...(spec.failureStatus ? { failureStatus: spec.failureStatus } : {}),
+      ...(spec.schedule ? { schedule: spec.schedule } : {}),
+    });
+    this.spec = spec;
+    this.policy = spec.policy;
+    this.carrier = spec.carrier;
+  }
+
+  protected parseCache(value: unknown): readonly TEntity[] | null {
+    return this.spec.parseCache(value);
+  }
+
+  protected fetchSnapshot(): Promise<PointSourceFetchSnapshot<TEntity>> {
+    return this.spec.fetchSnapshot();
+  }
+
+  protected hasChanged(previous: TEntity, next: TEntity): boolean {
+    return this.spec.hasChanged(previous, next);
+  }
+}
+
+export class StationaryPointSource<
+  TId extends RenderSourceId,
+  TEntity extends SourceRecord,
+> extends SpecPointSource<TId, TEntity> {
+  readonly motion = GeoMotion.Stationary;
+}
+
+export class MovingPointSource<
+  TId extends RenderSourceId,
+  TEntity extends SourceRecord,
+> extends SpecPointSource<TId, TEntity> {
+  readonly motion = GeoMotion.Moving;
+}
+
+/** A test double overrides the feed; production reads the feed. */
+export function feedFetch<TEntity extends SourceRecord>(
+  options: PointSourceOptions<TEntity>,
+  feed: RemoteSource<TEntity>,
+): () => Promise<PointSourceFetchSnapshot<TEntity>> {
+  const now = options.now ?? Date.now;
+  if (options.fetchSnapshot) return options.fetchSnapshot;
+  const fetchPoints = options.fetchPoints;
+  if (!fetchPoints) return () => feed.fetchSnapshot(now);
+  return async () => ({
+    completeness: SourceCompleteness.Complete,
+    entities: await fetchPoints(),
+    observedAt: now(),
+  });
+}
+
+type ChangeableRecord<TData> = PositionedRecord &
+  Readonly<{ timestamp?: string; data: TData }>;
+
+export function recordChanged<TData>(
+  dataEquals: (previous: TData, next: TData) => boolean,
+): (
+  previous: ChangeableRecord<TData>,
+  next: ChangeableRecord<TData>,
+) => boolean {
+  return (previous, next) =>
+    !geoPointsEqual(recordPosition(previous), recordPosition(next)) ||
+    previous.timestamp !== next.timestamp ||
+    !dataEquals(previous.data, next.data);
 }

@@ -1,37 +1,28 @@
 import { firstNumber } from "../../shared/types/numbers";
 import { MS_PER_SECOND } from "../../shared/time";
 import { Domain } from "@shared/domain/identity";
-// ── adsb.fi server-side aircraft cache ───────────────────────────────
-// Replaces the inline OpenSky client fetch. The browser never hits
-// opendata.adsb.fi directly — the server runs a tile-based polling
-// sweep here, merges + dedups results, and serves them via
-// /api/aircraft/states behind guardAuth (same pattern as fires/events/
-// cyclones).
-//
-// Why server-side:
-//   - adsb.fi enforces 1 req/sec/IP. Doing this from each browser
-//     would burn the per-IP budget on a single user; from the server
-//     we get one shared budget across the whole user base.
-//   - No CORS dependency; we proxy a same-origin response that already
-//     went through guardAuth.
-//   - Lets us merge tile responses once and serve the dedup'd result
-//     to N clients without N times 108 outbound requests.
-//
-// SSRF (OWASP A10): ADSB_BASE_URL is a hardcoded module constant; the
-// only outbound URLs are templated from AIRCRAFT_TILES (also a module
-// constant) and TILE_RADIUS_NM. No client input flows into any fetch.
-//
-// Sweep budget: 108 tiles with 3 s spacing takes at least 321 s.
-// Sweeps therefore run continuously instead of using an interval.
-// The radius (250 nm) was confirmed against the live v3 endpoint.
-
 import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
-import { fetchWithTimeout, FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
+import {
+  fetchWithTimeout,
+  FETCH_TIMEOUT_LARGE_MS,
+} from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errorMessage";
-import { resolveFixtureOverride, type FixtureOptions, type FixtureOverride } from "../lib/fixtureOverride";
+import { ConfigField } from "../config";
+import {
+  FixtureOverrideOwner,
+  type FixtureOptions,
+} from "../lib/fixtureOverride";
 import { isRecord } from "../../shared/geo";
-import { SourceCompleteness, SourceErrorCode, SourceFreshness, SourcePhase, type SourceError, type SourceState } from "../../shared/source";
+import { HttpHeader, HttpMediaType, HttpStatus } from "../../shared/http";
+import {
+  SourceCompleteness,
+  SourceErrorCode,
+  SourceFreshness,
+  SourcePhase,
+  type SourceError,
+  type SourceState,
+} from "../../shared/source";
 
 const logger = createLogger({ service: "adsbfi" });
 
@@ -50,18 +41,12 @@ enum AircraftMessage {
   SweepFailed = "Aircraft sweep failed",
 }
 
-export {
-  AIRCRAFT_TILES,
-  PRIORITY_TILES,
-  TILE_RADIUS_NM,
-} from "./aircraftTiles";
+export { AIRCRAFT_TILES, TILE_RADIUS_NM } from "./aircraftTiles";
 import {
   AIRCRAFT_TILES,
-  PRIORITY_TILES,
   TILE_RADIUS_NM,
+  type AircraftTile,
 } from "./aircraftTiles";
-
-// ── Types ────────────────────────────────────────────────────────────
 
 type AircraftBody = {
   ac: unknown[];
@@ -75,13 +60,6 @@ type AircraftCache = {
   source: SourceState;
 };
 
-/** Streaming cache state. `current` tracks which hex keys were seen
- *  during the *in-flight* sweep — used at end-of-sweep to prune stale
- *  aircraft from `completed`. `completed` is what reads see; it grows
- *  tile-by-tile during a cold start and refreshes per-tile when warm.
- *  Two separate maps so the prune step is correct even if reads happen
- *  during a sweep — a half-finished sweep can't accidentally erase the
- *  prior warm snapshot. */
 export type SweepState = {
   current: Map<string, unknown>;
   completed: Map<string, unknown>;
@@ -164,8 +142,6 @@ let totalScopes = AIRCRAFT_TILES.length;
 let sourceError: SourceError | null = null;
 let acquisitionController: AbortController | null = null;
 
-// ── Pure helpers (testable) ─────────────────────────────────────────
-
 /** Validate the basic shape of an adsb.fi v3 tile response.
  *  Returns the normalized body or null if the shape is wrong. */
 export function normalizeAdsbPayload(json: unknown): AircraftBody | null {
@@ -173,40 +149,10 @@ export function normalizeAdsbPayload(json: unknown): AircraftBody | null {
   return { ac: json.ac };
 }
 
-/** Merge per-tile results into a single de-duplicated list. Tile discs
- *  overlap, so the same aircraft can appear in multiple responses. We
- *  key on lowercased hex (the ICAO 24-bit address — globally unique).
- *  Records without a usable hex are dropped; later wins so the freshest
- *  positional sample for a given aircraft survives. */
-export function dedupByHex<T>(records: T[]): T[] {
-  const map = new Map<string, T>();
-  for (const record of records) {
-    if (!isRecord(record)) continue;
-    const hex = record.hex;
-    if (typeof hex !== "string" || hex.length === 0) continue;
-    map.set(hex.toLowerCase(), record);
-  }
-  return Array.from(map.values());
-}
-
-let aircraftFixtureOptions: FixtureOptions = {
-  enabled: false,
-  label: undefined,
-};
-
-export function __setAircraftFixtureOptionsForTests(
-  opts: FixtureOptions,
-): void {
-  aircraftFixtureOptions = opts;
-}
-
-export function resolveAircraftFixtureOverride(
-  opts: FixtureOptions = aircraftFixtureOptions,
-): Promise<FixtureOverride | null> {
-  return resolveFixtureOverride("aircraft", "AIRCRAFT_FIXTURE", opts);
-}
-
-// ── Tile fetch ───────────────────────────────────────────────────────
+const aircraftFixtureOverride = new FixtureOverrideOwner(
+  Domain.Aircraft,
+  ConfigField.AircraftFixture,
+);
 
 export type SleepFn = (ms: number) => Promise<void>;
 type NowFn = () => number;
@@ -219,7 +165,7 @@ function remainingRequestDelay(startedAt: number, finishedAt: number): number {
   return Math.max(0, AircraftSourcePolicy.RateLimitDelayMs - elapsedMs);
 }
 
-/** Parse an HTTP `Retry-After` header value (integer seconds form only —
+/** Parse an HTTP `Retry-After` header value (integer seconds form only;
  *  RFC 7231 also allows a date form, but adsb.fi always sends seconds).
  *  Returns the positive integer or null if missing/invalid. */
 export function parseRetryAfter(header: string | null): number | null {
@@ -228,37 +174,16 @@ export function parseRetryAfter(header: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Build the first-sweep tile order: declared priority entries first
- *  in their listed order, followed by the remaining declared tiles.
- *  Equality between tuples is structural, so a `PRIORITY_TILES`
- *  entry that's a fresh tuple is still recognized in `AIRCRAFT_TILES`.
- *
- *  The dedup pass tolerates priority entries that don't appear in `all`
- *  and skips priority duplicates inside `priority` itself. */
 export function buildFirstSweepOrder(
-  priority: ReadonlyArray<readonly [number, number]>,
-  all: ReadonlyArray<readonly [number, number]>,
-): Array<readonly [number, number]> {
-  const isSame = (
-    a: readonly [number, number],
-    b: readonly [number, number],
-  ): boolean => a[0] === b[0] && a[1] === b[1];
-
-  const head: Array<readonly [number, number]> = [];
-  for (const p of priority) {
-    if (!head.some((q) => isSame(q, p))) head.push(p);
-  }
-
-  const tail: Array<readonly [number, number]> = [];
-  for (const a of all) {
-    if (!head.some((q) => isSame(q, a))) tail.push(a);
-  }
-
-  return [...head, ...tail];
+  tiles: readonly AircraftTile[],
+): AircraftTile[] {
+  return [...tiles].sort(
+    ([, , leftRank], [, , rightRank]) =>
+      (leftRank ?? Number.MAX_SAFE_INTEGER) -
+      (rightRank ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
-/** Module-level flag flipped after the very first completed sweep
- *  (success OR empty). Subsequent sweeps use the declared tile order. */
 let firstSweepDone = false;
 
 /** TEST-ONLY: clear the `firstSweepDone` flag so the next runSweep
@@ -283,12 +208,24 @@ export function __resetAircraftCacheForTests(): void {
   firstSweepDone = false;
 }
 
+export enum AircraftTileResultKind {
+  Complete = "complete",
+  Failed = "failed",
+  RateLimited = "rate_limited",
+}
+
 export type AircraftTileResult =
-  | Readonly<{ kind: "complete"; records: unknown[] }>
-  | Readonly<{ kind: "failed"; error: SourceError }>;
+  | Readonly<{
+      kind: AircraftTileResultKind.Complete;
+      records: unknown[];
+    }>
+  | Readonly<{
+      kind: AircraftTileResultKind.Failed;
+      error: SourceError;
+    }>;
 
 type RateLimitedTileResult = Readonly<{
-  kind: "rate_limited";
+  kind: AircraftTileResultKind.RateLimited;
   waitMs: number;
 }>;
 
@@ -299,20 +236,11 @@ export type AircraftTileFetch = (
   lon: number,
 ) => Promise<AircraftTileResult>;
 
-export type AircraftSweepResult = Readonly<{
-  records: unknown[];
-  successfulScopes: number;
-  failedScopes: number;
-  error: SourceError | null;
-}>;
-
-/** One round-trip to a tile. Splits out of fetchTileWithRetry so the
- *  retry loop reads as a pure controller (cognitive-complexity gate). */
 function failedTile(
-  code: SourceError["code"],
+  code: SourceErrorCode,
   message: string,
 ): AircraftTileResult {
-  return { kind: "failed", error: { code, message } };
+  return { kind: AircraftTileResultKind.Failed, error: { code, message } };
 }
 
 async function attemptTileFetch(
@@ -325,8 +253,8 @@ async function attemptTileFetch(
   try {
     response = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS, {
       headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json",
+        [HttpHeader.UserAgent]: USER_AGENT,
+        [HttpHeader.Accept]: HttpMediaType.Json,
       },
     });
   } catch (error) {
@@ -335,12 +263,12 @@ async function attemptTileFetch(
     return failedTile(SourceErrorCode.NetworkError, message);
   }
 
-  if (response.status === 429) {
+  if (response.status === HttpStatus.TooManyRequests) {
     const retryAfterSec = parseRetryAfter(
-      response.headers.get("retry-after"),
+      response.headers.get(HttpHeader.RetryAfter),
     );
     return {
-      kind: "rate_limited",
+      kind: AircraftTileResultKind.RateLimited,
       waitMs:
         retryAfterSec === null
           ? AircraftSourcePolicy.RetryDefaultDelayMs
@@ -361,7 +289,10 @@ async function attemptTileFetch(
       logger.warn(`✈️  ${label}: ${message}`);
       return failedTile(SourceErrorCode.InvalidPayload, message);
     }
-    return { kind: "complete", records: normalized.ac };
+    return {
+      kind: AircraftTileResultKind.Complete,
+      records: normalized.ac,
+    };
   } catch (error) {
     const message = errorMessage(error, "Invalid adsb.fi payload");
     logger.warn(`✈️  ${label}: ${message}`);
@@ -376,7 +307,7 @@ export async function fetchTileWithRetry(
   sleep: SleepFn = defaultSleep,
 ): Promise<AircraftTileResult> {
   const first = await attemptTileFetch(lat, lon);
-  if (first.kind !== "rate_limited") return first;
+  if (first.kind !== AircraftTileResultKind.RateLimited) return first;
 
   logger.info(
     `✈️  adsb.fi rate-limited tile [${lat},${lon}], waiting ${Math.round(
@@ -386,54 +317,19 @@ export async function fetchTileWithRetry(
   await sleep(first.waitMs);
 
   const second = await attemptTileFetch(lat, lon);
-  if (second.kind !== "rate_limited") return second;
+  if (second.kind !== AircraftTileResultKind.RateLimited) return second;
 
   const message = `Rate limited twice for tile [${lat},${lon}]`;
   logger.info(`✈️  adsb.fi: ${message}`);
   return failedTile(SourceErrorCode.RateLimited, message);
 }
 
-/** Walk a tile list with rate-limit spacing between tiles.
- *  The caller owns deduplication of the returned records. */
-export async function sweepTiles(
-  tiles: ReadonlyArray<readonly [number, number]>,
-  fetchFn: AircraftTileFetch,
-  sleep: SleepFn = defaultSleep,
-  now: NowFn = Date.now,
-): Promise<AircraftSweepResult> {
-  const records: unknown[] = [];
-  let successfulScopes = 0;
-  let failedScopes = 0;
-  let error: SourceError | null = null;
-
-  for (let index = 0; index < tiles.length; index++) {
-    const [latitude, longitude] = tiles[index] ?? [0, 0];
-    const requestStartedAt = now();
-    const result = await fetchFn(latitude, longitude);
-    if (result.kind === "complete") {
-      successfulScopes++;
-      records.push(...result.records);
-    } else {
-      failedScopes++;
-      error ??= result.error;
-    }
-    if (index < tiles.length - 1) {
-      const delayMs = remainingRequestDelay(requestStartedAt, now());
-      if (delayMs > 0) await sleep(delayMs);
-    }
-  }
-
-  return { records, successfulScopes, failedScopes, error };
-}
-
-// ── Fetch pipeline ───────────────────────────────────────────────────
-
-/** Inner sweep — exported for tests so ordering + per-tile behavior
+/** Inner sweep; exported for tests so ordering and per-tile behavior
  *  can be exercised without driving the long-lived acquisition loop or
  *  real HTTP. Tests inject fetch and sleep stand-ins.
  *
  *  The very first call after process start (or after
- *  `__resetFirstSweepForTests`) walks `PRIORITY_TILES` then the tail.
+ *  `__resetFirstSweepForTests`) walks ranked tiles first.
  *  Subsequent calls use the declared tile order. */
 function setFixtureFailure(message: string): void {
   sourcePhase = sweepState.completed.size > 0 ? SourcePhase.Degraded : SourcePhase.Unavailable;
@@ -446,7 +342,7 @@ function setFixtureFailure(message: string): void {
 
 /** Returns true when a fixture override served the sweep. */
 async function runFixtureSweep(): Promise<boolean> {
-  const override = await resolveAircraftFixtureOverride();
+  const override = await aircraftFixtureOverride.resolve();
   if (!override) return false;
 
   const normalized = normalizeAdsbPayload(override.body);
@@ -474,11 +370,10 @@ async function runFixtureSweep(): Promise<boolean> {
 
 function recordTileSuccess(
   records: readonly unknown[],
-  metadataDb: Awaited<ReturnType<typeof loadMetadataDb>>,
   observedSoFar: number | null,
 ): number | null {
   const receivedAt = Date.now();
-  const enriched = records.map((record) => enrichRecord(record, metadataDb));
+  const enriched = records.map(enrichRecord);
   const observedAt = ingestTile(sweepState, enriched, receivedAt);
   successfulScopes++;
   sourceSequence++;
@@ -545,10 +440,10 @@ export async function runSweep(
     return;
   }
 
-  const metadataDb = await loadMetadataDb();
+  await loadMetadataDb();
   const ordered = firstSweepDone
     ? AIRCRAFT_TILES
-    : buildFirstSweepOrder(PRIORITY_TILES, AIRCRAFT_TILES);
+    : buildFirstSweepOrder(AIRCRAFT_TILES);
   totalScopes = ordered.length;
   let sweepObservedAt: number | null = null;
 
@@ -556,10 +451,9 @@ export async function runSweep(
     const [latitude, longitude] = ordered[index] ?? [0, 0];
     const requestStartedAt = now();
     const result = await fetchFn(latitude, longitude);
-    if (result.kind === "complete") {
+    if (result.kind === AircraftTileResultKind.Complete) {
       sweepObservedAt = recordTileSuccess(
         result.records,
-        metadataDb,
         sweepObservedAt,
       );
     } else {
@@ -582,8 +476,6 @@ export async function runSweep(
     `✈️  adsb.fi: ${sweepState.completed.size} aircraft, ${successfulScopes}/${totalScopes} tiles`,
   );
 }
-
-// ── Public API ───────────────────────────────────────────────────────
 
 export type AircraftSweepFn = () => Promise<void>;
 
@@ -609,9 +501,9 @@ export async function runAircraftAcquisition(
   }
 }
 
-export function startAircraftPolling(opts?: FixtureOptions): void {
+export function startAircraftPolling(options?: FixtureOptions): void {
   if (acquisitionController !== null) return;
-  if (opts) aircraftFixtureOptions = opts;
+  if (options) aircraftFixtureOverride.configure(options);
   logger.info("✈️  adsb.fi: starting aircraft poll...");
   const controller = new AbortController();
   acquisitionController = controller;

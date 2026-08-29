@@ -3,21 +3,22 @@ import type {
   ProjFn,
   RenderContext2D,
 } from "@/lib/geo/render/types";
+import { GeoLimit } from "@shared/geo";
 
-export const GRID_POLICY = {
+export const GRID_POLICY = Object.freeze({
   parallelStepDegrees: 20,
   parallelMinDegrees: -80,
   parallelMaxDegrees: 80,
   meridianStepDegrees: 30,
-  meridianMinDegrees: -180,
-  meridianMaxDegrees: 180,
+  meridianMinDegrees: GeoLimit.MinLongitude,
+  meridianMaxDegrees: GeoLimit.MaxLongitude,
   sampleStepDegrees: 3,
-  latitudeSpan: 90,
-  longitudeSpan: 180,
+  latitudeSpan: GeoLimit.MaxLatitude,
+  longitudeSpan: GeoLimit.MaxLongitude,
   lineWidth: 0.4,
   alpha: 0.11,
   fallbackColor: "#000",
-} as const;
+});
 
 export type FlatGridConfig = Readonly<{
   isFlat: true;

@@ -125,6 +125,16 @@ The current render sources are:
 
 Each render layer owns its scene schema and presentation behavior. The common scene store owns packed record storage and identity indexes.
 
+`RenderLayerCatalog` owns point-layer draw order. Each point source declares
+one typed marker policy for its size, age, animation, alpha, glow, and selection
+behavior. The shared marker renderer applies that policy; it does not redeclare
+Earthquake, event, or fire values.
+
+The Fire scene carries radiative power as its only numeric attribute. Fire
+confidence remains presentation metadata in the DataWorker record and does not
+control RenderWorker visibility. The Fire layer visibility switch shows every
+confidence level.
+
 ## RenderWorker data handling
 
 The RenderWorker binds the direct data port during its initialization. It creates a `SceneProtocolState` for that session.
@@ -149,7 +159,7 @@ The RenderWorker owns all state that changes a frame:
 - Automatic rotation and rotation speed
 - Layer visibility
 - Aircraft filters
-- Earthquake and fire thresholds
+- Earthquake thresholds
 - Cyclone filters
 - Selection and isolation
 - Search visibility

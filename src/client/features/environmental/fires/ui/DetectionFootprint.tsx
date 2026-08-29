@@ -1,4 +1,4 @@
-import { formatPixelKm } from "../formatters";
+import { formatPixelKm } from "../formatters/units";
 import { kilometersToMeters } from "@/measurements";
 
 enum DetectionFootprintGeometry {

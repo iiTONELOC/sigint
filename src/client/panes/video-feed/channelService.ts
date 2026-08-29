@@ -1,4 +1,4 @@
-import type { Channel } from "./videoFeedTypes";
+import type { Channel, ChannelCatalog } from "./videoFeedTypes";
 import { checkFeatured } from "./videoFeedTypes";
 
 type RawChannel = {
@@ -11,75 +11,89 @@ type RawChannel = {
   is_nsfw: boolean;
 };
 
+enum RawStreamStatus {
+  Error = "error",
+}
+
 type RawStream = {
   channel: string;
   url: string;
-  status: string;
+  status: RawStreamStatus;
 };
 
-let channelCache: Channel[] | null = null;
-let fetchingChannels = false;
-const channelListeners = new Set<() => void>();
+const EMPTY_CHANNEL_CATALOG: ChannelCatalog = {};
 
-export async function fetchNewsChannels(): Promise<Channel[]> {
-  if (channelCache) return channelCache;
-  if (fetchingChannels) {
-    return new Promise((resolve) => {
-      const cb = () => {
-        channelListeners.delete(cb);
-        resolve(channelCache ?? []);
-      };
-      channelListeners.add(cb);
-    });
-  }
-  fetchingChannels = true;
+let channelCache: ChannelCatalog | null = null;
+let channelRequest: Promise<ChannelCatalog> | null = null;
+
+function cacheChannels(channels: ChannelCatalog): ChannelCatalog {
+  channelCache = channels;
+  return channels;
+}
+
+async function loadNewsChannels(): Promise<ChannelCatalog> {
   try {
     const [channelsRes, streamsRes] = await Promise.all([
       fetch("https://iptv-org.github.io/api/channels.json"),
       fetch("https://iptv-org.github.io/api/streams.json"),
     ]);
-    if (!channelsRes.ok || !streamsRes.ok) throw new Error("Failed to fetch");
+    if (!channelsRes.ok || !streamsRes.ok) {
+      return cacheChannels(EMPTY_CHANNEL_CATALOG);
+    }
     const channels: RawChannel[] = await channelsRes.json();
     const streams: RawStream[] = await streamsRes.json();
 
-    const streamMap = new Map<string, string>();
-    for (const s of streams) {
-      if (!s.channel || !s.url || s.status === "error") continue;
-      if (!streamMap.has(s.channel)) streamMap.set(s.channel, s.url);
+    const streamUrlByChannel: Record<string, string> = Object.create(null);
+    for (const stream of streams) {
+      if (
+        !stream.channel ||
+        !stream.url ||
+        stream.status === RawStreamStatus.Error
+      ) {
+        continue;
+      }
+      if (!Object.hasOwn(streamUrlByChannel, stream.channel)) {
+        streamUrlByChannel[stream.channel] = stream.url;
+      }
     }
 
-    const result: Channel[] = [];
-    for (const ch of channels) {
-      if (ch.is_nsfw) continue;
-      const hasNews = ch.categories?.some(
-        (c) => c.toLowerCase() === "news" || c.toLowerCase() === "general",
+    const channelById: Record<string, Channel> = Object.create(null);
+    for (const channel of channels) {
+      if (channel.is_nsfw) continue;
+      const hasNews = channel.categories?.some(
+        (category) =>
+          category.toLowerCase() === "news" ||
+          category.toLowerCase() === "general",
       );
       if (!hasNews) continue;
-      const url = streamMap.get(ch.id);
+      const url = streamUrlByChannel[channel.id];
       if (!url) continue;
-      result.push({
-        id: ch.id,
-        name: ch.name,
-        logo: ch.logo,
+      channelById[channel.id] = {
+        id: channel.id,
+        name: channel.name,
+        logo: channel.logo,
         url,
-        country: ch.country ?? "",
-        languages: ch.languages ?? [],
-        categories: ch.categories ?? [],
-        featured: checkFeatured(ch.name),
-      });
+        country: channel.country ?? "",
+        languages: channel.languages ?? [],
+        featured: checkFeatured(channel.name),
+      };
     }
-    result.sort((a, b) => {
-      if (a.featured !== b.featured) return a.featured ? -1 : 1;
-      return a.name.localeCompare(b.name);
+    const sortedChannels = Object.values(channelById).sort((left, right) => {
+      if (left.featured !== right.featured) return left.featured ? -1 : 1;
+      return left.name.localeCompare(right.name);
     });
-    channelCache = result;
-    channelListeners.forEach((cb) => cb());
-    return result;
+    return cacheChannels(
+      Object.fromEntries(
+        sortedChannels.map((channel) => [channel.id, channel]),
+      ),
+    );
   } catch {
-    channelCache = [];
-    channelListeners.forEach((cb) => cb());
-    return [];
-  } finally {
-    fetchingChannels = false;
+    return cacheChannels(EMPTY_CHANNEL_CATALOG);
   }
+}
+
+export function fetchNewsChannels(): Promise<ChannelCatalog> {
+  if (channelCache) return Promise.resolve(channelCache);
+  channelRequest ??= loadNewsChannels();
+  return channelRequest;
 }

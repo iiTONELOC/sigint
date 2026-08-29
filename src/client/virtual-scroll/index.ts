@@ -1,7 +1,7 @@
-export { useVirtualScroll } from "./hooks";
-export { VirtualScrollPolicy } from "./model";
+export { useVirtualScroll } from "./hooks/useVirtualScroll";
+export { VirtualScrollPolicy } from "./model/policy";
 export {
   calculateVirtualWindow,
   type VirtualWindow,
   type VirtualWindowInput,
-} from "./utils";
+} from "./utils/window";

@@ -1,3 +1,4 @@
-export { useItemSelectHandlers, type ItemSelectHandlers } from "./hooks";
-export { SelectionPulseDurationMs, type SelectionIdSetter } from "./model";
-export { revealThenClear, zoomToThenClear } from "./utils";
+export { useItemSelectHandlers, type ItemSelectHandlers } from "./hooks/useItemSelectHandlers";
+export { SelectionPulseDurationMs } from "./model/policy";
+export type { SelectionIdSetter } from "./model/types";
+export { revealThenClear, zoomToThenClear } from "./utils/pulse";

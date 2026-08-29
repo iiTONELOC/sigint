@@ -1,31 +1,24 @@
-import type { DataPoint } from "@/features/base/dataPoints";
-import { Domain } from "@shared/domain/identity";
-import { useData } from "@/context/DataContext";
+import type { CSSProperties, ReactNode } from "react";
+import type { CyclonePoint } from "../data/codec";
 import { windColor } from "../classification";
 import { useAssetsInCone } from "../hooks/useAssetsInCone";
+import { useCycloneDossier } from "../hooks/useCycloneDossier";
 import { useLandfallEta } from "../hooks/useLandfallEta";
-import { useCycloneModels } from "../hooks/useCycloneModels";
 import { CyclonePlacard } from "./CyclonePlacard";
 import { CycloneThreatStrip } from "./CycloneThreatStrip";
 import { CycloneVitals } from "./CycloneVitals";
 import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "./CycloneForecastMiniMap";
-import { CycloneModelLegend } from "./CycloneModelLegend";
-import { CycloneLayerToggles } from "./CycloneLayerToggles";
 import { CycloneWindRose } from "./CycloneWindRose";
 import { CycloneAssets } from "./CycloneAssets";
-
-// Info-forward cyclone block for the (static) detail pane. Leads with the
-// life-safety read — landfall, vitals, wind field, assets — so users who never
-// open the dossier still get it. Category accent drives every heading via
-// --dossier-accent (windColor); no inline color styles.
+import { CycloneAdvisoryBlock } from "./CycloneAdvisoryBlock";
 
 function DetailSection({
   title,
   children,
 }: {
   readonly title: string;
-  readonly children: React.ReactNode;
+  readonly children: ReactNode;
 }) {
   return (
     <div className="mt-2 pt-2 border-t border-sig-border">
@@ -37,36 +30,64 @@ function DetailSection({
   );
 }
 
-export function CycloneDetailExtras({
-  item,
-}: {
-  readonly item: DataPoint & { type: Domain.Cyclones };
-}) {
-  const d = item.data;
-  const { cycloneFilter, hiddenModels } = useData();
-  const models = useCycloneModels(d.stormId, cycloneFilter.showModels);
-  const visibleModels = models.filter((m) => !hiddenModels.has(m.model));
-  const assets = useAssetsInCone(d.officialCone, d.advisoryNumber);
+export function useCycloneSituation(item: CyclonePoint) {
+  const cyclone = item.data;
+  const accent = windColor(cyclone.maxWindKt);
+  const assets = useAssetsInCone(
+    cyclone.officialCone,
+    cyclone.advisoryNumber,
+  );
   const landfall = useLandfallEta(
-    d.forecast,
+    cyclone.forecast,
     item.lat,
     item.lon,
-    d.advisoryNumber,
-    d.lastUpdate,
+    cyclone.advisoryNumber,
+    cyclone.lastUpdate,
   );
-  const hasForecast = d.forecast.length > 0;
-  const hasRadii =
-    d.windRadii && (d.windRadii.kt34 || d.windRadii.kt50 || d.windRadii.kt64);
+  const { dossier, loading } = useCycloneDossier(item.id);
+  const windRadii = cyclone.windRadii;
+  const hasForecast = cyclone.forecast.length > 0;
+  const hasRadii = Boolean(
+    windRadii && (windRadii.kt34 || windRadii.kt50 || windRadii.kt64),
+  );
   const hasAssets =
-    !!assets && (assets.ships.length > 0 || assets.aircraft.length > 0);
+    assets !== null &&
+    (assets.ships.length > 0 || assets.aircraft.length > 0);
+  return {
+    accent,
+    assets,
+    cyclone,
+    dossier,
+    hasAssets,
+    hasForecast,
+    hasRadii,
+    landfall,
+    loading,
+    windRadii,
+  };
+}
+
+export function CycloneDetailExtras({ item }: { readonly item: CyclonePoint }) {
+  const {
+    accent,
+    assets,
+    cyclone,
+    dossier,
+    hasAssets,
+    hasForecast,
+    hasRadii,
+    landfall,
+    loading,
+    windRadii,
+  } = useCycloneSituation(item);
 
   return (
     <div
       className="@container/dossier flex flex-col gap-1"
-      style={{ "--dossier-accent": windColor(d.maxWindKt) } as React.CSSProperties}
+      style={{ "--dossier-accent": accent } as CSSProperties}
     >
       <div className="mt-2 pt-2 border-t border-sig-border">
-        <CyclonePlacard data={d} issued={d.lastUpdate} compact />
+        <CyclonePlacard data={cyclone} issued={cyclone.lastUpdate} compact />
       </div>
       {landfall && (
         <div className="mt-2 pt-2 border-t border-sig-border">
@@ -74,39 +95,21 @@ export function CycloneDetailExtras({
         </div>
       )}
       <DetailSection title="VITALS">
-        <CycloneVitals data={d} lat={item.lat} lon={item.lon} />
+        <CycloneVitals data={cyclone} position={[item.lon, item.lat]} />
       </DetailSection>
       {hasForecast && (
         <div className="mt-2 pt-2 border-t border-sig-border">
-          <CycloneIntensityCurve storm={d} />
+          <CycloneIntensityCurve storm={cyclone} />
         </div>
       )}
       {hasForecast && (
         <DetailSection title="FORECAST TRACK">
-          <div className="flex flex-col gap-2">
-            <CycloneLayerToggles />
-            <div className="h-72">
-              <CycloneForecastMiniMap
-                current={{ lat: item.lat, lon: item.lon, maxWindKt: d.maxWindKt }}
-                forecast={d.forecast}
-                pastTrack={d.pastTrack}
-                windRadii={d.windRadii}
-                showForecast={cycloneFilter.showForecast}
-                showCone={cycloneFilter.showCone}
-                showWindField={cycloneFilter.showWindField}
-                showModels={cycloneFilter.showModels}
-                models={visibleModels}
-              />
-            </div>
-            {cycloneFilter.showModels && models.length > 0 && (
-              <CycloneModelLegend models={models} />
-            )}
-          </div>
+          <CycloneForecastMiniMap item={item} />
         </DetailSection>
       )}
-      {hasRadii && (
+      {windRadii && hasRadii && (
         <DetailSection title="WIND FIELD">
-          <CycloneWindRose radii={d.windRadii!} />
+          <CycloneWindRose radii={windRadii} />
         </DetailSection>
       )}
       {hasAssets && (
@@ -114,6 +117,11 @@ export function CycloneDetailExtras({
           <CycloneAssets assets={assets} />
         </DetailSection>
       )}
+      <CycloneAdvisoryBlock
+        dossier={dossier}
+        loading={loading}
+        compact
+      />
     </div>
   );
 }

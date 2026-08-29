@@ -25,6 +25,7 @@ import {
   __resetCycloneDossierCacheForTests,
 } from "../../../../src/server/api/cyclonesDossierCache";
 import { unzipSingleEntryKmz } from "../../../../src/server/api/zipReader";
+import { CycloneDossierProductKind } from "@shared/domain/cyclones";
 
 // Real-data cyclone suite.
 // Built ENTIRELY on bytes captured once from live NHC (EP01 2026, Amanda)
@@ -154,10 +155,13 @@ describe("enrichStorms degrades gracefully", () => {
 
 describe("cyclone dossier with real text products", () => {
   test("parseProductHtml extracts a real advisory + discussion body", async () => {
-    const adv = parseProductHtml(await realText("ep012026-public.html"), "advisory");
+    const adv = parseProductHtml(
+      await realText("ep012026-public.html"),
+      CycloneDossierProductKind.Advisory,
+    );
     const dis = parseProductHtml(
       await realText("ep012026-discussion.html"),
-      "discussion",
+      CycloneDossierProductKind.Discussion,
     );
     expect(adv?.body.length ?? 0).toBeGreaterThan(500);
     expect(adv?.advisoryNumber).toBe("8");

@@ -3,7 +3,7 @@ import type {
   RenderSelectionIdentity,
   SelectedIsolateMode,
 } from "@/workers/render/protocol";
-import type { RenderSourceId } from "@/workers/data/sourceIds";
+import type { RenderSourceId } from "@shared/source";
 
 enum SearchRevision {
   Initial = 0,

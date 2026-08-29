@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FireConfidenceLevel,
-  fireFetchError,
-  parseFireFeed,
+  FIRE_FEED,
   type FirePoint,
 } from "@/features/environmental/fires/data/source";
+import { SourceFetchFailure } from "@/workers/data/source-model/remoteSource";
 import type { DataWorkerSourceSnapshot } from "@/workers/data/protocol";
 import {
   PointSourceCacheSchema,
@@ -12,12 +11,10 @@ import {
 } from "@/workers/data/sourceRuntime";
 import {
   FireHttpStatus,
-  FireSceneBinding,
+  fireSceneBinding,
   FireSource,
 } from "@/workers/data/sources/fires";
-import {
-  FireSceneAttribute,
-} from "@/workers/render/scene/fireSchema";
+import { FireSceneAttribute } from "@shared/scene";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
@@ -58,8 +55,25 @@ function point(
   };
 }
 
+async function feedPoints(
+  data: readonly unknown[],
+): Promise<readonly FirePoint[]> {
+  const snapshot = await FIRE_FEED.fetchSnapshot(
+    Date.now,
+    async () => Response.json({ data }),
+  );
+  return snapshot.entities;
+}
+
+function serviceUnavailable(): Error {
+  return FIRE_FEED.failure(
+    SourceFetchFailure.Request,
+    FireHttpStatus.ServiceUnavailable,
+  );
+}
+
 describe("fire scene source", () => {
-  test("validates the complete feed without truncation", () => {
+  test("validates the complete feed without truncation", async () => {
     const minutesPerDay = HOURS_PER_DAY * MINUTES_PER_HOUR;
     const data = Array.from(
       { length: FireFeedFixture.Count },
@@ -82,7 +96,7 @@ describe("fire scene source", () => {
       },
     );
 
-    const points = parseFireFeed({ data });
+    const points = await feedPoints(data);
 
     expect(points).toHaveLength(FireFeedFixture.Count);
     expect(points.at(-1)?.data.frp).toBe(
@@ -90,7 +104,7 @@ describe("fire scene source", () => {
     );
   });
 
-  test("collapses a repeated FIRMS identity", () => {
+  test("collapses a repeated FIRMS identity", async () => {
     const repeated = {
       lat: -14.4192,
       lon: 34.9362,
@@ -102,9 +116,11 @@ describe("fire scene source", () => {
     };
     const distinct = { ...repeated, lat: -15.5, frp: 7 };
 
-    const points = parseFireFeed({
-      data: [repeated, { ...repeated, frp: 34 }, distinct],
-    });
+    const points = await feedPoints([
+      repeated,
+      { ...repeated, frp: 34 },
+      distinct,
+    ]);
 
     expect(points).toHaveLength(2);
     expect(new Set(points.map((item) => item.id)).size).toBe(2);
@@ -113,7 +129,7 @@ describe("fire scene source", () => {
     ).toBe(34);
   });
 
-  test("uses stable source identity and observation time", () => {
+  test("uses stable source identity and observation time", async () => {
     const input = {
       lat: 30,
       lon: -80,
@@ -123,8 +139,8 @@ describe("fire scene source", () => {
       confidence: "high",
       frp: 50,
     };
-    const first = parseFireFeed({ data: [input] });
-    const second = parseFireFeed({ data: [input] });
+    const first = await feedPoints([input]);
+    const second = await feedPoints([input]);
 
     expect(first[0]?.id).toBe(second[0]?.id);
     expect(first[0]?.timestamp).toBe(
@@ -137,7 +153,7 @@ describe("fire scene source", () => {
     let observedAt = FireTestInstant.SceneNow;
     const patches: SceneSourcePatch[] = [];
     const searches: SceneSourceSearch[] = [];
-    const binding = new FireSceneBinding((command) => {
+    const binding = fireSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         patches.push(command);
       } else {
@@ -174,9 +190,6 @@ describe("fire scene source", () => {
         FireSceneAttribute.RadiativePower
       ],
     ).toBe(10);
-    expect(
-      patches[0]?.attributes[FireSceneAttribute.Confidence],
-    ).toBe(FireConfidenceLevel.Nominal);
     expect(Array.from(searches[0]?.handles ?? [])).toEqual([1]);
     expect(Array.from(patches[1]?.deletedHandles ?? [])).toEqual([
       1,
@@ -192,7 +205,7 @@ describe("fire scene source", () => {
     const persisted: Array<PointSourceCacheSnapshot<FirePoint>> = [];
     let fetchCount = 0;
     let currentTime = FireTestInstant.SceneNow;
-    const binding = new FireSceneBinding((command) => {
+    const binding = fireSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         patches.push(command);
       }
@@ -245,7 +258,7 @@ describe("fire scene source", () => {
     const snapshots: DataWorkerSourceSnapshot[] = [];
     const source = new FireSource({
       fetchPoints: async () => {
-        throw fireFetchError(FireHttpStatus.ServiceUnavailable);
+        throw serviceUnavailable();
       },
       now: () => FireTestInstant.SceneNow,
       schedule: () => () => undefined,
@@ -273,7 +286,7 @@ describe("fire scene source", () => {
     const snapshots: DataWorkerSourceSnapshot[] = [];
     const source = new FireSource({
       fetchPoints: async () => {
-        throw fireFetchError(FireHttpStatus.ServiceUnavailable);
+        throw serviceUnavailable();
       },
       schedule: () => () => undefined,
     });

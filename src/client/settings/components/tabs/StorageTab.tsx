@@ -6,13 +6,9 @@ import {
   Upload,
 } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
-import {
-  settingsCacheMetadata,
-  SettingsCacheGroup,
-  SettingsClassName,
-  SettingsIconSize,
-} from "../../model";
-import { formatBytes } from "../../formatters";
+import { settingsCacheMetadata, SettingsCacheGroup } from "../../model/cache";
+import { SettingsClassName, SettingsIconSize } from "../../model/presentation";
+import { formatBytes } from "../../formatters/bytes";
 
 type StorageTabProps = Readonly<{
   confirmClearAll: boolean;

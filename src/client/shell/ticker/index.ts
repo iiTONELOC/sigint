@@ -1,1 +1,1 @@
-export { TickerSpeedPolicy } from "./model";
+export { TickerSpeedPolicy } from "./model/speed";

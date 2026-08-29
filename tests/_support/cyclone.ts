@@ -6,7 +6,7 @@ import {
   type CycloneData,
   type ForecastPoint,
   type PastTrackPoint,
-} from "@/features/environmental/cyclones/types";
+} from "@shared/domain/cyclones";
 import type { CyclonePoint } from "@/features/environmental/cyclones/data/codec";
 
 export const TEST_CYCLONE_FORECAST: ForecastPoint = {

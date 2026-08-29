@@ -10,7 +10,7 @@ import {
   type LandfallIndex,
   LandfallKind,
 } from "../data/landfall";
-import type { ForecastPoint } from "../types";
+import type { ForecastPoint } from "@shared/domain/cyclones";
 
 export enum LandfallTone {
   Critical = "critical",

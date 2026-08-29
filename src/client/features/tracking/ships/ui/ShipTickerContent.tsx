@@ -1,10 +1,13 @@
 import {
-  AisHeading,
-  ShipDataLabel,
+  AIS_HEADING_UNAVAILABLE,
+  AisNavigationStatus,
+  SHIP_UNKNOWN_LABEL,
   type ShipData,
-} from "../types";
+} from "@shared/domain/ships";
+import { EMPTY_TEXT } from "@shared/text";
 import type { TickerRendererProps } from "@/features/base/presentation";
 import { formatKtShort } from "@/measurements";
+import { shipPresentation } from "../formatters/presentation";
 
 enum ShipTickerClassName {
   DimLine = "leading-snug text-sig-dim text-(length:--sig-text-sm)",
@@ -12,28 +15,23 @@ enum ShipTickerClassName {
 
 export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   const d = data as ShipData;
-  const label = d.name ||
-    (d.mmsi ? `MMSI ${d.mmsi}` : ShipDataLabel.Unknown);
-  const type =
-    d.vesselType && d.vesselType !== ShipDataLabel.Unknown
-      ? d.vesselType
-      : "";
+  const presentation = shipPresentation(d, d.mmsi ? `MMSI ${d.mmsi}` : SHIP_UNKNOWN_LABEL);
+  const type = presentation.vesselType ?? EMPTY_TEXT;
 
   const speedText =
-    d.speed != null && d.speed > 0
-      ? formatKtShort(d.speed)
+    d.sog != null && d.sog > 0
+      ? formatKtShort(d.sog)
       : "0kn";
 
   const hdg =
-    d.heading != null && d.heading < AisHeading.Unavailable
+    d.heading != null && d.heading < AIS_HEADING_UNAVAILABLE
       ? `${d.heading}°`
       : "---";
 
-  const navStatus =
-    d.navStatusLabel &&
-    d.navStatusLabel !== ShipDataLabel.NavigationUndefined
-      ? d.navStatusLabel
-      : "";
+  const navStatus = d.navStatus === undefined ||
+    d.navStatus === AisNavigationStatus.NotDefined
+    ? ""
+    : presentation.navigation.fullLabel;
 
   const dest = d.destination ? `→ ${d.destination}` : "";
   const mmsiLabel = d.mmsi ? `MMSI ${d.mmsi}` : "";
@@ -45,7 +43,7 @@ export function ShipTickerContent({ data }: Readonly<TickerRendererProps>) {
   return (
     <>
       <div className="leading-snug text-sig-text text-(length:--sig-text-md)">
-        {label} {type} {speedText}
+        {presentation.name} {type} {speedText}
       </div>
       {metaParts && (
         <div className={ShipTickerClassName.DimLine}>

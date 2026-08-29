@@ -11,7 +11,7 @@ import {
   PaneMobileRatio,
   PaneType,
   SplitDirection,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import { DomEvent } from "@/runtime";
 import { flushReactUpdates } from "../../../../support/react";
 import {

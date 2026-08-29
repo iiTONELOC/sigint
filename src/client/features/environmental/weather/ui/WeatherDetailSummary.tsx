@@ -3,15 +3,15 @@ import {
   MINUTES_PER_HOUR,
   MS_PER_MINUTE,
 } from "@shared/time";
-import { DetailField, DetailFieldAlign } from "@/dossier";
+import { DetailField } from "@/dossier";
+import { PanelSide } from "@/layout-mode";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
-import type { WeatherPoint } from "../types";
-import {
-  WeatherSeverity,
-  weatherSeverityLabel,
-} from "../severity";
+import type { CSSProperties } from "react";
+import type { DataPoint } from "@/features/base/dataPoints";
+import { Domain } from "@shared/domain/identity";
 import { unwrapNwsText, weatherAreas } from "../text";
-import { WeatherCopy } from "../formatters";
+import { WeatherCopy, weatherSeverityLabel } from "../formatters/presentation";
+import { weatherSeverityInk } from "../render";
 
 enum WeatherDetailText {
   Expired = "expired",
@@ -29,31 +29,7 @@ enum WeatherDetailClassName {
   Instruction = "mt-3 pt-3 border-t border-sig-border/50",
   InstructionLabel = "text-(length:--sig-text-xs) tracking-widest font-semibold mb-1",
   InstructionBody = "text-(length:--sig-text-xs) text-sig-bright leading-relaxed line-clamp-5 whitespace-pre-line",
-}
-
-enum WeatherSeverityClassName {
-  Slate = "text-[#6b7a8d]",
-  Blue = "text-[#5c7cfa]",
-  Violet = "text-[#9775fa]",
-  Magenta = "text-[#cc5de8]",
-  Pink = "text-[#e64980]",
-}
-
-function weatherSeverityClassName(
-  severity: WeatherSeverity,
-): WeatherSeverityClassName {
-  switch (severity) {
-    case WeatherSeverity.Minor:
-      return WeatherSeverityClassName.Blue;
-    case WeatherSeverity.Moderate:
-      return WeatherSeverityClassName.Violet;
-    case WeatherSeverity.Severe:
-      return WeatherSeverityClassName.Magenta;
-    case WeatherSeverity.Extreme:
-      return WeatherSeverityClassName.Pink;
-    default:
-      return WeatherSeverityClassName.Slate;
-  }
+  Severity = "text-(--dossier-accent)",
 }
 
 function fmtExpires(expires: string | undefined): string {
@@ -76,26 +52,29 @@ function fmtExpires(expires: string | undefined): string {
 export function WeatherDetailSummary({
   item,
 }: {
-  readonly item: WeatherPoint;
+  readonly item: DataPoint;
 }) {
+  if (item.type !== Domain.Weather) return null;
   const data = item.data;
-  const severityClassName = weatherSeverityClassName(data.severity);
   const areaCount = weatherAreas(data.areaDesc).length;
 
   return (
-    <div className={WeatherDetailClassName.Root}>
+    <div
+      className={WeatherDetailClassName.Root}
+      style={{ "--dossier-accent": weatherSeverityInk(data.severity) } as CSSProperties}
+    >
       <div className={WeatherDetailClassName.Header}>
         <div className={WeatherDetailClassName.HeaderText}>
           <div className={WeatherDetailClassName.Event}>
             {data.event ?? WeatherCopy.Alert}
           </div>
           <div className={WeatherDetailClassName.Eyebrow}>
-            WEATHER ALERT
+            {WeatherCopy.Alert.toUpperCase()}
             {data.urgency ? ` · ${data.urgency}` : EMPTY_TEXT}
           </div>
         </div>
         <span
-          className={`${WeatherDetailClassName.Badge} ${severityClassName}`}
+          className={`${WeatherDetailClassName.Badge} ${WeatherDetailClassName.Severity}`}
         >
           {weatherSeverityLabel(data.severity)}
         </span>
@@ -107,7 +86,7 @@ export function WeatherDetailSummary({
           <DetailField
             label="CERTAINTY"
             value={data.certainty ?? NO_VALUE}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
         <div className={WeatherDetailClassName.FactRow}>
@@ -115,14 +94,14 @@ export function WeatherDetailSummary({
           <DetailField
             label="AREAS"
             value={areaCount > 0 ? String(areaCount) : NO_VALUE}
-            align={DetailFieldAlign.Right}
+            align={PanelSide.Right}
           />
         </div>
       </div>
 
       {data.instruction && (
         <div className={WeatherDetailClassName.Instruction}>
-          <div className={`${WeatherDetailClassName.InstructionLabel} ${severityClassName}`}>
+          <div className={`${WeatherDetailClassName.InstructionLabel} ${WeatherDetailClassName.Severity}`}>
             PROTECTIVE ACTION
           </div>
           <div className={WeatherDetailClassName.InstructionBody}>

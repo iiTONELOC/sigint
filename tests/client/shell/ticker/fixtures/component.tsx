@@ -2,13 +2,12 @@ import {
   mock,
   type Mock,
 } from "bun:test";
-import { type SetStateAction } from "react";
 import { Domain } from "@shared/domain/identity";
-import { ThemeProvider } from "@/context/ThemeContext";
+import { ThemeProvider } from "@/theme";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { CacheKey } from "@shared/domain/cache";
-import { cacheSet } from "@/lib/cache/storageService";
-import { setUnitsMode, UnitMode } from "@/preferences/units";
+import { setUnitsMode } from "@/preferences/units/store";
+import { UnitMode } from "@/preferences/units/model";
+import { setTickerSpeed } from "@/preferences";
 import {
   renderReact,
   type ReactRenderResult,
@@ -254,18 +253,13 @@ let selectAndZoom: Mock<(item: DataPoint) => void> = mock(
   (_item: DataPoint) => undefined,
 );
 
-mock.module("@/context/DataContext", () => ({
-  useData: () => ({
-    activeCount: TickerFixtureCount.Empty,
-    chromeHidden: false,
+mock.module("@/context/UIContext", () => ({
+  useUI: () => ({
     colorMap: {
       [Domain.Aircraft]: TickerFixtureColor.Accent,
     },
-    counts: {},
-    dataSources: [],
     selectAndZoom,
     selectedCurrent: null,
-    setChromeHidden: (_value: SetStateAction<boolean>) => undefined,
   }),
 }));
 
@@ -340,7 +334,7 @@ export async function resetTickerComponentFixture(): Promise<void> {
   selectAndZoom = mock((_item: DataPoint) => undefined);
   installTickerEnvironment();
   await Promise.all([
-    cacheSet(CacheKey.TickerSpeed, TickerSpeedPolicy.Default),
+    setTickerSpeed(TickerSpeedPolicy.Default),
     setUnitsMode(UnitMode.Both),
   ]);
 }
@@ -356,7 +350,7 @@ export function restoreTickerComponentFixture(): void {
 }
 
 export async function setTickerStoppedSpeed(): Promise<void> {
-  await cacheSet(CacheKey.TickerSpeed, TickerSpeedPolicy.Stopped);
+  await setTickerSpeed(TickerSpeedPolicy.Stopped);
 }
 
 export function renderTickerFixture(

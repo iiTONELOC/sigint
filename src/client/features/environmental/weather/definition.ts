@@ -5,14 +5,16 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import type { WeatherData } from "./types";
-import { buildWeatherDetailRows } from "./detailRows";
+import type { WeatherData } from "@shared/domain/weather";
+import { WeatherDetailSummary } from "./ui/WeatherDetailSummary";
 import { WeatherTickerContent } from "./ui/WeatherTickerContent";
 import { weatherSearchText } from "@/features/environmental/weather/data/uiQueries";
 import {
+  primaryWeatherArea,
+  WeatherCopy,
   weatherFeedPresentation,
   weatherTablePresentation,
-} from "./formatters";
+} from "./formatters/presentation";
 
 export const weatherFeature = defineFeature<WeatherData, Domain.Weather>({
   id: Domain.Weather,
@@ -21,12 +23,15 @@ export const weatherFeature = defineFeature<WeatherData, Domain.Weather>({
   iconStyle: FeatureIconStyle.Stroked,
   colorClassName: FeatureColorClassName.Weather,
   includeInRawFeed: true,
+  DetailSummary: WeatherDetailSummary,
 
-  buildDetailRows: buildWeatherDetailRows,
+  alertDetail: (data) => [primaryWeatherArea(data.areaDesc)],
+  buildDetailRows: () => [],
   tablePresentation: weatherTablePresentation,
   feedPresentation: weatherFeedPresentation,
 
   TickerContent: WeatherTickerContent,
+  tickerSummary: (data) => [data.event || WeatherCopy.TickerAlert],
 
   getSearchText: weatherSearchText,
 });

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { Domain } from "@shared/domain/identity";
 import type { DataPoint, DataType } from "@/features/base/dataPoints";
-import { useSourceQuery } from "@/features/base/useSourceQuery";
-import { pointTypeForSource } from "@/workers/data/sources/registry";
+import { useSourceQueries } from "@/features/base/useSourceQuery";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import {
   QUERYABLE_SOURCE_IDS,
   type QueryableSourceId,
@@ -37,6 +37,7 @@ function tableQuery(
   options: SourceTableOptions,
   source: QueryableSourceId,
 ): PointUiQuery | null {
+  if (source === Domain.CycloneWarnings) return null;
   if (options.disabled?.[source]) return null;
   return {
     kind: PointUiQueryKind.Table,
@@ -53,40 +54,9 @@ function tableQuery(
  * filtering and sorting a single main-thread array of every record.
  */
 export function useSourceTables(options: SourceTableOptions): SourceTable {
-  const queries = useMemo(
-    (): Readonly<Record<QueryableSourceId, PointUiQuery | null>> => ({
-      aircraft: tableQuery(options, Domain.Aircraft),
-      // Watch and warning areas are a render layer, not a table row.
-      cycloneWarnings: null,
-      cyclones: tableQuery(options, Domain.Cyclones),
-      earthquake: tableQuery(options, Domain.Earthquake),
-      events: tableQuery(options, Domain.Events),
-      fire: tableQuery(options, Domain.Fire),
-      ships: tableQuery(options, Domain.Ships),
-      weather: tableQuery(options, Domain.Weather),
-    }),
-    [
-      options.sortKey,
-      options.sortDirection,
-      options.limit,
-      options.minValues,
-      options.disabled,
-    ],
+  const results = useSourceQueries(
+    (source) => tableQuery(options, source),
   );
-
-  const results = {
-    aircraft: useSourceQuery(Domain.Aircraft, queries.aircraft),
-    cycloneWarnings: useSourceQuery(
-      Domain.CycloneWarnings,
-      queries.cycloneWarnings,
-    ),
-    cyclones: useSourceQuery(Domain.Cyclones, queries.cyclones),
-    earthquake: useSourceQuery(Domain.Earthquake, queries.earthquake),
-    events: useSourceQuery(Domain.Events, queries.events),
-    fire: useSourceQuery(Domain.Fire, queries.fire),
-    ships: useSourceQuery(Domain.Ships, queries.ships),
-    weather: useSourceQuery(Domain.Weather, queries.weather),
-  };
 
   return useMemo(() => {
     const prefixes: (readonly DataPoint[])[] = [];
@@ -96,7 +66,7 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
     for (const id of QUERYABLE_SOURCE_IDS) {
       const result = results[id];
       if (result?.kind !== PointUiQueryKind.Table) continue;
-      const pointType = pointTypeForSource(id);
+      const pointType = getPointSourceDefinition(id).pointType;
       totals[pointType] = result.total;
       if (options.pointType !== null && options.pointType !== pointType) {
         continue;
@@ -105,14 +75,5 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
       itemCount += result.total;
     }
     return { prefixes, totals, itemCount };
-  }, [
-    results.aircraft,
-    results.cyclones,
-    results.earthquake,
-    results.events,
-    results.fire,
-    results.ships,
-    results.weather,
-    options.pointType,
-  ]);
+  }, [results, options.pointType]);
 }

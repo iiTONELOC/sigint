@@ -2,11 +2,10 @@ import { computeCorrelations } from "@/lib/correlation";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type { QueryableSourceId } from "@/workers/data/queryableSources";
 import {
-  acceptCorrelationDataCommand,
   CorrelationDataCommandType,
   parseCorrelationDataCommand,
-  type CorrelationDataProtocolState,
 } from "@/workers/correlation/dataChannel";
+import { SessionSequenceState } from "@/workers/render/sceneProtocol";
 import {
   CorrelationWorkerMessageType,
   type CorrelationWorkerCommand,
@@ -19,13 +18,10 @@ let dataPort: MessagePort | null = null;
 function bindDataPort(port: MessagePort, sessionId: string): void {
   dataPort?.close();
   dataPort = port;
-  const state: CorrelationDataProtocolState = {
-    sessionId,
-    sequence: 0,
-  };
+  const state = new SessionSequenceState(sessionId);
   port.onmessage = (event: MessageEvent<unknown>) => {
     const command = parseCorrelationDataCommand(event.data);
-    if (!command || !acceptCorrelationDataCommand(state, command)) return;
+    if (!command || !state.accept(command)) return;
     if (command.type === CorrelationDataCommandType.SourceRebase) {
       pointsBySource.set(command.source, command.points);
     }

@@ -4,6 +4,7 @@ import {
   MS_PER_HOUR,
   MS_PER_MINUTE,
 } from "@shared/time";
+import { isOptionalFiniteNumber } from "@shared/types/numbers";
 
 export type TrackSource = Domain.Aircraft | Domain.Ships;
 
@@ -62,11 +63,6 @@ export function isTrackSource(value: unknown): value is TrackSource {
 }
 
 // ── Parse ────────────────────────────────────────────────────────────
-
-function isOptionalFiniteNumber(value: unknown): boolean {
-  return value === undefined ||
-    (typeof value === "number" && Number.isFinite(value));
-}
 
 export function isTrailPoint(value: unknown): value is TrailPoint {
   return (

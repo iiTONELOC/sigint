@@ -1,24 +1,19 @@
 import {
-  beforeEach,
   describe,
   expect,
   mock,
   test,
-  type Mock,
 } from "bun:test";
 import {
   act,
   type ReactElement,
-  type SetStateAction,
 } from "react";
-import { Circle, Table2 } from "lucide-react";
+import { Circle } from "lucide-react";
 import { TooltipPlacement } from "@/components/Tooltip";
 import { DeviceType } from "@/layout-mode";
-import {
-  PaneType,
-  type PaneTypeValue,
-} from "@/panes/workspace/model";
+import { PaneType, type PaneTypeValue } from "@/panes/workspace/model/pane";
 import { DomEvent } from "@/runtime";
+import { PANE_CATALOG } from "@/panes/workspace/paneCatalog";
 import {
   renderReact,
   waitForReact,
@@ -29,7 +24,6 @@ import {
 } from "./PaneHeader.fixture";
 
 enum PaneHeaderFixtureCount {
-  Empty = 0,
   Single = 1,
 }
 
@@ -43,7 +37,7 @@ enum PaneHeaderFixtureProperty {
 
 enum PaneHeaderFixtureText {
   Current = "fixture-current-pane",
-  Option = "fixture-option-pane",
+  Option = "DATA TABLE",
 }
 
 enum PaneHeaderTestErrorMessage {
@@ -60,26 +54,9 @@ type TooltipFixtureProps = Readonly<{
   children: ReactElement;
 }>;
 
-let chromeHidden = false;
-let setChromeHidden: Mock<
-  (value: SetStateAction<boolean>) => void
-> = mock(() => undefined);
-
 mock.module("@/components/Tooltip", () => ({
   Tooltip: ({ children }: TooltipFixtureProps) => children,
   TooltipPlacement,
-}));
-
-mock.module("@/context/DataContext", () => ({
-  useData: () => ({
-    activeCount: PaneHeaderFixtureCount.Empty,
-    chromeHidden,
-    colorMap: {},
-    counts: {},
-    dataSources: [],
-    selectedCurrent: null,
-    setChromeHidden,
-  }),
 }));
 
 mock.module("@/layout-mode", () => ({
@@ -88,14 +65,6 @@ mock.module("@/layout-mode", () => ({
 }));
 
 const { PaneHeader } = await import("@/panes/PaneHeader");
-
-beforeEach(() => {
-  chromeHidden = false;
-  setChromeHidden = mock((value: SetStateAction<boolean>) => {
-    chromeHidden =
-      typeof value === "function" ? value(chromeHidden) : value;
-  });
-});
 
 function requireHeader(container: HTMLDivElement): HTMLElement {
   const header = container.firstElementChild;
@@ -133,6 +102,8 @@ function renderHeader() {
     onDragStart: mock((_leafId: string) => undefined),
     onDrop: mock((_leafId: string) => undefined),
     onMinimize: mock(() => undefined),
+    onToggleMaximize: mock(() => undefined),
+    onToggleFullscreen: mock(() => undefined),
     onSplitH: mock(() => undefined),
     onSplitV: mock(() => undefined),
     onTouchDragStart: mock((_leafId: string) => undefined),
@@ -140,6 +111,7 @@ function renderHeader() {
   const rendered = renderReact(
     <PaneHeader
       icon={Circle}
+      isFullscreen={false}
       label={PaneHeaderFixtureText.Current}
       leafId={PaneHeaderFixtureId.Leaf}
       onChangePaneType={callbacks.onChangePaneType}
@@ -148,16 +120,12 @@ function renderHeader() {
       onDragStart={callbacks.onDragStart}
       onDrop={callbacks.onDrop}
       onMinimize={callbacks.onMinimize}
+      onToggleMaximize={callbacks.onToggleMaximize}
+      onToggleFullscreen={callbacks.onToggleFullscreen}
       onSplitH={callbacks.onSplitH}
       onSplitV={callbacks.onSplitV}
       onTouchDragStart={callbacks.onTouchDragStart}
-      paneOptions={[
-        {
-          icon: Table2,
-          id: PaneType.DataTable,
-          label: PaneHeaderFixtureText.Option,
-        },
-      ]}
+      paneCatalog={PANE_CATALOG}
       paneType={PaneType.Globe}
     />,
   );
@@ -170,6 +138,7 @@ describe("PaneHeader", () => {
     const {
       close,
       fullscreen,
+      maximize,
       minimize,
       splitHorizontal,
       splitVertical,
@@ -179,13 +148,21 @@ describe("PaneHeader", () => {
     }
 
     expect(
-      [splitHorizontal, splitVertical, fullscreen, minimize, close].every(
+      [
+        splitHorizontal,
+        splitVertical,
+        maximize,
+        fullscreen,
+        minimize,
+        close,
+      ].every(
         (button) => (button.getAttribute("aria-label")?.length ?? 0) > 0,
       ),
     ).toBe(true);
     act(() => {
       splitHorizontal.click();
       splitVertical.click();
+      maximize.click();
       fullscreen.click();
       minimize.click();
       close.click();
@@ -200,10 +177,15 @@ describe("PaneHeader", () => {
     expect(fixture.onMinimize).toHaveBeenCalledTimes(
       PaneHeaderFixtureCount.Single,
     );
+    expect(fixture.onToggleMaximize).toHaveBeenCalledTimes(
+      PaneHeaderFixtureCount.Single,
+    );
+    expect(fixture.onToggleFullscreen).toHaveBeenCalledTimes(
+      PaneHeaderFixtureCount.Single,
+    );
     expect(fixture.onClose).toHaveBeenCalledTimes(
       PaneHeaderFixtureCount.Single,
     );
-    expect(chromeHidden).toBe(true);
   });
 
   test("changes the pane type through the label menu", async () => {

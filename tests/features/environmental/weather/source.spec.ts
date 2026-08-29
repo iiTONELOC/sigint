@@ -6,22 +6,21 @@ import {
   type GeoPoint,
 } from "@shared/geo";
 import { parseWeatherCache } from "@/features/environmental/weather/data/codec";
-import { WeatherSeverity } from "@/features/environmental/weather/severity";
 import {
   WeatherAlertSource,
-  WeatherSceneBinding,
-  WEATHER_SOURCE_POLICY,
+  weatherSceneBinding,
 } from "@/features/environmental/weather/source";
 import {
+  WeatherSeverity,
   WeatherTextField,
   type WeatherPoint,
-} from "@/features/environmental/weather/types";
+} from "@shared/domain/weather";
 import { DatasetPatchKind } from "@/workers/data/datasetStore";
 import {
   SceneDataCommandType,
   type SceneSourcePatch,
 } from "@/workers/render/sceneProtocol";
-import { WeatherSceneAttribute } from "@/workers/render/scene/weatherSchema";
+import { WeatherSceneAttribute } from "@shared/scene";
 import { SourceCompleteness } from "@shared/source";
 
 const ALERT_POSITION: GeoPoint = [-97.5, 35.5];
@@ -176,9 +175,10 @@ describe("weather change detection", () => {
 });
 
 describe("weather source policy", () => {
-  test("declares the weather identity once", () => {
-    expect(WEATHER_SOURCE_POLICY.id).toBe(Domain.Weather);
-    expect(new WeatherAlertSource().pointType).toBe(Domain.Weather);
+  test("consumes the registered weather identity", () => {
+    const policy = new WeatherAlertSource().policy;
+    expect(policy.id).toBe(Domain.Weather);
+    expect(policy.pointType).toBe(Domain.Weather);
   });
 });
 
@@ -187,7 +187,7 @@ describe("weather scene publication", () => {
     let entities: readonly WeatherPoint[] = [makeAlert()];
     let observedAt = 1;
     const patches: SceneSourcePatch[] = [];
-    const binding = new WeatherSceneBinding((command) => {
+    const binding = weatherSceneBinding((command) => {
       if (command.type === SceneDataCommandType.SourcePatch) {
         patches.push(command);
       }

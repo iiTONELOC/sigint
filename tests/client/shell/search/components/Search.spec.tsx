@@ -51,7 +51,11 @@ mock.module("@/features/base/useSourceSearch", () => ({
   }),
 }));
 
-mock.module("@/context/ThemeContext", () => ({
+mock.module("@/theme", () => ({
+  getColorMap: () => ({
+    [Domain.Aircraft]: "fixture-aircraft",
+    [Domain.Events]: "fixture-event",
+  }),
   useTheme: () => ({
     theme: {
       colors: {
@@ -71,8 +75,10 @@ const AIRCRAFT_POINT: DataPoint = {
     originCountry: "US",
   },
   id: "aircraft-delta",
-  lat: SearchFixtureCoordinate.Origin,
-  lon: SearchFixtureCoordinate.Origin,
+  position: [
+    SearchFixtureCoordinate.Origin,
+    SearchFixtureCoordinate.Origin,
+  ],
   type: Domain.Aircraft,
 };
 

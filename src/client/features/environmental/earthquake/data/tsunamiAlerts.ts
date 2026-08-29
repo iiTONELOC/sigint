@@ -1,32 +1,16 @@
 import { isRecord } from "@shared/geo";
+import {
+  TsunamiLevel,
+  type TsunamiAlert,
+} from "@shared/domain/earthquakes";
+import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
 
-export enum TsunamiLevel {
-  Warning = "warning",
-  Watch = "watch",
-  Advisory = "advisory",
-}
-
-enum TsunamiEndpoint {
-  ActiveAlerts = "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
-}
-
-enum TsunamiEventPrefix {
-  Tsunami = "tsunami",
-}
-
-export type TsunamiAlert = {
-  id: string;
-  level: TsunamiLevel;
-  event: string;
-  areaDesc: string;
-  headline: string;
-  expires: string;
-};
+const TSUNAMI_EVENT_PREFIX = "tsunami";
 
 function levelOf(event: string): TsunamiLevel | null {
   const normalizedEvent = event.toLowerCase();
   for (const level of Object.values(TsunamiLevel)) {
-    if (normalizedEvent === `${TsunamiEventPrefix.Tsunami} ${level}`) {
+    if (normalizedEvent === `${TSUNAMI_EVENT_PREFIX} ${level}`) {
       return level;
     }
   }
@@ -57,25 +41,18 @@ function toTsunamiAlert(value: unknown): TsunamiAlert | null {
 
 function toTsunamiAlerts(json: unknown): TsunamiAlert[] {
   if (!isRecord(json) || !Array.isArray(json.features)) return [];
-
-  const out: TsunamiAlert[] = [];
-  for (const feature of json.features) {
-    const alert = toTsunamiAlert(feature);
-    if (alert) out.push(alert);
-  }
-  return out;
+  return json.features
+    .map(toTsunamiAlert)
+    .filter((alert): alert is TsunamiAlert => alert !== null);
 }
 
 export async function fetchTsunamiAlerts(): Promise<TsunamiAlert[]> {
   try {
-    const res = await fetch(TsunamiEndpoint.ActiveAlerts, {
-      headers: {
-        "User-Agent": "(sigint-dashboard, osint-tool)",
-        Accept: "application/geo+json",
-      },
+    const response = await fetch(NWS_ALERTS_TRANSPORT.url, {
+      headers: NWS_ALERTS_TRANSPORT.headers,
     });
-    if (!res.ok) return [];
-    return toTsunamiAlerts(await res.json());
+    if (!response.ok) return [];
+    return toTsunamiAlerts(await response.json());
   } catch {
     return [];
   }

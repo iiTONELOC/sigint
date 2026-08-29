@@ -1,9 +1,6 @@
 import type { IntelProduct } from "@/lib/correlation";
 import { IntelProductType } from "@shared/domain/correlation";
-import {
-  INTEL_PRODUCT_PRESENTATION,
-  type IntelProductPresentation,
-} from "../model";
+import { INTEL_PRODUCT_PRESENTATION, type IntelProductPresentation } from "../model/feed";
 
 export type IntelProductSummary = Readonly<{
   count: number;

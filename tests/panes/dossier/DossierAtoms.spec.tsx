@@ -2,19 +2,19 @@ import { describe, expect, mock, test } from "bun:test";
 import { Eye, LocateFixed, Plane } from "lucide-react";
 import type { ComponentProps } from "react";
 import {
+  DossierLinkRow,
+  DossierRow,
+  DossierSection,
   DossierToolbar,
-  IsoBtn,
-  LinkRow,
-  Row,
-  Section,
-} from "@/panes/dossier/DossierAtoms";
+  DossierToggleButton,
+} from "@/dossier";
 import { IsolateMode } from "@/workers/render/protocol";
 import {
   renderReact,
   type ReactRenderResult,
 } from "../../support/react";
 
-type IsoButtonOverrides = Partial<ComponentProps<typeof IsoBtn>>;
+type IsoButtonOverrides = Partial<ComponentProps<typeof DossierToggleButton>>;
 type ToolbarOverrides = Partial<ComponentProps<typeof DossierToolbar>>;
 
 function noop(): void {}
@@ -23,7 +23,7 @@ function renderIsoButton(
   overrides: IsoButtonOverrides = {},
 ): ReactRenderResult {
   return renderReact(
-    <IsoBtn
+    <DossierToggleButton
       active={false}
       label="LOCATE"
       icon={LocateFixed}
@@ -50,12 +50,12 @@ function renderToolbar(
   );
 }
 
-describe("Section", () => {
+describe("DossierSection", () => {
   test("labels the section with its heading", () => {
     const { container } = renderReact(
-      <Section title="IDENTITY">
+      <DossierSection title="IDENTITY">
         <div>body</div>
-      </Section>,
+      </DossierSection>,
     );
     const section = container.querySelector("section");
     const heading = section?.querySelector("h3");
@@ -66,7 +66,7 @@ describe("Section", () => {
   });
 });
 
-describe("IsoBtn", () => {
+describe("DossierToggleButton", () => {
   test("uses the explicit accessible name", () => {
     const { container } = renderIsoButton({
       ariaLabel: "Locate on globe",
@@ -187,10 +187,10 @@ describe("DossierToolbar", () => {
   });
 });
 
-describe("Row", () => {
+describe("DossierRow", () => {
   test("renders its label and value", () => {
     const { container } = renderReact(
-      <Row label="ICAO24" value="ABC123" />,
+      <DossierRow label="ICAO24" value="ABC123" />,
     );
 
     expect(container.textContent).toContain("ICAO24");
@@ -198,12 +198,12 @@ describe("Row", () => {
   });
 
   test("omits empty and unknown values", () => {
-    const empty = renderReact(<Row label="X" value="" />).container;
+    const empty = renderReact(<DossierRow label="X" value="" />).container;
     const titleCase = renderReact(
-      <Row label="X" value="Unknown" />,
+      <DossierRow label="X" value="Unknown" />,
     ).container;
     const upperCase = renderReact(
-      <Row label="X" value="UNKNOWN" />,
+      <DossierRow label="X" value="UNKNOWN" />,
     ).container;
 
     expect(empty.firstElementChild).toBeNull();
@@ -212,10 +212,10 @@ describe("Row", () => {
   });
 });
 
-describe("LinkRow", () => {
+describe("DossierLinkRow", () => {
   test("protects an external browsing context", () => {
     const { container } = renderReact(
-      <LinkRow label="FlightAware" href="https://example.com" />,
+      <DossierLinkRow label="FlightAware" href="https://example.com" />,
     );
     const link = container.querySelector("a");
 

@@ -9,9 +9,7 @@ import {
 import {
   CacheKey,
 } from "@shared/domain/cache";
-import {
-  UnitMode,
-} from "@/preferences/units";
+import { UnitMode } from "@/preferences/units/model";
 import {
   cleanupReactRoots,
   renderReact,
@@ -23,15 +21,10 @@ import {
   PreferenceFixtureTestError,
 } from "./model";
 
-import {
-  getUnitsMode,
-  setUnitsMode,
-  useUnitsMode,
-} from "@/preferences/units";
-import {
-  setAlwaysShowCyclones,
-  useAlwaysShowCyclones,
-} from "@/preferences/cyclones";
+import { getUnitsMode, setUnitsMode } from "@/preferences/units/store";
+import { useUnitsMode } from "@/preferences/units/useUnitsMode";
+import { setAlwaysShowCyclones } from "@/preferences/cyclones/store";
+import { useAlwaysShowCyclones } from "@/preferences/cyclones/useAlwaysShowCyclones";
 
 let cycloneRenderCount =
   PreferenceFixtureCount.Empty;

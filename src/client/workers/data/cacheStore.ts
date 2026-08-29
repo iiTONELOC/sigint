@@ -1,14 +1,16 @@
-export const DATA_CACHE_POLICY = {
+import { HttpContentCoding } from "@shared/http";
+
+export const DATA_CACHE_POLICY = Object.freeze({
   databaseName: "sigint-cache",
   databaseVersion: 1,
   storeName: "cache",
   compressionThresholdBytes: 16_384,
   minWriteIntervalMs: 5_000,
-} as const;
+});
 
 export type DataCacheStore = Readonly<{
   open: () => Promise<void>;
-  get: (key: string) => Promise<unknown | null>;
+  get: (key: string) => Promise<unknown>;
   getAll: () => Promise<readonly Readonly<{ key: string; value: unknown }>[]>;
   set: (
     key: string,
@@ -37,7 +39,7 @@ const compressionAvailable =
 async function gzip(value: string): Promise<Uint8Array> {
   const stream = new Blob([value])
     .stream()
-    .pipeThrough(new CompressionStream("gzip"));
+    .pipeThrough(new CompressionStream(HttpContentCoding.Gzip));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -46,7 +48,7 @@ async function gunzip(value: Uint8Array): Promise<string> {
   copy.set(value);
   const stream = new Blob([copy.buffer])
     .stream()
-    .pipeThrough(new DecompressionStream("gzip"));
+    .pipeThrough(new DecompressionStream(HttpContentCoding.Gzip));
   return new Response(stream).text();
 }
 
@@ -66,7 +68,7 @@ async function encode(value: unknown): Promise<unknown> {
   }
 }
 
-async function decode(value: unknown): Promise<unknown | null> {
+async function decode(value: unknown): Promise<unknown> {
   if (!(value instanceof Uint8Array)) return value;
   try {
     const decoded: unknown = JSON.parse(await gunzip(value));
@@ -107,7 +109,7 @@ export function createDataCacheStore(
     return opening;
   };
 
-  const getRaw = async (key: string): Promise<unknown | null> => {
+  const getRaw = async (key: string): Promise<unknown> => {
     const current = await openDatabase();
     return new Promise((resolve, reject) => {
       const request = current
@@ -125,7 +127,7 @@ export function createDataCacheStore(
       await openDatabase();
     },
 
-    async get(key: string): Promise<unknown | null> {
+    async get(key: string): Promise<unknown> {
       return decode(await getRaw(key));
     },
 

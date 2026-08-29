@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import { IntelSeverity } from "@shared/domain/correlation";
 import type {
   MarkerVisualRenderer,
@@ -7,14 +6,13 @@ import type {
 } from "@/workers/render/primitives/markerVisuals";
 import { IsolateMode } from "@/workers/render/protocol";
 import {
-  EventLayer,
-  eventSceneIncludes,
-  type EventSceneFilter,
-} from "@/workers/render/scene/eventLayer";
-import { EventSceneSchema } from "@/workers/render/scene/eventSchema";
+  PulsingPointLayer,
+} from "@/workers/render/scene/sceneLayer";
+import type { EnabledSceneFilter } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";
 import { Domain } from "@shared/domain/identity";
+import { getPointSourceDefinition } from "@shared/domain/pointSource";
 import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 import { TestInstant } from "../_support";
 import {
@@ -39,16 +37,18 @@ const view = {
     IntelSeverity.Tension,
     IntelSeverity.Concern,
   ]),
-  attributeStride: EventSceneSchema.AttributeStride,
+  attributeStride:
+    getPointSourceDefinition(Domain.Events).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array(),
-  stringAttributeStride: EventSceneSchema.StringAttributeStride,
+  stringAttributeStride:
+    getPointSourceDefinition(Domain.Events).sceneSchema.stringAttributeStride,
   dictionary: [],
   geometries: [null, null],
 } satisfies RenderSceneView;
 
 function filter(
-  values: Partial<EventSceneFilter> = {},
-): EventSceneFilter {
+  values: Partial<EnabledSceneFilter> = {},
+): EnabledSceneFilter {
   return {
     enabled: true,
     isolateMode: null,
@@ -58,7 +58,10 @@ function filter(
   };
 }
 
-function project(layer: EventLayer, settings = filter()): void {
+function project(
+  layer: PulsingPointLayer,
+  settings = filter(),
+): void {
   layer.apply(sceneRebaseCommand(Domain.Events, view));
   layer.project({
     width: 200,
@@ -81,7 +84,7 @@ describe("event scene layer", () => {
       fade: (color) => color,
       drawPulsing: () => undefined,
     };
-    const layer = new EventLayer(visuals);
+    const layer = new PulsingPointLayer(Domain.Events, visuals);
     project(layer);
 
     expect(
@@ -104,16 +107,10 @@ describe("event scene layer", () => {
     layer.apply(sceneSearchCommand(Domain.Events, [2], 1));
     expect(layer.searchIncludesEntity("event-a")).toBe(false);
     expect(layer.searchIncludesEntity("event-b")).toBe(true);
-    expect(
-      eventSceneIncludes(
-        view,
-        1,
-        filter({
-          isolateMode: IsolateMode.Focus,
-          isolatedType: Domain.Weather,
-        }),
-      ),
-    ).toBe(false);
+    expect(layer.includesEntity("event-b", filter({
+      isolateMode: IsolateMode.Focus,
+      isolatedType: Domain.Weather,
+    }))).toBe(false);
   });
 
   test("preserves severity size, age fade, pulse, and selection", () => {
@@ -128,10 +125,10 @@ describe("event scene layer", () => {
         markers.push(marker);
       },
     };
-    const layer = new EventLayer(visuals);
+    const layer = new PulsingPointLayer(Domain.Events, visuals);
     project(layer);
     layer.draw({
-      context: {} as Ctx,
+      context: {} as OffscreenCanvasRenderingContext2D,
       color: "#ff00aa",
       selectedId: "event-a",
       time: 1,

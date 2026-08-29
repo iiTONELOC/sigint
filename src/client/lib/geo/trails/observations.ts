@@ -2,6 +2,10 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import { ktToMps } from "@/measurements";
 import type { TrailObservation } from "@/lib/geo/trails/trailStore";
+import {
+  recordLatitude,
+  recordLongitude,
+} from "@/workers/data/source-model/position";
 
 export type TrackedPoint = Extract<
   DataPoint,
@@ -14,19 +18,10 @@ function observedAt(timestamp: string | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function course(point: TrackedPoint): number | undefined {
-  return point.type === Domain.Ships
-    ? point.data.cog ?? point.data.heading
-    : point.data.heading;
+function toMetersPerSecond(speedKnots: number | undefined): number | undefined {
+  return speedKnots === undefined ? undefined : ktToMps(speedKnots);
 }
 
-function altitude(point: TrackedPoint): number | undefined {
-  return point.type === Domain.Aircraft
-    ? point.data.altitude
-    : undefined;
-}
-
-/** Positions a track carries this poll, in the shape the recorder wants. */
 export function trailObservations(
   points: readonly TrackedPoint[],
 ): TrailObservation[] {
@@ -34,17 +29,20 @@ export function trailObservations(
   for (const point of points) {
     const timestamp = observedAt(point.timestamp);
     if (timestamp === null) continue;
-    const speed = point.data.speed;
+    const speed = point.type === Domain.Ships ? point.data.sog : point.data.speed;
+    const speedMps = toMetersPerSecond(speed);
     observations.push({
       id: point.id,
-      lat: point.lat,
-      lon: point.lon,
+      lat: recordLatitude(point),
+      lon: recordLongitude(point),
       observedAt: timestamp,
-      heading: course(point),
-      speedMps:
-        point.data.speedMps ??
-        (speed === undefined ? undefined : ktToMps(speed)),
-      altitude: altitude(point),
+      heading:
+        point.type === Domain.Ships
+          ? point.data.cog ?? point.data.heading
+          : point.data.heading,
+      speedMps,
+      altitude:
+        point.type === Domain.Aircraft ? point.data.altitude : undefined,
       speed,
     });
   }

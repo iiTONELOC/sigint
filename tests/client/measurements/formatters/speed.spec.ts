@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatKtMph, formatKtShort } from "@/measurements";
-import {
-  UnitMode,
-} from "@/preferences/units";
+import { UnitMode } from "@/preferences/units/model";
 import {
   MeasurementFixtureConversionInput,
   MeasurementFixtureCopy,

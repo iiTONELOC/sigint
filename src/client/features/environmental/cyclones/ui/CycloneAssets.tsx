@@ -1,9 +1,6 @@
 import { Plane, Ship } from "lucide-react";
 import type { ConeAssets } from "../hooks/useAssetsInCone";
 
-// ASSETS IN CONE — aircraft + ship counts currently inside the official cone
-// (cross-source: our own tracked tracks ∩ the NHC threat area). Two count cards.
-
 function AssetCard({
   icon: Icon,
   count,

@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cacheSet } from "@/lib/cache";
-import { useData } from "@/context/DataContext";
+import { useUI } from "@/context/UIContext";
 import { useIsMobileLayout } from "@/layout-mode";
 import { DomEvent, DomKey } from "@/runtime";
 import { CacheKey } from "@shared/domain/cache";
-import { TransitionPrompt, WalkthroughStepOverlay } from "../components";
-import { useWalkthroughActionCompletion } from "../hooks";
+import { TransitionPrompt } from "../components/TransitionPrompt";
+import { WalkthroughStepOverlay } from "../components/WalkthroughStepOverlay";
+import { useWalkthroughActionCompletion } from "../hooks/useWalkthroughActionCompletion";
 import {
   ADVANCED_STEPS,
   ESSENTIAL_STEPS,
   MOBILE_ADVANCED_STEPS,
   MOBILE_ESSENTIAL_STEPS,
-  WalkthroughLaunchMode,
-  WalkthroughPhase,
-  WalkthroughStepId,
-  type WalkthroughStep,
-} from "../model";
+} from "../model/sharedSteps";
+import { WalkthroughLaunchMode, WalkthroughPhase, WalkthroughStepId } from "../model/vocabulary";
+import type { WalkthroughStep } from "../model/types";
 import {
   requestWalkthroughReset,
   setWalkthroughStepId,
@@ -23,7 +22,7 @@ import {
   useWalkthroughLeafCount,
   useWalkthroughLeafTypes,
   useWalkthroughPresetCount,
-} from "../utils";
+} from "../utils/signals";
 
 type WalkthroughProps = Readonly<{
   onComplete: () => void;
@@ -57,7 +56,7 @@ export function Walkthrough({
   const leafCount = useWalkthroughLeafCount();
   const presetCount = useWalkthroughPresetCount();
   const videoPresetCount = useVideoPresetCount();
-  const { chromeHidden, selectedCurrent, setSelected } = useData();
+  const { chromeHidden, selectedCurrent, setSelected } = useUI();
   const isMobile = useIsMobileLayout();
   const steps = phaseSteps(phase, isMobile);
   const step = steps[stepIndex];
@@ -155,7 +154,7 @@ export function Walkthrough({
       selectedId={selectedId}
       step={step}
       stepIndex={stepIndex}
-      totalSteps={steps.length}
+      steps={steps}
     />
   );
 }

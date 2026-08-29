@@ -7,11 +7,9 @@ import {
   CYCLONE_WARNING_FIELDS,
   CycloneWarningField,
   type CycloneWarningData,
-} from "./types";
+} from "@shared/domain/cyclones";
 
-enum WarningSupplementalLabel {
-  Severity = "Severity",
-}
+const WARNING_SEVERITY_LABEL = "Severity";
 
 const WARNING_ROW_LABELS = detailRowLabels(CycloneWarningField);
 const WARNING_TIME_FIELDS: ReadonlySet<CycloneWarningField> = new Set([
@@ -36,7 +34,7 @@ function warningRows(
   });
   if (includeToolbarRows) {
     rows.splice(1, 0, [
-      WarningSupplementalLabel.Severity,
+      WARNING_SEVERITY_LABEL,
       data.kind.toUpperCase(),
     ]);
   }

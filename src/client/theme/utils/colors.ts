@@ -1,15 +1,14 @@
 import type { DataType } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import {
-  LAYER_COLOR_KEYS,
   LAYER_COLOR_METADATA,
   ThemeCssVar,
-  ThemeMode,
   type ColorOverrides,
   type LayerColorKey,
   type Theme,
   type ThemeColors,
-} from "../model";
+} from "../model/colors";
+import { ThemeMode } from "../model/themeMode";
 
 enum ThemeColorMix {
   HeadingBasePercent = 68,
@@ -24,17 +23,22 @@ export function applyColorOverrides(
   return overrides ? { ...base, ...overrides } : base;
 }
 
+function layerColor(theme: Theme, key: LayerColorKey): string {
+  return theme.colors[LAYER_COLOR_METADATA[key].themeColor];
+}
+
 export function getColorMap(theme: Theme): FeatureColorMap {
-  const layerColors = Object.fromEntries(
-    LAYER_COLOR_KEYS.map((key) => [
-      key,
-      theme.colors[LAYER_COLOR_METADATA[key].themeColor],
-    ]),
-  ) as Record<LayerColorKey, string>;
+  const cycloneColor = layerColor(theme, Domain.Cyclones);
   return {
-    ...layerColors,
-    [Domain.CyclonesForecast]: layerColors[Domain.Cyclones],
-    [Domain.CyclonesWarning]: layerColors[Domain.Cyclones],
+    [Domain.Aircraft]: layerColor(theme, Domain.Aircraft),
+    [Domain.Ships]: layerColor(theme, Domain.Ships),
+    [Domain.Events]: layerColor(theme, Domain.Events),
+    [Domain.Weather]: layerColor(theme, Domain.Weather),
+    [Domain.Cyclones]: cycloneColor,
+    [Domain.Quakes]: layerColor(theme, Domain.Quakes),
+    [Domain.Fires]: layerColor(theme, Domain.Fires),
+    [Domain.CyclonesForecast]: cycloneColor,
+    [Domain.CyclonesWarning]: cycloneColor,
   };
 }
 

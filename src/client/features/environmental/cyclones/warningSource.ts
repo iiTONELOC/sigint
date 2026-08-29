@@ -2,7 +2,6 @@ import {
   EntityLifetime,
   GeoCarrier,
   StationaryGeoDataSource,
-  type SourcePolicy,
 } from "@/workers/data/source-model/dataSource";
 import {
   SceneBinding,
@@ -19,25 +18,21 @@ import type {
   PointSourceFetchSnapshot,
   PointSourceSchedule,
 } from "@/workers/data/sourceRuntime";
-import { getPointSourceDefinition } from "@/workers/data/sources/registry";
 import {
-  CycloneWarningSceneAttribute,
-  CycloneWarningSceneSchema,
-} from "@/workers/render/scene/cycloneWarningSchema";
+  getPointSourceDefinition,
+} from "@shared/domain/pointSource";
 import { Domain } from "@shared/domain/identity";
 import {
   geoPointsEqual,
   geoPolygonGeometryEqual,
 } from "@shared/geo";
-import { areaKindRank } from "@/workers/render/protocol";
+import {
+  areaKindRank,
+  type CycloneWarningPoint,
+} from "@shared/domain/cyclones";
 import { parseCycloneWarningCache } from "./data/warningCodec";
-import type { CycloneWarningPoint } from "./types";
 import { fetchCycloneWarningSnapshot } from "./data/warnings";
-import { CYCLONE_WARNING_UI_QUERIES } from "./data/warningUiQueries";
-
-export const CYCLONE_WARNING_SOURCE_POLICY: SourcePolicy = {
-  ...getPointSourceDefinition(Domain.CycloneWarnings),
-};
+import { CycloneWarningSceneAttribute } from "@shared/scene";
 
 export type CycloneWarningSourceOptions = Readonly<{
   fetchSnapshot?: () => Promise<
@@ -47,11 +42,9 @@ export type CycloneWarningSourceOptions = Readonly<{
 }>;
 
 export class CycloneWarningSource extends StationaryGeoDataSource<CycloneWarningPoint> {
-  readonly policy = CYCLONE_WARNING_SOURCE_POLICY;
+  readonly policy = getPointSourceDefinition(Domain.CycloneWarnings);
   readonly carrier = GeoCarrier.Polygon;
   readonly lifetime = EntityLifetime.Ephemeral;
-  readonly pointType = Domain.CyclonesWarning;
-  readonly queries = CYCLONE_WARNING_UI_QUERIES;
 
   private readonly fetchSnapshotOverride:
     | (() => Promise<PointSourceFetchSnapshot<CycloneWarningPoint>>)
@@ -100,10 +93,6 @@ export class CycloneWarningSceneBinding extends SceneBinding<CycloneWarningPoint
     super(
       new ScenePatchCodec<CycloneWarningPoint>({
         source: Domain.CycloneWarnings,
-        attributeStride:
-          CycloneWarningSceneSchema.AttributeStride,
-        stringAttributeStride:
-          CycloneWarningSceneSchema.StringAttributeStride,
         records: singleSceneRecord,
         position: recordPosition,
         timestamp: sceneTimestamp,

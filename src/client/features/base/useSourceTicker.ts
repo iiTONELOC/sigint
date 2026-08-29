@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Domain } from "@shared/domain/identity";
-import { useSourceQuery } from "@/features/base/useSourceQuery";
+import { useSourceQueries } from "@/features/base/useSourceQuery";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   mergeTickerPages,
@@ -8,11 +8,14 @@ import {
   type TickerPage,
 } from "@/lib/ui/tickerFeed";
 import type { QueryableSourceId } from "@/workers/data/queryableSources";
-import type { PointUiQuery } from "@/workers/data/uiQuery";
+import {
+  PointUiQueryKind,
+  type PointUiQuery,
+} from "@/workers/data/uiQuery";
 
 // Feed order across sources. Aircraft and ships lead because they change every
 // poll; the slower sources trail so they still surface once per pass.
-const TICKER_SOURCES = [
+const TICKER_SOURCES: readonly QueryableSourceId[] = [
   Domain.Aircraft,
   Domain.Ships,
   Domain.Events,
@@ -20,14 +23,18 @@ const TICKER_SOURCES = [
   Domain.Fire,
   Domain.Weather,
   Domain.Cyclones,
-] as const satisfies readonly QueryableSourceId[];
+];
 
 const TICKER_QUERY: PointUiQuery = {
-  kind: "ticker",
+  kind: PointUiQueryKind.Ticker,
   limit: TICKER_ITEM_LIMIT,
 };
 
 const EMPTY_PAGE: TickerPage = { items: [], priorityCount: 0 };
+
+function tickerQuery(source: QueryableSourceId): PointUiQuery | null {
+  return TICKER_SOURCES.includes(source) ? TICKER_QUERY : null;
+}
 
 /**
  * The ticker feed, assembled from one bounded page per source. Each page is
@@ -35,32 +42,16 @@ const EMPTY_PAGE: TickerPage = { items: [], priorityCount: 0 };
  * merges at most seven short arrays.
  */
 export function useSourceTicker(): DataPoint[] {
-  const results = {
-    aircraft: useSourceQuery(Domain.Aircraft, TICKER_QUERY),
-    ships: useSourceQuery(Domain.Ships, TICKER_QUERY),
-    events: useSourceQuery(Domain.Events, TICKER_QUERY),
-    earthquake: useSourceQuery(Domain.Earthquake, TICKER_QUERY),
-    fire: useSourceQuery(Domain.Fire, TICKER_QUERY),
-    weather: useSourceQuery(Domain.Weather, TICKER_QUERY),
-    cyclones: useSourceQuery(Domain.Cyclones, TICKER_QUERY),
-  };
+  const results = useSourceQueries(tickerQuery);
 
   return useMemo(
     () =>
       mergeTickerPages(
         TICKER_SOURCES.map((source) => {
           const result = results[source];
-          return result?.kind === "ticker" ? result : EMPTY_PAGE;
+          return result?.kind === PointUiQueryKind.Ticker ? result : EMPTY_PAGE;
         }),
       ),
-    [
-      results.aircraft,
-      results.ships,
-      results.events,
-      results.earthquake,
-      results.fire,
-      results.weather,
-      results.cyclones,
-    ],
+    [results],
   );
 }

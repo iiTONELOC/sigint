@@ -1,8 +1,8 @@
 import {
   AircraftDataLabel,
   AircraftFlightStatusLabel,
-  type AircraftData,
-} from "../types";
+} from "../formatters/presentation";
+import type { AircraftData } from "@shared/domain/aircraft";
 import type { TickerRendererProps } from "@/features/base/presentation";
 import { formatKtShort } from "@/measurements";
 
@@ -16,7 +16,6 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
     model,
     squawk,
     heading,
-    speedMps,
     onGround,
     operator,
     registration,
@@ -32,11 +31,6 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
 
   const sq = squawk ? ` SQ${squawk}` : "";
   const reg = registration ? ` ${registration}` : "";
-
-  const speedText =
-    typeof speedMps === "number"
-      ? formatKtShort(speed)
-      : `${speed}kn`;
 
   const opLabel = operator || operatorIcao || AircraftDataLabel.UnknownOperator;
   const category = categoryDescription ? ` • ${categoryDescription}` : "";
@@ -57,7 +51,7 @@ export function AircraftTickerContent({ data }: Readonly<TickerRendererProps>) {
     <>
       <div className="leading-snug text-sig-text text-(length:--sig-text-md)">
         {callsign}
-        {reg} {acType} {altitude}ft {speedText}
+        {reg} {acType} {altitude}ft {formatKtShort(speed)}
         {sq}{milBadge}
       </div>
       <div className={AircraftTickerClassName.DimLine}>

@@ -1,9 +1,9 @@
 import { isCycloneWarningPoint } from "@/features/environmental/cyclones/data/warningCodec";
 import {
   CycloneWarningField,
+  areaKindRank,
   type CycloneWarningPoint,
-} from "@/features/environmental/cyclones/types";
-import { areaKindRank } from "@/workers/render/protocol";
+} from "@shared/domain/cyclones";
 import {
   alwaysInTicker,
   createPointUiQueries,

@@ -1,186 +1,120 @@
-import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
-import { ktToMps } from "@/measurements";
-import { GeoLimit, isRecord } from "@shared/geo";
-
-export type ShipPoint = Extract<DataPoint, { type: Domain.Ships }>;
-
-type ServerVessel = Readonly<{
-  mmsi: number;
-  lat: number;
-  lon: number;
-  sog: number;
-  cog: number;
-  heading: number;
-  navStatus: number;
-  navStatusLabel: string;
-  rot?: number;
-  lastSeen: number;
-  name?: string;
-  callSign?: string;
-  imo?: number;
-  shipType?: number;
-  shipTypeLabel?: string;
-  destination?: string;
-  draught?: number;
-  eta?: string;
-  length?: number;
-  width?: number;
-  dimA?: number;
-  dimB?: number;
-  dimC?: number;
-  dimD?: number;
-}>;
-
-export type ShipServerPayload = Readonly<{
-  vessels: readonly ServerVessel[];
-  vesselCount: number;
-  connected: boolean;
-}>;
-
-export enum ShipNumberField {
-  Mmsi = "mmsi",
-  Imo = "imo",
-  ShipTypeCode = "shipTypeCode",
-  Speed = "speed",
-  Sog = "sog",
-  Cog = "cog",
-  Heading = "heading",
-  NavStatus = "navStatus",
-  Rot = "rot",
-  Draught = "draught",
-  Length = "length",
-  Width = "width",
-  DimensionA = "dimA",
-  DimensionB = "dimB",
-  DimensionC = "dimC",
-  DimensionD = "dimD",
-  SpeedMetersPerSecond = "speedMps",
-}
-
-export enum ShipStringField {
-  Name = "name",
-  CallSign = "callSign",
-  VesselType = "vesselType",
-  Flag = "flag",
-  NavigationStatusLabel = "navStatusLabel",
-  Destination = "destination",
-  EstimatedArrival = "eta",
-}
+import {
+  AisNavigationStatus,
+  type AisVesselRecord,
+  type ShipData,
+  type ShipPoint,
+  type ShipServerPayload,
+} from "@shared/domain/ships";
+import {
+  createGeoPoint,
+  isNullIsland,
+  isRecord,
+  parseGeoPoint,
+} from "@shared/geo";
+import { optionalString } from "@shared/text";
+import { isNumberEnumValue } from "@shared/types/enum";
+import {
+  isOptionalFiniteNumber,
+  optionalFiniteNumber,
+} from "@shared/types/numbers";
 
 enum ShipTimestampLimit {
   MaximumAbsoluteMilliseconds = 8_640_000_000_000_000,
 }
 
-enum ShipDataPrecision {
-  SpeedDecimalFactor = 10,
-}
-
-export const SHIP_NUMBER_FIELDS = Object.values(ShipNumberField);
-export const SHIP_STRING_FIELDS = Object.values(ShipStringField);
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function isOptionalFiniteNumber(value: unknown): boolean {
-  return value === undefined || isFiniteNumber(value);
-}
-
-function isOptionalText(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
-}
-
-function hasOptionalNumbers(
-  value: Readonly<Record<string, unknown>>,
-  keys: readonly string[],
-): boolean {
-  return keys.every((key) => {
-    const candidate = value[key];
-    return candidate === undefined || isFiniteNumber(candidate);
-  });
-}
-
-function hasOptionalStrings(
-  value: Readonly<Record<string, unknown>>,
-  keys: readonly string[],
-): boolean {
-  return keys.every((key) => {
-    const candidate = value[key];
-    return candidate === undefined || typeof candidate === "string";
-  });
-}
-
-function isServerVessel(value: unknown): value is ServerVessel {
+function isServerVessel(value: unknown): value is AisVesselRecord {
   if (!isRecord(value)) return false;
-  const mmsi = value.mmsi;
-  const latitude = value.lat;
-  const longitude = value.lon;
-  const lastSeen = value.lastSeen;
-  if (
-    !isFiniteNumber(mmsi) ||
-    !isFiniteNumber(latitude) ||
-    !isFiniteNumber(longitude) ||
-    !isFiniteNumber(lastSeen) ||
-    !isFiniteNumber(value.sog) ||
-    !isFiniteNumber(value.cog) ||
-    !isFiniteNumber(value.heading) ||
-    !isFiniteNumber(value.navStatus) ||
-    typeof value.navStatusLabel !== "string" ||
-    !isOptionalFiniteNumber(value.rot) ||
-    !isOptionalFiniteNumber(value.imo) ||
-    !isOptionalFiniteNumber(value.shipType) ||
-    !isOptionalFiniteNumber(value.draught) ||
-    !isOptionalFiniteNumber(value.length) ||
-    !isOptionalFiniteNumber(value.width) ||
-    !isOptionalFiniteNumber(value.dimA) ||
-    !isOptionalFiniteNumber(value.dimB) ||
-    !isOptionalFiniteNumber(value.dimC) ||
-    !isOptionalFiniteNumber(value.dimD) ||
-    !isOptionalText(value.name) ||
-    !isOptionalText(value.callSign) ||
-    !isOptionalText(value.shipTypeLabel) ||
-    !isOptionalText(value.destination) ||
-    !isOptionalText(value.eta)
-  ) {
-    return false;
-  }
+  const longitude = optionalFiniteNumber(value.lon);
+  const latitude = optionalFiniteNumber(value.lat);
+  const lastSeen = optionalFiniteNumber(value.lastSeen);
+  const position = longitude === undefined || latitude === undefined
+    ? null
+    : createGeoPoint(longitude, latitude);
   return (
-    Number.isSafeInteger(mmsi) &&
-    mmsi > 0 &&
-    latitude >= GeoLimit.MinLatitude &&
-    latitude <= GeoLimit.MaxLatitude &&
-    longitude >= GeoLimit.MinLongitude &&
-    longitude <= GeoLimit.MaxLongitude &&
+    position !== null &&
+    !isNullIsland(position) &&
+    lastSeen !== undefined &&
     Math.abs(lastSeen) <=
-      ShipTimestampLimit.MaximumAbsoluteMilliseconds
+      ShipTimestampLimit.MaximumAbsoluteMilliseconds &&
+    optionalFiniteNumber(value.sog) !== undefined &&
+    optionalFiniteNumber(value.cog) !== undefined &&
+    optionalFiniteNumber(value.heading) !== undefined &&
+    isNumberEnumValue(value.navStatus, AisNavigationStatus) &&
+    isShipData(value)
   );
 }
 
-function isShipData(value: unknown): boolean {
+function isShipData(value: unknown): value is ShipData {
   return (
     isRecord(value) &&
-    hasOptionalNumbers(value, SHIP_NUMBER_FIELDS) &&
-    hasOptionalStrings(value, SHIP_STRING_FIELDS)
+    typeof value.mmsi === "number" &&
+    Number.isSafeInteger(value.mmsi) &&
+    value.mmsi > 0 &&
+    isOptionalFiniteNumber(value.imo) &&
+    isOptionalFiniteNumber(value.shipTypeCode) &&
+    isOptionalFiniteNumber(value.sog) &&
+    isOptionalFiniteNumber(value.cog) &&
+    isOptionalFiniteNumber(value.heading) &&
+    (value.navStatus === undefined || isNumberEnumValue(value.navStatus, AisNavigationStatus)) &&
+    isOptionalFiniteNumber(value.rot) &&
+    isOptionalFiniteNumber(value.draught) &&
+    isOptionalFiniteNumber(value.dimA) &&
+    isOptionalFiniteNumber(value.dimB) &&
+    isOptionalFiniteNumber(value.dimC) &&
+    isOptionalFiniteNumber(value.dimD) &&
+    (value.name === undefined || optionalString(value.name) !== undefined) &&
+    (value.callSign === undefined || optionalString(value.callSign) !== undefined) &&
+    (value.destination === undefined || optionalString(value.destination) !== undefined) &&
+    (value.eta === undefined || optionalString(value.eta) !== undefined)
   );
 }
 
 export function isShipPoint(value: unknown): value is ShipPoint {
-  return (
-    isRecord(value) &&
-    value.type === Domain.Ships &&
+  if (!isRecord(value)) return false;
+  const position = parseGeoPoint(value.position);
+  return value.type === Domain.Ships &&
     typeof value.id === "string" &&
     value.id.length > 0 &&
-    isFiniteNumber(value.lat) &&
-    value.lat >= GeoLimit.MinLatitude &&
-    value.lat <= GeoLimit.MaxLatitude &&
-    isFiniteNumber(value.lon) &&
-    value.lon >= GeoLimit.MinLongitude &&
-    value.lon <= GeoLimit.MaxLongitude &&
-    (value.timestamp === undefined ||
-      typeof value.timestamp === "string") &&
-    isShipData(value.data)
-  );
+    position !== null &&
+    !isNullIsland(position) &&
+    (value.timestamp === undefined || optionalString(value.timestamp) !== undefined) &&
+    isShipData(value.data);
+}
+
+export function parseLegacyShipPoint(value: unknown): ShipPoint | null {
+  if (
+    !isRecord(value) ||
+    value.type !== Domain.Ships ||
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    !isShipData(value.data)
+  ) {
+    return null;
+  }
+  const longitude = optionalFiniteNumber(value.lon);
+  const latitude = optionalFiniteNumber(value.lat);
+  const position = longitude === undefined || latitude === undefined
+    ? null
+    : createGeoPoint(longitude, latitude);
+  if (!position || isNullIsland(position)) return null;
+  const timestamp = optionalString(value.timestamp);
+  if (value.timestamp !== undefined && timestamp === undefined) return null;
+  return {
+    id: value.id,
+    type: Domain.Ships,
+    position,
+    ...(timestamp === undefined ? {} : { timestamp }),
+    data: value.data,
+  };
+}
+
+export function shipDataEquals(left: ShipData, right: ShipData): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (Reflect.get(left, key) !== Reflect.get(right, key)) return false;
+  }
+  return true;
 }
 
 export function parseShipServerPayload(
@@ -196,10 +130,9 @@ export function parseShipServerPayload(
   ) {
     return null;
   }
-  const vessels: ServerVessel[] = [];
+  const vessels: AisVesselRecord[] = [];
   for (const candidate of value.data) {
-    if (!isServerVessel(candidate)) return null;
-    vessels.push(candidate);
+    if (isServerVessel(candidate)) vessels.push(candidate);
   }
   return {
     vessels,
@@ -208,42 +141,16 @@ export function parseShipServerPayload(
   };
 }
 
-function toShipPoint(vessel: ServerVessel): ShipPoint | null {
-  if (vessel.lat === 0 && vessel.lon === 0) return null;
-  const speedMps = ktToMps(vessel.sog);
+function toShipPoint(vessel: AisVesselRecord): ShipPoint | null {
+  const { lat, lon, lastSeen, ...data } = vessel;
+  const position = createGeoPoint(lon, lat);
+  if (!position || isNullIsland(position)) return null;
   return {
     id: `S${vessel.mmsi}`,
     type: Domain.Ships,
-    lat: vessel.lat,
-    lon: vessel.lon,
-    timestamp: new Date(vessel.lastSeen).toISOString(),
-    data: {
-      mmsi: vessel.mmsi,
-      imo: vessel.imo,
-      name: vessel.name,
-      callSign: vessel.callSign,
-      vesselType: vessel.shipTypeLabel ?? "Unknown",
-      shipTypeCode: vessel.shipType,
-      speed:
-        Math.round(vessel.sog * ShipDataPrecision.SpeedDecimalFactor) /
-        ShipDataPrecision.SpeedDecimalFactor,
-      sog: vessel.sog,
-      cog: vessel.cog,
-      heading: vessel.heading,
-      navStatus: vessel.navStatus,
-      navStatusLabel: vessel.navStatusLabel,
-      rot: vessel.rot,
-      destination: vessel.destination,
-      draught: vessel.draught,
-      eta: vessel.eta,
-      length: vessel.length,
-      width: vessel.width,
-      dimA: vessel.dimA,
-      dimB: vessel.dimB,
-      dimC: vessel.dimC,
-      dimD: vessel.dimD,
-      speedMps,
-    },
+    position,
+    timestamp: new Date(lastSeen).toISOString(),
+    data,
   };
 }
 

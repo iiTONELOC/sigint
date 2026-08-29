@@ -1,4 +1,4 @@
-import { CycloneWindThreshold } from "../classification";
+import { Category, CYCLONE_CATEGORY_METADATA } from "@shared/domain/cyclones";
 
 enum WarningFlagColor {
   Red = "#d32f2f",
@@ -18,9 +18,7 @@ enum WarningLabel {
   HurricaneWarning = "HURRICANE WARNING",
 }
 
-enum WarningFlagRole {
-  Presentation = "presentation",
-}
+const WARNING_FLAG_PRESENTATION_ROLE = "presentation";
 
 enum WarningFlagKey {
   GaleOne = "g1",
@@ -31,10 +29,12 @@ enum WarningFlagKey {
 }
 
 function warningLevel(maxWindKt: number, isHurricane: boolean): WarningLevel {
-  if (maxWindKt >= CycloneWindThreshold.HurricaneOne) {
+  if (maxWindKt >= CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt) {
     return isHurricane ? WarningLevel.Hurricane : WarningLevel.Storm;
   }
-  if (maxWindKt >= CycloneWindThreshold.TropicalStorm) {
+  if (
+    maxWindKt >= CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt
+  ) {
     return WarningLevel.Gale;
   }
   return WarningLevel.None;
@@ -53,7 +53,7 @@ function warningLabel(level: WarningLevel): WarningLabel {
 
 function GalePennant() {
   return (
-    <svg viewBox="0 0 20 24" className="h-4 w-3.5" role={WarningFlagRole.Presentation}>
+    <svg viewBox="0 0 20 24" className="h-4 w-3.5" role={WARNING_FLAG_PRESENTATION_ROLE}>
       <polygon points="2,1 18,12 2,23" fill={WarningFlagColor.Red} />
     </svg>
   );
@@ -61,7 +61,7 @@ function GalePennant() {
 
 function SquareFlag() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" role={WarningFlagRole.Presentation}>
+    <svg viewBox="0 0 24 24" className="h-4 w-4" role={WARNING_FLAG_PRESENTATION_ROLE}>
       <rect x="1" y="1" width="22" height="22" fill={WarningFlagColor.Red} />
       <rect x="8" y="8" width="8" height="8" fill={WarningFlagColor.Black} />
     </svg>

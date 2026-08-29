@@ -1,30 +1,45 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
+  useState,
+  useRef,
+  useEffect,
+  type MouseEvent as ReactMouseEvent,
+  type MouseEventHandler,
+} from "react";
+import {
+  Copy,
   Minus,
   X,
   Columns2,
   Rows2,
   ChevronDown,
+  ChevronRight,
   GripVertical,
+  Fullscreen,
   Maximize2,
-  Minimize2,
+  Minimize,
+  Square,
   type LucideIcon,
 } from "lucide-react";
 import { Tooltip, TooltipPlacement } from "@/components/Tooltip";
-import { useData } from "@/context/DataContext";
 import { DeviceType, useLayoutMode } from "@/layout-mode";
 import { DomEvent } from "@/runtime";
 import { ButtonType } from "@/lib/ui/button";
 import { cn } from "@/lib/ui/utils";
-import { isEnumValue } from "@shared/types/enum";
-import type { PaneType } from "./paneTree";
+import { FULL_WIDTH_ONLY, type PaneType } from "./paneTree";
+import { SplitMenu } from "./SplitMenu";
+import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
+import type { MobileBlock } from "@/panes/workspace/utils/mobile";
 import {
   PaneDragDataType,
   PaneDragEffect,
+  PaneDropZone,
+  PaneNodeType,
   PaneType as PaneTypeId,
   PaneWorkspaceIconMetric,
-} from "@/panes/workspace/model";
+  SplitDirection,
+  type PaneDropZoneValue,
+  type SplitDirectionValue,
+} from "@/panes/workspace/model/pane";
 
 enum PaneHeaderClassName {
   Control = "p-1 min-h-6 min-w-6 pointer-fine:-mt-px pointer-fine:-mb-0.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none transition-colors",
@@ -43,16 +58,27 @@ enum PaneHeaderMetric {
 
 enum PaneHeaderCopy {
   ClosePane = "Close pane",
-  ExitFullscreen = "Exit fullscreen",
+  EnterBrowserFullscreen = "Enter browser fullscreen",
+  ExitBrowserFullscreen = "Exit browser fullscreen",
+  ExpandPane = "Expand pane",
+  MaximizePane = "Maximize pane",
+  MinimizePane = "Minimize pane",
+  PopOut = "Pop out to own block",
+  RestorePaneLayout = "Restore pane layout",
+  SplitDown = "Split pane down",
+  SplitRight = "Split pane right",
 }
 
-type PaneOption = {
-  readonly id: string;
-  readonly label: string;
-  readonly icon: LucideIcon;
-};
+enum MobilePaneControlClassName {
+  MoveZone = "rounded flex items-center justify-center gap-1 bg-sig-bg/85 border-2 border-dashed border-sig-accent/60 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors",
+  MoveZoneFullWidth = "col-span-3",
+  SwapZone = "rounded flex items-center justify-center gap-1 bg-sig-bg/90 border-2 border-sig-accent/80 text-sig-accent text-(length:--sig-text-md) tracking-wider font-bold hover:bg-sig-accent/30 active:bg-sig-accent/40 transition-colors",
+}
 
 type PaneHeaderProps = {
+  readonly isFullscreen: boolean;
+  readonly isMaximized?: boolean;
+  readonly isMinimized?: boolean;
   readonly label: string;
   readonly icon: LucideIcon;
   readonly leafId: string;
@@ -60,18 +86,173 @@ type PaneHeaderProps = {
   readonly statusSlot?: React.ReactNode;
   readonly onSplitH?: (e: React.MouseEvent) => void;
   readonly onSplitV?: (e: React.MouseEvent) => void;
-  readonly onMinimize: () => void;
+  readonly onMinimize?: () => void;
+  readonly onToggleMaximize?: () => void;
+  readonly onToggleFullscreen?: () => void;
+  readonly onPopOut?: () => void;
   readonly onClose?: () => void;
   readonly onChangePaneType?: (id: PaneType) => void;
-  readonly paneOptions?: PaneOption[];
+  readonly paneCatalog?: PaneCatalog;
   readonly onDragStart?: (leafId: string) => void;
   readonly onDragEnd?: () => void;
   readonly onDrop?: (targetLeafId: string) => void;
   readonly onTouchDragStart?: (leafId: string) => void;
+  readonly onGripClick?: () => void;
   readonly isDragTarget?: boolean;
 };
 
+type PaneHeaderControlsProps = Readonly<
+  Pick<
+    PaneHeaderProps,
+    | "isFullscreen"
+    | "isMaximized"
+    | "isMinimized"
+    | "onClose"
+    | "onMinimize"
+    | "onPopOut"
+    | "onSplitH"
+    | "onSplitV"
+    | "onToggleMaximize"
+    | "onToggleFullscreen"
+    | "paneType"
+  > & { isPhone: boolean }
+>;
+
+type PaneControlButtonProps = Readonly<{
+  destructive?: boolean;
+  expanded?: boolean;
+  icon: LucideIcon;
+  label: string;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
+  pressed?: boolean;
+  tourId?: string;
+}>;
+
+type PaneControlConfiguration = Readonly<Omit<PaneControlButtonProps, "label">>;
+
+function splitRightTourId(
+  isPhone: boolean,
+  paneType: PaneType | undefined,
+): string | undefined {
+  if (!paneType) return undefined;
+  if (isPhone) return `split-right-${paneType}`;
+  return paneType === PaneTypeId.Globe ? "split-right-btn" : undefined;
+}
+
+function splitDownTourId(
+  isPhone: boolean,
+  paneType: PaneType | undefined,
+): string | undefined {
+  if (paneType === PaneTypeId.Globe) return "split-down-btn";
+  return isPhone && paneType ? `split-down-${paneType}` : undefined;
+}
+
+function PaneControlButton({
+  destructive = false,
+  expanded,
+  icon: Icon,
+  label,
+  onClick,
+  pressed,
+  tourId,
+}: PaneControlButtonProps) {
+  if (!onClick) return null;
+  return (
+    <Tooltip content={label} placement={TooltipPlacement.Bottom}>
+      <button
+        type={ButtonType.Button}
+        data-tour={tourId}
+        aria-label={label}
+        aria-expanded={expanded}
+        aria-pressed={pressed}
+        onClick={onClick}
+        className={cn(
+          PaneHeaderClassName.Control,
+          destructive
+            ? PaneHeaderClassName.Destructive
+            : PaneHeaderClassName.Interactive,
+        )}
+      >
+        <Icon
+          className={PaneHeaderClassName.ControlIcon}
+          strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+          aria-hidden
+        />
+      </button>
+    </Tooltip>
+  );
+}
+
+function PaneHeaderControls({
+  isFullscreen,
+  isMaximized = false,
+  isMinimized = false,
+  isPhone,
+  onClose,
+  onMinimize,
+  onPopOut,
+  onSplitH,
+  onSplitV,
+  onToggleMaximize,
+  onToggleFullscreen,
+  paneType,
+}: PaneHeaderControlsProps) {
+  const controls: Readonly<Partial<Record<PaneHeaderCopy, PaneControlConfiguration>>> = {
+    [PaneHeaderCopy.SplitRight]: {
+      icon: Columns2, onClick: onSplitH,
+      tourId: splitRightTourId(isPhone, paneType),
+    },
+    [PaneHeaderCopy.SplitDown]: {
+      icon: Rows2, onClick: onSplitV,
+      tourId: splitDownTourId(isPhone, paneType),
+    },
+    [PaneHeaderCopy.PopOut]: {
+      icon: Maximize2, onClick: onPopOut,
+    },
+    [isMaximized
+      ? PaneHeaderCopy.RestorePaneLayout
+      : PaneHeaderCopy.MaximizePane]: {
+      icon: isMaximized ? Copy : Square,
+      onClick: isPhone ? undefined : onToggleMaximize,
+      pressed: isMaximized,
+    },
+    [isFullscreen
+      ? PaneHeaderCopy.ExitBrowserFullscreen
+      : PaneHeaderCopy.EnterBrowserFullscreen]: {
+      icon: isFullscreen ? Minimize : Fullscreen,
+      onClick: isPhone ? undefined : onToggleFullscreen,
+      pressed: isFullscreen,
+    },
+    [isMinimized
+      ? PaneHeaderCopy.ExpandPane
+      : PaneHeaderCopy.MinimizePane]: {
+      expanded: !isMinimized,
+      icon: isMinimized ? ChevronRight : Minus,
+      onClick: onMinimize,
+    },
+    [PaneHeaderCopy.ClosePane]: {
+      destructive: true, icon: X, onClick: onClose,
+    },
+  };
+  return (
+    <div className="flex items-center">
+      {Object.entries(controls).map(([label, configuration]) =>
+        configuration ? (
+          <PaneControlButton
+            key={label}
+            {...configuration}
+            label={label}
+          />
+        ) : null,
+      )}
+    </div>
+  );
+}
+
 export function PaneHeader({
+  isFullscreen,
+  isMaximized = false,
+  isMinimized = false,
   label,
   icon: Icon,
   leafId,
@@ -80,16 +261,19 @@ export function PaneHeader({
   onSplitH,
   onSplitV,
   onMinimize,
+  onToggleMaximize,
+  onToggleFullscreen,
+  onPopOut,
   onClose,
   onChangePaneType,
-  paneOptions,
+  paneCatalog,
   onDragStart,
   onDragEnd,
   onDrop,
   onTouchDragStart,
+  onGripClick,
   isDragTarget,
 }: PaneHeaderProps) {
-  const { chromeHidden, setChromeHidden } = useData();
   const isPhone = useLayoutMode().deviceType === DeviceType.Phone;
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -123,7 +307,7 @@ export function PaneHeader({
     return () => document.removeEventListener(DomEvent.MouseDown, handler);
   }, [showMenu]);
 
-  const hasSwitch = onChangePaneType && paneOptions && paneOptions.length > 0;
+  const hasSwitch = onChangePaneType && paneCatalog;
 
   return (
     <div
@@ -142,14 +326,16 @@ export function PaneHeader({
         onDrop?.(leafId);
       }}
     >
-      {/* Drag handle */}
       <Tooltip
         content="Drag to swap"
         placement={TooltipPlacement.Bottom}
         delay={PaneHeaderMetric.TooltipDelayMs}
       >
-        <div
-          draggable
+        <button
+          type={ButtonType.Button}
+          aria-label="Move pane"
+          draggable={!isPhone}
+          onClick={onGripClick}
           onDragStart={(e) => {
             e.dataTransfer.setData(PaneDragDataType.PlainText, leafId);
             e.dataTransfer.effectAllowed = PaneDragEffect.Move;
@@ -157,16 +343,21 @@ export function PaneHeader({
           }}
           onDragEnd={() => onDragEnd?.()}
           onTouchStart={(e) => {
-            e.preventDefault();
-            onTouchDragStart?.(leafId);
+            if (onTouchDragStart) {
+              e.preventDefault();
+              onTouchDragStart(leafId);
+            }
           }}
-          className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5"
+          className={cn(
+            "cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5",
+            isPhone && "touch-target",
+          )}
         >
           <GripVertical
             size={PaneWorkspaceIconMetric.CompactSize}
             strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
           />
-        </div>
+        </button>
       </Tooltip>
 
       <button
@@ -195,44 +386,25 @@ export function PaneHeader({
       </button>
 
       {showMenu &&
-        paneOptions &&
+        paneCatalog &&
         onChangePaneType &&
-        dropPos &&
-        createPortal(
-          <div
+        dropPos && (
+          <SplitMenu
             ref={menuRef}
-            className="fixed z-80 bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
-            style={{ top: dropPos.top, left: dropPos.left }}
-          >
-            {paneOptions.map((opt) => {
-              const OptIcon = opt.icon;
-              return (
-                <button
-                  type={ButtonType.Button}
-                  key={opt.id}
-                  onClick={() => {
-                    if (!isEnumValue(opt.id, PaneTypeId)) return;
-                    onChangePaneType(opt.id);
-                    setShowMenu(false);
-                  }}
-                  className="w-full flex items-center gap-1.5 px-2.5 py-2 bg-transparent border-none text-left hover:bg-sig-accent/10 transition-colors min-h-11"
-                >
-                  <OptIcon
-                    size={PaneWorkspaceIconMetric.ToolbarSize}
-                    strokeWidth={PaneWorkspaceIconMetric.LightStroke}
-                    className="text-sig-dim shrink-0"
-                  />
-                  <span className="text-sig-bright text-(length:--sig-text-md) tracking-wide">
-                    {opt.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
+            types={Object.values(PaneTypeId).filter(
+              (optionType) => optionType !== paneType,
+            )}
+            catalog={paneCatalog}
+            top={dropPos.top}
+            left={dropPos.left}
+            onSelect={(optionType) => {
+              onChangePaneType(optionType);
+              setShowMenu(false);
+            }}
+            className="fixed z-(--layer-menu) bg-sig-panel border border-sig-border/60 rounded shadow-lg py-0.5 min-w-48"
+          />
         )}
 
-      {/* Inline status (e.g. track count for globe) */}
       {statusSlot && (
         <div className="flex items-center gap-1.5 ml-2 text-(length:--sig-text-sm) text-sig-dim">
           {statusSlot}
@@ -241,132 +413,194 @@ export function PaneHeader({
 
       <div className="flex-1" />
 
-      {/* Controls meet the minimum pointer target size. */}
-      <div className="flex items-center">
-        {onSplitH && (
-          <Tooltip content="Split right" placement={TooltipPlacement.Bottom}>
-            <button
-              type={ButtonType.Button}
-              data-tour={
-                paneType === PaneTypeId.Globe ? "split-right-btn" : undefined
-              }
-              aria-label="Split pane right"
-              onClick={onSplitH}
-              className={cn(
-                PaneHeaderClassName.Control,
-                PaneHeaderClassName.Interactive,
-              )}
-            >
-              <Columns2
-                className={PaneHeaderClassName.ControlIcon}
-                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                aria-hidden
-              />
-            </button>
-          </Tooltip>
-        )}
-        {onSplitV && (
-          <Tooltip content="Split down" placement={TooltipPlacement.Bottom}>
-            <button
-              type={ButtonType.Button}
-              data-tour={
-                paneType === PaneTypeId.Globe ? "split-down-btn" : undefined
-              }
-              aria-label="Split pane down"
-              onClick={onSplitV}
-              className={cn(
-                PaneHeaderClassName.Control,
-                PaneHeaderClassName.Interactive,
-              )}
-            >
-              <Rows2
-                className={PaneHeaderClassName.ControlIcon}
-                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                aria-hidden
-              />
-            </button>
-          </Tooltip>
-        )}
+      <PaneHeaderControls
+        isFullscreen={isFullscreen}
+        isMaximized={isMaximized}
+        isMinimized={isMinimized}
+        isPhone={isPhone}
+        onClose={onClose}
+        onMinimize={onMinimize}
+        onPopOut={onPopOut}
+        onSplitH={onSplitH}
+        onSplitV={onSplitV}
+        onToggleMaximize={onToggleMaximize}
+        onToggleFullscreen={onToggleFullscreen}
+        paneType={paneType}
+      />
+    </div>
+  );
+}
 
-        {!isPhone && (
-          <Tooltip
-            content={
-              chromeHidden ? PaneHeaderCopy.ExitFullscreen : "Fullscreen"
-            }
-            placement={TooltipPlacement.Bottom}
-          >
-            <button
-              type={ButtonType.Button}
-              aria-label={
-                chromeHidden
-                  ? PaneHeaderCopy.ExitFullscreen
-                  : "Enter fullscreen"
-              }
-              aria-pressed={chromeHidden}
-              onClick={() => setChromeHidden((v) => !v)}
-              className={cn(
-                PaneHeaderClassName.Control,
-                PaneHeaderClassName.Interactive,
-              )}
-            >
-              {chromeHidden ? (
-                <Minimize2
-                  className={PaneHeaderClassName.ControlIcon}
-                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                  aria-hidden
-                />
-              ) : (
-                <Maximize2
-                  className={PaneHeaderClassName.ControlIcon}
-                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                  aria-hidden
-                />
-              )}
-            </button>
-          </Tooltip>
-        )}
+type MobilePaneHeaderProps = Readonly<{
+  availableTypes: readonly PaneType[];
+  block: MobileBlock;
+  changePaneType: (leafId: string, paneType: PaneType) => void;
+  closePane: (leafId: string) => void;
+  isMinimized: boolean;
+  moveSourceLeafId: string | null;
+  onGripClick: (leafId: string) => void;
+  paneCatalog: PaneCatalog;
+  requestSplit: (
+    leafId: string,
+    direction: SplitDirectionValue,
+    event: ReactMouseEvent,
+  ) => void;
+  toggleMinimize: (blockId: string) => void;
+  totalLeafCount: number;
+}>;
 
-        <Tooltip content="Minimize" placement={TooltipPlacement.Bottom}>
-          <button
-            type={ButtonType.Button}
-            aria-label="Minimize pane"
-            onClick={onMinimize}
-            className={cn(
-              PaneHeaderClassName.Control,
-              PaneHeaderClassName.Interactive,
-            )}
-          >
-            <Minus
-              className={PaneHeaderClassName.ControlIcon}
-              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-              aria-hidden
-            />
-          </button>
-        </Tooltip>
+function mobilePaneHeaderConfiguration(
+  props: MobilePaneHeaderProps,
+) {
+  const leaf = props.block.primaryLeaf;
+  let label = "SPLIT";
+  let paneType: PaneType | undefined;
+  let onSplitH: ((event: ReactMouseEvent) => void) | undefined;
+  let onSplitV: ((event: ReactMouseEvent) => void) | undefined;
+  let onMinimize: (() => void) | undefined;
+  let onClose: (() => void) | undefined;
+  let onChangePaneType: ((paneType: PaneType) => void) | undefined;
 
-        {onClose && (
-          <Tooltip
-            content={PaneHeaderCopy.ClosePane}
-            placement={TooltipPlacement.Bottom}
-          >
-            <button
-              type={ButtonType.Button}
-              aria-label={PaneHeaderCopy.ClosePane}
-              onClick={onClose}
-              className={cn(
-                PaneHeaderClassName.Control,
-                PaneHeaderClassName.Destructive,
-              )}
-            >
-              <X
-                className={PaneHeaderClassName.ControlIcon}
-                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                aria-hidden
-              />
-            </button>
-          </Tooltip>
+  if (!props.moveSourceLeafId) {
+    onMinimize = () => props.toggleMinimize(props.block.id);
+  }
+
+  if (props.block.node.type === PaneNodeType.Leaf) {
+    label = props.paneCatalog[leaf.paneType].label;
+    paneType = leaf.paneType;
+    onChangePaneType = (nextPaneType) =>
+      props.changePaneType(leaf.id, nextPaneType);
+
+    if (props.availableTypes.length > 0 && !props.moveSourceLeafId) {
+      onSplitV = (event) =>
+        props.requestSplit(leaf.id, SplitDirection.Vertical, event);
+      if (!FULL_WIDTH_ONLY.has(leaf.paneType)) {
+        onSplitH = (event) =>
+          props.requestSplit(leaf.id, SplitDirection.Horizontal, event);
+      }
+    }
+
+    if (props.totalLeafCount > 1 && !props.moveSourceLeafId) {
+      onClose = () => props.closePane(leaf.id);
+    }
+  }
+
+  return {
+    label,
+    paneType,
+    onSplitH,
+    onSplitV,
+    onMinimize,
+    onClose,
+    onChangePaneType,
+  };
+}
+
+export function MobilePaneHeader({
+  availableTypes,
+  block,
+  changePaneType,
+  closePane,
+  isMinimized,
+  moveSourceLeafId,
+  onGripClick,
+  paneCatalog,
+  requestSplit,
+  toggleMinimize,
+  totalLeafCount,
+}: MobilePaneHeaderProps) {
+  const leaf = block.primaryLeaf;
+  const definition = paneCatalog[leaf.paneType];
+  const configuration = mobilePaneHeaderConfiguration({
+    availableTypes,
+    block,
+    changePaneType,
+    closePane,
+    isMinimized,
+    moveSourceLeafId,
+    onGripClick,
+    paneCatalog,
+    requestSplit,
+    toggleMinimize,
+    totalLeafCount,
+  });
+  return (
+    <PaneHeader
+      isFullscreen={false}
+      isMinimized={isMinimized}
+      icon={definition.icon}
+      leafId={leaf.id}
+      paneCatalog={paneCatalog}
+      onGripClick={() => onGripClick(leaf.id)}
+      {...configuration}
+    />
+  );
+}
+
+type MobilePaneMoveOverlayProps = Readonly<{
+  active: boolean;
+  allowBeside: boolean;
+  blockId: string;
+  onMoveAction: (blockId: string, zone: PaneDropZoneValue) => void;
+}>;
+
+export function MobilePaneMoveOverlay({
+  active,
+  allowBeside,
+  blockId,
+  onMoveAction,
+}: MobilePaneMoveOverlayProps) {
+  if (!active) return null;
+  return (
+    <div className="absolute inset-0 z-(--layer-pane-overlay) grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
+      <button
+        type={ButtonType.Button}
+        onClick={() => onMoveAction(blockId, PaneDropZone.Top)}
+        className={cn(
+          MobilePaneControlClassName.MoveZoneFullWidth,
+          MobilePaneControlClassName.MoveZone,
         )}
-      </div>
+      >
+        ↑ ABOVE
+      </button>
+      {allowBeside && (
+        <button
+          type={ButtonType.Button}
+          onClick={() => onMoveAction(blockId, PaneDropZone.Left)}
+          className={MobilePaneControlClassName.MoveZone}
+        >
+          ← LEFT
+        </button>
+      )}
+      <button
+        type={ButtonType.Button}
+        onClick={() => onMoveAction(blockId, PaneDropZone.Center)}
+        className={cn(
+          MobilePaneControlClassName.SwapZone,
+          !allowBeside && MobilePaneControlClassName.MoveZoneFullWidth,
+        )}
+      >
+        ⇄ SWAP
+      </button>
+      {allowBeside && (
+        <button
+          type={ButtonType.Button}
+          onClick={() => onMoveAction(blockId, PaneDropZone.Right)}
+          className={MobilePaneControlClassName.MoveZone}
+        >
+          RIGHT →
+        </button>
+      )}
+      <button
+        type={ButtonType.Button}
+        onClick={() => onMoveAction(blockId, PaneDropZone.Bottom)}
+        className={cn(
+          MobilePaneControlClassName.MoveZoneFullWidth,
+          MobilePaneControlClassName.MoveZone,
+        )}
+      >
+        ↓ BELOW
+      </button>
     </div>
   );
 }

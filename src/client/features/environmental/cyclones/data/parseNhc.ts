@@ -3,42 +3,34 @@ import { EMPTY_TEXT } from "@shared/text";
 
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
-  ACTIVE_BASINS,
   CycloneBasin,
-  type NhcBasin,
+  isNhcBasin,
 } from "@shared/cyclonesSeason";
 import {
-  Category,
-  HURRICANE_CATEGORY,
-  SaffirSimpson,
   type CycloneData,
   type ForecastPoint,
-  type GeoJSONPolygon,
   type ModelTrack,
+  type NhcForecastPoint,
   type PastTrackPoint,
   type WindRadii,
-} from "../types";
+  Category,
+  CYCLONE_CATEGORY_METADATA,
+  CycloneRoute,
+  SaffirSimpson,
+  cycloneCategoryForScale,
+  saffirSimpsonForWind,
+} from "@shared/domain/cyclones";
+import type { GeoJsonPolygon } from "@shared/geo";
 import { authenticatedFetch } from "@/lib/net/authService";
-import { CycloneWindThreshold, saffirSimpson } from "../classification";
 
-export enum CycloneDataEndpoint {
-  Latest = "/api/cyclones/latest",
-}
-
-enum NhcClassificationPrefix {
-  Subtropical = "S",
-}
-
-enum CycloneFetchErrorKind {
-  HttpStatus = "Cyclone source request failed",
-}
+const NHC_SUBTROPICAL_PREFIX = "S";
+const CYCLONE_FETCH_ERROR_MESSAGE = "Cyclone source request failed";
 
 export class CycloneFetchError extends Error {
-  constructor(
-    readonly kind: CycloneFetchErrorKind,
-    readonly status: number,
-  ) {
-    super(kind);
+  readonly kind = CYCLONE_FETCH_ERROR_MESSAGE;
+
+  constructor(readonly status: number) {
+    super(CYCLONE_FETCH_ERROR_MESSAGE);
     this.name = CycloneFetchError.name;
   }
 }
@@ -63,14 +55,12 @@ const TRACK_ERROR_NM: ReadonlyMap<NhcForecastHour, number> = new Map([
   [NhcForecastHour.H120, 178],
 ]);
 
-enum NhcTrackError {
-  NotPublished = 0,
-}
+const NHC_TRACK_ERROR_NOT_PUBLISHED = 0;
 
 function trackErrorNm(fcstHour: number): number {
   return (
     TRACK_ERROR_NM.get(fcstHour as NhcForecastHour) ??
-    NhcTrackError.NotPublished
+    NHC_TRACK_ERROR_NOT_PUBLISHED
   );
 }
 
@@ -105,20 +95,10 @@ type NhcStorm = {
   };
   // The server attaches these values after it reads the NHC payload.
   forecast?: NhcForecastPoint[];
-  officialCone?: GeoJSONPolygon;
+  officialCone?: GeoJsonPolygon;
   windRadii?: WindRadii;
   pastTrack?: PastTrackPoint[];
   models?: ModelTrack[];
-};
-
-type NhcForecastPoint = {
-  fcstHour: number;
-  validTime: string;
-  latitude: number;
-  longitude: number;
-  maxWind: number;
-  minPressure?: number;
-  development?: string;
 };
 
 export function classify(
@@ -132,13 +112,15 @@ export function classify(
     };
   }
   const subtropical = classification.startsWith(
-    NhcClassificationPrefix.Subtropical,
+    NHC_SUBTROPICAL_PREFIX,
   );
-  const scale = saffirSimpson(maxWindKt);
+  const scale = saffirSimpsonForWind(maxWindKt);
   if (scale !== SaffirSimpson.None) {
-    return { category: HURRICANE_CATEGORY[scale], saffirSimpson: scale };
+    return { category: cycloneCategoryForScale(scale), saffirSimpson: scale };
   }
-  if (maxWindKt >= CycloneWindThreshold.TropicalStorm) {
+  if (
+    maxWindKt >= CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt
+  ) {
     return {
       category: subtropical
         ? Category.SubtropicalStorm
@@ -154,10 +136,9 @@ export function classify(
   };
 }
 
-export function basinFromId(id: string): NhcBasin {
+export function basinFromId(id: string): CycloneBasin {
   const prefix = id.slice(0, 2).toUpperCase();
-  const basin = ACTIVE_BASINS.find((candidate) => candidate === prefix);
-  return basin ?? CycloneBasin.CentralPacific;
+  return isNhcBasin(prefix) ? prefix : CycloneBasin.CentralPacific;
 }
 
 function toForecastPoint(p: NhcForecastPoint): ForecastPoint {
@@ -233,9 +214,9 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
 }
 
 export async function fetchCurrentStorms(): Promise<DataPoint[]> {
-  const res = await authenticatedFetch(CycloneDataEndpoint.Latest);
+  const res = await authenticatedFetch(CycloneRoute.Latest);
   if (!res.ok) {
-    throw new CycloneFetchError(CycloneFetchErrorKind.HttpStatus, res.status);
+    throw new CycloneFetchError(res.status);
   }
   const json = (await res.json()) as NhcResponse;
   const storms = json.activeStorms ?? [];

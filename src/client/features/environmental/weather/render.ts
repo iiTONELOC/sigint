@@ -3,12 +3,11 @@ import {
   type MarkerPulse,
   type MarkerStyle,
 } from "@/workers/render/primitives/markerStyle";
-import { AreaKind } from "@/workers/render/protocol";
+import { AreaKind } from "@shared/domain/cyclones";
 import {
   WeatherSeverity,
-  weatherSeverityInk,
   weatherSeverityRank,
-} from "./severity";
+} from "@shared/domain/weather";
 
 const MARKER: Readonly<Record<WeatherSeverity, MarkerStyle>> = {
   [WeatherSeverity.Unknown]: { size: 1.5, alpha: 0.6 },
@@ -16,6 +15,14 @@ const MARKER: Readonly<Record<WeatherSeverity, MarkerStyle>> = {
   [WeatherSeverity.Moderate]: { size: 3, alpha: 0.75 },
   [WeatherSeverity.Severe]: { size: 4.5, alpha: 0.9 },
   [WeatherSeverity.Extreme]: { size: 6, alpha: 1 },
+};
+
+const SEVERITY_INK: Readonly<Record<WeatherSeverity, string>> = {
+  [WeatherSeverity.Unknown]: "#6b7a8d",
+  [WeatherSeverity.Minor]: "#5c7cfa",
+  [WeatherSeverity.Moderate]: "#9775fa",
+  [WeatherSeverity.Severe]: "#cc5de8",
+  [WeatherSeverity.Extreme]: "#e64980",
 };
 
 const GLOW: MarkerGlow = {
@@ -33,12 +40,19 @@ const WARNING_MIN_RANK = weatherSeverityRank(WeatherSeverity.Severe);
 const PULSE_FLOOR_RANK = weatherSeverityRank(WeatherSeverity.Moderate);
 const PULSE_CEILING_RANK = weatherSeverityRank(WeatherSeverity.Extreme);
 const PULSE_RANK_SPAN = PULSE_CEILING_RANK - PULSE_FLOOR_RANK;
-const MAX_PULSE_INDEX = 1;
+
+enum WeatherPulseIndex {
+  Maximum = 1,
+}
 
 export const WEATHER_AREA_FILL: Readonly<Record<AreaKind, string>> = {
   [AreaKind.Warning]: weatherSeverityInk(WeatherSeverity.Extreme),
   [AreaKind.Watch]: weatherSeverityInk(WeatherSeverity.Moderate),
 };
+
+export function weatherSeverityInk(severity: WeatherSeverity): string {
+  return SEVERITY_INK[severity];
+}
 
 export function weatherIsWarning(severity: WeatherSeverity): boolean {
   return weatherSeverityRank(severity) >= WARNING_MIN_RANK;
@@ -58,7 +72,7 @@ export function weatherPulse(severity: WeatherSeverity): MarkerPulse | null {
   return {
     glow: GLOW,
     index: Math.min(
-      MAX_PULSE_INDEX,
+      WeatherPulseIndex.Maximum,
       (rank - PULSE_FLOOR_RANK) / PULSE_RANK_SPAN,
     ),
   };

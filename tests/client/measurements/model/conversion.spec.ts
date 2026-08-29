@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MeasurementConversionFactor } from "@/measurements/model";
+import { MeasurementConversionFactor } from "@/measurements/model/conversion";
 
 describe("measurement conversion model", () => {
   test("owns unique factors", () => {

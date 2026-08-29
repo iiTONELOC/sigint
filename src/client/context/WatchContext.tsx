@@ -14,8 +14,6 @@ import { requestWatchLayout } from "@/lib/runtime/layoutSignals";
 import { revealThenClear } from "@/selection";
 import { useUI } from "@/context/UIContext";
 
-// ── Types ───────────────────────────────────────────────────────────
-
 export enum WatchSource {
   Alerts = "alerts",
   Intel = "intel",
@@ -54,8 +52,6 @@ enum WatchTiming {
 enum WatchError {
   ProviderRequired = "useWatch must be used within WatchProvider",
 }
-
-// ── Context value type ──────────────────────────────────────────────
 
 type WatchContextValue = {
   watchMode: WatchMode;
@@ -127,8 +123,6 @@ function buildWatchEntries(
   );
 }
 
-// ── Provider ────────────────────────────────────────────────────────
-
 export function WatchProvider({
   children,
   correlation,
@@ -163,7 +157,6 @@ export function WatchProvider({
     [watchEntries],
   );
 
-  // Refs for interval callbacks
   const watchEntriesRef = useRef(watchEntries);
   const watchItemsRef = useRef(watchItems);
   const watchStateRef = useRef(watchState);
@@ -229,7 +222,6 @@ export function WatchProvider({
     }, 0);
   }, [setAutoRotate]);
 
-  // Keep watch layout alive during watch
   useEffect(() => {
     if (!watchState.active) return;
     const id = setInterval(
@@ -239,14 +231,12 @@ export function WatchProvider({
     return () => clearInterval(id);
   }, [watchState.active]);
 
-  // Watch countdown for progress bar
   const [watchCountdown, setWatchCountdown] = useState(WatchTiming.DwellMs);
   const watchProgress =
     watchState.active && !watchState.paused
       ? (WatchTiming.DwellMs - watchCountdown) / WatchTiming.DwellMs
       : 0;
 
-  // Main watch loop
   useEffect(() => {
     if (!watchState.active || watchState.paused) return;
 
@@ -301,10 +291,15 @@ export function WatchProvider({
       clearInterval(tickId);
       clearInterval(advanceId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchState.active, watchState.paused, watchState.source]);
+  }, [
+    setRevealId,
+    setSelected,
+    stopWatch,
+    watchState.active,
+    watchState.paused,
+    watchState.source,
+  ]);
 
-  // Manual selection pauses watch
   useEffect(() => {
     if (!watchState.active || watchState.paused || !selectedCurrent) return;
     if (resumeGraceRef.current) return;
@@ -339,8 +334,6 @@ export function WatchProvider({
     <WatchContext.Provider value={value}>{children}</WatchContext.Provider>
   );
 }
-
-// ── Hook ─────────────────────────────────────────────────────────────
 
 export function useWatch(): WatchContextValue {
   const context = useContext(WatchContext);

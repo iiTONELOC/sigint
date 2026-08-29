@@ -6,12 +6,11 @@ import {
 } from "bun:test";
 import {
   AircraftRouteSource,
+  isAircraftIcao24,
 } from "@shared/domain/aircraftDossier";
 import {
   getAircraftDossier,
-  getAirportInfo,
   isValidCallsign,
-  isValidIcao24,
 } from "../../src/server/api/dossierCache";
 import {
   installFetchMock,
@@ -97,18 +96,18 @@ function flightAwareHtml(): string {
 
 describe("aircraft dossier validation", () => {
   test("accepts canonical ICAO24 and callsign values", () => {
-    expect(isValidIcao24("abc123")).toBe(true);
-    expect(isValidIcao24("ABCDEF")).toBe(true);
+    expect(isAircraftIcao24("abc123")).toBe(true);
+    expect(isAircraftIcao24("ABCDEF")).toBe(true);
     expect(isValidCallsign("UAL123")).toBe(true);
   });
 
   test("rejects malformed aircraft identifiers", () => {
-    expect(isValidIcao24("../../../etc/passwd")).toBe(false);
-    expect(isValidIcao24("xyz123")).toBe(false);
+    expect(isAircraftIcao24("../../../etc/passwd")).toBe(false);
+    expect(isAircraftIcao24("xyz123")).toBe(false);
     expect(isValidCallsign("UAL-123")).toBe(false);
   });
 
-  test("rejects invalid lookup input without an upstream request", async () => {
+  test("rejects invalid aircraft input without an upstream request", async () => {
     let requestCount = 0;
     setFetch(async () => {
       requestCount++;
@@ -116,21 +115,20 @@ describe("aircraft dossier validation", () => {
     });
 
     expect(await getAircraftDossier("invalid")).toBeNull();
-    expect(await getAirportInfo("JFK")).toBeNull();
     expect(requestCount).toBe(0);
   });
 });
 
 describe("aircraft dossier route", () => {
   test("normalizes the provider route through the shared contract", async () => {
-    let staleRouteRequestCount = 0;
+    let backgroundRouteRequestCount = 0;
     setFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes(AircraftDossierFixture.FlightAwareHost)) {
         return new Response(flightAwareHtml());
       }
       if (url.includes(AircraftDossierFixture.HexDbRoutePath)) {
-        staleRouteRequestCount++;
+        backgroundRouteRequestCount++;
         return Response.json({ route: "KMCI-KPHX" });
       }
       if (url.includes(AircraftDossierFixture.HexDbHost)) {
@@ -149,6 +147,6 @@ describe("aircraft dossier route", () => {
       [33.9, -118.4],
     ]);
     expect(dossier?.route?.delays?.departure).toBe("17m late");
-    expect(staleRouteRequestCount).toBe(0);
+    expect(backgroundRouteRequestCount).toBe(1);
   });
 });

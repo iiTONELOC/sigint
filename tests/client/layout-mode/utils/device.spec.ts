@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DeviceType,
-} from "@/layout-mode/model";
-import {
-  classifyDeviceType,
-  type DeviceDetectionInput,
-} from "@/layout-mode/utils";
+import { DeviceType } from "@/layout-mode/model/layoutMode";
+import { classifyDeviceType, type DeviceDetectionInput } from "@/layout-mode/utils/device";
 
 enum DeviceFixturePlatform {
   Desktop = "Linux x86_64",

@@ -1,33 +1,27 @@
 import type { DataType } from "./base/dataPoints";
 import type { FeatureDefinition } from "./base/presentation";
-import { aircraftFeature } from "./tracking/aircraft";
+import { Domain } from "@shared/domain/identity";
+import { aircraftFeature } from "./tracking/aircraft/definition";
 import { earthquakeFeature } from "./environmental/earthquake";
-import { shipsFeature } from "./tracking/ships";
+import { shipsFeature } from "./tracking/ships/definition";
 import { eventsFeature } from "./intel/events";
 import { firesFeature } from "./environmental/fires";
 import { weatherFeature } from "./environmental/weather";
-import {
-  cycloneFeature,
-  cycloneForecastFeature,
-  cycloneWarningFeature,
-} from "./environmental/cyclones";
+import { cycloneFeature } from "./environmental/cyclones/definition";
+import { cycloneForecastFeature } from "./environmental/cyclones/forecastDefinition";
+import { cycloneWarningFeature } from "./environmental/cyclones/warningDefinition";
 
-const features: readonly FeatureDefinition[] = [
-  aircraftFeature,
-  shipsFeature,
-  eventsFeature,
-  earthquakeFeature,
-  firesFeature,
-  weatherFeature,
-  cycloneFeature,
-  cycloneForecastFeature,
-  cycloneWarningFeature,
-];
+export const featureRegistry: Readonly<Record<DataType, FeatureDefinition>> = {
+  [Domain.Aircraft]: aircraftFeature,
+  [Domain.Ships]: shipsFeature,
+  [Domain.Events]: eventsFeature,
+  [Domain.Quakes]: earthquakeFeature,
+  [Domain.Fires]: firesFeature,
+  [Domain.Weather]: weatherFeature,
+  [Domain.Cyclones]: cycloneFeature,
+  [Domain.CyclonesForecast]: cycloneForecastFeature,
+  [Domain.CyclonesWarning]: cycloneWarningFeature,
+};
 
-export const featureRegistry = new Map<DataType, FeatureDefinition>(
-  features.map(
-    (feature): readonly [DataType, FeatureDefinition] => [feature.id, feature],
-  ),
-);
-
-export const featureList = features;
+export const featureList: readonly FeatureDefinition[] =
+  Object.values(featureRegistry);

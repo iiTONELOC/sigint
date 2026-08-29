@@ -21,7 +21,7 @@ import {
   IntelFeedCopy,
   IntelFeedIconSize,
   intelProductRowClassName,
-} from "../model";
+} from "../model/feed";
 import { IntelPriorityBadge } from "./IntelFeedBadges";
 
 type IntelProductRowProps = Readonly<{
@@ -122,7 +122,7 @@ export function IntelProductRow({
               {product.sources
                 .slice(0, CORRELATION_POLICY.sourcePreviewLimit)
                 .map((source) => {
-                  const feature = featureRegistry.get(source.type);
+                  const feature = featureRegistry[source.type];
                   if (!feature) return null;
                   const SourceIcon = feature.icon;
                   const sourcePresentation = feature.feedPresentation(

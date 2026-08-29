@@ -1,26 +1,19 @@
-import type { Ctx } from "@/features/environmental/cyclones/render/cycloneGeometry";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
-import {
-  ShipSceneAttribute,
-  ShipSceneSchema,
-} from "@/workers/render/scene/shipSchema";
+import { ShipSceneAttribute } from "@shared/scene";
 import {
   RenderLayerOrder,
   ScenePointLayer,
 } from "@/workers/render/scene/sceneLayer";
 import {
-  MovingScenePositionAccessor,
+  movingPositionAccessor,
 } from "@/workers/render/scene/movingScenePosition";
 import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
 import {
-  sceneRecordIsVisible,
+  sceneSourceIncludes,
   type EnabledSceneFilter,
 } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
-import {
-  TRAIL_POLICY,
-} from "@/lib/geo/trails/trailStore";
 import { Domain } from "@shared/domain/identity";
 import { TurnDeg } from "@shared/geo";
 
@@ -46,7 +39,7 @@ enum ShipMarkerAngle {
 export type ShipSceneFilter = EnabledSceneFilter;
 
 export type ShipSceneStyle = Readonly<{
-  context: Ctx;
+  context: OffscreenCanvasRenderingContext2D;
   color: string;
   selectedId: string | null;
   time: number;
@@ -58,18 +51,7 @@ export function shipSceneIncludes(
   index: number,
   settings: ShipSceneFilter,
 ): boolean {
-  return (
-    view.attributeStride === ShipSceneSchema.AttributeStride &&
-    view.stringAttributeStride ===
-      ShipSceneSchema.StringAttributeStride &&
-    sceneRecordIsVisible(
-      view,
-      index,
-      Domain.Ships,
-      settings.enabled,
-      settings,
-    )
-  );
+  return sceneSourceIncludes(Domain.Ships, view, index, settings);
 }
 
 function drawShip(
@@ -156,15 +138,7 @@ export class ShipLayer extends ScenePointLayer<
   readonly order = RenderLayerOrder.Ships;
 
   constructor() {
-    super(
-      Domain.Ships,
-      new MovingScenePositionAccessor({
-        attributeOffset: ShipSceneSchema.MotionAttributeOffset,
-        attributeStride: ShipSceneSchema.AttributeStride,
-        maximumAgeMs:
-          TRAIL_POLICY[Domain.Ships].maxExtrapolationMs,
-      }),
-    );
+    super(Domain.Ships, movingPositionAccessor(Domain.Ships));
   }
 
   protected includes(

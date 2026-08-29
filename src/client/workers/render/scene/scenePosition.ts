@@ -2,22 +2,12 @@ import type {
   RenderSceneRecord,
   RenderSceneView,
 } from "@/workers/render/sceneStore";
-
-enum ScenePositionComponentCount {
-  Position = 2,
-  UnitVector = 3,
-}
-
-enum ScenePositionOffset {
-  Longitude = 0,
-  Latitude = 1,
-}
-
-enum SceneUnitVectorOffset {
-  X = 0,
-  Y = 1,
-  Z = 2,
-}
+import {
+  SCENE_POSITION_COUNT,
+  SCENE_UNIT_VECTOR_COUNT,
+  ScenePositionOffset,
+  SceneUnitVectorOffset,
+} from "@shared/scene";
 
 export type SceneResolvedPosition = Readonly<{
   latitude: number;
@@ -59,9 +49,9 @@ export function scenePositionFromView(
   index: number,
 ): SceneResolvedPosition | null {
   const positionOffset =
-    index * ScenePositionComponentCount.Position;
+    index * SCENE_POSITION_COUNT;
   const unitOffset =
-    index * ScenePositionComponentCount.UnitVector;
+    index * SCENE_UNIT_VECTOR_COUNT;
   const longitude =
     view.positions[positionOffset + ScenePositionOffset.Longitude];
   const latitude =

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { leaf, split } from "@/panes/paneTree";
-import {
-  PaneType,
-  SplitDirection,
-} from "@/panes/workspace/model";
+import { PaneType, SplitDirection } from "@/panes/workspace/model/pane";
 import {
   collectFirstLeaf,
   collectLeafIds,

@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { Header } from "@/components/Header";
 import { DataProvider } from "@/context/DataContext";
 import { LayoutModeProvider } from "@/layout-mode";
-import { ThemeProvider } from "@/context/ThemeContext";
+import { ThemeProvider } from "@/theme";
 import { MilFilter } from "@shared/domain/aircraft";
 import { Domain } from "@shared/domain/identity";
 import { SourceStatus } from "@shared/domain/sourceStatus";
@@ -16,12 +16,12 @@ function noop(): void {}
 function headerProps(overrides: Partial<HeaderProps>): HeaderProps {
   return {
     aircraftFilter: {
-      countries: new Set(),
+      countries: [],
       enabled: true,
       milFilter: MilFilter.All,
       showAirborne: true,
       showGround: true,
-      squawks: new Set(),
+      squawks: [],
     },
     availableCountries: ["US", "UK"],
     counts: {

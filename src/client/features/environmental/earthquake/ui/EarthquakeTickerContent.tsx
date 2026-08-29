@@ -1,6 +1,6 @@
-import type { EarthquakeData } from "../types";
+import type { EarthquakeData } from "@shared/domain/earthquakes";
 import type { TickerRendererProps } from "@/features/base/presentation";
-import { EarthquakeCopy } from "../formatters";
+import { EarthquakeCopy } from "../formatters/presentation";
 
 export function EarthquakeTickerContent({
   data,

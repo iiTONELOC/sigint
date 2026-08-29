@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createLogger, REDACTED, type LogLevel } from "../../src/server/lib/logger";
+import { createLogger, LogLevel, REDACTED } from "../../src/server/lib/logger";
 
 // ── Capture sink for assertions (Writer-shaped) ─────────────────────
 // The logger writes to a sink that conforms to the WritableStream-ish
@@ -33,21 +33,21 @@ function createCaptureSink(): {
   };
 }
 
-describe("logger — structured JSON output", () => {
+describe("logger: structured JSON output", () => {
   test("emits one JSON object per call, separated by newline", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("first");
     log.warn("second");
     log.error("third");
     await Promise.resolve();
     const lines = sink.lines();
-    expect(lines.length).toBe(3);
+    expect(lines).toHaveLength(3);
   });
 
   test("every entry has level, service, message, timestamp", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("hello");
     const [entry] = sink.lines();
     expect(entry).toBeDefined();
@@ -61,7 +61,7 @@ describe("logger — structured JSON output", () => {
 
   test("merges custom fields into the entry", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("request handled", {
       requestId: "abc-123",
       actorId: "user-1",
@@ -76,8 +76,8 @@ describe("logger — structured JSON output", () => {
   });
 });
 
-describe("logger — level filter", () => {
-  const levels: LogLevel[] = ["debug", "info", "warn", "error"];
+describe("logger: level filter", () => {
+  const levels = Object.values(LogLevel);
 
   for (const min of levels) {
     test(`level "${min}" filters out lower levels`, async () => {
@@ -89,15 +89,15 @@ describe("logger — level filter", () => {
       log.error("e");
       const lines = sink.lines();
       const expectedCount = 4 - levels.indexOf(min);
-      expect(lines.length).toBe(expectedCount);
+      expect(lines).toHaveLength(expectedCount);
     });
   }
 });
 
-describe("logger — redaction (§9.1)", () => {
+describe("logger: redaction (§9.1)", () => {
   test("redacts forbidden top-level keys: token, password, apiKey, etc.", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("auth event", {
       token: "secret-token",
       password: "hunter2",
@@ -122,7 +122,7 @@ describe("logger — redaction (§9.1)", () => {
 
   test("redacts forbidden keys case-insensitively", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("ev", {
       TOKEN: "x",
       Password: "y",
@@ -136,7 +136,7 @@ describe("logger — redaction (§9.1)", () => {
 
   test("redacts nested keys one level deep", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("ev", {
       meta: { token: "x", actorId: "u" },
     });
@@ -150,17 +150,17 @@ describe("logger — redaction (§9.1)", () => {
     // Per §9.1, full request bodies and tokens must never appear in
     // logs. The message string itself is checked for cookie patterns.
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     log.info("got cookie sigint_token=abc123 from client");
     const [entry] = sink.lines();
     expect(entry!.message).not.toContain("abc123");
   });
 });
 
-describe("logger — error class capture", () => {
+describe("logger: error class capture", () => {
   test("captures errorClass when an Error is passed via the error field", async () => {
     const sink = createCaptureSink();
-    const log = createLogger({ service: "test", level: "debug", sink });
+    const log = createLogger({ service: "test", level: LogLevel.Debug, sink });
     class DependencyError extends Error {}
     log.error("dep failed", { error: new DependencyError("upstream 500") });
     const [entry] = sink.lines();
@@ -171,7 +171,7 @@ describe("logger — error class capture", () => {
   });
 });
 
-describe("logger — sink failure tolerance", () => {
+describe("logger: sink failure tolerance", () => {
   test("a sink that throws does not propagate to the caller", async () => {
     const throwingSink = {
       async write(): Promise<void> {
@@ -180,19 +180,19 @@ describe("logger — sink failure tolerance", () => {
     };
     const log = createLogger({
       service: "test",
-      level: "debug",
+      level: LogLevel.Debug,
       sink: throwingSink,
     });
-    // Must not throw — logging is best-effort
+    // Logging failures do not affect the caller.
     expect(() => log.info("hello")).not.toThrow();
   });
 });
 
-describe("logger — default sink is stderr-compatible", () => {
+describe("logger: default sink is stderr-compatible", () => {
   test("createLogger with no sink uses stderr without throwing", () => {
-    // Smoke test only — we can't easily intercept stderr here, but
+    // This test cannot intercept stderr. It verifies construction and use.
     // construction must succeed and the returned logger must be callable.
-    const log = createLogger({ service: "test", level: "error" });
+    const log = createLogger({ service: "test", level: LogLevel.Error });
     expect(() => log.error("ping")).not.toThrow();
   });
 });

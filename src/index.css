@@ -3,13 +3,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ── Tailwind theme registration ──────────────────────────────────── */
-/* All SIGINT colors are registered here so we can use:               */
-/*   text-sig-accent, bg-sig-panel, border-sig-border, etc.           */
-/* They resolve to CSS vars set by applyThemeToRoot() at runtime.     */
-
 @theme inline {
-  /* shadcn defaults */
+  --breakpoint-md: 768px;
+  --animate-walkthrough-pulse: pulse 1.5s infinite;
+  --animate-walkthrough-ring: walkthrough-ring 2s ease-out infinite;
+  --animate-walkthrough-ring-delayed: walkthrough-ring 2s ease-out 600ms infinite;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -46,7 +44,6 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* SIGINT theme colors support text, background, and border utilities. */
   --color-sig-bg: var(--sigint-bg);
   --color-sig-panel: var(--sigint-panel);
   --color-sig-border: var(--sigint-border);
@@ -67,17 +64,33 @@
   --color-sig-danger: var(--sigint-danger);
   --color-sig-warn: var(--sigint-warn);
 
-  /* SIGINT font family */
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* ── SIGINT font size scale (responsive clamp values) ─────────────── */
-/* Used as: text-[length:var(--sig-text-xs)] or via utility classes     */
-
 :root {
   --radius: 0.625rem;
+  --control-target-size: 44px;
+  --layer-local: 1;
+  --layer-content: 10;
+  --layer-pane-overlay: 20;
+  --layer-floating: 30;
+  --layer-tooltip: 40;
+  --layer-search: 60;
+  --layer-modal: 70;
+  --layer-menu: 80;
+  --layer-guidance: 9996;
+  --layer-attention: 9998;
+  --layer-blocking: 9999;
+  --layer-system: 10000;
+  --sw-update-background: linear-gradient(135deg, color-mix(in srgb, var(--sigint-accent) 15%, transparent) 0%, color-mix(in srgb, var(--sigint-accent) 5%, transparent) 100%);
+  --sw-update-dot-shadow: 0 0 8px var(--sigint-accent), 0 0 20px color-mix(in srgb, var(--sigint-accent) 40%, transparent);
+  --walkthrough-cutout-shadow: 0 0 0 4px color-mix(in srgb, var(--sigint-accent) 12%, transparent), 0 0 20px color-mix(in srgb, var(--sigint-accent) 8%, transparent);
+  --walkthrough-highlight-shadow: 0 0 16px color-mix(in srgb, var(--walkthrough-color) 50%, transparent), 0 0 6px color-mix(in srgb, var(--walkthrough-color) 30%, transparent), inset 0 0 8px color-mix(in srgb, var(--walkthrough-color) 10%, transparent);
+  --walkthrough-indicator-ring: color-mix(in srgb, var(--walkthrough-color) 60%, transparent);
+  --walkthrough-indicator-shadow: 0 0 20px color-mix(in srgb, var(--walkthrough-color) 90%, transparent), 0 0 40px color-mix(in srgb, var(--walkthrough-color) 90%, transparent);
+  --walkthrough-tooltip-motion: opacity 0.2s ease-out, left 0.25s ease-out, top 0.25s ease-out;
+  --walkthrough-tooltip-drag-motion: opacity 0.2s ease-out;
 
-  /* shadcn light theme defaults */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -110,7 +123,6 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 
-  /* SIGINT responsive font sizes */
   --sig-text-xs: clamp(8px, 1.2vw, 11px);
   --sig-text-sm: clamp(9px, 1.2vw, 12px);
   --sig-text-md: clamp(9px, 1.3vw, 13px);
@@ -120,8 +132,6 @@
   --sig-text-title: clamp(14px, 3vw, 24px);
   --sig-text-subtitle: clamp(10px, 1.8vw, 16px);
   --sig-text-clock: clamp(11px, 1.5vw, 15px);
-  /* Big stat value (MAX WIND / PRESSURE). Caps just under --sig-text-title so
-     it never balloons in a wide pane; viewport-anchored, not cqi. */
   --sig-text-cqtitle: clamp(16px, 2.5cqi, 21px);
 }
 
@@ -162,36 +172,45 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground font-mono;
-  }
-}
-
-/* ── Video player controls ────────────────────────────────────────── */
-/* Hidden by default. JS toggles .video-controls-visible on click/tap. */
-/* 5s idle timer hides them. pointer-events: none prevents ghost clicks */
-
-.video-controls {
-  opacity: 0 !important;
-  transition: opacity 0.25s;
-  pointer-events: none !important;
-}
-
-.video-controls-visible {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-}
-
-@layer base {
-  * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
   }
-
   body {
-    @apply m-0 overflow-hidden font-mono;
+    @apply bg-background text-foreground overflow-hidden font-mono;
+  }
+}
+
+.video-controls {
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+
+.video-slot:hover .video-controls,
+.video-slot:focus-within .video-controls,
+.video-slot[data-controls-visible="true"] .video-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.video-control {
+  min-height: var(--control-target-size);
+  min-width: var(--control-target-size);
+}
+
+.video-action {
+  min-height: var(--control-target-size);
+}
+
+.video-seek {
+  height: var(--control-target-size);
+}
+
+@media (hover: none) {
+  .video-slot .video-controls {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -203,6 +222,94 @@
   50% {
     opacity: 0.35;
   }
+}
+
+@keyframes walkthrough-ring {
+  from {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3);
+  }
+}
+
+.walkthrough-highlight,
+.walkthrough-zone,
+.walkthrough-cutout {
+  top: var(--walkthrough-top);
+  left: var(--walkthrough-left);
+  width: var(--walkthrough-width);
+  height: var(--walkthrough-height);
+}
+
+.walkthrough-indicator,
+.walkthrough-tooltip {
+  top: var(--walkthrough-top);
+  left: var(--walkthrough-left);
+}
+
+.walkthrough-tooltip {
+  max-width: var(--walkthrough-max-width);
+  touch-action: none;
+  overscroll-behavior: none;
+  pointer-events: auto;
+  transition: var(--walkthrough-tooltip-motion);
+}
+
+.walkthrough-tooltip[data-wt-dragging="true"] {
+  transition: var(--walkthrough-tooltip-drag-motion);
+}
+
+.walkthrough-mask-cutout {
+  x: var(--walkthrough-left);
+  y: var(--walkthrough-top);
+  width: var(--walkthrough-width);
+  height: var(--walkthrough-height);
+}
+
+.walkthrough-highlight {
+  border-color: var(--walkthrough-color);
+  box-shadow: var(--walkthrough-highlight-shadow);
+}
+
+.walkthrough-cutout {
+  box-shadow: var(--walkthrough-cutout-shadow);
+}
+
+[data-wt-ring-color="accent"],
+[data-wt-click-mode="select"],
+[data-wt-click-mode="deselect"] {
+  --walkthrough-color: var(--sigint-accent);
+}
+
+[data-wt-ring-color="danger"] {
+  --walkthrough-color: var(--sigint-danger);
+}
+
+[data-wt-ring-color="magenta"] {
+  --walkthrough-color: var(--sigint-events);
+}
+
+[data-wt-ring-color="warn"],
+[data-wt-click-mode="focus"] {
+  --walkthrough-color: var(--sigint-warn);
+}
+
+.walkthrough-indicator-ring {
+  border-color: var(--walkthrough-indicator-ring);
+}
+
+.walkthrough-indicator-dot {
+  color: var(--walkthrough-color);
+  background-color: var(--walkthrough-color);
+  box-shadow: var(--walkthrough-indicator-shadow);
+}
+
+.walkthrough-indicator-label {
+  color: var(--walkthrough-color);
+  text-shadow: 0 0 8px currentColor;
 }
 
 @keyframes windsock-flutter {
@@ -232,7 +339,6 @@
   }
 }
 
-/* ── Global button affordance ─────────────────────────────────────── */
 button:not(:disabled) {
   cursor: pointer;
 }
@@ -241,26 +347,28 @@ button:disabled {
   cursor: not-allowed;
 }
 
-button:focus-visible {
-  outline: 2px solid #e0e7ff;
+:where(
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--sigint-accent);
   outline-offset: 2px;
 }
 
-/* ── Scrollbar theming ────────────────────────────────────────────── */
-
-/* Coarse pointers use a larger target and padding. */
 @media (pointer: coarse) {
   .touch-target {
-    min-height: 36px;
-    min-width: 36px;
+    min-height: var(--control-target-size);
+    min-width: var(--control-target-size);
     padding: 0.5rem;
   }
-  /* Resize handles stay visually thin (6px) but get a finger-sized invisible
-     hit area on touch devices via a centered ::before overlay. */
   .touch-resize::before {
     content: "";
     position: absolute;
-    z-index: 1;
+    z-index: var(--layer-local);
   }
   .touch-resize.cursor-col-resize::before {
     inset-block: 0;
@@ -279,7 +387,6 @@ button:focus-visible {
   }
 }
 
-/* Desktop/mouse devices: custom scrollbars */
 @media (pointer: fine) {
   .sigint-scroll {
     scrollbar-width: thin;
@@ -306,15 +413,14 @@ button:focus-visible {
   }
 }
 
-/* ── SW update banner ────────────────────────────────────────────── */
 .sw-update-bar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10000;
-  background: linear-gradient(135deg, rgba(0, 212, 240, 0.15) 0%, rgba(0, 212, 240, 0.05) 100%);
-  border-bottom: 1px solid var(--sigint-accent, #00d4f0);
+  z-index: var(--layer-system);
+  background: var(--sw-update-background);
+  border-bottom: 1px solid var(--sigint-accent);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   animation: sw-bar-enter 0.4s ease-out;
@@ -334,29 +440,29 @@ button:focus-visible {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--sigint-accent, #00d4f0);
-  box-shadow: 0 0 8px var(--sigint-accent, #00d4f0), 0 0 20px rgba(0, 212, 240, 0.4);
+  background: var(--sigint-accent);
+  box-shadow: var(--sw-update-dot-shadow);
   animation: sw-pulse 1.5s infinite;
   flex-shrink: 0;
 }
 
 .sw-update-text {
-  color: var(--sigint-accent, #00d4f0);
+  color: var(--sigint-accent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 2px;
 }
 
 .sw-update-sub {
-  color: var(--sigint-text, #8fa2b7);
+  color: var(--sigint-text);
   font-size: 11px;
   letter-spacing: 0.5px;
 }
 
 .sw-update-bar button {
   background: transparent;
-  border: 1px solid var(--sigint-border, #172033);
-  color: var(--sigint-bright, #e8eef4);
+  border: 1px solid var(--sigint-border);
+  color: var(--sigint-bright);
   padding: 5px 14px;
   border-radius: 4px;
   font-family: inherit;
@@ -369,9 +475,9 @@ button:focus-visible {
 }
 
 .sw-update-bar button:first-of-type {
-  background: var(--sigint-accent, #00d4f0);
-  color: var(--sigint-bg, #080a0f);
-  border-color: var(--sigint-accent, #00d4f0);
+  background: var(--sigint-accent);
+  color: var(--sigint-bg);
+  border-color: var(--sigint-accent);
   margin-left: auto;
 }
 
@@ -380,13 +486,13 @@ button:focus-visible {
 }
 
 .sw-update-bar button:last-of-type {
-  border-color: var(--sigint-border, #172033);
-  color: var(--sigint-dim, #4a5e78);
+  border-color: var(--sigint-border);
+  color: var(--sigint-dim);
 }
 
 .sw-update-bar button:last-of-type:hover {
-  border-color: var(--sigint-dim, #4a5e78);
-  color: var(--sigint-text, #8fa2b7);
+  border-color: var(--sigint-dim);
+  color: var(--sigint-text);
 }
 
 .sw-update-bar-dismissed {

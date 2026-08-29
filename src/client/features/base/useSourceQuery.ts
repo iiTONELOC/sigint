@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Domain } from "@shared/domain/identity";
 import {
   getDataWorkerClient,
   type DataWorkerClient,
@@ -14,6 +15,14 @@ import type { PointUiQuery, PointUiQueryResult } from "@/workers/data/uiQuery";
 type SourceResult<TId extends QueryableSourceId> = PointUiQueryResult<
   QueryableSourceEntities[TId]
 >;
+
+export type SourceQueryRequest = (
+  source: QueryableSourceId,
+) => PointUiQuery | null;
+
+export type SourceQueryResults = Readonly<{
+  [TId in QueryableSourceId]: SourceResult<TId> | null;
+}>;
 
 type QueryState<TId extends QueryableSourceId> = Readonly<{
   key: string;
@@ -57,7 +66,7 @@ export function useSourceQuery<TId extends QueryableSourceId>(
   query: PointUiQuery | null,
 ): SourceResult<TId> | null {
   const client = useMemo(getDataWorkerClient, []);
-  const snapshot = useSourceSnapshot(source);
+  const snapshot = useSourceSnapshot(query ? source : null);
   const queryKey = query ? JSON.stringify(query) : null;
   const [state, setState] = useState<QueryState<TId> | null>(null);
 
@@ -74,7 +83,11 @@ export function useSourceQuery<TId extends QueryableSourceId>(
           response.result,
         );
         if (result) {
-          setState({ key: queryKey, sourceVersion: response.sourceVersion, result });
+          setState({
+            key: queryKey,
+            sourceVersion: response.sourceVersion,
+            result,
+          });
         }
       })
       .catch((error_: unknown) => undefined);
@@ -85,4 +98,50 @@ export function useSourceQuery<TId extends QueryableSourceId>(
 
   if (!queryKey || state?.key !== queryKey) return null;
   return state.result;
+}
+
+function useRequestedSourceQuery<TId extends QueryableSourceId>(
+  source: TId,
+  request: SourceQueryRequest,
+): SourceResult<TId> | null {
+  return useSourceQuery(source, request(source));
+}
+
+export function useSourceQueries(
+  request: SourceQueryRequest,
+): SourceQueryResults {
+  const aircraft = useRequestedSourceQuery(Domain.Aircraft, request);
+  const cyclones = useRequestedSourceQuery(Domain.Cyclones, request);
+  const cycloneWarnings = useRequestedSourceQuery(
+    Domain.CycloneWarnings,
+    request,
+  );
+  const earthquake = useRequestedSourceQuery(Domain.Earthquake, request);
+  const events = useRequestedSourceQuery(Domain.Events, request);
+  const fire = useRequestedSourceQuery(Domain.Fire, request);
+  const ships = useRequestedSourceQuery(Domain.Ships, request);
+  const weather = useRequestedSourceQuery(Domain.Weather, request);
+
+  return useMemo<SourceQueryResults>(
+    () => ({
+      [Domain.Aircraft]: aircraft,
+      [Domain.Cyclones]: cyclones,
+      [Domain.CycloneWarnings]: cycloneWarnings,
+      [Domain.Earthquake]: earthquake,
+      [Domain.Events]: events,
+      [Domain.Fire]: fire,
+      [Domain.Ships]: ships,
+      [Domain.Weather]: weather,
+    }),
+    [
+      aircraft,
+      cycloneWarnings,
+      cyclones,
+      earthquake,
+      events,
+      fire,
+      ships,
+      weather,
+    ],
+  );
 }

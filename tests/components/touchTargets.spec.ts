@@ -1,5 +1,16 @@
 import { describe, test, expect } from "bun:test";
 
+const MINIMUM_TOUCH_TARGETS_BY_PATH: Readonly<Record<string, number>> = {
+  "src/client/panes/alert-log/AlertLogPane.tsx": 3,
+  "src/client/panes/data-table/components/DataTableToolbar.tsx": 2,
+  "src/client/panes/intel-feed/components/IntelFeedToolbar.tsx": 3,
+  "src/client/panes/news-feed/NewsFeedPane.tsx": 2,
+  "src/client/panes/video-feed/VideoFeedPane.tsx": 3,
+  "src/client/panes/LayoutPresetMenu.tsx": 3,
+  "src/client/panes/video-feed/PresetMenu.tsx": 3,
+  "src/client/components/Header.tsx": 2,
+};
+
 // ── Touch target CSS class ────────────────────────────────────────────
 
 describe("touch-target class in index.css", () => {
@@ -12,67 +23,33 @@ describe("touch-target class in index.css", () => {
     expect(touchTargetIdx).toBeGreaterThan(mediaIdx);
   });
 
-  test("touch-target sets 36px min dimensions", async () => {
+  test("touch-target uses the 44px control target", async () => {
     const css = await Bun.file("src/index.css").text();
-    expect(css).toContain("min-height: 36px");
-    expect(css).toContain("min-width: 36px");
+    expect(css).toContain("--control-target-size: 44px");
+    expect(css).toContain("min-height: var(--control-target-size)");
+    expect(css).toContain("min-width: var(--control-target-size)");
   });
 });
 
 // ── Touch target usage in components ──────────────────────────────────
 
 describe("touch-target on interactive elements", () => {
-  test("AlertLogPane filter buttons use touch-target", async () => {
-    const src = await Bun.file(
-      "src/client/panes/alert-log/AlertLogPane.tsx",
-    ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
+  test("interactive owners use touch-target", async () => {
+    for (const [path, minimum] of Object.entries(
+      MINIMUM_TOUCH_TARGETS_BY_PATH,
+    )) {
+      const source = await Bun.file(path).text();
+      expect((source.match(/touch-target/g) ?? []).length).toBeGreaterThanOrEqual(
+        minimum,
+      );
+    }
   });
 
-  test("DataTablePane filter buttons use touch-target", async () => {
-    const src = await Bun.file(
-      "src/client/panes/data-table/components/DataTableToolbar.tsx",
-    ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(2);
-  });
-
-  test("IntelFeedPane filter buttons use touch-target", async () => {
-    const src = await Bun.file(
+  test("IntelFeedPane does not repeat touch-target", async () => {
+    const source = await Bun.file(
       "src/client/panes/intel-feed/components/IntelFeedToolbar.tsx",
     ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
-    expect(src).not.toContain("touch-target touch-target");
-  });
-
-  test("NewsFeedPane filter buttons use touch-target", async () => {
-    const src = await Bun.file(
-      "src/client/panes/news-feed/NewsFeedPane.tsx",
-    ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(2);
-  });
-
-  test("VideoFeedPane toolbar buttons use touch-target", async () => {
-    const src = await Bun.file(
-      "src/client/panes/video-feed/VideoFeedPane.tsx",
-    ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
-  });
-
-  test("LayoutPresetMenu action buttons use touch-target", async () => {
-    const src = await Bun.file("src/client/panes/LayoutPresetMenu.tsx").text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
-  });
-
-  test("VideoFeed PresetMenu action buttons use touch-target", async () => {
-    const src = await Bun.file(
-      "src/client/panes/video-feed/PresetMenu.tsx",
-    ).text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(3);
-  });
-
-  test("Header buttons use touch-target", async () => {
-    const src = await Bun.file("src/client/components/Header.tsx").text();
-    expect(src.match(/touch-target/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(source).not.toContain("touch-target touch-target");
   });
 });
 

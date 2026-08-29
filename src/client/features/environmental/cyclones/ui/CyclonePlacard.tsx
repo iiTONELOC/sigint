@@ -1,9 +1,17 @@
 import { AgeStyle, formatTime, relativeAge } from "@/time";
-import { CycloneKicker, SaffirSimpson, type CycloneData } from "../types";
-import { CATEGORY_LABEL } from "../classification";
+import {
+  CYCLONE_CATEGORY_METADATA,
+  SaffirSimpson,
+  type CycloneData,
+} from "@shared/domain/cyclones";
 import { CycloneWarningFlags } from "./CycloneWarningFlags";
 import { EMPTY_TEXT, NO_VALUE, PARENTHETICAL } from "@shared/text";
 import { BASIN_LABEL } from "@shared/cyclonesSeason";
+
+enum CycloneKicker {
+  MajorHurricane = "HURRICANE · MAJOR",
+  Hurricane = "HURRICANE",
+}
 
 function PlacardTint() {
   return (
@@ -35,13 +43,13 @@ function PlacardFooterValue({ children }: { readonly children: React.ReactNode }
 }
 
 /** Return the uppercase storm classification. */
-function kicker(d: CycloneData): string {
-  if (d.saffirSimpson !== SaffirSimpson.None) {
-    return d.saffirSimpson >= SaffirSimpson.Cat3
+function kicker(data: CycloneData): string {
+  if (data.saffirSimpson !== SaffirSimpson.None) {
+    return data.saffirSimpson >= SaffirSimpson.Cat3
       ? CycloneKicker.MajorHurricane
       : CycloneKicker.Hurricane;
   }
-  return CATEGORY_LABEL[d.classification]
+  return CYCLONE_CATEGORY_METADATA[data.classification].label
     .toUpperCase()
     .replace(PARENTHETICAL, EMPTY_TEXT);
 }

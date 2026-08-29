@@ -10,19 +10,14 @@ import {
 import { useTheme } from "@/theme";
 import { ButtonType } from "@/lib/ui/button";
 import { DomEvent, DomKey } from "@/runtime";
-import {
-  AboutTab,
-  AppearanceTab,
-  NewsFeedsTab,
-  StorageTab,
-  WalkthroughTab,
-} from "../components/tabs";
-import { useSettingsStorage } from "../hooks";
-import {
-  SettingsIconSize,
-  SettingsIconStrokeWidth,
-  SettingsTab,
-} from "../model";
+import { AboutTab } from "../components/tabs/AboutTab";
+import { AppearanceTab } from "../components/tabs/AppearanceTab";
+import { NewsFeedsTab } from "../components/tabs/NewsFeedsTab";
+import { StorageTab } from "../components/tabs/StorageTab";
+import { WalkthroughTab } from "../components/tabs/WalkthroughTab";
+import { useSettingsStorage } from "../hooks/useSettingsStorage";
+import { SettingsIconSize, SettingsIconStrokeWidth } from "../model/presentation";
+import { SettingsTab } from "../model/settings";
 
 type SettingsModalProps = Readonly<{
   onClose: () => void;
@@ -69,7 +64,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-70 flex items-center justify-center overscroll-none touch-none">
+    <div className="fixed inset-0 z-(--layer-modal) flex items-center justify-center overscroll-none touch-none">
       <button
         type={ButtonType.Button}
         aria-label={SettingsModalLabel.Close}

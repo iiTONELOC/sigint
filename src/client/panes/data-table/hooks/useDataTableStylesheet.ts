@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo } from "react";
 import { RuntimeStylesheet } from "@/styles";
-import { DataTableVirtualization } from "../model";
+import { DataTableVirtualization } from "../model/table";
 
 enum DataTableStyleAttribute {
   Body = "data-data-table-body",

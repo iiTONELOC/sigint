@@ -1,22 +1,14 @@
 import { Domain } from "@shared/domain/identity";
-import { SourcePhase, SourceFreshness, SourceCompleteness } from "@shared/source";
+import type { AircraftData } from "@shared/domain/aircraft";
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import {
-  parseAdsbResponse,
-  parseAircraftFetchResult,
-  toAircraftData,
-  fetchAircraftStates,
-  AircraftFeedEndpoint,
-} from "@/features/tracking/aircraft/data/parseAdsbV2";
-import type { SourceState } from "@shared/source";
+import { describe, test, expect } from "bun:test";
+import { parseAdsbResponse } from "@/features/tracking/aircraft/data/codec";
 import { feetPerMinuteToMetersPerSecond } from "@/measurements";
 
 enum AircraftParserFixtureTime {
-  ExpiresAt = 1_700_000_900_000,
   ObservationOffset = 5_000,
   ReceivedAt = 1_700_000_000_000,
 }
@@ -50,77 +42,61 @@ const GROUND_AIRCRAFT = {
   lon: -105.007699,
 };
 
-const AIRCRAFT_SOURCE_STATE: SourceState = {
-  source: Domain.Aircraft,
-  phase: SourcePhase.Ready,
-  freshness: SourceFreshness.Fresh,
-  completeness: SourceCompleteness.Complete,
-  sequence: 1,
-  observedAt: AircraftParserFixtureTime.ReceivedAt,
-  receivedAt: AircraftParserFixtureTime.ReceivedAt,
-  expiresAt: AircraftParserFixtureTime.ExpiresAt,
-  successfulScopes: 108,
-  failedScopes: 0,
-  totalScopes: 108,
-  error: null,
-};
-
-function aircraftEnvelope(ac: unknown[]): unknown {
-  return { ac, source: AIRCRAFT_SOURCE_STATE };
+function aircraftData(aircraft: unknown): AircraftData | undefined {
+  return parseAdsbResponse({ ac: [aircraft] })[0]?.data;
 }
 
-describe("toAircraftData field mapping", () => {
+describe("parseAdsbResponse field mapping", () => {
   test("hex → icao24 (lowercase preserved)", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).icao24).toBe("abe7c5");
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.icao24).toBe("abe7c5");
   });
 
   test("flight → callsign with trailing whitespace trimmed", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).callsign).toBe("SWA2756");
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.callsign).toBe("SWA2756");
   });
 
   test("missing/empty flight falls back to Unknown", () => {
-    const data = toAircraftData({ ...SAMPLE_AIRCRAFT, flight: undefined });
-    expect(data.callsign).toBe("Unknown");
-    expect(toAircraftData({ ...SAMPLE_AIRCRAFT, flight: "   " }).callsign).toBe(
+    const data = aircraftData({ ...SAMPLE_AIRCRAFT, flight: undefined });
+    expect(data?.callsign).toBe("Unknown");
+    expect(aircraftData({ ...SAMPLE_AIRCRAFT, flight: "   " })?.callsign).toBe(
       "Unknown",
     );
   });
 
   test("alt_baro number → altitude (feet, as-is)", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).altitude).toBe(17550);
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.altitude).toBe(17550);
   });
 
   test('alt_baro "ground" → altitude 0 + onGround true', () => {
-    const data = toAircraftData(GROUND_AIRCRAFT);
-    expect(data.altitude).toBe(0);
-    expect(data.onGround).toBe(true);
+    const data = aircraftData(GROUND_AIRCRAFT);
+    expect(data?.altitude).toBe(0);
+    expect(data?.onGround).toBe(true);
   });
 
   test("airborne aircraft → onGround false", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).onGround).toBe(false);
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.onGround).toBe(false);
   });
 
-  test("gs → speed (knots) and derives speedMps", () => {
-    const data = toAircraftData(SAMPLE_AIRCRAFT);
-    expect(data.speed).toBe(356.5);
-    expect(data.speedMps).toBeCloseTo(356.5 * 0.5144, 3);
+  test("gs → speed in knots", () => {
+    const data = aircraftData(SAMPLE_AIRCRAFT);
+    expect(data?.speed).toBe(356.5);
   });
 
   test("track → heading; falls back to true_heading when track missing", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).heading).toBeCloseTo(115.77, 2);
-    expect(toAircraftData(GROUND_AIRCRAFT).heading).toBeCloseTo(70.31, 2);
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.heading).toBeCloseTo(115.77, 2);
+    expect(aircraftData(GROUND_AIRCRAFT)?.heading).toBeCloseTo(70.31, 2);
   });
 
   test("converts vertical rate to meters per second", () => {
-    const data = toAircraftData(SAMPLE_AIRCRAFT);
-    expect(data.verticalRate).toBeCloseTo(
+    const data = aircraftData(SAMPLE_AIRCRAFT);
+    expect(data?.verticalRate).toBeCloseTo(
       feetPerMinuteToMetersPerSecond(SAMPLE_AIRCRAFT.baro_rate),
       3,
     );
   });
 
   test("squawk passes through", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).squawk).toBe("3162");
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.squawk).toBe("3162");
   });
 
   test("originCountry passes server-attached value through (post-Annex 10 enrichment)", () => {
@@ -128,38 +104,37 @@ describe("toAircraftData field mapping", () => {
     // src/server/api/aircraftEnrichment.ts before the cache write.
     // The parser's job is to faithfully thread the value through.
     const enriched = { ...SAMPLE_AIRCRAFT, originCountry: "United States" };
-    expect(toAircraftData(enriched).originCountry).toBe("United States");
+    expect(aircraftData(enriched)?.originCountry).toBe("United States");
   });
 
   test("originCountry empty-string fallback when source has no value", () => {
     // The sample has no country because the server did not enrich it.
     // (hex unmapped, or sweep ran before enrichment landed). Parser
     // returns "" so consumers fall back to "Unknown" as today.
-    expect(toAircraftData(SAMPLE_AIRCRAFT).originCountry).toBe("");
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.originCountry).toBe("");
   });
 
   test("acType is left as 'Unknown' for the local NDJSON DB to enrich", () => {
-    expect(toAircraftData(SAMPLE_AIRCRAFT).acType).toBe("Unknown");
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.acType).toBe("Unknown");
   });
 
   test("leaves the military flag undefined for raw data", () => {
-    // Confirmed: adsb.fi v3 does not expose dbFlags. Military is set
-    // downstream by AircraftProvider.applyMetadata via the local
-    // NDJSON DB (icao24 hex range + type-code heuristics + operator
-    // keywords). Same path as today; no regression.
-    expect(toAircraftData(SAMPLE_AIRCRAFT).military).toBeUndefined();
+    // adsb.fi v3 does not expose dbFlags. Server enrichment derives the
+    // military flag from the local database and live identity fields.
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.military).toBeUndefined();
   });
 
   test("drops the upstream emergency field", () => {
-    // `emergency` isn't part of AdsbAircraft; pass it via a cast to prove the
-    // mapper drops unknown upstream fields.
-    const data = toAircraftData({
+    // The canonical Aircraft data owner omits this upstream-only field.
+    const data = aircraftData({
       ...SAMPLE_AIRCRAFT,
       emergency: "general",
-    } as Parameters<typeof toAircraftData>[0]);
+    });
     // Existing AircraftData has no `emergency` field; squawk codes
     // 7700/7600/7500 carry the emergency signal in the rest of the app.
-    expect((data as Record<string, unknown>).emergency).toBeUndefined();
+    expect(
+      (data as Record<string, unknown> | undefined)?.emergency,
+    ).toBeUndefined();
   });
 });
 
@@ -247,116 +222,5 @@ describe("parseAdsbResponse", () => {
     expect(point?.timestamp).toBe(
       new Date(AircraftParserFixtureTime.ReceivedAt).toISOString(),
     );
-  });
-});
-
-describe("parseAircraftFetchResult", () => {
-  test("returns data and the validated aircraft source state", () => {
-    const result = parseAircraftFetchResult(
-      aircraftEnvelope([SAMPLE_AIRCRAFT]),
-      1_700_000_000_000,
-    );
-
-    expect(result?.data).toHaveLength(1);
-    expect(result?.source).toEqual(AIRCRAFT_SOURCE_STATE);
-  });
-
-  test("rejects responses that erase source completeness", () => {
-    expect(parseAircraftFetchResult({ ac: [] })).toBeNull();
-    expect(
-      parseAircraftFetchResult({
-        ac: [],
-        source: { ...AIRCRAFT_SOURCE_STATE, completeness: "invalid" },
-      }),
-    ).toBeNull();
-    expect(
-      parseAircraftFetchResult({
-        ac: "invalid",
-        source: AIRCRAFT_SOURCE_STATE,
-      }),
-    ).toBeNull();
-  });
-});
-
-
-describe("fetchAircraftStates", () => {
-  let originalFetch: typeof globalThis.fetch;
-  let mockResponses: Map<
-    string,
-    { ok: boolean; status?: number; body: unknown }
-  >;
-  let lastCalledUrl: string;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-    mockResponses = new Map();
-    lastCalledUrl = "";
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/api/auth/token")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ ok: true }),
-        } as Response;
-      }
-      lastCalledUrl = url;
-      for (const [pattern, resp] of mockResponses) {
-        if (url.includes(pattern)) {
-          return {
-            ok: resp.ok,
-            status: resp.status ?? (resp.ok ? 200 : 503),
-            json: async () => resp.body,
-          } as unknown as Response;
-        }
-      }
-      throw new Error(`Unmocked fetch: ${url}`);
-    }) as typeof globalThis.fetch;
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  test("uses the same-origin server proxy path", () => {
-    expect(AircraftFeedEndpoint.States.startsWith("/")).toBeTrue();
-  });
-
-  test("hits /api/aircraft/states, never adsb.fi directly", async () => {
-    mockResponses.set("/api/aircraft/states", {
-      ok: true,
-      body: aircraftEnvelope([SAMPLE_AIRCRAFT]),
-    });
-    await fetchAircraftStates();
-    expect(lastCalledUrl).toContain("/api/aircraft/states");
-    expect(lastCalledUrl).not.toContain("adsb.fi");
-    expect(lastCalledUrl).not.toContain("opensky");
-  });
-
-  test("returns parsed DataPoint[] from server response", async () => {
-    mockResponses.set("/api/aircraft/states", {
-      ok: true,
-      body: aircraftEnvelope([SAMPLE_AIRCRAFT, GROUND_AIRCRAFT]),
-    });
-    const result = await fetchAircraftStates();
-    expect(result).toHaveLength(2);
-  });
-
-  test("throws on non-OK response", async () => {
-    mockResponses.set("/api/aircraft/states", {
-      ok: false,
-      status: 503,
-      body: {},
-    });
-    await expect(fetchAircraftStates()).rejects.toThrow();
-  });
-
-  test("returns [] when server cache is fresh but empty", async () => {
-    mockResponses.set("/api/aircraft/states", {
-      ok: true,
-      body: aircraftEnvelope([]),
-    });
-    const result = await fetchAircraftStates();
-    expect(result).toEqual([]);
   });
 });

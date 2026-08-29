@@ -5,11 +5,17 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import type { FireData } from "./types";
-import { buildFireDetailRows } from "./detailRows";
+import type { FireData } from "@shared/domain/fireDayNight";
+import { EMPTY_TEXT } from "@shared/text";
+import { FireDetailSummary } from "./ui/FireDetailSummary";
 import { FireTickerContent } from "./ui/FireTickerContent";
-import { fireDayNightSearchTerm } from "@/features/environmental/fires/data/uiQueries";
-import { fireFeedPresentation, fireTablePresentation } from "./formatters";
+import {
+  FireCopy,
+  fireFeedPresentation,
+  fireSearchText,
+  fireTablePresentation,
+  formatUnroundedFirePower,
+} from "./formatters/presentation";
 
 export const firesFeature = defineFeature<FireData, Domain.Fires>({
   id: Domain.Fires,
@@ -18,21 +24,26 @@ export const firesFeature = defineFeature<FireData, Domain.Fires>({
   iconStyle: FeatureIconStyle.Stroked,
   colorClassName: FeatureColorClassName.Fires,
   includeInRawFeed: true,
+  DetailSummary: FireDetailSummary,
 
-  buildDetailRows: (data: FireData, timestamp?: string) =>
-    buildFireDetailRows(data, timestamp),
+  alertDetail: (data) => [
+    data.satellite || FireCopy.DefaultSatellite,
+    data.confidence || EMPTY_TEXT,
+  ],
+  buildDetailRows: () => [],
   tablePresentation: fireTablePresentation,
   feedPresentation: fireFeedPresentation,
 
   TickerContent: FireTickerContent,
+  tickerSummary: (data) => {
+    const summary: string[] = [FireCopy.Hotspot];
+    if (data.frp != null) {
+      summary.push(
+        `${FireCopy.RadiativePower} ${formatUnroundedFirePower(data.frp)}`,
+      );
+    }
+    return summary;
+  },
 
-  getSearchText: (data: FireData) =>
-    [
-      data.satellite,
-      data.confidence,
-      data.frp != null ? `FRP${data.frp}` : "",
-      fireDayNightSearchTerm(data.daynight),
-    ]
-      .filter(Boolean)
-      .join(" "),
+  getSearchText: fireSearchText,
 });

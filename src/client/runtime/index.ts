@@ -9,6 +9,8 @@ export {
   DomScrollBlock,
   DomTableScope,
   DomVisibilityState,
+} from "./model/dom";
+export {
   ServiceWorkerCache,
   ServiceWorkerClassName,
   ServiceWorkerElementId,
@@ -19,4 +21,4 @@ export {
   ServiceWorkerRequestMode,
   ServiceWorkerTiming,
   ServiceWorkerUpdateText,
-} from "./model";
+} from "./model/serviceWorker";

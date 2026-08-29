@@ -5,8 +5,8 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { VirtualScrollPolicy } from "../model";
-import { calculateVirtualWindow } from "../utils";
+import { VirtualScrollPolicy } from "../model/policy";
+import { calculateVirtualWindow } from "../utils/window";
 
 type UseVirtualScrollOptions = Readonly<{
   itemCount: number;

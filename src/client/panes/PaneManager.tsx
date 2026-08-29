@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useData } from "@/context/DataContext";
+import { useDataContext } from "@/context/DataContext";
 import { useIsMobileLayout } from "@/layout-mode";
 import {
   setDossierOpen,
@@ -20,12 +20,14 @@ import {
   setWalkthroughLayoutSnapshot,
 } from "@/walkthrough";
 import { Bookmark } from "lucide-react";
+import { ButtonType } from "@/lib/ui/button";
 
 import type {
   LayoutNode,
   PaneType,
   LayoutState,
   LayoutPreset,
+  LayoutPresetCatalog,
 } from "./paneTree";
 import {
   leaf,
@@ -44,7 +46,7 @@ import {
   PaneWorkspaceIconMetric,
   type PaneEdgeDropZoneValue,
   type SplitDirectionValue,
-} from "@/panes/workspace/model";
+} from "@/panes/workspace/model/pane";
 import {
   changePaneTypeInLayout,
   closePaneTypeInLayout,
@@ -60,11 +62,12 @@ import {
 } from "@/panes/workspace/utils/operations";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { PaneMobile } from "./PaneMobile";
-import { DesktopPaneTree } from "@/panes/workspace/components";
+import { DesktopPaneTree } from "@/panes/workspace/components/DesktopPaneTree";
 import { PANE_CATALOG } from "@/panes/workspace/paneCatalog";
 
 enum PaneManagerCopy {
   PreTourLayout = "Pre-Tour Layout",
+  Restore = "RESTORE",
 }
 
 enum PaneManagerToken {
@@ -84,30 +87,25 @@ function paneTypeSignature(root: LayoutNode): string {
 }
 
 function hasPresetWithSignature(
-  presets: readonly LayoutPreset[],
+  presets: LayoutPresetCatalog,
   signature: string,
 ): boolean {
-  return presets.some(
+  return Object.values(presets).some(
     (preset) => paneTypeSignature(preset.state.root) === signature,
   );
 }
 
 function savePreTourLayout(
-  presets: readonly LayoutPreset[],
+  presets: LayoutPresetCatalog,
   state: LayoutState,
-): LayoutPreset[] {
-  const existingIndex = presets.findIndex(
-    (preset) => preset.name === PaneManagerCopy.PreTourLayout,
-  );
-  if (existingIndex < 0) {
-    return [
-      ...presets,
-      { name: PaneManagerCopy.PreTourLayout, state },
-    ];
-  }
-  return presets.map((preset, index) =>
-    index === existingIndex ? { ...preset, state } : preset,
-  );
+): LayoutPresetCatalog {
+  return {
+    ...presets,
+    [PaneManagerCopy.PreTourLayout]: {
+      name: PaneManagerCopy.PreTourLayout,
+      state,
+    },
+  };
 }
 
 function usePaneLayoutActions(
@@ -190,7 +188,7 @@ function usePaneLayoutActions(
 // ── Component ────────────────────────────────────────────────────────
 
 export function PaneManager() {
-  const { activeCount, dataSources, counts } = useData();
+  const { activeCount, dataSources, counts } = useDataContext();
 
   // Mobile detection follows the LayoutModeContext override.
   const isMobile = useIsMobileLayout();
@@ -309,17 +307,18 @@ export function PaneManager() {
   // ── Layout presets ─────────────────────────────────────────────
 
   const [showPresets, setShowPresets] = useState(false);
-  const [presets, setPresets] = useState<LayoutPreset[]>([]);
+  const [presets, setPresets] = useState<LayoutPresetCatalog>({});
   const [presetsLoaded, setPresetsLoaded] = useState(false);
   const presetsRef = useRef(presets);
   presetsRef.current = presets;
+  const presetList = useMemo(() => Object.values(presets), [presets]);
 
   // ── Walkthrough: push layout snapshot for action step detection ──
   useEffect(() => {
     const types = collectLeafTypes(layout.root);
     const count = leafCount(layout.root);
-    setWalkthroughLayoutSnapshot(types, count, presets.length);
-  }, [layout.root, presets.length]);
+    setWalkthroughLayoutSnapshot(types, count, presetList.length);
+  }, [layout.root, presetList.length]);
 
   useEffect(() => {
     loadPresets().then((loaded) => {
@@ -330,7 +329,7 @@ export function PaneManager() {
 
   const handleSavePreset = useCallback(
     (name: string) => {
-      const next = [...presets, { name, state: layout }];
+      const next = { ...presets, [name]: { name, state: layout } };
       setPresets(next);
       savePresets(next);
     },
@@ -342,50 +341,41 @@ export function PaneManager() {
   );
   const handleUpdatePreset = useCallback(
     (idx: number) => {
-      const next = presets.map((p, i) =>
-        i === idx ? { ...p, state: layout } : p,
-      );
+      const preset = presetList[idx];
+      if (!preset) return;
+      const next = {
+        ...presets,
+        [preset.name]: { ...preset, state: layout },
+      };
       setPresets(next);
       savePresets(next);
     },
-    [presets, layout],
+    [layout, presetList, presets],
   );
   const handleDeletePreset = useCallback(
     (idx: number) => {
-      const next = presets.filter((_, i) => i !== idx);
+      const preset = presetList[idx];
+      if (!preset) return;
+      const next = { ...presets };
+      delete next[preset.name];
       setPresets(next);
       savePresets(next);
     },
-    [presets],
+    [presetList, presets],
   );
 
-  // ── Mobile ─────────────────────────────────────────────────────
-
-  const [activeMobilePane, setActiveMobilePane] = useState(0);
-
   const allLeaves = useMemo(() => collectLeaves(layout.root), [layout.root]);
-
-  useEffect(() => {
-    if (activeMobilePane >= allLeaves.length) {
-      setActiveMobilePane(Math.max(0, allLeaves.length - 1));
-    }
-  }, [allLeaves.length, activeMobilePane]);
-
-  // ── MOBILE ─────────────────────────────────────────────────────
 
   if (isMobile) {
     return (
       <PaneMobile
         allLeaves={allLeaves}
         layout={layout}
-        activeMobilePane={activeMobilePane}
-        setActiveMobilePane={setActiveMobilePane}
         activeCount={activeCount}
         dataSources={dataSources}
         counts={counts}
         paneCatalog={PANE_CATALOG}
         closePane={closePane}
-        minimizePane={minimizePane}
         changePaneType={changePaneType}
         restorePane={restorePane}
         splitPane={splitPane}
@@ -394,7 +384,7 @@ export function PaneManager() {
         leafCount={leafCount(layout.root)}
         swapPanes={swapPanes}
         insertPaneBeside={insertPaneBeside}
-        presets={presets}
+        presets={presetList}
         presetsLoaded={presetsLoaded}
         onLoadPreset={handleLoadPreset}
         onSavePreset={handleSavePreset}
@@ -418,22 +408,25 @@ export function PaneManager() {
           const Icon = definition.icon;
           return (
             <button
+              type={ButtonType.Button}
               key={m.id}
               onClick={() => restorePane(i)}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 border border-sig-border/50 hover:text-sig-accent transition-colors shrink-0"
+              aria-label={`Restore ${definition.label} pane`}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) bg-sig-accent/10 border border-sig-accent/40 hover:text-sig-bright hover:bg-sig-accent/15 transition-colors shrink-0"
               title={`Restore ${definition.label}`}
             >
               <Icon
                 size={PaneWorkspaceIconMetric.ToolbarSize}
                 strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
               />
-              {definition.label}
+              {PaneManagerCopy.Restore} {definition.label}
             </button>
           );
         })}
         <div className="flex-1" />
         <div className="relative">
           <button
+            type={ButtonType.Button}
             data-tour="views-btn"
             onClick={() => setShowPresets((v) => !v)}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) border border-sig-border/50 hover:text-sig-accent transition-colors"
@@ -447,7 +440,7 @@ export function PaneManager() {
           </button>
           {showPresets && (
             <LayoutPresetMenu
-              presets={presets}
+              presets={presetList}
               presetsLoaded={presetsLoaded}
               onLoad={handleLoadPreset}
               onSave={handleSavePreset}
