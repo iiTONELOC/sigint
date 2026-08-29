@@ -174,9 +174,24 @@ const PANE_CATALOG: PaneCatalog = {
 
 function noop(): void {}
 
+// Module mocks are process-wide in bun test, so each carries every export
+// the real module has; a partial mock breaks later spec files.
 mock.module("@/lib/cache/storageService", () => ({
+  cacheClearAll: async () => {
+    cacheValues.clear();
+  },
+  cacheDelete: async (key: string) => {
+    cacheValues.delete(key);
+  },
+  cacheEstimateSize: async () => 0,
+  cacheFlushPending: async () => {},
   cacheGet: async (key: string) => cacheValues.get(key) ?? null,
+  cacheInit: async () => {},
+  cacheListKeys: async () => [...cacheValues.keys()],
   cacheSet: async (key: string, value: unknown) => {
+    cacheValues.set(key, value);
+  },
+  cacheSetDeferred: (key: string, value: unknown) => {
     cacheValues.set(key, value);
   },
 }));
@@ -184,15 +199,12 @@ mock.module("@/lib/cache/storageService", () => ({
 mock.module("@/lib/runtime/layoutSignals", () => ({
   onDossierOpenRequest: (listener: () => void) =>
     dossierSignal.register(listener),
-  onWalkthroughReset: (listener: () => void) =>
-    resetSignal.register(listener),
-  onWalkthroughUndo: (listener: (paneType: string) => void) =>
-    undoSignal.register(listener),
   onWatchLayoutRequest: (listener: () => void) =>
     watchSignal.register(listener),
+  requestDossierOpen: noop,
+  requestWatchLayout: noop,
   setDossierOpen: noop,
-  setWalkthroughLayoutSnapshot: noop,
-  useWalkthroughStepId: () => null,
+  useHasDossier: () => false,
 }));
 
 mock.module("@/context/DataContext", () => ({

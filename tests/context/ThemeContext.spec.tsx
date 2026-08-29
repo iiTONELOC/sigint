@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { ThemeProvider, useTheme } from "@/theme";
 import { cacheClearAll } from "@/lib/cache/storageService";
@@ -36,6 +36,12 @@ function renderThemeWithoutProvider(): void {
 }
 
 beforeEach(async () => {
+  await cacheClearAll();
+});
+
+// The memory cache is process-wide; a saved theme mode would otherwise
+// reach every later spec that mounts ThemeProvider.
+afterAll(async () => {
   await cacheClearAll();
 });
 

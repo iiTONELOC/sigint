@@ -12,19 +12,35 @@ import {
 
 let mockStorage = new Map<string, unknown>();
 
+// Module mocks are process-wide in bun test, so each carries every export
+// the real module has; a partial mock breaks later spec files.
 mock.module("@/lib/cache/storageService", () => ({
-  cacheGet: async (key: string) => mockStorage.get(key) ?? null,
-  cacheSet: async (key: string, value: unknown) => {
-    mockStorage.set(key, value);
+  cacheClearAll: async () => {
+    mockStorage.clear();
   },
   cacheDelete: async (key: string) => {
     mockStorage.delete(key);
   },
+  cacheEstimateSize: async () => 0,
+  cacheFlushPending: async () => {},
+  cacheGet: async (key: string) => mockStorage.get(key) ?? null,
   cacheInit: async () => {},
+  cacheListKeys: async () => [...mockStorage.keys()],
+  cacheSet: async (key: string, value: unknown) => {
+    mockStorage.set(key, value);
+  },
+  cacheSetDeferred: (key: string, value: unknown) => {
+    mockStorage.set(key, value);
+  },
 }));
 
 mock.module("@/lib/runtime/layoutSignals", () => ({
+  onDossierOpenRequest: () => () => {},
+  onWatchLayoutRequest: () => () => {},
+  requestDossierOpen: () => {},
   requestWatchLayout: () => {},
+  setDossierOpen: () => {},
+  useHasDossier: () => false,
 }));
 
 const {

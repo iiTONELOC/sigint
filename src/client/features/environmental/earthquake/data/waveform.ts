@@ -4,6 +4,7 @@ import {
 } from "@/lib/geo/unitSphere";
 import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
 import { MS_PER_SECOND } from "@shared/time";
+import { decodeMiniSeed } from "./miniseed";
 import {
   WaveformChannel,
   WaveformStatus,
@@ -23,9 +24,10 @@ export type FetchWaveformOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
+/** The IRIS ASCII timeseries service is retired (410); dataselect serves miniSEED. */
 enum WaveformEndpoint {
+  Dataselect = "https://service.earthscope.org/fdsnws/dataselect/1/query",
   Station = "https://service.earthscope.org/fdsnws/station/1/query",
-  Timeseries = "https://service.earthscope.org/irisws/timeseries/1/query",
 }
 
 enum WaveformSearchRadius {
@@ -53,11 +55,9 @@ enum StationColumn {
 }
 
 enum WaveformServiceToken {
-  AsciiTwoColumn = "ascii2",
   Channel = "channel",
   ChannelShort = "cha",
   Comma = ",",
-  Duration = "duration",
   EndTime = "endtime",
   EmptyLocation = "--",
   False = "false",
@@ -72,11 +72,9 @@ enum WaveformServiceToken {
   Network = "net",
   Newline = "\n",
   Pipe = "|",
-  SamplesPerSecond = "sps",
   StartTime = "starttime",
   Station = "sta",
   Text = "text",
-  TimeseriesHeader = "TIMESERIES",
 }
 
 type StationChannel = Readonly<{
@@ -94,11 +92,6 @@ type RankedChannel = StationChannel &
 type TraceWindow = Readonly<{
   end: string;
   start: string;
-}>;
-
-type ParsedTimeseries = Readonly<{
-  sampleRate: number;
-  samples: number[];
 }>;
 
 type ServiceParameter = readonly [WaveformServiceToken, string];
@@ -256,44 +249,6 @@ function rankChannels(
     );
 }
 
-function parseTimeseries(text: string): ParsedTimeseries | null {
-  const lines = text.split(WaveformServiceToken.Newline);
-  const header =
-    lines.find((line) =>
-      line.startsWith(WaveformServiceToken.TimeseriesHeader),
-    ) ?? "";
-  const sampleRate = parseSampleRate(header);
-  const samples: number[] = [];
-  for (const line of lines) {
-    if (
-      !line ||
-      line.startsWith(WaveformServiceToken.TimeseriesHeader)
-    ) {
-      continue;
-    }
-    const value = Number.parseFloat(line.trim().split(/\s+/).at(-1) ?? "");
-    if (Number.isFinite(value)) samples.push(value);
-  }
-  if (
-    samples.length < WaveformPolicy.MinimumSampleCount ||
-    !Number.isFinite(sampleRate) ||
-    sampleRate <= 0
-  ) {
-    return null;
-  }
-  return { sampleRate, samples };
-}
-
-function parseSampleRate(header: string): number {
-  for (const segment of header.split(WaveformServiceToken.Comma)) {
-    const fields = segment.trim().split(/\s+/);
-    if (fields.at(-1) === WaveformServiceToken.SamplesPerSecond) {
-      return Number.parseFloat(fields.at(-2) ?? "");
-    }
-  }
-  return Number.NaN;
-}
-
 function downsample(samples: number[]): number[] {
   if (samples.length <= WaveformPolicy.MaximumPlotPoints) return samples;
   const step = samples.length / WaveformPolicy.MaximumPlotPoints;
@@ -307,24 +262,25 @@ function downsample(samples: number[]): number[] {
 
 async function tryTrace(
   channel: StationChannel,
-  start: string,
+  window: TraceWindow,
   fetcher: WaveformFetcher,
   signal: AbortSignal | undefined,
 ): Promise<Waveform | null> {
-  const url = serviceUrl(WaveformEndpoint.Timeseries, [
+  const url = serviceUrl(WaveformEndpoint.Dataselect, [
     [WaveformServiceToken.Network, channel.network],
     [WaveformServiceToken.Station, channel.station],
     [WaveformServiceToken.Location, channel.location],
     [WaveformServiceToken.ChannelShort, channel.channel],
-    [WaveformServiceToken.StartTime, start],
-    [WaveformServiceToken.Duration, String(WaveformPolicy.WindowSeconds)],
-    [WaveformServiceToken.Format, WaveformServiceToken.AsciiTwoColumn],
+    [WaveformServiceToken.StartTime, window.start],
+    [WaveformServiceToken.EndTime, window.end],
   ]);
   try {
     const response = await fetcher(url, { signal });
     if (!response.ok) return null;
-    const parsed = parseTimeseries(await response.text());
-    if (!parsed) return null;
+    const parsed = decodeMiniSeed(new Uint8Array(await response.arrayBuffer()));
+    if (!parsed || parsed.samples.length < WaveformPolicy.MinimumSampleCount) {
+      return null;
+    }
     return {
       channel: channel.channel,
       network: channel.network,
@@ -336,6 +292,33 @@ async function tryTrace(
   } catch {
     return null;
   }
+}
+
+type TraceSearch = Readonly<{
+  attempted: Set<string>;
+  fetcher: WaveformFetcher;
+  signal: AbortSignal | undefined;
+  window: TraceWindow;
+}>;
+
+/** Try each channel once, nearest first; dataselect answers 204 when a channel has no data. */
+async function traceFirstRecorded(
+  channels: readonly StationChannel[],
+  search: TraceSearch,
+): Promise<Waveform | null> {
+  for (const channel of channels) {
+    const key = channelKey(channel);
+    if (search.attempted.has(key)) continue;
+    search.attempted.add(key);
+    const waveform = await tryTrace(
+      channel,
+      search.window,
+      search.fetcher,
+      search.signal,
+    );
+    if (waveform) return waveform;
+  }
+  return null;
 }
 
 function searchRadii(): WaveformSearchRadius[] {
@@ -374,18 +357,13 @@ export async function fetchWaveform(
     stationServiceResponded = true;
     const channels = rankChannels(latitude, longitude, nearby);
     stationCount += channels.length;
-    for (const channel of channels) {
-      const key = channelKey(channel);
-      if (attemptedChannels.has(key)) continue;
-      attemptedChannels.add(key);
-      const waveform = await tryTrace(
-        channel,
-        window.start,
-        fetcher,
-        options.signal,
-      );
-      if (waveform) return { status: WaveformStatus.Ready, waveform };
-    }
+    const waveform = await traceFirstRecorded(channels, {
+      attempted: attemptedChannels,
+      fetcher,
+      signal: options.signal,
+      window,
+    });
+    if (waveform) return { status: WaveformStatus.Ready, waveform };
   }
   if (!stationServiceResponded) {
     return waveformUnavailable(WaveformUnavailableReason.StationService);

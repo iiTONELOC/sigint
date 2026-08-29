@@ -29,6 +29,28 @@ function nextAdvisoryOf(body: string): string {
     : value;
 }
 
+const WRAPPED_PROSE_MINIMUM_LENGTH = 50;
+const LOWERCASE_PATTERN = /[a-z]/;
+
+/** NHC hard-wraps prose at 70 columns. Join those lines; keep tables,
+ *  upper-case summary blocks, and one blank line between paragraphs. */
+export function reflowWrappedProse(body: string): string {
+  const output: string[] = [];
+  for (const raw of body.split("\n")) {
+    const line = raw.trimEnd();
+    const previous = output.at(-1);
+    if (line === "" && previous === "") continue;
+    const wrapped =
+      previous !== undefined &&
+      previous.length >= WRAPPED_PROSE_MINIMUM_LENGTH &&
+      LOWERCASE_PATTERN.test(previous) &&
+      LOWERCASE_PATTERN.test(line);
+    if (wrapped) output[output.length - 1] = `${previous} ${line.trimStart()}`;
+    else output.push(line);
+  }
+  return output.join("\n");
+}
+
 function extractPreText(html: string): string | null {
   const open = PRE_TAG_PATTERN.exec(html);
   if (!open) return null;
@@ -71,7 +93,7 @@ export function parseProductHtml(html: string, productKind: CycloneDossierProduc
 
   const nextAdvisory = nextAdvisoryOf(trimmed);
 
-  return { advisoryNumber, issuedAt, body, nextAdvisory };
+  return { advisoryNumber, issuedAt, body: reflowWrappedProse(body), nextAdvisory };
 }
 
 async function fetchProduct(
