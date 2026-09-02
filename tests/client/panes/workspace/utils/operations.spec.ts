@@ -12,10 +12,12 @@ import {
   closePaneLayout,
   insertPaneBesideInLayout,
   minimizePaneLayout,
+  openDossierInLayout,
   resizePaneLayout,
   restorePaneLayout,
   splitPaneLayout,
   swapPanesInLayout,
+  type PanePlacementContext,
 } from "@/panes/workspace/utils/operations";
 import {
   collectLeafTypes,
@@ -275,6 +277,20 @@ describe("resizePaneLayout and changePaneTypeInLayout", () => {
     expect(changed.paneType).toBe(PaneType.IntelFeed);
     expect(changed.id).not.toBe(dossier.id);
   });
+
+  test("swaps instead of duplicating an open pane type", () => {
+    const globe = leaf(PaneType.Globe);
+    const dossier = leaf(PaneType.Dossier);
+    const result = changePaneTypeInLayout(
+      layout(split(SplitDirection.Horizontal, globe, dossier)),
+      dossier.id,
+      PaneType.Globe,
+    );
+    const root = requireSplit(result.root);
+
+    expect(requireLeaf(root.children[0]).paneType).toBe(PaneType.Dossier);
+    expect(requireLeaf(root.children[1]).paneType).toBe(PaneType.Globe);
+  });
 });
 
 describe("swapPanesInLayout", () => {
@@ -382,5 +398,61 @@ describe("insertPaneBesideInLayout", () => {
         PaneDropZone.Left,
       ),
     ).toBe(initial);
+  });
+});
+
+enum DossierFixtureWidth {
+  Narrow = 1120,
+  Unfit = 600,
+  Wide = 1600,
+}
+
+function desktopContext(availableWidth: number): PanePlacementContext {
+  return { availableWidth, isMobile: false };
+}
+
+describe("openDossierInLayout", () => {
+  test("opens beside the globe at the preferred ratio when wide", () => {
+    const result = openDossierInLayout(
+      layout(leaf(PaneType.Globe)),
+      desktopContext(DossierFixtureWidth.Wide),
+    );
+    const root = requireSplit(result.root);
+
+    expect(root.direction).toBe(SplitDirection.Horizontal);
+    expect(root.ratio).toBe(PaneLayoutRatio.Detail);
+  });
+
+  test("steps the ratio down to keep the dossier beside", () => {
+    const result = openDossierInLayout(
+      layout(leaf(PaneType.Globe)),
+      desktopContext(DossierFixtureWidth.Narrow),
+    );
+    const root = requireSplit(result.root);
+
+    expect(root.direction).toBe(SplitDirection.Horizontal);
+    expect(root.ratio).toBe(PaneLayoutRatio.DetailNarrow);
+  });
+
+  test("opens below when no ratio fits", () => {
+    const result = openDossierInLayout(
+      layout(leaf(PaneType.Globe)),
+      desktopContext(DossierFixtureWidth.Unfit),
+    );
+
+    expect(requireSplit(result.root).direction).toBe(
+      SplitDirection.Vertical,
+    );
+  });
+
+  test("opens below on mobile at any width", () => {
+    const result = openDossierInLayout(layout(leaf(PaneType.Globe)), {
+      availableWidth: DossierFixtureWidth.Wide,
+      isMobile: true,
+    });
+
+    expect(requireSplit(result.root).direction).toBe(
+      SplitDirection.Vertical,
+    );
   });
 });

@@ -92,7 +92,7 @@ describe("PaneMobile block ordering", () => {
     ]);
   });
 
-  test("appends a new block when no block was removed", async () => {
+  test("shows an added block at its tree position", async () => {
     const initial = mobileLayout(
       mobileSplit(
         MobileFixtureNodeId.Root,
@@ -121,9 +121,46 @@ describe("PaneMobile block ordering", () => {
     );
 
     expect(mobileBlockIds()).toEqual([
+      MobileFixtureNodeId.Added,
       MobileFixtureNodeId.Globe,
       MobileFixtureNodeId.Dossier,
-      MobileFixtureNodeId.Added,
+    ]);
+  });
+
+  test("shows a moved pane at its new tree position", async () => {
+    const fixture = renderMobileFixture({
+      chromeHidden: true,
+      layout: threeBlockLayout(
+        MobileFixtureNodeId.DataTable,
+        PaneType.DataTable,
+      ),
+    });
+
+    fixture.rerender({
+      layout: mobileLayout(
+        mobileSplit(
+          MobileFixtureNodeId.Root,
+          SplitDirection.Vertical,
+          mobileLeaf(MobileFixtureNodeId.DataTable, PaneType.DataTable),
+          mobileSplit(
+            MobileFixtureNodeId.SecondaryRoot,
+            SplitDirection.Vertical,
+            mobileLeaf(MobileFixtureNodeId.Dossier, PaneType.Dossier),
+            mobileLeaf(MobileFixtureNodeId.Replacement, PaneType.Globe),
+          ),
+        ),
+      ),
+    });
+    await waitForReact(
+      () =>
+        mobileBlockIds().at(MobileFixtureIndex.First) ===
+        MobileFixtureNodeId.DataTable,
+    );
+
+    expect(mobileBlockIds()).toEqual([
+      MobileFixtureNodeId.DataTable,
+      MobileFixtureNodeId.Dossier,
+      MobileFixtureNodeId.Replacement,
     ]);
   });
 });

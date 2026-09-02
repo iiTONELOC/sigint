@@ -1,4 +1,5 @@
 import {
+  PaneLayoutRatio,
   SplitDirection,
   type SplitDirectionValue,
 } from "./pane";
@@ -30,3 +31,50 @@ export const PANE_RESIZE_AXIS_POLICY: Readonly<
     minimumPixels: PaneResizeMetric.VerticalMinimumPixels,
   },
 };
+
+const HORIZONTAL_RATIO_STEPS: readonly number[] = [
+  PaneLayoutRatio.DetailMedium,
+  PaneLayoutRatio.DetailNarrow,
+  PaneLayoutRatio.Equal,
+];
+
+export function fittingHorizontalRatio(
+  availableWidth: number,
+  preferred: number,
+): number | null {
+  if (fitsHorizontalSplit(availableWidth, preferred)) {
+    return preferred;
+  }
+  return (
+    HORIZONTAL_RATIO_STEPS.find(
+      (ratio) =>
+        ratio < preferred && fitsHorizontalSplit(availableWidth, ratio),
+    ) ?? null
+  );
+}
+
+export function fitsHorizontalSplit(
+  availableWidth: number,
+  ratio: number,
+): boolean {
+  return (
+    availableWidth * ratio >= PaneResizeMetric.HorizontalMinimumPixels &&
+    availableWidth * (PaneResizeMetric.RatioUnit - ratio) >=
+      PaneResizeMetric.HorizontalMinimumPixels
+  );
+}
+
+export function renderedSplitDirection(
+  direction: SplitDirectionValue,
+  ratio: number,
+  availableWidth: number | null,
+): SplitDirectionValue {
+  if (
+    direction !== SplitDirection.Horizontal ||
+    availableWidth === null ||
+    fitsHorizontalSplit(availableWidth, ratio)
+  ) {
+    return direction;
+  }
+  return SplitDirection.Vertical;
+}

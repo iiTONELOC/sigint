@@ -156,39 +156,24 @@ describe("auth enforcement — tampered token rejected on all routes", () => {
   }
 });
 
-describe("auth enforcement — valid token accepted", () => {
-  test("/api/events/latest accepts valid cookie", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/events/latest"];
-    const req = authedReq("/api/events/latest", cookie);
-    const res = await handler.GET(req);
-    // 200 or 503 (no data) — but NOT 401
-    expect([200, 503]).toContain(res.status);
-  });
+describe("auth enforcement: valid token accepted", () => {
+  const acceptedRoutes = [
+    "/api/events/latest",
+    "/api/ships/latest",
+    "/api/fires/latest",
+    "/api/news/latest",
+  ];
 
-  test("/api/ships/latest accepts valid cookie", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/ships/latest"];
-    const req = authedReq("/api/ships/latest", cookie);
-    const res = await handler.GET(req);
-    expect([200, 503]).toContain(res.status);
-  });
-
-  test("/api/fires/latest accepts valid cookie", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/fires/latest"];
-    const req = authedReq("/api/fires/latest", cookie);
-    const res = await handler.GET(req);
-    expect([200, 503]).toContain(res.status);
-  });
-
-  test("/api/news/latest accepts valid cookie", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/news/latest"];
-    const req = authedReq("/api/news/latest", cookie);
-    const res = await handler.GET(req);
-    expect([200, 503]).toContain(res.status);
-  });
+  for (const route of acceptedRoutes) {
+    test(`${route} accepts valid cookie`, async () => {
+      const cookie = await validCookie();
+      const handler = (apiRoutes as any)[route];
+      const req = authedReq(route, cookie);
+      const res = await handler.GET(req);
+      // 200 or 503 (no data), but never 401.
+      expect([200, 503]).toContain(res.status);
+    });
+  }
 });
 
 // ═════════════════════════════════════════════════════════════════════

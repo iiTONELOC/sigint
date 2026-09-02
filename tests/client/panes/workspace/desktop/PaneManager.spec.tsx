@@ -74,6 +74,7 @@ enum DesktopLeafId {
 }
 
 enum DesktopPaneAttribute {
+  DragCapture = "data-pane-drag-capture",
   LeafId = "data-pane-leaf-id",
   Probe = "data-pane-probe",
 }
@@ -84,6 +85,7 @@ enum DesktopPresetName {
 
 enum DesktopTestErrorMessage {
   ButtonMissing = "The expected desktop pane action did not render.",
+  CaptureMissing = "The drag capture surface did not render.",
   LeafMissing = "The expected desktop pane leaf did not render.",
   PortalMissing = "The expected desktop pane menu did not render.",
   ToolbarMissing = "The desktop pane toolbar did not render.",
@@ -216,6 +218,7 @@ mock.module("@/context/DataContext", () => ({
 }));
 
 mock.module("@/layout-mode", () => ({
+  hasTouchScreen: () => false,
   useIsMobileLayout: () => false,
   useLayoutMode: () => ({ deviceType: DeviceType.Desktop }),
 }));
@@ -489,7 +492,7 @@ describe("PaneManager desktop controls", () => {
     expect(paneProbeElement(PaneType.Globe)).not.toBeNull();
   });
 
-  test("changes a pane through the pane-type menu", async () => {
+  test("swaps through the pane-type menu when the type is open", async () => {
     const rendered = await renderManager(
       twoPaneLayout(
         DesktopLeafId.Globe,
@@ -508,9 +511,13 @@ describe("PaneManager desktop controls", () => {
     );
     act(() => requireFirstButton(requirePortal(rendered.container)).click());
     await waitForReact(
-      () => paneProbeElement(PaneType.DataTable) === null,
+      () =>
+        requireLeaf(DesktopLeafId.DataTable).querySelector(
+          `[${DesktopPaneAttribute.Probe}="${PaneType.Globe}"]`,
+        ) !== null,
     );
 
+    expect(paneProbeElement(PaneType.DataTable)).not.toBeNull();
     expect(paneProbeCount()).toBe(DesktopFixtureCount.Pair);
   });
 
@@ -612,6 +619,58 @@ describe("PaneManager desktop drag wiring", () => {
     ).not.toBeNull();
   });
 
+  test("computes drop zones over the persistent globe body", async () => {
+    await renderManager(
+      twoPaneLayout(
+        DesktopLeafId.Globe,
+        PaneType.Globe,
+        DesktopLeafId.DataTable,
+        PaneType.DataTable,
+      ),
+    );
+
+    act(() => {
+      requirePaneDragHandle(
+        requireLeaf(DesktopLeafId.DataTable),
+      ).dispatchEvent(dragEvent(DomEvent.DragStart));
+    });
+    await flushReactUpdates();
+    const capture = requireLeaf(DesktopLeafId.Globe).querySelector(
+      `[${DesktopPaneAttribute.DragCapture}]`,
+    );
+    if (!(capture instanceof HTMLElement)) {
+      throw new TypeError(DesktopTestErrorMessage.CaptureMissing);
+    }
+    setDropRect(capture);
+    act(() => {
+      capture.dispatchEvent(
+        dragEvent(
+          DomEvent.DragOver,
+          DesktopDragCoordinate.Center,
+          DesktopDragCoordinate.Center,
+        ),
+      );
+    });
+    await flushReactUpdates();
+    act(() => {
+      capture.dispatchEvent(
+        dragEvent(
+          DomEvent.Drop,
+          DesktopDragCoordinate.Center,
+          DesktopDragCoordinate.Center,
+        ),
+      );
+    });
+    await waitForReact(
+      () =>
+        requireLeaf(DesktopLeafId.DataTable).querySelector(
+          `[${DesktopPaneAttribute.Probe}="${PaneType.Globe}"]`,
+        ) !== null,
+    );
+
+    expect(paneProbeCount()).toBe(DesktopFixtureCount.Pair);
+  });
+
   test("uses an edge drop zone to insert beside the target", async () => {
     await renderManager(
       twoPaneLayout(
@@ -676,5 +735,20 @@ describe("PaneManager desktop signals", () => {
     expect(paneProbeElement(PaneType.Dossier)).not.toBeNull();
     expect(paneProbeElement(PaneType.AlertLog)).not.toBeNull();
     expect(paneProbeElement(PaneType.IntelFeed)).not.toBeNull();
+  });
+
+  test("keeps the globe body node when the dossier opens", async () => {
+    await renderManager(
+      singlePaneLayout(DesktopLeafId.Globe, PaneType.Globe),
+    );
+    const globeBefore = paneProbeElement(PaneType.Globe);
+    expect(globeBefore).not.toBeNull();
+
+    act(() => dossierSignal.emit());
+    await waitForReact(
+      () => paneProbeElement(PaneType.Dossier) !== null,
+    );
+
+    expect(paneProbeElement(PaneType.Globe)).toBe(globeBefore);
   });
 });

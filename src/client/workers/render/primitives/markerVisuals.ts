@@ -27,6 +27,8 @@ export enum MarkerGlowPolicy {
   MaximumCachedSprites = 512,
   RadiusToDiameter = 2,
   MinimumVisibleIntensity = 0.01,
+  /** Only the strongest records keep a glow; each one costs a drawImage per frame. */
+  MaximumGlowingMarkers = 500,
 }
 
 /** Dots that share a fill bucket: one path, one fill. */
@@ -168,6 +170,12 @@ export type MarkerVisualRenderer = Readonly<{
     time: number,
     marker: PulsingMarker,
   ) => void;
+  drawPulseGlow: (
+    context: OffscreenCanvasRenderingContext2D,
+    time: number,
+    marker: PulsingMarker,
+    glow: PulsingMarkerGlow,
+  ) => void;
 }>;
 
 function parseHex(hex: string): [number, number, number] {
@@ -308,7 +316,7 @@ export class MarkerVisuals {
     context.globalAlpha = MarkerPulsePolicy.BaseScale;
   }
 
-  private drawPulseGlow(
+  drawPulseGlow(
     context: OffscreenCanvasRenderingContext2D,
     time: number,
     marker: PulsingMarker,

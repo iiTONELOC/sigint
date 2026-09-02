@@ -190,30 +190,24 @@ export function shipNavigationMetadata(
     : SHIP_NAVIGATION_METADATA[AisNavigationStatus.NotDefined];
 }
 
+/** AIS groups vessel types by decade; the decade's first code names it. */
+enum AisShipTypeBlock {
+  SpanCodes = 10,
+}
+
+function shipTypeCategory(code: number): AisShipType | null {
+  if (isNumberEnumValue(code, AisShipType)) return code;
+  if (code > AisShipType.Other) return AisShipType.Other;
+  const block =
+    Math.floor(code / AisShipTypeBlock.SpanCodes) * AisShipTypeBlock.SpanCodes;
+  return isNumberEnumValue(block, AisShipType) ? block : null;
+}
+
 export function shipTypeLabel(code: number | undefined): string {
   if (code === undefined || !Number.isFinite(code)) {
     return SHIP_UNKNOWN_LABEL;
   }
-  let category: AisShipType | null = null;
-  if (isNumberEnumValue(code, AisShipType)) {
-    category = code;
-  } else if (code > AisShipType.WIG && code < AisShipType.Fishing) {
-    category = AisShipType.WIG;
-  } else if (code > AisShipType.PleasureCraft && code < AisShipType.HSC) {
-    category = AisShipType.Fishing;
-  } else if (code > AisShipType.HSC && code < AisShipType.PilotVessel) {
-    category = AisShipType.HSC;
-  } else if (code > AisShipType.LawEnforcement && code < AisShipType.Medical) {
-    category = AisShipType.PilotVessel;
-  } else if (code > AisShipType.Noncombatant && code < AisShipType.Cargo) {
-    category = AisShipType.Passenger;
-  } else if (code > AisShipType.Cargo && code < AisShipType.Tanker) {
-    category = AisShipType.Cargo;
-  } else if (code > AisShipType.Tanker && code < AisShipType.Other) {
-    category = AisShipType.Tanker;
-  } else if (code > AisShipType.Other) {
-    category = AisShipType.Other;
-  }
+  const category = shipTypeCategory(code);
   return category === null
     ? SHIP_UNKNOWN_LABEL
     : AisShipType[category].replace(/([a-z])([A-Z])/g, "$1 $2");

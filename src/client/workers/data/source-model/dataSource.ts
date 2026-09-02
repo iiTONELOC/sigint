@@ -21,6 +21,10 @@ import {
   type PositionedRecord,
 } from "@/workers/data/source-model/position";
 import type { RemoteSource } from "@/workers/data/source-model/remoteSource";
+import {
+  TRAIL_POLICY,
+  type TrackSource,
+} from "@/lib/geo/trails/trailStore";
 
 export enum SourceDomainKind {
   Geo = "geo",
@@ -56,6 +60,7 @@ export function unattachedSourceError(source: SourceId): UnattachedSourceError {
 
 export type SourceHost<TEntity extends SourceRecord> = Readonly<{
   readCache: (key: CacheKey) => Promise<unknown>;
+  deleteCache: (key: CacheKey) => Promise<void> | void;
   persistCache: (key: CacheKey, value: unknown) => void;
   publishStatus: (snapshot: DataWorkerSourceSnapshot) => void;
   publishPatch: (patch: DatasetPatch<TEntity>) => void;
@@ -95,6 +100,7 @@ export abstract class DataSource<TEntity extends SourceRecord> {
 
   attach(host: SourceHost<TEntity>): void {
     this.attachedHost = host;
+    const cacheMaxAgeMs = this.cacheMaxAgeMs();
     this.runtime = createPointSourceRuntime<TEntity>({
       id: this.policy.id,
       pollIntervalMs: this.policy.pollIntervalMs,
@@ -102,7 +108,9 @@ export abstract class DataSource<TEntity extends SourceRecord> {
         ? {}
         : { retryIntervalMs: this.policy.retryIntervalMs }),
       hasChanged: (previous, next) => this.hasChanged(previous, next),
+      ...(cacheMaxAgeMs === null ? {} : { cacheMaxAgeMs }),
       readCache: () => host.readCache(this.policy.cacheKey),
+      deleteCache: () => host.deleteCache(this.policy.cacheKey),
       parseCache: (value) => this.parseCache(value),
       persistCache: (snapshot) => {
         host.persistCache(this.policy.cacheKey, snapshot);
@@ -146,6 +154,11 @@ export abstract class DataSource<TEntity extends SourceRecord> {
 
   snapshot(): DataWorkerSourceSnapshot {
     return this.requireRuntime().snapshot();
+  }
+
+  /** Cap on cached-envelope age at hydration; null accepts any age. */
+  protected cacheMaxAgeMs(): number | null {
+    return null;
   }
 
   protected requireHost(): SourceHost<TEntity> {
@@ -245,10 +258,15 @@ export class StationaryPointSource<
 }
 
 export class MovingPointSource<
-  TId extends RenderSourceId,
+  TId extends TrackSource & RenderSourceId,
   TEntity extends SourceRecord,
 > extends SpecPointSource<TId, TEntity> {
   readonly motion = GeoMotion.Moving;
+
+  /** A mover's cache is dead once its trail would be; purge, then repoll. */
+  protected override cacheMaxAgeMs(): number {
+    return TRAIL_POLICY[this.policy.id].staleMs;
+  }
 }
 
 /** A test double overrides the feed; production reads the feed. */

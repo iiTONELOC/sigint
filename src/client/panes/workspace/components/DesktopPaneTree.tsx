@@ -34,10 +34,13 @@ import {
   type SplitDirectionValue,
 } from "@/panes/workspace/model/pane";
 import { PANE_CATALOG } from "@/panes/workspace/paneCatalog";
+import { renderedSplitDirection } from "@/panes/workspace/model/resize";
+import { PaneBody } from "@/panes/workspace/components/paneBody";
 import { paneDropZoneForPoint } from "@/panes/workspace/utils/dropZone";
 import { DomEvent } from "@/runtime";
 
 enum DesktopPaneClassName {
+  DragCapture = "absolute inset-0 z-(--layer-pane-overlay)",
   Ghost = "absolute z-(--layer-pane-overlay) pointer-events-none bg-[rgba(0,212,240,0.12)] border-2 border-[rgba(0,212,240,0.4)] rounded transition-all duration-100 ease-out",
   GhostBottom = "bottom-1 inset-x-1 h-[calc(50%_-_6px)]",
   GhostCenter = "inset-1",
@@ -302,14 +305,17 @@ function useSplitMenuDismissal(
   }, [closeSplitMenu, splitMenu, splitMenuRef]);
 }
 
-function splitStyle(node: SplitNode): CSSProperties {
+function splitStyle(
+  direction: SplitDirectionValue,
+  ratio: number,
+): CSSProperties {
   const property =
-    node.direction === SplitDirection.Horizontal
+    direction === SplitDirection.Horizontal
       ? "gridTemplateColumns"
       : "gridTemplateRows";
   return {
     display: "grid",
-    [property]: `${node.ratio}fr ${DesktopPaneMetric.SplitSeparatorPx}px ${1 - node.ratio}fr`,
+    [property]: `${ratio}fr ${DesktopPaneMetric.SplitSeparatorPx}px ${1 - ratio}fr`,
   };
 }
 
@@ -464,7 +470,6 @@ function DesktopPaneLeaf({
   const paneRef = useRef<HTMLDivElement>(null);
   const browserFullscreen = useBrowserFullscreen(paneRef);
   const definition = PANE_CATALOG[node.paneType];
-  const PaneComponent = definition.component;
   const isDragOver =
     context.dragSourceId !== null && context.dragSourceId !== node.id;
   const isTarget = context.dragTargetId === node.id;
@@ -484,6 +489,24 @@ function DesktopPaneLeaf({
       onDrop={handlers.onDrop}
     >
       <DesktopPaneGhost zone={zone} />
+      {isDragOver && (
+        <div
+          data-pane-drag-capture=""
+          className={DesktopPaneClassName.DragCapture}
+          onDragLeave={(event) => {
+            event.stopPropagation();
+            handlers.onDragLeave?.(event);
+          }}
+          onDragOver={(event) => {
+            event.stopPropagation();
+            handlers.onDragOver?.(event);
+          }}
+          onDrop={(event) => {
+            event.stopPropagation();
+            handlers.onDrop?.(event);
+          }}
+        />
+      )}
       <div className="relative">
         <DesktopLeafHeader
           browserFullscreen={browserFullscreen}
@@ -492,7 +515,72 @@ function DesktopPaneLeaf({
         />
       </div>
       <div className={DesktopPaneClassName.PaneBody}>
-        <PaneComponent />
+        <PaneBody definition={definition} paneType={node.paneType} />
+      </div>
+    </div>
+  );
+}
+
+function DesktopPaneSplit({
+  context,
+  node,
+}: Readonly<{ context: DesktopPaneContext; node: SplitNode }>) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.at(-1);
+      if (entry) setAvailableWidth(entry.contentRect.width);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  const maximizedLeafId = context.maximizedLeafId;
+  const direction = renderedSplitDirection(
+    node.direction,
+    node.ratio,
+    availableWidth,
+  );
+  return (
+    <div
+      ref={containerRef}
+      className={DesktopPaneClassName.Split}
+      style={
+        maximizedLeafId === null
+          ? splitStyle(direction, node.ratio)
+          : { display: "block" }
+      }
+    >
+      <div
+        className={DesktopPaneClassName.NodeContent}
+        hidden={
+          maximizedLeafId !== null &&
+          !containsLeafId(node.children[0], maximizedLeafId)
+        }
+      >
+        <DesktopPaneNode context={context} node={node.children[0]} />
+      </div>
+      {maximizedLeafId === null && (
+        <ResizeHandle
+          splitId={node.id}
+          direction={direction}
+          onResize={context.resizeSplit}
+        />
+      )}
+      <div
+        className={DesktopPaneClassName.NodeContent}
+        hidden={
+          maximizedLeafId !== null &&
+          !containsLeafId(node.children[1], maximizedLeafId)
+        }
+      >
+        <DesktopPaneNode context={context} node={node.children[1]} />
       </div>
     </div>
   );
@@ -511,39 +599,7 @@ function DesktopPaneNode({
       />
     );
   }
-  const maximizedLeafId = context.maximizedLeafId;
-  return (
-    <div
-      className={DesktopPaneClassName.Split}
-      style={maximizedLeafId === null ? splitStyle(node) : { display: "block" }}
-    >
-      <div
-        className={DesktopPaneClassName.NodeContent}
-        hidden={
-          maximizedLeafId !== null &&
-          !containsLeafId(node.children[0], maximizedLeafId)
-        }
-      >
-        <DesktopPaneNode context={context} node={node.children[0]} />
-      </div>
-      {maximizedLeafId === null && (
-        <ResizeHandle
-          splitId={node.id}
-          direction={node.direction}
-          onResize={context.resizeSplit}
-        />
-      )}
-      <div
-        className={DesktopPaneClassName.NodeContent}
-        hidden={
-          maximizedLeafId !== null &&
-          !containsLeafId(node.children[1], maximizedLeafId)
-        }
-      >
-        <DesktopPaneNode context={context} node={node.children[1]} />
-      </div>
-    </div>
-  );
+  return <DesktopPaneSplit key={node.id} context={context} node={node} />;
 }
 
 export function DesktopPaneTree({

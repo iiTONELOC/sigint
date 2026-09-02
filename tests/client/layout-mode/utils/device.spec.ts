@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { DeviceType } from "@/layout-mode/model/layoutMode";
-import { classifyDeviceType, type DeviceDetectionInput } from "@/layout-mode/utils/device";
+import {
+  classifyDeviceType,
+  hasTouchScreen,
+  type DeviceDetectionInput,
+} from "@/layout-mode/utils/device";
 
 enum DeviceFixturePlatform {
   Desktop = "Linux x86_64",
@@ -80,5 +84,30 @@ describe("classifyDeviceType", () => {
 
   test("classifies other signals as desktop", () => {
     expect(classifyDeviceType(deviceInput())).toBe(DeviceType.Desktop);
+  });
+});
+
+describe("hasTouchScreen", () => {
+  test("follows the navigator touch point count", () => {
+    const original = Object.getOwnPropertyDescriptor(
+      navigator,
+      "maxTouchPoints",
+    );
+    try {
+      Object.defineProperty(navigator, "maxTouchPoints", {
+        configurable: true,
+        value: DeviceFixtureTouchPoints.Tablet,
+      });
+      expect(hasTouchScreen()).toBe(true);
+      Object.defineProperty(navigator, "maxTouchPoints", {
+        configurable: true,
+        value: DeviceFixtureTouchPoints.None,
+      });
+      expect(hasTouchScreen()).toBe(false);
+    } finally {
+      if (original) {
+        Object.defineProperty(navigator, "maxTouchPoints", original);
+      }
+    }
   });
 });

@@ -380,6 +380,10 @@ export class AircraftLayer extends ScenePointLayer<
     return aircraftSceneIncludes(view, index, filter);
   }
 
+  protected override showsRecords(filter: AircraftSceneFilter): boolean {
+    return filter.filter.enabled;
+  }
+
   /** Batched: one path and one fill per colour and alpha bucket;
    *  the selected aircraft keeps its own draw for the ring. */
   override draw(style: AircraftSceneStyle): void {

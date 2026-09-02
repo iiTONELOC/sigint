@@ -1,6 +1,7 @@
 import { DeviceType } from "../model/layoutMode";
 
 enum DeviceTouchPointBoundary {
+  TouchMinimumExclusive = 0,
   TabletMinimumExclusive = 1,
 }
 enum DevicePlatform {
@@ -56,6 +57,14 @@ export function classifyDeviceType(
   }
 
   return DeviceType.Desktop;
+}
+
+export function hasTouchScreen(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    navigator.maxTouchPoints >
+      DeviceTouchPointBoundary.TouchMinimumExclusive
+  );
 }
 
 export function detectDeviceType(): DeviceType {

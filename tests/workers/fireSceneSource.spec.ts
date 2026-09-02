@@ -167,6 +167,7 @@ describe("fire scene source", () => {
     source.attach({
       readCache: async () => null,
       persistCache: () => undefined,
+      deleteCache: () => undefined,
       publishStatus: () => undefined,
       publishPatch: (patch) => binding.publish(patch),
     });
@@ -225,6 +226,7 @@ describe("fire scene source", () => {
         version: 1,
         entities: [cached],
       }),
+      deleteCache: () => undefined,
       persistCache: (_key, snapshot) => {
         persisted.push(
           snapshot as PointSourceCacheSnapshot<FirePoint>,
@@ -271,6 +273,7 @@ describe("fire scene source", () => {
         entities: [cached],
       }),
       persistCache: () => undefined,
+      deleteCache: () => undefined,
       publishStatus: (snapshot) => snapshots.push(snapshot),
       publishPatch: () => undefined,
     });
@@ -293,6 +296,7 @@ describe("fire scene source", () => {
     source.attach({
       readCache: async () => null,
       persistCache: () => undefined,
+      deleteCache: () => undefined,
       publishStatus: (snapshot) => snapshots.push(snapshot),
       publishPatch: () => undefined,
     });

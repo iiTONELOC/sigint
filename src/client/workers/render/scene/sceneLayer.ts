@@ -107,6 +107,11 @@ function pixelsPerDegree(frame: SceneLayerProjectionFrame): number {
   return 1;
 }
 
+/** Age alpha moves through hour-scale buckets; a coarse clock is invisible. */
+enum AgeAlphaRefresh {
+  IntervalMs = 30_000,
+}
+
 const PULSING_POINT_LAYER_DEFINITIONS = {
   [Domain.Fire]: {
     detailZoom: 3,
@@ -457,12 +462,21 @@ export abstract class ScenePointLayer<
     time: number = Date.now(),
   ): void {
     const view = this.beginProject();
+    if (!this.showsRecords(filter)) {
+      this.projection.clear();
+      return;
+    }
     this.projection.project(view, {
       ...frame,
       includes: (index) =>
         this.recordIncludes(view, index, filter),
       sceneVersion: this.sceneVersion(),
     }, time);
+  }
+
+  /** A layer whose filter excludes every record skips projection entirely. */
+  protected showsRecords(_filter: TFilter): boolean {
+    return true;
   }
 
   draw(style: TStyle): void {
@@ -579,6 +593,11 @@ export class PulsingPointLayer extends ScenePointLayer<
   private zoomLevel = 1;
   private fadeColor = "";
   private readonly fades = new Map<number, string>();
+  private styleVersion = -1;
+  private sizes = new Float64Array(0);
+  private glowOk = new Uint8Array(0);
+  private alphas = new Float64Array(0);
+  private alphaStamp = -1;
   private readonly definition: PulsingPointLayerDefinition;
   private readonly pulsingSource: PulsingPointLayerSource;
   private readonly visuals: MarkerVisualRenderer;
@@ -599,6 +618,13 @@ export class PulsingPointLayer extends ScenePointLayer<
     filter: EnabledSceneFilter,
   ): void {
     this.animated = false;
+    if (!filter.enabled) {
+      this.beginProject();
+      this.projection.clear();
+      this.aggregateProjection.clear();
+      this.aggregated = false;
+      return;
+    }
     const detailZoom = this.definition.detailZoom;
     this.aggregated =
       detailZoom !== undefined &&
@@ -612,15 +638,71 @@ export class PulsingPointLayer extends ScenePointLayer<
     super.project(frame, filter);
     const view = this.view;
     if (!view) return;
+    this.ensureRecordStyles(view);
     for (const index of this.visibleIndices()) {
-      const metric = pulsingPointMetric(
-        view,
-        index,
-        this.definition,
-      );
-      if (!passesMarkerThreshold(metric, this.definition)) continue;
+      if (this.glowOk[index] !== 1) continue;
       this.animated = true;
       return;
+    }
+  }
+
+  /** Sizes and glow eligibility are facts of the scene version, not the frame. */
+  private ensureRecordStyles(view: RenderSceneView): void {
+    const version = this.sceneVersion();
+    if (version === this.styleVersion) return;
+    this.styleVersion = version;
+    this.alphaStamp = -1;
+    const policy = this.definition.markerPolicy;
+    if (this.sizes.length < view.capacity) {
+      this.sizes = new Float64Array(view.capacity);
+      this.glowOk = new Uint8Array(view.capacity);
+      this.alphas = new Float64Array(view.capacity);
+    }
+    this.glowOk.fill(0);
+    for (let index = 0; index < view.capacity; index++) {
+      if (view.active[index] !== 1) continue;
+      const metric = pulsingPointMetric(view, index, this.definition);
+      this.sizes[index] = sourceMarkerSize(metric, false, policy);
+      if (passesMarkerThreshold(metric, this.definition)) {
+        this.glowOk[index] = 1;
+      }
+    }
+    this.capGlow(view);
+  }
+
+  /** The strongest records keep their glow, up to the drawImage budget. */
+  private capGlow(view: RenderSceneView): void {
+    const limit = MarkerGlowPolicy.MaximumGlowingMarkers;
+    const metrics: number[] = [];
+    for (let index = 0; index < view.capacity; index++) {
+      if (this.glowOk[index] !== 1) continue;
+      metrics.push(pulsingPointMetric(view, index, this.definition));
+    }
+    if (metrics.length <= limit) return;
+    metrics.sort((first, second) => second - first);
+    const floor = metrics[limit - 1] ?? 0;
+    for (let index = 0; index < view.capacity; index++) {
+      if (
+        this.glowOk[index] === 1 &&
+        pulsingPointMetric(view, index, this.definition) < floor
+      ) {
+        this.glowOk[index] = 0;
+      }
+    }
+  }
+
+  /** Age alpha steps through hour-scale buckets on the coarse clock. */
+  private ensureAgeAlphas(view: RenderSceneView, now: number): void {
+    const stamp = Math.floor(now / AgeAlphaRefresh.IntervalMs);
+    if (stamp === this.alphaStamp) return;
+    this.alphaStamp = stamp;
+    const policy = this.definition.markerPolicy;
+    for (let index = 0; index < view.capacity; index++) {
+      if (view.active[index] !== 1) continue;
+      const timestamp = view.timestamps[index];
+      this.alphas[index] = timestamp === undefined
+        ? Number.NaN
+        : sourceMarkerAgeAlpha(timestamp, now, policy);
     }
   }
 
@@ -688,8 +770,9 @@ export class PulsingPointLayer extends ScenePointLayer<
     return cell === undefined ? null : this.aggregateProjection.projection(cell);
   }
 
-  /** Batched: plain dots fill once per colour, size, and alpha bucket;
-   *  glowing and selected markers keep their own draw. */
+  /** Batched: every dot fills once per colour, size, and alpha bucket;
+   *  glow sprites draw beneath the batches and only the selected marker
+   *  keeps its own draw. */
   override draw(style: PulsingPointSceneStyle): void {
     const view = this.view;
     if (!view) return;
@@ -702,16 +785,29 @@ export class PulsingPointLayer extends ScenePointLayer<
     const indices = this.aggregated
       ? this.aggregateProjection.visibleIndices()
       : this.visibleIndices();
+    const intensity = this.glowIntensity();
+    if (!this.aggregated) {
+      this.ensureRecordStyles(view);
+      this.ensureAgeAlphas(view, style.now);
+    }
     for (const index of indices) {
       const marker = this.aggregated
         ? this.aggregateMarkerAt(index, style)
-        : this.markerAt(view, index, style);
+        : this.markerAt(view, index, style, intensity);
       if (!marker) continue;
-      if (marker.selected || marker.glow) {
+      if (marker.selected) {
         this.visuals.drawPulsing(style.context, style.time, marker);
-      } else {
-        addDot(batches, marker);
+        continue;
       }
+      if (marker.glow) {
+        this.visuals.drawPulseGlow(
+          style.context,
+          style.time,
+          marker,
+          marker.glow,
+        );
+      }
+      addDot(batches, marker);
     }
     for (const batch of dotBatches(batches)) {
       this.visuals.fillDots(style.context, batch);
@@ -742,7 +838,9 @@ export class PulsingPointLayer extends ScenePointLayer<
     index: number,
     style: PulsingPointSceneStyle,
   ): void {
-    const marker = this.markerAt(view, index, style);
+    this.ensureRecordStyles(view);
+    this.ensureAgeAlphas(view, style.now);
+    const marker = this.markerAt(view, index, style, this.glowIntensity());
     if (marker) this.visuals.drawPulsing(style.context, style.time, marker);
   }
 
@@ -794,28 +892,32 @@ export class PulsingPointLayer extends ScenePointLayer<
     view: RenderSceneView,
     index: number,
     style: PulsingPointSceneStyle,
+    intensity: number,
   ): PulsingMarker | null {
     const projection = this.projection.projection(index);
     const entityId = view.entityIds[index];
-    const timestamp = view.timestamps[index];
-    if (!projection || !entityId || timestamp === undefined) return null;
+    const alpha = this.alphas[index] ?? Number.NaN;
+    if (!projection || !entityId || Number.isNaN(alpha)) return null;
 
     const policy = this.definition.markerPolicy;
-    const metric = pulsingPointMetric(view, index, this.definition);
-    const alpha = sourceMarkerAgeAlpha(timestamp, style.now, policy);
     const selected = entityId === style.selectedId;
-    const intensity = this.glowIntensity();
+    const baseSize = this.sizes[index] ?? 0;
     return {
       x: projection.x,
       y: projection.y,
-      size: sourceMarkerSize(metric, selected, policy) * zoomScale(style.zoomLevel),
+      size:
+        (selected ? baseSize * policy.selectedScale : baseSize) *
+        zoomScale(style.zoomLevel),
       color: this.fadedColor(style.color, alpha),
       fillAlpha: sourceMarkerFillAlpha(projection.depth, alpha, policy),
       selected,
-      glow: intensity > 0 && passesMarkerThreshold(metric, this.definition)
+      glow: intensity > 0 && this.glowOk[index] === 1
         ? {
             intensity,
-            pulseIndex: sourceMarkerPulseIndex(metric, policy),
+            pulseIndex: sourceMarkerPulseIndex(
+              pulsingPointMetric(view, index, this.definition),
+              policy,
+            ),
             id: entityId,
             config: policy.glow,
           }

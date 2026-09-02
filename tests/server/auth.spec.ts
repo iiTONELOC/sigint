@@ -23,7 +23,7 @@ describe("generateToken()", () => {
   test("returns a base64url-encoded token with two parts", async () => {
     const token = await auth.generateToken();
     const parts = token.split(".");
-    expect(parts.length).toBe(2);
+    expect(parts).toHaveLength(2);
     expect(parts[0]!.length).toBeGreaterThan(0);
     expect(parts[1]!.length).toBeGreaterThan(0);
   });

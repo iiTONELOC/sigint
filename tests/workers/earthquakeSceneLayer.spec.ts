@@ -73,6 +73,7 @@ function visuals(
   markers: PulsingMarker[] = [],
   fades: number[] = [],
   batches: DotBatch[] = [],
+  glows: PulsingMarker[] = [],
 ): MarkerVisualRenderer {
   return {
     fade: (color, factor) => {
@@ -84,6 +85,9 @@ function visuals(
     },
     drawPulsing: (_context, _time, marker) => {
       markers.push(marker);
+    },
+    drawPulseGlow: (_context, _time, marker) => {
+      glows.push(marker);
     },
   };
 }

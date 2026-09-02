@@ -35,6 +35,7 @@ export type PaneDefinition = Readonly<{
   label: string;
   loading?: PaneLoadingDefinition;
   mobileHeight: PaneMobileHeight;
+  persistent?: boolean;
 }>;
 
 export type PaneCatalog = Readonly<Record<PaneType, PaneDefinition>>;
@@ -360,6 +361,7 @@ export const PANE_CATALOG: PaneCatalog = {
     icon: Globe,
     label: "GLOBE",
     mobileHeight: PaneMobileHeight.XXLarge,
+    persistent: true,
   },
   [PaneTypeId.IntelFeed]: defineLazyPane(
     PaneTypeId.IntelFeed,

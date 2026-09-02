@@ -5,7 +5,6 @@ import {
   collectFirstLeaf,
   collectLeafIds,
   collectMobileBlocks,
-  reconcileMobileBlockOrder,
   type MobileBlock,
 } from "@/panes/workspace/utils/mobile";
 
@@ -142,29 +141,5 @@ describe("mobile pane projection", () => {
       [alerts.id, intel.id],
       [news.id, consolePane.id],
     ]);
-  });
-
-  test("inserts replacement blocks at the first removed position", () => {
-    const globe = leaf(PaneType.Globe);
-    const table = leaf(PaneType.DataTable);
-    const dossier = leaf(PaneType.Dossier);
-    const video = leaf(PaneType.VideoFeed);
-
-    expect(
-      reconcileMobileBlockOrder(
-        [globe.id, table.id, dossier.id],
-        [video.id],
-        new Set([table.id]),
-      ),
-    ).toEqual([globe.id, video.id, dossier.id]);
-  });
-
-  test("appends new blocks when no removed position exists", () => {
-    const globe = leaf(PaneType.Globe);
-    const table = leaf(PaneType.DataTable);
-
-    expect(
-      reconcileMobileBlockOrder([globe.id], [table.id], new Set()),
-    ).toEqual([globe.id, table.id]);
   });
 });

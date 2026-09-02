@@ -6,7 +6,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
 import { useUI } from "@/context/UIContext";
 import { useWatch, WatchSource } from "@/context/WatchContext";
-import { DeviceType, useLayoutMode } from "@/layout-mode";
+import { DeviceType, hasTouchScreen, useLayoutMode } from "@/layout-mode";
 import {
   useHasDossier,
   requestDossierOpen,
@@ -156,7 +156,7 @@ export function LiveTrafficPane() {
       setIsolateMode(null);
       return;
     }
-    if (isPhone) return;
+    if (isPhone || hasTouchScreen()) return;
     setChromeHidden((v) => {
       const next = !v;
       if (next) {

@@ -359,7 +359,9 @@ button:disabled {
   outline-offset: 2px;
 }
 
-@media (pointer: coarse) {
+/* Touch affordances follow the presence of a touchscreen, not the primary
+   pointer, so a tablet with a trackpad keeps its touch targets. */
+@media (any-pointer: coarse) {
   .touch-target {
     min-height: var(--control-target-size);
     min-width: var(--control-target-size);
@@ -378,6 +380,9 @@ button:disabled {
     inset-inline: 0;
     inset-block: -9px;
   }
+}
+
+@media (pointer: coarse) {
   .sigint-scroll {
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;

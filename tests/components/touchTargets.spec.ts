@@ -14,10 +14,10 @@ const MINIMUM_TOUCH_TARGETS_BY_PATH: Readonly<Record<string, number>> = {
 // ── Touch target CSS class ────────────────────────────────────────────
 
 describe("touch-target class in index.css", () => {
-  test("touch-target is inside pointer coarse media query (touch only)", async () => {
+  test("touch-target activates when any pointer is coarse", async () => {
     const css = await Bun.file("src/index.css").text();
     const touchTargetIdx = css.indexOf(".touch-target {");
-    const mediaIdx = css.indexOf("@media (pointer: coarse)");
+    const mediaIdx = css.indexOf("@media (any-pointer: coarse)");
     expect(touchTargetIdx).toBeGreaterThan(-1);
     expect(mediaIdx).toBeGreaterThan(-1);
     expect(touchTargetIdx).toBeGreaterThan(mediaIdx);

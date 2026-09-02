@@ -68,6 +68,32 @@ export function mobileSplitDir(
     : dir;
 }
 
+function isFullWidthLeaf(node: LayoutNode): boolean {
+  return (
+    node.type === PaneNodeType.Leaf && FULL_WIDTH_ONLY.has(node.paneType)
+  );
+}
+
+function normalizeMobileNode(node: LayoutNode): LayoutNode {
+  if (node.type === PaneNodeType.Leaf) return node;
+  const children: [LayoutNode, LayoutNode] = [
+    normalizeMobileNode(node.children[0]),
+    normalizeMobileNode(node.children[1]),
+  ];
+  const demote =
+    node.direction === SplitDirection.Horizontal &&
+    children.some(isFullWidthLeaf);
+  return {
+    ...node,
+    children,
+    direction: demote ? SplitDirection.Vertical : node.direction,
+  };
+}
+
+export function normalizeMobileLayout(layout: LayoutState): LayoutState {
+  return { ...layout, root: normalizeMobileNode(layout.root) };
+}
+
 // ── Tree helpers ─────────────────────────────────────────────────────
 
 let _idC = PaneIdSequence.Start;

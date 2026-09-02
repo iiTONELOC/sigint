@@ -45,6 +45,7 @@ describe("point source runtime", () => {
       }),
       parseCache,
       persistCache: async () => undefined,
+      deleteCache: () => undefined,
       fetchSnapshot: async () => ({
         completeness: SourceCompleteness.Complete,
         entities: [],
@@ -92,6 +93,7 @@ describe("point source runtime", () => {
       readCache: async () => null,
       parseCache,
       persistCache: async () => undefined,
+      deleteCache: () => undefined,
       fetchSnapshot: async () => {
         const snapshot = snapshots.shift();
         if (!snapshot) throw new Error("No source snapshot");
@@ -105,5 +107,69 @@ describe("point source runtime", () => {
     await runtime.refresh();
 
     expect(runtime.get("second")).toEqual({ id: "second", value: 2 });
+  });
+
+  test("purges an expired envelope instead of hydrating", async () => {
+    const deletes: number[] = [];
+    const patches: unknown[] = [];
+    const runtime = createPointSourceRuntime<TestEntity>({
+      id: Domain.Events,
+      pollIntervalMs: 1_000,
+      cacheMaxAgeMs: 100,
+      now: () => 1_000,
+      readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
+        timestamp: 500,
+        version: 4,
+        entities: [{ id: "cached", value: 1 }],
+      }),
+      parseCache,
+      persistCache: async () => undefined,
+      deleteCache: () => {
+        deletes.push(1);
+      },
+      fetchSnapshot: async () => {
+        throw new Error("No fetch during hydrate");
+      },
+      publishStatus: () => undefined,
+      publishPatch: (patch) => patches.push(patch),
+    });
+
+    await runtime.hydrate();
+
+    expect(runtime.get("cached")).toBeNull();
+    expect(deletes).toHaveLength(1);
+    expect(patches).toHaveLength(0);
+  });
+
+  test("hydrates an envelope within its maximum age", async () => {
+    const deletes: number[] = [];
+    const runtime = createPointSourceRuntime<TestEntity>({
+      id: Domain.Events,
+      pollIntervalMs: 1_000,
+      cacheMaxAgeMs: 100,
+      now: () => 1_000,
+      readCache: async () => ({
+        schema: PointSourceCacheSchema.Current,
+        timestamp: 950,
+        version: 4,
+        entities: [{ id: "cached", value: 1 }],
+      }),
+      parseCache,
+      persistCache: async () => undefined,
+      deleteCache: () => {
+        deletes.push(1);
+      },
+      fetchSnapshot: async () => {
+        throw new Error("No fetch during hydrate");
+      },
+      publishStatus: () => undefined,
+      publishPatch: () => undefined,
+    });
+
+    await runtime.hydrate();
+
+    expect(runtime.get("cached")).toEqual({ id: "cached", value: 1 });
+    expect(deletes).toHaveLength(0);
   });
 });

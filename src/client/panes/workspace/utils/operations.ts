@@ -26,6 +26,7 @@ import {
   type LayoutState,
   type LeafNode,
 } from "@/panes/paneTree";
+import { fittingHorizontalRatio } from "@/panes/workspace/model/resize";
 
 type WatchPanePlacement = Readonly<{
   anchorType: PaneTypeValue;
@@ -33,6 +34,27 @@ type WatchPanePlacement = Readonly<{
   paneType: PaneTypeValue;
   ratio: PaneLayoutRatio;
 }>;
+
+export type PanePlacementContext = Readonly<{
+  availableWidth: number;
+  isMobile: boolean;
+}>;
+
+function horizontalPlacement(
+  preferred: SplitDirectionValue,
+  anchorType: PaneTypeValue,
+  ratio: number,
+  context: PanePlacementContext,
+): Readonly<{ direction: SplitDirectionValue; ratio: number }> {
+  const direction = mobileSplitDir(preferred, anchorType, context.isMobile);
+  if (context.isMobile || direction !== SplitDirection.Horizontal) {
+    return { direction, ratio };
+  }
+  const fitted = fittingHorizontalRatio(context.availableWidth, ratio);
+  return fitted === null
+    ? { direction: SplitDirection.Vertical, ratio }
+    : { direction, ratio: fitted };
+}
 
 function findLeaf(node: LayoutNode, leafId: string): LeafNode | null {
   if (node.type === PaneNodeType.Leaf) {
@@ -77,7 +99,7 @@ export function splitPaneLayout(
 
 export function openDossierInLayout(
   layout: LayoutState,
-  isMobile: boolean,
+  context: PanePlacementContext,
 ): LayoutState {
   const openTypes = collectLeafTypes(layout.root);
   if (openTypes.has(PaneType.Dossier)) {
@@ -94,23 +116,37 @@ export function openDossierInLayout(
   const globe = collectLeaves(layout.root).find(
     (entry) => entry.paneType === PaneType.Globe,
   );
-  return splitPaneLayout(
-    layout,
-    globe?.id ?? layout.root.id,
-    mobileSplitDir(
-      SplitDirection.Horizontal,
-      PaneType.Globe,
-      isMobile,
-    ),
-    PaneType.Dossier,
+  const targetId = globe?.id ?? layout.root.id;
+  const target = findNodeById(layout.root, targetId);
+  if (!target) {
+    return layout;
+  }
+  const placement = horizontalPlacement(
+    SplitDirection.Horizontal,
+    PaneType.Globe,
+    PaneLayoutRatio.Detail,
+    context,
   );
+  return {
+    ...layout,
+    root: replaceNode(
+      layout.root,
+      targetId,
+      split(
+        placement.direction,
+        target,
+        leaf(PaneType.Dossier),
+        placement.ratio,
+      ),
+    ),
+  };
 }
 
 function ensureWatchPane(
   layout: LayoutState,
   openTypes: Set<PaneTypeValue>,
   placement: WatchPanePlacement,
-  isMobile: boolean,
+  context: PanePlacementContext,
 ): LayoutState {
   if (openTypes.has(placement.paneType)) {
     return layout;
@@ -128,26 +164,27 @@ function ensureWatchPane(
   const target = anchor
     ? findNodeById(layout.root, anchor.id)
     : null;
-  const direction = mobileSplitDir(
+  const fitted = horizontalPlacement(
     placement.direction,
     placement.anchorType,
-    isMobile,
+    placement.ratio,
+    context,
   );
   const addedLeaf = leaf(placement.paneType);
   const root = target
     ? replaceNode(
       layout.root,
       target.id,
-      split(direction, target, addedLeaf, placement.ratio),
+      split(fitted.direction, target, addedLeaf, fitted.ratio),
     )
-    : split(direction, layout.root, addedLeaf, placement.ratio);
+    : split(fitted.direction, layout.root, addedLeaf, fitted.ratio);
   openTypes.add(placement.paneType);
   return { minimized, root };
 }
 
 export function createWatchLayout(
   layout: LayoutState,
-  isMobile: boolean,
+  context: PanePlacementContext,
 ): LayoutState {
   const openTypes = collectLeafTypes(layout.root);
   let next = { ...layout, minimized: [...layout.minimized] };
@@ -160,7 +197,7 @@ export function createWatchLayout(
       paneType: PaneType.Dossier,
       ratio: PaneLayoutRatio.Detail,
     },
-    isMobile,
+    context,
   );
   next = ensureWatchPane(
     next,
@@ -171,7 +208,7 @@ export function createWatchLayout(
       paneType: PaneType.AlertLog,
       ratio: PaneLayoutRatio.WatchAlerts,
     },
-    isMobile,
+    context,
   );
   return ensureWatchPane(
     next,
@@ -182,7 +219,7 @@ export function createWatchLayout(
       paneType: PaneType.IntelFeed,
       ratio: PaneLayoutRatio.Equal,
     },
-    isMobile,
+    context,
   );
 }
 
@@ -286,6 +323,12 @@ export function changePaneTypeInLayout(
   leafId: string,
   newType: PaneTypeValue,
 ): LayoutState {
+  const existing = collectLeaves(layout.root).find(
+    (entry) => entry.paneType === newType,
+  );
+  if (existing && existing.id !== leafId) {
+    return swapPanesInLayout(layout, leafId, existing.id);
+  }
   return {
     ...layout,
     root: replaceNode(layout.root, leafId, leaf(newType)),

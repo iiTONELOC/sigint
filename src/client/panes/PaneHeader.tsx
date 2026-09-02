@@ -348,10 +348,7 @@ export function PaneHeader({
               onTouchDragStart(leafId);
             }
           }}
-          className={cn(
-            "cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5",
-            isPhone && "touch-target",
-          )}
+          className="cursor-grab active:cursor-grabbing text-sig-dim hover:text-sig-accent transition-colors px-0.5 py-1 -ml-0.5 touch-target"
         >
           <GripVertical
             size={PaneWorkspaceIconMetric.CompactSize}

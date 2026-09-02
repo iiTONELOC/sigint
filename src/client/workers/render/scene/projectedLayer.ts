@@ -187,6 +187,13 @@ export class ProjectedSceneLayer {
     }
   }
 
+  /** Drop the projection and the reuse keys; the next project starts fresh. */
+  clear(): void {
+    this.clearProjection();
+    this.lastRevision = null;
+    this.lastVersion = null;
+  }
+
   /** A layer without visible motion on an unchanged camera, filter, and scene needs no work. */
   private projectionIsCurrent(frame: SceneProjectionFrame): boolean {
     return (
@@ -241,10 +248,25 @@ export class ProjectedSceneLayer {
       ? GeoCell.MovingSlackDegrees
       : GeoCell.StaticSlackDegrees;
     if (frame.globe) {
+      const globe = frame.globe;
       const unit = geographicToUnitVector(latitude, longitude);
-      const matrix = frame.globe.matrix;
+      const matrix = globe.matrix;
       const depth = matrix.m20 * unit.x + matrix.m21 * unit.y + matrix.m22 * unit.z;
-      return depth > -Math.sin(slack * RADIANS_PER_DEGREE);
+      const slackRadians = slack * RADIANS_PER_DEGREE;
+      if (depth <= -Math.sin(slackRadians)) return false;
+      const rotatedX =
+        matrix.m00 * unit.x + matrix.m01 * unit.y + matrix.m02 * unit.z;
+      const rotatedY =
+        matrix.m10 * unit.x + matrix.m11 * unit.y + matrix.m12 * unit.z;
+      const x = globe.centerX + rotatedX * globe.radius;
+      const y = globe.centerY - rotatedY * globe.radius;
+      const margin = frame.cullMargin + globe.radius * slackRadians;
+      return (
+        x >= -margin &&
+        y >= -margin &&
+        x < frame.width + margin &&
+        y < frame.height + margin
+      );
     }
     if (!frame.flat) return false;
     const bounds = flatBounds(frame, frame.flat);

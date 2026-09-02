@@ -21,7 +21,7 @@ describe("parseFirmsCsv", () => {
 35.123,45.456,320.5,1.0,1.0,2026-03-21,0130,N,VIIRS,nominal,2.0,290.1,42.5,N
 -10.5,120.3,310.2,0.8,0.9,2026-03-21,0145,N,VIIRS,high,2.0,285.0,88.3,D`;
     const records = parseFirmsCsv(csv);
-    expect(records.length).toBe(2);
+    expect(records).toHaveLength(2);
     expect(records[0]!.lat).toBeCloseTo(35.123, 3);
     expect(records[0]!.lon).toBeCloseTo(45.456, 3);
     expect(records[0]!.frp).toBeCloseTo(42.5, 1);
@@ -32,7 +32,7 @@ describe("parseFirmsCsv", () => {
     const csv = `latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,confidence,version,bright_ti5,frp,daynight
 15.27001,-10.23617,310.87,0.56,0.69,2026-06-15,0308,N20,nominal,2.0NRT,291.19,6.07,N`;
     const records = parseFirmsCsv(csv);
-    expect(records.length).toBe(1);
+    expect(records).toHaveLength(1);
     expect(records[0]!.lat).toBeCloseTo(15.27001, 4);
     expect(records[0]!.frp).toBeCloseTo(6.07, 2);
     expect(records[0]!.brightness).toBeCloseTo(310.87, 2); // bright_ti4
@@ -75,7 +75,7 @@ abc,def,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N`;
 35.1,45.2,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N
 
 `;
-    expect(parseFirmsCsv(csv).length).toBe(1);
+    expect(parseFirmsCsv(csv)).toHaveLength(1);
   });
 });
 
@@ -249,7 +249,7 @@ describe("parseRssItems", () => {
 </channel>
 </rss>`;
     const items = parseRssItems(xml, "TestSource");
-    expect(items.length).toBe(2);
+    expect(items).toHaveLength(2);
     expect(items[0]!.title).toBe("Breaking News");
     expect(items[0]!.url).toBe("https://example.com/article1");
     expect(items[0]!.source).toBe("TestSource");
@@ -267,7 +267,7 @@ describe("parseRssItems", () => {
 </entry>
 </feed>`;
     const items = parseRssItems(xml, "AtomSource");
-    expect(items.length).toBe(1);
+    expect(items).toHaveLength(1);
     expect(items[0]!.title).toBe("Atom Article");
     expect(items[0]!.url).toBe("https://example.com/atom1");
   });
@@ -289,7 +289,7 @@ describe("parseRssItems", () => {
       <description><![CDATA[<p>HTML in CDATA</p>]]></description>
     </item></channel></rss>`;
     const items = parseRssItems(xml, "Test");
-    expect(items.length).toBe(1);
+    expect(items).toHaveLength(1);
     expect(items[0]!.title).toBe("CDATA Title");
     expect(items[0]!.description).toBe("HTML in CDATA");
   });
@@ -548,7 +548,7 @@ describe("parseExportCsv", () => {
   test("parses valid GDELT line", () => {
     const csv = makeGdeltLine();
     const events = parseExportCsv(csv);
-    expect(events.length).toBe(1);
+    expect(events).toHaveLength(1);
     expect(events[0]!.lat).toBeCloseTo(33.3, 1);
     expect(events[0]!.lon).toBeCloseTo(44.4, 1);
     expect(events[0]!.actor1).toBe("UNITED STATES");
@@ -585,7 +585,7 @@ describe("parseExportCsv", () => {
       }),
     ];
     const events = parseExportCsv(lines.join("\n"));
-    expect(events.length).toBe(2);
+    expect(events).toHaveLength(2);
     expect(events[0]!.id).toBe("1");
     expect(events[1]!.id).toBe("2");
   });
@@ -594,7 +594,7 @@ describe("parseExportCsv", () => {
     const csv =
       makeGdeltLine() + "\n\n" + makeGdeltLine({ [COL.GlobalEventID]: "2" });
     const events = parseExportCsv(csv);
-    expect(events.length).toBe(2);
+    expect(events).toHaveLength(2);
   });
 
   test("skips short lines", () => {
@@ -621,7 +621,7 @@ describe("parseExportCsv", () => {
       const events = parseExportCsv(
         makeGdeltLine({ [COL.EventRootCode]: code }),
       );
-      expect(events.length).toBe(1);
+      expect(events).toHaveLength(1);
     }
   });
 
@@ -643,7 +643,7 @@ describe("parseExportCsv", () => {
       const events = parseExportCsv(
         makeGdeltLine({ [COL.EventRootCode]: code }),
       );
-      expect(events.length).toBe(0);
+      expect(events).toHaveLength(0);
     }
   });
 });

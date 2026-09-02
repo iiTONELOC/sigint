@@ -73,6 +73,7 @@ function visuals(
   markers: PulsingMarker[] = [],
   fades: number[] = [],
   batches: DotBatch[] = [],
+  glows: PulsingMarker[] = [],
 ): MarkerVisualRenderer {
   return {
     fade: (color, factor) => {
@@ -84,6 +85,9 @@ function visuals(
     },
     drawPulsing: (_context, _time, marker) => {
       markers.push(marker);
+    },
+    drawPulseGlow: (_context, _time, marker) => {
+      glows.push(marker);
     },
   };
 }
@@ -172,6 +176,48 @@ describe("fire scene layer", () => {
     expect(batches).toHaveLength(1);
     expect(batches[0]?.size).toBe(2.75);
     expect(batches[0]?.xs).toHaveLength(1);
+  });
+
+  test("draws an unselected glowing fire as a sprite over a batched dot", () => {
+    const markers: PulsingMarker[] = [];
+    const fades: number[] = [];
+    const batches: DotBatch[] = [];
+    const glows: PulsingMarker[] = [];
+    const layer = new PulsingPointLayer(
+      Domain.Fire,
+      visuals(markers, fades, batches, glows),
+    );
+    layer.apply(sceneRebaseCommand(Domain.Fire, view));
+    layer.project(frame, filter());
+    layer.draw({ ...drawStyle, selectedId: null, zoomLevel: 5 });
+
+    expect(markers).toHaveLength(0);
+    expect(glows).toHaveLength(1);
+    expect(glows[0]?.glow).not.toBeNull();
+    expect(batches).toHaveLength(2);
+    expect(
+      batches.reduce((count, batch) => count + batch.xs.length, 0),
+    ).toBe(2);
+  });
+
+  test("a disabled layer projects, hits, and draws nothing", () => {
+    const markers: PulsingMarker[] = [];
+    const fades: number[] = [];
+    const batches: DotBatch[] = [];
+    const layer = new PulsingPointLayer(
+      Domain.Fire,
+      visuals(markers, fades, batches),
+    );
+    layer.apply(sceneRebaseCommand(Domain.Fire, view));
+    layer.project(frame, filter({ enabled: false }));
+
+    expect(
+      layer.nearest(SceneHitKind.Point, 120, 90, 20, 10),
+    ).toBeNull();
+    layer.draw({ ...drawStyle, zoomLevel: 5 });
+    expect(markers).toHaveLength(0);
+    expect(batches).toHaveLength(0);
+    expect(layer.hasTimeAnimation(false)).toBe(false);
   });
 
   test("rejects an incompatible schema", () => {

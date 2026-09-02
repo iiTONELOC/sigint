@@ -197,6 +197,7 @@ describe("cyclone warning scene publication", () => {
     source.attach({
       readCache: async () => null,
       persistCache: () => undefined,
+      deleteCache: () => undefined,
       publishStatus: () => undefined,
       publishPatch: (patch) => binding.publish(patch),
     });

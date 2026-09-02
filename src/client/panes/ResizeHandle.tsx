@@ -59,13 +59,13 @@ const RESIZE_DIRECTION_CLASS: Readonly<
   [SplitDirection.Horizontal]: {
     bodyCursor: "cursor-col-resize",
     gripDirection: "flex-col",
-    hitArea: "inset-y-0 start-1/2 w-full -translate-x-1/2 pointer-coarse:w-11",
+    hitArea: "inset-y-0 start-1/2 w-full -translate-x-1/2 any-pointer-coarse:w-11",
     track: "cursor-col-resize w-1.5",
   },
   [SplitDirection.Vertical]: {
     bodyCursor: "cursor-row-resize",
     gripDirection: "flex-row",
-    hitArea: "inset-x-0 top-1/2 h-full -translate-y-1/2 pointer-coarse:h-11",
+    hitArea: "inset-x-0 top-1/2 h-full -translate-y-1/2 any-pointer-coarse:h-11",
     track: "cursor-row-resize h-1.5",
   },
 };

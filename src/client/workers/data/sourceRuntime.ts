@@ -37,7 +37,11 @@ export type PointSourceRuntimeOptions<TEntity extends DatasetEntity> = Readonly<
   pollIntervalMs: number;
   retryIntervalMs?: number;
   hasChanged?: (previous: TEntity, next: TEntity) => boolean;
+  /** An envelope older than this purges instead of hydrating. */
+  cacheMaxAgeMs?: number;
   readCache: () => Promise<unknown>;
+  deleteCache: () => Promise<void> | void;
+  now?: () => number;
   parseCache: (value: unknown) => readonly TEntity[] | null;
   persistCache: (
     snapshot: PointSourceCacheSnapshot<TEntity>,
@@ -115,6 +119,11 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
   });
   const schedule = options.schedule ?? defaultSchedule;
   const retryIntervalMs = options.retryIntervalMs ?? options.pollIntervalMs;
+  const now = options.now ?? Date.now;
+
+  const envelopeExpired = (timestamp: number): boolean =>
+    options.cacheMaxAgeMs !== undefined &&
+    now() - timestamp > options.cacheMaxAgeMs;
 
   let lastUpdatedAt: number | null = null;
   let published: DataWorkerSourceSnapshot = {
@@ -227,6 +236,10 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
     async hydrate(): Promise<void> {
       const envelope = parseCacheEnvelope(await options.readCache());
       if (!envelope) return;
+      if (envelopeExpired(envelope.timestamp)) {
+        await options.deleteCache();
+        return;
+      }
       const entities = options.parseCache(envelope.entities);
       if (!entities) return;
       await applySnapshot(

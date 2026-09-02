@@ -78,9 +78,8 @@ export function shipPresentation(
 
 export function shipAnomalies(
   navStatus: AisNavigationStatus | undefined,
-  sog: number | undefined,
+  speed = 0,
 ): string[] {
-  const speed = sog ?? 0;
   const stationarySpeedLimitKnots = 1;
   const fishingSpeedLimitKnots = 8;
   if (

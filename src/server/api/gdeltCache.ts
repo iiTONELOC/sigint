@@ -19,7 +19,7 @@ enum GdeltService {
 }
 
 enum GdeltEndpoint {
-  LastUpdate = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt",
+  LastUpdate = "https://data.gdeltproject.org/gdeltv2/lastupdate.txt",
 }
 
 enum GdeltPolling {

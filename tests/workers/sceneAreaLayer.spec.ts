@@ -132,6 +132,7 @@ function visuals(markers: PulsingMarker[]): MarkerVisualRenderer {
     drawPulsing: (_context, _time, marker) => {
       markers.push(marker);
     },
+    drawPulseGlow: () => undefined,
   };
 }
 

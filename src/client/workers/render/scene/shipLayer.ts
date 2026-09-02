@@ -175,6 +175,10 @@ export class ShipLayer extends ScenePointLayer<
     return shipSceneIncludes(view, index, filter);
   }
 
+  protected override showsRecords(filter: ShipSceneFilter): boolean {
+    return filter.enabled;
+  }
+
   /** Batched: one path and one fill per alpha bucket; the selected ship
    *  keeps its own draw for the ring. */
   override draw(style: ShipSceneStyle): void {

@@ -72,12 +72,24 @@ describe("withSecurityHeaders", () => {
     expect(csp).toContain("default-src 'self'");
   });
 
-  test("CSP blocks framing (frame-ancestors 'none')", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("frame-ancestors 'none'");
-  });
+  const requiredCspDirectives = [
+    "frame-ancestors 'none'",
+    "worker-src 'self'",
+    "media-src",
+    "object-src 'none'",
+    "font-src 'self'",
+    "form-action 'self'",
+    "base-uri 'self'",
+  ];
+
+  for (const directive of requiredCspDirectives) {
+    test(`CSP contains ${directive}`, () => {
+      const csp = withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      )!;
+      expect(csp).toContain(directive);
+    });
+  }
 
   test("CSP allows planespotters images", () => {
     const csp = withSecurityHeaders(new Response("ok")).headers.get(
@@ -97,21 +109,7 @@ describe("withSecurityHeaders", () => {
     expect(csp).toContain("iptv-org.github.io");
   });
 
-  test("CSP allows web workers", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("worker-src 'self'");
-  });
-
-  test("CSP allows HLS media streams", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("media-src");
-  });
-
-  test("CSP restricts scripts to self only — no unsafe-eval, no unsafe-inline", () => {
+  test("CSP restricts scripts to self only, no unsafe-eval, no unsafe-inline", () => {
     const csp = withSecurityHeaders(new Response("ok")).headers.get(
       "Content-Security-Policy",
     )!;
@@ -126,34 +124,6 @@ describe("withSecurityHeaders", () => {
     )!;
     expect(csp).toContain("style-src 'self'");
     expect(csp).toMatch(/style-src[^;]*'unsafe-inline'/);
-  });
-
-  test("CSP has object-src 'none'", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("object-src 'none'");
-  });
-
-  test("CSP has font-src 'self'", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("font-src 'self'");
-  });
-
-  test("CSP restricts forms to self", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("form-action 'self'");
-  });
-
-  test("CSP restricts base URI to self", () => {
-    const csp = withSecurityHeaders(new Response("ok")).headers.get(
-      "Content-Security-Policy",
-    )!;
-    expect(csp).toContain("base-uri 'self'");
   });
 
   test("preserves existing response headers", () => {

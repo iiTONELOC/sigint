@@ -37,6 +37,7 @@ import {
   collectLeaves,
   defaultLayout,
   loadLayout,
+  normalizeMobileLayout,
   persistLayout,
   loadPresets,
   savePresets,
@@ -59,10 +60,12 @@ import {
   restorePaneLayout,
   splitPaneLayout,
   swapPanesInLayout,
+  type PanePlacementContext,
 } from "@/panes/workspace/utils/operations";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { PaneMobile } from "./PaneMobile";
 import { DesktopPaneTree } from "@/panes/workspace/components/DesktopPaneTree";
+import { PaneBodyLayer } from "@/panes/workspace/components/paneBody";
 import { PANE_CATALOG } from "@/panes/workspace/paneCatalog";
 
 enum PaneManagerCopy {
@@ -77,6 +80,23 @@ enum PaneManagerToken {
 
 function comparePaneTypes(left: PaneType, right: PaneType): number {
   return left.localeCompare(right);
+}
+
+function panePlacementContext(
+  layout: LayoutState,
+  isMobile: boolean,
+): PanePlacementContext {
+  const globe = collectLeaves(layout.root).find(
+    (entry) => entry.paneType === PaneTypeId.Globe,
+  );
+  const element = globe
+    ? document.querySelector(`[data-pane-leaf-id="${globe.id}"]`)
+    : null;
+  const width = element?.getBoundingClientRect().width;
+  return {
+    availableWidth: width || window.innerWidth,
+    isMobile,
+  };
 }
 
 function paneTypeSignature(root: LayoutNode): string {
@@ -214,7 +234,7 @@ export function PaneManager() {
     let mounted = true;
     loadLayout(isMobile).then((loaded) => {
       if (mounted) {
-        setLayout(loaded);
+        setLayout(isMobile ? normalizeMobileLayout(loaded) : loaded);
         layoutLoaded.current = true;
       }
     });
@@ -239,7 +259,10 @@ export function PaneManager() {
   useEffect(() => {
     return onDossierOpenRequest(() => {
       setLayout(
-        openDossierInLayout(layoutRef.current, isMobileRef.current),
+        openDossierInLayout(
+          layoutRef.current,
+          panePlacementContext(layoutRef.current, isMobileRef.current),
+        ),
       );
     });
   }, []);
@@ -248,7 +271,10 @@ export function PaneManager() {
   useEffect(() => {
     return onWatchLayoutRequest(() => {
       setLayout(
-        createWatchLayout(layoutRef.current, isMobileRef.current),
+        createWatchLayout(
+          layoutRef.current,
+          panePlacementContext(layoutRef.current, isMobileRef.current),
+        ),
       );
     });
   }, []);
@@ -336,7 +362,10 @@ export function PaneManager() {
     [presets, layout],
   );
   const handleLoadPreset = useCallback(
-    (p: LayoutPreset) => setLayout(p.state),
+    (p: LayoutPreset) =>
+      setLayout(
+        isMobileRef.current ? normalizeMobileLayout(p.state) : p.state,
+      ),
     [],
   );
   const handleUpdatePreset = useCallback(
@@ -368,6 +397,7 @@ export function PaneManager() {
 
   if (isMobile) {
     return (
+      <PaneBodyLayer root={layout.root}>
       <PaneMobile
         allLeaves={allLeaves}
         layout={layout}
@@ -391,12 +421,14 @@ export function PaneManager() {
         onUpdatePreset={handleUpdatePreset}
         onDeletePreset={handleDeletePreset}
       />
+      </PaneBodyLayer>
     );
   }
 
   // ── DESKTOP ────────────────────────────────────────────────────
 
   return (
+    <PaneBodyLayer root={layout.root}>
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* Minimized panes and layout presets */}
       <div
@@ -467,5 +499,6 @@ export function PaneManager() {
         />
       </div>
     </div>
+    </PaneBodyLayer>
   );
 }

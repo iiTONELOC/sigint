@@ -4,6 +4,7 @@ import {
   type DossierMiniGlobeDrawContext,
 } from "@/dossier";
 import { AIS_HEADING_UNAVAILABLE } from "@shared/domain/ships";
+import type { ProjFn } from "@/lib/geo/render/types";
 import { AngleConversion, GeoLimit, TurnDeg } from "@shared/geo";
 
 const rad = (degrees: number) => degrees * AngleConversion.RadiansPerDegree;
@@ -19,6 +20,26 @@ function bearingPt(
     x + length * Math.sin(angle),
     y - length * Math.cos(angle),
   ];
+}
+
+function traceVisibleTrail(
+  context: CanvasRenderingContext2D,
+  points: readonly { lat: number; lon: number }[],
+  project: ProjFn,
+): void {
+  let drawing = false;
+  for (const point of points) {
+    const projection = project(point.lat, point.lon);
+    if (projection.z > 0) {
+      if (drawing) context.lineTo(projection.x, projection.y);
+      else {
+        context.moveTo(projection.x, projection.y);
+        drawing = true;
+      }
+    } else {
+      drawing = false;
+    }
+  }
 }
 
 export function ShipMiniMap({
@@ -74,19 +95,7 @@ export function ShipMiniMap({
       context.globalAlpha = 0.6;
       context.lineWidth = 1.5;
       context.beginPath();
-      let drawing = false;
-      for (const point of points) {
-        const projection = project(point.lat, point.lon);
-        if (projection.z > 0) {
-          if (drawing) context.lineTo(projection.x, projection.y);
-          else {
-            context.moveTo(projection.x, projection.y);
-            drawing = true;
-          }
-        } else {
-          drawing = false;
-        }
-      }
+      traceVisibleTrail(context, points, project);
       context.stroke();
       context.globalAlpha = 1;
     }

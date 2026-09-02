@@ -85,6 +85,7 @@ describe("event scene layer", () => {
       fade: (color) => color,
       fillDots: () => undefined,
       drawPulsing: () => undefined,
+      drawPulseGlow: () => undefined,
     };
     const layer = new PulsingPointLayer(Domain.Events, visuals);
     project(layer);
@@ -129,6 +130,7 @@ describe("event scene layer", () => {
     const fades: number[] = [];
     const markers: PulsingMarker[] = [];
     const batches: DotBatch[] = [];
+    const glows: PulsingMarker[] = [];
     const visuals: MarkerVisualRenderer = {
       fade: (color, factor) => {
         fades.push(factor);
@@ -139,6 +141,9 @@ describe("event scene layer", () => {
       },
       drawPulsing: (_context, _time, marker) => {
         markers.push(marker);
+      },
+      drawPulseGlow: (_context, _time, marker) => {
+        glows.push(marker);
       },
     };
     const layer = new PulsingPointLayer(Domain.Events, visuals);

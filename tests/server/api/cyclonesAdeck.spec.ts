@@ -53,10 +53,10 @@ describe("parseAtcfAdeck — guidance-init selection", () => {
     // Storm analysis time closest to the early init → early init's tracks chosen.
     // Both inits carry the same synthetic points here, so assert via point count:
     // selecting one init yields exactly 3 tracks (not 6).
-    expect(parseAtcfAdeck(lines.join("\n"), "2024100718").length).toBe(3);
-    expect(parseAtcfAdeck(lines.join("\n"), "2024101018").length).toBe(3);
+    expect(parseAtcfAdeck(lines.join("\n"), "2024100718")).toHaveLength(3);
+    expect(parseAtcfAdeck(lines.join("\n"), "2024101018")).toHaveLength(3);
     // No analysisInit → newest guidance init still wins (3 tracks, not doubled).
-    expect(parseAtcfAdeck(lines.join("\n")).length).toBe(3);
+    expect(parseAtcfAdeck(lines.join("\n"))).toHaveLength(3);
   });
 
   test("each returned track has its points sorted by TAU", () => {

@@ -70,7 +70,7 @@ afterEach(() => {
 describe("newsProvider.refresh()", () => {
   test("fetches articles from news endpoint", async () => {
     const result = await newsProvider.refresh();
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("n1");
     expect(result[0]!.title).toBe("Test Article One");
     expect(result[0]!.source).toBe("Reuters");
@@ -83,7 +83,7 @@ describe("newsProvider.refresh()", () => {
     newsResponse = { ok: false };
     const result = await newsProvider.refresh();
 
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
     const snap = newsProvider.getSnapshot();
     expect(snap.error).not.toBeNull();
   });
@@ -111,7 +111,7 @@ describe("newsProvider.getData()", () => {
     fetchCount = 0;
 
     const result = await newsProvider.getData(600_000);
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
     expect(fetchCount).toBe(0);
   });
 });
@@ -120,7 +120,7 @@ describe("newsProvider.getSnapshot()", () => {
   test("snapshot reflects fetched data", async () => {
     await newsProvider.refresh();
     const snap = newsProvider.getSnapshot();
-    expect(snap.items.length).toBe(2);
+    expect(snap.items).toHaveLength(2);
     expect(snap.error).toBeNull();
     expect(snap.loading).toBe(false);
     expect(snap.lastUpdatedAt).not.toBeNull();

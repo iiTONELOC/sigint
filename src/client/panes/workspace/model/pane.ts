@@ -37,7 +37,9 @@ export enum PaneDragEffect {
 
 export enum PaneLayoutRatio {
   Equal = 0.5,
+  DetailNarrow = 0.6,
   WatchAlerts = 0.65,
+  DetailMedium = 0.7,
   Detail = 0.75,
 }
 

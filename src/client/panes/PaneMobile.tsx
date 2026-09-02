@@ -24,6 +24,10 @@ import {
 import { SplitMenu } from "./SplitMenu";
 import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
 import {
+  PaneBody,
+  usePaneBodiesActive,
+} from "@/panes/workspace/components/paneBody";
+import {
   allowsBesideMove,
   collectMobileBlocks,
   horizontalLeafId,
@@ -33,7 +37,6 @@ import {
   mobileSplitTracks,
   mobileTabClassName,
   moveSourcePaneType,
-  reconcileMobileBlockOrder,
   type MobileBlock,
 } from "@/panes/workspace/utils/mobile";
 import {
@@ -132,62 +135,37 @@ export function PaneMobile({
   onDeletePreset,
 }: PaneMobileProps) {
   const { colorMap, chromeHidden } = useUI();
+  const bodiesActive = usePaneBodiesActive();
   const [showPresets, setShowPresets] = useState(false);
 
-  const rawBlocks = useMemo(
+  const blocks = useMemo(
     () => collectMobileBlocks(layout.root),
     [layout.root],
   );
 
-  const [order, setOrder] = useState<string[]>(() =>
-    rawBlocks.map((b) => b.id),
-  );
-
-  const prevBlockIdsRef = useRef(new Set(rawBlocks.map((b) => b.id)));
+  const prevBlockIdsRef = useRef(new Set(blocks.map((b) => b.id)));
   useEffect(() => {
-    const currentIds = new Set(rawBlocks.map((b) => b.id));
+    const currentIds = new Set(blocks.map((b) => b.id));
     const prevIds = prevBlockIdsRef.current;
-
-    const added: string[] = [];
-    for (const id of currentIds) {
-      if (!prevIds.has(id)) added.push(id);
-    }
-
-    const removed = new Set<string>();
-    for (const id of prevIds) {
-      if (!currentIds.has(id)) removed.add(id);
-    }
-
-    if (added.length > 0 || removed.size > 0) {
-      setOrder((previousOrder) =>
-        reconcileMobileBlockOrder(previousOrder, added, removed),
-      );
-
-      const addedId = added.at(-1);
-      if (addedId !== undefined) {
-        requestAnimationFrame(() => {
-          const el = document.getElementById(`mobile-block-${addedId}`);
-          el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        });
-      }
-    }
-
     prevBlockIdsRef.current = currentIds;
-  }, [rawBlocks]);
+
+    let addedId: string | undefined;
+    for (const id of currentIds) {
+      if (!prevIds.has(id)) addedId = id;
+    }
+    if (addedId === undefined) return;
+    const blockId = addedId;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`mobile-block-${blockId}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [blocks]);
 
   const blockMap = useMemo(() => {
     const m = new Map<string, MobileBlock>();
-    for (const b of rawBlocks) m.set(b.id, b);
+    for (const b of blocks) m.set(b.id, b);
     return m;
-  }, [rawBlocks]);
-
-  const orderedBlocks = useMemo(
-    () =>
-      order
-        .map((id) => blockMap.get(id))
-        .filter((block): block is MobileBlock => block !== undefined),
-    [order, blockMap],
-  );
+  }, [blocks]);
 
   const [heights, setHeights] = useState<Record<string, number>>({});
 
@@ -317,7 +295,7 @@ export function PaneMobile({
   );
 
   const [activeInView, setActiveInView] = useState<string | null>(
-    orderedBlocks[0]?.id ?? null,
+    blocks[0]?.id ?? null,
   );
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -326,7 +304,7 @@ export function PaneMobile({
 
   const handleAddPane = useCallback(
     (type: PaneType) => {
-      const lastBlock = orderedBlocks.at(-1);
+      const lastBlock = blocks.at(-1);
       const activeBlock = activeInView
         ? blockMap.get(activeInView)
         : lastBlock;
@@ -337,7 +315,7 @@ export function PaneMobile({
       }
       setAddMenuOpen(false);
     },
-    [orderedBlocks, blockMap, activeInView, splitPane],
+    [blocks, blockMap, activeInView, splitPane],
   );
 
   useEffect(() => {
@@ -451,12 +429,12 @@ export function PaneMobile({
       tabObsRef.current.observe(el);
     }
     return () => tabObsRef.current?.disconnect();
-  }, [orderedBlocks]);
+  }, [blocks]);
 
   const renderLeafContent = useCallback(
     (lf: LeafNode, isVisible: boolean) => {
-      if (!isVisible) {
-        const meta = paneCatalog[lf.paneType];
+      const meta = paneCatalog[lf.paneType];
+      if (!isVisible && !(meta.persistent && bodiesActive)) {
         return (
           <div className="w-full h-full flex items-center justify-center bg-sig-bg/50">
             <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
@@ -465,17 +443,15 @@ export function PaneMobile({
           </div>
         );
       }
-      const PaneComponent = paneCatalog[lf.paneType].component;
-      return <PaneComponent />;
+      return <PaneBody definition={meta} paneType={lf.paneType} />;
     },
-    [paneCatalog],
+    [paneCatalog, bodiesActive],
   );
 
   const renderLeafWithHeader = useCallback(
     (lf: LeafNode, isVisible: boolean, siblingLeafId?: string) => {
       const lfMeta = paneCatalog[lf.paneType];
       const LfIcon = lfMeta.icon;
-      const PaneComponent = paneCatalog[lf.paneType].component;
       const isLeafMin = minimizedLeaves.has(lf.id);
 
       if (isLeafMin) {
@@ -529,8 +505,8 @@ export function PaneMobile({
           />
 
           <div className="flex-1 relative overflow-hidden">
-            {isVisible ? (
-              <PaneComponent />
+            {isVisible || (lfMeta.persistent && bodiesActive) ? (
+              <PaneBody definition={lfMeta} paneType={lf.paneType} />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-sig-bg/50">
                 <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
@@ -544,6 +520,7 @@ export function PaneMobile({
     },
     [
       paneCatalog,
+      bodiesActive,
       changePaneType,
       closePane,
       totalLeafCount,
@@ -683,7 +660,7 @@ export function PaneMobile({
 
       {!chromeHidden && (
         <div className="shrink-0 sticky top-0 z-(--layer-floating) flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/95 backdrop-blur-sm">
-          {orderedBlocks.map((block) => {
+          {blocks.map((block) => {
             const meta = paneCatalog[block.primaryLeaf.paneType];
             const Icon = meta.icon;
             const isActive = activeInView === block.id;
@@ -808,12 +785,12 @@ export function PaneMobile({
       )}
 
       <div
-        className={`flex-1 overflow-y-auto sigint-scroll ${orderedBlocks.length === 1 ? "flex flex-col" : ""}`}
+        className={`flex-1 overflow-y-auto sigint-scroll ${blocks.length === 1 ? "flex flex-col" : ""}`}
       >
-        {orderedBlocks.map((block) => {
+        {blocks.map((block) => {
           const meta = paneCatalog[block.primaryLeaf.paneType];
           const rawH = heights[block.id] ?? meta.mobileHeight;
-          const useFlexFill = orderedBlocks.length === 1 && !heights[block.id];
+          const useFlexFill = blocks.length === 1 && !heights[block.id];
           const isVisible = visibleSet.has(block.id);
           const isMinimized = minimizedBlocks.has(block.id);
           const isMoveSource = isMoveSourceBlock(block, moveSourceLeafId);
@@ -876,7 +853,7 @@ export function PaneMobile({
                   </div>
 
                   <div
-                    className="shrink-0 h-6 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
+                    className="touch-resize relative shrink-0 h-6 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
                     onPointerDown={(e) => handleHeightDrag(block.id, e)}
                   >
                     <div className="w-10 h-1 rounded-full bg-sig-dim/40" />
@@ -887,7 +864,7 @@ export function PaneMobile({
           );
         })}
 
-        {orderedBlocks.length > 1 && <div className="h-16" />}
+        {blocks.length > 1 && <div className="h-16" />}
       </div>
     </div>
   );

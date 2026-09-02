@@ -72,8 +72,8 @@ describe("pane workspace model", () => {
     const ratios = Object.values(PaneLayoutRatio).filter(
       (value): value is number => typeof value === "number",
     );
-    expect(ratios).toHaveLength(PaneModelCount.Three);
-    expect(new Set(ratios).size).toBe(PaneModelCount.Three);
+    expect(ratios).toHaveLength(PaneModelCount.Five);
+    expect(new Set(ratios).size).toBe(PaneModelCount.Five);
   });
 
   test("owns unique workspace icon metrics", () => {

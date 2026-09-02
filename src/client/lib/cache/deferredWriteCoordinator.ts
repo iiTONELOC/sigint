@@ -212,7 +212,7 @@ export function createDeferredWriteCoordinator<T>(
     cancelFlush();
     while (pending.size > 0 || tails.size > 0) {
       const now = options.now();
-      for (const [key, entry] of [...pending]) {
+      for (const [key, entry] of pending) {
         startPending(key, entry, now);
       }
       const active = [...tails.values()];

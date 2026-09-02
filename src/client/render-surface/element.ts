@@ -63,11 +63,14 @@ export function createRenderSurfaceElementClass(
     }
 
     disconnectedCallback(): void {
-      activeSessions.delete(this);
-      this.#session?.stop();
-      this.#session = null;
-      this.#canvas?.remove();
-      this.#canvas = null;
+      queueMicrotask(() => {
+        if (this.isConnected) return;
+        activeSessions.delete(this);
+        this.#session?.stop();
+        this.#session = null;
+        this.#canvas?.remove();
+        this.#canvas = null;
+      });
     }
   };
 }

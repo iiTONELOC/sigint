@@ -13,7 +13,9 @@ import {
   hasNodeId,
   collectLeaves,
   defaultLayout,
+  normalizeMobileLayout,
   type LeafNode,
+  type SplitNode,
 } from "@/panes/paneTree";
 
 describe("leaf()", () => {
@@ -284,5 +286,26 @@ describe("defaultLayout()", () => {
     expect(layout.root.type).toBe("leaf");
     expect((layout.root as LeafNode).paneType).toBe("globe");
     expect(layout.minimized).toEqual([]);
+  });
+});
+
+describe("normalizeMobileLayout()", () => {
+  test("demotes a horizontal pair holding a full-width pane", () => {
+    const root = split("h", leaf("globe"), leaf("dossier"));
+    const result = normalizeMobileLayout({ minimized: [], root });
+    expect((result.root as SplitNode).direction).toBe("v");
+  });
+
+  test("demotes only the violating pair in a mixed tree", () => {
+    const root = split(
+      "v",
+      split("h", leaf("alert-log"), leaf("intel-feed")),
+      split("h", leaf("video-feed"), leaf("dossier")),
+    );
+    const result = normalizeMobileLayout({ minimized: [], root });
+    const outer = result.root as SplitNode;
+    expect(outer.direction).toBe("v");
+    expect((outer.children[0] as SplitNode).direction).toBe("h");
+    expect((outer.children[1] as SplitNode).direction).toBe("v");
   });
 });

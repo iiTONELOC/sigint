@@ -19,19 +19,25 @@ export function linkNewsToEvents(
   for (const a of anomalies) activeCountries.add(a.country.toLowerCase());
 
   for (const article of news) {
-    const text = `${article.title} ${article.description}`.toLowerCase();
-    for (const country of activeCountries) {
-      if (country.length < 3) continue;
-      if (text.includes(country)) {
-        let arr = links.get(country);
-        if (!arr) {
-          arr = [];
-          links.set(country, arr);
-        }
-        if (arr.length < 3) arr.push(article);
-      }
-    }
+    linkArticle(links, activeCountries, article);
   }
 
   return links;
+}
+
+function linkArticle(
+  links: Map<string, NewsArticle[]>,
+  activeCountries: ReadonlySet<string>,
+  article: NewsArticle,
+): void {
+  const text = `${article.title} ${article.description}`.toLowerCase();
+  for (const country of activeCountries) {
+    if (country.length < 3 || !text.includes(country)) continue;
+    let articles = links.get(country);
+    if (!articles) {
+      articles = [];
+      links.set(country, articles);
+    }
+    if (articles.length < 3) articles.push(article);
+  }
 }

@@ -55,7 +55,7 @@ describe("scripts/capture-fixture: sanitizeLabel()", () => {
 
   test("accepts up to 64 characters", () => {
     const max64 = "a" + "b".repeat(63);
-    expect(max64.length).toBe(64);
+    expect(max64).toHaveLength(64);
     expect(sanitizeLabel(max64)).toBe(max64);
   });
 

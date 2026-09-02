@@ -266,6 +266,7 @@ function registerSource<TId extends QueryableSourceId>(
   const render = sourceRenderBinding(source, owner, scene);
   owner.attach({
     readCache: (key) => store.get(key),
+    deleteCache: (key) => coordinator.delete(key, () => store.delete(key)),
     persistCache: (key, value) => {
       coordinator.setDeferred(key, value);
     },

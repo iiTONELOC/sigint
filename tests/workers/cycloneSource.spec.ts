@@ -153,6 +153,7 @@ describe("cyclone source reconciliation", () => {
     source.attach({
       readCache: async () => null,
       persistCache: () => undefined,
+      deleteCache: () => undefined,
       publishStatus: () => undefined,
       publishPatch: (patch) => {
         patches.push(patch);

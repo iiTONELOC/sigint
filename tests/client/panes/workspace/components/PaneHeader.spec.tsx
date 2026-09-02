@@ -60,6 +60,7 @@ mock.module("@/components/Tooltip", () => ({
 }));
 
 mock.module("@/layout-mode", () => ({
+  hasTouchScreen: () => false,
   useIsMobileLayout: () => false,
   useLayoutMode: () => ({ deviceType: DeviceType.Desktop }),
 }));

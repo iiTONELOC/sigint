@@ -6,7 +6,7 @@ import {
   type SplitNode,
 } from "../../paneTree";
 import type { PaneCatalog } from "../paneCatalog";
-import { PaneIdSequence, PaneNodeType, PaneSearchIndex, SplitDirection } from "../model/pane";
+import { PaneNodeType, SplitDirection } from "../model/pane";
 
 enum MobileSplitTrack {
   Collapsed = "36px",
@@ -120,44 +120,6 @@ export function mobileBlockLabel(
   return labels.length <= 2
     ? labels.join(" | ")
     : `${labels[0]} +${labels.length - 1}`;
-}
-
-function appendMissingBlockIds(
-  currentOrder: readonly string[],
-  addedIds: readonly string[],
-): string[] {
-  const nextOrder = [...currentOrder];
-  for (const addedId of addedIds) {
-    if (!nextOrder.includes(addedId)) {
-      nextOrder.push(addedId);
-    }
-  }
-  return nextOrder;
-}
-
-export function reconcileMobileBlockOrder(
-  previousOrder: readonly string[],
-  addedIds: readonly string[],
-  removedIds: ReadonlySet<string>,
-): string[] {
-  const retainedOrder = previousOrder.filter((id) => !removedIds.has(id));
-  const firstRemovedIndex = previousOrder.findIndex((id) =>
-    removedIds.has(id),
-  );
-  if (firstRemovedIndex === PaneSearchIndex.NotFound) {
-    return appendMissingBlockIds(retainedOrder, addedIds);
-  }
-
-  const nextOrder = [...retainedOrder];
-  const insertionIndex = Math.min(firstRemovedIndex, nextOrder.length);
-  let insertionOffset = PaneIdSequence.Start;
-  for (const addedId of addedIds) {
-    if (!nextOrder.includes(addedId)) {
-      nextOrder.splice(insertionIndex + insertionOffset, 0, addedId);
-      insertionOffset += PaneIdSequence.Step;
-    }
-  }
-  return nextOrder;
 }
 
 export function collectFirstLeaf(node: LayoutNode): LeafNode {
