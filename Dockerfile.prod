@@ -26,8 +26,11 @@ WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && groupadd --system --gid 10001 sigint \
- && useradd --system --uid 10001 --gid sigint --home-dir /app --shell /usr/sbin/nologin sigint
+ && if getent group 710 >/dev/null || getent passwd 710 >/dev/null; then \
+      echo "UID/GID 710 is taken in the base image" >&2; exit 1; \
+    fi \
+ && groupadd --system --gid 710 sigint \
+ && useradd --system --uid 710 --gid sigint --home-dir /app --shell /usr/sbin/nologin sigint
 
 COPY --chown=sigint:sigint package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
