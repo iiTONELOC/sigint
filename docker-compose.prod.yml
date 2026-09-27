@@ -17,15 +17,15 @@ services:
       dockerfile: Dockerfile.prod
     ports:
       - "${PORT:-5500}:${PORT:-5500}"
-    env_file:
-      - .env
     environment:
       - NODE_ENV=production
       - PORT=${PORT:-5500}
     restart: always
     command: bun src/server/index.prod.ts
-    user: "10001:10001"
+    user: "710:710"
     read_only: true
+    volumes:
+      - ${HOST_SECRETS_DIR:?set HOST_SECRETS_DIR}:/run/secrets:ro
     tmpfs:
       - /tmp
     cap_drop:
