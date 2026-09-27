@@ -1,7 +1,34 @@
-import { describe, test, expect } from "bun:test";
-import { loadConfig, ConfigError } from "../../src/server/config";
+import { afterAll, describe, test, expect } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { loadConfig, ConfigError, readSecret } from "../../src/server/config";
 
 const VALID_SECRET = "a".repeat(64);
+const ENV_CANARY = "env-canary-".repeat(4);
+const tempDirectories: string[] = [];
+
+function secretsDir(files: Record<string, string> = {}): string {
+  const directory = mkdtempSync(join(tmpdir(), "sigint-secrets-test-"));
+  tempDirectories.push(directory);
+  for (const [name, value] of Object.entries(files)) {
+    writeFileSync(join(directory, name), value, { mode: 0o400 });
+  }
+  return directory;
+}
+
+const fullSecretsDir = secretsDir({
+  SIGINT_SERVER_SECRET: `${VALID_SECRET}\n`,
+  AISSTREAM_API_KEY: "ais-key\n",
+});
+const serverOnlySecretsDir = secretsDir({ SIGINT_SERVER_SECRET: VALID_SECRET });
+const emptySecretsDir = secretsDir();
+
+afterAll(() => {
+  for (const directory of tempDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 function baseEnv(
   overrides: Record<string, string | undefined> = {},
@@ -17,10 +44,10 @@ describe("loadConfig: happy path", () => {
     const cfg = loadConfig(
       baseEnv({
         NODE_ENV: "production",
+        SECRETS_DIR: fullSecretsDir,
         PORT: "5500",
         SIGINT_RATE_LIMIT_PER_MINUTE: "120",
         SIGINT_TRUSTED_PROXY_HOPS: "1",
-        AISSTREAM_API_KEY: "ais-key",
         DOMAIN: "example.com",
       }),
     );
@@ -81,7 +108,8 @@ describe("loadConfig: defaults", () => {
 
   test("fixtureOverridesEnabled is false in production", () => {
     expect(
-      loadConfig(baseEnv({ NODE_ENV: "production" })).fixtureOverridesEnabled,
+      loadConfig(baseEnv({ NODE_ENV: "production", SECRETS_DIR: fullSecretsDir }))
+        .fixtureOverridesEnabled,
     ).toBe(false);
   });
 });
@@ -205,6 +233,86 @@ describe("loadConfig: trustedProxyHops validation", () => {
     expect(() =>
       loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "1.5" })),
     ).toThrow(ConfigError);
+  });
+});
+
+function productionEnv(
+  directory: string,
+  overrides: Record<string, string | undefined> = {},
+): Record<string, string | undefined> {
+  return { NODE_ENV: "production", SECRETS_DIR: directory, ...overrides };
+}
+
+function captureConfigError(run: () => unknown): ConfigError {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof ConfigError) return error;
+    throw error;
+  }
+  throw new Error("expected ConfigError");
+}
+
+describe("loadConfig: secret files", () => {
+  test("reads both secrets from files and trims one trailing newline", () => {
+    const cfg = loadConfig(productionEnv(fullSecretsDir));
+    expect(cfg.serverSecret).toBe(VALID_SECRET);
+    expect(cfg.aisstreamApiKey).toBe("ais-key");
+  });
+
+  test("trims only one trailing newline", () => {
+    const directory = secretsDir({ AISSTREAM_API_KEY: "ais-key\n\n" });
+    expect(readSecret(productionEnv(directory), ConfigField.AisstreamApiKey, true))
+      .toBe("ais-key\n");
+  });
+
+  test("missing required file stops startup and names only the secret", () => {
+    const error = captureConfigError(() =>
+      loadConfig(productionEnv(emptySecretsDir)),
+    );
+    expect(error.details).toEqual({
+      kind: ConfigErrorKind.Required,
+      field: ConfigField.ServerSecret,
+    });
+    expect(error.message).toContain("SIGINT_SERVER_SECRET");
+  });
+
+  test("production ignores environment values for both secrets", () => {
+    const error = captureConfigError(() =>
+      loadConfig(productionEnv(emptySecretsDir, { SIGINT_SERVER_SECRET: ENV_CANARY })),
+    );
+    expect(error.message).not.toContain(ENV_CANARY);
+    const cfg = loadConfig(
+      productionEnv(serverOnlySecretsDir, { AISSTREAM_API_KEY: ENV_CANARY }),
+    );
+    expect(cfg.aisstreamApiKey).toBeUndefined();
+  });
+
+  test("missing optional key file leaves the key undefined", () => {
+    const cfg = loadConfig(productionEnv(serverOnlySecretsDir));
+    expect(cfg.serverSecret).toBe(VALID_SECRET);
+    expect(cfg.aisstreamApiKey).toBeUndefined();
+  });
+
+  test("development falls back to the environment when files are missing", () => {
+    const cfg = loadConfig({
+      SECRETS_DIR: emptySecretsDir,
+      SIGINT_SERVER_SECRET: ENV_CANARY,
+      AISSTREAM_API_KEY: "env-ais-key",
+    });
+    expect(cfg.serverSecret).toBe(ENV_CANARY);
+    expect(cfg.aisstreamApiKey).toBe("env-ais-key");
+  });
+
+  test("unreadable file stops startup without echoing a value", () => {
+    const directory = secretsDir();
+    mkdirSync(join(directory, "SIGINT_SERVER_SECRET"));
+    const error = captureConfigError(() =>
+      loadConfig(productionEnv(directory, { SIGINT_SERVER_SECRET: ENV_CANARY })),
+    );
+    expect(error.details.kind).toBe(ConfigErrorKind.SecretUnreadable);
+    expect(error.message).toContain("SIGINT_SERVER_SECRET");
+    expect(error.message).not.toContain(ENV_CANARY);
   });
 });
 

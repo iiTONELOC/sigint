@@ -91,7 +91,7 @@ cd sigint
 bun install
 ```
 
-Create a `.env` file in the project root with at minimum:
+For development, create a `.env` file in the project root with at minimum:
 
 ```
 SIGINT_SERVER_SECRET=<output of openssl rand -hex 32>
@@ -103,20 +103,26 @@ Optionally add a key for ship data. NASA FIRMS uses keyless bulk feeds.
 AISSTREAM_API_KEY=<your aisstream.io key>
 ```
 
+Production never reads `.env`. See [Production](#production) for secret files.
+
 ## Quick Start
 
 See [Deployment](#deployment) for dev, production, and Heroku options.
 
 ## Environment Variables
 
-| Variable                       | Required | Description                                                                                                            |
-| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`. Server exits 78 without it.                         |
-| `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data                                                            |
-| `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                            |
-| `PORT`                         | No       | Server port (default: 5500)                                                                                            |
-| `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                  |
-| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app (default 0). Drives `X-Forwarded-For` rightmost-N client IP extraction.   |
+In production, the app reads `SIGINT_SERVER_SECRET` and `AISSTREAM_API_KEY` only from secret files.
+It ignores environment variables with those names.
+
+| Variable                       | Required | Description                                                                                                                    |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`. Server exits 78 without it. Secret file only in production. |
+| `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data. Secret file only in production.                                   |
+| `SECRETS_DIR`                  | No       | Folder the app reads secret files from (default `/run/secrets`).                                                               |
+| `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                                   |
+| `PORT`                         | No       | Server port (default: 5500)                                                                                                    |
+| `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                         |
+| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app (default 0). Drives `X-Forwarded-For` rightmost-N client IP extraction.          |
 
 ## Data Sources
 
@@ -190,16 +196,26 @@ CYCLONES_FIXTURE=single-cat3 bun run docker:dev:up
 
 ### Production
 
+Production reads secrets from files, not from environment variables or `.env`.
+Put each secret in its own file, named after the variable, in one host folder.
+Each file holds only the value.
+Give each file mode 0400 and owner UID 710.
+The container runs as `710:710` and mounts the folder read-only at `/run/secrets`.
+A missing `SIGINT_SERVER_SECRET` file stops startup with exit code 78.
+A missing `AISSTREAM_API_KEY` file disables ship data.
+
+Set `HOST_SECRETS_DIR` to the host folder for every compose command:
+
 ```bash
-bun run docker:prod:up         # http://localhost:5500
-bun run docker:prod:down       # stop
+HOST_SECRETS_DIR=/path/to/secrets bun run docker:prod:up     # http://localhost:5500
+HOST_SECRETS_DIR=/path/to/secrets bun run docker:prod:down   # stop
 ```
 
 ### Production with TLS
 
 ```bash
-DOMAIN=sigint.example.com bun run docker:prod:tls:up
-bun run docker:prod:tls:down   # stop
+HOST_SECRETS_DIR=/path/to/secrets DOMAIN=sigint.example.com bun run docker:prod:tls:up
+HOST_SECRETS_DIR=/path/to/secrets bun run docker:prod:tls:down   # stop
 ```
 
 ### Heroku
@@ -211,7 +227,7 @@ git push heroku main
 ### Cleanup
 
 ```bash
-bun run docker:clean:all       # remove containers, volumes, images
+HOST_SECRETS_DIR=/path/to/secrets bun run docker:clean:all   # remove containers, volumes, images
 ```
 
 ## PWA
