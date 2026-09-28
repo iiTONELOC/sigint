@@ -41,7 +41,7 @@ COPY --from=builder --chown=sigint:sigint /app/src/shared ./src/shared
 COPY --from=builder --chown=sigint:sigint /app/tsconfig.json .
 COPY --from=builder --chown=sigint:sigint /app/bun-env.d.ts .
 
-USER sigint:sigint
+USER 710:710
 
 ENV NODE_ENV=production
 
