@@ -20,6 +20,7 @@ README.md
 .idea
 .claude
 .codex
+.dis
 scratch
 src/server/data/ac-db.sqlite
 *.csv.gz

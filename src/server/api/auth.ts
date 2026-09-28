@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "crypto";
+import { isIP } from "net";
 import { HttpHeader, HttpStatus } from "@shared/http";
 import { MS_PER_MINUTE, MS_PER_SECOND, SECONDS_PER_MINUTE } from "@shared/time";
 import type { ServerConfig } from "../config";
@@ -34,18 +35,12 @@ export type AuthGuards = Readonly<{
 }>;
 
 function getClientIp(req: Request, trustedProxyHops: number): string {
-  if (trustedProxyHops === 0) {
-    return req.headers.get(HttpHeader.XRealIp) ?? DIRECT_CLIENT_IDENTITY;
-  }
-  const xff = req.headers.get(HttpHeader.XForwardedFor);
-  if (!xff) return UNKNOWN_CLIENT_IDENTITY;
-  const entries = xff
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  if (entries.length < trustedProxyHops + 1) return UNKNOWN_CLIENT_IDENTITY;
-  const clientIdx = entries.length - 1 - trustedProxyHops;
-  return entries[clientIdx] ?? UNKNOWN_CLIENT_IDENTITY;
+  if (trustedProxyHops === 0) return DIRECT_CLIENT_IDENTITY;
+  const entries = req.headers.get(HttpHeader.XForwardedFor)?.split(",");
+  if (!entries || entries.length < trustedProxyHops) return UNKNOWN_CLIENT_IDENTITY;
+  // Subtract only configured hops because Dokku excludes the socket peer from XFF.
+  const client = entries[entries.length - trustedProxyHops]?.trim();
+  return client && isIP(client) ? client : UNKNOWN_CLIENT_IDENTITY;
 }
 
 const COOKIE_RE = new RegExp(

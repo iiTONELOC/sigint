@@ -5,6 +5,7 @@ import { join } from "path";
 import { loadConfig, ConfigError, readSecret } from "../../src/server/config";
 
 const VALID_SECRET = "a".repeat(64);
+const TEST_PORT = "8080";
 const ENV_CANARY = "env-canary-".repeat(4);
 const tempDirectories: string[] = [];
 
@@ -35,6 +36,7 @@ function baseEnv(
 ): Record<string, string | undefined> {
   return {
     SIGINT_SERVER_SECRET: VALID_SECRET,
+    PORT: TEST_PORT,
     ...overrides,
   };
 }
@@ -45,7 +47,7 @@ describe("loadConfig: happy path", () => {
       baseEnv({
         NODE_ENV: "production",
         SECRETS_DIR: fullSecretsDir,
-        PORT: "5500",
+        PORT: "8081",
         SIGINT_RATE_LIMIT_PER_MINUTE: "120",
         SIGINT_TRUSTED_PROXY_HOPS: "1",
         DOMAIN: "example.com",
@@ -53,7 +55,7 @@ describe("loadConfig: happy path", () => {
     );
     expect(cfg.serverSecret).toBe(VALID_SECRET);
     expect(cfg.isProduction).toBe(true);
-    expect(cfg.port).toBe(5500);
+    expect(cfg.port).toBe(8081);
     expect(cfg.rateLimitPerMinute).toBe(120);
     expect(cfg.trustedProxyHops).toBe(1);
     expect(cfg.aisstreamApiKey).toBe("ais-key");
@@ -69,10 +71,6 @@ describe("loadConfig: happy path", () => {
 });
 
 describe("loadConfig: defaults", () => {
-  test("port defaults to 5500", () => {
-    expect(loadConfig(baseEnv()).port).toBe(5500);
-  });
-
   test("rateLimitPerMinute defaults to 60", () => {
     expect(loadConfig(baseEnv()).rateLimitPerMinute).toBe(60);
   });
@@ -130,7 +128,7 @@ describe("loadConfig: serverSecret validation", () => {
   });
 
   test("accepts SIGINT_SERVER_SECRET exactly 32 chars", () => {
-    expect(loadConfig({ SIGINT_SERVER_SECRET: "a".repeat(32) }).serverSecret)
+    expect(loadConfig({ SIGINT_SERVER_SECRET: "a".repeat(32), PORT: TEST_PORT }).serverSecret)
       .toHaveLength(32);
   });
 
@@ -147,7 +145,11 @@ describe("loadConfig: serverSecret validation", () => {
 
 describe("loadConfig: port validation", () => {
   test("parses numeric PORT", () => {
-    expect(loadConfig(baseEnv({ PORT: "8080" })).port).toBe(8080);
+    expect(loadConfig(baseEnv({ PORT: "8082" })).port).toBe(8082);
+  });
+
+  test("throws ConfigError when PORT is unset", () => {
+    expect(() => loadConfig(baseEnv({ PORT: undefined }))).toThrow(ConfigError);
   });
 
   test("throws ConfigError on non-numeric PORT", () => {
@@ -240,7 +242,7 @@ function productionEnv(
   directory: string,
   overrides: Record<string, string | undefined> = {},
 ): Record<string, string | undefined> {
-  return { NODE_ENV: "production", SECRETS_DIR: directory, ...overrides };
+  return { NODE_ENV: "production", SECRETS_DIR: directory, PORT: TEST_PORT, ...overrides };
 }
 
 function captureConfigError(run: () => unknown): ConfigError {
@@ -297,6 +299,7 @@ describe("loadConfig: secret files", () => {
   test("development falls back to the environment when files are missing", () => {
     const cfg = loadConfig({
       SECRETS_DIR: emptySecretsDir,
+      PORT: TEST_PORT,
       SIGINT_SERVER_SECRET: ENV_CANARY,
       AISSTREAM_API_KEY: "env-ais-key",
     });

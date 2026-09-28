@@ -8,6 +8,7 @@ const TEST_SECRET = "test-secret-key-for-specs-only-do-not-use-zz";
 function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   const cfg = loadConfig({
     SIGINT_SERVER_SECRET: TEST_SECRET,
+    PORT: "8080",
     NODE_ENV: "test",
   });
   return Object.freeze({ ...cfg, ...overrides });
@@ -168,7 +169,7 @@ describe("guardAuth()", () => {
   });
 });
 
-describe("guardRateLimit() — basic", () => {
+describe("guardRateLimit(): basic", () => {
   test("allows normal requests", () => {
     const a = mkAuth(testConfig({ rateLimitPerMinute: 100 }));
     const req = new Request("http://localhost/api/test", {
@@ -198,7 +199,21 @@ function reqWithXff(xff: string): Request {
   });
 }
 
-describe("XFF rightmost-N client IP extraction", () => {
+describe("Dokku nginx client IP extraction", () => {
+  test("direct requests cannot choose a bucket with X-Real-IP", () => {
+    const guards = mkAuth(testConfig({ trustedProxyHops: 0, rateLimitPerMinute: 1 }));
+    const request = (ip: string) => new Request("http://localhost/api/test", {
+      headers: { "x-real-ip": ip },
+    });
+    expect(guards.guardRateLimit(request("203.0.113.1"))).toBeNull();
+    expect(guards.guardRateLimit(request("203.0.113.2"))?.status).toBe(429);
+  });
+
+  test("invalid forwarded addresses share the unknown bucket", () => {
+    const guards = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 1 }));
+    expect(guards.guardRateLimit(reqWithXff("invalid"))).toBeNull();
+    expect(guards.guardRateLimit(reqWithXff("999.1.2.3"))?.status).toBe(429);
+  });
   test("trustedProxyHops=0 ignores XFF entirely (direct mode)", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 0, rateLimitPerMinute: 1 }));
     expect(a.guardRateLimit(reqWithXff("203.0.113.10"))).toBeNull();
@@ -207,40 +222,40 @@ describe("XFF rightmost-N client IP extraction", () => {
     expect(blocked!.status).toBe(429);
   });
 
-  test("trustedProxyHops=1 trusts the rightmost entry as our proxy", () => {
+  test("one nginx hop uses its single forwarded client address", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 1 }));
     expect(
-      a.guardRateLimit(reqWithXff("198.51.100.1, 192.0.2.1")),
+      a.guardRateLimit(reqWithXff("198.51.100.1")),
     ).toBeNull();
-    const blocked = a.guardRateLimit(reqWithXff("198.51.100.1, 192.0.2.99"));
+    const blocked = a.guardRateLimit(reqWithXff("198.51.100.1"));
     expect(blocked).not.toBeNull();
     expect(blocked!.status).toBe(429);
   });
 
-  test("trustedProxyHops=1 distinguishes clients even when proxy IP changes", () => {
+  test("one nginx hop keeps legitimate clients in separate buckets", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 1 }));
     expect(
-      a.guardRateLimit(reqWithXff("203.0.113.50, 192.0.2.1")),
+      a.guardRateLimit(reqWithXff("203.0.113.50")),
     ).toBeNull();
     expect(
-      a.guardRateLimit(reqWithXff("203.0.113.51, 192.0.2.1")),
+      a.guardRateLimit(reqWithXff("203.0.113.51")),
     ).toBeNull();
-    const blocked = a.guardRateLimit(reqWithXff("203.0.113.50, 192.0.2.1"));
+    const blocked = a.guardRateLimit(reqWithXff("203.0.113.50"));
     expect(blocked).not.toBeNull();
   });
 
   test("attacker leftmost spoofing is ignored when trustedProxyHops=1", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 1 }));
     expect(
-      a.guardRateLimit(reqWithXff("198.51.100.77, 192.0.2.1")),
+      a.guardRateLimit(reqWithXff("198.51.100.77")),
     ).toBeNull();
     const blocked = a.guardRateLimit(
-      reqWithXff("1.2.3.4, 198.51.100.77, 192.0.2.1"),
+      reqWithXff("1.2.3.4, 198.51.100.77"),
     );
     expect(blocked).not.toBeNull();
   });
 
-  test("fewer XFF entries than trustedProxyHops+1 fails closed to a single 'unknown' bucket", () => {
+  test("fewer XFF entries than trustedProxyHops fails closed to a single 'unknown' bucket", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 2, rateLimitPerMinute: 1 }));
     expect(a.guardRateLimit(reqWithXff("only-one-entry"))).toBeNull();
     const blocked = a.guardRateLimit(reqWithXff("also-only-one"));
@@ -255,15 +270,10 @@ describe("XFF rightmost-N client IP extraction", () => {
     expect(a.guardRateLimit(r2)).not.toBeNull();
   });
 
-  test("empty XFF entries are tolerated (whitespace handling)", () => {
-    const a = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 2 }));
-    expect(
-      a.guardRateLimit(reqWithXff("  198.51.100.5  ,  192.0.2.1  ")),
-    ).toBeNull();
-    expect(
-      a.guardRateLimit(reqWithXff("198.51.100.5, 192.0.2.1")),
-    ).toBeNull();
-    const blocked = a.guardRateLimit(reqWithXff("198.51.100.5, 192.0.2.1"));
-    expect(blocked).not.toBeNull();
+  test("surrounding whitespace preserves the same client identity", () => {
+    const a = mkAuth(testConfig({ trustedProxyHops: 1, rateLimitPerMinute: 1 }));
+    expect(a.guardRateLimit(reqWithXff("  198.51.100.5  "))).toBeNull();
+    expect(a.guardRateLimit(reqWithXff("198.51.100.5"))).not.toBeNull();
+    expect(a.guardRateLimit(reqWithXff("198.51.100.6"))).toBeNull();
   });
 });

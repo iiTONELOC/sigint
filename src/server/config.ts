@@ -91,7 +91,6 @@ export class ConfigError extends Error {
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
 const MIN_SECRET_LENGTH = 32;
-const DEFAULT_PORT = 5500;
 const DEFAULT_RATE_LIMIT = 60;
 const DEFAULT_TRUSTED_PROXY_HOPS = 0;
 const MIN_PORT = 1;
@@ -190,9 +189,8 @@ export function loadConfig(env: EnvMap): ServerConfig {
     });
   }
 
-  const port = env.PORT
-    ? parsePositiveInt(env.PORT, ConfigField.Port, MIN_PORT, MAX_PORT)
-    : DEFAULT_PORT;
+  if (!env.PORT) throw new ConfigError({ kind: ConfigErrorKind.Required, field: ConfigField.Port });
+  const port = parsePositiveInt(env.PORT, ConfigField.Port, MIN_PORT, MAX_PORT);
 
   const rateLimitPerMinute = env.SIGINT_RATE_LIMIT_PER_MINUTE
     ? parsePositiveInt(

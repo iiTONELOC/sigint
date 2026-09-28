@@ -120,9 +120,9 @@ It ignores environment variables with those names.
 | `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data. Secret file only in production.                                   |
 | `SECRETS_DIR`                  | No       | Folder the app reads secret files from (default `/run/secrets`).                                                               |
 | `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                                   |
-| `PORT`                         | No       | Server port (default: 5500)                                                                                                    |
+| `PORT`                         | Yes      | Listening port, supplied by the platform                                                                                        |
 | `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                         |
-| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Number of trusted proxies in front of the app (default 0). Drives `X-Forwarded-For` rightmost-N client IP extraction.          |
+| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Trusted proxy count (default 0). Direct mode ignores forwarding headers.          |
 
 ## Data Sources
 
