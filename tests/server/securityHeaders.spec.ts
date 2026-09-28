@@ -9,6 +9,7 @@ const TEST_SECRET = "security-headers-test-secret-32-bytes-XXXXX";
 function makeDeps(overrides: Partial<ServerConfig> = {}) {
   const cfg = loadConfig({
     SIGINT_SERVER_SECRET: TEST_SECRET,
+    PORT: "8080",
     NODE_ENV: "test",
   });
   const config: ServerConfig = Object.freeze({ ...cfg, ...overrides });

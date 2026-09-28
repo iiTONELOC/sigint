@@ -9,6 +9,7 @@ const TEST_SECRET = "route-pentest-secret-32bytes-XXXXXXXXXXXXXX";
 function mkRoutes(overrides: Partial<ServerConfig> = {}) {
   const cfg = loadConfig({
     SIGINT_SERVER_SECRET: TEST_SECRET,
+    PORT: "8080",
     NODE_ENV: "test",
   });
   const config: ServerConfig = Object.freeze({ ...cfg, ...overrides });

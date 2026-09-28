@@ -84,7 +84,7 @@ export async function startServer(mode: ServerMode): Promise<void> {
 
   logger.info(`🚀 ${production ? "Production" : "Dev"} server running at ${server.url}`);
   if (production && config.domain) {
-    logger.info(`🔒 Access via https://${config.domain} (Caddy TLS)`);
+    logger.info(`🔒 Access via https://${config.domain} (reverse proxy TLS)`);
   } else if (!production) {
     logger.info("🔒 Access via https://localhost (Caddy reverse proxy)");
   }

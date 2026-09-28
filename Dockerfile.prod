@@ -1,8 +1,9 @@
-FROM oven/bun@sha256:87416c977a612a204eb54ab9f3927023c2a3c971f4f345a01da08ea6262ae30e AS builder
-
+# syntax=docker/dockerfile:1
+FROM oven/bun@sha256:87416c977a612a204eb54ab9f3927023c2a3c971f4f345a01da08ea6262ae30e AS base
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM base AS builder
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -19,27 +20,21 @@ COPY postbuild.ts .
 
 RUN bun run build && rm src/server/data/ac-db.ndjson
 
-FROM oven/bun@sha256:87416c977a612a204eb54ab9f3927023c2a3c971f4f345a01da08ea6262ae30e
-
-WORKDIR /app
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && if getent group 710 >/dev/null || getent passwd 710 >/dev/null; then \
+FROM base AS runtime
+RUN if getent group 710 >/dev/null || getent passwd 710 >/dev/null; then \
       echo "UID/GID 710 is taken in the base image" >&2; exit 1; \
     fi \
  && groupadd --system --gid 710 sigint \
  && useradd --system --uid 710 --gid sigint --home-dir /app --shell /usr/sbin/nologin sigint
 
-COPY --chown=sigint:sigint package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+COPY package.json app.json ./
+COPY --from=builder /app/node_modules/ws ./node_modules/ws
 
-COPY --from=builder --chown=sigint:sigint /app/dist ./dist
-COPY --from=builder --chown=sigint:sigint /app/src/server ./src/server
-COPY --from=builder --chown=sigint:sigint /app/src/shared ./src/shared
-COPY --from=builder --chown=sigint:sigint /app/tsconfig.json .
-COPY --from=builder --chown=sigint:sigint /app/bun-env.d.ts .
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/server ./src/server
+COPY --from=builder /app/src/shared ./src/shared
+COPY --from=builder /app/tsconfig.json .
+COPY --from=builder /app/bun-env.d.ts .
 
 USER 710:710
 

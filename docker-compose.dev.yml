@@ -7,6 +7,7 @@ services:
       - ../.env
     environment:
       - NODE_ENV=development
+      - PORT=5500
       # Dev-only fixture overrides — empty default so the env var is
       # passed through but doesn't activate the override unless set on
       # the host. See README dev section for valid labels.
