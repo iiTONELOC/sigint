@@ -1,75 +1,87 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test, type Mock } from "bun:test";
 import { SplitDirection } from "@/panes/workspace/model/pane";
 import { DomEvent } from "@/runtime";
 import {
   dispatchResizePointer,
-  expectLastResize,
-  expectResizeCallback,
   renderResizeHandle,
   type ResizeCallback,
   ResizeExpectedRatio,
+  ResizeFixtureSplitId,
   ResizePointerCoordinate,
   ResizePointerId,
 } from "./ResizeHandle.fixture";
+
+function lastResize(callback: Mock<ResizeCallback>): readonly [string, number] | undefined {
+  return callback.mock.calls.at(-1);
+}
 
 describe("ResizeHandle pointer interaction", () => {
   test("reports the horizontal ratio and split identity", () => {
     const fixture = renderResizeHandle(SplitDirection.Horizontal);
 
-    dispatchResizePointer(fixture.control, DomEvent.PointerDown);
-    dispatchResizePointer(
-      fixture.control,
-      DomEvent.PointerMove,
-      ResizePointerCoordinate.HorizontalCenter,
-    );
+    dispatchResizePointer(fixture.control, DomEvent.PointerDown, ResizePointerCoordinate.HorizontalCenter);
+    dispatchResizePointer(fixture.control, DomEvent.PointerMove, ResizePointerCoordinate.HorizontalStep);
 
-    expectLastResize(fixture, ResizeExpectedRatio.Center);
+    expect(lastResize(fixture.onResize)?.[0]).toBe(ResizeFixtureSplitId.Primary);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.Increased);
   });
 
   test("reports the vertical ratio and split identity", () => {
     const fixture = renderResizeHandle(SplitDirection.Vertical);
 
-    dispatchResizePointer(fixture.control, DomEvent.PointerDown);
+    dispatchResizePointer(
+      fixture.control,
+      DomEvent.PointerDown,
+      ResizePointerCoordinate.HorizontalStart,
+      ResizePointerCoordinate.VerticalCenter,
+    );
     dispatchResizePointer(
       fixture.control,
       DomEvent.PointerMove,
       ResizePointerCoordinate.HorizontalStart,
-      ResizePointerCoordinate.VerticalCenter,
+      ResizePointerCoordinate.VerticalStep,
     );
 
-    expectLastResize(fixture, ResizeExpectedRatio.Center);
+    expect(lastResize(fixture.onResize)?.[0]).toBe(ResizeFixtureSplitId.Primary);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.Increased);
+  });
+
+  test("keeps the ratio when pressed off the line without moving", () => {
+    const fixture = renderResizeHandle(SplitDirection.Horizontal);
+
+    dispatchResizePointer(fixture.control, DomEvent.PointerDown, ResizePointerCoordinate.HorizontalOffLine);
+    dispatchResizePointer(fixture.control, DomEvent.PointerMove, ResizePointerCoordinate.HorizontalOffLine);
+
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.Center);
   });
 
   test("clamps horizontal panes to their pixel floor", () => {
     const fixture = renderResizeHandle(SplitDirection.Horizontal);
 
-    dispatchResizePointer(fixture.control, DomEvent.PointerDown);
-    dispatchResizePointer(
-      fixture.control,
-      DomEvent.PointerMove,
-      ResizePointerCoordinate.HorizontalStart,
-    );
-    expectLastResize(fixture, ResizeExpectedRatio.HorizontalMinimum);
+    dispatchResizePointer(fixture.control, DomEvent.PointerDown, ResizePointerCoordinate.HorizontalCenter);
+    dispatchResizePointer(fixture.control, DomEvent.PointerMove, ResizePointerCoordinate.HorizontalStart);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.HorizontalMinimum);
 
-    dispatchResizePointer(
-      fixture.control,
-      DomEvent.PointerMove,
-      ResizePointerCoordinate.HorizontalEnd,
-    );
-    expectLastResize(fixture, ResizeExpectedRatio.HorizontalMaximum);
+    dispatchResizePointer(fixture.control, DomEvent.PointerMove, ResizePointerCoordinate.HorizontalEnd);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.HorizontalMaximum);
   });
 
   test("clamps vertical panes to their pixel floor", () => {
     const fixture = renderResizeHandle(SplitDirection.Vertical);
 
-    dispatchResizePointer(fixture.control, DomEvent.PointerDown);
+    dispatchResizePointer(
+      fixture.control,
+      DomEvent.PointerDown,
+      ResizePointerCoordinate.HorizontalStart,
+      ResizePointerCoordinate.VerticalCenter,
+    );
     dispatchResizePointer(
       fixture.control,
       DomEvent.PointerMove,
       ResizePointerCoordinate.HorizontalStart,
       ResizePointerCoordinate.VerticalStart,
     );
-    expectLastResize(fixture, ResizeExpectedRatio.VerticalMinimum);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.VerticalMinimum);
 
     dispatchResizePointer(
       fixture.control,
@@ -77,7 +89,7 @@ describe("ResizeHandle pointer interaction", () => {
       ResizePointerCoordinate.HorizontalStart,
       ResizePointerCoordinate.VerticalEnd,
     );
-    expectLastResize(fixture, ResizeExpectedRatio.VerticalMaximum);
+    expect(lastResize(fixture.onResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.VerticalMaximum);
   });
 
   test("captures, focuses, and releases the active pointer", () => {
@@ -85,16 +97,12 @@ describe("ResizeHandle pointer interaction", () => {
     const bodyClassBefore = document.body.className;
 
     dispatchResizePointer(fixture.control, DomEvent.PointerDown);
-    expect(fixture.setPointerCapture).toHaveBeenCalledWith(
-      ResizePointerId.Primary,
-    );
+    expect(fixture.setPointerCapture).toHaveBeenCalledWith(ResizePointerId.Primary);
     expect(document.activeElement).toBe(fixture.control);
     expect(document.body.className).not.toBe(bodyClassBefore);
 
     dispatchResizePointer(fixture.control, DomEvent.PointerUp);
-    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(
-      ResizePointerId.Primary,
-    );
+    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(ResizePointerId.Primary);
     expect(document.body.className).toBe(bodyClassBefore);
   });
 
@@ -105,9 +113,7 @@ describe("ResizeHandle pointer interaction", () => {
     dispatchResizePointer(fixture.control, DomEvent.PointerDown);
     dispatchResizePointer(fixture.control, DomEvent.PointerCancel);
 
-    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(
-      ResizePointerId.Primary,
-    );
+    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(ResizePointerId.Primary);
     expect(document.body.className).toBe(bodyClassBefore);
   });
 
@@ -118,9 +124,7 @@ describe("ResizeHandle pointer interaction", () => {
     dispatchResizePointer(fixture.control, DomEvent.PointerDown);
     fixture.rendered.unmount();
 
-    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(
-      ResizePointerId.Primary,
-    );
+    expect(fixture.releasePointerCapture).toHaveBeenCalledWith(ResizePointerId.Primary);
     expect(document.body.className).toBe(bodyClassBefore);
   });
 
@@ -129,14 +133,10 @@ describe("ResizeHandle pointer interaction", () => {
     const nextOnResize = mock<ResizeCallback>(() => undefined);
     fixture.rerender(nextOnResize);
 
-    dispatchResizePointer(fixture.control, DomEvent.PointerDown);
-    dispatchResizePointer(
-      fixture.control,
-      DomEvent.PointerMove,
-      ResizePointerCoordinate.HorizontalCenter,
-    );
+    dispatchResizePointer(fixture.control, DomEvent.PointerDown, ResizePointerCoordinate.HorizontalCenter);
+    dispatchResizePointer(fixture.control, DomEvent.PointerMove, ResizePointerCoordinate.HorizontalCenter);
 
     expect(fixture.onResize).not.toHaveBeenCalled();
-    expectResizeCallback(nextOnResize, ResizeExpectedRatio.Center);
+    expect(lastResize(nextOnResize)?.[1]).toBeCloseTo(ResizeExpectedRatio.Center);
   });
 });

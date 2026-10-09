@@ -108,9 +108,11 @@ The globe and video panes must remain full width on mobile. `FULL_WIDTH_ONLY` en
 
 ## Mobile block behavior
 
-The mobile work area has a sticky tab bar and a scrollable block column.
+The mobile work area has a sticky tab bar and a scrollable block column. `MobileHeader` replaces the desktop header with a slim bar. Its Filters sheet holds the layer toggles, the counts, and the layout mode.
 
-Each block has a default height. The operator can resize, minimize, move, split, close, or change a block.
+The block column is a size container. Each pane type declares a `PaneMobileScreen` share: the globe, dossier, and video fill the column, and the other panes fill half of it. The operator can resize, minimize, move, split, close, or change a block. A resized block keeps its height in pixels.
+
+In the mobile layout, one finger scrolls the column, also over the globe. The globe takes two-finger gestures and taps.
 
 `IntersectionObserver` tracks the block in view. The active tab follows that block.
 

@@ -1,4 +1,3 @@
-// The globe worker and the dossier mini map share these painters so both surfaces draw identical storms.
 
 import type { ProjFn, Pt, RenderContext2D } from "@/lib/geo/render/types";
 import { AngleConversion, GeoMeasurement, TurnDeg, type GeoPoint } from "@shared/geo";
@@ -53,15 +52,12 @@ export type WindRadiiBand = Readonly<{
 export type EyeScale = Pt & Readonly<{ pixelsPerNm: number }>;
 
 const WIND_BAND_RIM_WIDTH = 1;
-/** Cone and wind field read as glass: a light fill under a solid rim. */
 export const GLASS_FILL_ALPHA = 0.18;
 export const WIND_BAND_RIM_ALPHA = 0.9;
 const CASING_EXTRA_WIDTH = 2;
 
-/** How strong a stroke is and the map's own dark colour to case it with. */
 export type CasedStroke = Readonly<{ alpha: number; casing: string }>;
 
-// The casing is the map's own dark colour, so it only shows where cloud, radar or a fill sits behind the line.
 function strokeCased(context: RenderContext2D, color: string, casing: string): void {
   const width = context.lineWidth;
   context.strokeStyle = casing;
@@ -72,7 +68,6 @@ function strokeCased(context: RenderContext2D, color: string, casing: string): v
   context.stroke();
 }
 
-/** Fill each wind band around the eye; a `rim` also outlines it over a dark casing. */
 export function paintWindRadiiBands(
   context: RenderContext2D,
   eye: EyeScale,
@@ -95,7 +90,6 @@ export function paintWindRadiiBands(
 
 export type TrackVertex = Readonly<{ x: number; y: number; z: number; windKt: number }>;
 
-/** Strokes each leg in the colour of the wind at the point it leaves; the caller sets width, dash, and alpha. */
 export function strokeIntensityTrack(context: RenderContext2D, vertices: readonly TrackVertex[]): void {
   for (let index = 1; index < vertices.length; index++) {
     const from = vertices[index - 1];
@@ -120,7 +114,6 @@ function legDirection(from: Pt, to: Pt): Pt {
   return unit(to.x - from.x, to.y - from.y);
 }
 
-// A band edge bisects the turn at each vertex so neighbouring bands meet without a gap.
 function vertexDirections(track: readonly TrackVertex[]): Pt[] {
   const legs = track.slice(1).map((to, index) => legDirection(track[index] ?? to, to));
   return track.map((_, index) => {
@@ -168,7 +161,6 @@ function traceRings(context: RenderContext2D, rings: readonly (readonly Pt[])[])
   }
 }
 
-/** Fills the cone outline in bands along the track, each in the colour of the wind at the point it leaves, like the trail. */
 export function fillCategoryCone(
   context: RenderContext2D,
   rings: readonly (readonly Pt[])[],
@@ -215,10 +207,9 @@ export function drawGenesisMark(
 }
 
 const RADAR_GRID_CELLS = 16;
-// Each cell also covers one source pixel of its neighbours so the affine fits leave no seams.
 const RADAR_SEAM_PIXELS = 1;
+const MOVING_WARP_SCALE = 0.5;
 const FULL_TURN_RADIANS = TurnDeg.Full * AngleConversion.RadiansPerDegree;
-// Each band's ring encloses every higher band, so the next band cuts a hole in it and any spot is covered once.
 const PROBABILITY_BAND_ALPHA = 0.3;
 const SURGE_ALPHA = 0.45;
 const ARRIVAL_DASH: readonly number[] = [3, 3];
@@ -233,7 +224,6 @@ export type RadarRaster = Readonly<{
 
 type RadarCell = Readonly<{ column: number; row: number; width: number; height: number }>;
 
-// A lat/lon raster cannot be drawn straight onto a globe; each small cell is drawn with its own affine fit.
 function paintRadarCell(context: RenderContext2D, project: ProjFn, radar: RadarRaster, cell: RadarCell): void {
   const { bounds } = radar;
   const lonStep = (bounds.maxLon - bounds.minLon) / RADAR_GRID_CELLS;
@@ -261,10 +251,12 @@ function paintRadarCell(context: RenderContext2D, project: ProjFn, radar: RadarR
 
 type RadarRegion = Readonly<{ x: number; y: number; width: number; height: number }>;
 
-type RadarWarp = { key: string; canvas: OffscreenCanvas; region: RadarRegion };
+type RadarCircle = Readonly<{ x: number; y: number; radius: number }>;
 
-// The warp is the costly part, so each surface keeps one per loop frame and redoes it only
-// when the storm moves on screen; looping in place then costs one drawImage per frame.
+type RadarWarp = Readonly<{ key: string; canvas: OffscreenCanvas | null; region: RadarRegion; settled: boolean }>;
+
+type RadarView = Readonly<{ region: RadarRegion; scale: number; key: string }>;
+
 const radarWarps = new WeakMap<RenderContext2D, WeakMap<object, RadarWarp>>();
 
 function surfaceWarps(context: RenderContext2D): WeakMap<object, RadarWarp> {
@@ -275,8 +267,6 @@ function surfaceWarps(context: RenderContext2D): WeakMap<object, RadarWarp> {
   }
   return warps;
 }
-
-type RadarCircle = Readonly<{ x: number; y: number; radius: number }>;
 
 function radarCircle(project: ProjFn, clip: RasterCircle): RadarCircle | null {
   const eye = project(clip.lat, clip.lon);
@@ -294,9 +284,9 @@ function visibleRegion(context: RenderContext2D, circle: RadarCircle, scale: num
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-type RadarWarpTarget = Readonly<{ region: RadarRegion; scale: number; reuse: OffscreenCanvas | undefined }>;
+type RadarWarpTarget = Readonly<{ region: RadarRegion; scale: number; reuse: OffscreenCanvas | null | undefined }>;
 
-function warpRadar(project: ProjFn, radar: RadarRaster, target: RadarWarpTarget): RadarWarp | null {
+function warpRadar(project: ProjFn, radar: RadarRaster, target: RadarWarpTarget): OffscreenCanvas | null {
   const { region, scale, reuse } = target;
   const pixelWidth = Math.max(1, Math.ceil(region.width * scale));
   const pixelHeight = Math.max(1, Math.ceil(region.height * scale));
@@ -315,25 +305,29 @@ function warpRadar(project: ProjFn, radar: RadarRaster, target: RadarWarpTarget)
       paintRadarCell(scratch, project, radar, { column, row, width, height });
     }
   }
-  return { key: "", canvas, region };
+  return canvas;
 }
 
-/** A radar or satellite frame warped onto the projection, kept inside the storm's circle, blended in one pass. */
-export function paintRaster(context: RenderContext2D, project: ProjFn, radar: RadarRaster, clip: RasterCircle): void {
+function currentWarp(context: RenderContext2D, project: ProjFn, radar: RadarRaster, view: RadarView): RadarWarp {
+  const warps = surfaceWarps(context);
+  const cached = warps.get(radar.image);
+  const settled = cached?.key === view.key;
+  if (cached && settled && cached.settled) return cached;
+  const scale = settled ? view.scale : view.scale * MOVING_WARP_SCALE;
+  const canvas = warpRadar(project, radar, { region: view.region, scale, reuse: cached?.canvas });
+  const warp: RadarWarp = { key: view.key, canvas, region: view.region, settled };
+  warps.set(radar.image, warp);
+  return warp;
+}
+
+export function paintRaster(context: RenderContext2D, project: ProjFn, radar: RadarRaster, clip: RasterCircle): boolean {
   const circle = radarCircle(project, clip);
-  if (!circle) return;
+  if (!circle) return true;
   const scale = context.getTransform().a;
   const region = visibleRegion(context, circle, scale);
-  if (!region) return;
+  if (!region) return true;
   const key = [circle.x, circle.y, circle.radius, scale, region.width, region.height].map((value) => Math.round(value)).join();
-  const warps = surfaceWarps(context);
-  let warp = warps.get(radar.image);
-  if (warp?.key !== key) {
-    const fresh = warpRadar(project, radar, { region, scale, reuse: warp?.canvas });
-    if (!fresh) return;
-    warp = { ...fresh, key };
-    warps.set(radar.image, warp);
-  }
+  const warp = currentWarp(context, project, radar, { region, scale, key });
   context.save();
   context.beginPath();
   context.arc(circle.x, circle.y, circle.radius, 0, FULL_TURN_RADIANS);
@@ -341,15 +335,15 @@ export function paintRaster(context: RenderContext2D, project: ProjFn, radar: Ra
   const look = RASTER_SOURCE_METADATA[radar.source];
   context.globalAlpha = look.alpha;
   context.globalCompositeOperation = look.blend;
-  context.drawImage(warp.canvas, warp.region.x, warp.region.y, warp.region.width, warp.region.height);
+  if (warp.canvas) context.drawImage(warp.canvas, region.x, region.y, region.width, region.height);
   context.restore();
+  return warp.settled;
 }
 
 function ringPolygons(rings: readonly (readonly GeoPoint[])[]): GeoPoint[][][] {
   return rings.map((ring) => [[...ring]]);
 }
 
-/** Probability bands in their scale colours, each drawn as the ring between it and the next higher band. */
 export function paintProbabilityBands(
   context: RenderContext2D,
   projection: SceneAreaProjection,
@@ -362,7 +356,6 @@ export function paintProbabilityBands(
   });
 }
 
-/** Coastal peak-surge areas. */
 export function paintSurgeAreas(
   context: RenderContext2D,
   projection: SceneAreaProjection,
@@ -381,7 +374,6 @@ function labelArrivalLine(context: RenderContext2D, project: ProjFn, line: reado
   context.fillText(label, point.x + ARRIVAL_LABEL_OFFSET_PX, point.y - ARRIVAL_LABEL_OFFSET_PX);
 }
 
-/** Dashed arrival-time lines, each labelled with its time, over a dark casing; the caller sets stroke colour and width. */
 export function strokeArrivalLines(
   context: RenderContext2D,
   project: ProjFn,

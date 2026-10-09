@@ -7,7 +7,7 @@ import {
 } from "bun:test";
 import { act } from "react";
 import {
-  PaneMobileHeight,
+  PANE_MOBILE_MINIMUM_HEIGHT,
   PaneMobileRatio,
   PaneType,
   SplitDirection,
@@ -41,6 +41,11 @@ enum MobileSizingMetric {
   StartPointerY = 500,
   ViewportHeight = 1_000,
   MaximumPointerY = 2_000,
+}
+
+enum MobileScreenClass {
+  Full = "h-[100cqh]",
+  Half = "h-[50cqh]",
 }
 
 type MobileSizingPointerEventName =
@@ -86,62 +91,34 @@ function maximumHeight(): number {
 }
 
 describe("PaneMobile block sizing", () => {
-  test("uses pane defaults and clamps height dragging", async () => {
-    renderMobileFixture({
-      chromeHidden: true,
-      layout: twoBlockLayout(),
-    });
+  test("opens the globe one screen tall and a table half a screen tall", () => {
+    renderMobileFixture({ chromeHidden: true, layout: twoBlockLayout() });
+
+    expect(requireMobileBlock(MobileFixtureNodeId.Globe).className).toContain(MobileScreenClass.Full);
+    expect(requireMobileBlock(MobileFixtureNodeId.DataTable).className).toContain(MobileScreenClass.Half);
+  });
+
+  test("clamps height dragging to the floor and the viewport share", async () => {
+    renderMobileFixture({ chromeHidden: true, layout: twoBlockLayout() });
     const globe = requireMobileBlock(MobileFixtureNodeId.Globe);
-    const dataTable = requireMobileBlock(MobileFixtureNodeId.DataTable);
     const handle = requireHeightHandle(globe);
     const setPointerCapture = mock((_pointerId: number) => undefined);
     handle.setPointerCapture = setPointerCapture;
 
-    expect(blockContentHeight(globe)).toBe(PaneMobileHeight.XXLarge);
-    expect(blockContentHeight(dataTable)).toBe(
-      PaneMobileHeight.Standard,
-    );
-
     act(() => {
-      handle.dispatchEvent(
-        pointerEvent(
-          DomEvent.PointerDown,
-          MobileSizingMetric.StartPointerY,
-        ),
-      );
-      document.dispatchEvent(
-        pointerEvent(
-          DomEvent.PointerMove,
-          MobileSizingMetric.MinimumPointerY,
-        ),
-      );
+      handle.dispatchEvent(pointerEvent(DomEvent.PointerDown, MobileSizingMetric.StartPointerY));
+      document.dispatchEvent(pointerEvent(DomEvent.PointerMove, MobileSizingMetric.MinimumPointerY));
     });
     await flushReactUpdates();
 
-    expect(setPointerCapture).toHaveBeenCalledWith(
-      MobileSizingMetric.PointerId,
-    );
-    expect(blockContentHeight(globe)).toBe(PaneMobileHeight.Minimum);
+    expect(setPointerCapture).toHaveBeenCalledWith(MobileSizingMetric.PointerId);
+    expect(blockContentHeight(globe)).toBe(PANE_MOBILE_MINIMUM_HEIGHT);
+    expect(globe.className).not.toContain(MobileScreenClass.Full);
 
     act(() => {
-      document.dispatchEvent(
-        pointerEvent(
-          DomEvent.PointerUp,
-          MobileSizingMetric.MinimumPointerY,
-        ),
-      );
-      handle.dispatchEvent(
-        pointerEvent(
-          DomEvent.PointerDown,
-          MobileSizingMetric.StartPointerY,
-        ),
-      );
-      document.dispatchEvent(
-        pointerEvent(
-          DomEvent.PointerMove,
-          MobileSizingMetric.MaximumPointerY,
-        ),
-      );
+      document.dispatchEvent(pointerEvent(DomEvent.PointerUp, MobileSizingMetric.MinimumPointerY));
+      handle.dispatchEvent(pointerEvent(DomEvent.PointerDown, MobileSizingMetric.StartPointerY));
+      document.dispatchEvent(pointerEvent(DomEvent.PointerMove, MobileSizingMetric.MaximumPointerY));
     });
     await flushReactUpdates();
 

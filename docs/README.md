@@ -6,6 +6,7 @@ This directory contains the current technical documentation for SIGINT.
 
 | Document | Content |
 | --- | --- |
+| [User guide](./guide.md) | Header, globe, search, storm and aircraft dossiers, panes, and mobile use |
 | [Architecture](./architecture.md) | System owners, browser workers, server boundaries, and component structure |
 | [Data flow](./data-flow.md) | DataWorker ownership, source reconciliation, bounded UI queries, and direct worker channels |
 | [Feature system](./features.md) | Feature definitions, source registration, and source-specific behavior |

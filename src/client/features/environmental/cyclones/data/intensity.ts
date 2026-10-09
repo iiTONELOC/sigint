@@ -209,7 +209,6 @@ type NewestFixes = Readonly<{
   previous: TimedPastTrackPoint;
 }>;
 
-// The trend compares the two newest best-track fixes, so a fix newer than the advisory still counts.
 function newestFixes(storm: CycloneData): NewestFixes | null {
   const timed = (storm.pastTrack ?? []).flatMap((point) => {
     const observedAt = cycloneTimestamp(point.validTime);
@@ -225,7 +224,6 @@ export function trendWindowHours(storm: CycloneData): number | null {
   return fixes ? (fixes.latest.observedAt - fixes.previous.observedAt) / MS_PER_HOUR : null;
 }
 
-/** The newest best-track fix when it is newer than the advisory, else null. */
 export function fixNewerThanAdvisory(storm: CycloneData): PastTrackPoint | null {
   const fixes = newestFixes(storm);
   const advisoryTime = cycloneTimestamp(storm.lastUpdate);
@@ -283,7 +281,6 @@ export type TrackHistory = Readonly<{
   series: readonly TrackHistorySample[];
 }>;
 
-/** Best-track history: formation time, peak wind, lowest pressure, and the largest 24h wind gain. */
 export function trackHistory(storm: CycloneData): TrackHistory | null {
   const fixes = (storm.pastTrack ?? []).flatMap((point) => {
     const observedAt = cycloneTimestamp(point.validTime);

@@ -67,15 +67,11 @@ export enum PaneWorkspaceMenuMetric {
   BoundaryWidth = 200,
 }
 
-export enum PaneMobileHeight {
-  Minimum = 160,
-  XSmall = 280,
-  Small = 300,
-  Standard = 320,
-  Medium = 340,
-  Large = 360,
-  XLarge = 400,
-  XXLarge = 420,
+export const PANE_MOBILE_MINIMUM_HEIGHT = 160;
+
+export enum PaneMobileScreen {
+  Full = "full",
+  Half = "half",
 }
 
 export enum PaneMobileRatio {

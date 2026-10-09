@@ -15,6 +15,7 @@ import { DomEvent } from "@/runtime";
 import { isRecord } from "@shared/geo";
 import {
   InputAdapter,
+  scrollsPageOnTouch,
 } from "@/render-surface/input";
 import {
   emitRenderInteraction,
@@ -195,6 +196,7 @@ export class RenderSurfaceSession {
       onMiddleClick: () => {
         emitRenderSignal(host, RENDER_SURFACE_MIDDLE_CLICK_EVENT);
       },
+      scrollsPage: () => scrollsPageOnTouch(host),
     });
     this.input.start();
   }

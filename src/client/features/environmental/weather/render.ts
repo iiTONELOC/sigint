@@ -58,7 +58,6 @@ export function weatherSeverityInk(severity: WeatherSeverity): string {
   return SEVERITY_INK[severity];
 }
 
-/** Tropical alerts take the warning or watch colour they fill on the globe; other alerts take their severity. */
 export function alertInk(item: WeatherPoint | CycloneWarningPoint, colors: ThemeColors): string {
   return item.type === Domain.CyclonesWarning
     ? cycloneAreaColor(colors, item.data.kind)

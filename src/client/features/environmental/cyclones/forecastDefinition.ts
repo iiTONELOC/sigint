@@ -36,10 +36,8 @@ enum CycloneForecastRowLabel {
   TrackError = "Track error",
 }
 
-/** The label for the advisory position in forecast timelines and tables. */
 export const NOW_LABEL = "NOW";
 
-/** NHC leaves some lead times without a track error; the feed carries those as 0. */
 export function trackErrorText(errorRadiusNm: number): string {
   return errorRadiusNm > 0 ? formatNauticalMiles(errorRadiusNm) : CycloneForecastText.NotIssued;
 }
@@ -49,7 +47,6 @@ export function leadTime(fcstHour: number): string {
   return `${CycloneForecastText.LeadTimePrefix}${fcstHour}${CycloneForecastText.HourSuffix}`;
 }
 
-/** A forecast point as rows name it: `Isaias +24h`. */
 export function forecastPointName(data: CycloneForecastPointData): string {
   return `${data.parentName}${BLANK_SEPARATOR}${leadTime(data.fcstHour)}`;
 }

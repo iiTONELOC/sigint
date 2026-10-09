@@ -38,7 +38,6 @@ type Props = Readonly<{
   onSelect: (forecast: ForecastPoint | null) => void;
 }>;
 
-/** Every forecast stop in its official category colour; choosing one opens that point, NOW opens the storm. */
 export function CycloneForecastTimeline({ currentWindKt, forecast, issuedAt, selectedHour, onSelect }: Props) {
   const issuedMs = Date.parse(issuedAt);
   const stops: TimelineStop[] = [

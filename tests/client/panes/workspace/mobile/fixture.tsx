@@ -1,5 +1,6 @@
 import { mock, type Mock } from "bun:test";
 import { Circle } from "lucide-react";
+import { DeviceType } from "@/layout-mode/model/layoutMode";
 import {
   createElement,
   type ComponentType,
@@ -55,10 +56,6 @@ export enum MobileFixtureLabel {
   NewsFeed = "Fixture news",
   RawConsole = "Fixture console",
   VideoFeed = "Fixture video",
-}
-
-export enum MobileFixtureMetric {
-  ActiveTracks = 12,
 }
 
 export enum MobileFixtureNodeId {
@@ -123,7 +120,6 @@ type MobileFixtureEntry = Readonly<{
 type MobileFixtureOptions = Readonly<{
   availableTypes?: readonly PaneTypeValue[];
   chromeHidden?: boolean;
-  counts?: Record<string, number>;
   layout: LayoutState;
   presets?: readonly LayoutPreset[];
   presetsLoaded?: boolean;
@@ -132,7 +128,6 @@ type MobileFixtureOptions = Readonly<{
 type MobileFixtureState = Readonly<{
   availableTypes: PaneTypeValue[];
   chromeHidden: boolean;
-  counts: Record<string, number>;
   layout: LayoutState;
   presets: LayoutPreset[];
   presetsLoaded: boolean;
@@ -235,6 +230,13 @@ mock.module("@/context/UIContext", () => ({
     chromeHidden: fixtureChromeHidden,
     colorMap: {},
   }),
+}));
+
+mock.module("@/layout-mode", () => ({
+  DeviceType,
+  hasTouchScreen: () => true,
+  useIsMobileLayout: () => true,
+  useLayoutMode: () => ({ deviceType: DeviceType.Phone }),
 }));
 
 class MobileFixtureIntersectionObserver implements IntersectionObserver {
@@ -362,7 +364,6 @@ function fixtureState(options: MobileFixtureOptions): MobileFixtureState {
   return {
     availableTypes: [...(options.availableTypes ?? [])],
     chromeHidden: options.chromeHidden ?? false,
-    counts: options.counts ?? {},
     layout: options.layout,
     presets: [...(options.presets ?? [])],
     presetsLoaded: options.presetsLoaded ?? true,
@@ -376,13 +377,10 @@ function mobileElement(
   fixtureChromeHidden = state.chromeHidden;
   return (
     <PaneMobile
-      activeCount={MobileFixtureMetric.ActiveTracks}
       allLeaves={collectLeaves(state.layout.root)}
       availableTypes={state.availableTypes}
       changePaneType={callbacks.changePaneType}
       closePane={callbacks.closePane}
-      counts={state.counts}
-      dataSources={[]}
       insertPaneBeside={callbacks.insertPaneBeside}
       layout={state.layout}
       leafCount={collectLeaves(state.layout.root).length}
@@ -613,10 +611,7 @@ export function requireLeafPopOutButton(
 }
 
 export function requireBlockContent(block: HTMLElement): HTMLElement {
-  const content = Array.from(block.children).find(
-    (element) =>
-      element instanceof HTMLElement && element.style.height !== "",
-  );
+  const content = block.lastElementChild?.previousElementSibling;
   if (!(content instanceof HTMLElement)) {
     throw new TypeError(MobileFixtureTestErrorMessage.BlockContentMissing);
   }

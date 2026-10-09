@@ -19,7 +19,7 @@ import {
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
 import type { PaneType } from "@/panes/paneTree";
-import { PaneMobileHeight, PaneType as PaneTypeId } from "./model/pane";
+import { PaneMobileScreen, PaneType as PaneTypeId } from "./model/pane";
 
 type PaneLoadingDefinition = Readonly<{
   icon?: LucideIcon;
@@ -34,7 +34,7 @@ export type PaneDefinition = Readonly<{
   icon: LucideIcon;
   label: string;
   loading?: PaneLoadingDefinition;
-  mobileHeight: PaneMobileHeight;
+  mobileScreen: PaneMobileScreen;
   persistent?: boolean;
 }>;
 
@@ -318,7 +318,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Bell,
       label: "ALERTS",
-      mobileHeight: PaneMobileHeight.Small,
+      mobileScreen: PaneMobileScreen.Half,
       loading: {
         itemCount: 8,
         tailClassName: "h-3 w-12 bg-sig-dim/10 rounded",
@@ -334,7 +334,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Table2,
       label: "DATA TABLE",
-      mobileHeight: PaneMobileHeight.Standard,
+      mobileScreen: PaneMobileScreen.Half,
       loading: {
         itemCount: PaneSkeletonItemCount.DataTableRows,
         tailClassName: "h-3 w-16 bg-sig-dim/10 rounded",
@@ -349,7 +349,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: FileSearch,
       label: "DOSSIER",
-      mobileHeight: PaneMobileHeight.Large,
+      mobileScreen: PaneMobileScreen.Full,
       loading: { icon: Plane, itemCount: 3 },
     },
     async () => ({
@@ -360,7 +360,7 @@ export const PANE_CATALOG: PaneCatalog = {
     component: LiveTrafficPane,
     icon: Globe,
     label: "GLOBE",
-    mobileHeight: PaneMobileHeight.XXLarge,
+    mobileScreen: PaneMobileScreen.Full,
     persistent: true,
   },
   [PaneTypeId.IntelFeed]: defineLazyPane(
@@ -368,7 +368,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Newspaper,
       label: "INTEL FEED",
-      mobileHeight: PaneMobileHeight.Medium,
+      mobileScreen: PaneMobileScreen.Half,
       loading: { itemCount: 5 },
     },
     async () => ({
@@ -380,7 +380,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Rss,
       label: "NEWS FEED",
-      mobileHeight: PaneMobileHeight.Standard,
+      mobileScreen: PaneMobileScreen.Half,
       loading: {
         itemCount: 6,
         secondaryItemCount: 4,
@@ -396,7 +396,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Terminal,
       label: "CONSOLE",
-      mobileHeight: PaneMobileHeight.XSmall,
+      mobileScreen: PaneMobileScreen.Half,
       loading: { tailClassName: "h-5 w-14 bg-sig-dim/10 rounded" },
     },
     async () => ({
@@ -408,7 +408,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: Tv,
       label: "VIDEO FEED",
-      mobileHeight: PaneMobileHeight.XLarge,
+      mobileScreen: PaneMobileScreen.Full,
       loading: { itemCount: 4, secondaryItemCount: 3 },
     },
     async () => ({

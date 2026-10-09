@@ -10,7 +10,6 @@ import {
   HttpUserAgent,
 } from "@shared/http";
 
-// Reissued alerts arrive as "update"; asking only for "alert" dropped most live warnings.
 const NWS_ALERTS_URL =
   "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update";
 

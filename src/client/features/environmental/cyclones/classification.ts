@@ -75,13 +75,11 @@ export function windColor(kt: number): string {
   return CYCLONE_CATEGORY_METADATA[category].color;
 }
 
-// Indexed by NHC band rank, so the scale runs cool to hot as the chance rises.
 const WIND_CHANCE_COLORS: readonly string[] = [
   "#3d5a80", "#3f7cc4", "#2fa8c9", "#2fbf8f", "#6fcf4a", "#c4d93a",
   "#f2c230", "#f5982a", "#ef662b", "#e0393a", "#c42a8a",
 ];
 
-/** The colour of a wind-probability band by its rank from the lowest chance. */
 export function windChanceColor(rank: number): string {
   return WIND_CHANCE_COLORS[Math.min(Math.max(0, rank), WIND_CHANCE_COLORS.length - 1)] ?? "";
 }

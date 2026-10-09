@@ -94,7 +94,6 @@ function impactsOf(description: string): string[] {
     .filter((impact) => impact.length > 0);
 }
 
-/** The worst threat level whose area reaches the storm. */
 export function parseThreatKml(kml: string, kind: CycloneThreatKind, area: Area): CycloneThreat | null {
   let worst: CycloneThreat | null = null;
   for (const placemark of kmlPlacemarks(kml)) {
@@ -122,7 +121,6 @@ function surgeUpperFeet(range: string): number {
   return Number.parseFloat(range.split(SURGE_RANGE_SEPARATOR).at(-1) ?? "") || 0;
 }
 
-/** Coastal peak surge ranges, highest first, one row per area. */
 export function parsePeakSurgeKml(kml: string): CycloneSurgeArea[] {
   const areas = new Map<string, { range: string; rings: GeoPoint[][] }>();
   for (const placemark of kmlPlacemarks(kml)) {
@@ -140,7 +138,6 @@ export function parsePeakSurgeKml(kml: string): CycloneSurgeArea[] {
     .sort((left, right) => surgeUpperFeet(right.range) - surgeUpperFeet(left.range));
 }
 
-/** Probability bands whose rings reach the storm. */
 export function parseWindChanceKml(kml: string, thresholdKt: number, area: Area): CycloneWindChances {
   const bands = kmlPlacemarks(kml).flatMap((placemark) => {
     const band = decodeHtmlEntities(kmlElementText(placemark, KmlElement.Name) ?? "");
@@ -153,7 +150,6 @@ export function parseWindChanceKml(kml: string, thresholdKt: number, area: Area)
   return { thresholdKt, bands };
 }
 
-/** Arrival-time isochrones, each labelled with its local time; the 5% probability boundary NHC draws with them is not an arrival time. */
 export function parseArrivalKml(kml: string): CycloneArrivalLine[] {
   return kmlPlacemarks(kml).flatMap((placemark) => {
     if (kmlStyleId(placemark) !== HazardText.ArrivalLineStyle) return [];
@@ -207,7 +203,6 @@ async function fetchPeakSurge(stormId: string): Promise<CycloneSurgeArea[]> {
   return kml ? parsePeakSurgeKml(kml) : [];
 }
 
-/** NHC and NWS hazard products for one storm; parts NHC has not issued come back empty. */
 export async function fetchCycloneHazards(stormId: string): Promise<CycloneHazards> {
   const { cone } = await getCycloneCone(stormId);
   const area = stormArea(cone?.coordinates[0]);

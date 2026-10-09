@@ -6,8 +6,8 @@ import {
   PaneIdSequence,
   PaneIdToken,
   PaneLayoutRatio,
-  PaneMobileHeight,
   PaneMobileRatio,
+  PaneMobileScreen,
   PaneNodeType,
   PaneType,
   PaneTreeArity,
@@ -88,13 +88,11 @@ describe("pane workspace model", () => {
   });
 
   test("owns unique mobile pane height policy", () => {
-    const heights = Object.values(PaneMobileHeight).filter(
-      (value): value is number => typeof value === "number",
-    );
+    const screens = Object.values(PaneMobileScreen);
     const ratios = Object.values(PaneMobileRatio).filter(
       (value): value is number => typeof value === "number",
     );
-    expectUniqueNumbers(heights, PaneModelCount.Eight);
+    expect(new Set(screens).size).toBe(PaneModelCount.Two);
     expectUniqueNumbers(ratios, PaneModelCount.One);
   });
 

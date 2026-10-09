@@ -238,7 +238,6 @@ function IntensityFacts({ facts }: Readonly<{ facts: readonly IntensityFact[] }>
   );
 }
 
-/** Wind over time on the Saffir-Simpson scale, shared by the forecast and best-track history. */
 export function IntensityChart({ alert, ariaLabel, count, facts, lineColor, markerHour, nowHour, points, ticks }: IntensityChartProps) {
   const scale = intensityScale(points);
   const peak = Math.max(...points.map((point) => point.windKt));

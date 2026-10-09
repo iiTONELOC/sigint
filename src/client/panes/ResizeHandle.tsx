@@ -27,7 +27,7 @@ enum ResizeGripId {
 }
 
 enum ResizeHandleClass {
-  Container = "touch-resize relative z-(--layer-content) flex items-center justify-center touch-none transition-colors",
+  Container = "relative z-(--layer-content) flex items-center justify-center touch-none transition-colors",
   Control = "peer absolute m-0 appearance-none border-0 opacity-0 touch-none",
   DragActive = "bg-sig-accent/40",
   DragIdle = "bg-sig-border/30 hover:bg-sig-accent/25",
@@ -84,7 +84,6 @@ type ResizeBodyState = Readonly<{
 type ResizeGeometry = Readonly<{
   bounds: ResizeBounds;
   currentRatio: number;
-  startOffset: number;
   totalSize: number;
 }>;
 
@@ -97,8 +96,10 @@ type ResizeHandleProps = Readonly<{
 type ResizeSession = Readonly<{
   bodyState: ResizeBodyState;
   control: HTMLInputElement;
+  direction: SplitDirectionValue;
   geometry: ResizeGeometry;
   pointerId: number;
+  startPosition: number;
 }>;
 
 function isHorizontalSplit(direction: SplitDirectionValue): boolean {
@@ -165,7 +166,6 @@ function measureResize(
       minimum,
     },
     currentRatio: currentPaneRatio(handle, direction),
-    startOffset: isHorizontalSplit(direction) ? rect.left : rect.top,
     totalSize,
   };
 }
@@ -297,8 +297,10 @@ export function ResizeHandle({
       sessionRef.current = {
         bodyState: startBodyResize(direction),
         control: event.currentTarget,
+        direction,
         geometry,
         pointerId: event.pointerId,
+        startPosition: pointerPosition(event, direction),
       };
       setControlRatio(geometry.currentRatio);
       setDragging(true);
@@ -311,14 +313,15 @@ export function ResizeHandle({
       const session = sessionRef.current;
       if (session?.pointerId !== event.pointerId) return;
 
-      const rawRatio =
-        (pointerPosition(event, direction) - session.geometry.startOffset) /
-        session.geometry.totalSize;
-      const nextRatio = clampRatio(rawRatio, session.geometry.bounds);
+      const moved = pointerPosition(event, session.direction) - session.startPosition;
+      const nextRatio = clampRatio(
+        session.geometry.currentRatio + moved / session.geometry.totalSize,
+        session.geometry.bounds,
+      );
       setControlRatio(nextRatio);
       onResize(splitId, nextRatio);
     },
-    [direction, onResize, splitId],
+    [onResize, splitId],
   );
 
   const finishPointerResize = useCallback(

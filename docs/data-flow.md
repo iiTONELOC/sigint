@@ -17,7 +17,7 @@ The DataWorker owns all geographic source records. React does not own a merged g
 | Bun server | Server poll state, protected credentials, normalized provider responses, and disposable server caches |
 | DataWorker | Geographic source records, source versions, source status, IndexedDB records, trails, aircraft dossiers, Earthquake auxiliary acquisition, render searches, and scene publication |
 | CorrelationWorker | Worker-local copies of geographic records for analysis |
-| RenderWorker | Packed scene records, render selection, search visibility, camera state, and frame state |
+| RenderWorker | Packed scene records, storm satellite and radar frames, render selection, search visibility, camera state, and frame state |
 | React | News articles, pane state, controls, bounded query results, and one selected record copy |
 
 Each owner publishes a typed projection. A consumer does not mutate the owner data.

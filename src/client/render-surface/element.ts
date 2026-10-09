@@ -3,6 +3,7 @@ import type {
   RenderSurfaceSessionFactory,
 } from "@/render-surface/session";
 import type { RenderWorkerCommandBody } from "@/workers/render/protocol";
+import { CanvasTouchAction, canvasTouchAction, SURFACE_TOUCH_MODE_ATTRIBUTE } from "@/render-surface/input";
 
 export type {
   RenderSurfaceSessionHandle,
@@ -23,7 +24,7 @@ function createCanvas(): HTMLCanvasElement {
   canvas.setAttribute("part", "canvas");
   canvas.style.display = "block";
   canvas.style.width = canvas.style.height = "100%";
-  canvas.style.touchAction = "none";
+  canvas.style.touchAction = CanvasTouchAction.None;
   return canvas;
 }
 
@@ -42,6 +43,7 @@ export function createRenderSurfaceElementClass(
   options: RenderSurfaceElementOptions,
 ): CustomElementConstructor {
   return class RenderSurfaceElement extends HTMLElement {
+    static readonly observedAttributes = [SURFACE_TOUCH_MODE_ATTRIBUTE];
     readonly #root: ShadowRoot;
     #canvas: HTMLCanvasElement | null = null;
     #session: RenderSurfaceSessionHandle | null = null;
@@ -54,12 +56,17 @@ export function createRenderSurfaceElementClass(
     connectedCallback(): void {
       if (this.#session) return;
       const canvas = createCanvas();
+      canvas.style.touchAction = canvasTouchAction(this);
       const session = options.createSession();
       this.#root.append(canvas);
       this.#canvas = canvas;
       this.#session = session;
       activeSessions.set(this, session);
       session.start(canvas, this);
+    }
+
+    attributeChangedCallback(): void {
+      if (this.#canvas) this.#canvas.style.touchAction = canvasTouchAction(this);
     }
 
     disconnectedCallback(): void {

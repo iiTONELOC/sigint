@@ -32,7 +32,6 @@ const EMPTY_BOUNDS: ConeBounds = {
   maxLon: -180,
 };
 
-// The worker pages candidates by bounding box so React only ray-casts a bounded page.
 function coneBboxQuery(cone: GeoJsonPolygon | undefined): PointUiQuery | null {
   const ring = cone?.coordinates?.[0];
   if (!ring || ring.length === 0) return null;

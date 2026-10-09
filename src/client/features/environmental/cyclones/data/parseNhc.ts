@@ -79,7 +79,6 @@ type NhcStorm = {
   movementDir?: number;
   movementSpeed?: number;
   lastUpdate: string;
-  // The cone KMZ is on `trackCone` because `forecastTrack` is NHC's separate track-line graphic (2019 schema).
   publicAdvisory?: { advNum?: string; issuance?: string; url?: string };
   forecastDiscussion?: { advNum?: string; issuance?: string; url?: string };
   windSpeedProbabilities?: { advNum?: string; issuance?: string; url?: string };
@@ -89,7 +88,6 @@ type NhcStorm = {
     kmzFile?: string;
     zipFile?: string;
   };
-  // Optional because NHC never sends these; the server adds them after reading the payload.
   forecast?: NhcForecastPoint[];
   officialCone?: GeoJsonPolygon;
   windRadii?: WindRadii;
@@ -179,14 +177,12 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     minPressureMb,
     movementDir: s.movementDir,
     movementSpeedKt: s.movementSpeed,
-    // Older payloads carry the advisory only on forecastTrack, so it stays as the fallback.
     advisoryNumber:
       s.publicAdvisory?.advNum ??
       s.forecastTrack?.advisoryNumber ??
       EMPTY_TEXT,
     lastUpdate: s.lastUpdate,
     forecast: (s.forecast ?? []).map(toForecastPoint),
-    // Left undefined when NHC sends no cone so the worker can synthesize one.
     officialCone: s.officialCone,
     windRadii: s.windRadii,
     // Observed best-track history (genesis → now); absent until b-deck fetched.

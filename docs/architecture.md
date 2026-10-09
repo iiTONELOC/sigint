@@ -156,6 +156,7 @@ The RenderWorker owns these operations:
 - Layer order
 - Hit tests
 - Trails and routes
+- Storm satellite and radar frames
 - Frame invalidation
 - Drawing
 

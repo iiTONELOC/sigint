@@ -32,8 +32,6 @@ function isOptionalArray(value: unknown): boolean {
   return value === undefined || Array.isArray(value);
 }
 
-// Only the scalars the renderer branches on are checked here: element shapes are
-// guarded at each draw site, and this data only comes from our own endpoint and mirror.
 function isCycloneData(value: unknown): value is CycloneData {
   return (
     isRecord(value) &&

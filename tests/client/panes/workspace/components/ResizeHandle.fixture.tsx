@@ -43,10 +43,13 @@ export enum ResizeFixtureSplitId {
 export enum ResizePointerCoordinate {
   HorizontalCenter = 600,
   HorizontalEnd = 1_100,
+  HorizontalOffLine = 615,
   HorizontalStart = 100,
+  HorizontalStep = 620,
   VerticalCenter = 650,
   VerticalEnd = 1_050,
   VerticalStart = 250,
+  VerticalStep = 666,
 }
 
 export enum ResizePointerId {

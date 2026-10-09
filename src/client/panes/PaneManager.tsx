@@ -205,12 +205,10 @@ function usePaneLayoutActions(
   };
 }
 
-// ── Component ────────────────────────────────────────────────────────
 
 export function PaneManager() {
-  const { activeCount, dataSources, counts } = useDataContext();
+  const { activeCount, dataSources } = useDataContext();
 
-  // Mobile detection follows the LayoutModeContext override.
   const isMobile = useIsMobileLayout();
 
   const [layout, setLayout] = useState<LayoutState>(defaultLayout);
@@ -248,14 +246,12 @@ export function PaneManager() {
     persistLayout(layout, isMobileRef.current);
   }, [layout]);
 
-  // ── Dossier signal ──────────────────────────────────────────────
   useEffect(() => {
     const open = hasDossierInTree(layout.root);
     setDossierOpen(open);
     return () => setDossierOpen(false);
   }, [layout.root]);
 
-  // ── Listen for dossier open requests from DetailPanel ──────────
   useEffect(() => {
     return onDossierOpenRequest(() => {
       setLayout(
@@ -267,7 +263,6 @@ export function PaneManager() {
     });
   }, []);
 
-  // ── Listen for watch layout requests ────────────────────────────
   useEffect(() => {
     return onWatchLayoutRequest(() => {
       setLayout(
@@ -279,8 +274,6 @@ export function PaneManager() {
     });
   }, []);
 
-  // ── Walkthrough: reset to globe-only on tour start ──────────────
-  // If user has a non-default layout, save it as a preset first so it's not lost.
   useEffect(() => {
     return onWalkthroughReset(() => {
       const cur = layoutRef.current;
@@ -311,7 +304,6 @@ export function PaneManager() {
     });
   }, []);
 
-  // ── Walkthrough: undo wrong pane pick ─────────────────────────
   useEffect(() => {
     return onWalkthroughUndo((paneType) => {
       setLayout(closePaneTypeInLayout(layoutRef.current, paneType));
@@ -330,7 +322,6 @@ export function PaneManager() {
     [openTypes],
   );
 
-  // ── Layout presets ─────────────────────────────────────────────
 
   const [showPresets, setShowPresets] = useState(false);
   const [presets, setPresets] = useState<LayoutPresetCatalog>({});
@@ -339,7 +330,6 @@ export function PaneManager() {
   presetsRef.current = presets;
   const presetList = useMemo(() => Object.values(presets), [presets]);
 
-  // ── Walkthrough: push layout snapshot for action step detection ──
   useEffect(() => {
     const types = collectLeafTypes(layout.root);
     const count = leafCount(layout.root);
@@ -401,9 +391,6 @@ export function PaneManager() {
       <PaneMobile
         allLeaves={allLeaves}
         layout={layout}
-        activeCount={activeCount}
-        dataSources={dataSources}
-        counts={counts}
         paneCatalog={PANE_CATALOG}
         closePane={closePane}
         changePaneType={changePaneType}
@@ -425,12 +412,10 @@ export function PaneManager() {
     );
   }
 
-  // ── DESKTOP ────────────────────────────────────────────────────
 
   return (
     <PaneBodyLayer root={layout.root}>
     <div className="w-full h-full flex flex-col overflow-hidden">
-      {/* Minimized panes and layout presets */}
       <div
         data-tour="pane-toolbar"
         className="shrink-0 flex items-center gap-1 px-2 py-0.5 border-b border-sig-border/50 bg-sig-panel/60"

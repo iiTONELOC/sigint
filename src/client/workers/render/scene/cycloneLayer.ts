@@ -273,7 +273,6 @@ function glowAlphaSuffix(stop: CycloneGlowStop): string {
     .padStart(CycloneGlowAlphaFormat.HexWidth, CYCLONE_GLOW_ZERO);
 }
 
-// A storm and its forecast points are one subject, so focusing either keeps the whole storm.
 const CYCLONE_POINT_TYPES: ReadonlySet<string> = new Set([Domain.Cyclones, Domain.CyclonesForecast]);
 
 function baseRecordIsVisible(
@@ -311,7 +310,7 @@ export class CycloneLayer extends ScenePointLayer<
 
   private recordSets = new Map<string, CycloneRecordSet>();
   private onScreen = false;
-  // Frames run while a storm is on screen, so a raster frame that lands is drawn on the next one.
+  private rastersSharpening = false;
   private readonly rasters = new StormRasterCache();
   private readonly positions: CycloneScenePositionAccessor;
   private frameTime = Date.now();
@@ -418,7 +417,7 @@ export class CycloneLayer extends ScenePointLayer<
 
   /** Only a storm on screen earns frames; off-screen storms cost nothing. */
   override hasTimeAnimation(reducedMotion: boolean): boolean {
-    return !reducedMotion && this.onScreen;
+    return (!reducedMotion && this.onScreen) || this.rastersSharpening;
   }
 
   protected override recordSelectionIdentity(
@@ -544,8 +543,8 @@ export class CycloneLayer extends ScenePointLayer<
     }
   }
 
-  /** Hazard fills, then satellite, then radar, painted in the area pass so every marker layer draws above the imagery. */
   drawUnderlay(style: CycloneUnderlayStyle): void {
+    this.rastersSharpening = false;
     const view = this.view;
     if (!view) return;
     for (const records of this.recordSets.values()) {
@@ -569,7 +568,7 @@ export class CycloneLayer extends ScenePointLayer<
     for (const source of sources) {
       this.rasters.request(view.entityIds[current] ?? "", source, area.bounds, now);
       const image = this.rasters.peek(source, area.bounds, now, !style.reducedMotion);
-      if (image) paintRaster(style.context, style.project, image, area.circle);
+      if (image && !paintRaster(style.context, style.project, image, area.circle)) this.rastersSharpening = true;
     }
   }
 
@@ -607,6 +606,7 @@ export class CycloneLayer extends ScenePointLayer<
       const line = geometryLine(view, index);
       return line ? [{ label: stringAttribute(view, index, CycloneSceneStringAttribute.Label), line }] : [];
     });
+    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
     style.context.strokeStyle = color;
     style.context.lineWidth = CyclonePathStyle.ModelStrokeWidth;
     strokeArrivalLines(style.context, style.project, lines, style.casingColor);

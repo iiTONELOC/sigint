@@ -31,7 +31,6 @@ function historyFacts(history: TrackHistory): IntensityFact[] {
   ];
 }
 
-/** Best-track history since formation. */
 export function CycloneHistoryPanel({ storm }: Readonly<{ storm: CycloneData }>) {
   const history = trackHistory(storm);
   if (!history) return null;

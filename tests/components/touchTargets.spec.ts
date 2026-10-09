@@ -65,9 +65,11 @@ describe("PaneHeader stacking", () => {
 // ── Resize handle touch ──────────────────────────────────────────────
 
 describe("ResizeHandle touch sizing", () => {
-  test("ResizeHandle uses touch-resize class", async () => {
+  test("ResizeHandle gives its control the touch hit area", async () => {
     const src = await Bun.file("src/client/panes/ResizeHandle.tsx").text();
-    expect(src).toContain("touch-resize");
+    expect(src).toContain("any-pointer-coarse:w-11");
+    expect(src).toContain("any-pointer-coarse:h-11");
+    expect(src).not.toContain("touch-resize");
   });
 
   test("touch-resize styles exist in CSS", async () => {

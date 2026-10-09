@@ -53,7 +53,7 @@ enum HeaderCssValue {
   LayerIconSize = "var(--sig-text-icon)",
 }
 
-enum HeaderIconSize {
+export enum HeaderIconSize {
   Compact = 14,
   SettingsDesktop = 15,
   SourceError = 10,
@@ -87,7 +87,7 @@ const HEADER_DATE_FORMAT: Intl.DateTimeFormatOptions = {
   day: HeaderDateStyle.Numeric,
 };
 
-type HeaderProps = {
+export type HeaderProps = {
   readonly layers: Record<string, boolean>;
   readonly toggleLayer: (key: string) => void;
   readonly counts: Record<string, number>;
@@ -106,6 +106,7 @@ function LayerToggle({
   on,
   color,
   count,
+  countVisible,
   down,
   reason,
   iconStyle,
@@ -116,6 +117,7 @@ function LayerToggle({
   readonly on: boolean;
   readonly color: string;
   readonly count: number;
+  readonly countVisible: boolean;
   readonly down: boolean;
   readonly reason: string | null;
   readonly iconStyle: FeatureIconStyle;
@@ -137,7 +139,6 @@ function LayerToggle({
         onClick={onToggle}
         aria-label={`Toggle ${label} layer`}
         aria-pressed={on}
-        // Explicit off-state colors keep the icon visible after a toggle.
         className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sig-accent"
         style={{
           color: on ? color : "var(--sigint-dim)",
@@ -157,7 +158,7 @@ function LayerToggle({
             height: HeaderCssValue.LayerIconSize,
           }}
         />
-        <span className="hidden sm:inline-flex items-center min-h-lh">
+        <span className={`${countVisible ? "inline-flex" : "hidden sm:inline-flex"} items-center min-h-lh`}>
           {down && count === 0 ? (
             <AlertTriangle
               size={HeaderIconSize.SourceError}
@@ -194,7 +195,8 @@ function shouldShowLayerToggle(
   return shouldShowCyclonesToggle(cyclonesEmpty ? 0 : 1);
 }
 
-function Toggles({
+export function Toggles({
+  countsVisible = false,
   layers,
   toggleLayer,
   counts,
@@ -203,7 +205,7 @@ function Toggles({
   setAircraftFilter,
   availableCountries,
   searchSlot,
-}: Readonly<HeaderProps>) {
+}: Readonly<HeaderProps & { countsVisible?: boolean }>) {
   const { theme } = useTheme();
   const colors = theme.colors;
   const colorMap = getColorMap(theme);
@@ -215,11 +217,15 @@ function Toggles({
 
   return (
     <>
-      <div data-tour={HeaderTourTarget.Search}>{searchSlot}</div>
-      <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
+      {searchSlot && (
+        <>
+          <div data-tour={HeaderTourTarget.Search}>{searchSlot}</div>
+          <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
+        </>
+      )}
       <div
         data-tour={HeaderTourTarget.LayerToggles}
-        className="flex items-center gap-0.5 sm:gap-1"
+        className="flex flex-wrap items-center gap-0.5 sm:gap-1"
       >
         {featureList
           .filter((feature) =>
@@ -243,6 +249,7 @@ function Toggles({
                 on={on}
                 color={color}
                 count={count}
+                countVisible={countsVisible}
                 down={down}
                 reason={entry?.error ?? null}
                 iconStyle={feature.iconStyle}
@@ -256,6 +263,7 @@ function Toggles({
             setAircraftFilter={setAircraftFilter}
             aircraftCount={counts[Domain.Aircraft] ?? 0}
             availableCountries={availableCountries}
+            countVisible={countsVisible}
         />
         </div>
       </div>
@@ -285,7 +293,7 @@ const LAYOUT_MODE_PRESENTATION: Readonly<
   },
 };
 
-function LayoutModeToggle() {
+export function LayoutModeToggle() {
   const { mode, cycleMode, isMobile } = useLayoutMode();
   const Icon = isMobile ? Smartphone : Monitor;
   const isForced = mode !== LayoutMode.Auto;
@@ -321,7 +329,7 @@ function LayoutModeToggle() {
   );
 }
 
-function HeaderBrand() {
+export function HeaderBrand() {
   return (
     <div
       data-tour={HeaderTourTarget.Brand}
@@ -357,7 +365,7 @@ function HeaderClock({ time }: { readonly time: Date }) {
   );
 }
 
-function SettingsButton({
+export function SettingsButton({
   iconSize,
   onOpen,
   showTooltip,

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { Bookmark, ChevronRight, Plus, Satellite } from "lucide-react";
+import { Bookmark, ChevronRight, Plus } from "lucide-react";
 import type {
   PaneType,
   LeafNode,
@@ -8,9 +8,6 @@ import type {
   LayoutPreset,
 } from "./paneTree";
 import { useUI } from "@/context/UIContext";
-import { isSourceDelivering } from "@shared/domain/sourceStatus";
-import { Domain } from "@shared/domain/identity";
-import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
 import { DomEvent } from "@/runtime";
 import { cn } from "@/lib/ui/utils";
 import { ButtonType } from "@/lib/ui/button";
@@ -40,9 +37,10 @@ import {
   type MobileBlock,
 } from "@/panes/workspace/utils/mobile";
 import {
+  PANE_MOBILE_MINIMUM_HEIGHT,
   PaneDropZone,
-  PaneMobileHeight,
   PaneMobileRatio,
+  PaneMobileScreen,
   PaneNodeType,
   PaneType as PaneTypeId,
   PaneWorkspaceIconMetric,
@@ -52,15 +50,6 @@ import {
   type SplitDirectionValue,
 } from "@/panes/workspace/model/pane";
 
-const COUNT_ORDER: readonly Domain[] = [
-  Domain.Ships,
-  Domain.Events,
-  Domain.Quakes,
-  Domain.Fires,
-  Domain.Weather,
-  Domain.Aircraft,
-];
-
 enum PaneMobileClassName {
   Accent = "text-sig-accent",
   AccentIcon = "text-sig-accent shrink-0",
@@ -68,8 +57,13 @@ enum PaneMobileClassName {
   BlockFlex = "flex-1 flex flex-col",
   BlockMoveSource = "ring-2 ring-sig-accent/70 shadow-[0_0_12px_rgba(0,212,240,0.15)]",
   BodyNoSelect = "select-none",
-  StatusCount = "text-(length:--sig-text-sm) tabular-nums font-semibold",
+  FillContent = "flex-1 min-h-0",
 }
+
+const MOBILE_SCREEN_CLASS: Readonly<Record<PaneMobileScreen, string>> = {
+  [PaneMobileScreen.Full]: "h-[100cqh] flex flex-col",
+  [PaneMobileScreen.Half]: "h-[50cqh] flex flex-col",
+};
 
 enum PaneMobileGridMetric {
   SeparatorPx = 6,
@@ -82,9 +76,6 @@ enum PaneMobileMenuMetric {
 type PaneMobileProps = {
   readonly allLeaves: LeafNode[];
   readonly layout: LayoutState;
-  readonly activeCount: number;
-  readonly dataSources: readonly SourceStatusEntry[];
-  readonly counts: Record<string, number>;
   readonly paneCatalog: PaneCatalog;
   readonly closePane: (leafId: string) => void;
   readonly changePaneType: (leafId: string, newType: PaneType) => void;
@@ -114,9 +105,6 @@ type PaneMobileProps = {
 export function PaneMobile({
   allLeaves,
   layout,
-  activeCount,
-  dataSources,
-  counts,
   paneCatalog,
   closePane,
   changePaneType,
@@ -134,7 +122,7 @@ export function PaneMobile({
   onUpdatePreset,
   onDeletePreset,
 }: PaneMobileProps) {
-  const { colorMap, chromeHidden } = useUI();
+  const { chromeHidden } = useUI();
   const bodiesActive = usePaneBodiesActive();
   const [showPresets, setShowPresets] = useState(false);
 
@@ -236,11 +224,10 @@ export function PaneMobile({
       e.stopPropagation();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       const startY = e.clientY;
-      const block = blockMap.get(blockId);
       const startH =
         heights[blockId] ??
-        paneCatalog[block?.primaryLeaf.paneType ?? PaneTypeId.Globe]
-          .mobileHeight;
+        (e.currentTarget as HTMLElement).previousElementSibling?.getBoundingClientRect().height ??
+        PANE_MOBILE_MINIMUM_HEIGHT;
       document.body.classList.add(PaneMobileClassName.BodyNoSelect);
 
       const onMove = (ev: PointerEvent) => {
@@ -248,7 +235,7 @@ export function PaneMobile({
         setHeights((prev) => ({
           ...prev,
           [blockId]: Math.max(
-            PaneMobileHeight.Minimum,
+            PANE_MOBILE_MINIMUM_HEIGHT,
             Math.min(
               window.innerHeight * PaneMobileRatio.MaximumViewportHeight,
               startH + dy,
@@ -264,7 +251,7 @@ export function PaneMobile({
       document.addEventListener(DomEvent.PointerMove, onMove);
       document.addEventListener(DomEvent.PointerUp, onUp);
     },
-    [heights, blockMap, paneCatalog],
+    [heights],
   );
 
   const [moveSourceLeafId, setMoveSourceLeafId] = useState<string | null>(null);
@@ -607,58 +594,6 @@ export function PaneMobile({
       )}
 
       {!chromeHidden && (
-        <div className="shrink-0 flex flex-col items-center gap-0 px-2 py-0.5 border-b border-sig-border/30 bg-sig-panel/60">
-          <div className="flex items-center gap-2 sm:hidden">
-            {COUNT_ORDER.map((key) => {
-              const count = counts[key] ?? 0;
-              return (
-                <span
-                  key={key}
-                  className={PaneMobileClassName.StatusCount}
-                  style={{
-                    color: count > 0 ? colorMap[key] : undefined,
-                    opacity: count > 0 ? 1 : 0.3,
-                  }}
-                >
-                  {count > 0 ? count.toLocaleString() : "0"}
-                </span>
-              );
-            })}
-            {(counts.cyclones ?? 0) > 0 && (
-              <span
-                className={PaneMobileClassName.StatusCount}
-                style={{ color: colorMap.cyclones }}
-              >
-                {(counts.cyclones ?? 0).toLocaleString()}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Satellite
-              size={PaneWorkspaceIconMetric.CompactSize}
-              strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-              className={PaneMobileClassName.AccentIcon}
-            />
-            <span className="text-sig-accent font-semibold tabular-nums text-(length:--sig-text-sm)">
-              {activeCount.toLocaleString()}
-            </span>
-            <span className="text-sig-dim text-(length:--sig-text-sm) tracking-wider">
-              TRACKS
-            </span>
-            <span className="text-sig-dim text-(length:--sig-text-sm)">
-              ·{" "}
-              {
-                dataSources.filter((source) =>
-                  isSourceDelivering(source.status),
-                ).length
-              }
-              /{dataSources.length} LIVE
-            </span>
-          </div>
-        </div>
-      )}
-
-      {!chromeHidden && (
         <div className="shrink-0 sticky top-0 z-(--layer-floating) flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/95 backdrop-blur-sm">
           {blocks.map((block) => {
             const meta = paneCatalog[block.primaryLeaf.paneType];
@@ -785,12 +720,12 @@ export function PaneMobile({
       )}
 
       <div
-        className={`flex-1 overflow-y-auto sigint-scroll ${blocks.length === 1 ? "flex flex-col" : ""}`}
+        className={`flex-1 overflow-y-auto sigint-scroll @container-[size] ${blocks.length === 1 ? "flex flex-col" : ""}`}
       >
         {blocks.map((block) => {
           const meta = paneCatalog[block.primaryLeaf.paneType];
-          const rawH = heights[block.id] ?? meta.mobileHeight;
-          const useFlexFill = blocks.length === 1 && !heights[block.id];
+          const resizedHeight = heights[block.id];
+          const useFlexFill = blocks.length === 1 && resizedHeight === undefined;
           const isVisible = visibleSet.has(block.id);
           const isMinimized = minimizedBlocks.has(block.id);
           const isMoveSource = isMoveSourceBlock(block, moveSourceLeafId);
@@ -815,6 +750,7 @@ export function PaneMobile({
               className={cn(
                 PaneMobileClassName.Block,
                 useFlexFill && PaneMobileClassName.BlockFlex,
+                !useFlexFill && !isMinimized && resizedHeight === undefined && MOBILE_SCREEN_CLASS[meta.mobileScreen],
                 isMoveSource && PaneMobileClassName.BlockMoveSource,
               )}
             >
@@ -835,8 +771,8 @@ export function PaneMobile({
               {!isMinimized && (
                 <>
                   <div
-                    className={`relative overflow-hidden ${useFlexFill ? "flex-1" : ""}`}
-                    style={useFlexFill ? undefined : { height: rawH }}
+                    className={cn("relative overflow-hidden", resizedHeight === undefined && PaneMobileClassName.FillContent)}
+                    style={resizedHeight === undefined ? undefined : { height: resizedHeight }}
                   >
                     {renderMobileNode(
                       block.node,

@@ -235,6 +235,7 @@ function drawHazardOverlays(
 function drawArrival(scene: CycloneMiniMapScene, hazards: CycloneHazards | undefined, overlay: RenderCycloneOverlay): void {
   if (!hazards || !overlay.showArrival) return;
   const { accent, context, project } = scene;
+  context.globalAlpha = 1;
   context.strokeStyle = accent;
   context.lineWidth = ARRIVAL_LINE_WIDTH;
   strokeArrivalLines(context, project, mappedArrivalLines(hazards), scene.casing);

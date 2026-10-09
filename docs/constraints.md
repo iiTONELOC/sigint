@@ -123,6 +123,8 @@ The Bun server must own a source when the source needs one of these controls:
 
 An approved browser source can fetch directly in the DataWorker. The source owner still controls validation, freshness, retry, and cache rules.
 
+Storm satellite and radar images are not source records. The RenderWorker and the dossier mini map fetch them directly from the NOAA WMS services.
+
 ## Static files
 
 The server must expose explicit routes for static directories. Worker entry files use `/workers/*`. Geographic static data uses `/data/*`.

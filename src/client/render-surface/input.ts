@@ -18,10 +18,31 @@ export enum SurfaceControlKey {
   MiddleClick = "Space",
 }
 
+export const SURFACE_TOUCH_MODE_ATTRIBUTE = "data-touch-mode";
+
+export enum SurfaceTouchMode {
+  Globe = "globe",
+  PageScroll = "page-scroll",
+}
+
+export enum CanvasTouchAction {
+  None = "none",
+  PanY = "pan-y",
+}
+
+export function scrollsPageOnTouch(host: Element): boolean {
+  return host.getAttribute(SURFACE_TOUCH_MODE_ATTRIBUTE) === SurfaceTouchMode.PageScroll;
+}
+
+export function canvasTouchAction(host: Element): CanvasTouchAction {
+  return scrollsPageOnTouch(host) ? CanvasTouchAction.PanY : CanvasTouchAction.None;
+}
+
 export type InputAdapterOptions = Readonly<{
   canvas: HTMLCanvasElement;
   sendInput: (payload: RenderInputPayload) => void;
   onMiddleClick: () => void;
+  scrollsPage: () => boolean;
 }>;
 
 type PointerPayload = Extract<
@@ -89,6 +110,7 @@ export class InputAdapter {
   private pinching = false;
   private lastTouchTime = 0;
   private lastPoint = { x: 0, y: 0 };
+  private pressPoint = { x: 0, y: 0 };
   private pendingPointer: PointerPayload | null = null;
   private pointerFrame = 0;
   private started = false;
@@ -115,6 +137,7 @@ export class InputAdapter {
       passive: false,
     });
     canvas.addEventListener(DomEvent.TouchEnd, this.onUp);
+    canvas.addEventListener(DomEvent.TouchCancel, this.cancelPointer);
     canvas.addEventListener(DomEvent.ContextMenu, this.onContextMenu);
     window.addEventListener(DomEvent.KeyDown, this.onKeyDown);
   }
@@ -131,6 +154,7 @@ export class InputAdapter {
     canvas.removeEventListener(DomEvent.TouchStart, this.onDown);
     canvas.removeEventListener(DomEvent.TouchMove, this.onTouchMove);
     canvas.removeEventListener(DomEvent.TouchEnd, this.onUp);
+    canvas.removeEventListener(DomEvent.TouchCancel, this.cancelPointer);
     canvas.removeEventListener(
       DomEvent.ContextMenu,
       this.onContextMenu,
@@ -160,7 +184,7 @@ export class InputAdapter {
   ): void => {
     if ("touches" in event) {
       this.lastTouchTime = Date.now();
-      event.preventDefault();
+      if (event.touches.length > 1 || !this.options.scrollsPage()) event.preventDefault();
       const pinch = pinchPayload(
         this.options.canvas,
         event,
@@ -193,6 +217,7 @@ export class InputAdapter {
     if (!point) return;
     const relative = relativePoint(this.options.canvas, point);
     this.lastPoint = relative;
+    this.pressPoint = relative;
     this.active = true;
     this.flushPointer();
     this.options.sendInput({
@@ -286,14 +311,25 @@ export class InputAdapter {
   };
 
   private readonly onTouchMove = (event: TouchEvent): void => {
+    if (event.touches.length < 2 && this.options.scrollsPage()) {
+      this.releaseToPage(event);
+      return;
+    }
     if (event.touches.length >= 2 || this.active) {
       event.preventDefault();
     }
     this.onMove(event);
   };
 
-  private readonly onContextMenu = (event: MouseEvent): void => {
-    event.preventDefault();
+  private releaseToPage(event: TouchEvent): void {
+    const point = firstTouch(event);
+    if (!this.active || !point) return;
+    const relative = relativePoint(this.options.canvas, point);
+    const travelled = Math.hypot(relative.x - this.pressPoint.x, relative.y - this.pressPoint.y);
+    if (travelled > CAMERA_POLICY.dragClickThresholdPx) this.cancelPointer();
+  }
+
+  private readonly cancelPointer = (): void => {
     this.active = false;
     this.pinching = false;
     this.flushPointer();
@@ -303,6 +339,11 @@ export class InputAdapter {
       x: this.lastPoint.x,
       y: this.lastPoint.y,
     });
+  };
+
+  private readonly onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+    this.cancelPointer();
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {

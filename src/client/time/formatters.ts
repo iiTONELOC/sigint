@@ -130,12 +130,10 @@ export function formatClockTime(epochSeconds: number, zoned = true): string {
   );
 }
 
-/** Local weekday, such as "Fri". */
 export function formatWeekday(epochMs: number): string {
   return new Date(epochMs).toLocaleString(TimeLocale.EnglishUnitedStates, WEEKDAY_FORMAT);
 }
 
-/** Local hour, such as "7 AM". */
 export function formatHour(epochMs: number): string {
   return new Date(epochMs).toLocaleString(TimeLocale.EnglishUnitedStates, HOUR_FORMAT);
 }

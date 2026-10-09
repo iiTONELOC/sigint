@@ -102,6 +102,7 @@ type AircraftFilterControlProps = Readonly<{
   setAircraftFilter: Dispatch<SetStateAction<AircraftFilterValues>>;
   aircraftCount: number;
   availableCountries: readonly string[];
+  countVisible?: boolean;
 }>;
 
 function toggledArrayValue<T>(
@@ -118,6 +119,7 @@ export function AircraftFilterControl({
   setAircraftFilter,
   aircraftCount,
   availableCountries,
+  countVisible = false,
 }: AircraftFilterControlProps) {
   const [open, setOpen] = useState(false);
   const disclosureId = useId();
@@ -184,7 +186,7 @@ export function AircraftFilterControl({
         <span className="text-(length:--sig-text-icon)">
           <Plane aria-hidden={true} size="1em" fill="currentColor" strokeWidth={0} />
         </span>
-        <span className="hidden sm:inline">{aircraftCount}</span>
+        <span className={countVisible ? "inline" : "hidden sm:inline"}>{aircraftCount}</span>
         <span aria-hidden={true} className="text-[8px] opacity-60">▾</span>
       </button>
 

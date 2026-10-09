@@ -176,7 +176,7 @@ React does not send a complete frame description.
 The render surface converts browser events to small worker commands.
 
 - `viewport.ts` observes the host size and sends width, height, and device pixel ratio.
-- `input.ts` sends pointer, pinch, wheel, and keyboard input.
+- `input.ts` sends pointer, pinch, wheel, and keyboard input. In the mobile layout, the host sets `data-touch-mode="page-scroll"`, so one-finger drags scroll the page and only taps reach the globe.
 - `reducedMotion.ts` sends the media preference.
 - `renderTheme.ts` sends render colors.
 - `aircraftFilterUrl.ts` synchronizes the aircraft filter with the URL.
@@ -207,7 +207,7 @@ For each frame, the RenderWorker performs these operations:
 5. Draw static land, ocean, grid, glow, and frame elements.
 6. Project and filter each registered scene layer.
 7. Calculate the selected screen position.
-8. Draw area overlays.
+8. Draw area overlays, then each storm's hazard fills, satellite image, and radar image.
 9. Draw the selected route and trail when the selection is visible.
 10. Draw point layers in the configured order.
 11. Draw the frame edge.
@@ -258,6 +258,16 @@ The RenderWorker stores this overlay separately from source scene data. It uses 
 Aircraft and ship scene patches contain motion positions. Their render layers use these positions for between-refresh motion.
 
 React can request a selected trail for a pane. This query does not supply the render trail.
+
+## Storm imagery
+
+Storm satellite and radar frames are images, not scene records. The cyclone render layer requests them from the NOAA WMS services for the area around each storm. The dossier mini map requests its own frames.
+
+`StormRasterCache` keeps one loop of frames for each storm and source. It fetches each frame one time and drops the frame when it leaves the loop.
+
+`paintRaster` warps each frame onto the projection and keeps the result for the current view. While the camera moves, it stretches the kept result to the storm's new screen position. It warps the frame again when the camera stops.
+
+Storm imagery draws in the area pass, so every point layer draws above it.
 
 ## React boundary
 

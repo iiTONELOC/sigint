@@ -24,12 +24,10 @@ const LINE_STRING_PATTERN = /<LineString[\s\S]*?<coordinates[^>]*>([\s\S]*?)<\/c
 const COORDINATE_SEPARATOR = /\s+/;
 const STYLE_REFERENCE_PREFIX = "#";
 
-/** Each placemark's markup, in document order. */
 export function kmlPlacemarks(kml: string): string[] {
   return kml.split(PLACEMARK_SPLIT).slice(1);
 }
 
-/** The trimmed text of the first element of a kind, case-insensitively, from an offset. */
 export function kmlElementText(source: string, element: KmlElement, from = 0): string | null {
   const lowercaseSource = source.toLowerCase();
   const openTag = `<${element}>`;
@@ -41,7 +39,6 @@ export function kmlElementText(source: string, element: KmlElement, from = 0): s
   return end < 0 ? null : source.slice(start, end).trim();
 }
 
-/** The placemark description with any CDATA wrapper removed. */
 export function kmlDescription(placemark: string): string {
   const description = kmlElementText(placemark, KmlElement.Description);
   if (!description?.toUpperCase().startsWith(CdataMarker.Open)) return description ?? "";
@@ -51,13 +48,11 @@ export function kmlDescription(placemark: string): string {
     : content;
 }
 
-/** The style id a placemark references, without the leading "#". */
 export function kmlStyleId(placemark: string): string | null {
   const reference = kmlElementText(placemark, KmlElement.StyleUrl);
   return reference?.startsWith(STYLE_REFERENCE_PREFIX) ? reference.slice(STYLE_REFERENCE_PREFIX.length) : reference;
 }
 
-/** Parse a KML coordinates list; a malformed entry throws instead of being skipped. */
 export function parseKmlCoordinates(text: string): GeoPoint[] {
   const points: GeoPoint[] = [];
   for (const triple of text.trim().split(COORDINATE_SEPARATOR)) {
@@ -71,12 +66,10 @@ export function parseKmlCoordinates(text: string): GeoPoint[] {
   return points;
 }
 
-/** Every polygon outer ring in the markup. */
 export function kmlOuterRings(source: string): GeoPoint[][] {
   return [...source.matchAll(OUTER_RING_PATTERN)].map((match) => parseKmlCoordinates(match[1] ?? ""));
 }
 
-/** Every line string in the markup. */
 export function kmlLineStrings(source: string): GeoPoint[][] {
   return [...source.matchAll(LINE_STRING_PATTERN)].map((match) => parseKmlCoordinates(match[1] ?? ""));
 }

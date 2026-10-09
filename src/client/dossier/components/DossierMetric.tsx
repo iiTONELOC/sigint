@@ -15,7 +15,6 @@ export enum DossierMetricValueClass {
   Title = "text-(length:--sig-text-title) text-sig-bright font-bold",
 }
 
-/** The dossier type scale. */
 export enum DossierTextClass {
   Label = "text-(length:--sig-text-xs) tracking-wide text-sig-dim",
   Body = "text-(length:--sig-text-sm) text-sig-text",

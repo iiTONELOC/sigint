@@ -195,7 +195,6 @@ export type PastTrackPoint = CycloneCoordinates & {
 
 const ATCF_TIME_LENGTH = 10;
 
-/** ATCF times are YYYYMMDDHH in UTC; anything else is NaN. */
 export function atcfTimeMs(time: string): number {
   if (time.length !== ATCF_TIME_LENGTH || !/^\d+$/.test(time)) {
     return Number.NaN;
@@ -346,7 +345,6 @@ export type CycloneDossierProductBody = Readonly<{
   nextAdvisory: string;
 }>;
 
-/** NWS Hurricane Threats and Impacts products; each value names its KML. */
 export enum CycloneThreatKind {
   Wind = "Wind",
   StormSurge = "StormSurge",
@@ -354,7 +352,6 @@ export enum CycloneThreatKind {
   Tornado = "Tornado",
 }
 
-/** NWS threat levels in rising order; each value is the KML style id. */
 export enum CycloneThreatLevel {
   None = "none",
   Elevated = "elevated",
@@ -365,7 +362,6 @@ export enum CycloneThreatLevel {
 
 export const CYCLONE_THREAT_LEVELS: readonly CycloneThreatLevel[] = Object.values(CycloneThreatLevel);
 
-/** NHC tropical-storm-wind arrival products; each value names its KMZ. */
 export enum CycloneArrivalKind {
   Earliest = "earliest_reasonable",
   MostLikely = "most_likely",
@@ -405,13 +401,11 @@ export type CycloneHazards = Readonly<{
   arrival: CycloneArrivals;
 }>;
 
-/** Maps shade the tropical-storm-force chances; the dossier lists every threshold. */
 export function mappedWindChances(hazards: CycloneHazards | undefined): CycloneWindChances | undefined {
   const thresholdKt = CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt;
   return hazards?.windChances.find((chances) => chances.thresholdKt === thresholdKt);
 }
 
-/** Maps draw the earliest reasonable arrival, the time to be ready by. */
 export function mappedArrivalLines(hazards: CycloneHazards | undefined): readonly CycloneArrivalLine[] {
   return hazards?.arrival[CycloneArrivalKind.Earliest] ?? [];
 }

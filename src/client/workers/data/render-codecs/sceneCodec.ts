@@ -388,8 +388,6 @@ export class ScenePatchCodec<
     ] = latitudeOf(position);
   }
 
-  // Every record is checked before any handle, identity, or dictionary entry changes,
-  // so a rejected patch leaves the codec in step with the render store.
   private validateRecords(
     projected: readonly SceneProjectedRecord<TEntity, TRecord>[],
   ): void {

@@ -22,7 +22,6 @@ const THREAT_LEVEL_CLASS: Readonly<Record<CycloneThreatLevel, string>> = {
   [CycloneThreatLevel.Extreme]: "text-sig-events",
 };
 
-// None sits first, so a level's index is how many rated steps it fills.
 const RATED_LEVEL_COUNT = CYCLONE_THREAT_LEVELS.length - 1;
 const SURGE_ROWS_SHOWN = 8;
 const PERCENT_SIGN = "%";
@@ -107,7 +106,6 @@ function ThreatRow({ threat }: Readonly<{ threat: CycloneThreat }>) {
   );
 }
 
-/** Worst NWS threat level near the storm for wind, surge, flooding rain, and tornadoes. */
 export function CycloneThreatList({ threats }: Readonly<{ threats: readonly CycloneThreat[] }>) {
   return (
     <div className="divide-y divide-sig-border">
@@ -135,7 +133,6 @@ function SurgeRow({ area }: Readonly<{ area: CycloneSurgeArea }>) {
   );
 }
 
-/** NHC peak storm surge ranges by coastal area, highest first. */
 export function CycloneSurgeList({ areas }: Readonly<{ areas: readonly CycloneSurgeArea[] }>) {
   const shown = areas.slice(0, SURGE_ROWS_SHOWN);
   const rest = areas.slice(SURGE_ROWS_SHOWN);
@@ -192,7 +189,6 @@ function ArrivalRow({ label, lines }: Readonly<{ label: string; lines: CycloneAr
   );
 }
 
-/** NHC chance of each wind threshold at a location, and when tropical-storm winds arrive. */
 export function CycloneWindChancePanel({ chances, arrival, position }: Readonly<{
   chances: readonly CycloneWindChances[];
   arrival: CycloneArrivals;

@@ -38,7 +38,6 @@ export type DossierMiniGlobeProps = Readonly<{
   compactBorderRadius?: boolean;
   drawForeground?: DossierMiniGlobeOverlay;
   drawOverlay: DossierMiniGlobeOverlay;
-  /** Redraw the canvas on this interval for animated overlays; React does not re-render for it. */
   redrawEveryMs?: number;
   reserveMinimumHeight?: boolean;
   resetKey: string;

@@ -11,6 +11,26 @@ import {
   type RenderInputPayload,
 } from "@/workers/render/protocol";
 
+enum TouchTestPoint {
+  X = 20,
+  Y = 30,
+  ScrolledY = 90,
+}
+
+type TouchPoint = Readonly<{ clientX: number; clientY: number }>;
+
+function touchEvent(type: DomEvent, points: readonly TouchPoint[]): Event {
+  const event = new Event(type, { cancelable: true });
+  Object.defineProperty(event, "touches", {
+    value: { length: points.length, item: (index: number) => points[index] ?? null },
+  });
+  return event;
+}
+
+function phases(sent: readonly RenderInputPayload[]): (RenderInputPhase | null)[] {
+  return sent.map((payload) => ("phase" in payload ? payload.phase : null));
+}
+
 describe("InputAdapter", () => {
   test("attaches pointer input and removes it on stop", () => {
     const canvas = document.createElement("canvas");
@@ -19,6 +39,7 @@ describe("InputAdapter", () => {
       canvas,
       sendInput: (payload) => sent.push(payload),
       onMiddleClick: () => undefined,
+      scrollsPage: () => false,
     });
 
     adapter.start();
@@ -51,6 +72,32 @@ describe("InputAdapter", () => {
     expect(sent).toHaveLength(2);
   });
 
+  test("hands a one-finger drag to the page and keeps a tap as a selection", () => {
+    const canvas = document.createElement("canvas");
+    const sent: RenderInputPayload[] = [];
+    const adapter = new InputAdapter({
+      canvas,
+      sendInput: (payload) => sent.push(payload),
+      onMiddleClick: () => undefined,
+      scrollsPage: () => true,
+    });
+    const press = { clientX: TouchTestPoint.X, clientY: TouchTestPoint.Y };
+    adapter.start();
+
+    const tap = touchEvent(DomEvent.TouchStart, [press]);
+    canvas.dispatchEvent(tap);
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchEnd, []));
+    expect(tap.defaultPrevented).toBe(false);
+    expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.End]);
+
+    sent.length = 0;
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchStart, [press]));
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchMove, [{ clientX: TouchTestPoint.X, clientY: TouchTestPoint.ScrolledY }]));
+    expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.Cancel]);
+
+    adapter.stop();
+  });
+
   test("maps keyboard commands without capturing text entry", () => {
     const canvas = document.createElement("canvas");
     const sent: RenderInputPayload[] = [];
@@ -61,6 +108,7 @@ describe("InputAdapter", () => {
       onMiddleClick: () => {
         middleClicks += 1;
       },
+      scrollsPage: () => false,
     });
     const input = document.createElement("input");
     document.body.append(input);

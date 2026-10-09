@@ -6,7 +6,6 @@ import {
   type FeatureTablePresentation,
 } from "@/features/base/presentation";
 
-/** Table rows name the storm, not its entity id. */
 export function cycloneTablePresentation(
   name: string,
   type: string,

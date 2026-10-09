@@ -372,7 +372,6 @@ function isRenderCycloneFilter(
   );
 }
 
-/** Whether two overlays show the same layers and hide the same models. */
 export function renderCycloneOverlaysEqual(left: RenderCycloneOverlay, right: RenderCycloneOverlay): boolean {
   return RENDER_CYCLONE_LAYERS.every((layer) => left[layer] === right[layer]) &&
     left.hiddenModels.length === right.hiddenModels.length &&

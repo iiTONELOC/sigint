@@ -8,7 +8,6 @@ import {
   type QueryableSourceId,
 } from "@/workers/data/queryableSources";
 
-/** The DataWorker's current copy of one entity, refetched when its source advances. */
 export function useSourceEntity(
   source: QueryableSourceId | null,
   id: string | null,
@@ -40,10 +39,6 @@ export function useSourceEntity(
   return fresh?.id === id ? fresh : null;
 }
 
-/**
- * The DataWorker's current copy of one point. Falls back to the point the caller
- * already holds, so a selection never blanks out while a fetch is in flight.
- */
 export function useFreshEntity(point: DataPoint | null): DataPoint | null {
   const fresh = useSourceEntity(
     point ? sourceForPointType(point.type) : null,

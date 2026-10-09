@@ -3,6 +3,7 @@ import { useDataContext } from "@/context/DataContext";
 import { useUI } from "@/context/UIContext";
 import { useIsMobileLayout } from "@/layout-mode";
 import { Header } from "@/components/Header";
+import { MobileHeader } from "@/components/MobileHeader";
 import { Search } from "@/components/Search";
 import { Ticker } from "@/components/Ticker";
 import { PaneManager } from "@/panes/PaneManager";
@@ -42,7 +43,6 @@ enum TickerSafeAreaPadding {
   Collapsed = "env(safe-area-inset-bottom)",
 }
 
-/** Desktop steps through all three heights; the table is the whole cycle. */
 const DESKTOP_TICKER_CYCLE: Readonly<Record<TickerMode, TickerMode>> = {
   [TickerMode.Full]: TickerMode.Compact,
   [TickerMode.Compact]: TickerMode.Collapsed,
@@ -74,8 +74,8 @@ export function AppShell() {
   } = useUI();
 
   const isMobileLayout = useIsMobileLayout();
+  const ShellHeader = isMobileLayout ? MobileHeader : Header;
 
-  // ── Walkthrough state ──────────────────────────────────────────
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [walkthroughMode, setWalkthroughMode] =
     useState(WalkthroughLaunchMode.Both);
@@ -84,7 +84,6 @@ export function AppShell() {
     setWalkthroughActive(showWalkthrough);
   }, [showWalkthrough]);
 
-  // Listen for walkthrough launch from SettingsModal
   useEffect(() => {
     const unsub = onWalkthroughLaunch((mode) => {
       setWalkthroughMode(mode);
@@ -112,7 +111,6 @@ export function AppShell() {
     };
   }, []);
 
-  // ── Ticker height mode ──────────────────────────────────────────
   const [tickerMode, setTickerMode] = useState<TickerMode>(
     TickerMode.Collapsed,
   );
@@ -129,7 +127,6 @@ export function AppShell() {
 
   const cycleTickerMode = () => {
     setTickerMode((prev) => {
-      // Mobile only toggles show/hide, so it is always compact when visible.
       const next = isMobileLayout
         ? mobileTickerMode(prev)
         : DESKTOP_TICKER_CYCLE[prev];
@@ -150,9 +147,8 @@ export function AppShell() {
     >
       <ConnectionStatus />
 
-      {/* ── HEADER ── */}
       {!chromeHidden && (
-        <Header
+        <ShellHeader
           layers={layers}
           toggleLayer={toggleLayer}
           counts={counts}
@@ -170,15 +166,12 @@ export function AppShell() {
         />
       )}
 
-      {/* ── PANE AREA ── */}
       <div className="flex-1 relative overflow-hidden">
         <PaneManager />
       </div>
 
-      {/* ── TICKER ── */}
       {!chromeHidden && (
         <>
-          {/* Ticker content */}
           {tickerMode !== TickerMode.Collapsed ? (
             <div
               data-tour="ticker"
@@ -237,7 +230,6 @@ export function AppShell() {
         </>
       )}
 
-      {/* ── WALKTHROUGH OVERLAY ── */}
       {showWalkthrough && (
         <Walkthrough
           startMode={walkthroughMode}

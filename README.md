@@ -4,7 +4,11 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 
 ## Screenshot
 
-![SIGINT](./screenshot.png)
+![Hurricane Isaias with radar, satellite, cone, and wind field on the globe and its dossier](./docs/images/hero.jpg)
+
+Watch the [hurricane center demo](https://drive.google.com/file/d/1JyJ1LLzaks5_ypofQaAbmLkIQhlW2ld3/view?usp=sharing) (57 s).
+
+See the [user guide](./docs/guide.md) for each part of the interface.
 
 ## Table of Contents
 
@@ -49,11 +53,16 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 
 Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) feed (server-proxied every 30 min). For each active storm:
 
-- Current position, max wind, classification, basin
+- Current position, max wind, pressure, motion, classification, basin
+- Estimated position between advisories along the forecast track
 - Official NHC 5-day forecast cone (KMZ parsed server-side into a GeoJSON polygon)
 - Forecast track points (12h–120h)
+- Past track from the NHC best track, colored by intensity at each fix
+- Model tracks from the NHC ATCF guidance
+- Hazards: wind speed probabilities, tropical-storm-force wind arrival times, peak storm surge, threats and potential impacts
+- Satellite infrared (NOAA GOES) and radar (NOAA MRMS) loops around the storm
 - Text products: Public Advisory, Forecast Discussion, Wind Probabilities
-- Storm dossier pane with the full advisory text and forecast table
+- Storm dossier pane with vitals, forecast timeline, track map, wind field, intensity forecast and history, threats, surge, wind chances, assets in the cone, and NHC text products
 - Correlation rules: Hurricane Hunter aircraft proximity, ships sheltering in the lee, GDELT events on the forecast track
 
 ### Intelligence
@@ -131,7 +140,9 @@ Browser refresh is how often the browser requests each layer.
 | Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (direct DataWorker fetch)                        | 420s            |
 | Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server bulk feeds)                                     | 600s            |
 | Weather  | [NOAA](https://api.weather.gov/) (direct DataWorker fetch)                                                  | 300s            |
-| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone + advisory text products)         | 25m             |
+| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone, advisory text products, ATCF model and best tracks, hazard products) | 25m             |
+| Storm imagery | [NOAA nowCOAST](https://nowcoast.noaa.gov) GOES infrared and [NOAA MRMS](https://opengeo.ncep.noaa.gov) radar (direct browser fetch) | 5m satellite, 2m radar |
+| Aircraft dossier | [FlightAware](https://www.flightaware.com) schedule and filed route, [hexdb.io](https://hexdb.io) metadata, [Planespotters](https://www.planespotters.net) photos, FAA nav data for route fixes | On selection |
 | Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 15m             |
 | News     | 6 RSS feeds (server-side)                                                                                   | 10m             |
 
@@ -159,7 +170,7 @@ Two env vars load frozen fixture data in development.
 
 | Env var            | Source it overrides                                        | Valid labels                                                                                                     |
 | ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `active-season`, `single-cat3`, `empty-out-of-season`                     |
+| `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `active-season`, `single-cat3`, `empty-out-of-season`, `isaias`           |
 | `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server runs the tile sweep)          | `dossier-baseline`, `hunter-near-cyclone`, `test-snapshot`                |
 
 Labels match `/^[a-z0-9-]+$/` and resolve to `tests/fixtures/<source>/<label>.json`. To use:
@@ -214,6 +225,8 @@ SIGINT is installable as a Progressive Web App. After visiting the deployed app:
 The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When an update is available, a banner prompts the user to reload.
 
 ## Documentation
+
+The [user guide](./docs/guide.md) shows how to use the interface.
 
 Full technical docs in [`docs/`](./docs/README.md) covering architecture, data flow, feature system, pane system, rendering, caching, search, and constraints.
 

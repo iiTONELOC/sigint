@@ -52,7 +52,6 @@ const RASTER_DEFAULT_REACH_NM = 600;
 const RASTER_REACH_PAST_GALES_NM = 450;
 const RASTER_LOOP_FRAMES = 8;
 const RASTER_LOOP_STEP_MS = 15 * MS_PER_MINUTE;
-// The loop holds on the latest frame so the eye catches the restart and reads the motion.
 const RASTER_LATEST_HOLD_FRAMES = 3;
 export const RASTER_FRAME_MS = 600;
 
@@ -64,7 +63,6 @@ function rasterPixels(spanDegrees: number, degreesPerPixel: number): number {
   return Math.min(RASTER_MAX_PIXELS, Math.max(1, Math.round(spanDegrees / degreesPerPixel)));
 }
 
-/** One NOAA WMS 1.3.0 GetMap frame; CRS:84 orders the box longitude first. */
 export function rasterImageUrl(source: RasterSource, bounds: RasterBounds, timeMs: number): string {
   const metadata = RASTER_SOURCE_METADATA[source];
   const query = new URLSearchParams({
@@ -84,7 +82,6 @@ export function rasterImageUrl(source: RasterSource, bounds: RasterBounds, timeM
   return `${metadata.url}?${query.toString()}`;
 }
 
-// Frames sit on a fixed step, oldest first, so a past frame keeps its URL and is fetched once.
 function loopTimes(source: RasterSource, now: number): number[] {
   const gridLatest = Math.floor(now / RASTER_LOOP_STEP_MS) * RASTER_LOOP_STEP_MS;
   const grid = Array.from({ length: RASTER_LOOP_FRAMES }, (_, index) =>
@@ -99,7 +96,6 @@ export type RasterCircle = Readonly<{ lat: number; lon: number; reachNm: number 
 
 export type RasterArea = Readonly<{ bounds: RasterBounds; circle: RasterCircle }>;
 
-/** The storm's own circulation: a circle past its tropical-storm-force winds, so other weather is left out. */
 export function stormRasterArea(lat: number, lon: number, galeRadiiNm: readonly number[]): RasterArea {
   const widestGale = Math.max(0, ...galeRadiiNm);
   const reachNm = widestGale > 0 ? widestGale + RASTER_REACH_PAST_GALES_NM : RASTER_DEFAULT_REACH_NM;
@@ -118,7 +114,6 @@ export function stormRasterArea(lat: number, lon: number, galeRadiiNm: readonly 
 
 type RasterEntry = { image: RasterImage | null; group: string };
 
-/** Loop frames by source, area and time; each frame is fetched once and dropped once it leaves the loop. */
 export class StormRasterCache {
   private readonly entries = new Map<string, RasterEntry>();
 
@@ -131,7 +126,6 @@ export class StormRasterCache {
     this.prune(group, urls);
   }
 
-  /** The frame to show now: the loop position while animating, otherwise the latest frame. */
   peek(source: RasterSource, bounds: RasterBounds, now: number, animate: boolean): RasterImage | null {
     const frames = loopTimes(source, now)
       .map((timeMs) => this.entries.get(rasterImageUrl(source, bounds, timeMs))?.image ?? null)
