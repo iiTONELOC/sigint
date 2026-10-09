@@ -4,7 +4,6 @@ import type { FeatureDossierProps } from "@/features/base/presentation";
 import { useTrail } from "@/features/base/useTrail";
 import { useAircraftDossier } from "../hooks/useAircraftDossier";
 import { Domain } from "@shared/domain/identity";
-import { GeoMeasurement } from "@shared/geo";
 import {
   recordLatitude,
   recordLongitude,
@@ -12,28 +11,28 @@ import {
 import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
-import {
-  AircraftChipTone,
-  AircraftIdentityTicket,
-  type AircraftChip,
-} from "./AircraftIdentityTicket";
+import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
 import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
+import { AircraftFlightPlan, delayChip, RouteNextFix } from "./AircraftFlightPlan";
+import { AircraftProfileChart } from "./AircraftProfileChart";
+import { AircraftStormProximity } from "./AircraftStormProximity";
 import {
-  DossierCard,
-  DossierLabel,
   DossierLinkGrid,
   DossierPositionRow,
   DossierSectionLabel,
-  DossierStatCell,
   DossierToolbar,
   useDossierFocus,
 } from "@/dossier";
+import { formatClockTime } from "@/time";
+import { formatKtShort } from "@/measurements";
 import { machFromGs } from "../utils/isa";
 import {
-  AircraftRouteSource,
+  AircraftFlightEvent,
   aircraftAirportCode,
+  eventDelaySeconds,
+  routeArrivalTime,
+  routeDepartureTime,
 } from "@shared/domain/aircraftDossier";
-import { DossierFallback } from "@/panes/dossier/dossierFallback";
 import {
   aircraftBadgePresentation,
   AircraftDataLabel,
@@ -45,105 +44,11 @@ type Props = FeatureDossierProps<Domain.Aircraft>;
 
 enum AircraftDossierLabel {
   Military = "MIL",
-  OnTime = "ON TIME",
   Reconnaissance = "RECON",
 }
 
 enum AircraftDossierClassName {
   SectionSpacing = "mt-2",
-}
-
-enum AircraftDelayMinutes {
-  OnTimeMaximum = 0,
-  WarningMaximum = 15,
-  LateMaximum = 60,
-}
-
-enum AircraftEpochMetric {
-  MillisecondsPerSecond = 1000,
-}
-
-enum AircraftTimeFieldFormat {
-  TwoDigit = "2-digit",
-}
-
-type RouteEndpointProps = Readonly<{
-  actual?: boolean;
-  gate?: string;
-  label: string;
-  late?: boolean;
-  name: string;
-  time?: string;
-}>;
-
-function aircraftDelayTone(minutes: number): AircraftChipTone {
-  if (minutes <= AircraftDelayMinutes.OnTimeMaximum) {
-    return AircraftChipTone.OnTime;
-  }
-  if (minutes <= AircraftDelayMinutes.WarningMaximum) {
-    return AircraftChipTone.Warning;
-  }
-  return minutes <= AircraftDelayMinutes.LateMaximum
-    ? AircraftChipTone.Late
-    : AircraftChipTone.Critical;
-}
-
-function formatEpoch(epoch: number): string {
-  return new Date(
-    epoch * AircraftEpochMetric.MillisecondsPerSecond,
-  ).toLocaleTimeString("en-US", {
-    hour: AircraftTimeFieldFormat.TwoDigit,
-    minute: AircraftTimeFieldFormat.TwoDigit,
-    hour12: true,
-    timeZoneName: "short",
-  });
-}
-
-function RouteEndpoint({
-  actual,
-  gate,
-  label,
-  late,
-  name,
-  time,
-}: RouteEndpointProps) {
-  return (
-    <DossierCard className="p-2.5">
-      <DossierLabel>{gate ? `${label} · GATE ${gate}` : label}</DossierLabel>
-      <div className="text-(length:--sig-text-sm) text-sig-bright mt-1">
-        {name}
-      </div>
-      {time && (
-        <div
-          className={`text-(length:--sig-text-xs) mt-1 ${late ? "text-sig-warn" : "text-sig-text"}`}
-        >
-          {time}
-          {actual ? "" : " est"}
-        </div>
-      )}
-    </DossierCard>
-  );
-}
-
-function onTimeChip(
-  hasRoute: boolean,
-  delay?: string,
-): AircraftChip | null {
-  if (!hasRoute) return null;
-  if (!delay) {
-    return {
-      label: AircraftDossierLabel.OnTime,
-      tone: AircraftChipTone.OnTime,
-    };
-  }
-  const match = /(-?\d+)/.exec(delay);
-  const minutes = match ? Number(match[1]) : 0;
-  return {
-    label: minutes <= 0
-      ? AircraftDossierLabel.OnTime
-      : `+${minutes}m`,
-    tone: aircraftDelayTone(minutes),
-  };
 }
 
 function roleBadge(
@@ -154,11 +59,18 @@ function roleBadge(
   return military ? AircraftDossierLabel.Military : null;
 }
 
+enum AircraftCategoryPlaceholder {
+  NoInformation = "No ADS-B Emitter Category Information",
+  Reserved = "Reserved",
+}
+
+const CATEGORY_PLACEHOLDERS: ReadonlySet<string> = new Set([
+  AircraftDataLabel.UnknownUppercase,
+  ...Object.values(AircraftCategoryPlaceholder),
+]);
+
 function wakeCategory(category: string | undefined): string | null {
-  return category &&
-    category !== AircraftDataLabel.UnknownUppercase
-    ? category
-    : null;
+  return category && !CATEGORY_PLACEHOLDERS.has(category) ? category : null;
 }
 
 function aircraftSpeedText(
@@ -175,7 +87,7 @@ function aircraftSpeedText(
   const trueAirspeed = typeof tas === "number" ? tas : speed;
   return {
     mach: `${prefix}M ${machValue.toFixed(2)}`,
-    tas: `${Math.round(trueAirspeed)} kt`,
+    tas: formatKtShort(Math.round(trueAirspeed)),
   };
 }
 
@@ -268,9 +180,13 @@ export function AircraftDossier({
 
   const originCode = aircraftAirportCode(route?.origin);
   const destCode = aircraftAirportCode(route?.destination);
-  const chip = onTimeChip(!!route, route?.delays?.departure);
-  const arrLate =
-    !!chip && chip.label !== AircraftDossierLabel.OnTime;
+  const chip = route
+    ? delayChip(eventDelaySeconds(route.schedule?.[AircraftFlightEvent.Takeoff]))
+    : null;
+  const departure = route ? routeDepartureTime(route) : undefined;
+  const arrival = route ? routeArrivalTime(route) : undefined;
+  const latitude = recordLatitude(item);
+  const longitude = recordLongitude(item);
 
   const links = aircraftExternalLinks(
     { ...acData, registration: reg },
@@ -281,7 +197,7 @@ export function AircraftDossier({
     <div className="@container/dossier h-full flex flex-col">
       {toolbar}
       <div className="flex-1 min-h-0 overflow-auto sigint-scroll p-3 flex flex-col gap-3">
-      <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 @min-[76rem]/dossier:grid-cols-4 gap-2 items-start @min-[40rem]/dossier:items-stretch">
+      <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 gap-2 items-start @min-[40rem]/dossier:items-stretch">
         <section className="sec identity min-w-0">
           <AircraftIdentityTicket
             photo={photo}
@@ -303,68 +219,13 @@ export function AircraftDossier({
           />
         </section>
 
-        {route && (
-          <section className="sec flightplan min-w-0 flex flex-col">
-            <DossierSectionLabel>FLIGHT PLAN</DossierSectionLabel>
-            <div className="flex flex-col gap-2">
-              <RouteEndpoint
-                label="DEPART"
-                gate={route.origin?.gate}
-                name={route.origin?.name || route.origin?.city || originCode || DossierFallback.Unavailable}
-                time={route.departureTime ? formatEpoch(route.departureTime) : undefined}
-                actual={route.departureActual}
-              />
-              <RouteEndpoint
-                label="ARRIVE"
-                gate={route.destination?.gate}
-                name={route.destination?.name || route.destination?.city || destCode || DossierFallback.Unavailable}
-                time={route.arrivalTime ? formatEpoch(route.arrivalTime) : undefined}
-                actual={route.arrivalActual}
-                late={arrLate}
-              />
-            </div>
-            <div className={`grid grid-cols-3 gap-2 ${AircraftDossierClassName.SectionSpacing}`}>
-              {route.distance != null && <DossierStatCell label="DIST nm" value={String(route.distance)} />}
-              {route.filedAltitude != null && (
-                <DossierStatCell label="FILED ALT" value={`FL${route.filedAltitude / GeoMeasurement.FeetPerFlightLevel}`} />
-              )}
-              {route.filedSpeed != null && <DossierStatCell label="FILED kn" value={String(route.filedSpeed)} />}
-            </div>
-            {route.filedRoute && (
-              <DossierCard className={`p-2.5 ${AircraftDossierClassName.SectionSpacing}`}>
-                <DossierLabel className="mb-1.5">FILED ROUTE</DossierLabel>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto sigint-scroll">
-                  {route.filedRoute
-                    .trim()
-                    .split(/\s+/)
-                    .filter(Boolean)
-                    .map((wp, i) => (
-                      <span
-                        key={`${wp}-${i}`}
-                        className="text-(length:--sig-text-xs) font-mono text-sig-text bg-sig-bg/60 border border-sig-border rounded px-1.5 py-0.5"
-                      >
-                        {wp}
-                      </span>
-                    ))}
-                </div>
-              </DossierCard>
-            )}
-            {route.source === AircraftRouteSource.HexDb && (
-              <div className="text-(length:--sig-text-xs) text-sig-dim/60 mt-1">
-                * Last known route; may not reflect current flight
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="sec route min-w-0 flex flex-col">
-          <DossierSectionLabel>ROUTE</DossierSectionLabel>
-          <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-0">
+        <section className="sec route min-w-0 flex flex-col" aria-label="Route">
+          <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-52">
             <AircraftRouteMap
               originCode={originCode}
               destCode={destCode}
-              lat={recordLatitude(item)}
-              lon={recordLongitude(item)}
+              lat={latitude}
+              lon={longitude}
               heading={heading}
               waypoints={route?.waypoints}
               trail={trail}
@@ -372,7 +233,7 @@ export function AircraftDossier({
                 mach: machText,
                 tas: tasText,
                 heading: `${Math.round(heading)}°`,
-                eta: route?.arrivalTime ? formatEpoch(route.arrivalTime) : undefined,
+                eta: arrival ? formatClockTime(arrival.time) : undefined,
               }}
             />
           </div>
@@ -380,22 +241,35 @@ export function AircraftDossier({
             item={item}
             className={AircraftDossierClassName.SectionSpacing}
           />
+          <RouteNextFix
+            className={AircraftDossierClassName.SectionSpacing}
+            fixes={route?.fixes}
+            groundSpeed={speed}
+            latitude={latitude}
+            longitude={longitude}
+          />
           {route && (
             <div className={AircraftDossierClassName.SectionSpacing}>
               <RouteProgress
                 origin={originCode}
                 dest={destCode}
-                departureTime={route.departureTime}
-                arrivalTime={route.arrivalTime}
+                departureTime={departure?.time}
+                arrivalTime={arrival?.time}
+                status={route.status}
               />
             </div>
           )}
         </section>
 
+        {route && <AircraftFlightPlan route={route} />}
+
         <section className="sec telemetry min-w-0 flex flex-col">
           <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
           <AircraftTelemetryPFD data={acData} />
         </section>
+
+        {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}
+        <AircraftProfileChart trail={trail} />
       </div>
 
       <section className="intel">

@@ -1,6 +1,5 @@
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errorMessage";
-import { isUsableCoordinate } from "../lib/geoValidation";
 import {
   AisNavigationStatus,
   type AisVesselRecord,
@@ -12,7 +11,7 @@ import {
   MS_PER_SECOND,
   SECONDS_PER_MINUTE,
 } from "@shared/time";
-import { GeoLimit, isRecord } from "@shared/geo";
+import { createGeoPoint, GeoLimit, isNullIsland, isRecord } from "@shared/geo";
 import { isNumberEnumValue } from "@shared/types/enum";
 import { optionalFiniteNumber } from "@shared/types/numbers";
 import WebSocket, { type RawData } from "ws";
@@ -165,7 +164,8 @@ export function handlePositionReport(
   const latitude = optionalFiniteNumber(report.Latitude) ?? optionalFiniteNumber(metadata.latitude);
   const longitude = optionalFiniteNumber(report.Longitude) ?? optionalFiniteNumber(metadata.longitude);
   if (latitude === undefined || longitude === undefined) return;
-  if (!isUsableCoordinate(latitude, longitude)) return;
+  const position = createGeoPoint(longitude, latitude);
+  if (!position || isNullIsland(position)) return;
 
   const previous = vessels.get(mmsi);
   vessels.set(mmsi, {
@@ -201,7 +201,8 @@ export function handleShipStaticData(
   const latitude = previous?.lat ?? optionalFiniteNumber(metadata.latitude);
   const longitude = previous?.lon ?? optionalFiniteNumber(metadata.longitude);
   if (latitude === undefined || longitude === undefined) return;
-  if (!isUsableCoordinate(latitude, longitude)) return;
+  const position = createGeoPoint(longitude, latitude);
+  if (!position || isNullIsland(position)) return;
 
   const imo = optionalFiniteNumber(staticData.ImoNumber);
   const draught = optionalFiniteNumber(staticData.MaximumStaticDraught);

@@ -620,14 +620,14 @@ function PanelBody({
 
       {/* Intel links */}
       {linkRows.length > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border flex flex-wrap gap-1">
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1">
           {linkRows.map(([label, url]) => (
             <a
               key={label}
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-xs tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15"
+              className="flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-xs tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15 min-w-0 truncate"
             >
               {label}
               <ExternalLink size={DetailPanelIconSize.ExternalLink} />

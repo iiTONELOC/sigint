@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { AircraftApiRoute } from "../src/shared/domain/aircraft";
 /**
  * scripts/capture-fixture.ts
  *
@@ -27,7 +26,12 @@ import { AircraftApiRoute } from "../src/shared/domain/aircraft";
  * directory.
  */
 
-const USER_AGENT = "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
+import { AircraftApiRoute } from "../src/shared/domain/aircraft";
+import { HttpHeader, HttpMediaType, HttpUserAgent } from "../src/shared/http";
+import { NHC_URL } from "../src/server/api/cyclonesCache";
+import { NWS_ALERTS_TRANSPORT } from "../src/client/workers/data/source-model/feeds";
+
+
 const SERVER_BASE =
   process.env.SIGINT_FIXTURE_SERVER ?? "http://localhost:5500";
 
@@ -39,13 +43,19 @@ export type SourceSpec = {
 
 export const SOURCES: Record<string, SourceSpec> = {
   cyclones: {
-    url: "https://www.nhc.noaa.gov/CurrentStorms.json",
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    url: NHC_URL,
+    headers: {
+      [HttpHeader.UserAgent]: HttpUserAgent.SigintRepository,
+      [HttpHeader.Accept]: HttpMediaType.Json,
+    },
   },
   aircraft: { url: `${SERVER_BASE}${AircraftApiRoute.States}`, needsAuth: true },
   weather: {
-    url: "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
-    headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
+    url: NWS_ALERTS_TRANSPORT.url,
+    headers: {
+      [HttpHeader.UserAgent]: HttpUserAgent.SigintRepository,
+      [HttpHeader.Accept]: HttpMediaType.GeoJson,
+    },
   },
   earthquake: {
     url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson",

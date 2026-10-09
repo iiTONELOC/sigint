@@ -1,10 +1,16 @@
-export { formatKmMi, formatKtMph, formatKtShort } from "./formatters/units";
+export {
+  formatKmMi,
+  formatKtMph,
+  formatKtShort,
+  formatNauticalMiles,
+} from "./formatters/units";
 export {
   cToF,
   feetPerMinuteToMetersPerSecond,
   kelvinToC,
   kilometersToMeters,
   kmToMi,
+  kmToNm,
   ktToKmh,
   ktToMph,
   ktToMps,

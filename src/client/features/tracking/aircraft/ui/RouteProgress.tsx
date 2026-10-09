@@ -1,29 +1,17 @@
 import type { CSSProperties } from "react";
-import {
-  MINUTES_PER_HOUR,
-  MS_PER_SECOND,
-  SECONDS_PER_MINUTE,
-} from "@shared/time";
+import { MS_PER_SECOND } from "@shared/time";
 import { NO_VALUE } from "@shared/text";
-
-function formatDuration(seconds: number): string {
-  const boundedSeconds = Math.max(0, seconds);
-  const secondsPerHour = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
-  const hours = Math.floor(boundedSeconds / secondsPerHour);
-  const minutes = Math.round(
-    (boundedSeconds % secondsPerHour) / SECONDS_PER_MINUTE,
-  );
-  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
+import { formatDuration } from "@/time";
 
 type Props = {
   readonly origin: string;
   readonly dest: string;
   readonly departureTime?: number;
   readonly arrivalTime?: number;
+  readonly status?: string;
 };
 
-export function RouteProgress({ origin, dest, departureTime, arrivalTime }: Props) {
+export function RouteProgress({ origin, dest, departureTime, arrivalTime, status }: Props) {
   if (!departureTime || !arrivalTime || arrivalTime <= departureTime) return null;
 
   const now = Date.now() / MS_PER_SECOND;
@@ -65,7 +53,9 @@ export function RouteProgress({ origin, dest, departureTime, arrivalTime }: Prop
       </div>
       <div className="flex items-baseline justify-between mt-1.5 font-mono text-(length:--sig-text-xs) text-sig-dim">
         <span>+{formatDuration(now - departureTime)}</span>
-        <span className="text-(--dossier-accent)">{percentage}</span>
+        <span className="text-(--dossier-accent) uppercase">
+          {status ? `${status} · ${percentage}` : percentage}
+        </span>
         <span>-{formatDuration(arrivalTime - now)}</span>
       </div>
     </div>

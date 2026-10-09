@@ -7,7 +7,7 @@ export enum SettingsAboutCopy {
 }
 
 export enum SettingsAboutSource {
-  Aircraft = "adsb.fi",
+  AircraftAdsbFi = "adsb.fi",
   Earthquakes = "USGS Earthquake Hazards",
   Events = "GDELT 2.0",
   Ships = "aisstream.io",
@@ -29,7 +29,7 @@ type SettingsAboutSourceMetadata = Readonly<{
 export const SETTINGS_ABOUT_SOURCE_METADATA: Readonly<
   Record<SettingsAboutSource, SettingsAboutSourceMetadata>
 > = {
-  [SettingsAboutSource.Aircraft]: {
+  [SettingsAboutSource.AircraftAdsbFi]: {
     description: "Aircraft positions",
     url: "https://opendata.adsb.fi",
   },

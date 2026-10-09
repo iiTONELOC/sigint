@@ -1,3 +1,6 @@
+import { AngleConversion } from "@shared/geo";
+import { ktToMps } from "@/measurements";
+
 export enum AircraftIsaValue {
   MinimumAltitudeFeet = 0,
   NormalizedRatio = 1,
@@ -9,6 +12,7 @@ export enum AircraftIsaValue {
   TropopauseTemperatureCelsius = -56.5,
   TemperatureLapsePerThousandFeet = 1.98,
   FeetPerThousand = 1_000,
+  StandardGravityMetersPerSecondSquared = 9.80665,
 }
 
 export function isaSpeedOfSoundKt(altitudeFeet: number): number {
@@ -30,6 +34,27 @@ export function machFromGs(
   altitudeFeet: number,
 ): number {
   return groundSpeedKnots / isaSpeedOfSoundKt(altitudeFeet);
+}
+
+export function coordinatedBankDegrees(
+  airspeedKnots: number,
+  turnRateDegreesPerSecond: number,
+): number {
+  const turnRateRadians = turnRateDegreesPerSecond * AngleConversion.RadiansPerDegree;
+  return Math.atan(
+    (ktToMps(airspeedKnots) * turnRateRadians) /
+      AircraftIsaValue.StandardGravityMetersPerSecondSquared,
+  ) / AngleConversion.RadiansPerDegree;
+}
+
+export function flightPathAngleDegrees(
+  verticalMetersPerSecond: number,
+  groundSpeedKnots: number,
+): number | null {
+  const groundMetersPerSecond = ktToMps(groundSpeedKnots);
+  return groundMetersPerSecond > 0
+    ? Math.atan2(verticalMetersPerSecond, groundMetersPerSecond) / AngleConversion.RadiansPerDegree
+    : null;
 }
 
 export function isaTempC(altitudeFeet: number): number {

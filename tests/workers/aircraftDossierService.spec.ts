@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Domain } from "@shared/domain/identity";
 import {
   AircraftRouteSource,
-  type AircraftDossier,
+  type AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import {
   AircraftDossierService,
@@ -23,7 +23,7 @@ function aircraft(id: string = "aircraft-a"): AircraftPoint {
   };
 }
 
-function dossier(icao24: string = "abc123"): AircraftDossier {
+function dossier(icao24: string = "abc123"): AircraftDossierBundle {
   return {
     icao24,
     aircraft: null,
@@ -42,12 +42,12 @@ function dossier(icao24: string = "abc123"): AircraftDossier {
 describe("AircraftDossierService", () => {
   test("de-duplicates concurrent requests for one aircraft", async () => {
     let requestCount = 0;
-    let completeRequest = (_value: AircraftDossier): void => undefined;
+    let completeRequest = (_value: AircraftDossierBundle): void => undefined;
     let markRequestStarted = (): void => undefined;
     const requestStarted = new Promise<void>((resolve) => {
       markRequestStarted = resolve;
     });
-    const pendingDossier = new Promise<AircraftDossier>((resolve) => {
+    const pendingDossier = new Promise<AircraftDossierBundle>((resolve) => {
       completeRequest = resolve;
     });
     const service = new AircraftDossierService({

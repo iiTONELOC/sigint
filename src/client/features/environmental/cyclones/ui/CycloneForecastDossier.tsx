@@ -3,7 +3,7 @@ import { Domain } from "@shared/domain/identity";
 import { NO_VALUE } from "@shared/text";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import { formatLat, formatLon } from "@/geo";
-import { formatKtMph } from "@/measurements";
+import { formatKtMph, formatNauticalMiles } from "@/measurements";
 import {
   CYCLONE_CATEGORY_METADATA,
   SaffirSimpson,
@@ -15,7 +15,7 @@ import {
   useDossierFocus,
 } from "@/dossier";
 import { leadTime } from "../forecastDefinition";
-import { formatNmKm, formatPressureMb } from "../formatters/units";
+import { formatPressureMb } from "../formatters/units";
 
 type Props = FeatureDossierProps<Domain.CyclonesForecast>;
 
@@ -71,7 +71,7 @@ export function CycloneForecastDossier({
           </DossierSection>
 
           <DossierSection title="UNCERTAINTY">
-            <DossierRow label="TRACK ERROR" value={formatNmKm(d.errorRadiusNm)} />
+            <DossierRow label="TRACK ERROR" value={formatNauticalMiles(d.errorRadiusNm)} />
           </DossierSection>
         </div>
       </div>

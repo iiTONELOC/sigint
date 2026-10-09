@@ -8,22 +8,24 @@ import {
   type AircraftMetadataRecord,
 } from "./aircraftEnrichment";
 import {
+  AircraftEventTime,
+  AircraftFlightEvent,
   AircraftRouteLimit,
   AircraftRoutePolylineLimit,
   AircraftRouteSource,
   isAircraftDossierAircraft,
   isAircraftIcao24,
-  type AircraftDossier,
+  isAircraftRouteWaypoint,
+  type AircraftDossierBundle,
   type AircraftDossierAircraft,
+  type AircraftEventTimes,
+  type AircraftFlightSchedule,
   type AircraftRoute,
   type AircraftRouteWaypoint,
 } from "@shared/domain/aircraftDossier";
+import { bundledFiledRoute } from "./filedRoute";
 import { GeoMeasurement, isRecord } from "@shared/geo";
-import {
-  MINUTES_PER_HOUR,
-  MS_PER_MINUTE,
-  SECONDS_PER_MINUTE,
-} from "@shared/time";
+import { MS_PER_MINUTE } from "@shared/time";
 import { isOptionalFiniteNumber } from "@shared/types/numbers";
 
 const AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS = {
@@ -38,15 +40,9 @@ const AIRCRAFT_DOSSIER_CACHE_TIME = Object.freeze({
   sweepMs: 10 * MS_PER_MINUTE,
 });
 
-enum AircraftDossierDelay {
-  MinimumLateSeconds = 300,
-}
-
 enum HexDbResponseStatus {
   NotFound = "404",
 }
-
-// ── Input sanitization ───────────────────────────────────────────────
 
 const CALLSIGN_RE = /^[A-Z0-9]{2,10}$/i;
 const ICAO_AIRPORT_RE = /^[A-Z]{4}$/i;
@@ -69,8 +65,6 @@ function sanitizeIcaoAirport(raw: string): string | null {
   const cleaned = raw.trim().toUpperCase();
   return ICAO_AIRPORT_RE.test(cleaned) ? cleaned : null;
 }
-
-// ── Cache ────────────────────────────────────────────────────────────
 
 type CacheEntry<T> = {
   data: T;
@@ -114,13 +108,10 @@ setInterval(() => {
   }
 }, AIRCRAFT_DOSSIER_CACHE_TIME.sweepMs);
 
-// ── hexdb.io types ───────────────────────────────────────────────────
-
 type HexDbRoute = {
   flight?: string;
   route?: string;
   updatetime?: number;
-  // hexdb returns a status string (e.g. "404") when a route isn't found.
   status?: string;
 };
 
@@ -157,8 +148,6 @@ function isHexDbAirport(value: unknown): value is HexDbAirport {
     isOptionalString(value.region_name);
 }
 
-// ── FlightAware types ────────────────────────────────────────────────
-
 type FAflightTimes = {
   scheduled?: number | null;
   estimated?: number | null;
@@ -171,6 +160,7 @@ type FAairport = {
   friendlyName?: string | null;
   friendlyLocation?: string | null;
   gate?: string | null;
+  coord?: unknown;
 };
 
 type FAflightData = {
@@ -283,7 +273,6 @@ function isFlightAwareData(value: unknown): value is FAflightData {
     );
 }
 
-// ── FlightAware scraper ──────────────────────────────────────────────
 // Extracts trackpollBootstrap JSON from page HTML. No DOM parsing needed.
 
 const TRACKPOLL_RE = /var\s+trackpollBootstrap\s*=\s*(\{[\s\S]*?\});\s*(?:var\s|<\/script>)/;
@@ -301,69 +290,53 @@ function parseFlightAwareData(html: string): FAflightData | null {
   return flight;
 }
 
+function flightAwareCoordinate(value: unknown): AircraftRouteWaypoint | null {
+  if (!Array.isArray(value)) return null;
+  const waypoint = [value[1], value[0]];
+  return isAircraftRouteWaypoint(waypoint) ? waypoint : null;
+}
+
+function isPresent<T>(value: T | null): value is T {
+  return value !== null;
+}
+
 function flightAwareWaypoints(
   flight: FAflightData,
 ): AircraftRouteWaypoint[] | undefined {
-  if (!Array.isArray(flight.waypoints)) return undefined;
-
-  const waypoints = flight.waypoints
-    .filter(
-      (point): point is [number, number] =>
-        Array.isArray(point) &&
-        point.length >= AircraftRoutePolylineLimit.MinimumWaypointCount &&
-        Number.isFinite(point[0]) &&
-        Number.isFinite(point[1]),
-    )
-    .slice(0, AircraftRouteLimit.MaximumWaypointCount)
-    .map(
-      ([longitude, latitude]): AircraftRouteWaypoint => [
-        latitude,
-        longitude,
-      ],
-    );
-
-  return waypoints.length >=
-    AircraftRoutePolylineLimit.MinimumWaypointCount
+  const waypoints = (flight.waypoints ?? [])
+    .map(flightAwareCoordinate)
+    .filter(isPresent)
+    .slice(0, AircraftRouteLimit.MaximumWaypointCount);
+  return waypoints.length >= AircraftRoutePolylineLimit.MinimumWaypointCount
     ? waypoints
     : undefined;
 }
 
-function flightDelay(
-  scheduled: number | null | undefined,
-  actual: number | null | undefined,
-): string | undefined {
-  if (scheduled == null || actual == null) return undefined;
-  const difference = actual - scheduled;
-  return difference > AircraftDossierDelay.MinimumLateSeconds
-    ? formatDelay(difference)
-    : undefined;
+function flightAwareEventTimes(
+  times: FAflightTimes | null | undefined,
+): AircraftEventTimes {
+  return {
+    [AircraftEventTime.Scheduled]: times?.scheduled ?? undefined,
+    [AircraftEventTime.Estimated]: times?.estimated ?? undefined,
+    [AircraftEventTime.Actual]: times?.actual ?? undefined,
+  };
 }
 
-function flightAwareRoute(flight: FAflightData): AircraftRoute {
-  const departureTime = flight.gateDepartureTimes?.actual
-    ?? flight.takeoffTimes?.actual
-    ?? flight.gateDepartureTimes?.estimated
-    ?? flight.takeoffTimes?.estimated
-    ?? flight.takeoffTimes?.scheduled
-    ?? undefined;
-  const arrivalTime = flight.gateArrivalTimes?.actual
-    ?? flight.landingTimes?.actual
-    ?? flight.gateArrivalTimes?.estimated
-    ?? flight.landingTimes?.estimated
-    ?? flight.landingTimes?.scheduled
-    ?? undefined;
-  const departureDelay = flightDelay(
-    flight.takeoffTimes?.scheduled,
-    flight.takeoffTimes?.actual,
-  );
-  const arrivalDelay = flightDelay(
-    flight.landingTimes?.scheduled,
-    flight.landingTimes?.actual,
-  );
-  const delays = departureDelay || arrivalDelay
-    ? { departure: departureDelay, arrival: arrivalDelay }
-    : undefined;
+function flightAwareSchedule(flight: FAflightData): AircraftFlightSchedule {
+  return {
+    [AircraftFlightEvent.GateOut]: flightAwareEventTimes(flight.gateDepartureTimes),
+    [AircraftFlightEvent.Takeoff]: flightAwareEventTimes(flight.takeoffTimes),
+    [AircraftFlightEvent.Landing]: flightAwareEventTimes(flight.landingTimes),
+    [AircraftFlightEvent.GateIn]: flightAwareEventTimes(flight.gateArrivalTimes),
+  };
+}
 
+async function flightAwareRoute(flight: FAflightData): Promise<AircraftRoute> {
+  const filed = await bundledFiledRoute(
+    { code: flight.origin.icao ?? "", point: flightAwareCoordinate(flight.origin.coord) },
+    flight.flightPlan?.route ?? undefined,
+    { code: flight.destination.icao ?? "", point: flightAwareCoordinate(flight.destination.coord) },
+  );
   return {
     source: AircraftRouteSource.FlightAware,
     origin: {
@@ -381,17 +354,8 @@ function flightAwareRoute(flight: FAflightData): AircraftRoute {
       gate: flight.destination.gate ?? undefined,
     },
     status: flight.flightStatus || undefined,
-    departureTime,
-    arrivalTime,
-    departureActual: Boolean(
-      flight.gateDepartureTimes?.actual ??
-      flight.takeoffTimes?.actual,
-    ),
-    arrivalActual: Boolean(
-      flight.gateArrivalTimes?.actual ??
-      flight.landingTimes?.actual,
-    ),
-    delays,
+    schedule: flightAwareSchedule(flight),
+    ete: flight.flightPlan?.ete ?? undefined,
     filedRoute: flight.flightPlan?.route || undefined,
     filedAltitude: flight.flightPlan?.altitude
       ? flight.flightPlan.altitude * GeoMeasurement.FeetPerFlightLevel
@@ -406,7 +370,8 @@ function flightAwareRoute(flight: FAflightData): AircraftRoute {
       flight.airline?.shortName ||
       flight.airline?.fullName ||
       undefined,
-    waypoints: flightAwareWaypoints(flight),
+    waypoints: flightAwareWaypoints(flight) ?? filed?.waypoints,
+    fixes: filed?.fixes,
   };
 }
 
@@ -430,23 +395,13 @@ async function scrapeFlightAware(
     const flight = parseFlightAwareData(html);
     if (!flight) return null;
 
-    const route = flightAwareRoute(flight);
+    const route = await flightAwareRoute(flight);
     setCached(cacheKey, route, AIRCRAFT_DOSSIER_CACHE_TIME.enrichedMs);
     return route;
   } catch {
     return null;
   }
 }
-
-function formatDelay(seconds: number): string {
-  const mins = Math.round(seconds / SECONDS_PER_MINUTE);
-  if (mins < MINUTES_PER_HOUR) return `${mins}m late`;
-  const hrs = Math.floor(mins / MINUTES_PER_HOUR);
-  const rem = mins % MINUTES_PER_HOUR;
-  return rem > 0 ? `${hrs}h ${rem}m late` : `${hrs}h late`;
-}
-
-// ── hexdb.io fetch functions ─────────────────────────────────────────
 
 async function fetchAircraftInfo(
   hex: string,
@@ -546,7 +501,6 @@ async function fetchHexDbRoute(
     const originIcao = parts[0] ? sanitizeIcaoAirport(parts[0]) : null;
     const destIcao = parts[1] ? sanitizeIcaoAirport(parts[1]) : null;
 
-    // Fetch airport details in parallel
     const [originAirport, destAirport] = await Promise.all([
       originIcao ? fetchAirport(originIcao) : Promise.resolve(null),
       destIcao ? fetchAirport(destIcao) : Promise.resolve(null),
@@ -611,8 +565,6 @@ async function fetchAirport(icao: string): Promise<HexDbAirport | null> {
   }
 }
 
-// ── Composite dossier fetch ──────────────────────────────────────────
-
 function hasAircraftDossierEnrichment(
   aircraft: AircraftDossierAircraft | null,
   route: AircraftRoute | null,
@@ -623,13 +575,13 @@ function hasAircraftDossierEnrichment(
 export async function getAircraftDossier(
   icao24Raw: string,
   callsignRaw?: string,
-): Promise<AircraftDossier | null> {
+): Promise<AircraftDossierBundle | null> {
   const hex = sanitizeIcao24(icao24Raw);
   if (!hex) return null;
 
   const callsign = callsignRaw ? sanitizeCallsign(callsignRaw) : null;
   const cacheKey = `dossier:${hex}:${callsign ?? ""}`;
-  const cachedEntry = getCachedEntry<AircraftDossier>(cacheKey);
+  const cachedEntry = getCachedEntry<AircraftDossierBundle>(cacheKey);
   const fallbackEntry = cachedEntry &&
       hasAircraftDossierEnrichment(
         cachedEntry.data.aircraft,
@@ -655,7 +607,7 @@ export async function getAircraftDossier(
     callsign ? fetchRoute(callsign) : Promise.resolve(null),
   ]);
 
-  const dossier: AircraftDossier = {
+  const dossier: AircraftDossierBundle = {
     icao24: hex,
     aircraft: aircraft ?? fallbackEntry?.data.aircraft ?? null,
     route: route ?? fallbackEntry?.data.route ?? null,
@@ -675,7 +627,7 @@ export async function getAircraftDossier(
 
 async function refreshHexDbDossier(
   cacheKey: string,
-  foreground: AircraftDossier,
+  foreground: AircraftDossierBundle,
   aircraftRequest: Promise<AircraftDossierAircraft | null>,
   routeRequest: Promise<AircraftRoute | null>,
 ): Promise<void> {
@@ -684,8 +636,8 @@ async function refreshHexDbDossier(
     routeRequest,
   ]);
   if (!aircraft && !route) return;
-  const cached = getCachedEntry<AircraftDossier>(cacheKey)?.data ?? foreground;
-  const enriched: AircraftDossier = {
+  const cached = getCachedEntry<AircraftDossierBundle>(cacheKey)?.data ?? foreground;
+  const enriched: AircraftDossierBundle = {
     ...cached,
     aircraft: aircraft ?? cached.aircraft,
     route: cached.route ?? route,
@@ -696,8 +648,6 @@ async function refreshHexDbDossier(
     AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
   );
 }
-
-// ── Foreground route fetch ───────────────────────────────────────────
 
 async function fetchRoute(
   callsign: string,

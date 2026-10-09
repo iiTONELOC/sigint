@@ -56,6 +56,12 @@ export function ktToMps(knots: number): number {
   return knots * MeasurementConversionFactor.MetersPerSecondPerKnot;
 }
 
+export function kmToNm(kilometers: number): number {
+  return Math.round(
+    kilometers / MeasurementConversionFactor.KilometersPerNauticalMile,
+  );
+}
+
 export function nmToKm(nauticalMiles: number): number {
   return Math.round(
     nauticalMiles * MeasurementConversionFactor.KilometersPerNauticalMile,

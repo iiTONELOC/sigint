@@ -4,8 +4,7 @@
 # Caddy auto-obtains and renews certs from Let's Encrypt.
 # HTTP on :80 auto-redirects to HTTPS on :443.
 #
-# NOT used on Heroku — Heroku handles TLS at the router level.
-# Only used when ENABLE_TLS=true in docker-compose.prod.yml.
+# Only used by the "tls" profile in docker-compose.prod.yml.
 
 {$DOMAIN:localhost} {
 	reverse_proxy web:{$PORT:5500}

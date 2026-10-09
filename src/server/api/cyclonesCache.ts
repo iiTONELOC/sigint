@@ -9,15 +9,13 @@ import {
   FixtureOverrideOwner,
   type FixtureOptions,
 } from "../lib/fixtureOverride";
-import { HttpHeader, HttpMediaType, HttpStatus } from "@shared/http";
+import { HttpHeader, HttpMediaType, HttpStatus, HttpUserAgent } from "@shared/http";
 import { Domain } from "@shared/domain/identity";
 import { ConfigField } from "../config";
 
 const logger = createLogger({ service: "nhc" });
 
 export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
-export const USER_AGENT =
-  "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
 export const POLL_INTERVAL_MS = 30 * 60_000;
 
 type CyclonesBody = {
@@ -80,7 +78,7 @@ export function shouldFetchCyclones(
 }
 
 const NHC_HEADERS: Record<string, string> = {
-  [HttpHeader.UserAgent]: USER_AGENT,
+  [HttpHeader.UserAgent]: HttpUserAgent.SigintRepository,
   [HttpHeader.Accept]: HttpMediaType.Json,
 };
 
@@ -185,7 +183,6 @@ export async function fetchCyclones(now: Date = new Date()): Promise<void> {
   }
 }
 
-/** Apply one NHC response to validator and cache state. */
 async function processCyclonesResponse(response: Response): Promise<void> {
   if (response.status === HttpStatus.NotModified) {
     cache = { ...cache, fetchedAt: Date.now(), error: null };

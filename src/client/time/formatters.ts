@@ -2,6 +2,8 @@ import {
   HOURS_PER_DAY,
   MINUTES_PER_HOUR,
   MS_PER_MINUTE,
+  MS_PER_SECOND,
+  SECONDS_PER_MINUTE,
 } from "@shared/time";
 import { EMPTY_TEXT, isText } from "@shared/text";
 
@@ -29,6 +31,17 @@ const BASE_TIME_FORMAT: Intl.DateTimeFormatOptions = {
 
 const ZONED_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   ...BASE_TIME_FORMAT,
+  timeZoneName: "short",
+};
+
+const CLOCK_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true,
+};
+
+const ZONED_CLOCK_TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  ...CLOCK_TIME_FORMAT,
   timeZoneName: "short",
 };
 
@@ -103,6 +116,29 @@ export function formatTimeWithAge(input?: TimeInput): string {
   const absolute = formatTime(isText(input) ? input : undefined);
   if (!absolute) return EMPTY_TEXT;
   return `${absolute} (${relativeAge(input, AgeStyle.Verbose)})`;
+}
+
+export function formatClockTime(epochSeconds: number, zoned = true): string {
+  return new Date(epochSeconds * MS_PER_SECOND).toLocaleTimeString(
+    TimeLocale.EnglishUnitedStates,
+    zoned ? ZONED_CLOCK_TIME_FORMAT : CLOCK_TIME_FORMAT,
+  );
+}
+
+export function localZoneName(): string {
+  return new Intl.DateTimeFormat(TimeLocale.EnglishUnitedStates, ZONED_CLOCK_TIME_FORMAT)
+    .formatToParts(new Date())
+    .find((part) => part.type === "timeZoneName")?.value ?? EMPTY_TEXT;
+}
+
+export function formatDuration(seconds: number): string {
+  const boundedSeconds = Math.max(0, seconds);
+  const secondsPerHour = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+  const hours = Math.floor(boundedSeconds / secondsPerHour);
+  const minutes = Math.round(
+    (boundedSeconds % secondsPerHour) / SECONDS_PER_MINUTE,
+  );
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 /** Return an absolute local timestamp with its relative age. */

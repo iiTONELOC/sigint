@@ -18,6 +18,7 @@ export {
   useDossierFocus,
 } from "./components/DossierIdentityCard";
 export {
+  DossierInfoRow,
   DossierLabel,
   DossierMetric,
   DossierMetricValueClass,

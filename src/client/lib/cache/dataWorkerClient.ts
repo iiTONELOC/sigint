@@ -1,7 +1,7 @@
 import { isRecord } from "@shared/geo";
 import type { TrailEntry } from "@/lib/geo/trails/trailStore";
 import type {
-  AircraftDossier,
+  AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import type {
   TsunamiAlert,
@@ -283,7 +283,7 @@ function createClient(
 
     async getAircraftDossier(
       entityId: string,
-    ): Promise<AircraftDossier | null> {
+    ): Promise<AircraftDossierBundle | null> {
       return (await expectEvent(
         { type: DataWorkerMessageType.GetAircraftDossier, entityId },
         DataWorkerMessageType.AircraftDossier,

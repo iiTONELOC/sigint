@@ -18,5 +18,3 @@ COPY bun-env.d.ts .
 COPY bunfig.toml .
 COPY build.ts .
 COPY postbuild.ts .
-
-EXPOSE 5500

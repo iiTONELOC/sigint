@@ -55,7 +55,7 @@ async function readCache(): Promise<GeoMultiPolygon | null> {
 }
 
 function writeCache(polygons: GeoMultiPolygon): void {
-  cacheSet(CacheKey.Land, {
+  void cacheSet(CacheKey.Land, {
     schemaVersion: LandCacheSchemaVersion.Current,
     polygons,
   } satisfies LandCache);

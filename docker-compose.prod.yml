@@ -1,14 +1,10 @@
 # ── Production Docker Compose ─────────────────────────────────────────
 #
-# Default (Heroku): just the app on PORT, no TLS.
-#   docker compose -f docker-compose.prod.yml up
+# Default: the app on PORT, no TLS.
+#   HOST_SECRETS_DIR=/path/to/secrets docker compose -f docker-compose.prod.yml up
 #
-# Self-hosted with TLS: set ENABLE_TLS=true and DOMAIN in .env
-#   ENABLE_TLS=true DOMAIN=sigint.example.com docker compose -f docker-compose.prod.yml --profile tls up
-#
-# The "tls" profile gates the Caddy service — it only starts when
-# you pass --profile tls. Without it, Caddy doesn't exist and the
-# app runs exactly as before on Heroku.
+# With TLS: the "tls" profile starts Caddy for DOMAIN.
+#   HOST_SECRETS_DIR=/path/to/secrets DOMAIN=sigint.example.com docker compose -f docker-compose.prod.yml --profile tls up
 
 services:
   web:

@@ -5,15 +5,12 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import { formatKtMph } from "@/measurements";
+import { formatKtMph, formatNauticalMiles } from "@/measurements";
 import {
   cycloneFeedPresentation,
   cycloneTablePresentation,
 } from "./formatters/presentation";
-import {
-  formatNmKm,
-  formatPressureMb,
-} from "./formatters/units";
+import { formatPressureMb } from "./formatters/units";
 import {
   type CycloneForecastPointData,
 } from "@shared/domain/cyclones";
@@ -64,7 +61,7 @@ export const cycloneForecastFeature = defineFeature<
       [CycloneForecastRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,
       [CycloneForecastRowLabel.Class, data.category],
-      [CycloneForecastRowLabel.TrackError, formatNmKm(data.errorRadiusNm)],
+      [CycloneForecastRowLabel.TrackError, formatNauticalMiles(data.errorRadiusNm)],
     ];
     return rows.map(([label, value]) => [label.toUpperCase(), value]);
   },

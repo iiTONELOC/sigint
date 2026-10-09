@@ -11,21 +11,22 @@ import {
   useSourceSnapshot,
 } from "@/features/base/useSourceQuery";
 
+type TrailState = Readonly<{ id: string; entry: TrailEntry | null }>;
+
 export function useTrail(
   id: string,
   source: TrackSource,
 ): readonly TrailPoint[] {
   const sourceVersion = useSourceSnapshot(source)?.version;
-  const [entry, setEntry] = useState<TrailEntry | null>(null);
+  const [state, setState] = useState<TrailState | null>(null);
 
   useEffect(() => {
     let active = true;
-    setEntry(null);
     const client = getDataWorkerClient();
     if (!client) return;
     void client.getTrail(id).then(
-      (next) => {
-        if (active) setEntry(next);
+      (entry) => {
+        if (active) setState({ id, entry });
       },
       () => undefined,
     );
@@ -34,5 +35,6 @@ export function useTrail(
     };
   }, [id, source, sourceVersion]);
 
+  const entry = state?.id === id ? state.entry : null;
   return entry?.type === source ? entry.points : [];
 }

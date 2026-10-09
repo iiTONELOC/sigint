@@ -9,7 +9,7 @@ import {
   FETCH_TIMEOUT_STANDARD_MS,
   fetchWithTimeout,
 } from "../lib/fetchWithTimeout";
-import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
+import { createGeoPoint, isNullIsland } from "@shared/geo";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { unzipSingleEntryKmz } from "./zipReader";
@@ -165,7 +165,8 @@ function parseExportCsv(csv: string): GdeltEvent[] {
     const lon = Number.parseFloat(
       columns[GdeltColumn.ActionGeoLongitude] ?? "",
     );
-    if (!isFiniteCoordinate(lat, lon) || isNullIsland(lat, lon)) continue;
+    const position = createGeoPoint(lon, lat);
+    if (!position || isNullIsland(position)) continue;
 
     const goldstein = finiteDecimal(
       columns[GdeltColumn.GoldsteinScale],
@@ -308,6 +309,10 @@ const poller = createPoller(
 
 export function startGdeltPolling(): void {
   poller.start();
+}
+
+export function stopGdeltPolling(): void {
+  poller.stop();
 }
 
 export function getGdeltCache(): {

@@ -3,7 +3,7 @@ import { getCycloneCone } from "./cyclonesConeCache";
 import { getCycloneAtcf, getCycloneModels } from "./cyclonesAtcfCache";
 import { fetchKmz } from "./zipReader";
 import { createLogger } from "../lib/logger";
-import { isFiniteCoordinate } from "../lib/geoValidation";
+import { createGeoPoint } from "@shared/geo";
 import type { CycloneCoordinates, NhcForecastPoint } from "@shared/domain/cyclones";
 import { BLANK_SEPARATOR } from "@shared/text";
 
@@ -57,7 +57,7 @@ function pointCoordinates(placemark: string): CycloneCoordinates | null {
   const coordinateParts = firstCoordinate.split(",");
   const lon = Number.parseFloat(coordinateParts[0] ?? "");
   const lat = Number.parseFloat(coordinateParts[1] ?? "");
-  if (!isFiniteCoordinate(lat, lon)) return null;
+  if (!createGeoPoint(lon, lat)) return null;
   return { lon, lat };
 }
 

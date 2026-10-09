@@ -36,7 +36,7 @@ export function loadBaseline(): RegionBaseline {
 }
 
 export function persistBaseline(baseline: RegionBaseline): void {
-  cacheSet(CacheKey.IntelBaseline, baseline);
+  void cacheSet(CacheKey.IntelBaseline, baseline);
 }
 
 function getBucketIndex(ts: number, bucketStart: number): number {

@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { act, useState } from "react";
 import type { AircraftPoint } from "@shared/domain/aircraft";
 import type {
-  AircraftDossier,
+  AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import { Domain } from "@shared/domain/identity";
 import { renderHook } from "../../../../../support/react";
@@ -25,13 +25,13 @@ const refreshedDossier = dossier(
   AircraftDossierHookFixture.RefreshedIcao24,
 );
 
-function dossier(icao24: string): AircraftDossier {
+function dossier(icao24: string): AircraftDossierBundle {
   return { icao24, aircraft: null, route: null };
 }
 
 mock.module("@/lib/cache/dataWorkerClient", () => ({
   getDataWorkerClient: () => ({
-    getAircraftDossier: async (): Promise<AircraftDossier> => {
+    getAircraftDossier: async (): Promise<AircraftDossierBundle> => {
       requestCount += AircraftDossierHookCount.InitialRequest;
       if (requestCount === AircraftDossierHookCount.InitialRequest) {
         return initialDossier;

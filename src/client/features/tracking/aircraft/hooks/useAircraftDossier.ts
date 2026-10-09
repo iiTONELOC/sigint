@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
-  AircraftDossier,
+  AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import type { AircraftPoint } from "@shared/domain/aircraft";
 import {
@@ -9,13 +9,13 @@ import {
 
 type AircraftDossierState = Readonly<{
   entityId: string;
-  dossier: AircraftDossier | null;
+  dossier: AircraftDossierBundle | null;
 }>;
 
 export function useAircraftDossier(
   entityId: string,
   requestKey: AircraftPoint | null,
-): AircraftDossier | null {
+): AircraftDossierBundle | null {
   const client = useMemo(getDataWorkerClient, []);
   const [state, setState] = useState<AircraftDossierState | null>(null);
 

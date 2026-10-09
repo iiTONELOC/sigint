@@ -48,7 +48,8 @@ const ALLOWED_LINE_SUBSTRINGS = [
   "mockResponses.set(",
   // Assertions about the URL the mock saw (proves no live fetch).
   "expect(lastCalledUrl)",
-  // CSP header assertions in securityHeaders.spec.ts — verify the
+  "expect(urls).toEqual(",
+  // CSP header assertions in securityHeaders.spec.ts: verify the
   // server's Content-Security-Policy includes/excludes upstream
   // hosts as connect-src origins. Not a fetch.
   "expect(csp)",
@@ -56,7 +57,7 @@ const ALLOWED_LINE_SUBSTRINGS = [
   "CSP no longer needs",
   // Module-constant string-equality assertions in cache specs.
   "expect(NHC_URL).toBe",
-  "expect(ADSB_BASE_URL).toBe",
+  "expect(ADSB_FI_BASE_URL).toBe",
   "SOURCES.cyclones?.url",
   "SOURCES.weather?.url",
   "SOURCES.earthquake?.url",
@@ -64,14 +65,14 @@ const ALLOWED_LINE_SUBSTRINGS = [
   // capture-fixture spec; the asserts read but never fetch them.
   'SOURCES["',
   // The expected-value line of captureFixture's `expect(...).toBe(URL)`
-  // pair — line 23 is the string literal, line 22 already matches via
+  // pair: line 23 is the string literal, line 22 already matches via
   // SOURCES.cyclones?.url. Allowlisted by exact URL.
   '"https://www.nhc.noaa.gov/CurrentStorms.json"',
   // Fixture-data fields: USGS event-page links surfaced in DetailPanel
   // intel rows; they are href values, never fetch targets in tests.
   '"https://earthquake.usgs.gov/earthquakes/eventpage/',
   // Per-storm NHC product URLs used as Map keys in cyclonesDossierCache
-  // and cyclonesConeCache specs — the URLs are pulled out of the
+  // and cyclonesConeCache specs; the URLs are pulled out of the
   // hand-authored CurrentStorms-milton-al14.json fixture and routed
   // through a globalThis.fetch override; the guard's URL-shape match
   // catches them, but they are never fetched live.
@@ -125,7 +126,7 @@ async function collectOffenders(): Promise<Offender[]> {
   const offenders: Offender[] = [];
   for (const dir of TEST_DIRS) {
     for await (const file of walk(join(REPO_ROOT, dir))) {
-      // Skip THIS file — it lists every forbidden host by definition.
+      // Skip THIS file: it lists every forbidden host by definition.
       if (file.endsWith("no-live-network.spec.ts")) continue;
       offenders.push(...(await scanSpecFile(file)));
     }

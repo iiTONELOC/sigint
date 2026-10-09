@@ -14,7 +14,7 @@ import {
   type FixtureOptions,
 } from "../lib/fixtureOverride";
 import { isRecord } from "../../shared/geo";
-import { HttpHeader, HttpMediaType, HttpStatus } from "../../shared/http";
+import { HttpHeader, HttpMediaType, HttpStatus, HttpUserAgent } from "../../shared/http";
 import {
   SourceCompleteness,
   SourceErrorCode,
@@ -24,18 +24,19 @@ import {
   type SourceState,
 } from "../../shared/source";
 
-const logger = createLogger({ service: "adsbfi" });
+const logger = createLogger({ service: "aircraft" });
 
-export const ADSB_BASE_URL = "https://opendata.adsb.fi/api/v3";
-export const USER_AGENT =
-  "(sigint-dashboard, https://github.com/iitoneloc/sigint)";
+export const ADSB_FI_BASE_URL = "https://opendata.adsb.fi/api/v3";
 
 export enum AircraftSourcePolicy {
   FreshMs = 600_000,
   MaxStaleMs = 900_000,
   RateLimitDelayMs = 3_000,
   RetryDefaultDelayMs = 30_000,
+  MaximumRequestDelayMs = 24_000,
 }
+
+const RATE_LIMIT_BACKOFF_FACTOR = 2;
 
 enum AircraftMessage {
   SweepFailed = "Aircraft sweep failed",
@@ -142,7 +143,7 @@ let totalScopes = AIRCRAFT_TILES.length;
 let sourceError: SourceError | null = null;
 let acquisitionController: AbortController | null = null;
 
-/** Validate the basic shape of an adsb.fi v3 tile response.
+/** Validate the basic shape of a provider tile response.
  *  Returns the normalized body or null if the shape is wrong. */
 export function normalizeAdsbPayload(json: unknown): AircraftBody | null {
   if (!isRecord(json) || !Array.isArray(json.ac)) return null;
@@ -160,13 +161,13 @@ type NowFn = () => number;
 const defaultSleep: SleepFn = (ms) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-function remainingRequestDelay(startedAt: number, finishedAt: number): number {
+function remainingRequestDelay(startedAt: number, finishedAt: number, gapMs: number): number {
   const elapsedMs = Math.max(0, finishedAt - startedAt);
-  return Math.max(0, AircraftSourcePolicy.RateLimitDelayMs - elapsedMs);
+  return Math.max(0, gapMs - elapsedMs);
 }
 
 /** Parse an HTTP `Retry-After` header value (integer seconds form only;
- *  RFC 7231 also allows a date form, but adsb.fi always sends seconds).
+ *  RFC 7231 also allows a date form, which is rejected).
  *  Returns the positive integer or null if missing/invalid. */
 export function parseRetryAfter(header: string | null): number | null {
   if (!header) return null;
@@ -218,6 +219,7 @@ export type AircraftTileResult =
   | Readonly<{
       kind: AircraftTileResultKind.Complete;
       records: unknown[];
+      rateLimited?: boolean;
     }>
   | Readonly<{
       kind: AircraftTileResultKind.Failed;
@@ -247,13 +249,13 @@ async function attemptTileFetch(
   lat: number,
   lon: number,
 ): Promise<TileAttemptResult> {
-  const label = `adsb.fi tile [${lat},${lon}]`;
-  const url = `${ADSB_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
+  const label = `tile [${lat},${lon}]`;
+  const url = `${ADSB_FI_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
   let response: Response;
   try {
     response = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS, {
       headers: {
-        [HttpHeader.UserAgent]: USER_AGENT,
+        [HttpHeader.UserAgent]: HttpUserAgent.SigintRepository,
         [HttpHeader.Accept]: HttpMediaType.Json,
       },
     });
@@ -310,27 +312,21 @@ export async function fetchTileWithRetry(
   if (first.kind !== AircraftTileResultKind.RateLimited) return first;
 
   logger.info(
-    `✈️  adsb.fi rate-limited tile [${lat},${lon}], waiting ${Math.round(
+    `✈️  aircraft: rate-limited tile [${lat},${lon}], waiting ${Math.round(
       first.waitMs / MS_PER_SECOND,
     )}s and retrying`,
   );
   await sleep(first.waitMs);
 
   const second = await attemptTileFetch(lat, lon);
+  if (second.kind === AircraftTileResultKind.Complete) return { ...second, rateLimited: true };
   if (second.kind !== AircraftTileResultKind.RateLimited) return second;
 
   const message = `Rate limited twice for tile [${lat},${lon}]`;
-  logger.info(`✈️  adsb.fi: ${message}`);
+  logger.info(`✈️  aircraft: ${message}`);
   return failedTile(SourceErrorCode.RateLimited, message);
 }
 
-/** Inner sweep; exported for tests so ordering and per-tile behavior
- *  can be exercised without driving the long-lived acquisition loop or
- *  real HTTP. Tests inject fetch and sleep stand-ins.
- *
- *  The very first call after process start (or after
- *  `__resetFirstSweepForTests`) walks ranked tiles first.
- *  Subsequent calls use the declared tile order. */
 function setFixtureFailure(message: string): void {
   sourcePhase = sweepState.completed.size > 0 ? SourcePhase.Degraded : SourcePhase.Unavailable;
   sourceCompleteness = SourceCompleteness.Unknown;
@@ -340,7 +336,6 @@ function setFixtureFailure(message: string): void {
   sourceError = { code: SourceErrorCode.FixtureError, message };
 }
 
-/** Returns true when a fixture override served the sweep. */
 async function runFixtureSweep(): Promise<boolean> {
   const override = await aircraftFixtureOverride.resolve();
   if (!override) return false;
@@ -348,7 +343,7 @@ async function runFixtureSweep(): Promise<boolean> {
   const normalized = normalizeAdsbPayload(override.body);
   if (!normalized) {
     setFixtureFailure("Fixture has invalid shape");
-    logger.warn("✈️  adsb.fi: fixture override rejected");
+    logger.warn("✈️  aircraft: fixture override rejected");
     return true;
   }
 
@@ -363,7 +358,7 @@ async function runFixtureSweep(): Promise<boolean> {
   successfulScopes = 1;
   totalScopes = 1;
   logger.info(
-    `✈️  adsb.fi: fixture active (${normalized.ac.length} aircraft)`,
+    `✈️  aircraft: fixture active (${normalized.ac.length} aircraft)`,
   );
   return true;
 }
@@ -425,10 +420,60 @@ function beginSweep(): void {
   sweepState.current = new Map();
 }
 
+type SweepTiming = Readonly<{
+  fetchFn: AircraftTileFetch;
+  sleep: SleepFn;
+  now: NowFn;
+  signal: AbortSignal | undefined;
+}>;
+
+function wasRateLimited(result: AircraftTileResult): boolean {
+  return result.kind === AircraftTileResultKind.Complete
+    ? result.rateLimited === true
+    : result.error.code === SourceErrorCode.RateLimited;
+}
+
+function slowerGap(gapMs: number): number {
+  const next = Math.min(gapMs * RATE_LIMIT_BACKOFF_FACTOR, AircraftSourcePolicy.MaximumRequestDelayMs);
+  if (next > gapMs) {
+    logger.info(`✈️  aircraft: slowing to one request every ${next / MS_PER_SECOND}s for this sweep`);
+  }
+  return next;
+}
+
+async function sweepTiles(
+  tiles: readonly AircraftTile[],
+  { fetchFn, sleep, now, signal }: SweepTiming,
+): Promise<number | null> {
+  let observedAt: number | null = null;
+  let gapMs: number = AircraftSourcePolicy.RateLimitDelayMs;
+  for (const [index, [latitude, longitude]] of tiles.entries()) {
+    if (signal?.aborted) break;
+    const requestStartedAt = now();
+    const result = await fetchFn(latitude, longitude);
+    if (result.kind === AircraftTileResultKind.Complete) {
+      observedAt = recordTileSuccess(result.records, observedAt);
+    } else {
+      recordTileFailure(result.error);
+    }
+    sourcePhase = failedScopes > 0 ? SourcePhase.Degraded : SourcePhase.Loading;
+    const limited = wasRateLimited(result);
+    if (limited) gapMs = slowerGap(gapMs);
+    if (index < tiles.length - 1) {
+      const delayMs = limited ? gapMs : remainingRequestDelay(requestStartedAt, now(), gapMs);
+      if (delayMs > 0) await sleep(delayMs);
+    }
+  }
+  return observedAt;
+}
+
+/** Run one sweep over every tile. A cold start fetches ranked tiles first.
+ *  Fetch, sleep, and clock are injectable. */
 export async function runSweep(
   fetchFn: AircraftTileFetch = fetchTileWithRetry,
   sleep: SleepFn = defaultSleep,
   now: NowFn = Date.now,
+  signal?: AbortSignal,
 ): Promise<void> {
   beginSweep();
 
@@ -436,7 +481,7 @@ export async function runSweep(
     if (await runFixtureSweep()) return;
   } catch (error) {
     setFixtureFailure(errorMessage(error, "Fixture override error"));
-    logger.warn("✈️  adsb.fi: fixture override error");
+    logger.warn("✈️  aircraft: fixture override error");
     return;
   }
 
@@ -445,51 +490,29 @@ export async function runSweep(
     ? AIRCRAFT_TILES
     : buildFirstSweepOrder(AIRCRAFT_TILES);
   totalScopes = ordered.length;
-  let sweepObservedAt: number | null = null;
-
-  for (let index = 0; index < ordered.length; index++) {
-    const [latitude, longitude] = ordered[index] ?? [0, 0];
-    const requestStartedAt = now();
-    const result = await fetchFn(latitude, longitude);
-    if (result.kind === AircraftTileResultKind.Complete) {
-      sweepObservedAt = recordTileSuccess(
-        result.records,
-        sweepObservedAt,
-      );
-    } else {
-      recordTileFailure(result.error);
-    }
-    sourcePhase =
-      failedScopes > 0 ? SourcePhase.Degraded : SourcePhase.Loading;
-
-    if (index < ordered.length - 1) {
-      const delayMs = remainingRequestDelay(requestStartedAt, now());
-      if (delayMs > 0) await sleep(delayMs);
-    }
-  }
-
+  const observedAt = await sweepTiles(ordered, { fetchFn, sleep, now, signal });
   firstSweepDone = true;
-  settleSweep(sweepObservedAt);
+  settleSweep(observedAt);
 
   finalizeSweep(sweepState, sourceCompleteness);
   logger.info(
-    `✈️  adsb.fi: ${sweepState.completed.size} aircraft, ${successfulScopes}/${totalScopes} tiles`,
+    `✈️  aircraft: ${sweepState.completed.size} aircraft, ${successfulScopes}/${totalScopes} tiles`,
   );
 }
 
-export type AircraftSweepFn = () => Promise<void>;
+export type AircraftSweepFn = (signal: AbortSignal) => Promise<void>;
 
 export async function runAircraftAcquisition(
   signal: AbortSignal,
-  sweep: AircraftSweepFn = runSweep,
+  sweep: AircraftSweepFn = (sweepSignal) => runSweep(fetchTileWithRetry, defaultSleep, Date.now, sweepSignal),
   sleep: SleepFn = defaultSleep,
 ): Promise<void> {
   while (!signal.aborted) {
     try {
-      await sweep();
+      await sweep(signal);
     } catch (error) {
       logger.error(
-        `✈️  adsb.fi: aircraft sweep failed: ${errorMessage(
+        `✈️  aircraft: sweep failed: ${errorMessage(
           error,
           AircraftMessage.SweepFailed,
         )}`,
@@ -504,7 +527,7 @@ export async function runAircraftAcquisition(
 export function startAircraftPolling(options?: FixtureOptions): void {
   if (acquisitionController !== null) return;
   if (options) aircraftFixtureOverride.configure(options);
-  logger.info("✈️  adsb.fi: starting aircraft poll...");
+  logger.info("✈️  aircraft: starting poll (adsb.fi)...");
   const controller = new AbortController();
   acquisitionController = controller;
   void runAircraftAcquisition(controller.signal).finally(() => {

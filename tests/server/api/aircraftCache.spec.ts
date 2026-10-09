@@ -7,8 +7,8 @@ import {
   afterEach,
 } from "bun:test";
 import {
+  ADSB_FI_BASE_URL,
   AIRCRAFT_TILES,
-  ADSB_BASE_URL,
   AircraftTileResultKind,
   AircraftSourcePolicy,
   TILE_RADIUS_NM,
@@ -63,8 +63,8 @@ describe("AIRCRAFT_TILES", () => {
 // ── Constants ──────────────────────────────────────────────────────
 
 describe("constants", () => {
-  test("ADSB_BASE_URL is the v3 endpoint base", () => {
-    expect(ADSB_BASE_URL).toBe("https://opendata.adsb.fi/api/v3");
+  test("uses the adsb.fi radius-query endpoint base", () => {
+    expect(ADSB_FI_BASE_URL).toBe("https://opendata.adsb.fi/api/v3");
   });
 
   test("aircraft requests retain the production rate-limit margin", () => {
@@ -264,6 +264,7 @@ describe("fetchTileWithRetry", () => {
     expect(result).toEqual({
       kind: AircraftTileResultKind.Complete,
       records: [],
+      rateLimited: true,
     });
   });
 
@@ -316,6 +317,18 @@ describe("fetchTileWithRetry", () => {
       throw new Error("Expected tile failure");
     }
     expect(result.error.code).toBe(SourceErrorCode.InvalidPayload);
+  });
+
+  test("requests the tile from adsb.fi", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ ac: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await fetchTileWithRetry(40, -100);
+
+    expect(urls).toEqual([`${ADSB_FI_BASE_URL}/lat/40/lon/-100/dist/${TILE_RADIUS_NM}`]);
   });
 });
 
@@ -511,24 +524,37 @@ describe("runSweep source state", () => {
     __resetAircraftCacheForTests();
   });
 
-  test("paces tile starts without adding response latency", async () => {
+  test("paces tile starts by the rate-limit spacing", async () => {
+    const sleeps: number[] = [];
+
+    await runSweep(
+      async () => ({ kind: AircraftTileResultKind.Complete, records: [] }),
+      async (ms) => {
+        sleeps.push(ms);
+      },
+      () => 0,
+    );
+
+    expect(sleeps).toHaveLength(AIRCRAFT_TILES.length - 1);
+    expect(sleeps.every((delay) => delay === AircraftSourcePolicy.RateLimitDelayMs)).toBe(true);
+  });
+
+  test("adds no wait after a response slower than the spacing", async () => {
     const sleeps: number[] = [];
     let now = 0;
 
     await runSweep(
       async () => {
-        now += 2_000;
+        now += AircraftSourcePolicy.RateLimitDelayMs * 2;
         return { kind: AircraftTileResultKind.Complete, records: [] };
       },
       async (ms) => {
         sleeps.push(ms);
-        now += ms;
       },
       () => now,
     );
 
-    expect(sleeps).toHaveLength(AIRCRAFT_TILES.length - 1);
-    expect(sleeps.every((delay) => delay === 1_000)).toBe(true);
+    expect(sleeps).toEqual([]);
   });
 
   test("a complete empty sweep authoritatively clears the prior snapshot", async () => {

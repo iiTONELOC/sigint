@@ -3,7 +3,7 @@ import { AircraftApiRoute, type AircraftPoint } from "@shared/domain/aircraft";
 import {
   normalizeIcao24,
   parseAircraftDossier,
-  type AircraftDossier,
+  type AircraftDossierBundle,
   type AircraftRouteWaypoint,
 } from "@shared/domain/aircraftDossier";
 import { isRecord } from "@shared/geo";
@@ -31,7 +31,7 @@ export type AircraftDossierServiceOptions = Readonly<{
   entities: AircraftDossierEntityReader;
   fetchDossier?: (
     request: AircraftDossierRequest,
-  ) => Promise<AircraftDossier>;
+  ) => Promise<AircraftDossierBundle>;
 }>;
 
 function requestForEntity(
@@ -54,7 +54,7 @@ function cacheKeyFor(request: AircraftDossierRequest): string {
 
 async function fetchAircraftDossier(
   request: AircraftDossierRequest,
-): Promise<AircraftDossier> {
+): Promise<AircraftDossierBundle> {
   const query = new URLSearchParams();
   if (request.callsign) {
     query.set(AircraftDossierQueryParameter.Callsign, request.callsign);
@@ -80,15 +80,15 @@ export class AircraftDossierService {
   private readonly entities: AircraftDossierEntityReader;
   private readonly fetchDossier: (
     request: AircraftDossierRequest,
-  ) => Promise<AircraftDossier>;
-  private readonly pending = new Map<string, Promise<AircraftDossier>>();
+  ) => Promise<AircraftDossierBundle>;
+  private readonly pending = new Map<string, Promise<AircraftDossierBundle>>();
 
   constructor(options: AircraftDossierServiceOptions) {
     this.entities = options.entities;
     this.fetchDossier = options.fetchDossier ?? fetchAircraftDossier;
   }
 
-  async get(entityId: string): Promise<AircraftDossier | null> {
+  async get(entityId: string): Promise<AircraftDossierBundle | null> {
     const entity = this.entities.get(entityId);
     if (!entity) return null;
     const request = requestForEntity(entity);
@@ -113,7 +113,7 @@ export class AircraftDossierService {
 
   private async fetch(
     request: AircraftDossierRequest,
-  ): Promise<AircraftDossier> {
+  ): Promise<AircraftDossierBundle> {
     const dossier = await this.fetchDossier(request);
     if (dossier.icao24.toLowerCase() !== request.icao24) {
       throw new Error(AircraftDossierServiceError.IdentityMismatch);

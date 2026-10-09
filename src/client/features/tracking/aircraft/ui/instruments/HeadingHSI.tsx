@@ -1,5 +1,6 @@
 import { AngleConversion, TurnDeg } from "@shared/geo";
 import { cardinalCompassPointForDegrees } from "@shared/domain/compass";
+import { useEasedValue } from "./FlightInstruments";
 
 enum HeadingScaleGeometry {
   Center = 100,
@@ -89,15 +90,14 @@ export function HeadingHSI({ heading, selectedHeading }: Props) {
   const card = (
     (Math.round(heading) % TurnDeg.Full) + TurnDeg.Full
   ) % TurnDeg.Full;
+  const shownCard = useEasedValue(card, TurnDeg.Full);
   const center = HeadingScaleGeometry.Center;
   const radius = HeadingScaleGeometry.Radius;
 
   return (
-    <div className="h-full w-full bg-sig-bg rounded-[10px] border border-sig-border p-1.5">
       <svg
         viewBox={`0 0 ${center * 2} ${center * 2}`}
-        preserveAspectRatio="xMidYMid meet"
-        className="w-full h-full"
+        className="block w-full h-auto"
         aria-label={`Heading ${card} degrees`}
       >
         <circle
@@ -108,7 +108,7 @@ export function HeadingHSI({ heading, selectedHeading }: Props) {
           strokeOpacity={HeadingOpacity.OuterRing}
         />
 
-        <g transform={`rotate(${-card} ${center} ${center})`}>
+        <g transform={`rotate(${-shownCard} ${center} ${center})`}>
           {HEADING_MARKS.map((degrees) => {
             const major = degrees % HeadingMarkGeometry.MajorIntervalDegrees === 0;
             const angle = (
@@ -216,6 +216,5 @@ export function HeadingHSI({ heading, selectedHeading }: Props) {
           {`${String(card).padStart(HeadingTextGeometry.PadLength, "0")}°`}
         </text>
       </svg>
-    </div>
   );
 }

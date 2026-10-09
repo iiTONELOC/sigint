@@ -25,7 +25,6 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
     - [Development](#development)
     - [Production](#production)
     - [Production with TLS](#production-with-tls)
-    - [Heroku](#heroku)
     - [Cleanup](#cleanup)
   - [PWA](#pwa)
   - [Documentation](#documentation)
@@ -56,8 +55,6 @@ Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `Curr
 - Text products: Public Advisory, Forecast Discussion, Wind Probabilities
 - Storm dossier pane with the full advisory text and forecast table
 - Correlation rules: Hurricane Hunter aircraft proximity, ships sheltering in the lee, GDELT events on the forecast track
-
-Out-of-season returns an empty `activeStorms: []` as a 200, not a 503. The three in-scope NHC basin gates are closed from December 16 through May 14 when the cache is empty. A non-empty cache continues to refresh until the active storm clears.
 
 ### Intelligence
 
@@ -97,57 +94,46 @@ For development, create a `.env` file in the project root with at minimum:
 SIGINT_SERVER_SECRET=<output of openssl rand -hex 32>
 ```
 
-Optionally add a key for ship data. NASA FIRMS uses keyless bulk feeds.
+Optionally add a key for ship data.
 
 ```
 AISSTREAM_API_KEY=<your aisstream.io key>
 ```
 
-Production never reads `.env`. See [Production](#production) for secret files.
+See [Production](#production) for secret files.
 
 ## Quick Start
 
-See [Deployment](#deployment) for dev, production, and Heroku options.
+See [Deployment](#deployment) for dev and production options.
 
 ## Environment Variables
 
-In production, the app reads `SIGINT_SERVER_SECRET` and `AISSTREAM_API_KEY` only from secret files.
-It ignores environment variables with those names.
+In production, the app reads `SIGINT_SERVER_SECRET` and `AISSTREAM_API_KEY` from secret files.
 
 | Variable                       | Required | Description                                                                                                                    |
 | ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`. Server exits 78 without it. Secret file only in production. |
-| `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data. Secret file only in production.                                   |
+| `SIGINT_SERVER_SECRET`         | **Yes**  | Auth token signing key. Must be ≥32 chars. `openssl rand -hex 32`.                                                                |
+| `AISSTREAM_API_KEY`            | No       | [aisstream.io](https://aisstream.io) key for live ship data.                                                                    |
 | `SECRETS_DIR`                  | No       | Folder the app reads secret files from (default `/run/secrets`).                                                               |
 | `DOMAIN`                       | No       | Domain for Let's Encrypt TLS                                                                                                   |
 | `PORT`                         | Yes      | Listening port, supplied by the platform                                                                                        |
 | `SIGINT_RATE_LIMIT_PER_MINUTE` | No       | Per-client rate-limit cap (default 60). Sliding-window limiter applied to every route.                                         |
-| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Trusted proxy count (default 0). Direct mode ignores forwarding headers.          |
+| `SIGINT_TRUSTED_PROXY_HOPS`    | No       | Trusted proxy count (default 0).                                                                                               |
 
 ## Data Sources
 
-The browser refresh value is the DataWorker or news-provider request interval. Server collectors can use a different cadence.
+Browser refresh is how often the browser requests each layer.
 
 | Layer    | Source                                                                                                      | Browser refresh |
 | -------- | ----------------------------------------------------------------------------------------------------------- | --------------- |
-| Aircraft | [adsb.fi](https://opendata.adsb.fi) (continuous server tile acquisition, 108 tiles × 250 nm, priority hubs) | 15s             |
+| Aircraft | [adsb.fi](https://opendata.adsb.fi) (server tile acquisition, 108 tiles × 250 nm, priority hubs)          | 15s             |
 | Ships    | [aisstream.io](https://aisstream.io) (server WebSocket)                                                     | 15s             |
 | Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (direct DataWorker fetch)                        | 420s            |
-| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (keyless server bulk-feed failover)                     | 600s            |
+| Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server bulk feeds)                                     | 600s            |
 | Weather  | [NOAA](https://api.weather.gov/) (direct DataWorker fetch)                                                  | 300s            |
 | Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone + advisory text products)         | 25m             |
 | Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 15m             |
 | News     | 6 RSS feeds (server-side)                                                                                   | 10m             |
-
-### Aircraft data source: adsb.fi (replaces OpenSky)
-
-Aircraft data is served by [adsb.fi](https://opendata.adsb.fi), a community-supported ADS-B aggregator. Earlier versions of this project used OpenSky Network as the upstream; OpenSky deprecated their free anonymous read tier, so the aircraft path migrated to adsb.fi end-to-end:
-
-- The server runs continuous 108-tile acquisition with a 250 nm radius and at least 3 s between requests. It starts each cold acquisition with 20 priority tiles. The browser never hits adsb.fi directly; adsb.fi enforces a 1 req/sec/IP cap that a per-user budget would burn instantly.
-- Records are enriched against the read-only `ac-db.sqlite` (~617k records) before they hit the cache. The SQLite is built from a one-time export of the OpenSky aircraft metadata database via `scripts/convert-aircraft-csv.ts` and is checked in as the bundled NDJSON source (`src/server/data/ac-db.ndjson` → `ac-db.sqlite` at build time). No live calls to OpenSky remain anywhere in the runtime.
-- The hex-prefix → country mapping in `src/server/data/icao24CountryRanges.ts` is derived from ICAO Annex 10 and replaces the previous OpenSky country field.
-
-The current browser path starts in `src/client/workers/data/sources/aircraft.ts`. It calls `src/client/features/tracking/aircraft/data/parseAdsbV2.ts`, which requests `/api/aircraft/states`. The DataWorker does not call adsb.fi or OpenSky directly.
 
 ## Testing
 
@@ -169,19 +155,14 @@ bun run docker:dev:down        # stop
 
 #### Dev-only fixture overrides
 
-Two env vars short-circuit live data fetches in development so you can
-work against a known frozen state. Both are gated on
-`NODE_ENV !== "production"` and ignored in production builds.
+Two env vars load frozen fixture data in development.
 
 | Env var            | Source it overrides                                        | Valid labels                                                                                                     |
 | ------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `CYCLONES_FIXTURE` | `/api/cyclones/latest` (server fetches NHC)                | `active-season`, `single-cat3`, `empty-out-of-season`                     |
-| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server fetches adsb.fi tile sweep) | `dossier-baseline`, `hunter-near-cyclone`, `test-snapshot`                |
+| `AIRCRAFT_FIXTURE` | `/api/aircraft/states` (server runs the tile sweep)          | `dossier-baseline`, `hunter-near-cyclone`, `test-snapshot`                |
 
-Labels match `/^[a-z0-9-]+$/` (OWASP A01, with a strict allowlist before any
-file lookup) and resolve to `tests/fixtures/<source>/<label>.json`.
-Invalid labels throw at startup; missing files throw with the resolved
-path. To use:
+Labels match `/^[a-z0-9-]+$/` and resolve to `tests/fixtures/<source>/<label>.json`. To use:
 
 ```bash
 CYCLONES_FIXTURE=active-season bun run dev
@@ -196,13 +177,11 @@ CYCLONES_FIXTURE=single-cat3 bun run docker:dev:up
 
 ### Production
 
-Production reads secrets from files, not from environment variables or `.env`.
+Production reads secrets from files.
 Put each secret in its own file, named after the variable, in one host folder.
 Each file holds only the value.
 Give each file mode 0400 and owner UID 710.
 The container runs as `710:710` and mounts the folder read-only at `/run/secrets`.
-A missing `SIGINT_SERVER_SECRET` file stops startup with exit code 78.
-A missing `AISSTREAM_API_KEY` file disables ship data.
 
 Set `HOST_SECRETS_DIR` to the host folder for every compose command:
 
@@ -216,12 +195,6 @@ HOST_SECRETS_DIR=/path/to/secrets bun run docker:prod:down   # stop
 ```bash
 HOST_SECRETS_DIR=/path/to/secrets DOMAIN=sigint.example.com bun run docker:prod:tls:up
 HOST_SECRETS_DIR=/path/to/secrets bun run docker:prod:tls:down   # stop
-```
-
-### Heroku
-
-```bash
-git push heroku main
 ```
 
 ### Cleanup
@@ -238,7 +211,7 @@ SIGINT is installable as a Progressive Web App. After visiting the deployed app:
 - **iOS Safari**: Share > Add to Home Screen
 - **Android Chrome**: Menu > Add to Home Screen
 
-The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When an update is available, a banner prompts the user to reload. The service worker does not replace code during a session.
+The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When an update is available, a banner prompts the user to reload.
 
 ## Documentation
 

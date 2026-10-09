@@ -1,14 +1,11 @@
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
+import { gunzipText } from "@shared/http";
 
 type AirportMap = Record<string, [number, number]>;
 
 enum AirportAssetPath {
   Data = "/data/airports.json.gz",
-}
-
-enum AirportCompressionFormat {
-  Gzip = "gzip",
 }
 
 enum AirportDataErrorKind {
@@ -72,14 +69,12 @@ export function enrichAirports(onReady: (a: AirportMap) => void): void {
           res.status,
         );
       }
-      const stream = res.body.pipeThrough(
-        new DecompressionStream(AirportCompressionFormat.Gzip),
-      );
-      return new Response(stream).json();
+      return gunzipText(res.body);
     })
+    .then((text): AirportMap => JSON.parse(text))
     .then((data: AirportMap) => {
       airports = data;
-      cacheSet(CacheKey.Airports, data);
+      void cacheSet(CacheKey.Airports, data);
       const cbs = waiters;
       waiters = [];
       for (const cb of cbs) cb(data);

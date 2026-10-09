@@ -62,8 +62,6 @@ export function isTrackSource(value: unknown): value is TrackSource {
   return value === Domain.Aircraft || value === Domain.Ships;
 }
 
-// ── Parse ────────────────────────────────────────────────────────────
-
 export function isTrailPoint(value: unknown): value is TrailPoint {
   return (
     isRecord(value) &&
@@ -113,8 +111,6 @@ export function parseTrailEntry(value: unknown): TrailEntry | null {
   };
 }
 
-// ── Merge ────────────────────────────────────────────────────────────
-
 /** Preserve live boot observations while restoring older cached history. */
 export function mergeCachedTrails(
   live: Map<string, TrailEntry>,
@@ -141,8 +137,6 @@ export function mergeCachedTrails(
         : combined;
   }
 }
-
-// ── Record ───────────────────────────────────────────────────────────
 
 function finiteOr(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) ? value : fallback;

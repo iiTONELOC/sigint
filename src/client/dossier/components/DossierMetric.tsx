@@ -1,4 +1,4 @@
-import { LocateFixed } from "lucide-react";
+import { LocateFixed, type LucideIcon } from "lucide-react";
 import { formatLat, formatLon } from "@/geo";
 import {
   recordLatitude,
@@ -75,19 +75,35 @@ export function DossierRow({
   );
 }
 
+export function DossierInfoRow({
+  className = "",
+  icon: Icon,
+  label,
+  value,
+}: Readonly<{ className?: string; icon: LucideIcon; label: string; value: ReactNode }>) {
+  return (
+    <div className={`flex items-center justify-between gap-3 bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5 ${className}`}>
+      <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text shrink-0">
+        <Icon className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden={true} />
+        {label}
+      </span>
+      <span className="text-(length:--sig-text-xs) text-sig-bright font-mono truncate">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export function DossierPositionRow({
   className = "",
   item,
 }: Readonly<{ className?: string; item: PositionedRecord }>) {
   return (
-    <div className={`flex items-center justify-between bg-sig-panel border border-sig-border rounded-[10px] px-3 py-1.5 ${className}`}>
-      <span className="flex items-center gap-1.5 text-(length:--sig-text-xs) text-sig-text">
-        <LocateFixed className="w-3.5 h-3.5 text-(--dossier-accent)" aria-hidden={true} />
-        POSITION
-      </span>
-      <span className="text-(length:--sig-text-xs) text-sig-bright font-mono">
-        {formatLat(recordLatitude(item))} · {formatLon(recordLongitude(item))}
-      </span>
-    </div>
+    <DossierInfoRow
+      className={className}
+      icon={LocateFixed}
+      label="POSITION"
+      value={`${formatLat(recordLatitude(item))} · ${formatLon(recordLongitude(item))}`}
+    />
   );
 }

@@ -7,7 +7,7 @@
  * the app's data-tour="..." handles. Fresh context per theme so the build is
  * shown from scratch (a saved profile would hide it).
  *
- *   DEMO_URL="https://sigint-5154d935429b.herokuapp.com/?ac=1&air=1&gnd=1" \
+ *   DEMO_URL="https://sigint.atropeano.com/?ac=1&air=1&gnd=1" \
  *   npx playwright install chromium && npx tsx tests/demo/demo-capture.ts
  *
  * Cyclones are PARKED (no live storm). When one spins up, add a cyclone segment
@@ -23,7 +23,7 @@ import path from "node:path";
 
 const DEMO_URL =
   process.env.DEMO_URL ??
-  "https://sigint-5154d935429b.herokuapp.com/?ac=1&air=1&gnd=1";
+  "https://sigint.atropeano.com/?ac=1&air=1&gnd=1";
 
 const CHANNELS = ["CBS Miami", "OAN Encore", "Newsmax2", "ABC News"];
 const OUT = "demo";

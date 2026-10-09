@@ -17,7 +17,7 @@ import { isSourceIdValue } from "@shared/source";
 import type { PointUiQueryResult } from "@/workers/data/uiQuery";
 import {
   parseAircraftDossier,
-  type AircraftDossier,
+  type AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import {
   parseTsunamiAlerts,
@@ -166,7 +166,7 @@ export type DataWorkerEventBody =
     }>
   | MessageBody<DataWorkerMessageType.AircraftDossier, {
       entityId: string;
-      dossier: AircraftDossier | null;
+      dossier: AircraftDossierBundle | null;
     }>
   | MessageBody<DataWorkerMessageType.CycloneDossier, {
       dossier: CycloneDossierBundle | null;

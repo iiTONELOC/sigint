@@ -1,5 +1,0 @@
-build:
-  docker:
-    web: Dockerfile.prod
-run:
-  web: bun src/server/index.prod.ts

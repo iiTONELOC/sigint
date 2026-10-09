@@ -45,47 +45,50 @@ export const AIRCRAFT_LINK_POLICIES: Readonly<
   Record<
     AircraftLinkProvider,
     Readonly<{
-      label: string;
-      surfaces: readonly AircraftLinkSurface[];
+      labels: Readonly<Partial<Record<AircraftLinkSurface, string>>>;
       buildUrl: (data: AircraftData) => string | null;
     }>
   >
 > = {
   [AircraftLinkProvider.AdsbExchange]: {
-    label: "ADS-B Exchange",
-    surfaces: [AircraftLinkSurface.Detail, AircraftLinkSurface.Dossier],
+    labels: {
+      [AircraftLinkSurface.Detail]: "ADSBx",
+      [AircraftLinkSurface.Dossier]: "ADS-B Exchange",
+    },
     buildUrl: ({ icao24 }) => {
       const hex = icao24?.trim();
       return hex ? `https://globe.adsbexchange.com/?icao=${hex}` : null;
     },
   },
   [AircraftLinkProvider.FlightAware]: {
-    label: "FlightAware",
-    surfaces: [AircraftLinkSurface.Detail, AircraftLinkSurface.Dossier],
+    labels: {
+      [AircraftLinkSurface.Detail]: "FlightAware",
+      [AircraftLinkSurface.Dossier]: "FlightAware",
+    },
     buildUrl: ({ callsign }) => {
       const flight = callsign?.trim();
       return flight ? `https://flightaware.com/live/flight/${flight}` : null;
     },
   },
   [AircraftLinkProvider.FlightRadar24]: {
-    label: "FlightRadar24",
-    surfaces: [AircraftLinkSurface.Detail, AircraftLinkSurface.Dossier],
+    labels: {
+      [AircraftLinkSurface.Detail]: "FR24",
+      [AircraftLinkSurface.Dossier]: "FlightRadar24",
+    },
     buildUrl: ({ callsign }) => {
       const flight = callsign?.trim();
       return flight ? `https://www.flightradar24.com/${flight}` : null;
     },
   },
   [AircraftLinkProvider.JetPhotos]: {
-    label: "JetPhotos",
-    surfaces: [AircraftLinkSurface.Dossier],
+    labels: { [AircraftLinkSurface.Dossier]: "JetPhotos" },
     buildUrl: ({ registration }) => {
       const tail = registration?.trim();
       return tail ? `https://www.jetphotos.com/registration/${tail}` : null;
     },
   },
   [AircraftLinkProvider.PlaneSpotters]: {
-    label: "Planespotters",
-    surfaces: [AircraftLinkSurface.Dossier],
+    labels: { [AircraftLinkSurface.Dossier]: "Planespotters" },
     buildUrl: ({ icao24 }) => {
       const hex = icao24?.trim().toUpperCase();
       return hex ? `https://www.planespotters.net/hex/${hex}` : null;
@@ -121,8 +124,8 @@ export function aircraftBadgePresentation(data: AircraftData): Readonly<{
     data.operatorIcao ||
     data.registration ||
     AircraftDataLabel.Unknown;
-  const subtitle = [data.callsign?.trim(), data.registration]
-    .filter(Boolean)
+  const subtitle = [...new Set([data.callsign?.trim(), data.registration])]
+    .filter((part) => part && part !== operator)
     .join(" · ");
   const family = (data.model ?? EMPTY_TEXT).split(/[\s/-]/)[0] ?? EMPTY_TEXT;
   return {
@@ -162,9 +165,10 @@ export function aircraftExternalLinks(
   const links: Array<[string, string]> = [];
   for (const provider of Object.values(AircraftLinkProvider)) {
     const policy = AIRCRAFT_LINK_POLICIES[provider];
-    if (!policy.surfaces.includes(surface)) continue;
+    const label = policy.labels[surface];
+    if (!label) continue;
     const url = policy.buildUrl(data);
-    if (url) links.push([policy.label, url]);
+    if (url) links.push([label, url]);
   }
   return links;
 }

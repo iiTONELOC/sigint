@@ -1,6 +1,24 @@
 import { resolveUnitMode } from "@/preferences/units/store";
 import { UnitMode } from "@/preferences/units/model";
-import { kmToMi, ktToKmh, ktToMph } from "../utils/conversions";
+import { MeasurementConversionFactor } from "../model/conversion";
+import { kmToMi, ktToKmh, ktToMph, nmToKm } from "../utils/conversions";
+
+export function formatNauticalMiles(
+  nauticalMiles: number,
+  mode?: UnitMode,
+): string {
+  const rounded = Math.round(nauticalMiles);
+  switch (resolveUnitMode(mode)) {
+    case UnitMode.Knots:
+      return `${rounded} nm`;
+    case UnitMode.MilesPerHour:
+      return `${kmToMi(nauticalMiles * MeasurementConversionFactor.KilometersPerNauticalMile)} mi`;
+    case UnitMode.KilometersPerHour:
+      return `${nmToKm(nauticalMiles)} km`;
+    default:
+      return `${rounded} nm (${nmToKm(nauticalMiles)} km)`;
+  }
+}
 
 export function formatKmMi(
   kilometers: number,

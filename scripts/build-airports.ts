@@ -1,143 +1,122 @@
 /**
- * Builds public/data/airports.json.gz from the OurAirports dataset.
- *
- * OurAirports data is released to the PUBLIC DOMAIN (https://ourairports.com/data/),
- * free to redistribute. We keep airports that can plausibly be a flight
- * origin/destination (anything with an IATA code, plus medium/large airports)
- * and drop closed fields, to keep the file small.
+ * Builds public/data/airports.json.gz from the OurAirports dataset (public domain,
+ * https://ourairports.com/data/). Keeps airports that can be a flight origin or
+ * destination: any airport with an IATA code, plus medium and large airports.
  *
  *   bun run scripts/build-airports.ts                 # downloads airports.csv
  *   bun run scripts/build-airports.ts ./airports.csv  # or a local .csv / .csv.gz
  *
- * Output: a gzipped JSON map of ICAO/IATA code → [lat, lon]. The client fetches
- * it and decodes with DecompressionStream("gzip") — the same gzip transport the
- * cache layer (storageService) already uses. Commit the output file.
+ * Output: a gzipped JSON map of ICAO/IATA code to [lat, lon]. Commit the output file.
  */
 
-import { gzip, gunzip } from "zlib";
-import { promisify } from "util";
 import { resolve } from "path";
+import { readTextFile, splitCsvLine, writeGzipJson } from "./staticData";
 
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
+const SOURCE_URL = "https://davidmegginson.github.io/ourairports-data/airports.csv";
+const OUTPUT_PATH = resolve(import.meta.dir, "../public/data/airports.json.gz");
+const COORDINATE_SCALE = 10_000;
+const LINE_SEPARATOR = "\n";
+const HEADER_SEPARATOR = ",";
+const HEADER_NOISE = /[^a-z0-9]/g;
+const SURROUNDING_QUOTES = /^['"]|['"]$/g;
 
-const SOURCE_URL =
-  "https://davidmegginson.github.io/ourairports-data/airports.csv";
-
-function normalizeHeader(v: string): string {
-  return v
-    .trim()
-    .replace(/^['"]|['"]$/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+enum AirportColumn {
+  Type = "type",
+  Ident = "ident",
+  Icao = "icaocode",
+  Gps = "gpscode",
+  Iata = "iatacode",
+  Latitude = "latitudedeg",
+  Longitude = "longitudedeg",
 }
 
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let q: "'" | '"' | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
-    if ((ch === '"' || ch === "'") && q === null) {
-      q = ch;
-      continue;
-    }
-    if (q !== null && ch === q) {
-      if (line[i + 1] === q) {
-        cur += q;
-        i++;
-      } else {
-        q = null;
-      }
-      continue;
-    }
-    if (ch === "," && q === null) {
-      out.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  out.push(cur);
-  return out.map((v) => v.trim().replace(/^['"]|['"]$/g, ""));
+enum AirportType {
+  Closed = "closed",
+  Large = "large_airport",
+  Medium = "medium_airport",
 }
 
-async function loadCsv(arg?: string): Promise<string> {
-  if (arg) {
-    const file = Bun.file(arg);
-    if (arg.endsWith(".gz")) {
-      const buf = await file.arrayBuffer();
-      return (await gunzipAsync(Buffer.from(buf))).toString("utf-8");
-    }
-    return await file.text();
-  }
-  console.log(`Downloading ${SOURCE_URL} ...`);
-  const res = await fetch(SOURCE_URL);
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-  return await res.text();
+const ROUTE_AIRPORT_TYPES: ReadonlySet<string> = new Set([AirportType.Large, AirportType.Medium]);
+
+enum AirportBuildErrorKind {
+  Download = "download",
+  Columns = "columns",
 }
 
-async function main() {
-  const csv = await loadCsv(process.argv[2]);
-  const lines = csv.split("\n");
-  const header = splitCsvLine(lines[0] ?? "").map(normalizeHeader);
-  const col = (name: string) => header.indexOf(name);
+const AIRPORT_BUILD_ERROR_MESSAGE: Readonly<Record<AirportBuildErrorKind, string>> = {
+  [AirportBuildErrorKind.Download]: "airports.csv download failed",
+  [AirportBuildErrorKind.Columns]: "airports.csv has no latitude and longitude columns",
+};
 
-  const iType = col("type");
-  const iIdent = col("ident");
-  const iIcao = col("icaocode");
-  const iGps = col("gpscode");
-  const iIata = col("iatacode");
-  const iLat = col("latitudedeg");
-  const iLon = col("longitudedeg");
-  if (iLat < 0 || iLon < 0) {
-    throw new Error(`lat/lon columns not found in header: ${header.join(",")}`);
+class AirportBuildError extends Error {
+  constructor(readonly kind: AirportBuildErrorKind, readonly detail: string) {
+    super(AIRPORT_BUILD_ERROR_MESSAGE[kind]);
+    this.name = "AirportBuildError";
   }
+}
 
-  const map: Record<string, [number, number]> = {};
+type AirportCoordinate = readonly [number, number];
+type AirportField = (column: AirportColumn) => string | undefined;
+type RouteAirport = Readonly<{ codes: readonly string[]; coordinate: AirportCoordinate }>;
+
+function normalizeHeader(value: string): string {
+  return value.trim().replace(SURROUNDING_QUOTES, "").toLowerCase().replace(HEADER_NOISE, "");
+}
+
+function scaled(degrees: number): number {
+  return Math.round(degrees * COORDINATE_SCALE) / COORDINATE_SCALE;
+}
+
+function routeAirport(field: AirportField): RouteAirport | null {
+  const type = field(AirportColumn.Type) ?? "";
+  const latitude = Number(field(AirportColumn.Latitude));
+  const longitude = Number(field(AirportColumn.Longitude));
+  if (type === AirportType.Closed || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  const icao = field(AirportColumn.Icao) || field(AirportColumn.Gps) || field(AirportColumn.Ident) || "";
+  const iata = field(AirportColumn.Iata) ?? "";
+  if ((!icao && !iata) || (!iata && !ROUTE_AIRPORT_TYPES.has(type))) return null;
+  return {
+    codes: [icao, iata].filter(Boolean).map((code) => code.toUpperCase()),
+    coordinate: [scaled(latitude), scaled(longitude)],
+  };
+}
+
+function airportMap(csv: string): Readonly<{ map: Record<string, AirportCoordinate>; kept: number }> {
+  const [headerLine = "", ...lines] = csv.split(LINE_SEPARATOR);
+  const header = splitCsvLine(headerLine).map(normalizeHeader);
+  if (!header.includes(AirportColumn.Latitude) || !header.includes(AirportColumn.Longitude)) {
+    throw new AirportBuildError(AirportBuildErrorKind.Columns, header.join(HEADER_SEPARATOR));
+  }
+  const map = new Map<string, AirportCoordinate>();
   let kept = 0;
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
+  for (const line of lines) {
     if (!line) continue;
-    const f = splitCsvLine(line);
-    const type = f[iType] ?? "";
-    if (type === "closed") continue;
-
-    const lat = Number(f[iLat]);
-    const lon = Number(f[iLon]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-
-    const icao =
-      (iIcao >= 0 ? f[iIcao] : "") ||
-      (iGps >= 0 ? f[iGps] : "") ||
-      (iIdent >= 0 ? f[iIdent] : "") ||
-      "";
-    const iata = iIata >= 0 ? f[iIata]! : "";
-    if (!icao && !iata) continue;
-    // Compact: only airports that realistically appear as an origin/dest.
-    if (!iata && type !== "large_airport" && type !== "medium_airport") continue;
-
-    const coord: [number, number] = [
-      Math.round(lat * 1e4) / 1e4,
-      Math.round(lon * 1e4) / 1e4,
-    ];
-    if (icao) map[icao.toUpperCase()] = coord;
-    if (iata) map[iata.toUpperCase()] = coord;
+    const fields = splitCsvLine(line);
+    const airport = routeAirport((column) => fields[header.indexOf(column)]);
+    if (!airport) continue;
+    for (const code of airport.codes) map.set(code, airport.coordinate);
     kept++;
   }
-
-  const json = JSON.stringify(map);
-  const gz = await gzipAsync(Buffer.from(json), { level: 9 });
-  const outPath = resolve(import.meta.dir, "../public/data/airports.json.gz");
-  await Bun.write(outPath, gz);
-  console.log(
-    `airports: ${kept} kept, ${Object.keys(map).length} keys — ` +
-      `${(json.length / 1024 / 1024).toFixed(1)} MB JSON → ${(gz.length / 1024).toFixed(0)} KB gz`,
-  );
-  console.log(`→ ${outPath}`);
+  return { map: Object.fromEntries(map), kept };
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+async function loadCsv(path: string | undefined): Promise<string> {
+  if (path) return readTextFile(path);
+  console.log(`Downloading ${SOURCE_URL} ...`);
+  const response = await fetch(SOURCE_URL);
+  if (!response.ok) throw new AirportBuildError(AirportBuildErrorKind.Download, String(response.status));
+  return response.text();
+}
+
+if (import.meta.main) {
+  try {
+    const { map, kept } = airportMap(await loadCsv(process.argv[2]));
+    const bytes = await writeGzipJson(OUTPUT_PATH, map);
+    console.log(`airports: ${kept} kept, ${Object.keys(map).length} keys, ${bytes} bytes -> ${OUTPUT_PATH}`);
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
+}

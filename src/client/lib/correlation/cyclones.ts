@@ -1,12 +1,10 @@
-// ── Cyclone correlation rules ───────────────────────────────────────
-
 import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
 import { Domain } from "@shared/domain/identity";
 import { classifyRecon } from "@shared/domain/aircraft";
-import { DEGREES_TO_RADIANS, haversineKm, TurnDeg } from "@shared/geo";
+import { bearingDegrees, haversineKm, TurnDeg } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { IntelProductType } from "@shared/domain/correlation";
@@ -39,25 +37,6 @@ function activeCyclones(points: DataPoint[]): CycloneItem[] {
       point.type === Domain.Cyclones &&
       point.data.maxWindKt >=
         CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
-  );
-}
-
-/** Bearing from origin to observer, 0-360 degrees clockwise from north. */
-function quadrantOf(
-  observerLat: number,
-  observerLon: number,
-  originLat: number,
-  originLon: number,
-): number {
-  const dLon = (observerLon - originLon) * DEGREES_TO_RADIANS;
-  const lat1 = originLat * DEGREES_TO_RADIANS;
-  const lat2 = observerLat * DEGREES_TO_RADIANS;
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x =
-    Math.cos(lat1) * Math.sin(lat2) -
-    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  return (
-    (Math.atan2(y, x) / DEGREES_TO_RADIANS + TurnDeg.Full) % TurnDeg.Full
   );
 }
 
@@ -118,11 +97,11 @@ function detectShipsSheltering(
       recordLongitude(cyc),
     );
     if (dist > CycloneRulePolicy.ShelteringRadiusKm) continue;
-    const bearing = quadrantOf(
-      recordLatitude(item),
-      recordLongitude(item),
+    const bearing = bearingDegrees(
       recordLatitude(cyc),
       recordLongitude(cyc),
+      recordLatitude(item),
+      recordLongitude(item),
     );
     if (isLeeQuadrant(bearing, cyc.data.movementDir)) sheltering.push(item);
   }

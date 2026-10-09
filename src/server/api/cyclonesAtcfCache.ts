@@ -13,7 +13,7 @@ import {
   type PastTrackPoint,
   type WindRadii,
 } from "@shared/domain/cyclones";
-import { HttpContentCoding, HttpStatus } from "@shared/http";
+import { gunzipText, HttpStatus } from "@shared/http";
 
 const ATCF_BTK_BASE = "https://ftp.nhc.noaa.gov/atcf/btk";
 const ATCF_CACHE_TTL_MS = 3 * 60 * 60_000;
@@ -290,9 +290,7 @@ async function fetchModelsForStorm(
     const response = await fetchIfModified(url, stormId, adeckValidators);
     if (response.status === HttpStatus.NotModified && previous) return previous;
     if (!response.ok || !response.body) return previous ?? [];
-    const stream = response.body.pipeThrough(new DecompressionStream(HttpContentCoding.Gzip));
-    const text = await new Response(stream).text();
-    return parseAtcfAdeck(text, products?.analysisInit);
+    return parseAtcfAdeck(await gunzipText(response.body), products?.analysisInit);
   } catch {
     return previous ?? [];
   }

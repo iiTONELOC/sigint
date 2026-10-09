@@ -111,68 +111,35 @@ describe("buildFirstSweepOrder", () => {
   });
 });
 
+function recordingFetch(visits: AircraftTile[]) {
+  return async (lat: number, lon: number): Promise<AircraftTileResult> => {
+    visits.push([lat, lon]);
+    return { kind: AircraftTileResultKind.Complete, records: [] };
+  };
+}
+
+function tileKey([lat, lon]: AircraftTile): string {
+  return `${lat},${lon}`;
+}
+
+const noSleep = async (): Promise<void> => {};
+
 describe("runSweep priority ordering", () => {
-  test("first invocation visits tiles in buildFirstSweepOrder order", async () => {
+  test("first sweep walks the ranked order", async () => {
     __resetFirstSweepForTests();
-    const visited: Array<[number, number]> = [];
-    const fetchFn = async (
-      lat: number,
-      lon: number,
-    ): Promise<AircraftTileResult> => {
-      visited.push([lat, lon]);
-      return { kind: AircraftTileResultKind.Complete, records: [] };
-    };
-    const sleep = async (): Promise<void> => {};
+    const visits: AircraftTile[] = [];
 
-    await runSweep(fetchFn, sleep);
+    await runSweep(recordingFetch(visits), noSleep);
 
-    const expected = buildFirstSweepOrder(AIRCRAFT_TILES);
-    expect(visited).toHaveLength(expected.length);
-    for (let i = 0; i < visited.length; i++) {
-      const v = visited[i];
-      const e = expected[i];
-      if (!v || !e) throw new Error("unexpected gap in visited order");
-      expect(sameTile(v, e)).toBe(true);
-    }
+    expect(visits.map(tileKey)).toEqual(buildFirstSweepOrder(AIRCRAFT_TILES).map(tileKey));
   });
 
-  test("later invocations use stable declared order", async () => {
+  test("later sweeps walk the declared order", async () => {
     __resetFirstSweepForTests();
-    const noopFetch = async (): Promise<AircraftTileResult> => ({
-      kind: AircraftTileResultKind.Complete,
-      records: [],
-    });
-    const sleep = async (): Promise<void> => {};
+    await runSweep(recordingFetch([]), noSleep);
+    const second: AircraftTile[] = [];
+    await runSweep(recordingFetch(second), noSleep);
 
-    await runSweep(noopFetch, sleep);
-
-    const secondVisited: Array<[number, number]> = [];
-    const recordingFetch = async (
-      lat: number,
-      lon: number,
-    ): Promise<AircraftTileResult> => {
-      secondVisited.push([lat, lon]);
-      return { kind: AircraftTileResultKind.Complete, records: [] };
-    };
-
-    await runSweep(recordingFetch, sleep);
-
-    const thirdVisited: Array<[number, number]> = [];
-    await runSweep(
-      async (lat, lon) => {
-        thirdVisited.push([lat, lon]);
-        return { kind: AircraftTileResultKind.Complete, records: [] };
-      },
-      sleep,
-    );
-
-    expect(secondVisited).toHaveLength(AIRCRAFT_TILES.length);
-    expect(thirdVisited).toEqual(secondVisited);
-    for (let i = 0; i < secondVisited.length; i++) {
-      const v = secondVisited[i];
-      const t = AIRCRAFT_TILES[i];
-      if (!v || !t) throw new Error("unexpected gap in visited order");
-      expect(sameTile(v, t)).toBe(true);
-    }
+    expect(second.map(tileKey)).toEqual(AIRCRAFT_TILES.map(tileKey));
   });
 });

@@ -1,12 +1,17 @@
 import { PanelSide } from "@/layout-mode/model/layoutMode";
 import { DetailField, DossierCard } from "@/dossier";
-import { Tape } from "./instruments/Tape";
 import { HeadingHSI } from "./instruments/HeadingHSI";
-import { VerticalSpeed } from "./instruments/VerticalSpeed";
-import { ktToMph } from "@/measurements";
+import { TurnCoordinator } from "./instruments/TurnCoordinator";
+import {
+  AirspeedIndicator,
+  Altimeter,
+  AttitudeIndicator,
+  VerticalSpeedIndicator,
+} from "./instruments/FlightInstruments";
+import { formatKtShort } from "@/measurements";
 import { TurnDeg } from "@shared/geo";
 import type { AircraftData } from "@shared/domain/aircraft";
-import { isaTempC } from "../utils/isa";
+import { flightPathAngleDegrees, isaTempC } from "../utils/isa";
 import {
   aircraftEmergencyPresentation,
   AircraftFlightStatusLabel,
@@ -14,31 +19,16 @@ import {
 } from "../formatters/presentation";
 import { EMPTY_TEXT } from "@shared/text";
 
-enum AircraftTelemetryValue {
-  AltitudeFooterDivisor = 1_000,
-  AltitudeLabelInterval = 500,
-  AltitudePixelsPerUnit = 0.12,
-  AltitudeStep = 100,
-  PairSize = 2,
-  SpeedLabelInterval = 20,
-  SpeedPixelsPerUnit = 1.6,
-  SpeedStep = 10,
-}
-
 enum AircraftTelemetryClassName {
-  SideTape = "w-14 shrink-0",
-}
-
-enum AircraftTelemetryCornerPosition {
-  Accuracy = "bottom-0 right-0",
-  Signal = "bottom-0 left-0",
-  Source = "top-0 left-0",
+  GaugeGrid = "grid grid-cols-2 @min-[22rem]/gauges:grid-cols-3 gap-1.5 max-w-[42rem] mx-auto",
+  GaugeTile = "bg-sig-bg rounded-[10px] border border-sig-border p-1",
 }
 
 enum AircraftTelemetryLabel {
   Accuracy = "ACC",
   Autopilot = "AUTOPILOT",
   Drift = "DRIFT",
+  FlightPath = "FPA",
   IsaDeviation = "ISA DEV",
   OutsideAirTemperature = "OAT",
   Pressure = "QNH",
@@ -47,17 +37,17 @@ enum AircraftTelemetryLabel {
   Squawk = "SQUAWK",
   State = "STATE",
   TotalAirTemperature = "TAT",
+  TurnRate = "TURN",
   Wind = "WIND",
   WindComponent = "W-COMP",
 }
 
 enum AircraftTelemetryIndex {
   SecondItemOffset = 1,
+  PairSize = 2,
 }
 
-enum AircraftTelemetryPrecision {
-  AltitudeThousands = 1,
-}
+const TURN_RATE_DECIMALS = 1;
 
 enum AircraftWindPrefix {
   Headwind = "H",
@@ -74,30 +64,12 @@ type TelemetryStat = Readonly<{
   value: string;
 }>;
 
-function Corner({
-  pos,
-  label,
-  value,
-}: {
-  readonly pos: AircraftTelemetryCornerPosition;
-  readonly label: AircraftTelemetryLabel;
-  readonly value?: string | null;
-}) {
-  if (!value) return null;
-  return (
-    <div className={`absolute ${pos} font-mono leading-none whitespace-nowrap text-[clamp(7px,0.62vw,10px)]`}>
-      <span className="text-sig-dim">{label} </span>
-      <span className="text-sig-bright">{value}</span>
-    </div>
-  );
-}
-
 function windText(
   direction: number | undefined,
   speed: number | undefined,
 ): string | null {
   if (direction == null || speed == null) return null;
-  return `${Math.round(direction)}° / ${Math.round(speed)} kt`;
+  return `${Math.round(direction)}° / ${formatKtShort(Math.round(speed))}`;
 }
 
 function windComponents(
@@ -149,6 +121,16 @@ function driftText(data: AircraftData): string | null {
   return `${Math.abs(Math.round(difference))}° ${side}`;
 }
 
+function flightPathText(flightPath: number | null): string | null {
+  return flightPath === null ? null : `${flightPath > 0 ? "+" : EMPTY_TEXT}${flightPath.toFixed(1)}°`;
+}
+
+function turnRateText(rate: number | undefined): string | null {
+  return rate === undefined
+    ? null
+    : `${rate.toFixed(TURN_RATE_DECIMALS)}°/s`;
+}
+
 function sourceLabel(type: string | undefined): string | null {
   if (!type) return null;
   if (type.startsWith("adsb") || type.startsWith("adsr")) return "ADS-B";
@@ -181,13 +163,21 @@ function outsideAirTemperatureText(
   return `${prefix}${Math.round(value)}°C`;
 }
 
+function aircraftFlightPath(data: AircraftData): number | null {
+  return data.verticalRate === undefined || data.speed === undefined
+    ? null
+    : flightPathAngleDegrees(data.verticalRate, data.speed);
+}
+
 function buildTelemetryStats(data: AircraftData): TelemetryStat[] {
   const valueByLabel: Partial<
     Record<AircraftTelemetryLabel, string | null | undefined>
   > = {
     [AircraftTelemetryLabel.Wind]: windText(data.windDir, data.windSpd),
     [AircraftTelemetryLabel.WindComponent]: windComponentText(data),
+    [AircraftTelemetryLabel.FlightPath]: flightPathText(aircraftFlightPath(data)),
     [AircraftTelemetryLabel.Drift]: driftText(data),
+    [AircraftTelemetryLabel.TurnRate]: turnRateText(data.trackRate),
     [AircraftTelemetryLabel.OutsideAirTemperature]: outsideAirTemperatureText(
       data.oat,
       data.altitude ?? 0,
@@ -200,6 +190,9 @@ function buildTelemetryStats(data: AircraftData): TelemetryStat[] {
       ? null
       : `${Math.round(data.navQnh)} hPa`,
     [AircraftTelemetryLabel.Autopilot]: autopilotText(data.navModes),
+    [AircraftTelemetryLabel.Source]: sourceLabel(data.adsbType),
+    [AircraftTelemetryLabel.Signal]: data.rssi === undefined ? null : `${Math.round(data.rssi)} dB`,
+    [AircraftTelemetryLabel.Accuracy]: data.nacP === undefined ? null : `${data.nacP}`,
   };
   const stats: TelemetryStat[] = [];
   for (const [label, value] of Object.entries(valueByLabel)) {
@@ -215,7 +208,7 @@ function telemetryRows(
   for (
     let index = 0;
     index < stats.length;
-    index += AircraftTelemetryValue.PairSize
+    index += AircraftTelemetryIndex.PairSize
   ) {
     const first = stats.at(index);
     if (!first) continue;
@@ -234,57 +227,20 @@ export function AircraftTelemetryPFD({ data }: Readonly<{ data: AircraftData }>)
   const fpm = aircraftVerticalSpeedFpm(data.verticalRate);
   const emergency = aircraftEmergencyPresentation(data).active;
   const statRows = telemetryRows(buildTelemetryStats(data));
-
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-1.5 w-full max-w-md mx-auto overflow-hidden h-44">
-        <div className={AircraftTelemetryClassName.SideTape}>
-          <Tape
-            value={speed}
-            step={AircraftTelemetryValue.SpeedStep}
-            labelEvery={AircraftTelemetryValue.SpeedLabelInterval}
-            pxPer={AircraftTelemetryValue.SpeedPixelsPerUnit}
-            side={PanelSide.Right}
-            header="KT"
-            footer={`${ktToMph(speed)} mph`}
-            format={String}
-          />
-        </div>
-        <div className="relative flex-1 min-w-28">
-          <HeadingHSI heading={heading} selectedHeading={data.navHeading} />
-          <Corner
-            pos={AircraftTelemetryCornerPosition.Source}
-            label={AircraftTelemetryLabel.Source}
-            value={sourceLabel(data.adsbType)}
-          />
-          <Corner
-            pos={AircraftTelemetryCornerPosition.Signal}
-            label={AircraftTelemetryLabel.Signal}
-            value={data.rssi === undefined ? null : `${Math.round(data.rssi)} dB`}
-          />
-          <Corner
-            pos={AircraftTelemetryCornerPosition.Accuracy}
-            label={AircraftTelemetryLabel.Accuracy}
-            value={data.nacP === undefined ? null : `${data.nacP}`}
-          />
-        </div>
-        <div className={AircraftTelemetryClassName.SideTape}>
-          <Tape
-            value={altitude}
-            step={AircraftTelemetryValue.AltitudeStep}
-            labelEvery={AircraftTelemetryValue.AltitudeLabelInterval}
-            pxPer={AircraftTelemetryValue.AltitudePixelsPerUnit}
-            side={PanelSide.Left}
-            header="FT"
-            footer="x1000"
-            selected={data.navAltitudeMcp ?? data.navAltitudeFms}
-            format={(value) => (
-              value / AircraftTelemetryValue.AltitudeFooterDivisor
-            ).toFixed(AircraftTelemetryPrecision.AltitudeThousands)}
-          />
-        </div>
-        <div className={AircraftTelemetryClassName.SideTape}>
-          <VerticalSpeed fpm={fpm} />
+      <div className="@container/gauges">
+        <div className={AircraftTelemetryClassName.GaugeGrid}>
+          <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
+          <div className={AircraftTelemetryClassName.GaugeTile}><AttitudeIndicator bankDegrees={data.roll} flightPathDegrees={aircraftFlightPath(data)} /></div>
+          <div className={AircraftTelemetryClassName.GaugeTile}>
+            <Altimeter feet={altitude} selectedFeet={data.navAltitudeMcp ?? data.navAltitudeFms} />
+          </div>
+          <div className={AircraftTelemetryClassName.GaugeTile}>
+            <TurnCoordinator bankDegrees={data.roll} turnRateDegreesPerSecond={data.trackRate} airspeedKnots={data.tas ?? speed} />
+          </div>
+          <div className={AircraftTelemetryClassName.GaugeTile}><HeadingHSI heading={heading} selectedHeading={data.navHeading} /></div>
+          <div className={AircraftTelemetryClassName.GaugeTile}><VerticalSpeedIndicator feetPerMinute={fpm} /></div>
         </div>
       </div>
 

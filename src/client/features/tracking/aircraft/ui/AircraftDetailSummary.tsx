@@ -9,6 +9,7 @@ import {
   aircraftVerticalSpeedFpm,
 } from "../formatters/presentation";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
+import { formatKtShort } from "@/measurements";
 
 enum AircraftSummaryValue {
   CriticalDescentFeetPerMinute = -2_000,
@@ -43,7 +44,7 @@ export function AircraftDetailSummary({ item }: { readonly item: DataPoint }) {
   const alt = d.altitude != null
     ? Math.round(d.altitude).toLocaleString()
     : NO_VALUE;
-  const spd = d.speed != null ? `${Math.round(d.speed)}` : NO_VALUE;
+  const spd = d.speed != null ? formatKtShort(Math.round(d.speed)) : NO_VALUE;
   const hdg = d.heading != null ? `${Math.round(d.heading)}°` : NO_VALUE;
   const vs = `${fpm > 0 ? "+" : ""}${fpm.toLocaleString()}`;
 
@@ -89,7 +90,7 @@ export function AircraftDetailSummary({ item }: { readonly item: DataPoint }) {
         <div className="flex justify-between gap-4">
           <DetailField label="ALT ft" value={alt} />
           <DetailField
-            label="GS kn"
+            label="GS"
             value={spd}
             align={PanelSide.Right}
           />

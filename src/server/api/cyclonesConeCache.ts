@@ -1,13 +1,13 @@
 import {
+  createGeoPoint,
   GeoJsonGeometryType,
   type GeoJsonPolygon,
   type GeoPoint,
-} from "../../shared/geo";
+} from "@shared/geo";
 
 import { getStormProducts } from "./cyclonesCache";
 import { fetchKmz } from "./zipReader";
 import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
-import { isFiniteCoordinate } from "../lib/geoValidation";
 
 export const CONE_CACHE_TTL_MS = 60 * 60_000;
 
@@ -33,10 +33,9 @@ export function parseKmlConeToGeoJSON(kml: string): GeoJsonPolygon | null {
     if (parts.length < 2) throw new Error(ConeParseError.CoordinateTriple);
     const lon = Number.parseFloat(parts[0]!);
     const lat = Number.parseFloat(parts[1]!);
-    if (!isFiniteCoordinate(lat, lon)) {
-      throw new Error(ConeParseError.CoordinateValue);
-    }
-    ring.push([lon, lat]);
+    const point = createGeoPoint(lon, lat);
+    if (!point) throw new Error(ConeParseError.CoordinateValue);
+    ring.push(point);
   }
   if (ring.length < 4) return null;
   return { type: GeoJsonGeometryType.Polygon, coordinates: [ring] };

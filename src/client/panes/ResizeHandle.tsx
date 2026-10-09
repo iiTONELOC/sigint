@@ -60,13 +60,13 @@ const RESIZE_DIRECTION_CLASS: Readonly<
     bodyCursor: "cursor-col-resize",
     gripDirection: "flex-col",
     hitArea: "inset-y-0 start-1/2 w-full -translate-x-1/2 any-pointer-coarse:w-11",
-    track: "cursor-col-resize w-1.5",
+    track: "w-1.5",
   },
   [SplitDirection.Vertical]: {
     bodyCursor: "cursor-row-resize",
     gripDirection: "flex-row",
     hitArea: "inset-x-0 top-1/2 h-full -translate-y-1/2 any-pointer-coarse:h-11",
-    track: "cursor-row-resize h-1.5",
+    track: "h-1.5",
   },
 };
 
@@ -383,12 +383,13 @@ export function ResizeHandle({
       className={cn(
         ResizeHandleClass.Container,
         directionClass.track,
+        directionClass.bodyCursor,
         dragClass,
       )}
     >
       <input
         aria-label={PANE_RESIZE_AXIS_POLICY[direction].accessibleName}
-        className={cn(ResizeHandleClass.Control, directionClass.hitArea)}
+        className={cn(ResizeHandleClass.Control, directionClass.hitArea, directionClass.bodyCursor)}
         max={PaneResizeMetric.FullPercent}
         min={PaneResizeMetric.EmptyPixels}
         onFocus={syncControlRatio}

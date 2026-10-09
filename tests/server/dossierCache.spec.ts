@@ -5,6 +5,8 @@ import {
   test,
 } from "bun:test";
 import {
+  AircraftEventTime,
+  AircraftFlightEvent,
   AircraftRouteSource,
   isAircraftIcao24,
 } from "@shared/domain/aircraftDossier";
@@ -36,7 +38,7 @@ function setFetch(implementation: FetchMockImplementation): void {
   restoreFetch = installFetchMock(implementation);
 }
 
-function flightAwareHtml(): string {
+function flightAwareHtml(overrides: Record<string, unknown> = {}): string {
   return `<script>var trackpollBootstrap = ${JSON.stringify({
     flights: {
       current: {
@@ -89,6 +91,7 @@ function flightAwareHtml(): string {
           [-73.7, 40.6],
           [-118.4, 33.9],
         ],
+        ...overrides,
       },
     },
   })};</script>`;
@@ -146,7 +149,53 @@ describe("aircraft dossier route", () => {
       [40.6, -73.7],
       [33.9, -118.4],
     ]);
-    expect(dossier?.route?.delays?.departure).toBe("17m late");
+    expect(dossier?.route?.schedule?.[AircraftFlightEvent.Takeoff]).toEqual({
+      [AircraftEventTime.Scheduled]: 1_000,
+      [AircraftEventTime.Actual]: 2_000,
+    });
     expect(backgroundRouteRequestCount).toBe(1);
+  });
+});
+
+function serveFlightAware(overrides: Record<string, unknown>): void {
+  setFetch(async (input: RequestInfo | URL) =>
+    String(input).includes(AircraftDossierFixture.FlightAwareHost)
+      ? new Response(flightAwareHtml(overrides))
+      : new Response(null, { status: 404 }));
+}
+
+describe("aircraft dossier filed route fallback", () => {
+  const airport = { iata: null, icao: "KLAL", friendlyName: null, friendlyLocation: null, gate: null };
+
+  test("builds waypoints from filed coordinates between the airports", async () => {
+    serveFlightAware({
+      origin: { ...airport, coord: [-82, 28] },
+      destination: { ...airport, coord: [-82, 28] },
+      flightPlan: { route: "DCT 2858N/08628W DCT 2755S/08718E" },
+      waypoints: [],
+    });
+
+    const route = (await getAircraftDossier("abc126", "NOAA49"))?.route;
+
+    expect(route?.waypoints).toEqual([
+      [28, -82],
+      [28 + 58 / 60, -(86 + 28 / 60)],
+      [-(27 + 55 / 60), 87 + 18 / 60],
+      [28, -82],
+    ]);
+    expect(route?.fixes?.map((fix) => fix.name)).toEqual(["2858N/08628W", "2755S/08718E"]);
+  });
+
+  test("ignores malformed filed coordinates", async () => {
+    serveFlightAware({
+      origin: { ...airport, coord: [-82, 28] },
+      destination: { ...airport, coord: [-82, 28] },
+      flightPlan: { route: "9958N/08628W 2860N/08628W 2858N/18628W 2858X/08628W" },
+      waypoints: [],
+    });
+
+    const route = (await getAircraftDossier("abc127", "NOAA50"))?.route;
+
+    expect(route?.waypoints).toBeUndefined();
   });
 });

@@ -152,25 +152,12 @@ describe("loadConfig: port validation", () => {
     expect(() => loadConfig(baseEnv({ PORT: undefined }))).toThrow(ConfigError);
   });
 
-  test("throws ConfigError on non-numeric PORT", () => {
-    expect(() => loadConfig(baseEnv({ PORT: "abc" }))).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on zero PORT", () => {
-    expect(() => loadConfig(baseEnv({ PORT: "0" }))).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on negative PORT", () => {
-    expect(() => loadConfig(baseEnv({ PORT: "-1" }))).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on out-of-range PORT", () => {
-    expect(() => loadConfig(baseEnv({ PORT: "65536" }))).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on fractional PORT", () => {
-    expect(() => loadConfig(baseEnv({ PORT: "55.5" }))).toThrow(ConfigError);
-  });
+  test.each(["abc", "0", "-1", "65536", "55.5"])(
+    "throws ConfigError on invalid PORT %p",
+    (port) => {
+      expect(() => loadConfig(baseEnv({ PORT: port }))).toThrow(ConfigError);
+    },
+  );
 });
 
 describe("loadConfig: rateLimitPerMinute validation", () => {
@@ -181,61 +168,31 @@ describe("loadConfig: rateLimitPerMinute validation", () => {
     ).toBe(200);
   });
 
-  test("throws ConfigError on non-numeric value", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: "fast" })),
-    ).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on zero", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: "0" })),
-    ).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on negative", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: "-5" })),
-    ).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on fractional", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: "10.5" })),
-    ).toThrow(ConfigError);
-  });
+  test.each(["fast", "0", "-5", "10.5"])(
+    "throws ConfigError on invalid value %p",
+    (limit) => {
+      expect(() =>
+        loadConfig(baseEnv({ SIGINT_RATE_LIMIT_PER_MINUTE: limit })),
+      ).toThrow(ConfigError);
+    },
+  );
 });
 
 describe("loadConfig: trustedProxyHops validation", () => {
-  test("parses zero (direct source IP)", () => {
+  test.each([0, 2])("parses %p (zero means direct source IP)", (hops) => {
     expect(
-      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "0" })).trustedProxyHops,
-    ).toBe(0);
+      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: String(hops) })).trustedProxyHops,
+    ).toBe(hops);
   });
 
-  test("parses positive integers", () => {
-    expect(
-      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "2" })).trustedProxyHops,
-    ).toBe(2);
-  });
-
-  test("throws ConfigError on negative", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "-1" })),
-    ).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on non-numeric", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "two" })),
-    ).toThrow(ConfigError);
-  });
-
-  test("throws ConfigError on fractional", () => {
-    expect(() =>
-      loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: "1.5" })),
-    ).toThrow(ConfigError);
-  });
+  test.each(["-1", "two", "1.5"])(
+    "throws ConfigError on invalid value %p",
+    (hops) => {
+      expect(() =>
+        loadConfig(baseEnv({ SIGINT_TRUSTED_PROXY_HOPS: hops })),
+      ).toThrow(ConfigError);
+    },
+  );
 });
 
 function productionEnv(

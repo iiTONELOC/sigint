@@ -67,7 +67,7 @@ function NoPhotoPlate() {
           className="fill-sig-dim"
           fillOpacity={AircraftPhotoPlateGeometry.FillOpacity}
         >
-          <path d="M0,-24 L3,-7 L28,6 L28,11 L3,4 L2,19 L9,24 L9,27 L0,25 L-9,27 L-9,24 L-2,19 L-3,4 L-28,11 L-28,6 L-3,-7 Z" />
+          <path d="M-3,-16 Q0,-27 3,-16 L3,-7 L28,6 L28,11 L3,4 L2,19 L9,24 L9,27 L0,25 L-9,27 L-9,24 L-2,19 L-3,4 L-28,11 L-28,6 L-3,-7 Z" />
         </g>
       </svg>
     </div>
@@ -185,7 +185,7 @@ export function AircraftIdentityTicket({
         </span>
         {chip && (
           <span
-            className={`ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-(length:--sig-text-xs) font-bold tracking-wider ${chip.tone}`}
+            className={`ml-auto shrink-0 inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-(length:--sig-text-xs) font-bold tracking-wider ${chip.tone}`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-current" />
             {chip.label}
@@ -214,7 +214,7 @@ export function AircraftIdentityTicket({
     <div className="relative bg-sig-panel border border-sig-border rounded-2xl overflow-hidden flex flex-col h-full">
       <div className="h-1 bg-linear-to-r from-(--dossier-accent) via-sig-bright/40 to-(--dossier-accent)" />
 
-      <div className="relative w-full bg-sig-bg overflow-hidden h-[12.4rem] @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:min-h-0 @min-[40rem]/dossier:flex-1">
+      <div className="relative w-full bg-sig-bg overflow-hidden h-[12.4rem] min-h-[12.4rem] @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1">
         <AircraftPhoto
           error={photoError}
           fallbackText={reg || icao24}
@@ -246,7 +246,11 @@ export function AircraftIdentityTicket({
             <DetailField label="AIRCRAFT" value={aircraft} />
           )}
           {mfr && <DetailField label="MFR" value={mfr} />}
-          {wake && <DetailField label="WAKE" value={wake} />}
+          {wake && (
+            <div className="col-span-3">
+              <DetailField label="WAKE" value={wake} />
+            </div>
+          )}
         </div>
         <div className="h-11 rounded-md bg-sig-bg border border-sig-border flex items-center gap-2.5 px-3">
           <Barcode value={icao24} className="flex-1 h-7" />

@@ -5,7 +5,7 @@ import {
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
-import { isFiniteCoordinate, isNullIsland } from "../lib/geoValidation";
+import { createGeoPoint, isNullIsland } from "@shared/geo";
 import type { FireRecord } from "@shared/domain/fireDayNight";
 import { MS_PER_MINUTE } from "@shared/time";
 
@@ -130,7 +130,8 @@ function parseFirmsRow(
   if (columns.length < headerLength) return null;
   const lat = Number.parseFloat(columns[indexes.latitude] ?? "");
   const lon = Number.parseFloat(columns[indexes.longitude] ?? "");
-  if (!isFiniteCoordinate(lat, lon) || isNullIsland(lat, lon)) return null;
+  const position = createGeoPoint(lon, lat);
+  if (!position || isNullIsland(position)) return null;
   return {
     lat,
     lon,

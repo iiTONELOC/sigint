@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import {
-  formatNmKm,
-  formatPressureMb,
-} from "@/features/environmental/cyclones/formatters/units";
+import { formatPressureMb } from "@/features/environmental/cyclones/formatters/units";
+import { formatNauticalMiles } from "@/measurements";
+import { UnitMode } from "@/preferences/units/model";
 import {
   MeasurementFixtureCopy,
   MeasurementFixtureCycloneInput,
@@ -17,9 +16,10 @@ describe("cyclone unit formatters", () => {
       ),
     ).toBe(MeasurementFixtureCopy.Pressure);
     expect(
-      formatNmKm(
+      formatNauticalMiles(
         MeasurementFixtureCycloneInput
           .NauticalMiles,
+        UnitMode.Both,
       ),
     ).toBe(
       MeasurementFixtureCopy.NauticalDistance,

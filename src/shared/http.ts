@@ -43,8 +43,23 @@ export enum HttpContentCoding {
   Gzip = "gzip",
 }
 
+/** Gunzip a byte stream to text. */
+export function gunzipText(stream: ReadableStream<BufferSource>): Promise<string> {
+  return new Response(
+    stream.pipeThrough(new DecompressionStream(HttpContentCoding.Gzip)),
+  ).text();
+}
+
+/** Gzip text to bytes. */
+export async function gzipText(text: string): Promise<Uint8Array> {
+  const stream = new Blob([text]).stream()
+    .pipeThrough(new CompressionStream(HttpContentCoding.Gzip));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 export enum HttpUserAgent {
   SigintDashboard = "(sigint-dashboard, osint-tool)",
+  SigintRepository = "(sigint-dashboard, https://github.com/iitoneloc/sigint)",
 }
 
 export const AUTH_TOKEN_ROUTE = "/api/auth/token";

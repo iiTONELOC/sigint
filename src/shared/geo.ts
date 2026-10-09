@@ -68,6 +68,7 @@ export enum GeoMeasurement {
 
 export enum AngleConversion {
   RadiansPerDegree = 0.017453292519943295,
+  ArcMinutesPerDegree = 60,
 }
 
 export const METERS_PER_KM = GeoMeasurement.MetersPerKilometer;
@@ -95,6 +96,22 @@ export function haversineKm(
     2 *
     Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   );
+}
+
+export function bearingDegrees(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+): number {
+  const dLon = (toLon - fromLon) * DEGREES_TO_RADIANS;
+  const lat1 = fromLat * DEGREES_TO_RADIANS;
+  const lat2 = toLat * DEGREES_TO_RADIANS;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * RADIANS_TO_DEGREES + TurnDeg.Full) % TurnDeg.Full;
 }
 
 export function isRecord(
@@ -262,7 +279,6 @@ export function unwrapLongitude(
   longitude: number,
   referenceLongitude: number,
 ): number {
-  // Keep antimeridian neighbors in one local longitude frame.
   let unwrapped = longitude;
   while (unwrapped - referenceLongitude > HALF_LONGITUDE_SPAN) {
     unwrapped -= GeoLimit.FullLongitudeSpan;
@@ -312,7 +328,6 @@ export function polygonContainsPoint(
 ): boolean {
   const exterior = polygon[0];
   if (!exterior || !ringContainsPoint(point, exterior)) return false;
-  // Interior rings remove their area from the exterior land surface.
   for (let index = 1; index < polygon.length; index += 1) {
     const hole = polygon[index];
     if (hole && ringContainsPoint(point, hole)) return false;
@@ -350,7 +365,6 @@ export function interpolateGeoPoint(
   end: GeoPoint,
   ratio: number,
 ): GeoPoint {
-  // Interpolate across the shortest longitude span at the antimeridian.
   const endLongitude = unwrapLongitude(end[0], start[0]);
   let longitude = start[0] + (endLongitude - start[0]) * ratio;
   if (longitude > GeoLimit.MaxLongitude) longitude -= GeoLimit.FullLongitudeSpan;

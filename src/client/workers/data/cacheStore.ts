@@ -1,4 +1,4 @@
-import { HttpContentCoding } from "@shared/http";
+import { gunzipText, gzipText } from "@shared/http";
 
 export const DATA_CACHE_POLICY = Object.freeze({
   databaseName: "sigint-cache",
@@ -36,20 +36,10 @@ const compressionAvailable =
   typeof CompressionStream !== "undefined" &&
   typeof DecompressionStream !== "undefined";
 
-async function gzip(value: string): Promise<Uint8Array> {
-  const stream = new Blob([value])
-    .stream()
-    .pipeThrough(new CompressionStream(HttpContentCoding.Gzip));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function gunzip(value: Uint8Array): Promise<string> {
+function gunzip(value: Uint8Array): Promise<string> {
   const copy = new Uint8Array(value.byteLength);
   copy.set(value);
-  const stream = new Blob([copy.buffer])
-    .stream()
-    .pipeThrough(new DecompressionStream(HttpContentCoding.Gzip));
-  return new Response(stream).text();
+  return gunzipText(new Blob([copy.buffer]).stream());
 }
 
 async function encode(value: unknown): Promise<unknown> {
@@ -62,7 +52,7 @@ async function encode(value: unknown): Promise<unknown> {
     ) {
       return value;
     }
-    return await gzip(json);
+    return await gzipText(json);
   } catch {
     return value;
   }
@@ -158,14 +148,10 @@ export function createDataCacheStore(
           reject(request.error ?? new Error("IndexedDB cursor failed"));
       });
 
-      const entries: Array<{ key: string; value: unknown }> = [];
-      for (const entry of rawEntries) {
-        entries.push({
-          key: entry.key,
-          value: await decode(entry.value),
-        });
-      }
-      return entries;
+      return Promise.all(rawEntries.map(async (entry) => ({
+        key: entry.key,
+        value: await decode(entry.value),
+      })));
     },
 
     async set(

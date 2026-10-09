@@ -35,23 +35,106 @@ export type AircraftRouteEndpoint = Readonly<{
   gate?: string;
 }>;
 
+export enum AircraftFlightEvent {
+  GateOut = "gateOut",
+  Takeoff = "takeoff",
+  Landing = "landing",
+  GateIn = "gateIn",
+}
+
+export enum AircraftEventTime {
+  Scheduled = "scheduled",
+  Estimated = "estimated",
+  Actual = "actual",
+}
+
+export type AircraftEventTimes = Readonly<Partial<Record<AircraftEventTime, number>>>;
+
+export type AircraftFlightSchedule = Readonly<
+  Partial<Record<AircraftFlightEvent, AircraftEventTimes>>
+>;
+
+export type AircraftRouteFix = Readonly<{
+  name: string;
+  point: AircraftRouteWaypoint;
+}>;
+
 export type AircraftRoute = Readonly<{
   source: AircraftRouteSource;
   origin: AircraftRouteEndpoint;
   destination: AircraftRouteEndpoint;
   status?: string;
-  departureTime?: number;
-  arrivalTime?: number;
-  departureActual?: boolean;
-  arrivalActual?: boolean;
-  delays?: Readonly<{ departure?: string; arrival?: string }>;
+  schedule?: AircraftFlightSchedule;
+  ete?: number;
   filedRoute?: string;
   filedAltitude?: number;
   filedSpeed?: number;
   distance?: number;
   airline?: string;
   waypoints?: readonly AircraftRouteWaypoint[];
+  fixes?: readonly AircraftRouteFix[];
 }>;
+
+export type AircraftRouteTime = Readonly<{ time: number; actual: boolean }>;
+
+type EventTimeKey = readonly [AircraftFlightEvent, AircraftEventTime];
+
+const DEPARTURE_TIME_ORDER: readonly EventTimeKey[] = [
+  [AircraftFlightEvent.GateOut, AircraftEventTime.Actual],
+  [AircraftFlightEvent.Takeoff, AircraftEventTime.Actual],
+  [AircraftFlightEvent.GateOut, AircraftEventTime.Estimated],
+  [AircraftFlightEvent.Takeoff, AircraftEventTime.Estimated],
+  [AircraftFlightEvent.Takeoff, AircraftEventTime.Scheduled],
+];
+
+const ARRIVAL_TIME_ORDER: readonly EventTimeKey[] = [
+  [AircraftFlightEvent.GateIn, AircraftEventTime.Actual],
+  [AircraftFlightEvent.Landing, AircraftEventTime.Actual],
+  [AircraftFlightEvent.GateIn, AircraftEventTime.Estimated],
+  [AircraftFlightEvent.Landing, AircraftEventTime.Estimated],
+  [AircraftFlightEvent.Landing, AircraftEventTime.Scheduled],
+];
+
+export const AIRCRAFT_MINIMUM_LATE_SECONDS = 300;
+
+function firstEventTime(
+  schedule: AircraftFlightSchedule | undefined,
+  order: readonly EventTimeKey[],
+): AircraftRouteTime | undefined {
+  for (const [event, kind] of order) {
+    const time = schedule?.[event]?.[kind];
+    if (time !== undefined) return { time, actual: kind === AircraftEventTime.Actual };
+  }
+  return undefined;
+}
+
+export function routeDepartureTime(route: AircraftRoute): AircraftRouteTime | undefined {
+  return firstEventTime(route.schedule, DEPARTURE_TIME_ORDER);
+}
+
+export function routeArrivalTime(route: AircraftRoute): AircraftRouteTime | undefined {
+  return firstEventTime(route.schedule, ARRIVAL_TIME_ORDER);
+}
+
+export function observedEventTime(times: AircraftEventTimes | undefined): number | undefined {
+  return times?.[AircraftEventTime.Actual] ?? times?.[AircraftEventTime.Estimated];
+}
+
+export function eventDelaySeconds(times: AircraftEventTimes | undefined): number | undefined {
+  const observed = observedEventTime(times);
+  const scheduled = times?.[AircraftEventTime.Scheduled];
+  return observed === undefined || scheduled === undefined ? undefined : observed - scheduled;
+}
+
+export function nextRouteFix(
+  fixes: readonly AircraftRouteFix[],
+  latitude: number,
+  longitude: number,
+): AircraftRouteFix | undefined {
+  if (fixes.length < AircraftRoutePolylineLimit.MinimumWaypointCount) return fixes[0];
+  const { remaining } = splitRouteAtAircraft(fixes.map((fix) => fix.point), latitude, longitude);
+  return fixes[fixes.length - remaining.length + 1];
+}
 
 export type AircraftDossierAircraft = Readonly<{
   ICAOTypeCode?: string;
@@ -63,7 +146,7 @@ export type AircraftDossierAircraft = Readonly<{
   Type?: string;
 }>;
 
-export type AircraftDossier = Readonly<{
+export type AircraftDossierBundle = Readonly<{
   icao24: string;
   aircraft: AircraftDossierAircraft | null;
   route: AircraftRoute | null;
@@ -147,10 +230,6 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === "string";
 }
 
-function isOptionalBoolean(value: unknown): value is boolean | undefined {
-  return value === undefined || typeof value === "boolean";
-}
-
 function isAircraftRouteSource(
   value: unknown,
 ): value is AircraftRouteSource {
@@ -204,11 +283,29 @@ function hasValidWaypoints(value: unknown): boolean {
     isAircraftRoutePolyline(value);
 }
 
-function hasValidDelays(value: unknown): boolean {
+function hasValidEventTimes(value: unknown): boolean {
   return value === undefined ||
     (isRecord(value) &&
-      isOptionalString(value.departure) &&
-      isOptionalString(value.arrival));
+      Object.values(AircraftEventTime).every((kind) => isOptionalFiniteNumber(value[kind])));
+}
+
+function hasValidSchedule(value: unknown): boolean {
+  return value === undefined ||
+    (isRecord(value) &&
+      Object.values(AircraftFlightEvent).every((event) => hasValidEventTimes(value[event])));
+}
+
+function isAircraftRouteFix(value: unknown): value is AircraftRouteFix {
+  return isRecord(value) &&
+    typeof value.name === "string" &&
+    isAircraftRouteWaypoint(value.point);
+}
+
+function hasValidFixes(value: unknown): boolean {
+  return value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= AircraftRouteLimit.MaximumWaypointCount &&
+      value.every(isAircraftRouteFix));
 }
 
 export function isAircraftRoute(value: unknown): value is AircraftRoute {
@@ -217,17 +314,15 @@ export function isAircraftRoute(value: unknown): value is AircraftRoute {
     isAircraftRouteEndpoint(value.origin) &&
     isAircraftRouteEndpoint(value.destination) &&
     isOptionalString(value.status) &&
-    isOptionalFiniteNumber(value.departureTime) &&
-    isOptionalFiniteNumber(value.arrivalTime) &&
-    isOptionalBoolean(value.departureActual) &&
-    isOptionalBoolean(value.arrivalActual) &&
-    hasValidDelays(value.delays) &&
+    hasValidSchedule(value.schedule) &&
+    isOptionalFiniteNumber(value.ete) &&
     isOptionalString(value.filedRoute) &&
     isOptionalFiniteNumber(value.filedAltitude) &&
     isOptionalFiniteNumber(value.filedSpeed) &&
     isOptionalFiniteNumber(value.distance) &&
     isOptionalString(value.airline) &&
-    hasValidWaypoints(value.waypoints);
+    hasValidWaypoints(value.waypoints) &&
+    hasValidFixes(value.fixes);
 }
 
 export function isAircraftDossierAircraft(
@@ -245,7 +340,7 @@ export function isAircraftDossierAircraft(
 
 export function isAircraftDossier(
   value: unknown,
-): value is AircraftDossier {
+): value is AircraftDossierBundle {
   return isRecord(value) &&
     typeof value.icao24 === "string" &&
     isAircraftIcao24(value.icao24) &&
@@ -256,6 +351,6 @@ export function isAircraftDossier(
 
 export function parseAircraftDossier(
   value: unknown,
-): AircraftDossier | null {
+): AircraftDossierBundle | null {
   return isAircraftDossier(value) ? value : null;
 }
