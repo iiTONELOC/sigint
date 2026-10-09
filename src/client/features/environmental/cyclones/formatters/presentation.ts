@@ -6,13 +6,14 @@ import {
   type FeatureTablePresentation,
 } from "@/features/base/presentation";
 
+/** Table rows name the storm, not its entity id. */
 export function cycloneTablePresentation(
-  id: string,
+  name: string,
   type: string,
 ): FeatureTablePresentation {
-  return emptyFeatureTablePresentation(id, type);
+  return emptyFeatureTablePresentation(name, type);
 }
 
-export function cycloneFeedPresentation(id: string): FeatureFeedPresentation {
-  return emptyFeatureFeedPresentation(id, IntelSeverity.Monitoring);
+export function cycloneFeedPresentation(name: string): FeatureFeedPresentation {
+  return emptyFeatureFeedPresentation(name, IntelSeverity.Monitoring);
 }

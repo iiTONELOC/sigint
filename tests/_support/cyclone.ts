@@ -22,7 +22,7 @@ export const TEST_CYCLONE_FORECAST: ForecastPoint = {
 export const TEST_CYCLONE_PAST_TRACK: PastTrackPoint = {
   lat: 24,
   lon: -76,
-  validTime: "2026-09-17T00:00:00Z",
+  validTime: "2026091700",
   vmaxKt: 60,
 };
 
@@ -57,7 +57,7 @@ export function testCycloneScenePoint(): CyclonePoint {
       {
         lat: 23,
         lon: -77,
-        validTime: "2026-09-16T00:00:00Z",
+        validTime: "2026091600",
         vmaxKt: 50,
       },
       TEST_CYCLONE_PAST_TRACK,

@@ -1,11 +1,15 @@
 import { isNhcBasin, type CycloneBasin } from "../cyclonesSeason";
-import type {
-  GeoJsonPolygon,
-  GeoJsonPolygonGeometry,
-  GeoPoint,
+import {
+  interpolateGeoPoint,
+  type GeoJsonPolygon,
+  type GeoJsonPolygonGeometry,
+  type GeoPoint,
 } from "../geo";
+import { MS_PER_HOUR, MS_PER_MINUTE } from "../time";
 import type { Domain } from "./identity";
 import { CacheKey } from "./cache";
+import { BLANK_SEPARATOR } from "../text";
+import type { WeatherData } from "./weather";
 
 export enum Category {
   TropicalDepression = "TD",
@@ -113,6 +117,22 @@ export function areaKindFromRank(rank: number): AreaKind {
   return AREA_KIND_ORDER[rank] ?? AreaKind.Watch;
 }
 
+enum TropicalHazard {
+  Hurricane = "hurricane",
+  TropicalStorm = "tropical storm",
+  StormSurge = "storm surge",
+}
+
+const TROPICAL_EVENTS: ReadonlySet<string> = new Set(
+  Object.values(TropicalHazard).flatMap((hazard) =>
+    AREA_KIND_ORDER.map((kind) => `${hazard}${BLANK_SEPARATOR}${kind}`),
+  ),
+);
+
+export function isTropicalAlertEvent(event: string): boolean {
+  return TROPICAL_EVENTS.has(event.toLowerCase());
+}
+
 export type HurricaneScale = Exclude<
   SaffirSimpson,
   SaffirSimpson.None
@@ -173,6 +193,101 @@ export type PastTrackPoint = CycloneCoordinates & {
   minPressureMb?: number | null;
 };
 
+const ATCF_TIME_LENGTH = 10;
+
+/** ATCF times are YYYYMMDDHH in UTC; anything else is NaN. */
+export function atcfTimeMs(time: string): number {
+  if (time.length !== ATCF_TIME_LENGTH || !/^\d+$/.test(time)) {
+    return Number.NaN;
+  }
+  const year = Number(time.slice(0, 4));
+  const month = Number(time.slice(4, 6));
+  const day = Number(time.slice(6, 8));
+  const hour = Number(time.slice(8, 10));
+  return Date.UTC(year, month - 1, day, hour);
+}
+
+enum NhcTimeZone {
+  Atlantic = "AST",
+  EasternDaylight = "EDT",
+  EasternStandard = "EST",
+  CentralDaylight = "CDT",
+  CentralStandard = "CST",
+  MountainDaylight = "MDT",
+  MountainStandard = "MST",
+  PacificDaylight = "PDT",
+  PacificStandard = "PST",
+  Hawaii = "HST",
+  Universal = "UTC",
+}
+
+const NHC_TIME_ZONE_UTC_OFFSET_HOURS: Readonly<Record<NhcTimeZone, number>> = {
+  [NhcTimeZone.Atlantic]: -4,
+  [NhcTimeZone.EasternDaylight]: -4,
+  [NhcTimeZone.EasternStandard]: -5,
+  [NhcTimeZone.CentralDaylight]: -5,
+  [NhcTimeZone.CentralStandard]: -6,
+  [NhcTimeZone.MountainDaylight]: -6,
+  [NhcTimeZone.MountainStandard]: -7,
+  [NhcTimeZone.PacificDaylight]: -7,
+  [NhcTimeZone.PacificStandard]: -8,
+  [NhcTimeZone.Hawaii]: -10,
+  [NhcTimeZone.Universal]: 0,
+};
+
+const NHC_LOCAL_TIME = /^(\d{1,2}):(\d{2}) (AM|PM) ([A-Z]{3}) ([A-Za-z]+ \d{1,2},? \d{4})$/;
+const NHC_AFTERNOON = "PM";
+const HOURS_PER_HALF_DAY = 12;
+const UTC_MIDNIGHT_SUFFIX = " 00:00 UTC";
+
+function isNhcTimeZone(value: string): value is NhcTimeZone {
+  return Object.values<string>(NhcTimeZone).includes(value);
+}
+
+function nhcLocalTimeMs(time: string): number {
+  const match = NHC_LOCAL_TIME.exec(time);
+  if (!match) return Number.NaN;
+  const [, hour = "", minute = "", meridiem, zone = "", date = ""] = match;
+  if (!isNhcTimeZone(zone)) return Number.NaN;
+  const hours = (Number(hour) % HOURS_PER_HALF_DAY) + (meridiem === NHC_AFTERNOON ? HOURS_PER_HALF_DAY : 0);
+  const utcHours = hours - NHC_TIME_ZONE_UTC_OFFSET_HOURS[zone];
+  return Date.parse(`${date}${UTC_MIDNIGHT_SUFFIX}`) + utcHours * MS_PER_HOUR + Number(minute) * MS_PER_MINUTE;
+}
+
+export function cycloneTimeMs(time: string): number {
+  const atcf = atcfTimeMs(time);
+  if (Number.isFinite(atcf)) return atcf;
+  const local = nhcLocalTimeMs(time);
+  return Number.isFinite(local) ? local : Date.parse(time);
+}
+
+export type CycloneFix = Readonly<{ position: GeoPoint; timeMs: number }>;
+
+export function forecastFix(point: Readonly<{ lat: number; lon: number; validTime: string }>): CycloneFix {
+  return { position: [point.lon, point.lat], timeMs: cycloneTimeMs(point.validTime) };
+}
+
+export function estimatedCyclonePosition(
+  advisory: CycloneFix,
+  ahead: readonly CycloneFix[],
+  now: number,
+): GeoPoint {
+  const next = ahead
+    .filter((fix) => fix.timeMs > advisory.timeMs)
+    .sort((left, right) => left.timeMs - right.timeMs)[0];
+  if (!next || !Number.isFinite(advisory.timeMs)) return advisory.position;
+  const ratio = Math.min(1, Math.max(0, (now - advisory.timeMs) / (next.timeMs - advisory.timeMs)));
+  return interpolateGeoPoint(advisory.position, next.position, ratio);
+}
+
+export function estimatedStormPosition(advisory: GeoPoint, storm: CycloneData, now: number): GeoPoint {
+  return estimatedCyclonePosition(
+    { position: advisory, timeMs: cycloneTimeMs(storm.lastUpdate) },
+    storm.forecast.map(forecastFix),
+    now,
+  );
+}
+
 export type ModelTrackPoint = CycloneCoordinates & {
   tau: number;
 };
@@ -206,6 +321,7 @@ export type CycloneData = CycloneStormReference & {
   windRadii?: WindRadii;
   pastTrack?: PastTrackPoint[];
   models?: ModelTrack[];
+  hazards?: CycloneHazards;
 };
 
 const CYCLONE_STORM_NUMBER = /^\d{6}$/;
@@ -229,6 +345,76 @@ export type CycloneDossierProductBody = Readonly<{
   body: string;
   nextAdvisory: string;
 }>;
+
+/** NWS Hurricane Threats and Impacts products; each value names its KML. */
+export enum CycloneThreatKind {
+  Wind = "Wind",
+  StormSurge = "StormSurge",
+  FloodingRain = "FloodingRain",
+  Tornado = "Tornado",
+}
+
+/** NWS threat levels in rising order; each value is the KML style id. */
+export enum CycloneThreatLevel {
+  None = "none",
+  Elevated = "elevated",
+  Moderate = "moderate",
+  High = "high",
+  Extreme = "extreme",
+}
+
+export const CYCLONE_THREAT_LEVELS: readonly CycloneThreatLevel[] = Object.values(CycloneThreatLevel);
+
+/** NHC tropical-storm-wind arrival products; each value names its KMZ. */
+export enum CycloneArrivalKind {
+  Earliest = "earliest_reasonable",
+  MostLikely = "most_likely",
+}
+
+export type CycloneThreat = Readonly<{
+  kind: CycloneThreatKind;
+  level: CycloneThreatLevel;
+  title: string;
+  impacts: readonly string[];
+}>;
+
+export type CycloneSurgeArea = Readonly<{
+  area: string;
+  range: string;
+  rings: readonly (readonly GeoPoint[])[];
+}>;
+
+export type CycloneWindChanceBand = Readonly<{
+  band: string;
+  rings: readonly (readonly GeoPoint[])[];
+}>;
+
+export type CycloneWindChances = Readonly<{
+  thresholdKt: number;
+  bands: readonly CycloneWindChanceBand[];
+}>;
+
+export type CycloneArrivalLine = Readonly<{ label: string; line: readonly GeoPoint[] }>;
+
+export type CycloneArrivals = Partial<Record<CycloneArrivalKind, readonly CycloneArrivalLine[]>>;
+
+export type CycloneHazards = Readonly<{
+  threats: readonly CycloneThreat[];
+  peakSurge: readonly CycloneSurgeArea[];
+  windChances: readonly CycloneWindChances[];
+  arrival: CycloneArrivals;
+}>;
+
+/** Maps shade the tropical-storm-force chances; the dossier lists every threshold. */
+export function mappedWindChances(hazards: CycloneHazards | undefined): CycloneWindChances | undefined {
+  const thresholdKt = CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt;
+  return hazards?.windChances.find((chances) => chances.thresholdKt === thresholdKt);
+}
+
+/** Maps draw the earliest reasonable arrival, the time to be ready by. */
+export function mappedArrivalLines(hazards: CycloneHazards | undefined): readonly CycloneArrivalLine[] {
+  return hazards?.arrival[CycloneArrivalKind.Earliest] ?? [];
+}
 
 export type CycloneDossierBundle = Readonly<
   CycloneStormReference &
@@ -261,18 +447,7 @@ export type CycloneForecastPointData = {
   errorRadiusNm: number;
 };
 
-export enum CycloneWarningField {
-  Alert = "event",
-  Area = "areaDesc",
-  Headline = "headline",
-  Effective = "effective",
-  Expires = "expires",
-}
-
-export const CYCLONE_WARNING_FIELDS: readonly CycloneWarningField[] =
-  Object.values(CycloneWarningField);
-
-export type CycloneWarningData = Record<CycloneWarningField, string> &
+export type CycloneWarningData = WeatherData &
   Readonly<{
     kind: AreaKind;
     geometry: GeoJsonPolygonGeometry;

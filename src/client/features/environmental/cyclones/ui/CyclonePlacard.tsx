@@ -38,11 +38,12 @@ function PlacardField({
   );
 }
 
+const FOOTER_ITEM_CLASS = "min-w-0";
+
 function PlacardFooterValue({ children }: { readonly children: React.ReactNode }) {
   return <span className="text-sig-text">{children}</span>;
 }
 
-/** Return the uppercase storm classification. */
 function kicker(data: CycloneData): string {
   if (data.saffirSimpson !== SaffirSimpson.None) {
     return data.saffirSimpson >= SaffirSimpson.Cat3
@@ -57,10 +58,12 @@ function kicker(data: CycloneData): string {
 export function CyclonePlacard({
   data,
   issued,
+  nextAdvisory,
   compact = false,
 }: {
   readonly data: CycloneData;
   readonly issued?: string;
+  readonly nextAdvisory?: string;
   readonly compact?: boolean;
 }) {
   const badge = data.saffirSimpson !== SaffirSimpson.None ? String(data.saffirSimpson) : data.classification;
@@ -127,8 +130,13 @@ export function CyclonePlacard({
           ADVISORY <PlacardFooterValue>{data.advisoryNumber || NO_VALUE}</PlacardFooterValue>
         </span>
         {issuedAge && (
-          <span className="min-w-0">
+          <span className={FOOTER_ITEM_CLASS}>
             ISSUED <PlacardFooterValue>{issuedAge}</PlacardFooterValue>
+          </span>
+        )}
+        {nextAdvisory && (
+          <span className={FOOTER_ITEM_CLASS}>
+            NEXT <PlacardFooterValue>{nextAdvisory}</PlacardFooterValue>
           </span>
         )}
       </div>

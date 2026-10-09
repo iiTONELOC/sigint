@@ -38,6 +38,8 @@ export type DossierMiniGlobeProps = Readonly<{
   compactBorderRadius?: boolean;
   drawForeground?: DossierMiniGlobeOverlay;
   drawOverlay: DossierMiniGlobeOverlay;
+  /** Redraw the canvas on this interval for animated overlays; React does not re-render for it. */
+  redrawEveryMs?: number;
   reserveMinimumHeight?: boolean;
   resetKey: string;
 }>;
@@ -87,6 +89,7 @@ export function DossierMiniGlobe({
   compactBorderRadius = false,
   drawForeground,
   drawOverlay,
+  redrawEveryMs,
   reserveMinimumHeight = false,
   resetKey,
 }: DossierMiniGlobeProps) {
@@ -171,6 +174,7 @@ export function DossierMiniGlobe({
     };
 
     draw();
+    const redrawTimer = redrawEveryMs ? setInterval(draw, redrawEveryMs) : undefined;
     const resizeObserver = new ResizeObserver(draw);
     resizeObserver.observe(canvas);
     canvas.addEventListener(DomEvent.PointerDown, onPointerDown);
@@ -178,6 +182,7 @@ export function DossierMiniGlobe({
     canvas.addEventListener(DomEvent.PointerUp, onPointerUp);
     canvas.addEventListener(DomEvent.PointerCancel, onPointerUp);
     return () => {
+      clearInterval(redrawTimer);
       resizeObserver.disconnect();
       canvas.removeEventListener(DomEvent.PointerDown, onPointerDown);
       canvas.removeEventListener(DomEvent.PointerMove, onPointerMove);
@@ -192,6 +197,7 @@ export function DossierMiniGlobe({
     drawForeground,
     drawOverlay,
     land,
+    redrawEveryMs,
     theme.colors,
     zoom,
   ]);

@@ -910,6 +910,7 @@ function renderFrame(): void {
 
   renderLayerCatalog.drawAreas({
     context: ctx,
+    reducedMotion: globeState.reducedMotion,
     selectedId: selId ?? null,
     time: t,
     warningColor: colors.cycWarning,

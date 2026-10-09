@@ -1,11 +1,4 @@
 import { Domain } from "@shared/domain/identity";
-// ── useAssetsInCone ──────────────────────────────────────────────────
-// Which tracked ships/aircraft currently sit inside a storm's official NHC
-// forecast cone, meaning what sits in the threat area. Candidate narrowing runs in
-// the DataWorker as a bounded bounding box query, so React never walks the
-// track set; only the precise ray-cast over that bounded page runs here.
-// Returns null until the first page lands, or when the storm has no cone yet.
-
 import { useMemo } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceQuery } from "@/features/base/useSourceQuery";
@@ -17,10 +10,12 @@ import {
 } from "@/workers/data/source-model/position";
 import type { PointUiQuery } from "@/workers/data/uiQuery";
 import type { GeoJsonPolygon } from "@shared/geo";
+import type { CycloneWarningPoint } from "@shared/domain/cyclones";
 
 export type ConeAssets = Readonly<{
   ships: readonly DataPoint[];
   aircraft: readonly DataPoint[];
+  warnings: readonly CycloneWarningPoint[];
 }>;
 
 type ConeBounds = {
@@ -37,8 +32,7 @@ const EMPTY_BOUNDS: ConeBounds = {
   maxLon: -180,
 };
 
-/** Bounding box of the cone's outer ring, so the worker can page the
- *  candidates before the per-point ray-cast. */
+// The worker pages candidates by bounding box so React only ray-casts a bounded page.
 function coneBboxQuery(cone: GeoJsonPolygon | undefined): PointUiQuery | null {
   const ring = cone?.coordinates?.[0];
   if (!ring || ring.length === 0) return null;
@@ -60,10 +54,10 @@ function coneBboxQuery(cone: GeoJsonPolygon | undefined): PointUiQuery | null {
   };
 }
 
-function insideCone(
-  candidates: readonly DataPoint[],
+function insideCone<TPoint extends DataPoint>(
+  candidates: readonly TPoint[],
   cone: GeoJsonPolygon,
-): readonly DataPoint[] {
+): readonly TPoint[] {
   return candidates.filter((point) =>
     pointInPolygon(recordLatitude(point), recordLongitude(point), cone),
   );
@@ -78,12 +72,14 @@ export function useAssetsInCone(
   const query = useMemo(() => coneBboxQuery(cone), [cone, stormKey]);
   const aircraft = useSourceQuery(Domain.Aircraft, query);
   const ships = useSourceQuery(Domain.Ships, query);
+  const warnings = useSourceQuery(Domain.CycloneWarnings, query);
 
   return useMemo(() => {
     if (!cone || !aircraft || !ships) return null;
     return {
       aircraft: insideCone(aircraft.items, cone),
       ships: insideCone(ships.items, cone),
+      warnings: warnings ? insideCone(warnings.items, cone) : [],
     };
-  }, [cone, aircraft, ships]);
+  }, [cone, aircraft, ships, warnings]);
 }

@@ -1,5 +1,6 @@
 import type { GeoJsonPolygonGeometry, GeoPoint } from "../geo";
 import { isEnumValue } from "../types/enum";
+import { nonEmptyText } from "../text";
 import type { Domain } from "./identity";
 
 export enum WeatherSeverity {
@@ -49,6 +50,17 @@ export type WeatherData = Partial<Record<WeatherTextField, string>> & {
   geometry?: GeoJsonPolygonGeometry;
   severity: WeatherSeverity;
 };
+
+export function parseWeatherAlertData(
+  properties: Readonly<Record<string, unknown>>,
+): WeatherData {
+  const data: WeatherData = { severity: parseWeatherSeverity(properties.severity) };
+  for (const field of WEATHER_TEXT_FIELDS) {
+    const value = nonEmptyText(properties[field]);
+    if (value !== undefined) data[field] = value;
+  }
+  return data;
+}
 
 export type WeatherPoint = {
   id: string;

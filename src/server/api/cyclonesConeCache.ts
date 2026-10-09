@@ -1,9 +1,5 @@
-import {
-  createGeoPoint,
-  GeoJsonGeometryType,
-  type GeoJsonPolygon,
-  type GeoPoint,
-} from "@shared/geo";
+import { GeoJsonGeometryType, GeoLimit, type GeoJsonPolygon } from "@shared/geo";
+import { kmlOuterRings } from "../lib/kml";
 
 import { getStormProducts } from "./cyclonesCache";
 import { fetchKmz } from "./zipReader";
@@ -11,33 +7,10 @@ import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
 
 export const CONE_CACHE_TTL_MS = 60 * 60_000;
 
-const CONE_COORDINATES_RE =
-  /<Polygon[\s\S]*?<outerBoundaryIs[\s\S]*?<LinearRing[\s\S]*?<coordinates[^>]*>([\s\S]*?)<\/coordinates>/i;
-
-enum ConeParseError {
-  CoordinateTriple = "Malformed coordinate triple",
-  CoordinateValue = "Malformed coordinate value",
-}
-
 /** Parse the first KML polygon outer ring. */
 export function parseKmlConeToGeoJSON(kml: string): GeoJsonPolygon | null {
-  const match = CONE_COORDINATES_RE.exec(kml);
-  if (!match?.[1]) return null;
-  const triples = match[1]
-    .split(/\s+/)
-    .map((coordinate) => coordinate.trim())
-    .filter((coordinate) => coordinate.length > 0);
-  const ring: GeoPoint[] = [];
-  for (const triple of triples) {
-    const parts = triple.split(",");
-    if (parts.length < 2) throw new Error(ConeParseError.CoordinateTriple);
-    const lon = Number.parseFloat(parts[0]!);
-    const lat = Number.parseFloat(parts[1]!);
-    const point = createGeoPoint(lon, lat);
-    if (!point) throw new Error(ConeParseError.CoordinateValue);
-    ring.push(point);
-  }
-  if (ring.length < 4) return null;
+  const ring = kmlOuterRings(kml)[0];
+  if (!ring || ring.length < GeoLimit.MinRingPointCount) return null;
   return { type: GeoJsonGeometryType.Polygon, coordinates: [ring] };
 }
 

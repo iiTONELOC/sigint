@@ -7,9 +7,9 @@ import {
 } from "@shared/geo";
 import {
   AreaKind,
-  CycloneWarningField,
   type CycloneWarningPoint,
 } from "@shared/domain/cyclones";
+import { WeatherSeverity, WeatherTextField } from "@shared/domain/weather";
 import { parseCycloneWarningCache } from "@/features/environmental/cyclones/data/warningCodec";
 import {
   CycloneWarningSceneBinding,
@@ -50,11 +50,12 @@ function makeWarning(
     data: {
       kind: AreaKind.Watch,
       geometry: WARNING_GEOMETRY,
-      [CycloneWarningField.Alert]: "Hurricane Watch",
-      [CycloneWarningField.Headline]: "Hurricane Watch in effect",
-      [CycloneWarningField.Area]: "Coastal Palm Beach",
-      [CycloneWarningField.Effective]: "2026-07-29T12:00:00Z",
-      [CycloneWarningField.Expires]: "2026-07-30T00:00:00Z",
+      severity: WeatherSeverity.Severe,
+      [WeatherTextField.Event]: "Hurricane Watch",
+      [WeatherTextField.Headline]: "Hurricane Watch in effect",
+      [WeatherTextField.Area]: "Coastal Palm Beach",
+      [WeatherTextField.Onset]: "2026-07-29T12:00:00Z",
+      [WeatherTextField.Expires]: "2026-07-30T00:00:00Z",
       ...overrides,
     },
   };
@@ -134,14 +135,14 @@ describe("cyclone warning change detection", () => {
 
   test("an extended expiry publishes", () => {
     const next = makeWarning({
-      [CycloneWarningField.Expires]: "2026-07-30T12:00:00Z",
+      [WeatherTextField.Expires]: "2026-07-30T12:00:00Z",
     });
     expect(source.changed(makeWarning(), next)).toBe(true);
   });
 
   test("a reworded headline publishes", () => {
     const next = makeWarning({
-      [CycloneWarningField.Headline]: "Hurricane Watch extended inland",
+      [WeatherTextField.Headline]: "Hurricane Watch extended inland",
     });
     expect(source.changed(makeWarning(), next)).toBe(true);
   });
@@ -177,59 +178,63 @@ describe("cyclone warning source policy", () => {
   });
 });
 
-describe("cyclone warning scene publication", () => {
-  test("publishes geometry patch, reconnect, and delete semantics", async () => {
-    let entities: readonly CycloneWarningPoint[] = [makeWarning()];
-    let observedAt = 1;
-    const patches: SceneSourcePatch[] = [];
-    const binding = new CycloneWarningSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        patches.push(command);
-      }
-    });
-    const source = new CycloneWarningSource({
-      fetchSnapshot: async () => ({
-        completeness: SourceCompleteness.Complete,
-        entities,
-        observedAt,
-      }),
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => binding.publish(patch),
-    });
-
-    await source.refresh();
-    observedAt += 1;
-    entities = [
-      makeWarning({
-        kind: AreaKind.Warning,
-        geometry: {
-          type: GeoJsonGeometryType.MultiPolygon,
-          coordinates: [
-            WARNING_GEOMETRY.coordinates,
-            [
-              [
-                [-79, 25],
-                [-78, 25],
-                [-78, 26],
-                [-79, 25],
-              ],
-            ],
+function twoPartWarning(): CycloneWarningPoint {
+  return makeWarning({
+    kind: AreaKind.Warning,
+    geometry: {
+      type: GeoJsonGeometryType.MultiPolygon,
+      coordinates: [
+        WARNING_GEOMETRY.coordinates,
+        [
+          [
+            [-79, 25],
+            [-78, 25],
+            [-78, 26],
+            [-79, 25],
           ],
-        },
-      }),
-    ];
-    await source.refresh();
-    source.publishRebase();
-    observedAt += 1;
-    entities = [];
-    await source.refresh();
+        ],
+      ],
+    },
+  });
+}
 
-    expect(patches).toHaveLength(4);
+async function publishedWarningLifecycle(): Promise<SceneSourcePatch[]> {
+  let entities: readonly CycloneWarningPoint[] = [makeWarning()];
+  let observedAt = 1;
+  const patches: SceneSourcePatch[] = [];
+  const binding = new CycloneWarningSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) {
+      patches.push(command);
+    }
+  });
+  const source = new CycloneWarningSource({
+    fetchSnapshot: async () => ({
+      completeness: SourceCompleteness.Complete,
+      entities,
+      observedAt,
+    }),
+  });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => binding.publish(patch),
+  });
+  await source.refresh();
+  observedAt += 1;
+  entities = [twoPartWarning()];
+  await source.refresh();
+  source.publishRebase();
+  observedAt += 1;
+  entities = [];
+  await source.refresh();
+  return patches;
+}
+
+describe("cyclone warning scene publication", () => {
+  test("publishes the first geometry and its upgraded patch", async () => {
+    const patches = await publishedWarningLifecycle();
     expect(patches[0]?.kind).toBe(DatasetPatchKind.Rebase);
     expect(patches[0]?.source).toBe(Domain.CycloneWarnings);
     expect(Array.from(patches[0]?.geometryPartEnds ?? [])).toEqual([
@@ -245,6 +250,11 @@ describe("cyclone warning scene publication", () => {
       1,
       2,
     ]);
+  });
+
+  test("rebases on reconnect and deletes a removed warning", async () => {
+    const patches = await publishedWarningLifecycle();
+    expect(patches).toHaveLength(4);
     expect(patches[2]?.kind).toBe(DatasetPatchKind.Rebase);
     expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([
       1,

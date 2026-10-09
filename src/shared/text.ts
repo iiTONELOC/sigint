@@ -8,6 +8,12 @@ export const SEMICOLON_SEPARATOR = ";";
 export const PARAGRAPH_SPLIT = /\n{2,}/;
 export const REPEATED_SPACES = / {2,}/g;
 export const PARENTHETICAL = /\s?\(\w+\)/;
+const CAMEL_BOUNDARY = /([a-z])([A-Z])/g;
+
+/** A camel-case identifier as a label: "windProbs" and "StormSurge" become "WIND PROBS" and "STORM SURGE". */
+export function spacedUpperCase(value: string): string {
+  return value.replace(CAMEL_BOUNDARY, "$1 $2").toUpperCase();
+}
 
 const EM_DASH_CODE_POINT = 0x2014;
 

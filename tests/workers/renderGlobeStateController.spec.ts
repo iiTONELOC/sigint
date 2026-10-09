@@ -5,6 +5,7 @@ import {
   restoreRenderGlobeStateCommands,
 } from "@/workers/render/globeStateController";
 import {
+  DEFAULT_RENDER_CYCLONE_OVERLAY,
   IsolateMode,
   RenderGlobeCommandKind,
   RenderProjectionMode,
@@ -129,10 +130,8 @@ describe("RenderGlobeStateController", () => {
         showWarnings: false,
         overlays: {
           [TEST_CYCLONE_ENTITY_ID]: {
-            showForecast: false,
-            showCone: false,
-            showWindField: true,
-            showModels: true,
+            ...DEFAULT_RENDER_CYCLONE_OVERLAY,
+            showForecast: false, showCone: false, showWindField: true, showModels: true,
             hiddenModels: ["GFS"],
           },
         },
@@ -266,7 +265,7 @@ describe("RenderGlobeStateController", () => {
     ).toBeNull();
   });
 
-  test("describes commands that restore the complete snapshot", () => {
+  test("restores the projection, rotation, and layer visibility", () => {
     const state = createDefaultRenderGlobeState();
     const commands = restoreRenderGlobeStateCommands({
       ...state,
@@ -291,6 +290,11 @@ describe("RenderGlobeStateController", () => {
       layer: Domain.Ships,
       visible: false,
     });
+  });
+
+  test("restores the filters, isolation, motion, and theme", () => {
+    const state = createDefaultRenderGlobeState();
+    const commands = restoreRenderGlobeStateCommands(state);
     expect(commands).toContainEqual({
       kind: RenderGlobeCommandKind.SetAircraftFilter,
       filter: state.aircraftFilter,

@@ -139,9 +139,12 @@ export type SceneTimestampedEntity = Readonly<{
   timestamp?: string;
 }>;
 
-export function sceneTimestamp(entity: SceneTimestampedEntity): number {
+export function sceneTimestamp(
+  entity: SceneTimestampedEntity,
+  parse: (time: string) => number = Date.parse,
+): number {
   if (!entity.timestamp) return SceneDefault.Timestamp;
-  const timestamp = Date.parse(entity.timestamp);
+  const timestamp = parse(entity.timestamp);
   return Number.isFinite(timestamp) ? timestamp : SceneDefault.Timestamp;
 }
 
@@ -173,6 +176,7 @@ export class ScenePatchCodec<
     this.validatePatchMembership(patch);
     const projected = this.projectRecords(patch.upserts);
     this.validateSceneIds(projected);
+    this.validateRecords(projected);
     const allocation = this.allocate(projected.length);
     const geometry = this.encodeGeometry(projected);
     const dictionaryStart =
@@ -324,8 +328,6 @@ export class ScenePatchCodec<
     const position = this.options.position(projected.record);
     const longitude = longitudeOf(position);
     const latitude = latitudeOf(position);
-    const timestamp = this.options.timestamp(projected.record);
-    this.validateEntity(sceneId, longitude, latitude, timestamp);
 
     allocation.handles[index] = this.handleAllocator.acquire(sceneId);
     allocation.sceneIds[index] = sceneId;
@@ -333,7 +335,7 @@ export class ScenePatchCodec<
     this.registerIdentity(sceneId, entityId);
     this.writePosition(allocation, index, longitude, latitude);
     this.writeMotionPosition(allocation, projected.record, index);
-    allocation.timestamps[index] = timestamp;
+    allocation.timestamps[index] = this.options.timestamp(projected.record);
     this.options.writeAttributes(
       projected.record,
       allocation.attributes,
@@ -377,27 +379,28 @@ export class ScenePatchCodec<
   ): void {
     const position = this.options.motionPosition?.(record);
     if (!position) return;
-    const longitude = longitudeOf(position);
-    const latitude = latitudeOf(position);
-    this.validatePosition(record.id, longitude, latitude);
     const offset = index * this.motionPositionStride;
     allocation.motionPositions[
       offset + ScenePositionOffset.Longitude
-    ] = longitude;
+    ] = longitudeOf(position);
     allocation.motionPositions[
       offset + ScenePositionOffset.Latitude
-    ] = latitude;
+    ] = latitudeOf(position);
   }
 
-  private validateEntity(
-    sceneId: string,
-    longitude: number,
-    latitude: number,
-    timestamp: number,
+  // Every record is checked before any handle, identity, or dictionary entry changes,
+  // so a rejected patch leaves the codec in step with the render store.
+  private validateRecords(
+    projected: readonly SceneProjectedRecord<TEntity, TRecord>[],
   ): void {
-    this.validatePosition(sceneId, longitude, latitude);
-    if (!Number.isFinite(timestamp)) {
-      throw new SceneCodecError(SceneCodecErrorKind.InvalidTimestamp, sceneId);
+    for (const { record } of projected) {
+      const position = this.options.position(record);
+      this.validatePosition(record.id, longitudeOf(position), latitudeOf(position));
+      const motion = this.options.motionPosition?.(record);
+      if (motion) this.validatePosition(record.id, longitudeOf(motion), latitudeOf(motion));
+      if (!Number.isFinite(this.options.timestamp(record))) {
+        throw new SceneCodecError(SceneCodecErrorKind.InvalidTimestamp, record.id);
+      }
     }
   }
 

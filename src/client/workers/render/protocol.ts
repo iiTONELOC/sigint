@@ -82,7 +82,14 @@ export enum RenderCycloneLayer {
   Cone = "showCone",
   WindField = "showWindField",
   Models = "showModels",
+  Satellite = "showSatellite",
+  Radar = "showRadar",
+  WindChances = "showWindChances",
+  Arrival = "showArrival",
+  Surge = "showSurge",
 }
+
+const RENDER_CYCLONE_LAYERS: readonly RenderCycloneLayer[] = Object.values(RenderCycloneLayer);
 
 export enum RenderRotationSpeedPolicy {
   MinimumAndStep = 0.01,
@@ -171,13 +178,9 @@ export type RenderSearchSnapshot = Readonly<{
   text: string | null;
 }>;
 
-export type RenderCycloneOverlay = Readonly<{
-  showForecast: boolean;
-  showCone: boolean;
-  showWindField: boolean;
-  showModels: boolean;
-  hiddenModels: readonly string[];
-}>;
+export type RenderCycloneOverlay = Readonly<
+  Record<RenderCycloneLayer, boolean> & { hiddenModels: readonly string[] }
+>;
 
 export const DEFAULT_RENDER_CYCLONE_OVERLAY: RenderCycloneOverlay =
   Object.freeze({
@@ -185,6 +188,11 @@ export const DEFAULT_RENDER_CYCLONE_OVERLAY: RenderCycloneOverlay =
     showCone: true,
     showWindField: false,
     showModels: false,
+    showSatellite: false,
+    showRadar: false,
+    showWindChances: false,
+    showArrival: false,
+    showSurge: false,
     hiddenModels: Object.freeze([]),
   });
 
@@ -329,10 +337,7 @@ function isRenderCycloneOverlay(
 ): value is RenderCycloneOverlay {
   return (
     isRecord(value) &&
-    typeof value.showForecast === "boolean" &&
-    typeof value.showCone === "boolean" &&
-    typeof value.showWindField === "boolean" &&
-    typeof value.showModels === "boolean" &&
+    RENDER_CYCLONE_LAYERS.every((layer) => typeof value[layer] === "boolean") &&
     isUniqueNonEmptyStrings(value.hiddenModels)
   );
 }
@@ -365,6 +370,13 @@ function isRenderCycloneFilter(
         isRenderCycloneOverlay(overlay),
     )
   );
+}
+
+/** Whether two overlays show the same layers and hide the same models. */
+export function renderCycloneOverlaysEqual(left: RenderCycloneOverlay, right: RenderCycloneOverlay): boolean {
+  return RENDER_CYCLONE_LAYERS.every((layer) => left[layer] === right[layer]) &&
+    left.hiddenModels.length === right.hiddenModels.length &&
+    left.hiddenModels.every((model, index) => model === right.hiddenModels[index]);
 }
 
 export function isRenderWorkerColors(

@@ -1,8 +1,6 @@
 import {
-  WEATHER_TEXT_FIELDS,
-  parseWeatherSeverity,
+  parseWeatherAlertData,
   type WeatherPoint,
-  type WeatherTextField,
 } from "@shared/domain/weather";
 import type { DatasetCompleteness } from "@/workers/data/datasetStore";
 import {
@@ -15,6 +13,7 @@ import {
   type SourceTransport,
 } from "@/workers/data/source-model/remoteSource";
 import { Domain } from "@shared/domain/identity";
+import { isTropicalAlertEvent } from "@shared/domain/cyclones";
 import { SourceCompleteness } from "@shared/source";
 import { EMPTY_TEXT, nonEmptyText } from "@shared/text";
 import {
@@ -31,7 +30,7 @@ enum WeatherPayloadField {
   Geometry = "geometry",
   Sent = "sent",
   Effective = "effective",
-  Severity = "severity",
+  Event = "event",
 }
 
 enum WeatherIdentity {
@@ -53,17 +52,6 @@ function alertId(value: unknown): string | null {
   return tail.length > 0 ? `${WeatherIdentity.Prefix}${tail}` : null;
 }
 
-function alertText(
-  properties: Readonly<Record<string, unknown>>,
-): Partial<Record<WeatherTextField, string>> {
-  const text: Partial<Record<WeatherTextField, string>> = {};
-  for (const field of WEATHER_TEXT_FIELDS) {
-    const value = nonEmptyText(properties[field]);
-    if (value !== undefined) text[field] = value;
-  }
-  return text;
-}
-
 class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
   protected readonly transport: SourceTransport = NWS_ALERTS_TRANSPORT;
 
@@ -83,6 +71,7 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
     if (!isRecord(item)) return null;
     const properties = item[WeatherPayloadField.Properties];
     if (!isRecord(properties)) return null;
+    if (isTropicalAlertEvent(nonEmptyText(properties[WeatherPayloadField.Event]) ?? EMPTY_TEXT)) return null;
 
     const id = alertId(properties[WeatherPayloadField.Id]);
     if (!id) return null;
@@ -103,13 +92,7 @@ class WeatherAlertFeed extends RemoteSource<WeatherPoint> {
         nonEmptyText(properties[WeatherPayloadField.Sent]) ??
         nonEmptyText(properties[WeatherPayloadField.Effective]) ??
         new Date(observedAt).toISOString(),
-      data: {
-        ...alertText(properties),
-        geometry,
-        severity: parseWeatherSeverity(
-          properties[WeatherPayloadField.Severity],
-        ),
-      },
+      data: { ...parseWeatherAlertData(properties), geometry },
     };
   }
 }

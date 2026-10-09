@@ -10,14 +10,14 @@ import {
   HttpUserAgent,
 } from "@shared/http";
 
-enum FeedEndpoint {
-  NwsAlerts = "https://api.weather.gov/alerts/active?status=actual&message_type=alert",
-}
+// Reissued alerts arrive as "update"; asking only for "alert" dropped most live warnings.
+const NWS_ALERTS_URL =
+  "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update";
 
 // NWS rejects cloud-provider addresses, so both readers of this feed run in
 // the browser. A worker is still the browser; a server proxy would be blocked.
 export const NWS_ALERTS_TRANSPORT: SourceTransport = {
-  url: FeedEndpoint.NwsAlerts,
+  url: NWS_ALERTS_URL,
   headers: {
     [HttpHeader.UserAgent]: HttpUserAgent.SigintDashboard,
     [HttpHeader.Accept]: HttpMediaType.GeoJson,

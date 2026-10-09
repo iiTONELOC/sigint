@@ -11,7 +11,8 @@ import {
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import { Domain } from "@shared/domain/identity";
 import { SourceCompleteness } from "@shared/source";
-import { BLANK_SEPARATOR, nonEmptyText, textOrEmpty } from "@shared/text";
+import { nonEmptyText, textOrEmpty } from "@shared/text";
+import { parseWeatherAlertData, WeatherTextField } from "@shared/domain/weather";
 import {
   geometryCentroid,
   isNullIsland,
@@ -20,7 +21,7 @@ import {
 } from "@shared/geo";
 import {
   AreaKind,
-  CycloneWarningField,
+  isTropicalAlertEvent,
   type CycloneWarningData,
   type CycloneWarningPoint,
 } from "@shared/domain/cyclones";
@@ -30,46 +31,13 @@ enum WarningPayloadField {
   Properties = "properties",
   Id = "id",
   Geometry = "geometry",
+  Effective = "effective",
 }
-
-enum TropicalHazard {
-  Hurricane = "hurricane",
-  TropicalStorm = "tropical storm",
-  StormSurge = "storm surge",
-}
-
-const TROPICAL_EVENTS: ReadonlySet<string> = new Set(
-  Object.values(TropicalHazard).flatMap((hazard) =>
-    Object.values(AreaKind).map((kind) => `${hazard}${BLANK_SEPARATOR}${kind}`),
-  ),
-);
 
 function kindOf(eventLower: string): AreaKind {
   return eventLower.includes(AreaKind.Warning)
     ? AreaKind.Warning
     : AreaKind.Watch;
-}
-
-function warningText(
-  properties: Readonly<Record<string, unknown>>,
-): Record<CycloneWarningField, string> {
-  return {
-    [CycloneWarningField.Alert]: textOrEmpty(
-      properties[CycloneWarningField.Alert],
-    ),
-    [CycloneWarningField.Headline]: textOrEmpty(
-      properties[CycloneWarningField.Headline],
-    ),
-    [CycloneWarningField.Area]: textOrEmpty(
-      properties[CycloneWarningField.Area],
-    ),
-    [CycloneWarningField.Effective]: textOrEmpty(
-      properties[CycloneWarningField.Effective],
-    ),
-    [CycloneWarningField.Expires]: textOrEmpty(
-      properties[CycloneWarningField.Expires],
-    ),
-  };
 }
 
 class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
@@ -95,9 +63,9 @@ class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
     const rawProperties = item[WarningPayloadField.Properties];
     const properties = isRecord(rawProperties) ? rawProperties : {};
 
-    const event = textOrEmpty(properties[CycloneWarningField.Alert]);
+    const event = textOrEmpty(properties[WeatherTextField.Event]);
     const eventLower = event.toLowerCase();
-    if (!TROPICAL_EVENTS.has(eventLower)) return null;
+    if (!isTropicalAlertEvent(event)) return null;
 
     const geometry = parseGeoJsonPolygonGeometry(
       item[WarningPayloadField.Geometry],
@@ -109,7 +77,7 @@ class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
 
     const id = nonEmptyText(item[WarningPayloadField.Id]) ?? event;
     const data: CycloneWarningData = {
-      ...warningText(properties),
+      ...parseWeatherAlertData(properties),
       kind: kindOf(eventLower),
       geometry,
     };
@@ -118,7 +86,7 @@ class CycloneWarningFeed extends RemoteSource<CycloneWarningPoint> {
       type: Domain.CyclonesWarning,
       position,
       timestamp:
-        nonEmptyText(properties[CycloneWarningField.Effective]) ??
+        nonEmptyText(properties[WarningPayloadField.Effective]) ??
         new Date(observedAt).toISOString(),
       data,
     };

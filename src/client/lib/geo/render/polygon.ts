@@ -26,7 +26,7 @@ export const POLYGON_POLICY: PolygonPolicy = {
   defaultAlpha: 0.7,
 };
 
-enum PolygonFillRule {
+export enum PolygonFillRule {
   EvenOdd = "evenodd",
 }
 

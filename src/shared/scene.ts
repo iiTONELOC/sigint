@@ -105,9 +105,13 @@ export enum CycloneWarningSceneAttribute {
 export enum CycloneSceneRole {
   Current = 0,
   Forecast = 1,
-  PastPath = 2,
+  PastPoint = 2,
   WindRadius = 3,
   ModelPath = 4,
+  Cone = 5,
+  WindChance = 6,
+  Surge = 7,
+  Arrival = 8,
 }
 
 export enum CycloneSceneAttribute {
@@ -115,28 +119,34 @@ export enum CycloneSceneAttribute {
   SaffirSimpson = 1,
   MaxWindKt = 2,
   ForecastHour = 3,
-  ErrorRadiusNm = 4,
-  WindThresholdKt = 5,
-  WindRadiusNe = 6,
-  WindRadiusSe = 7,
-  WindRadiusSw = 8,
-  WindRadiusNw = 9,
+  WindThresholdKt = 4,
+  WindRadiusNe = 5,
+  WindRadiusSe = 6,
+  WindRadiusSw = 7,
+  WindRadiusNw = 8,
+  HazardRank = 9,
 }
 
 export const CYCLONE_SCENE_ATTRIBUTE_COUNT =
-  CycloneSceneAttribute.WindRadiusNw + 1;
+  CycloneSceneAttribute.HazardRank + 1;
 
 export enum CycloneSceneStringAttribute {
   ModelCode = 0,
+  Label = 1,
 }
+
+export const CYCLONE_SCENE_STRING_ATTRIBUTE_COUNT =
+  CycloneSceneStringAttribute.Label + 1;
 
 export enum CycloneSceneIdToken {
   Separator = ":",
   ForecastPrefix = "CYF",
   ForecastHour = "-H",
-  PastPath = "past-path",
+  PastPoint = "past-point",
+  Cone = "cone",
   WindRadius = "wind-radius",
   ModelPath = "model-path",
+  Hazard = "hazard",
 }
 
 export enum CycloneWindQuadrant {
@@ -173,11 +183,16 @@ export function cycloneForecastSceneId(
   ].join(CycloneSceneText.Empty);
 }
 
-export function cyclonePastPathSceneId(parentId: string): string {
-  return cycloneChildSceneId(
-    parentId,
-    CycloneSceneIdToken.PastPath,
-  );
+export function cyclonePastPointSceneId(parentId: string, index: number): string {
+  return cycloneChildSceneId(parentId, CycloneSceneIdToken.PastPoint, index);
+}
+
+export function cycloneHazardSceneId(parentId: string, role: CycloneSceneRole, index: number): string {
+  return cycloneChildSceneId(parentId, CycloneSceneIdToken.Hazard, role, index);
+}
+
+export function cycloneConeSceneId(parentId: string): string {
+  return cycloneChildSceneId(parentId, CycloneSceneIdToken.Cone);
 }
 
 export function cycloneWindRadiusSceneId(

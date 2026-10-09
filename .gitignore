@@ -61,3 +61,4 @@ src/server/data/ac-db.sqlite
 scratch/
 .codex/
 .dis/
+out/

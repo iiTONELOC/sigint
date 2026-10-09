@@ -52,7 +52,7 @@ export function useCycloneSituation(item: CyclonePoint) {
   );
   const hasAssets =
     assets !== null &&
-    (assets.ships.length > 0 || assets.aircraft.length > 0);
+    (assets.ships.length > 0 || assets.aircraft.length > 0 || assets.warnings.length > 0);
   return {
     accent,
     assets,
@@ -104,7 +104,7 @@ export function CycloneDetailExtras({ item }: { readonly item: CyclonePoint }) {
       )}
       {hasForecast && (
         <DetailSection title="FORECAST TRACK">
-          <CycloneForecastMiniMap item={item} />
+          <CycloneForecastMiniMap item={item} hazards={cyclone.hazards} />
         </DetailSection>
       )}
       {windRadii && hasRadii && (

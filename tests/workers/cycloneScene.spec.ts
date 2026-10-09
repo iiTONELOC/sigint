@@ -9,7 +9,7 @@ import {
   CycloneSceneRole,
   cycloneForecastSceneId,
   cycloneModelPathSceneId,
-  cyclonePastPathSceneId,
+  cyclonePastPointSceneId,
   cycloneWindRadiusSceneId,
   SceneGeometryKind,
 } from "@shared/scene";
@@ -19,14 +19,16 @@ import {
 } from "@/workers/render/sceneProtocol";
 import { testCycloneScenePoint } from "../_support/cyclone";
 
+type SourcePatch = Extract<
+  SceneSourceCommandBody,
+  { type: SceneDataCommandType.SourcePatch }
+>;
+
 function cyclone() {
   return testCycloneScenePoint();
 }
 
-function roles(command: Extract<
-  SceneSourceCommandBody,
-  { type: SceneDataCommandType.SourcePatch }
->): number[] {
+function roles(command: SourcePatch): number[] {
   const roles: number[] = [];
   for (let index = 0; index < command.handles.length; index += 1) {
     roles.push(
@@ -39,51 +41,64 @@ function roles(command: Extract<
   return roles;
 }
 
+function publishedStorm() {
+  const commands: SceneSourceCommandBody[] = [];
+  const binding = new CycloneSceneBinding((command) => {
+    commands.push(command);
+  });
+  const point = cyclone();
+  binding.publish({
+    kind: DatasetPatchKind.Rebase,
+    version: 1,
+    upserts: [point],
+    deletedIds: [],
+  });
+  const command = commands[0];
+  expect(command?.type).toBe(SceneDataCommandType.SourcePatch);
+  return { command: command?.type === SceneDataCommandType.SourcePatch ? command : null, point };
+}
+
 describe("cyclone scene publication", () => {
-  test("projects one storm through the shared scene contract", () => {
-    const commands: SceneSourceCommandBody[] = [];
-    const binding = new CycloneSceneBinding((command) => {
-      commands.push(command);
-    });
-    const point = cyclone();
-
-    binding.publish({
-      kind: DatasetPatchKind.Rebase,
-      version: 1,
-      upserts: [point],
-      deletedIds: [],
-    });
-
-    const command = commands[0];
-    expect(command?.type).toBe(SceneDataCommandType.SourcePatch);
-    if (command?.type !== SceneDataCommandType.SourcePatch) return;
-    expect(command.sceneIds).toEqual([
+  test("publishes each storm record with its scene id and role", () => {
+    const { command, point } = publishedStorm();
+    expect(command?.sceneIds).toEqual([
       point.id,
       cycloneForecastSceneId(point.data.stormId, 24),
-      cyclonePastPathSceneId(point.id),
+      cyclonePastPointSceneId(point.id, 0),
+      cyclonePastPointSceneId(point.id, 1),
       cycloneWindRadiusSceneId(
         point.id,
         CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
       ),
       cycloneModelPathSceneId(point.id, "OFCL"),
     ]);
-    expect(command.entityIds).toEqual(
-      command.sceneIds.map(() => point.id),
+    expect(command?.entityIds).toEqual(
+      command?.sceneIds.map(() => point.id),
     );
-    expect(roles(command)).toEqual([
+    expect(command ? roles(command) : []).toEqual([
       CycloneSceneRole.Current,
       CycloneSceneRole.Forecast,
-      CycloneSceneRole.PastPath,
+      CycloneSceneRole.PastPoint,
+      CycloneSceneRole.PastPoint,
       CycloneSceneRole.WindRadius,
       CycloneSceneRole.ModelPath,
     ]);
-    expect(Array.from(command.geometryKinds)).toEqual([
+  });
+
+  test("publishes model geometry and past-fix wind and hour", () => {
+    const { command } = publishedStorm();
+    expect(Array.from(command?.geometryKinds ?? [])).toEqual([
       SceneGeometryKind.None,
       SceneGeometryKind.None,
-      SceneGeometryKind.Polyline,
+      SceneGeometryKind.None,
+      SceneGeometryKind.None,
       SceneGeometryKind.None,
       SceneGeometryKind.Polyline,
     ]);
+    const attribute = (index: number, field: CycloneSceneAttribute) =>
+      command?.attributes[index * command.attributeStride + field];
+    expect([attribute(2, CycloneSceneAttribute.MaxWindKt), attribute(3, CycloneSceneAttribute.MaxWindKt)]).toEqual([50, 60]);
+    expect([attribute(2, CycloneSceneAttribute.ForecastHour), attribute(3, CycloneSceneAttribute.ForecastHour)]).toEqual([-48, -24]);
   });
 
   test("deletes removed child records without a parallel rebase", () => {
@@ -119,7 +134,7 @@ describe("cyclone scene publication", () => {
     if (command?.type !== SceneDataCommandType.SourcePatch) return;
     expect(command.kind).toBe(DatasetPatchKind.Patch);
     expect(command.sceneIds).toEqual([point.id]);
-    expect(Array.from(command.deletedHandles)).toHaveLength(4);
+    expect(Array.from(command.deletedHandles)).toHaveLength(5);
     expect(command.handles[0]).toBe(1);
   });
 });

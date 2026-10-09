@@ -1,3 +1,4 @@
+import { windColor } from "@/features/environmental/cyclones/classification";
 import { describe, expect, test } from "bun:test";
 import {
   SaffirSimpson,
@@ -101,6 +102,7 @@ function filter(
         showForecast,
         showWindField: true,
         showModels: true,
+        showRadar: false,
       },
     },
     isolateMode: null,
@@ -156,19 +158,23 @@ function sceneCommand(): Extract<
   return published;
 }
 
-describe("cyclone scene layer", () => {
-  test("uses forecast interaction identity and draws the scene records", () => {
-    const point = testCycloneScenePoint();
-    const forecastId = cycloneForecastSceneId(
-      point.data.stormId,
-      point.data.forecast[0]?.fcstHour ?? 0,
-    );
-    const layer = new CycloneLayer();
-    layer.apply(
-      createSceneCommand(sceneCommand(), "session-a", 1),
-    );
-    layer.project(frame(), filter(true));
+function projectedForecastLayer() {
+  const point = testCycloneScenePoint();
+  const forecastId = cycloneForecastSceneId(
+    point.data.stormId,
+    point.data.forecast[0]?.fcstHour ?? 0,
+  );
+  const layer = new CycloneLayer();
+  layer.apply(
+    createSceneCommand(sceneCommand(), "session-a", 1),
+  );
+  layer.project(frame(), filter(true), Date.parse(point.data.lastUpdate));
+  return { forecastId, layer, point };
+}
 
+describe("cyclone scene layer", () => {
+  test("uses forecast interaction identity", () => {
+    const { forecastId, layer, point } = projectedForecastLayer();
     const hit = layer.nearest(
       SceneHitKind.Point,
       126,
@@ -195,18 +201,23 @@ describe("cyclone scene layer", () => {
       latitude: TEST_CYCLONE_FORECAST.lat,
       longitude: TEST_CYCLONE_FORECAST.lon,
     });
+  });
 
+  test("draws the scene records", () => {
+    const { forecastId, layer } = projectedForecastLayer();
     const records: DrawRecord = { fills: [], strokes: [] };
     layer.draw({
       context: context(records),
       project: (lat, lon) => ({ x: lon, y: lat, z: 1 }),
       color: "#ff2b3d",
+      surgeColor: "#ff5d5d",
+      casingColor: "#080a0f",
       selectedId: forecastId,
       time: 1,
       reducedMotion: false,
     });
 
-    expect(records.fills[0]).toBe("#ff2b3d");
+    expect(records.fills[0]).toBe(windColor(TEST_CYCLONE_FORECAST.maxWindKt));
     expect(records.fills).toContain("#ffd24a");
     expect(records.strokes).toContain("#8a5cff");
     expect(layer.hasTimeAnimation(false)).toBe(true);
@@ -215,16 +226,17 @@ describe("cyclone scene layer", () => {
 
   test("applies forecast visibility and category filters", () => {
     const layer = new CycloneLayer();
+    const advisoryTime = Date.parse(testCycloneScenePoint().data.lastUpdate);
     layer.apply(
       createSceneCommand(sceneCommand(), "session-b", 1),
     );
 
-    layer.project(frame(), filter(false));
+    layer.project(frame(), filter(false), advisoryTime);
     expect(
       layer.nearest(SceneHitKind.Point, 126, 74, 0.5, 10),
     ).toBeNull();
 
-    layer.project(frame(), filter(true, SaffirSimpson.Cat3));
+    layer.project(frame(), filter(true, SaffirSimpson.Cat3), advisoryTime);
     expect(
       layer.nearest(SceneHitKind.Point, 125, 75, 1, 10),
     ).toBeNull();

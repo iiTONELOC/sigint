@@ -11,7 +11,8 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { Domain } from "@shared/domain/identity";
 import { unwrapNwsText, weatherAreas } from "../text";
 import { WeatherCopy, weatherSeverityLabel } from "../formatters/presentation";
-import { weatherSeverityInk } from "../render";
+import { useTheme } from "@/theme";
+import { alertInk } from "../render";
 
 enum WeatherDetailText {
   Expired = "expired",
@@ -54,14 +55,15 @@ export function WeatherDetailSummary({
 }: {
   readonly item: DataPoint;
 }) {
-  if (item.type !== Domain.Weather) return null;
+  const { theme } = useTheme();
+  if (item.type !== Domain.Weather && item.type !== Domain.CyclonesWarning) return null;
   const data = item.data;
   const areaCount = weatherAreas(data.areaDesc).length;
 
   return (
     <div
       className={WeatherDetailClassName.Root}
-      style={{ "--dossier-accent": weatherSeverityInk(data.severity) } as CSSProperties}
+      style={{ "--dossier-accent": alertInk(item, theme.colors) } as CSSProperties}
     >
       <div className={WeatherDetailClassName.Header}>
         <div className={WeatherDetailClassName.HeaderText}>

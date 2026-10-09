@@ -1,6 +1,8 @@
 export {
   AgeStyle,
   formatClockTime,
+  formatHour,
+  formatWeekday,
   formatDuration,
   formatTime,
   formatTimestamp,

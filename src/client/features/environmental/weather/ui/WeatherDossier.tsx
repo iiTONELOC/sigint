@@ -9,13 +9,14 @@ import { CloudAlert } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import { Domain } from "@shared/domain/identity";
-import { weatherSeverityInk } from "../render";
+import { useTheme } from "@/theme";
+import { alertInk } from "../render";
 import { unwrapNwsText, weatherAreas } from "../text";
 import { WeatherPlacard } from "./WeatherPlacard";
 import { WeatherTiming } from "./WeatherTiming";
 import { WeatherCopy } from "../formatters/presentation";
 
-type Props = FeatureDossierProps<Domain.Weather>;
+type Props = FeatureDossierProps<Domain.Weather | Domain.CyclonesWarning>;
 
 const WIDE_CARD_CLASS_NAME = "@min-[34rem]/wx:col-span-2";
 
@@ -28,6 +29,7 @@ export function WeatherDossier({
   onClose,
 }: Props) {
   const closeBtnRef = useDossierFocus(item.id);
+  const { theme } = useTheme();
   const data = item.data;
   const areas = weatherAreas(data.areaDesc);
   const now = Date.now();
@@ -37,7 +39,7 @@ export function WeatherDossier({
       className="h-full min-w-0 flex flex-col"
       style={
         {
-          "--dossier-accent": weatherSeverityInk(data.severity),
+          "--dossier-accent": alertInk(item, theme.colors),
         } as CSSProperties
       }
     >
@@ -118,7 +120,7 @@ export function WeatherDossier({
               <div className={WIDE_CARD_CLASS_NAME}>
                 <DossierSectionCard>
                   <DossierSection title="DETAILS">
-                    <div className="text-(length:--sig-text-sm) text-sig-text/80 leading-relaxed max-h-72 overflow-y-auto sigint-scroll whitespace-pre-line">
+                    <div className="text-(length:--sig-text-sm) text-sig-text/80 leading-relaxed whitespace-pre-line wrap-anywhere">
                       {unwrapNwsText(data.description)}
                     </div>
                   </DossierSection>

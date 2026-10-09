@@ -3,27 +3,28 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { useSourceSnapshot } from "@/features/base/useSourceQuery";
 import { sourceForPointType } from "@shared/domain/pointSource";
 import { getDataWorkerClient } from "@/lib/cache/dataWorkerClient";
-import { QUERYABLE_SOURCE_CODECS } from "@/workers/data/queryableSources";
+import {
+  QUERYABLE_SOURCE_CODECS,
+  type QueryableSourceId,
+} from "@/workers/data/queryableSources";
 
-/**
- * The DataWorker's current copy of one point, refetched when the selection
- * changes and when its source advances. Falls back to the point the caller
- * already holds, so a selection never blanks out while a fetch is in flight.
- */
-export function useFreshEntity(point: DataPoint | null): DataPoint | null {
+/** The DataWorker's current copy of one entity, refetched when its source advances. */
+export function useSourceEntity(
+  source: QueryableSourceId | null,
+  id: string | null,
+): DataPoint | null {
   const client = useMemo(getDataWorkerClient, []);
-  const source = point ? sourceForPointType(point.type) : null;
   const snapshot = useSourceSnapshot(source);
   const [fresh, setFresh] = useState<DataPoint | null>(null);
 
   useEffect(() => {
-    if (!client || !point || !source) {
+    if (!client || !id || !source) {
       setFresh(null);
       return;
     }
     let cancelled = false;
     void client
-      .getSourceEntity(source, point.id)
+      .getSourceEntity(source, id)
       .then((event) => {
         if (cancelled || event.source !== source) return;
         // Re-parsed rather than narrowed: the reply union cannot be narrowed
@@ -34,8 +35,20 @@ export function useFreshEntity(point: DataPoint | null): DataPoint | null {
     return () => {
       cancelled = true;
     };
-  }, [client, source, point?.id, snapshot?.version]);
+  }, [client, source, id, snapshot?.version]);
 
+  return fresh?.id === id ? fresh : null;
+}
+
+/**
+ * The DataWorker's current copy of one point. Falls back to the point the caller
+ * already holds, so a selection never blanks out while a fetch is in flight.
+ */
+export function useFreshEntity(point: DataPoint | null): DataPoint | null {
+  const fresh = useSourceEntity(
+    point ? sourceForPointType(point.type) : null,
+    point?.id ?? null,
+  );
   if (!point) return null;
-  return fresh?.id === point.id ? fresh : point;
+  return fresh ?? point;
 }

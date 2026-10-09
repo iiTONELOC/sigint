@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { ktToMph } from "@/measurements";
 import {
   cardinalCompassPointForDegrees,
@@ -6,6 +7,8 @@ import {
 import { AngleConversion, TurnDeg } from "@shared/geo";
 import { EMPTY_TEXT } from "@shared/text";
 import { windRadiiBandColor } from "../classification";
+import { DossierTextClass } from "@/dossier";
+import { chartPercent, CYCLONE_CHART_HEIGHT_CLASS } from "./CycloneIntensityCurve";
 import {
   Category,
   CYCLONE_CATEGORY_METADATA,
@@ -21,7 +24,6 @@ enum WindRoseGeometry {
   PetalScale = 0.92,
   MiddleRingScale = 0.6,
   InnerRingScale = 0.3,
-  LabelFontSize = 12,
   CenterMarkerRadius = 3,
 }
 
@@ -38,10 +40,7 @@ enum WindRoseStyle {
   WedgeStrokeWidth = 1.75,
 }
 
-enum WindRosePrecision {
-  Path = 1,
-  Transform = 2,
-}
+const WIND_ROSE_PATH_DECIMALS = 1;
 
 const WIND_ROSE_ZERO = 0;
 const WIND_ROSE_SEPARATOR = " · ";
@@ -92,27 +91,22 @@ function wedgePath(
     startDegrees + TurnDeg.Quarter,
     radius,
   );
-  return `M${windRoseCenter()},${windRoseCenter()} L${startX.toFixed(WindRosePrecision.Path)},${startY.toFixed(WindRosePrecision.Path)} A${radius.toFixed(WindRosePrecision.Path)},${radius.toFixed(WindRosePrecision.Path)} 0 0 1 ${endX.toFixed(WindRosePrecision.Path)},${endY.toFixed(WindRosePrecision.Path)} Z`;
+  return `M${windRoseCenter()},${windRoseCenter()} L${startX.toFixed(WIND_ROSE_PATH_DECIMALS)},${startY.toFixed(WIND_ROSE_PATH_DECIMALS)} A${radius.toFixed(WIND_ROSE_PATH_DECIMALS)},${radius.toFixed(WIND_ROSE_PATH_DECIMALS)} 0 0 1 ${endX.toFixed(WIND_ROSE_PATH_DECIMALS)},${endY.toFixed(WIND_ROSE_PATH_DECIMALS)} Z`;
 }
 
-function CompassLabels({ rotation }: { readonly rotation: number }) {
+function CompassLabels() {
   return WIND_ROSE_BEARINGS.map((bearing) => {
     const [x, y] = polarPoint(bearing, windRoseLabelRadius());
     const label = cardinalCompassPointForDegrees(bearing);
     if (label === null) return null;
     return (
-      <text
+      <span
         key={bearing}
-        transform={`rotate(${(-rotation).toFixed(WindRosePrecision.Transform)} ${x} ${y})`}
-        x={x}
-        y={y}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        className="fill-sig-dim font-mono"
-        fontSize={WindRoseGeometry.LabelFontSize}
+        className={`absolute left-(--x) top-(--y) -translate-x-1/2 -translate-y-1/2 leading-none font-mono ${DossierTextClass.Label}`}
+        style={{ "--x": chartPercent(x, WindRoseGeometry.ViewBox), "--y": chartPercent(y, WindRoseGeometry.ViewBox) } as CSSProperties}
       >
         {label}
-      </text>
+      </span>
     );
   });
 }
@@ -154,17 +148,18 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
     ? (radius * WindRoseGeometry.PetalScale) /
       maxNauticalMiles
     : WIND_ROSE_ZERO;
-  const rotation = radii.lon;
   const quadrantLabels = WIND_ROSE_BEARINGS.map((bearing) =>
     compassPointForDegrees(bearing + TurnDeg.Quarter / 2)
   ).join(WIND_ROSE_SEPARATOR);
 
   return (
-    <div className="@container/rose bg-sig-panel border border-sig-border rounded-[12px] p-3 h-full flex items-center">
-      <div className="flex flex-col @min-[18rem]/rose:flex-row items-center justify-center gap-4 w-full min-w-0">
+    <div className="@container/rose h-full flex items-center">
+      <div className="flex flex-col @min-[18rem]/rose:flex-row items-center justify-center gap-4 size-full min-w-0">
+        <div className="w-full @min-[18rem]/rose:w-auto min-w-0 flex items-center justify-center">
+        <div className={`relative aspect-square max-w-full ${CYCLONE_CHART_HEIGHT_CLASS}`}>
         <svg
           viewBox={`0 0 ${WindRoseGeometry.ViewBox} ${WindRoseGeometry.ViewBox}`}
-          className="w-28 aspect-square shrink-0"
+          className="size-full"
           role="img"
           aria-label="Wind radii quadrant plot"
         >
@@ -186,9 +181,7 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
             r={radius * WindRoseGeometry.InnerRingScale}
             className="fill-none stroke-sig-grid/50"
           />
-          <g
-            transform={`rotate(${rotation.toFixed(WindRosePrecision.Transform)} ${center} ${center})`}
-          >
+          <g>
             <line
               x1={center}
               y1={center - radius}
@@ -228,7 +221,6 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
                   );
                 }),
               )}
-            <CompassLabels rotation={rotation} />
           </g>
           <circle
             cx={center}
@@ -237,26 +229,29 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
             className="fill-sig-bright"
           />
         </svg>
-        <div className="min-w-0 space-y-2">
+          <CompassLabels />
+        </div>
+        </div>
+        <div className="shrink-0 max-w-full space-y-2 whitespace-nowrap">
           {present.map(([threshold, quadrants]) => (
             <div key={threshold} className="min-w-0">
-              <div className="flex items-center gap-2 text-(length:--sig-text-xs)">
+              <div className={`flex items-center gap-2 ${DossierTextClass.Value}`}>
                 <WindBandSwatch threshold={threshold} />
-                <span className="text-sig-bright font-semibold">
+                <span className="font-semibold">
                   {threshold}kt{" "}
                   <span className="text-sig-dim font-normal">
                     · {ktToMph(threshold)}mph
                   </span>
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-(length:--sig-text-xs) text-sig-text font-mono">
+              <div className={`flex items-center gap-2 font-mono ${DossierTextClass.Body}`}>
                 <span className="w-2.5 shrink-0" aria-hidden />
                 {quadrants.join(WIND_ROSE_SEPARATOR)}{" "}
                 <span className="text-sig-dim">nm</span>
               </div>
             </div>
           ))}
-          <div className="flex items-center gap-2 text-(length:--sig-text-xs) tracking-wider text-sig-dim">
+          <div className={`flex items-center gap-2 ${DossierTextClass.Label}`}>
             <span className="w-2.5 shrink-0" aria-hidden />
             {quadrantLabels}
           </div>

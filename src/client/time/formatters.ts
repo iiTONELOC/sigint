@@ -40,6 +40,11 @@ const CLOCK_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   hour12: true,
 };
 
+const WEEKDAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: "short" };
+const HOUR_FORMAT: Intl.DateTimeFormatOptions = { hour: "numeric" };
+
+const ZONE_PART: Intl.DateTimeFormatPartTypes = "timeZoneName";
+
 const ZONED_CLOCK_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   ...CLOCK_TIME_FORMAT,
   timeZoneName: "short",
@@ -125,10 +130,20 @@ export function formatClockTime(epochSeconds: number, zoned = true): string {
   );
 }
 
+/** Local weekday, such as "Fri". */
+export function formatWeekday(epochMs: number): string {
+  return new Date(epochMs).toLocaleString(TimeLocale.EnglishUnitedStates, WEEKDAY_FORMAT);
+}
+
+/** Local hour, such as "7 AM". */
+export function formatHour(epochMs: number): string {
+  return new Date(epochMs).toLocaleString(TimeLocale.EnglishUnitedStates, HOUR_FORMAT);
+}
+
 export function localZoneName(): string {
   return new Intl.DateTimeFormat(TimeLocale.EnglishUnitedStates, ZONED_CLOCK_TIME_FORMAT)
     .formatToParts(new Date())
-    .find((part) => part.type === "timeZoneName")?.value ?? EMPTY_TEXT;
+    .find((part) => part.type === ZONE_PART)?.value ?? EMPTY_TEXT;
 }
 
 export function formatDuration(seconds: number): string {

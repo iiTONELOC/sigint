@@ -219,6 +219,13 @@ export function AircraftDossier({
           />
         </section>
 
+        <section className="sec telemetry min-w-0 flex flex-col">
+          <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
+          <AircraftTelemetryPFD data={acData} />
+        </section>
+
+        {route && <AircraftFlightPlan route={route} />}
+
         <section className="sec route min-w-0 flex flex-col" aria-label="Route">
           <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-52">
             <AircraftRouteMap
@@ -259,13 +266,6 @@ export function AircraftDossier({
               />
             </div>
           )}
-        </section>
-
-        {route && <AircraftFlightPlan route={route} />}
-
-        <section className="sec telemetry min-w-0 flex flex-col">
-          <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
-          <AircraftTelemetryPFD data={acData} />
         </section>
 
         {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}

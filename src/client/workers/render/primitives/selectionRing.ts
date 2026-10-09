@@ -13,7 +13,7 @@ export function drawSelectionRing(
   context.arc(
     x,
     y,
-    size * 2.5 + Math.sin(time * 2) * 2,
+    Math.max(size, size * 2.5 + Math.sin(time * 2) * 2),
     0,
     Math.PI * 2,
   );

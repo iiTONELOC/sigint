@@ -16,6 +16,7 @@ const TIMESTAMP_PATTERN =
   /^(\d{3,4}\s+(?:(?:AM|PM)\s+\w{3,4}|UTC)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{4})\s*$/im;
 const WIND_PROBABILITY_NUMBER_PATTERN = /WIND SPEED PROBABILITIES NUMBER\s+(\d+[A-Z]?)/i;
 const PRE_TAG_PATTERN = /<pre[^>]*>/i;
+const INLINE_TAG_PATTERN = /<[^<>]*>/g;
 const NEXT_ADVISORY_PREFIX_PATTERN = /Next (?:complete|intermediate)?\s*advisory at\s+/i;
 
 function nextAdvisoryOf(body: string): string {
@@ -57,7 +58,7 @@ function extractPreText(html: string): string | null {
   const start = open.index + open[0].length;
   const end = html.indexOf("</pre>", start);
   if (end < 0) return null;
-  return decodeHtmlEntities(html.slice(start, end));
+  return decodeHtmlEntities(html.slice(start, end).replace(INLINE_TAG_PATTERN, ""));
 }
 
 export function parseProductHtml(html: string, productKind: CycloneDossierProductKind):

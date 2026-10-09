@@ -5,7 +5,8 @@ import {
   FeatureColorClassName,
   FeatureIconStyle,
 } from "@/features/base/presentation";
-import type { CycloneData } from "@shared/domain/cyclones";
+import { CYCLONE_CATEGORY_METADATA, type CycloneData } from "@shared/domain/cyclones";
+import { BLANK_SEPARATOR } from "@shared/text";
 import { CycloneTickerContent } from "./ui/CycloneTickerContent";
 import {
   cycloneFeedPresentation,
@@ -21,9 +22,13 @@ export const cycloneFeature = defineFeature<CycloneData, Domain.Cyclones>({
   DetailSummary: null,
 
   buildDetailRows: () => [],
-  tablePresentation: (_data, id) =>
-    cycloneTablePresentation(id, Domain.Cyclones),
-  feedPresentation: (_data, id) => cycloneFeedPresentation(id),
+  tablePresentation: (data) =>
+    cycloneTablePresentation(data.name, Domain.Cyclones),
+  feedPresentation: (data) => cycloneFeedPresentation(data.name),
+  searchPresentation: (data) => ({
+    primary: data.name,
+    secondary: `${CYCLONE_CATEGORY_METADATA[data.classification].label}${BLANK_SEPARATOR}·${BLANK_SEPARATOR}${data.stormId}`,
+  }),
 
   TickerContent: CycloneTickerContent,
 

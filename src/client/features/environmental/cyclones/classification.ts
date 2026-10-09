@@ -1,5 +1,6 @@
 import { ktToMph } from "@/measurements";
 import {
+  AreaKind,
   Category,
   CYCLONE_CATEGORY_METADATA,
   CYCLONE_HURRICANE_CATEGORIES_DESCENDING,
@@ -8,6 +9,8 @@ import {
   cycloneCategoryShortLabel,
 } from "@shared/domain/cyclones";
 import { isEnumValue } from "@shared/types/enum";
+import { ThemeColorKey } from "@shared/domain/theme";
+import type { ThemeColors } from "@/theme";
 
 enum CycloneBandIndex {
   First = 0,
@@ -70,6 +73,21 @@ export function windColor(kt: number): string {
     ? Category.TropicalStorm
     : Category.TropicalDepression;
   return CYCLONE_CATEGORY_METADATA[category].color;
+}
+
+// Indexed by NHC band rank, so the scale runs cool to hot as the chance rises.
+const WIND_CHANCE_COLORS: readonly string[] = [
+  "#3d5a80", "#3f7cc4", "#2fa8c9", "#2fbf8f", "#6fcf4a", "#c4d93a",
+  "#f2c230", "#f5982a", "#ef662b", "#e0393a", "#c42a8a",
+];
+
+/** The colour of a wind-probability band by its rank from the lowest chance. */
+export function windChanceColor(rank: number): string {
+  return WIND_CHANCE_COLORS[Math.min(Math.max(0, rank), WIND_CHANCE_COLORS.length - 1)] ?? "";
+}
+
+export function cycloneAreaColor(colors: ThemeColors, kind: AreaKind): string {
+  return colors[kind === AreaKind.Warning ? ThemeColorKey.CycloneWarning : ThemeColorKey.CycloneWatch];
 }
 
 export function windRadiiBandColor(thresholdKt: number): string {

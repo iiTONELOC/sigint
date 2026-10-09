@@ -6,7 +6,7 @@ import {
   type GeoMultiPolygon,
   type GeoPoint,
 } from "@shared/geo";
-import type { ForecastPoint } from "@shared/domain/cyclones";
+import { cycloneTimeMs, type ForecastPoint } from "@shared/domain/cyclones";
 
 export enum LandfallKind {
   Onshore = "onshore",
@@ -90,7 +90,6 @@ function intersectionRatio(
   trackEnd: GeoPoint,
   coast: CoastSegment,
 ): number | null {
-  // Solve both segments in the track's local antimeridian frame.
   const trackStartLongitude = trackStart[0];
   const trackEndLongitude = unwrapLongitude(trackEnd[0], trackStartLongitude);
   const coastStartLongitude = unwrapLongitude(
@@ -181,8 +180,7 @@ function firstWaterToLandRatio(
   index: LandfallIndex,
 ): number | null {
   for (const ratio of crossingRatios(start, end, index)) {
-    // Samples around the boundary distinguish landfall from an offshore exit.
-    const before = interpolateGeoPoint(
+      const before = interpolateGeoPoint(
       start,
       end,
       Math.max(0, ratio - LandfallCalculation.CrossingSampleRatio),
@@ -207,7 +205,7 @@ function createTrackNode(
   forecastHour: number,
   validTime: string,
 ): TrackNode | null {
-  const validTimeMs = Date.parse(validTime);
+  const validTimeMs = cycloneTimeMs(validTime);
   if (!Number.isFinite(validTimeMs)) return null;
   return { point, forecastHour, validTime, validTimeMs };
 }

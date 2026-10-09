@@ -81,7 +81,7 @@ export type RenderLayerProjectedFrame = Readonly<{
   isolatedType: RenderSelectionIdentity["pointType"] | null;
 }>;
 
-export type RenderLayerAreaOptions = CycloneWarningSceneStyle;
+export type RenderLayerAreaOptions = CycloneWarningSceneStyle & Readonly<{ reducedMotion: boolean }>;
 
 export type RenderLayerDrawOptions = Readonly<{
   colors: RenderWorkerColors;
@@ -644,6 +644,14 @@ export class RenderLayerCatalog {
     if (!layers) return;
     layers[Domain.CycloneWarnings].drawAreas(options);
     layers[Domain.Weather].drawAreas(options);
+    const project = this.backdrop.projector();
+    if (!project) return;
+    layers[Domain.Cyclones].drawUnderlay({
+      context: options.context,
+      project,
+      reducedMotion: options.reducedMotion,
+      surgeColor: options.warningColor,
+    });
   }
 
   draw(options: RenderLayerDrawOptions): void {
@@ -692,6 +700,8 @@ export class RenderLayerCatalog {
     });
     layers[Domain.Cyclones].draw({
       color: options.colors[ThemeColorKey.Cyclones],
+      surgeColor: options.colors[ThemeColorKey.CycloneWarning],
+      casingColor: options.colors[ThemeColorKey.Background],
       context: options.context,
       project,
       reducedMotion: options.reducedMotion,

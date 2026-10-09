@@ -1,12 +1,21 @@
 import {
   drawGenesisMark,
-  paintConeSegments,
+  fillCategoryCone,
+  GLASS_FILL_ALPHA,
+  paintProbabilityBands,
+  paintRaster,
+  paintSurgeAreas,
   paintWindRadiiBands,
-  segmentedConeSegments,
+  strokeArrivalLines,
+  strokeIntensityTrack,
+  WIND_BAND_RIM_ALPHA,
+  type TrackVertex,
   type WindRadiiBand,
 } from "@/features/environmental/cyclones/render/cycloneGeometry";
+import { projectSceneGeometry } from "@/workers/render/scene/areaGeometry";
+import { StormRasterCache, stormRasterArea, visibleRasterSources } from "@/features/environmental/cyclones/data/radar";
 import type { ProjFn } from "@/lib/geo/render/types";
-import { strokeGeoPath, strokePoints } from "@/lib/geo/render/path";
+import { strokeGeoPath } from "@/lib/geo/render/path";
 import {
   modelColor,
   windColor,
@@ -14,8 +23,6 @@ import {
 import {
   Category,
   CYCLONE_CATEGORY_METADATA,
-  CYCLONE_STRONG_WIND_RADIUS_KT,
-  type CycloneForecastFact,
   type MinCategory,
 } from "@shared/domain/cyclones";
 import {
@@ -49,10 +56,11 @@ import type {
   SceneVisibilitySettings,
 } from "@/workers/render/scene/visibility";
 import { zoomScale } from "@/workers/render/workerMath";
-import { scenePositionFromView } from "@/workers/render/scene/scenePosition";
+import type { SceneResolvedPosition } from "@/workers/render/scene/scenePosition";
+import { CycloneScenePositionAccessor } from "@/workers/render/scene/cyclonePosition";
 import { Domain } from "@shared/domain/identity";
 import { sceneSchemaMatches } from "@shared/domain/pointSource";
-import type { GeoLineString, GeoPoint } from "@shared/geo";
+import type { GeoLineString } from "@shared/geo";
 import { GeoMeasurement } from "@shared/geo";
 import { CanvasLineStyle } from "@/lib/geo/render/types";
 import { drawSelectionRing } from "@/workers/render/primitives/selectionRing";
@@ -114,12 +122,6 @@ enum CyclonePathStyle {
   ModelAlpha = 0.6,
 }
 
-enum CycloneWindBandAlpha {
-  Gale = 0.12,
-  Storm = 0.16,
-  Hurricane = 0.2,
-}
-
 const CYCLONE_COLOR_WHITE = "#ffffff";
 
 enum CycloneGlowStop {
@@ -159,10 +161,14 @@ export type CycloneSceneStyle = Readonly<{
   context: OffscreenCanvasRenderingContext2D;
   project: ProjFn;
   color: string;
+  surgeColor: string;
+  casingColor: string;
   selectedId: string | null;
   time: number;
   reducedMotion: boolean;
 }>;
+
+export type CycloneUnderlayStyle = Pick<CycloneSceneStyle, "context" | "project" | "surgeColor" | "reducedMotion">;
 
 type CycloneRecordSet = Readonly<{
   overlay: RenderCycloneOverlay;
@@ -173,9 +179,13 @@ function cycloneRole(role: number | undefined): CycloneSceneRole | null {
   switch (role) {
     case CycloneSceneRole.Current:
     case CycloneSceneRole.Forecast:
-    case CycloneSceneRole.PastPath:
+    case CycloneSceneRole.PastPoint:
     case CycloneSceneRole.WindRadius:
     case CycloneSceneRole.ModelPath:
+    case CycloneSceneRole.Cone:
+    case CycloneSceneRole.WindChance:
+    case CycloneSceneRole.Surge:
+    case CycloneSceneRole.Arrival:
       return role;
     default:
       return null;
@@ -201,7 +211,6 @@ function cycloneSelectionIdentity(
   };
 }
 
-/** The ring animates on time; reduced motion freezes it at its rest radius. */
 function ringTime(style: CycloneSceneStyle): number {
   return style.reducedMotion ? 0 : style.time;
 }
@@ -227,29 +236,24 @@ function geometryLine(
   return geometry.groups[0]?.[0] ?? null;
 }
 
-function projectVisibleLine(
-  line: GeoLineString,
-  project: ProjFn,
-): readonly (readonly [number, number])[] {
-  const projected: (readonly [number, number])[] = [];
-  for (const [longitude, latitude] of line) {
-    const point = project(latitude, longitude);
-    if (point.z > 0) projected.push([point.x, point.y]);
-  }
-  return projected;
-}
+type ScenePositionAt = (view: RenderSceneView, index: number) => SceneResolvedPosition | null;
 
-function windBandAlpha(threshold: number): number | null {
-  switch (threshold) {
-    case CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt:
-      return CycloneWindBandAlpha.Gale;
-    case CYCLONE_STRONG_WIND_RADIUS_KT:
-      return CycloneWindBandAlpha.Storm;
-    case CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt:
-      return CycloneWindBandAlpha.Hurricane;
-    default:
-      return null;
-  }
+function trackVertices(
+  view: RenderSceneView,
+  indices: readonly number[],
+  project: ProjFn,
+  positionAt: ScenePositionAt,
+): TrackVertex[] {
+  const hour = (index: number) => sceneNumericAttribute(view, index, CycloneSceneAttribute.ForecastHour);
+  return [...indices]
+    .sort((left, right) => hour(left) - hour(right))
+    .flatMap((index) => {
+      const position = positionAt(view, index);
+      if (!position) return [];
+      const point = project(position.latitude, position.longitude);
+      const windKt = sceneNumericAttribute(view, index, CycloneSceneAttribute.MaxWindKt);
+      return [{ x: point.x, y: point.y, z: point.z, windKt }];
+    });
 }
 
 function windRadiusQuadrants(view: RenderSceneView, index: number): number[] {
@@ -269,6 +273,9 @@ function glowAlphaSuffix(stop: CycloneGlowStop): string {
     .padStart(CycloneGlowAlphaFormat.HexWidth, CYCLONE_GLOW_ZERO);
 }
 
+// A storm and its forecast points are one subject, so focusing either keeps the whole storm.
+const CYCLONE_POINT_TYPES: ReadonlySet<string> = new Set([Domain.Cyclones, Domain.CyclonesForecast]);
+
 function baseRecordIsVisible(
   view: RenderSceneView,
   index: number,
@@ -287,11 +294,7 @@ function baseRecordIsVisible(
   if (
     filter.isolateMode === IsolateMode.Focus &&
     filter.isolatedType &&
-    filter.isolatedType !== (
-      role === CycloneSceneRole.Forecast
-        ? Domain.CyclonesForecast
-        : Domain.Cyclones
-    )
+    !CYCLONE_POINT_TYPES.has(filter.isolatedType)
   ) return false;
   return sceneNumericAttribute(
       view,
@@ -308,15 +311,24 @@ export class CycloneLayer extends ScenePointLayer<
 
   private recordSets = new Map<string, CycloneRecordSet>();
   private onScreen = false;
+  // Frames run while a storm is on screen, so a raster frame that lands is drawn on the next one.
+  private readonly rasters = new StormRasterCache();
+  private readonly positions: CycloneScenePositionAccessor;
+  private frameTime = Date.now();
+  private readonly positionAt: ScenePositionAt = (view, index) => this.positions.resolveView(view, index, this.frameTime);
 
   constructor() {
-    super(Domain.Cyclones);
+    const positions = new CycloneScenePositionAccessor();
+    super(Domain.Cyclones, positions);
+    this.positions = positions;
   }
 
   override project(
     frame: SceneLayerProjectionFrame,
     filter: CycloneSceneFilter,
+    time: number = Date.now(),
   ): void {
+    this.frameTime = time;
     const view = this.beginProject();
     this.recordSets = new Map();
     for (const [index, active] of view.active.entries()) {
@@ -356,7 +368,7 @@ export class CycloneLayer extends ScenePointLayer<
         );
       },
       sceneVersion: this.sceneVersion(),
-    });
+    }, time);
     this.onScreen = !this.projection.visibleIndices().next().done;
   }
 
@@ -367,11 +379,20 @@ export class CycloneLayer extends ScenePointLayer<
     for (const records of this.recordSets.values()) {
       const current = records.indices[CycloneSceneRole.Current]?.[0];
       if (current === undefined) continue;
-      const projection = this.projection.projection(current);
+      const projection = this.currentProjection(view, current, style);
       if (!projection) continue;
       this.drawCurrent(view, records, projection, style);
     }
     style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+  }
+
+  private currentProjection(view: RenderSceneView, index: number, style: CycloneSceneStyle): SceneProjection | null {
+    const projected = this.projection.projection(index);
+    if (projected) return projected;
+    const position = this.positionAt(view, index);
+    if (!position) return null;
+    const point = style.project(position.latitude, position.longitude);
+    return point.z > CYCLONE_VISIBLE_DEPTH_MINIMUM ? { x: point.x, y: point.y, depth: point.z } : null;
   }
 
   /** Forecast points anchor by scene id; the base layer matches entity ids only. */
@@ -452,7 +473,8 @@ export class CycloneLayer extends ScenePointLayer<
     const radius = selected
       ? CycloneForecastMarkerGeometry.SelectedRadius
       : CycloneForecastMarkerGeometry.BaseRadius;
-    style.context.fillStyle = style.color;
+    const color = windColor(sceneNumericAttribute(view, index, CycloneSceneAttribute.MaxWindKt));
+    style.context.fillStyle = color;
     style.context.globalAlpha =
       (CycloneMarkerAlpha.DepthBase +
         projection.depth * CycloneMarkerAlpha.DepthGain) *
@@ -468,7 +490,7 @@ export class CycloneLayer extends ScenePointLayer<
     style.context.fill();
     if (selected) {
       drawSelectionRing(
-        style.context, projection.x, projection.y, radius, style.color, ringTime(style),
+        style.context, projection.x, projection.y, radius, color, ringTime(style),
       );
     }
   }
@@ -505,38 +527,90 @@ export class CycloneLayer extends ScenePointLayer<
       CycloneMarkerAlpha.DepthBase +
       projection.depth * CycloneMarkerAlpha.DepthGain;
 
-    this.drawGlow(style, projection, radius, color, depthAlpha);
-    if (records.overlay.showModels) {
-      this.drawModels(view, records, style, depthAlpha);
-    }
+    if (records.overlay.showCone) this.drawCone(view, records, current, style, depthAlpha);
+    if (records.overlay.showWindField) this.drawWindRadii(view, records, current, projection, style, depthAlpha);
+    if (records.overlay.showModels) this.drawModels(view, records, style, depthAlpha);
+    if (records.overlay.showArrival) this.drawArrival(view, records, style, color);
     if (records.overlay.showForecast) {
-      this.drawPastPath(view, records, style, color, depthAlpha);
+      this.drawPastTrack(view, records, current, style, depthAlpha);
+      this.drawForecast(view, records, current, style, depthAlpha);
     }
+    this.drawGlow(style, projection, radius, color, depthAlpha);
     this.drawEye(style.context, projection, radius, color, depthAlpha);
-    this.drawForecast(
-      view,
-      records,
-      projection,
-      style,
-      color,
-      depthAlpha,
-      maxWindKt,
-    );
-    if (records.overlay.showWindField) {
-      this.drawWindRadii(
-        view,
-        records,
-        current,
-        projection,
-        style,
-        depthAlpha,
-      );
-    }
     if (selected) {
       drawSelectionRing(
         style.context, projection.x, projection.y, radius, color, ringTime(style),
       );
     }
+  }
+
+  /** Hazard fills, then satellite, then radar, painted in the area pass so every marker layer draws above the imagery. */
+  drawUnderlay(style: CycloneUnderlayStyle): void {
+    const view = this.view;
+    if (!view) return;
+    for (const records of this.recordSets.values()) {
+      const current = records.indices[CycloneSceneRole.Current]?.[0];
+      if (current === undefined) continue;
+      this.drawHazardAreas(view, records, style);
+      this.drawRasters(view, records, current, style);
+    }
+    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+  }
+
+  private drawRasters(view: RenderSceneView, records: CycloneRecordSet, current: number, style: CycloneUnderlayStyle): void {
+    const sources = visibleRasterSources(records.overlay);
+    const position = this.positionAt(view, current);
+    if (sources.length === 0 || !position) return;
+    const galeKt = CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt;
+    const gale = (records.indices[CycloneSceneRole.WindRadius] ?? []).find((index) =>
+      sceneNumericAttribute(view, index, CycloneSceneAttribute.WindThresholdKt) === galeKt);
+    const area = stormRasterArea(position.latitude, position.longitude, gale === undefined ? [] : windRadiusQuadrants(view, gale));
+    const now = Date.now();
+    for (const source of sources) {
+      this.rasters.request(view.entityIds[current] ?? "", source, area.bounds, now);
+      const image = this.rasters.peek(source, area.bounds, now, !style.reducedMotion);
+      if (image) paintRaster(style.context, style.project, image, area.circle);
+    }
+  }
+
+  private hazardRings(view: RenderSceneView, records: CycloneRecordSet, role: CycloneSceneRole) {
+    return (records.indices[role] ?? []).flatMap((index) => {
+      const geometry = view.geometries[index];
+      if (geometry?.kind !== SceneGeometryKind.Polygon) return [];
+      return [{ rings: geometry.groups.flatMap((group) => group.slice(0, 1)) }];
+    });
+  }
+
+  private drawHazardAreas(
+    view: RenderSceneView,
+    records: CycloneRecordSet,
+    style: CycloneUnderlayStyle,
+  ): void {
+    const { overlay } = records;
+    const projection = { project: style.project, horizon: null };
+    if (overlay.showWindChances) {
+      const bands = (records.indices[CycloneSceneRole.WindChance] ?? []).flatMap((index) => {
+        const geometry = view.geometries[index];
+        if (geometry?.kind !== SceneGeometryKind.Polygon) return [];
+        const rank = sceneNumericAttribute(view, index, CycloneSceneAttribute.HazardRank);
+        return [{ rank, rings: geometry.groups.flatMap((group) => group.slice(0, 1)) }];
+      });
+      paintProbabilityBands(style.context, projection, bands);
+    }
+    if (overlay.showSurge) {
+      paintSurgeAreas(style.context, projection, this.hazardRings(view, records, CycloneSceneRole.Surge), style.surgeColor);
+    }
+  }
+
+  private drawArrival(view: RenderSceneView, records: CycloneRecordSet, style: CycloneSceneStyle, color: string): void {
+    const lines = (records.indices[CycloneSceneRole.Arrival] ?? []).flatMap((index) => {
+      const line = geometryLine(view, index);
+      return line ? [{ label: stringAttribute(view, index, CycloneSceneStringAttribute.Label), line }] : [];
+    });
+    style.context.strokeStyle = color;
+    style.context.lineWidth = CyclonePathStyle.ModelStrokeWidth;
+    strokeArrivalLines(style.context, style.project, lines, style.casingColor);
+    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
   }
 
   private drawGlow(
@@ -660,111 +734,69 @@ export class CycloneLayer extends ScenePointLayer<
     style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
   }
 
-  private drawPastPath(
+  private drawPastTrack(
     view: RenderSceneView,
     records: CycloneRecordSet,
+    current: number,
     style: CycloneSceneStyle,
-    color: string,
     depthAlpha: number,
   ): void {
-    const index = records.indices[CycloneSceneRole.PastPath]?.[0];
-    if (index === undefined) return;
-    const line = geometryLine(view, index);
-    if (!line) return;
-    const points = projectVisibleLine(line, style.project);
-    if (points.length < CYCLONE_PATH_POINT_MINIMUM) return;
-
-    style.context.strokeStyle = color;
-    style.context.lineWidth = CyclonePathStyle.PastStrokeWidth;
-    style.context.globalAlpha = depthAlpha * CyclonePathStyle.PastAlpha;
-    strokePoints(style.context, points);
-
-    style.context.fillStyle = color;
-    style.context.globalAlpha = depthAlpha * CyclonePastPointStyle.Alpha;
-    for (const [x, y] of points.slice(1, -1)) {
-      style.context.beginPath();
-      style.context.arc(
-        x,
-        y,
-        CyclonePastPointStyle.Radius,
-        CycloneArc.StartRadians,
-        CycloneArc.FullRadians,
-      );
-      style.context.fill();
+    const past = trackVertices(view, records.indices[CycloneSceneRole.PastPoint] ?? [], style.project, this.positionAt);
+    const vertices = [...past, ...trackVertices(view, [current], style.project, this.positionAt)];
+    if (vertices.length < CYCLONE_PATH_POINT_MINIMUM) return;
+    const { context } = style;
+    context.lineWidth = CyclonePathStyle.PastStrokeWidth;
+    context.globalAlpha = depthAlpha * CyclonePathStyle.PastAlpha;
+    strokeIntensityTrack(context, vertices);
+    context.globalAlpha = depthAlpha * CyclonePastPointStyle.Alpha;
+    for (const vertex of past.slice(1)) {
+      if (vertex.z <= CYCLONE_VISIBLE_DEPTH_MINIMUM) continue;
+      context.fillStyle = windColor(vertex.windKt);
+      context.beginPath();
+      context.arc(vertex.x, vertex.y, CyclonePastPointStyle.Radius, CycloneArc.StartRadians, CycloneArc.FullRadians);
+      context.fill();
     }
-
-    const genesis = points[0];
-    if (!genesis) return;
-    style.context.strokeStyle = color;
-    style.context.lineWidth = CycloneGenesisStyle.StrokeWidth;
-    style.context.globalAlpha = depthAlpha;
-    drawGenesisMark(style.context, genesis[0], genesis[1], CycloneGenesisStyle.ArmLength);
-    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+    const genesis = past[0];
+    if (genesis && genesis.z > CYCLONE_VISIBLE_DEPTH_MINIMUM) {
+      context.strokeStyle = windColor(genesis.windKt);
+      context.lineWidth = CycloneGenesisStyle.StrokeWidth;
+      context.globalAlpha = depthAlpha;
+      drawGenesisMark(context, genesis.x, genesis.y, CycloneGenesisStyle.ArmLength);
+    }
+    context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
   }
 
   private drawForecast(
     view: RenderSceneView,
     records: CycloneRecordSet,
-    eye: SceneProjection,
+    current: number,
     style: CycloneSceneStyle,
-    color: string,
     depthAlpha: number,
-    eyeWindKt: number,
   ): void {
-    if (!records.overlay.showForecast && !records.overlay.showCone) return;
-    const indices = records.indices[CycloneSceneRole.Forecast] ?? [];
-    if (indices.length === 0) return;
-    const forecasts = indices
-      .map((index) => this.forecastFact(view, index))
-      .filter((fact): fact is CycloneForecastFact => fact !== null)
-      .sort((left, right) => left.fcstHour - right.fcstHour);
-    if (forecasts.length === 0) return;
-
-    if (records.overlay.showCone) this.drawCone(
-      style,
-      eye,
-      forecasts,
-      color,
-      depthAlpha,
-      eyeWindKt,
-    );
-    const currentIndex = records.indices[CycloneSceneRole.Current]?.[0];
-    if (!records.overlay.showForecast || currentIndex === undefined) return;
-    const current = scenePositionFromView(view, currentIndex);
-    if (!current) return;
-    const line: GeoLineString = [
-      [current.longitude, current.latitude],
-      ...forecasts.map<GeoPoint>((fact) => [fact.lon, fact.lat]),
-    ];
-    const points = projectVisibleLine(line, style.project);
-    if (points.length < CYCLONE_PATH_POINT_MINIMUM) return;
-    style.context.strokeStyle = color;
-    style.context.lineWidth = CycloneForecastTrackStyle.StrokeWidth;
-    style.context.setLineDash([
-      CycloneForecastTrackStyle.DashLength,
-      CycloneForecastTrackStyle.DashGap,
-    ]);
-    style.context.globalAlpha =
-      depthAlpha * CycloneForecastTrackStyle.Alpha;
-    strokePoints(style.context, points);
-    style.context.setLineDash([]);
-    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+    const forecast = trackVertices(view, records.indices[CycloneSceneRole.Forecast] ?? [], style.project, this.positionAt);
+    if (forecast.length === 0) return;
+    const { context } = style;
+    context.lineWidth = CycloneForecastTrackStyle.StrokeWidth;
+    context.setLineDash([CycloneForecastTrackStyle.DashLength, CycloneForecastTrackStyle.DashGap]);
+    context.globalAlpha = depthAlpha * CycloneForecastTrackStyle.Alpha;
+    strokeIntensityTrack(context, [...trackVertices(view, [current], style.project, this.positionAt), ...forecast]);
+    context.setLineDash([]);
+    context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
   }
 
   private drawCone(
+    view: RenderSceneView,
+    records: CycloneRecordSet,
+    current: number,
     style: CycloneSceneStyle,
-    eye: SceneProjection,
-    forecasts: readonly CycloneForecastFact[],
-    color: string,
     depthAlpha: number,
-    eyeWindKt: number,
   ): void {
-    paintConeSegments(
-      style.context,
-      segmentedConeSegments(eye.x, eye.y, forecasts, style.project, eyeWindKt),
-      { depthAlpha, fallbackColor: color, rims: true },
-    );
-    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+    const index = records.indices[CycloneSceneRole.Cone]?.[0];
+    const geometry = index === undefined ? null : view.geometries[index];
+    if (geometry?.kind !== SceneGeometryKind.Polygon) return;
+    const rings = projectSceneGeometry(geometry.groups, { project: style.project, horizon: null }).flat();
+    const track = trackVertices(view, [current, ...(records.indices[CycloneSceneRole.Forecast] ?? [])], style.project, this.positionAt);
+    fillCategoryCone(style.context, rings, track, { alpha: depthAlpha * GLASS_FILL_ALPHA, casing: style.casingColor });
   }
 
   private drawWindRadii(
@@ -775,7 +807,7 @@ export class CycloneLayer extends ScenePointLayer<
     style: CycloneSceneStyle,
     depthAlpha: number,
   ): void {
-    const position = scenePositionFromView(view, current);
+    const position = this.positionAt(view, current);
     if (!position) return;
     const north = style.project(
       position.latitude + CYCLONE_NORTH_LATITUDE_OFFSET_DEG,
@@ -788,48 +820,16 @@ export class CycloneLayer extends ScenePointLayer<
     if (pixelsPerNm <= CYCLONE_POSITIVE_DISTANCE_MINIMUM) return;
 
     const bands = (records.indices[CycloneSceneRole.WindRadius] ?? [])
-      .flatMap((index): WindRadiiBand[] => {
-        const threshold = sceneNumericAttribute(
-          view,
-          index,
-          CycloneSceneAttribute.WindThresholdKt,
-        );
-        const alpha = windBandAlpha(threshold);
-        if (alpha === null) return [];
-        return [{
-          threshold,
-          quadrants: windRadiusQuadrants(view, index),
-          fillAlpha: depthAlpha * alpha,
-        }];
-      });
-    paintWindRadiiBands(style.context, { x: eye.x, y: eye.y, pixelsPerNm }, bands);
+      .map((index): WindRadiiBand => ({
+        threshold: sceneNumericAttribute(view, index, CycloneSceneAttribute.WindThresholdKt),
+        quadrants: windRadiusQuadrants(view, index),
+        fillAlpha: depthAlpha * GLASS_FILL_ALPHA,
+      }))
+      .sort((left, right) => left.threshold - right.threshold);
+    paintWindRadiiBands(style.context, { x: eye.x, y: eye.y, pixelsPerNm }, bands, {
+      alpha: depthAlpha * WIND_BAND_RIM_ALPHA,
+      casing: style.casingColor,
+    });
     style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
-  }
-
-  private forecastFact(
-    view: RenderSceneView,
-    index: number,
-  ): CycloneForecastFact | null {
-    const position = scenePositionFromView(view, index);
-    if (!position) return null;
-    return {
-      lat: position.latitude,
-      lon: position.longitude,
-      fcstHour: sceneNumericAttribute(
-        view,
-        index,
-        CycloneSceneAttribute.ForecastHour,
-      ),
-      errorRadiusNm: sceneNumericAttribute(
-        view,
-        index,
-        CycloneSceneAttribute.ErrorRadiusNm,
-      ),
-      maxWindKt: sceneNumericAttribute(
-        view,
-        index,
-        CycloneSceneAttribute.MaxWindKt,
-      ),
-    };
   }
 }

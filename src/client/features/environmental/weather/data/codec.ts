@@ -24,7 +24,7 @@ function isWeatherGeometry(
   return parseGeoJsonPolygonGeometry(value) !== null;
 }
 
-function isWeatherData(value: unknown): value is WeatherData {
+export function isWeatherData(value: unknown): value is WeatherData {
   return (
     isRecord(value) &&
     isEnumValue(value.severity, WeatherSeverity) &&

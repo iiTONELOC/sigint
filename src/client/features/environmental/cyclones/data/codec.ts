@@ -7,14 +7,23 @@ import {
 } from "@/features/base/pointCodec";
 import {
   Category,
+  CycloneArrivalKind,
+  CycloneThreatKind,
+  CycloneThreatLevel,
   SaffirSimpson,
   parseCycloneStormId,
+  type CycloneArrivalLine,
+  type CycloneArrivals,
+  type CycloneHazards,
+  type CycloneSurgeArea,
+  type CycloneThreat,
+  type CycloneWindChances,
   type CycloneDossierBundle,
   type CycloneDossierProductBody,
   type CycloneDossierResult,
   type CycloneData,
 } from "@shared/domain/cyclones";
-import { isRecord } from "@shared/geo";
+import { isRecord, parseGeoPoint, type GeoPoint } from "@shared/geo";
 import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
 
 export type CyclonePoint = Extract<DataPoint, { type: Domain.Cyclones }>;
@@ -23,12 +32,8 @@ function isOptionalArray(value: unknown): boolean {
   return value === undefined || Array.isArray(value);
 }
 
-/**
- * Validates the scalars the renderer branches on and confirms the nested
- * track collections are arrays. Their element shapes are already guarded at
- * each draw site, and this data only ever comes from our own enrichment
- * endpoint and our own IndexedDB mirror.
- */
+// Only the scalars the renderer branches on are checked here: element shapes are
+// guarded at each draw site, and this data only comes from our own endpoint and mirror.
 function isCycloneData(value: unknown): value is CycloneData {
   return (
     isRecord(value) &&
@@ -42,7 +47,8 @@ function isCycloneData(value: unknown): value is CycloneData {
     typeof value.lastUpdate === "string" &&
     Array.isArray(value.forecast) &&
     isOptionalArray(value.pastTrack) &&
-    isOptionalArray(value.models)
+    isOptionalArray(value.models) &&
+    (value.hazards === undefined || isHazards(value.hazards))
   );
 }
 
@@ -84,6 +90,54 @@ function isCycloneDossierBundle(
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isStringList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isPointList(value: unknown): value is readonly GeoPoint[] {
+  return Array.isArray(value) && value.every((point) => parseGeoPoint(point) !== null);
+}
+
+function isThreat(value: unknown): value is CycloneThreat {
+  return isRecord(value) &&
+    isEnumValue(value.kind, CycloneThreatKind) &&
+    isEnumValue(value.level, CycloneThreatLevel) &&
+    typeof value.title === "string" &&
+    isStringList(value.impacts);
+}
+
+function isSurgeArea(value: unknown): value is CycloneSurgeArea {
+  return isRecord(value) &&
+    typeof value.area === "string" &&
+    typeof value.range === "string" &&
+    Array.isArray(value.rings) && value.rings.every(isPointList);
+}
+
+function isWindChances(value: unknown): value is CycloneWindChances {
+  return isRecord(value) &&
+    isFiniteNumber(value.thresholdKt) &&
+    Array.isArray(value.bands) &&
+    value.bands.every((band) =>
+      isRecord(band) && typeof band.band === "string" && Array.isArray(band.rings) && band.rings.every(isPointList));
+}
+
+function isArrivalLine(value: unknown): value is CycloneArrivalLine {
+  return isRecord(value) && typeof value.label === "string" && isPointList(value.line);
+}
+
+function isArrivals(value: unknown): value is CycloneArrivals {
+  return isRecord(value) && Object.entries(value).every(([kind, lines]) =>
+    isEnumValue(kind, CycloneArrivalKind) && Array.isArray(lines) && lines.every(isArrivalLine));
+}
+
+function isHazards(value: unknown): value is CycloneHazards {
+  return isRecord(value) &&
+    Array.isArray(value.threats) && value.threats.every(isThreat) &&
+    Array.isArray(value.peakSurge) && value.peakSurge.every(isSurgeArea) &&
+    Array.isArray(value.windChances) && value.windChances.every(isWindChances) &&
+    isArrivals(value.arrival);
 }
 
 export function parseCycloneDossierBundle(

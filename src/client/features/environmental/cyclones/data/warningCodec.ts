@@ -3,9 +3,9 @@ import {
   isOptionalString,
   parsePointList,
 } from "@/features/base/pointCodec";
+import { isWeatherData } from "@/features/environmental/weather/data/codec";
 import {
   AreaKind,
-  CYCLONE_WARNING_FIELDS,
   type CycloneWarningData,
   type CycloneWarningPoint,
 } from "@shared/domain/cyclones";
@@ -21,7 +21,7 @@ function isWarningData(value: unknown): value is CycloneWarningData {
     isRecord(value) &&
     isEnumValue(value.kind, AreaKind) &&
     parseGeoJsonPolygonGeometry(value.geometry) !== null &&
-    CYCLONE_WARNING_FIELDS.every((field) => typeof value[field] === "string")
+    isWeatherData(value)
   );
 }
 

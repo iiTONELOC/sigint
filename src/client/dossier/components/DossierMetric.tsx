@@ -15,11 +15,18 @@ export enum DossierMetricValueClass {
   Title = "text-(length:--sig-text-title) text-sig-bright font-bold",
 }
 
+/** The dossier type scale. */
+export enum DossierTextClass {
+  Label = "text-(length:--sig-text-xs) tracking-wide text-sig-dim",
+  Body = "text-(length:--sig-text-sm) text-sig-text",
+  Value = "text-(length:--sig-text-sm) text-sig-bright font-mono",
+}
+
 export function DossierLabel(
   { children, className = "" }: Readonly<{ children: ReactNode; className?: string }>,
 ) {
   return (
-    <div className={`text-(length:--sig-text-xs) tracking-wide text-sig-dim ${className}`}>
+    <div className={`${DossierTextClass.Label} ${className}`}>
       {children}
     </div>
   );

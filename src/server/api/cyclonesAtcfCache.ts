@@ -3,6 +3,7 @@ import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
 import { getStormProducts } from "./cyclonesCache";
 import { CompassPoint } from "@shared/domain/compass";
 import {
+  atcfTimeMs,
   Category,
   CYCLONE_CATEGORY_METADATA,
   CYCLONE_STRONG_WIND_RADIUS_KT,
@@ -188,7 +189,6 @@ const ATCF_ADECK_BASE = "https://ftp.nhc.noaa.gov/atcf/aid_public";
 const SPAGHETTI_MODELS: ReadonlySet<string> = new Set(Object.values(CycloneModelCode));
 
 const MIN_SPAGHETTI_MODELS = 3;
-const ATCF_INITIALIZATION_LENGTH = 10;
 
 interface GuidanceRow { initialization: string; model: string; fields: string[] }
 
@@ -215,17 +215,6 @@ function spaghettiRows(text: string): GuidanceRow[] {
   return rows;
 }
 
-function initializationToMs(initialization: string): number {
-  if (initialization.length !== ATCF_INITIALIZATION_LENGTH || !/^\d+$/.test(initialization)) {
-    return Number.NaN;
-  }
-  const year = Number(initialization.slice(0, 4));
-  const month = Number(initialization.slice(4, 6));
-  const day = Number(initialization.slice(6, 8));
-  const hour = Number(initialization.slice(8, 10));
-  return Date.UTC(year, month - 1, day, hour);
-}
-
 function pickGuidanceInitialization(
   rows: readonly GuidanceRow[],
   analysisTime?: string,
@@ -239,14 +228,14 @@ function pickGuidanceInitialization(
     .map(([initialization]) => initialization);
   if (candidates.length === 0) return null;
 
-  const targetTime = analysisTime ? initializationToMs(analysisTime) : Number.NaN;
+  const targetTime = analysisTime ? atcfTimeMs(analysisTime) : Number.NaN;
   return candidates.reduce(
     (selected, initialization) => {
       if (!Number.isFinite(targetTime)) {
         return initialization.localeCompare(selected) > 0 ? initialization : selected;
       }
-      return Math.abs(initializationToMs(initialization) - targetTime) <
-        Math.abs(initializationToMs(selected) - targetTime)
+      return Math.abs(atcfTimeMs(initialization) - targetTime) <
+        Math.abs(atcfTimeMs(selected) - targetTime)
         ? initialization : selected;
     },
     candidates[0]!,

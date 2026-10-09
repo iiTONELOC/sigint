@@ -3,10 +3,14 @@ import {
   type MarkerPulse,
   type MarkerStyle,
 } from "@/workers/render/primitives/markerStyle";
-import { AreaKind } from "@shared/domain/cyclones";
+import { AreaKind, type CycloneWarningPoint } from "@shared/domain/cyclones";
+import { Domain } from "@shared/domain/identity";
+import type { ThemeColors } from "@/theme";
+import { cycloneAreaColor } from "@/features/environmental/cyclones/classification";
 import {
   WeatherSeverity,
   weatherSeverityRank,
+  type WeatherPoint,
 } from "@shared/domain/weather";
 
 const MARKER: Readonly<Record<WeatherSeverity, MarkerStyle>> = {
@@ -52,6 +56,13 @@ export const WEATHER_AREA_FILL: Readonly<Record<AreaKind, string>> = {
 
 export function weatherSeverityInk(severity: WeatherSeverity): string {
   return SEVERITY_INK[severity];
+}
+
+/** Tropical alerts take the warning or watch colour they fill on the globe; other alerts take their severity. */
+export function alertInk(item: WeatherPoint | CycloneWarningPoint, colors: ThemeColors): string {
+  return item.type === Domain.CyclonesWarning
+    ? cycloneAreaColor(colors, item.data.kind)
+    : weatherSeverityInk(item.data.severity);
 }
 
 export function weatherIsWarning(severity: WeatherSeverity): boolean {

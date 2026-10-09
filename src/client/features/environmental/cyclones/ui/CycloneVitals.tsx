@@ -2,12 +2,14 @@ import { Navigation, LocateFixed } from "lucide-react";
 import type { ReactNode } from "react";
 import { formatKtShort, ktToMph } from "@/measurements";
 import { formatLat, formatLon } from "@/geo";
-import type { CycloneData } from "@shared/domain/cyclones";
+import { estimatedStormPosition, type CycloneData } from "@shared/domain/cyclones";
 import {
+  fixNewerThanAdvisory,
   pressureRateHpaPerH,
   pressureTrend,
   pressureTrendLabel,
   CycloneTrendTone,
+  trendWindowHours,
   windTrend,
   windTrendLabel,
 } from "../data/intensity";
@@ -19,16 +21,14 @@ import { latitudeOf, longitudeOf, type GeoPoint } from "@shared/geo";
 enum CycloneVitalsClassName {
   Instrument = "absolute top-2.5 right-3",
   Icon = "w-3.5 h-3.5 text-(--dossier-accent) origin-center",
-  Value = "text-(length:--sig-text-md) text-sig-bright font-mono truncate",
-  Strip = "flex items-center justify-between gap-2 min-w-0 bg-sig-panel border border-sig-border rounded-[12px] px-3 py-2.5",
-  StripLabel = "flex items-center gap-2 text-(length:--sig-text-xs) tracking-wide text-sig-text shrink-0",
 }
 
 enum CycloneVitalsText {
   PositivePrefix = "+",
   PressureRateSuffix = " hPa/h",
-  SincePriorAdvisory = " since prior advisory",
   MiddleDot = " · ",
+  BestTrack = "best track",
+  EstimatedNow = "est. now",
 }
 
 function StatBox({
@@ -75,6 +75,10 @@ function StatTrend({ children, tone }: Readonly<{ children: ReactNode; tone: Cyc
   );
 }
 
+function trendWindowText(hours: number | null): string {
+  return hours === null ? "" : ` past ${Math.round(hours)}h`;
+}
+
 function pressureRateText(rate: number | null): string | null {
   if (rate === null) return null;
   const prefix = rate > 0 ? CycloneVitalsText.PositivePrefix : "";
@@ -88,12 +92,15 @@ export function CycloneVitals({
   const windLabel = windTrendLabel(windTrend(data));
   const pressureLabel = pressureTrendLabel(pressureTrend(data));
   const pressRateText = pressureRateText(pressureRateHpaPerH(data));
+  const windowText = trendWindowText(trendWindowHours(data));
+  const newerFix = fixNewerThanAdvisory(data);
   const { movementDir, movementSpeedKt } = data;
   const hasMovement = movementDir != null && movementSpeedKt != null;
+  const estimate = estimatedStormPosition(position, data, Date.now());
 
   return (
-    <div className="@container/vitals flex flex-col gap-2.5 h-full">
-      <div className="grid grid-cols-1 @min-[16rem]/vitals:grid-cols-2 gap-2.5">
+    <div className="@container/vitals h-full">
+      <div className="grid grid-cols-1 @min-[16rem]/vitals:grid-cols-2 @min-[44rem]/vitals:grid-cols-4 gap-2.5">
         <StatBox label="MAX WIND" lead>
           <div className={CycloneVitalsClassName.Instrument}>
             <CycloneWindsock maxWindKt={data.maxWindKt} />
@@ -102,8 +109,13 @@ export function CycloneVitals({
           <StatTrend tone={windLabel.tone}>
             <span className="text-(--dossier-accent)">{ktToMph(data.maxWindKt)} mph</span>
             {CycloneVitalsText.MiddleDot}{windLabel.text}
-            {windLabel.observed ? CycloneVitalsText.SincePriorAdvisory : ""}
+            {windLabel.observed ? windowText : ""}
           </StatTrend>
+          {newerFix && (
+            <StatTrend tone={CycloneTrendTone.Dim}>
+              {CycloneVitalsText.BestTrack} {formatKtShort(newerFix.vmaxKt)}
+            </StatTrend>
+          )}
         </StatBox>
         {data.minPressureMb != null && (
           <StatBox label="PRESSURE">
@@ -115,37 +127,37 @@ export function CycloneVitals({
               {pressRateText
                 ? `${pressRateText}${CycloneVitalsText.MiddleDot}${pressureLabel.text}`
                 : pressureLabel.text}
-              {pressureLabel.observed ? CycloneVitalsText.SincePriorAdvisory : ""}
+              {pressureLabel.observed ? windowText : ""}
             </StatTrend>
+            {newerFix?.minPressureMb != null && (
+              <StatTrend tone={CycloneTrendTone.Dim}>
+                {CycloneVitalsText.BestTrack} {newerFix.minPressureMb} hPa
+              </StatTrend>
+            )}
           </StatBox>
         )}
-      </div>
-      {hasMovement && (
-        <div className={CycloneVitalsClassName.Strip}>
-          <span className={CycloneVitalsClassName.StripLabel}>
-            <Navigation
-              className={CycloneVitalsClassName.Icon}
-              style={{ transform: `rotate(${movementDir}deg)` }}
-              aria-hidden
-            />
-            MOVING
-          </span>
-          <span className={CycloneVitalsClassName.Value}>
-            {compassPointForDegrees(movementDir)} {movementDir}°
-            {CycloneVitalsText.MiddleDot}{formatKtShort(movementSpeedKt)}
-          </span>
-        </div>
-      )}
-      <div className={CycloneVitalsClassName.Strip}>
-        <span className={CycloneVitalsClassName.StripLabel}>
-          <LocateFixed className={CycloneVitalsClassName.Icon} aria-hidden />
-          POSITION
-        </span>
-        <span className={CycloneVitalsClassName.Value}>
-          {formatLat(latitudeOf(position))}
-          {CycloneVitalsText.MiddleDot}
-          {formatLon(longitudeOf(position))}
-        </span>
+        {hasMovement && (
+          <StatBox label="MOVING">
+            <div className={CycloneVitalsClassName.Instrument}>
+              <Navigation
+                className={CycloneVitalsClassName.Icon}
+                style={{ transform: `rotate(${movementDir}deg)` }}
+                aria-hidden
+              />
+            </div>
+            <StatValue value={`${compassPointForDegrees(movementDir)} ${movementDir}°`} unit="" />
+            <StatTrend tone={CycloneTrendTone.Dim}>{formatKtShort(movementSpeedKt)}</StatTrend>
+          </StatBox>
+        )}
+        <StatBox label="POSITION">
+          <div className={CycloneVitalsClassName.Instrument}>
+            <LocateFixed className={CycloneVitalsClassName.Icon} aria-hidden />
+          </div>
+          <StatValue value={<span className="flex flex-col"><span>{formatLat(latitudeOf(position))}</span><span>{formatLon(longitudeOf(position))}</span></span>} unit="" />
+          <StatTrend tone={CycloneTrendTone.Dim}>
+            {CycloneVitalsText.EstimatedNow} {formatLat(latitudeOf(estimate))}{CycloneVitalsText.MiddleDot}{formatLon(longitudeOf(estimate))}
+          </StatTrend>
+        </StatBox>
       </div>
     </div>
   );

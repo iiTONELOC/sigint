@@ -25,6 +25,7 @@ export {
   DossierPositionRow,
   DossierRow,
   DossierStatCell,
+  DossierTextClass,
 } from "./components/DossierMetric";
 export {
   DossierMiniGlobe,

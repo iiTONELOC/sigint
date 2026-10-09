@@ -9,6 +9,7 @@ import {
 import {
   Category,
   SaffirSimpson,
+  saffirSimpsonForWind,
   type CycloneForecastPointData,
   type ForecastPoint,
 } from "@shared/domain/cyclones";
@@ -86,7 +87,7 @@ export function cycloneForecastPoint(
         ? {}
         : { minPressureMb: forecast.minPressureMb }),
       category: forecast.category,
-      saffirSimpson: cyclone.data.saffirSimpson,
+      saffirSimpson: saffirSimpsonForWind(forecast.maxWindKt),
       errorRadiusNm: forecast.errorRadiusNm,
     },
   };

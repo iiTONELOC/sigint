@@ -48,12 +48,19 @@ enum AirspeedScale {
 enum AltimeterScale {
   FeetPerRevolution = 1_000,
   FeetPerShortHandRevolution = 10_000,
+  FeetPerTenThousandsRevolution = 100_000,
   Divisions = 10,
   MinorPerMajor = 5,
   LongHandRadius = 72,
   ShortHandRadius = 46,
   ShortHandWidth = 6,
   MarkerSize = 7,
+}
+
+enum TenThousandsPointerGeometry {
+  Width = 1.5,
+  TriangleDegrees = 6,
+  TriangleDepth = 10,
 }
 
 enum VerticalSpeedScale {
@@ -69,9 +76,12 @@ enum AttitudeGeometry {
   WingHalfSpan = 40,
   WingGap = 12,
   WingDrop = 6,
-  PointerHalfWidth = 6,
-  PointerHeight = 10,
   SymbolStrokeWidth = 4,
+}
+
+enum BankPointerGeometry {
+  HalfWidth = 6,
+  Height = 10,
 }
 
 enum FlightPathGeometry {
@@ -263,17 +273,35 @@ export function AirspeedIndicator({ knots }: Readonly<{ knots: number }>) {
 }
 
 function AltitudeMarker({ feet }: Readonly<{ feet: number }>) {
-  const angle = ((feet % AltimeterScale.FeetPerRevolution) / AltimeterScale.FeetPerRevolution) * TurnDeg.Full;
+  const angle = handAngle(feet, AltimeterScale.FeetPerRevolution);
   const tip = polar(angle, DialGeometry.ScaleRadius);
   const left = polar(angle - AltimeterScale.MarkerSize, DialGeometry.BezelRadius);
   const right = polar(angle + AltimeterScale.MarkerSize, DialGeometry.BezelRadius);
   return <path d={`M${tip.x},${tip.y} L${left.x},${left.y} L${right.x},${right.y} Z`} className={DialClassName.Marker} />;
 }
 
+function handAngle(feet: number, feetPerRevolution: number): number {
+  return ((feet % feetPerRevolution) / feetPerRevolution) * TurnDeg.Full;
+}
+
+function TenThousandsPointer({ angle }: Readonly<{ angle: number }>) {
+  const tip = polar(angle, DialGeometry.ScaleRadius);
+  const base = DialGeometry.ScaleRadius - TenThousandsPointerGeometry.TriangleDepth;
+  const left = polar(angle - TenThousandsPointerGeometry.TriangleDegrees, base);
+  const right = polar(angle + TenThousandsPointerGeometry.TriangleDegrees, base);
+  return (
+    <g>
+      <Needle angle={angle} radius={base} width={TenThousandsPointerGeometry.Width} />
+      <path d={`M${tip.x},${tip.y} L${left.x},${left.y} L${right.x},${right.y} Z`} className={DialClassName.Hub} />
+    </g>
+  );
+}
+
 export function Altimeter({ feet, selectedFeet }: Readonly<{ feet: number; selectedFeet: number | undefined }>) {
   const shown = useEasedValue(feet);
-  const longAngle = ((shown % AltimeterScale.FeetPerRevolution) / AltimeterScale.FeetPerRevolution) * TurnDeg.Full;
-  const shortAngle = ((shown % AltimeterScale.FeetPerShortHandRevolution) / AltimeterScale.FeetPerShortHandRevolution) * TurnDeg.Full;
+  const longAngle = handAngle(shown, AltimeterScale.FeetPerRevolution);
+  const shortAngle = handAngle(shown, AltimeterScale.FeetPerShortHandRevolution);
+  const tenThousandsAngle = handAngle(shown, AltimeterScale.FeetPerTenThousandsRevolution);
   return (
     <DialFrame title={`Altitude ${Math.round(feet)} feet`} label={InstrumentTitle.Altitude}>
       <DialTicks
@@ -285,6 +313,7 @@ export function Altimeter({ feet, selectedFeet }: Readonly<{ feet: number; selec
         closed
       />
       {selectedFeet !== undefined && <AltitudeMarker feet={selectedFeet} />}
+      <TenThousandsPointer angle={tenThousandsAngle} />
       <Needle angle={shortAngle} radius={AltimeterScale.ShortHandRadius} width={AltimeterScale.ShortHandWidth} />
       <Needle angle={longAngle} radius={AltimeterScale.LongHandRadius} />
       <Readout text={Math.round(feet).toLocaleString()} />
@@ -396,7 +425,7 @@ export function AttitudeIndicator({ bankDegrees, flightPathDegrees }: AttitudePr
           <PitchLadder />
           {flightPathDegrees !== null && <FlightPathMarker degrees={shownPath} />}
           <path
-            d={`M${Center},${pointerTop} l-${AttitudeGeometry.PointerHalfWidth},${AttitudeGeometry.PointerHeight} h${AttitudeGeometry.PointerHalfWidth * 2} Z`}
+            d={`M${Center},${pointerTop} l-${BankPointerGeometry.HalfWidth},${BankPointerGeometry.Height} h${BankPointerGeometry.HalfWidth * 2} Z`}
             className={DialClassName.Marker}
           />
         </g>

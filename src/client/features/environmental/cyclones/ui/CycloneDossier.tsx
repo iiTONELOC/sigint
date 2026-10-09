@@ -1,90 +1,92 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
-import { Wind, ExternalLink } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import { Wind } from "lucide-react";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import { Domain } from "@shared/domain/identity";
-import { DossierToolbar, useDossierFocus } from "@/dossier";
+import { relativeAge } from "@/time";
+import { useUI } from "@/context/UIContext";
+import { DossierCard, DossierLabel, DossierLinkGrid, DossierTextClass, DossierToolbar, useDossierFocus, type DossierLink } from "@/dossier";
+import { SaffirSimpson, cycloneCategoryShortLabel } from "@shared/domain/cyclones";
+import { cycloneForecastPoint } from "../data/forecastProjection";
+import { trackHistory } from "../data/intensity";
+import { landfallText, LandfallTone } from "../hooks/useLandfallEta";
 import { CycloneIntensityCurve } from "./CycloneIntensityCurve";
 import { CycloneForecastMiniMap } from "./CycloneForecastMiniMap";
+import { CycloneForecastTimeline } from "./CycloneForecastTimeline";
 import { CycloneAdvisoryBlock } from "./CycloneAdvisoryBlock";
 import { useCycloneSituation } from "./CycloneDetailExtras";
 import { CyclonePlacard } from "./CyclonePlacard";
-import { CycloneThreatStrip } from "./CycloneThreatStrip";
 import { CycloneVitals } from "./CycloneVitals";
 import { CycloneWindRose } from "./CycloneWindRose";
 import { CycloneAssets } from "./CycloneAssets";
+import { CycloneHistoryPanel } from "./CycloneHistoryPanel";
+import { CycloneSurgeList, CycloneThreatList, CycloneWindChancePanel } from "./CycloneHazards";
+import { LandfallKind, type Landfall } from "../data/landfall";
+import type { GeoPoint } from "@shared/geo";
 
 type Props = FeatureDossierProps<Domain.Cyclones>;
 
-function DossierSection({
-  title,
-  children,
-  className = "",
-}: Readonly<{
-  title: string;
-  children: ReactNode;
-  className?: string;
-}>) {
-  const headingId = useId();
+enum StormDossierClassName {
+  Pair = "grid gap-3 grid-cols-1 @min-[45rem]/dossier:grid-cols-2 items-stretch [&>:last-child:nth-child(odd)]:col-span-full",
+  Stretch = "min-w-0 flex flex-col",
+  Card = "p-3 flex-1",
+}
+
+const LANDFALL_TONE_CLASS: Readonly<Record<LandfallTone, string>> = {
+  [LandfallTone.Critical]: "text-sig-danger",
+  [LandfallTone.Forecast]: "text-sig-warn",
+  [LandfallTone.Neutral]: "text-sig-dim",
+};
+
+function Section({ title, children, className = "" }: Readonly<{ title: string; children: ReactNode; className?: string }>) {
   return (
-    <section aria-labelledby={headingId} className={className}>
-      <h3
-        id={headingId}
-        className="text-(length:--sig-text-xs) font-semibold tracking-widest text-(--dossier-accent) mb-2"
-      >
-        {title}
-      </h3>
+    <section aria-label={title} className={`${StormDossierClassName.Stretch} ${className}`}>
+      <h3 className="text-(length:--sig-text-xs) font-semibold tracking-widest text-(--dossier-accent) mb-2">{title}</h3>
       {children}
     </section>
   );
 }
 
-function IntelLink({
-  label,
-  href,
-}: Readonly<{ label: string; href: string }>) {
+function FooterItem({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
-    >
-      <span className="truncate">{label}</span>
-      <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden="true" />
-    </a>
+    <span className="flex items-baseline gap-2 min-w-0">
+      <DossierLabel>{label}</DossierLabel>
+      {children}
+    </span>
   );
 }
 
-export function CycloneDossier({
-  item,
-  isolateMode,
-  onLocate,
-  onFocus,
-  onSolo,
-  onClose,
-}: Props) {
-  const {
-    accent,
-    assets,
-    cyclone,
-    dossier,
-    hasAssets,
-    hasForecast,
-    hasRadii,
-    landfall,
-    loading,
-    windRadii,
-  } = useCycloneSituation(item);
+function landfallPosition(landfall: Landfall | null): GeoPoint | null {
+  return landfall?.kind === LandfallKind.EstimatedArrival || landfall?.kind === LandfallKind.Onshore
+    ? landfall.position
+    : null;
+}
+
+function intelLinks(basin: string, stormId: string): readonly DossierLink[] {
+  return [
+    ["NHC Storm Page", `https://www.nhc.noaa.gov/graphics_${basin.toLowerCase()}${stormId.slice(2, 4)}.shtml`],
+    ["Tropical Tidbits", "https://www.tropicaltidbits.com/storminfo/"],
+    ["NRL Tropical Cyclones", "https://www.nrlmry.navy.mil/TC.html"],
+  ];
+}
+
+export function CycloneDossier({ item, isolateMode, onLocate, onFocus, onSolo, onClose }: Props) {
+  const { accent, assets, cyclone, dossier, hasAssets, hasForecast, hasRadii, landfall, loading, windRadii } =
+    useCycloneSituation(item);
+  const { setSelected } = useUI();
   const closeBtnRef = useDossierFocus(item.id);
+  const history = trackHistory(cyclone);
+  const landfallCopy = landfall ? landfallText(landfall) : null;
+  const hazards = cyclone.hazards;
+  const chancePosition = landfallPosition(landfall);
+  const hasChances = Boolean(hazards && (hazards.windChances.length > 0 || Object.keys(hazards.arrival).length > 0));
+  const badge = cyclone.saffirSimpson > SaffirSimpson.None ? `CAT ${cyclone.saffirSimpson}` : cycloneCategoryShortLabel(cyclone.classification);
 
   return (
-    <div
-      className="h-full min-w-0 flex flex-col"
-      style={{ "--dossier-accent": accent } as CSSProperties}
-    >
+    <div className="h-full min-w-0 flex flex-col" style={{ "--dossier-accent": accent } as CSSProperties}>
       <DossierToolbar
         icon={Wind}
         title={cyclone.name}
+        badge={badge}
         isolateMode={isolateMode}
         onLocate={onLocate}
         onFocus={onFocus}
@@ -93,71 +95,104 @@ export function CycloneDossier({
         closeButtonRef={closeBtnRef}
       />
       <div className="@container/dossier flex-1 min-w-0 overflow-y-auto sigint-scroll p-3">
-        <div className="w-full max-w-275 mx-auto flex flex-col gap-3">
-          <div className="grid w-full min-w-0 grid-cols-1 @min-[40rem]/dossier:grid-cols-2 gap-3 items-start *:min-w-0">
-            <div className="min-w-0 flex flex-col gap-3">
-              <CyclonePlacard data={cyclone} issued={cyclone.lastUpdate} />
-              <CycloneThreatStrip landfall={landfall} />
-            </div>
-            <DossierSection title="VITALS" className="min-w-0">
-              <CycloneVitals data={cyclone} position={[item.lon, item.lat]} />
-            </DossierSection>
-            {hasForecast && (
-              <DossierSection
-                title="FORECAST TRACK"
-                className="min-w-0 order-2 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-span-2 h-full flex flex-col"
-              >
-                <CycloneForecastMiniMap
-                  item={item}
-                  mapClassName="h-72 @min-[40rem]/dossier:h-96"
+        <div className="w-full flex flex-col gap-3">
+          <CyclonePlacard data={cyclone} issued={cyclone.lastUpdate} nextAdvisory={dossier?.advisory?.nextAdvisory} />
+          <Section title="VITALS">
+            <CycloneVitals data={cyclone} position={[item.lon, item.lat]} />
+          </Section>
+          {hasForecast && (
+            <Section title="FORECAST TIMELINE">
+              <DossierCard className="p-3">
+                <CycloneForecastTimeline
+                  currentWindKt={cyclone.maxWindKt}
+                  forecast={cyclone.forecast}
+                  issuedAt={cyclone.lastUpdate}
+                  selectedHour={null}
+                  onSelect={(point) => { if (point) setSelected(cycloneForecastPoint(item, point)); }}
                 />
-              </DossierSection>
-            )}
+                <div className="flex flex-wrap justify-between gap-x-6 gap-y-2 mt-3 pt-3 border-t border-dashed border-sig-border">
+                  {landfallCopy && (
+                    <FooterItem label="LANDFALL">
+                      <span className={`${DossierTextClass.Value} ${LANDFALL_TONE_CLASS[landfallCopy.tone]}`}>{landfallCopy.text}</span>
+                    </FooterItem>
+                  )}
+                  {history && (
+                    <FooterItem label="AGE">
+                      <span className={DossierTextClass.Value}>{relativeAge(history.formedAt)} · {history.series.length} fixes</span>
+                    </FooterItem>
+                  )}
+                </div>
+              </DossierCard>
+            </Section>
+          )}
+          {hasForecast && (
+            <Section title="TRACK">
+              <DossierCard className="p-2 flex-1 flex flex-col">
+                <CycloneForecastMiniMap item={item} hazards={hazards} mapClassName="h-72 @min-[45rem]/dossier:h-96" />
+              </DossierCard>
+            </Section>
+          )}
+          <div className={StormDossierClassName.Pair}>
             {windRadii && hasRadii && (
-              <DossierSection
-                title="WIND FIELD"
-                className="min-w-0 order-3 @min-[40rem]/dossier:order-0"
-              >
-                <CycloneWindRose radii={windRadii} />
-              </DossierSection>
-            )}
-            {hasForecast && (
-              <section
-                className="min-w-0 order-1 @min-[40rem]/dossier:order-0"
-                aria-label="Intensity"
-              >
-                <CycloneIntensityCurve storm={cyclone} />
-              </section>
+              <Section title="WIND FIELD">
+                <DossierCard className={StormDossierClassName.Card}>
+                  <CycloneWindRose radii={windRadii} />
+                </DossierCard>
+              </Section>
             )}
             {hasAssets && (
-              <DossierSection
-                title="ASSETS IN CONE"
-                className="min-w-0 @min-[40rem]/dossier:col-span-2"
-              >
+              <Section title="IN THE CONE">
                 <CycloneAssets assets={assets} />
-              </DossierSection>
+              </Section>
             )}
           </div>
-
-          <div className="flex flex-col gap-3">
-            <CycloneAdvisoryBlock dossier={dossier} loading={loading} compact={false} />
-            <DossierSection title="INTEL LINKS">
-              <div className="grid grid-cols-1 @min-[28rem]/dossier:grid-cols-2 @min-[60rem]/dossier:grid-cols-3 gap-2">
-                <IntelLink
-                  label="NHC Storm Page"
-                  href={`https://www.nhc.noaa.gov/graphics_${cyclone.basin.toLowerCase()}${cyclone.stormId.slice(2, 4)}.shtml`}
-                />
-                <IntelLink
-                  label="Tropical Tidbits"
-                  href="https://www.tropicaltidbits.com/storminfo/"
-                />
-                <IntelLink
-                  label="NRL Tropical Cyclones"
-                  href="https://www.nrlmry.navy.mil/TC.html"
-                />
-              </div>
-            </DossierSection>
+          <div className={StormDossierClassName.Pair}>
+            {hasForecast && (
+              <Section title="FORECAST">
+                <DossierCard className={StormDossierClassName.Card}>
+                  <CycloneIntensityCurve storm={cyclone} />
+                </DossierCard>
+              </Section>
+            )}
+            {history && (
+              <Section title="HISTORY">
+                <DossierCard className={StormDossierClassName.Card}>
+                  <CycloneHistoryPanel storm={cyclone} />
+                </DossierCard>
+              </Section>
+            )}
           </div>
+          {hazards && hazards.threats.length > 0 && (
+            <Section title="THREATS & POTENTIAL IMPACTS">
+              <DossierCard>
+                <CycloneThreatList threats={hazards.threats} />
+              </DossierCard>
+            </Section>
+          )}
+          {hazards && (hazards.peakSurge.length > 0 || hasChances) && (
+            <div className={StormDossierClassName.Pair}>
+              {hazards.peakSurge.length > 0 && (
+                <Section title="PEAK STORM SURGE">
+                  <DossierCard className={StormDossierClassName.Card}>
+                    <CycloneSurgeList areas={hazards.peakSurge} />
+                  </DossierCard>
+                </Section>
+              )}
+              {hasChances && (
+                <Section title={chancePosition ? "WIND CHANCES AT LANDFALL" : "WIND ARRIVAL"}>
+                  <DossierCard className={StormDossierClassName.Card}>
+                    <CycloneWindChancePanel chances={hazards.windChances} arrival={hazards.arrival} position={chancePosition} />
+                  </DossierCard>
+                </Section>
+              )}
+            </div>
+          )}
+          <Section title="NHC PRODUCTS">
+            <CycloneAdvisoryBlock dossier={dossier} loading={loading} compact={false} />
+          </Section>
+          <Section title="INTEL LINKS">
+            <DossierLinkGrid links={intelLinks(cyclone.basin, cyclone.stormId)} />
+          </Section>
         </div>
       </div>
     </div>

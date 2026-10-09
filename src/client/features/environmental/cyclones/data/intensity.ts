@@ -1,10 +1,4 @@
-// ── Cyclone intensity-over-time + Rapid Intensification ──────────────
-// Pure functions over the forecast track we already have (no new fetch).
-// Builds the wind-vs-lead-time series for the dossier sparkline and flags
-// Rapid Intensification per the NHC definition: a max-sustained-wind
-// increase of >= 30 kt within any 24 h window.
-
-import type { CycloneData, PastTrackPoint } from "@shared/domain/cyclones";
+import { cycloneTimeMs, type CycloneData, type PastTrackPoint } from "@shared/domain/cyclones";
 import { MS_PER_HOUR } from "@shared/time";
 
 /** One sample on the intensity curve: lead time (h) + max wind (kt). */
@@ -189,7 +183,6 @@ export function windTrendWord(trend: CycloneTrend): string | null {
   return TREND_META[trend].windWord;
 }
 
-/** Classify a signed wind delta (kt) into a Trend with a ±3kt deadband. */
 enum TrendPolicy {
   WindDeadbandKnots = 3,
   PressureSteadyBandMb = 1,
@@ -201,50 +194,49 @@ export function trendFromWindDelta(deltaKt: number): CycloneTrend {
   return CycloneTrend.Steady;
 }
 
-const ATCF_TIMESTAMP = /^(\d{4})(\d{2})(\d{2})(\d{2})$/;
-
 type TimedPastTrackPoint = Readonly<{
   point: PastTrackPoint;
   observedAt: number;
 }>;
 
 function cycloneTimestamp(value: string): number | null {
-  const atcf = ATCF_TIMESTAMP.exec(value);
-  if (atcf) {
-    const year = atcf[1];
-    const month = atcf[2];
-    const day = atcf[3];
-    const hour = atcf[4];
-    if (!year || !month || !day || !hour) return null;
-    return Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-    );
-  }
-  const timestamp = Date.parse(value);
+  const timestamp = cycloneTimeMs(value);
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function previousObservedPoint(storm: CycloneData): TimedPastTrackPoint | null {
-  const currentTime = cycloneTimestamp(storm.lastUpdate);
-  if (currentTime === null) return null;
-  let previous: TimedPastTrackPoint | null = null;
-  for (const point of storm.pastTrack ?? []) {
+type NewestFixes = Readonly<{
+  latest: TimedPastTrackPoint;
+  previous: TimedPastTrackPoint;
+}>;
+
+// The trend compares the two newest best-track fixes, so a fix newer than the advisory still counts.
+function newestFixes(storm: CycloneData): NewestFixes | null {
+  const timed = (storm.pastTrack ?? []).flatMap((point) => {
     const observedAt = cycloneTimestamp(point.validTime);
-    if (observedAt === null || observedAt >= currentTime) continue;
-    if (!previous || observedAt > previous.observedAt) {
-      previous = { point, observedAt };
-    }
-  }
-  return previous;
+    return observedAt === null ? [] : [{ point, observedAt }];
+  }).sort((left, right) => right.observedAt - left.observedAt);
+  const latest = timed[0];
+  const previous = timed.find((fix) => latest && fix.observedAt < latest.observedAt);
+  return latest && previous ? { latest, previous } : null;
+}
+
+export function trendWindowHours(storm: CycloneData): number | null {
+  const fixes = newestFixes(storm);
+  return fixes ? (fixes.latest.observedAt - fixes.previous.observedAt) / MS_PER_HOUR : null;
+}
+
+/** The newest best-track fix when it is newer than the advisory, else null. */
+export function fixNewerThanAdvisory(storm: CycloneData): PastTrackPoint | null {
+  const fixes = newestFixes(storm);
+  const advisoryTime = cycloneTimestamp(storm.lastUpdate);
+  if (!fixes || advisoryTime === null) return null;
+  return fixes.latest.observedAt > advisoryTime ? fixes.latest.point : null;
 }
 
 export function windTrend(storm: CycloneData): CycloneTrend {
-  const previous = previousObservedPoint(storm);
-  return previous
-    ? trendFromWindDelta(storm.maxWindKt - previous.point.vmaxKt)
+  const fixes = newestFixes(storm);
+  return fixes
+    ? trendFromWindDelta(fixes.latest.point.vmaxKt - fixes.previous.point.vmaxKt)
     : CycloneTrend.Unknown;
 }
 
@@ -255,22 +247,14 @@ type PressureChange = Readonly<{
 }>;
 
 function pressureChange(storm: CycloneData): PressureChange | null {
-  const currentMb = storm.minPressureMb;
-  const previous = previousObservedPoint(storm);
-  const previousMb = previous?.point.minPressureMb;
-  const currentTime = cycloneTimestamp(storm.lastUpdate);
-  if (
-    currentMb == null ||
-    previousMb == null ||
-    !previous ||
-    currentTime === null
-  ) {
-    return null;
-  }
+  const fixes = newestFixes(storm);
+  const currentMb = fixes?.latest.point.minPressureMb;
+  const previousMb = fixes?.previous.point.minPressureMb;
+  if (!fixes || currentMb == null || previousMb == null) return null;
   return {
     currentMb,
     previousMb,
-    elapsedHours: (currentTime - previous.observedAt) / MS_PER_HOUR,
+    elapsedHours: (fixes.latest.observedAt - fixes.previous.observedAt) / MS_PER_HOUR,
   };
 }
 
@@ -287,4 +271,37 @@ export function pressureRateHpaPerH(storm: CycloneData): number | null {
   const change = pressureChange(storm);
   if (!change || change.elapsedHours <= 0) return null;
   return (change.currentMb - change.previousMb) / change.elapsedHours;
+}
+
+export type TrackHistorySample = Readonly<{ observedAt: number; windKt: number }>;
+
+export type TrackHistory = Readonly<{
+  formedAt: number;
+  peakWindKt: number;
+  lowestPressureMb: number | null;
+  maxGain24hKt: number;
+  series: readonly TrackHistorySample[];
+}>;
+
+/** Best-track history: formation time, peak wind, lowest pressure, and the largest 24h wind gain. */
+export function trackHistory(storm: CycloneData): TrackHistory | null {
+  const fixes = (storm.pastTrack ?? []).flatMap((point) => {
+    const observedAt = cycloneTimestamp(point.validTime);
+    return observedAt === null ? [] : [{ point, observedAt }];
+  }).sort((left, right) => left.observedAt - right.observedAt);
+  const first = fixes[0];
+  if (!first) return null;
+  const pressures = fixes.flatMap(({ point }) => point.minPressureMb == null ? [] : [point.minPressureMb]);
+  const series = fixes.map(({ point, observedAt }) => ({ observedAt, windKt: point.vmaxKt }));
+  const gain = detectRapidIntensification(series.map((sample) => ({
+    fcstHour: (sample.observedAt - first.observedAt) / MS_PER_HOUR,
+    maxWindKt: sample.windKt,
+  })));
+  return {
+    formedAt: first.observedAt,
+    peakWindKt: Math.max(...series.map((sample) => sample.windKt)),
+    lowestPressureMb: pressures.length > 0 ? Math.min(...pressures) : null,
+    maxGain24hKt: gain.maxGain24hKt,
+    series,
+  };
 }

@@ -1,19 +1,15 @@
 import { getStormProducts } from "./cyclonesCache";
 import { getCycloneCone } from "./cyclonesConeCache";
 import { getCycloneAtcf, getCycloneModels } from "./cyclonesAtcfCache";
+import { fetchCycloneHazards } from "./cyclonesHazards";
 import { fetchKmz } from "./zipReader";
+import { kmlDescription, kmlElementText, kmlPlacemarks, KmlElement } from "../lib/kml";
 import { createLogger } from "../lib/logger";
 import { createGeoPoint } from "@shared/geo";
 import type { CycloneCoordinates, NhcForecastPoint } from "@shared/domain/cyclones";
 import { BLANK_SEPARATOR } from "@shared/text";
 
 const logger = createLogger({ service: "nhc" });
-
-enum KmlElement {
-  Coordinates = "coordinates",
-  Description = "description",
-  Point = "point",
-}
 
 enum ForecastLabel {
   Forecast = "forecast",
@@ -23,35 +19,10 @@ enum ForecastLabel {
   ValidAt = "valid at:",
 }
 
-enum CdataMarker {
-  Open = "<![CDATA[",
-  Close = "]]>",
-}
-
-function elementText(source: string, element: KmlElement, from = 0): string | null {
-  const lowercaseSource = source.toLowerCase();
-  const openTag = `<${element}>`;
-  const closeTag = `</${element}>`;
-  const openIndex = lowercaseSource.indexOf(openTag, from);
-  if (openIndex < 0) return null;
-  const start = openIndex + openTag.length;
-  const end = lowercaseSource.indexOf(closeTag, start);
-  return end < 0 ? null : source.slice(start, end).trim();
-}
-
-function descriptionOf(placemark: string): string {
-  const description = elementText(placemark, KmlElement.Description);
-  if (!description?.toUpperCase().startsWith(CdataMarker.Open)) return description ?? "";
-  const content = description.slice(CdataMarker.Open.length);
-  return content.endsWith(CdataMarker.Close)
-    ? content.slice(0, -CdataMarker.Close.length).trim()
-    : content;
-}
-
 function pointCoordinates(placemark: string): CycloneCoordinates | null {
   const pointIndex = placemark.toLowerCase().indexOf(`<${KmlElement.Point}>`);
   if (pointIndex < 0) return null;
-  const coordinates = elementText(placemark, KmlElement.Coordinates, pointIndex);
+  const coordinates = kmlElementText(placemark, KmlElement.Coordinates, pointIndex);
   const firstCoordinate = coordinates?.split(/\s+/)[0];
   if (!firstCoordinate) return null;
   const coordinateParts = firstCoordinate.split(",");
@@ -101,11 +72,11 @@ function validTimeOf(description: string): string {
 }
 
 export function parseTrackKml(kml: string): NhcForecastPoint[] {
-  const placemarks = kml.split(/<Placemark\b/i).slice(1);
+  const placemarks = kmlPlacemarks(kml);
   const points: NhcForecastPoint[] = [];
   for (const placemark of placemarks) {
     if (!placemark.toLowerCase().includes(`<${KmlElement.Point}>`)) continue;
-    const description = descriptionOf(placemark);
+    const description = kmlDescription(placemark);
     const normalizedDescription = description.toLowerCase().replace(/\s+/g, BLANK_SEPARATOR);
     const forecastHour = forecastHourOf(normalizedDescription);
     if (forecastHour === null) continue;
@@ -144,11 +115,12 @@ export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
       const sourceId = record.id;
       if (typeof sourceId !== "string") return;
       const stormId = sourceId.toUpperCase();
-      const [forecast, coneResult, atcf, modelsResult] = await Promise.all([
+      const [forecast, coneResult, atcf, modelsResult, hazards] = await Promise.all([
         fetchForecastTrack(stormId),
         getCycloneCone(stormId).catch(() => ({ cone: null })),
         getCycloneAtcf(stormId).catch(() => ({ radii: null, track: [] })),
         getCycloneModels(stormId).catch(() => ({ models: [] })),
+        fetchCycloneHazards(stormId).catch(() => null),
       ]);
       if (forecast.length > 0) record.forecast = forecast;
       else if (!Array.isArray(record.forecast)) record.forecast = [];
@@ -156,6 +128,7 @@ export async function enrichStorms(activeStorms: unknown[]): Promise<void> {
       if (atcf.radii) record.windRadii = atcf.radii;
       if (atcf.track.length > 0) record.pastTrack = atcf.track;
       if (modelsResult.models.length > 0) record.models = modelsResult.models;
+      if (hazards) record.hazards = hazards;
     }),
   );
   logger.info("🌀 NHC: forecast track + cone enrichment complete");

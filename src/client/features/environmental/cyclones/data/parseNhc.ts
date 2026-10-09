@@ -8,6 +8,7 @@ import {
 } from "@shared/cyclonesSeason";
 import {
   type CycloneData,
+  type CycloneHazards,
   type ForecastPoint,
   type ModelTrack,
   type NhcForecastPoint,
@@ -78,12 +79,7 @@ type NhcStorm = {
   movementDir?: number;
   movementSpeed?: number;
   lastUpdate: string;
-  // Per the 2019 NHC CurrentStorms.json schema reference, each storm
-  // carries direct URLs for its current text products and the 5-day
-  // cone KMZ. Schema correction: the cone KMZ lives on `trackCone`,
-  // not `forecastTrack` (forecastTrack is the track-line graphic, a
-  // separate product). publicAdvisory / forecastDiscussion /
-  // windSpeedProbabilities are read by the server-side dossier cache.
+  // The cone KMZ is on `trackCone` because `forecastTrack` is NHC's separate track-line graphic (2019 schema).
   publicAdvisory?: { advNum?: string; issuance?: string; url?: string };
   forecastDiscussion?: { advNum?: string; issuance?: string; url?: string };
   windSpeedProbabilities?: { advNum?: string; issuance?: string; url?: string };
@@ -93,12 +89,13 @@ type NhcStorm = {
     kmzFile?: string;
     zipFile?: string;
   };
-  // The server attaches these values after it reads the NHC payload.
+  // Optional because NHC never sends these; the server adds them after reading the payload.
   forecast?: NhcForecastPoint[];
   officialCone?: GeoJsonPolygon;
   windRadii?: WindRadii;
   pastTrack?: PastTrackPoint[];
   models?: ModelTrack[];
+  hazards?: CycloneHazards;
 };
 
 export function classify(
@@ -182,24 +179,21 @@ function toDataPoint(s: NhcStorm): DataPoint | null {
     minPressureMb,
     movementDir: s.movementDir,
     movementSpeedKt: s.movementSpeed,
-    // Per 2019 schema, publicAdvisory.advNum is the canonical advisory
-    // identifier; fall back to forecastTrack.advisoryNumber for older
-    // payload shapes (and existing test fixtures that pre-date the
-    // schema correction).
+    // Older payloads carry the advisory only on forecastTrack, so it stays as the fallback.
     advisoryNumber:
       s.publicAdvisory?.advNum ??
       s.forecastTrack?.advisoryNumber ??
       EMPTY_TEXT,
     lastUpdate: s.lastUpdate,
     forecast: (s.forecast ?? []).map(toForecastPoint),
-    // The worker synthesizes the cone when this value is absent.
+    // Left undefined when NHC sends no cone so the worker can synthesize one.
     officialCone: s.officialCone,
-    // Absent for storms NHC reports no wind radii for (weak depressions).
     windRadii: s.windRadii,
     // Observed best-track history (genesis → now); absent until b-deck fetched.
     pastTrack: s.pastTrack,
     // Per-model spaghetti tracks; absent until a-deck fetched.
     models: s.models,
+    hazards: s.hazards,
   };
 
   const point: DataPoint = {

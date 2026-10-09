@@ -7,6 +7,7 @@ import {
 } from "../source";
 import {
   CYCLONE_SCENE_ATTRIBUTE_COUNT,
+  CYCLONE_SCENE_STRING_ATTRIBUTE_COUNT,
   AIRCRAFT_MOTION_ATTRIBUTE_OFFSET,
   AIRCRAFT_SCENE_ATTRIBUTE_COUNT,
   AIRCRAFT_SCENE_STRING_ATTRIBUTE_COUNT,
@@ -91,7 +92,7 @@ const POINT_SOURCE_POLICIES = {
     pollIntervalMs: PointSourcePollInterval.TwentyFiveMinutesMs,
     sceneSchema: {
       attributeStride: CYCLONE_SCENE_ATTRIBUTE_COUNT,
-      stringAttributeStride: 1,
+      stringAttributeStride: CYCLONE_SCENE_STRING_ATTRIBUTE_COUNT,
     },
   },
   [Domain.CycloneWarnings]: {

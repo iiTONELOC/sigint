@@ -6,7 +6,7 @@ import {
   FeatureIconStyle,
 } from "@/features/base/presentation";
 import type { CycloneWarningData } from "@shared/domain/cyclones";
-import { buildWarningDetailRows } from "./warningDetailRows";
+import { WeatherDetailSummary } from "@/features/environmental/weather/ui/WeatherDetailSummary";
 import {
   cycloneFeedPresentation,
   cycloneTablePresentation,
@@ -23,8 +23,9 @@ export const cycloneWarningFeature = defineFeature<
   colorClassName: FeatureColorClassName.Cyclones,
   includeInDataTable: false,
   TickerContent: () => null,
-  buildDetailRows: (data) => buildWarningDetailRows(data),
-  tablePresentation: (_data, id) =>
-    cycloneTablePresentation(id, Domain.CyclonesWarning),
-  feedPresentation: (_data, id) => cycloneFeedPresentation(id),
+  DetailSummary: WeatherDetailSummary,
+  buildDetailRows: () => [],
+  tablePresentation: (data, id) =>
+    cycloneTablePresentation(data.event ?? id, Domain.CyclonesWarning),
+  feedPresentation: (data, id) => cycloneFeedPresentation(data.event ?? id),
 });

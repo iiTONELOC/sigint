@@ -23,6 +23,7 @@ import {
   RenderRotationSpeedPolicy,
   isRenderGlobeCommand,
   isRenderGlobeStateSnapshot,
+  renderCycloneOverlaysEqual,
   type RenderCycloneFilter,
   type RenderCycloneOverlay,
   type RenderGlobeCommand,
@@ -177,13 +178,7 @@ function cycloneFiltersEqual(
       const leftOverlay = left.overlays[entityId];
       const rightOverlay = right.overlays[entityId];
       if (leftOverlay === undefined || rightOverlay === undefined) return false;
-      return (
-        leftOverlay.showForecast === rightOverlay.showForecast &&
-        leftOverlay.showCone === rightOverlay.showCone &&
-        leftOverlay.showWindField === rightOverlay.showWindField &&
-        leftOverlay.showModels === rightOverlay.showModels &&
-        arraysEqual(leftOverlay.hiddenModels, rightOverlay.hiddenModels)
-      );
+      return renderCycloneOverlaysEqual(leftOverlay, rightOverlay);
     })
   );
 }
