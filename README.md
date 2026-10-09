@@ -222,7 +222,7 @@ SIGINT is installable as a Progressive Web App. After visiting the deployed app:
 - **iOS Safari**: Share > Add to Home Screen
 - **Android Chrome**: Menu > Add to Home Screen
 
-The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When a new version is deployed, the app updates itself and reloads.
+The service worker caches the app shell for offline boot. Live data loads from IndexedDB when offline. An offline indicator bar appears when connectivity is lost, with a RETRY button and pull-to-refresh on touch devices. When a new version is deployed, the app updates itself, reloads, shows a short notice, and reopens the selected item with the same layers.
 
 ## Documentation
 

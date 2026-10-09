@@ -4,7 +4,7 @@ import { ButtonType } from "@/lib/ui/button";
 import { DomEvent } from "@/runtime";
 import { consumeUpdatedFlag } from "@/lib/runtime/swRegistration";
 
-enum ConnectionStatusTiming {
+export enum ConnectionStatusTiming {
   NoticeMs = 3_000,
 }
 
@@ -57,7 +57,7 @@ enum ConnectionStatusClassName {
 export function ConnectionStatus() {
   const [online, setOnline] = useState(navigator.onLine);
   const [showReconnected, setShowReconnected] = useState(false);
-  const [showUpdated, setShowUpdated] = useState(false);
+  const [showUpdated, setShowUpdated] = useState(consumeUpdatedFlag);
   const [retrying, setRetrying] = useState(false);
   const wasOffline = useRef(false);
 
@@ -91,11 +91,10 @@ export function ConnectionStatus() {
   }, []);
 
   useEffect(() => {
-    if (!consumeUpdatedFlag()) return;
-    setShowUpdated(true);
+    if (!showUpdated) return;
     const hide = setTimeout(() => setShowUpdated(false), ConnectionStatusTiming.NoticeMs);
     return () => clearTimeout(hide);
-  }, []);
+  }, [showUpdated]);
 
   useEffect(() => {
     const onTouchStart = (e: TouchEvent) => {
@@ -162,7 +161,7 @@ export function ConnectionStatus() {
     };
   }, [pulling, pullDistance]);
 
-  const doRetry = useCallback(async () => {
+  const doRetry = useCallback(() => {
     setRetrying(true);
 
     if (navigator.onLine) {

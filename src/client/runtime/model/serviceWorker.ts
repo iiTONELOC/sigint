@@ -20,4 +20,9 @@ export const SERVICE_WORKER_UPDATE_CHECK_MS = 900_000;
 
 export const SERVICE_WORKER_UPDATED_FLAG = "sigint.updated";
 
+export enum ServiceWorkerCarryKey {
+  Globe = "sigint.updated.globe",
+  Selection = "sigint.updated.selection",
+}
+
 export const SERVICE_WORKER_UPDATE_VIA_CACHE: ServiceWorkerUpdateViaCache = "none";

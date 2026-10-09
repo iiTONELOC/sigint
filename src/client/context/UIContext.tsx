@@ -1,15 +1,26 @@
-import type { SelectedIsolateMode } from "@/workers/render/protocol";
+import {
+  isSelectedIsolateMode,
+  type SelectedIsolateMode,
+} from "@/workers/render/protocol";
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   useMemo,
   useCallback,
   type ReactNode,
 } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
-import { useFreshEntity } from "@/features/base/useFreshEntity";
+import { useFreshEntity, useSourceEntity } from "@/features/base/useFreshEntity";
 import { zoomToThenClear } from "@/lib/runtime/revealSignals";
+import {
+  carryAcrossUpdate,
+  takeCarriedState,
+} from "@/lib/runtime/swRegistration";
+import { ServiceWorkerCarryKey } from "@/runtime";
+import { sourceForPointType } from "@shared/domain/pointSource";
+import { isRecord } from "@shared/geo";
 import { getColorMap, useTheme } from "@/theme";
 import {
   readRenderGlobeState,
@@ -22,23 +33,18 @@ import {
 import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
 import { RenderProjectionMode } from "@/workers/render/protocol";
 
-// ── Context value type ──────────────────────────────────────────────
 
 type UIContextValue = {
-  // Selection
   selected: DataPoint | null;
   selectedCurrent: DataPoint | null;
   setSelected: React.Dispatch<React.SetStateAction<DataPoint | null>>;
 
-  // Isolation
   isolateMode: SelectedIsolateMode;
   setIsolateMode: React.Dispatch<React.SetStateAction<SelectedIsolateMode>>;
 
-  // Chrome visibility
   chromeHidden: boolean;
   setChromeHidden: React.Dispatch<React.SetStateAction<boolean>>;
 
-  // Globe view controls
   flat: boolean;
   setFlat: (flat: boolean) => void;
   autoRotate: boolean;
@@ -47,13 +53,11 @@ type UIContextValue = {
   rotationSpeed: number;
   setRotationSpeed: (speed: number) => void;
 
-  // Search
   searchText: string | null;
   handleSearchCommit: (text: string | null) => void;
   handleSearchSelect: (item: DataPoint) => void;
   handleSearchZoomTo: (item: DataPoint) => void;
 
-  // Globe zoom
   zoomToId: string | null;
   setZoomToId: React.Dispatch<React.SetStateAction<string | null>>;
 
@@ -74,12 +78,58 @@ export enum UIContextError {
 
 const UIContext = createContext<UIContextValue | undefined>(undefined);
 
-// ── Provider ────────────────────────────────────────────────────────
+type CarriedSelection = Readonly<{
+  type: string;
+  id: string;
+  isolateMode: SelectedIsolateMode;
+}>;
+
+function parseCarriedSelection(value: unknown): CarriedSelection | null {
+  if (!isRecord(value)) return null;
+  const { type, id, isolateMode } = value;
+  if (typeof type !== "string" || typeof id !== "string") return null;
+  if (!isSelectedIsolateMode(isolateMode)) return null;
+  return { type, id, isolateMode };
+}
+
+function takeCarriedSelection(): CarriedSelection | null {
+  return parseCarriedSelection(takeCarriedState(ServiceWorkerCarryKey.Selection));
+}
+
+function useSelectionCarriedAcrossUpdate(
+  selected: DataPoint | null,
+  isolateMode: SelectedIsolateMode,
+  restore: (item: DataPoint, isolateMode: SelectedIsolateMode) => void,
+): void {
+  const [pending, setPending] = useState(takeCarriedSelection);
+  const restored = useSourceEntity(
+    pending ? sourceForPointType(pending.type) : null,
+    pending?.id ?? null,
+  );
+
+  useEffect(() => {
+    if (!pending || !restored) return;
+    setPending(null);
+    restore(restored, pending.isolateMode);
+  }, [pending, restored, restore]);
+
+  useEffect(() => {
+    if (selected) setPending(null);
+  }, [selected]);
+
+  useEffect(
+    () =>
+      carryAcrossUpdate(ServiceWorkerCarryKey.Selection, () =>
+        selected ? { type: selected.type, id: selected.id, isolateMode } : null,
+      ),
+    [selected, isolateMode],
+  );
+}
+
 
 export function UIProvider({ children }: { readonly children: ReactNode }) {
   const { theme } = useTheme();
 
-  // ── View controls ───────────────────────────────────────────────
   const globeState = useRenderGlobeState();
   const flat = globeState.projection === RenderProjectionMode.Flat;
   const autoRotate = globeState.rotationEnabled;
@@ -111,18 +161,14 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   }, []);
   const [chromeHidden, setChromeHidden] = useState(false);
 
-  // ── Selection & isolation ───────────────────────────────────────
   const [selected, setSelected] = useState<DataPoint | null>(null);
 
-  // ── Search & zoom ──────────────────────────────────────────────
   const [zoomToId, setZoomToId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string | null>(null);
 
-  // ── Derived: selectedCurrent (refreshed from the DataWorker) ───
   const selectedCurrent = useFreshEntity(selected);
 
-  // ── Handlers ───────────────────────────────────────────────────
 
   const handleSearchSelect = useCallback((item: DataPoint) => {
     setSelected(item);
@@ -137,13 +183,21 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
     zoomToThenClear(setZoomToId, item.id);
   }, []);
 
+  const restoreSelection = useCallback(
+    (item: DataPoint, mode: SelectedIsolateMode) => {
+      selectAndZoom(item);
+      setIsolateMode(mode);
+    },
+    [selectAndZoom, setIsolateMode],
+  );
+  useSelectionCarriedAcrossUpdate(selected, isolateMode, restoreSelection);
+
   const handleSearchCommit = useCallback((text: string | null) => {
     setSearchText(text?.trim() || null);
   }, []);
 
   const colorMap = useMemo(() => getColorMap(theme), [theme]);
 
-  // ── Context value ──────────────────────────────────────────────
   const value = useMemo<UIContextValue>(
     () => ({
       selected,
@@ -194,7 +248,6 @@ export function UIProvider({ children }: { readonly children: ReactNode }) {
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
 }
 
-// ── Hook ─────────────────────────────────────────────────────────────
 
 export function useUI(): UIContextValue {
   const context = useContext(UIContext);

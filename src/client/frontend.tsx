@@ -9,6 +9,7 @@ import { initAirports } from "./lib/geo/airportService";
 import { registerSW } from "./lib/runtime/swRegistration";
 import { ensureAuthCookie } from "./lib/net/authService";
 import { registerRenderSurfaceElement } from "./render-surface/registration";
+import { carryRenderGlobeStateAcrossUpdate } from "./render-surface/globeStateStore";
 import { DomElementTag } from "./runtime";
 
 enum FrontendElementId {
@@ -39,6 +40,7 @@ class FrontendBootstrapError extends Error {
 }
 
 registerRenderSurfaceElement();
+carryRenderGlobeStateAcrossUpdate();
 
 import { newsProvider } from "./features/news";
 

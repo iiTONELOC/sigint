@@ -15,6 +15,7 @@ export {
   SERVICE_WORKER_UPDATE_VIA_CACHE,
   SERVICE_WORKER_UPDATED_FLAG,
   ServiceWorkerCache,
+  ServiceWorkerCarryKey,
   ServiceWorkerPath,
   ServiceWorkerRequestMethod,
   ServiceWorkerRequestMode,

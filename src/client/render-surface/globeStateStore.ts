@@ -12,6 +12,11 @@ import {
   RenderGlobeStateController,
   restoreRenderGlobeStateCommands,
 } from "@/workers/render/globeStateController";
+import {
+  carryAcrossUpdate,
+  takeCarriedState,
+} from "@/lib/runtime/swRegistration";
+import { ServiceWorkerCarryKey } from "@/runtime";
 
 type RenderGlobeStateListener = () => void;
 type RenderGlobeCommandSender = (command: RenderGlobeCommand) => void;
@@ -65,6 +70,15 @@ export const renderGlobeStateStore = new RenderGlobeStateStore();
 
 export function readRenderGlobeState(): RenderGlobeStateSnapshot {
   return renderGlobeStateStore.read();
+}
+
+function carriedRenderGlobeState(): RenderGlobeStateSnapshot {
+  return { ...readRenderGlobeState(), isolateMode: null };
+}
+
+export function carryRenderGlobeStateAcrossUpdate(): void {
+  renderGlobeStateStore.accept(takeCarriedState(ServiceWorkerCarryKey.Globe));
+  carryAcrossUpdate(ServiceWorkerCarryKey.Globe, carriedRenderGlobeState);
 }
 
 export function subscribeRenderGlobeState(

@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { act } from "react";
-import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { act, StrictMode } from "react";
+import { ConnectionStatus, ConnectionStatusTiming } from "@/components/ConnectionStatus";
 import { SERVICE_WORKER_UPDATED_FLAG } from "@/runtime";
 import { renderReact } from "../support/react";
 
@@ -75,5 +75,24 @@ describe("ConnectionStatus", () => {
 
     expect(updated.textContent).toContain("UPDATED TO THE LATEST VERSION");
     expect(nextLoad.textContent).toBe("");
+  });
+
+  test("the update notice hides after its time in strict mode", () => {
+    jest.useFakeTimers();
+    sessionStorage.setItem(SERVICE_WORKER_UPDATED_FLAG, "1");
+
+    const { container } = renderReact(
+      <StrictMode>
+        <ConnectionStatus />
+      </StrictMode>,
+    );
+    expect(container.textContent).toContain("UPDATED TO THE LATEST VERSION");
+
+    act(() => {
+      jest.advanceTimersByTime(ConnectionStatusTiming.NoticeMs);
+    });
+    jest.useRealTimers();
+
+    expect(container.textContent).toBe("");
   });
 });
