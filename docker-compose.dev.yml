@@ -14,12 +14,12 @@ services:
       - CYCLONES_FIXTURE=${CYCLONES_FIXTURE:-}
       - AIRCRAFT_FIXTURE=${AIRCRAFT_FIXTURE:-}
     # Direct host port for the bun server. Caddy still terminates TLS on
-    # 443; this 5500 mapping is here so a sibling/remote box can hit the
+    # 443; this 5501 mapping is here so a sibling/remote box can hit the
     # dev server over plain HTTP via SSH port-forward (`ssh -L
-    # 5500:localhost:5500 dev-host`) without dealing with Caddy's
+    # 5501:localhost:5501 dev-host`) without dealing with Caddy's
     # self-signed cert chain.
     ports:
-      - "5500:5500"
+      - "5501:5500"
     volumes:
       - ./src:/app/src
       - ./public:/app/public

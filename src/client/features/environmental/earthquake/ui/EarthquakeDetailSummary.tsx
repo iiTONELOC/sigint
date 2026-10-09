@@ -9,7 +9,7 @@ import {
 import { formatKmMi } from "@/measurements";
 import type { EarthquakeData } from "@shared/domain/earthquakes";
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
-import { estimateMmi, mmiBand, isShallow } from "../intensity";
+import { isShallow, mmiBand, shakingIntensity } from "../intensity";
 import { EarthquakeCopy } from "../formatters/presentation";
 
 const EARTHQUAKE_POSITION_LABEL = "POSITION";
@@ -25,7 +25,7 @@ export function EarthquakeDetailSummary({ item }: { readonly item: DataPoint }) 
   const magType = d.magType ?? "";
   const { depth, felt, significance, status } = d;
   const place = d.location ?? EarthquakeCopy.UnknownLocation;
-  const band = mmiBand(estimateMmi(magnitude, depth));
+  const band = mmiBand(shakingIntensity(d));
   const hasFeltReports = felt != null && felt > 0;
   const position = `${formatLat(recordLatitude(item))}, ${formatLon(recordLongitude(item))}`;
 

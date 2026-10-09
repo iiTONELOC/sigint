@@ -1,3 +1,5 @@
+import type { EarthquakeData } from "@shared/domain/earthquakes";
+
 enum MmiBandId {
   Extreme = 10,
   Violent = 9,
@@ -124,7 +126,7 @@ export function mmiBand(level: number): MmiBand {
     mmiBandDefinition(MmiBandId.NotFelt);
 }
 
-export function estimateMmi(
+function estimateMmi(
   magnitude: number,
   depthKilometers?: number,
 ): number {
@@ -146,6 +148,10 @@ export function estimateMmi(
     MmiLevelBoundary.Minimum,
     MmiLevelBoundary.Maximum,
   );
+}
+
+export function shakingIntensity(data: EarthquakeData): number {
+  return data.mmi ?? estimateMmi(data.magnitude ?? 0, data.depth);
 }
 
 export function isShallow(depthKilometers?: number): boolean {

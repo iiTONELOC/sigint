@@ -26,7 +26,7 @@ import {
   recordLatitude,
   recordLongitude,
 } from "@/workers/data/source-model/position";
-import { estimateMmi, mmiBand, mmiScale } from "../intensity";
+import { mmiBand, mmiScale, shakingIntensity } from "../intensity";
 import { QuakeIdentityCard } from "./QuakeIdentityCard";
 import { Seismogram } from "./Seismogram";
 import { DepthProfile } from "./DepthProfile";
@@ -111,7 +111,7 @@ export function EarthquakeDossier({
   const { depth, magType, felt, significance, status, url } = d;
   const place = d.location;
   const tsunami = d.tsunami === true;
-  const band = mmiBand(estimateMmi(magnitude, depth));
+  const band = mmiBand(shakingIntensity(d));
 
   return (
     <div className={`${band.className} h-full min-w-0 flex flex-col`}>

@@ -88,7 +88,7 @@ function loopTimes(source: RasterSource, now: number): number[] {
     gridLatest - (RASTER_LOOP_FRAMES - 1 - index) * RASTER_LOOP_STEP_MS);
   const { latestStepMs } = RASTER_SOURCE_METADATA[source];
   const newest = Math.floor(now / latestStepMs) * latestStepMs;
-  return newest > gridLatest ? [...grid, newest] : grid;
+  return [...grid, Math.max(gridLatest, newest)];
 }
 
 
@@ -127,12 +127,11 @@ export class StormRasterCache {
   }
 
   peek(source: RasterSource, bounds: RasterBounds, now: number, animate: boolean): RasterImage | null {
-    const frames = loopTimes(source, now)
-      .map((timeMs) => this.entries.get(rasterImageUrl(source, bounds, timeMs))?.image ?? null)
-      .filter((frame): frame is RasterImage => frame !== null);
-    const cycle = frames.length + RASTER_LATEST_HOLD_FRAMES;
-    const index = animate ? Math.min(Math.floor(now / RASTER_FRAME_MS) % cycle, frames.length - 1) : frames.length - 1;
-    return frames[index] ?? null;
+    const slots = loopTimes(source, now)
+      .map((timeMs) => this.entries.get(rasterImageUrl(source, bounds, timeMs))?.image ?? null);
+    const cycle = slots.length + RASTER_LATEST_HOLD_FRAMES;
+    const slot = animate ? Math.min(Math.floor(now / RASTER_FRAME_MS) % cycle, slots.length - 1) : slots.length - 1;
+    return slots.slice(0, slot + 1).findLast((frame) => frame !== null) ?? null;
   }
 
   private load(url: string, target: Omit<RasterImage, "image">, group: string): void {

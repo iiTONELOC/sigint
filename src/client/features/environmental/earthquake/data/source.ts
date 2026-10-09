@@ -53,6 +53,7 @@ function parseFeedFeature(value: unknown): EarthquakePoint | null {
       : undefined,
     location: optionalString(value.properties.place),
     felt: optionalFiniteNumber(value.properties.felt),
+    mmi: optionalFiniteNumber(value.properties.mmi),
     tsunami: value.properties.tsunami === 1,
     alert: optionalString(value.properties.alert),
     significance: optionalFiniteNumber(value.properties.sig),

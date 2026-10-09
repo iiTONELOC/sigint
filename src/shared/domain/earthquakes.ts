@@ -8,6 +8,7 @@ export type EarthquakeData = Readonly<{
   depth?: number;
   location?: string;
   felt?: number;
+  mmi?: number;
   tsunami?: boolean;
   alert?: string;
   significance?: number;
@@ -26,6 +27,7 @@ export function parseEarthquakeData(
     depth: optionalFiniteNumber(candidate.depth),
     location: optionalString(candidate.location),
     felt: optionalFiniteNumber(candidate.felt),
+    mmi: optionalFiniteNumber(candidate.mmi),
     tsunami:
       typeof candidate.tsunami === "boolean"
         ? candidate.tsunami
