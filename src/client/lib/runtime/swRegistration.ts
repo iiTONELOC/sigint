@@ -3,6 +3,7 @@ import {
   DomVisibilityState,
   SERVICE_WORKER_UPDATE_CHECK_MS,
   SERVICE_WORKER_UPDATE_VIA_CACHE,
+  SERVICE_WORKER_UPDATED_FLAG,
   ServiceWorkerPath,
 } from "@/runtime";
 
@@ -15,6 +16,24 @@ let registration: ServiceWorkerRegistration | null = null;
 let updateCheck: Promise<void> | null = null;
 let registrationStarted = false;
 let reloading = false;
+
+function markUpdated(): void {
+  try {
+    sessionStorage.setItem(SERVICE_WORKER_UPDATED_FLAG, String(Date.now()));
+  } catch {
+    return;
+  }
+}
+
+export function consumeUpdatedFlag(): boolean {
+  try {
+    const updated = sessionStorage.getItem(SERVICE_WORKER_UPDATED_FLAG) !== null;
+    sessionStorage.removeItem(SERVICE_WORKER_UPDATED_FLAG);
+    return updated;
+  } catch {
+    return false;
+  }
+}
 
 function reportError(error: unknown): void {
   errorCallback?.(error);
@@ -62,6 +81,7 @@ export function registerSW(config?: ServiceWorkerRegistrationConfig): void {
     }
     if (reloading) return;
     reloading = true;
+    markUpdated();
     window.location.reload();
   });
 

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { SERVICE_WORKER_UPDATED_FLAG } from "@/runtime";
 import { renderReact } from "../support/react";
 
 function setNavigatorOnline(online: boolean): void {
@@ -63,5 +64,16 @@ describe("ConnectionStatus", () => {
     });
 
     expect(container.textContent).toContain("RECONNECTED");
+  });
+
+  test("after an automatic update reload, says the app was updated once", () => {
+    setNavigatorOnline(true);
+    sessionStorage.setItem(SERVICE_WORKER_UPDATED_FLAG, "1");
+
+    const updated = renderConnectionStatus();
+    const nextLoad = renderConnectionStatus();
+
+    expect(updated.textContent).toContain("UPDATED TO THE LATEST VERSION");
+    expect(nextLoad.textContent).toBe("");
   });
 });

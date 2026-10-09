@@ -2,9 +2,21 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
 import { DomEvent } from "@/runtime";
+import { consumeUpdatedFlag } from "@/lib/runtime/swRegistration";
 
 enum ConnectionStatusTiming {
-  ReconnectedMs = 3_000,
+  NoticeMs = 3_000,
+}
+
+enum ConnectionStatusNotice {
+  Offline = "OFFLINE: CACHED DATA ONLY",
+  Reconnected = "RECONNECTED",
+  Updated = "UPDATED TO THE LATEST VERSION",
+}
+
+function statusNotice(online: boolean, reconnected: boolean): ConnectionStatusNotice {
+  if (!online) return ConnectionStatusNotice.Offline;
+  return reconnected ? ConnectionStatusNotice.Reconnected : ConnectionStatusNotice.Updated;
 }
 
 enum PullRefreshBoundaryPx {
@@ -45,6 +57,7 @@ enum ConnectionStatusClassName {
 export function ConnectionStatus() {
   const [online, setOnline] = useState(navigator.onLine);
   const [showReconnected, setShowReconnected] = useState(false);
+  const [showUpdated, setShowUpdated] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const wasOffline = useRef(false);
 
@@ -59,7 +72,7 @@ export function ConnectionStatus() {
         setShowReconnected(true);
         setTimeout(
           () => setShowReconnected(false),
-          ConnectionStatusTiming.ReconnectedMs,
+          ConnectionStatusTiming.NoticeMs,
         );
       }
       wasOffline.current = false;
@@ -75,6 +88,13 @@ export function ConnectionStatus() {
       window.removeEventListener(DomEvent.Online, goOnline);
       window.removeEventListener(DomEvent.Offline, goOffline);
     };
+  }, []);
+
+  useEffect(() => {
+    if (!consumeUpdatedFlag()) return;
+    setShowUpdated(true);
+    const hide = setTimeout(() => setShowUpdated(false), ConnectionStatusTiming.NoticeMs);
+    return () => clearTimeout(hide);
   }, []);
 
   useEffect(() => {
@@ -193,7 +213,7 @@ export function ConnectionStatus() {
         </div>
       )}
 
-      {(!online || showReconnected) && (
+      {(!online || showReconnected || showUpdated) && (
         <div
           className={`${ConnectionStatusClassName.StatusBar} ${
             online
@@ -208,7 +228,7 @@ export function ConnectionStatus() {
                 : "bg-white animate-pulse"
             }`}
           />
-          {online ? "RECONNECTED" : "OFFLINE: CACHED DATA ONLY"}
+          {statusNotice(online, showReconnected)}
           {!online && (
             <button
               type={ButtonType.Button}
