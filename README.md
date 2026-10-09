@@ -6,7 +6,7 @@ Real-time OSINT dashboard with live aircraft, vessel, seismic, fire, weather, an
 
 ![Hurricane Isaias with radar, satellite, cone, and wind field on the globe and its dossier](./docs/images/hero.jpg)
 
-Watch the [hurricane center demo](https://drive.google.com/file/d/1JyJ1LLzaks5_ypofQaAbmLkIQhlW2ld3/view?usp=sharing) (57 s).
+Watch the [hurricane center demo](https://drive.google.com/file/d/1Qq_q56hDShXZoV0flLYoNHak-mhir7Av/view?usp=share_link) (57 s).
 
 See the [user guide](./docs/guide.md) for each part of the interface.
 
