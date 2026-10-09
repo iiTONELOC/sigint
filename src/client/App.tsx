@@ -11,7 +11,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="w-screen h-screen overflow-hidden min-w-48 bg-sig-bg font-mono">
+    <div className="w-screen h-dvh overflow-hidden min-w-48 bg-sig-bg font-mono">
       <LayoutModeProvider>
         <DataProvider>
           <AppShell />

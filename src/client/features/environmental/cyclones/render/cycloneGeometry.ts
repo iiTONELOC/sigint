@@ -1,9 +1,9 @@
 
 import type { ProjFn, Pt, RenderContext2D } from "@/lib/geo/render/types";
 import { AngleConversion, GeoMeasurement, TurnDeg, type GeoPoint } from "@shared/geo";
-import { drawSceneGeometry, type SceneAreaProjection } from "@/workers/render/scene/areaGeometry";
+import { drawSceneGeometry, strokeSceneGeometry, type SceneAreaProjection } from "@/workers/render/scene/areaGeometry";
 import { strokeGeoPath, tracePoints } from "@/lib/geo/render/path";
-import { POLYGON_POLICY, PolygonFillRule } from "@/lib/geo/render/polygon";
+import { CASED_LINE_WIDTH, CASING_EXTRA_WIDTH, POLYGON_POLICY, PolygonFillRule, strokeCased, type PathOutline } from "@/lib/geo/render/polygon";
 import { windChanceColor, windColor, windRadiiBandColor } from "../classification";
 import { RASTER_SOURCE_METADATA, type RasterCircle, type RasterSource } from "../data/radar";
 
@@ -51,22 +51,10 @@ export type WindRadiiBand = Readonly<{
 /** The eye on screen plus the scale that turns nautical miles into pixels. */
 export type EyeScale = Pt & Readonly<{ pixelsPerNm: number }>;
 
-const WIND_BAND_RIM_WIDTH = 1;
 export const GLASS_FILL_ALPHA = 0.18;
 export const WIND_BAND_RIM_ALPHA = 0.9;
-const CASING_EXTRA_WIDTH = 2;
 
 export type CasedStroke = Readonly<{ alpha: number; casing: string }>;
-
-function strokeCased(context: RenderContext2D, color: string, casing: string): void {
-  const width = context.lineWidth;
-  context.strokeStyle = casing;
-  context.lineWidth = width + CASING_EXTRA_WIDTH;
-  context.stroke();
-  context.strokeStyle = color;
-  context.lineWidth = width;
-  context.stroke();
-}
 
 export function paintWindRadiiBands(
   context: RenderContext2D,
@@ -83,7 +71,7 @@ export function paintWindRadiiBands(
     context.fill();
     if (!rim) continue;
     context.globalAlpha = rim.alpha;
-    context.lineWidth = WIND_BAND_RIM_WIDTH;
+    context.lineWidth = CASED_LINE_WIDTH;
     strokeCased(context, windRadiiBandColor(band.threshold), rim.casing);
   }
 }
@@ -320,6 +308,18 @@ function currentWarp(context: RenderContext2D, project: ProjFn, radar: RadarRast
   return warp;
 }
 
+function clipCircle(context: RenderContext2D, circle: RadarCircle): void {
+  context.beginPath();
+  context.arc(circle.x, circle.y, circle.radius, 0, FULL_TURN_RADIANS);
+  context.clip();
+}
+
+export function clipToRaster(context: RenderContext2D, project: ProjFn, clip: RasterCircle): boolean {
+  const circle = radarCircle(project, clip);
+  if (circle) clipCircle(context, circle);
+  return circle !== null;
+}
+
 export function paintRaster(context: RenderContext2D, project: ProjFn, radar: RadarRaster, clip: RasterCircle): boolean {
   const circle = radarCircle(project, clip);
   if (!circle) return true;
@@ -329,9 +329,7 @@ export function paintRaster(context: RenderContext2D, project: ProjFn, radar: Ra
   const key = [circle.x, circle.y, circle.radius, scale, region.width, region.height].map((value) => Math.round(value)).join();
   const warp = currentWarp(context, project, radar, { region, scale, key });
   context.save();
-  context.beginPath();
-  context.arc(circle.x, circle.y, circle.radius, 0, FULL_TURN_RADIANS);
-  context.clip();
+  clipCircle(context, circle);
   const look = RASTER_SOURCE_METADATA[radar.source];
   context.globalAlpha = look.alpha;
   context.globalCompositeOperation = look.blend;
@@ -363,6 +361,15 @@ export function paintSurgeAreas(
   color: string,
 ): void {
   for (const area of areas) drawSceneGeometry(context, ringPolygons(area.rings), projection, color, SURGE_ALPHA);
+}
+
+export function strokeSurgeAreas(
+  context: RenderContext2D,
+  projection: SceneAreaProjection,
+  areas: readonly Readonly<{ rings: readonly (readonly GeoPoint[])[] }>[],
+  outline: PathOutline,
+): void {
+  for (const area of areas) strokeSceneGeometry(context, ringPolygons(area.rings), projection, outline);
 }
 
 function labelArrivalLine(context: RenderContext2D, project: ProjFn, line: readonly GeoPoint[], label: string): void {

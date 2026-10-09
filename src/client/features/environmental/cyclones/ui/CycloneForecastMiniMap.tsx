@@ -32,11 +32,13 @@ import {
 import { AngleConversion, GeoLimit, GeoMeasurement, geometryPolygons, TurnDeg, type GeoJsonPolygon, type GeoPoint } from "@shared/geo";
 import { DEFAULT_RENDER_CYCLONE_OVERLAY, type RenderCycloneOverlay } from "@/workers/render/protocol";
 import type { HorizonCircle, ProjFn } from "@/lib/geo/render/types";
-import { drawSceneGeometry, projectSceneGeometry } from "@/workers/render/scene/areaGeometry";
+import { drawSceneGeometry, projectSceneGeometry, strokeSceneGeometry } from "@/workers/render/scene/areaGeometry";
 import { strokeGeoPath } from "@/lib/geo/render/path";
+import { strokeCoastlines } from "@/lib/geo/render/land";
 import type { CyclonePoint } from "../data/codec";
 import { categoryShort, cycloneAreaColor, modelColor, SAFFIR_LEGEND, windColor } from "../classification";
 import {
+  clipToRaster,
   drawGenesisMark,
   GLASS_FILL_ALPHA,
   fillCategoryCone,
@@ -46,11 +48,19 @@ import {
   paintWindRadiiBands,
   strokeArrivalLines,
   strokeIntensityTrack,
+  strokeSurgeAreas,
   WIND_BAND_RIM_ALPHA,
   type TrackVertex,
 } from "../render/cycloneGeometry";
 import { CycloneLayerToggles } from "./CycloneLayerToggles";
-import { RASTER_FRAME_MS, StormRasterCache, stormRasterArea, visibleRasterSources } from "../data/radar";
+import {
+  RASTER_FRAME_MS,
+  StormRasterCache,
+  stormRasterArea,
+  visibleRasterSources,
+  type RasterArea,
+  type RasterSource,
+} from "../data/radar";
 import { useRenderGlobeState } from "@/render-surface/useRenderGlobeState";
 import { CycloneModelLegend } from "./CycloneModelLegend";
 
@@ -257,6 +267,52 @@ function drawCurrentEye(scene: CycloneMiniMapScene): void {
   context.stroke();
 }
 
+type RasterRequest = Readonly<{
+  cache: StormRasterCache;
+  stormId: string;
+  sources: readonly RasterSource[];
+  area: RasterArea;
+  animate: boolean;
+  strokeOverImagery: () => void;
+}>;
+
+type ImageryOutlines = Readonly<{
+  warnings: readonly CycloneWarningPoint[];
+  hazards: CycloneHazards | undefined;
+  overlay: RenderCycloneOverlay;
+}>;
+
+function strokeOverImagery(scene: CycloneMiniMapScene, colors: ThemeColors, outlines: ImageryOutlines): void {
+  const { context, horizon, project } = scene;
+  strokeCoastlines(context, project, { color: colors[ThemeColorKey.Bright], casing: null, isFlat: false, horizon });
+  for (const warning of outlines.warnings) {
+    strokeSceneGeometry(context, geometryPolygons(warning.data.geometry), { project, horizon }, {
+      color: cycloneAreaColor(colors, warning.data.kind),
+      casing: null,
+    });
+  }
+  if (outlines.overlay.showSurge && outlines.hazards) {
+    strokeSurgeAreas(context, { project, horizon }, outlines.hazards.peakSurge, {
+      color: cycloneAreaColor(colors, AreaKind.Warning),
+      casing: null,
+    });
+  }
+}
+
+function drawRasters(scene: CycloneMiniMapScene, request: RasterRequest): void {
+  const now = Date.now();
+  const images = request.sources.flatMap((source) => {
+    request.cache.request(request.stormId, source, request.area.bounds, now);
+    const image = request.cache.peek(source, request.area.bounds, now, request.animate);
+    return image ? [image] : [];
+  });
+  for (const image of images) paintRaster(scene.context, scene.project, image, request.area.circle);
+  if (images.length === 0) return;
+  scene.context.save();
+  if (clipToRaster(scene.context, scene.project, request.area.circle)) request.strokeOverImagery();
+  scene.context.restore();
+}
+
 export function CycloneForecastMiniMap({
   item,
   focus,
@@ -365,12 +421,14 @@ function CycloneForecastCanvas({ item, focus, models, overlay, hazards }: Cyclon
     if (warnings.length > 0) drawWarnings(scene, warnings, colors);
     drawHazardOverlays(scene, colors, hazards, overlay);
     if (rasterArea) {
-      const now = Date.now();
-      for (const source of rasterSources) {
-        rasterCache.request(item.id, source, rasterArea.bounds, now);
-        const frame = rasterCache.peek(source, rasterArea.bounds, now, !reducedMotion);
-        if (frame) paintRaster(context, project, frame, rasterArea.circle);
-      }
+      drawRasters(scene, {
+        cache: rasterCache,
+        stormId: item.id,
+        sources: rasterSources,
+        area: rasterArea,
+        animate: !reducedMotion,
+        strokeOverImagery: () => strokeOverImagery(scene, colors, { warnings, hazards, overlay }),
+      });
     }
     if (showCone && officialCone) drawCone(scene, officialCone, forecast);
     const pixelsPerNauticalMile =

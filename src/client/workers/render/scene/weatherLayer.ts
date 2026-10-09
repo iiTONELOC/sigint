@@ -134,6 +134,11 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
     });
   }
 
+  strokeAreas(style: WeatherAreaStyle): void {
+    this.strokeAreaRecords(style.context, (view, index) =>
+      WEATHER_AREA_FILL[weatherAreaKind(weatherSeverityAt(view, index))]);
+  }
+
   draw(style: WeatherSceneStyle): void {
     const view = this.view;
     if (!view) return;

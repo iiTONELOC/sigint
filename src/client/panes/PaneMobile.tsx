@@ -65,6 +65,8 @@ const MOBILE_SCREEN_CLASS: Readonly<Record<PaneMobileScreen, string>> = {
   [PaneMobileScreen.Half]: "h-[50cqh] flex flex-col",
 };
 
+const MOBILE_SCROLL_SETTLE_MS = 100;
+
 enum PaneMobileGridMetric {
   SeparatorPx = 6,
 }
@@ -377,9 +379,43 @@ export function PaneMobile({
     };
   }, [splitMenu]);
 
+  const pinnedBlockRef = useRef<string | null>(null);
+  const lastScrollAtRef = useRef(0);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const releasePinnedBlock = () => {
+      pinnedBlockRef.current = null;
+    };
+    const markScrolled = () => {
+      lastScrollAtRef.current = performance.now();
+    };
+    const listening = { capture: true, passive: true };
+    scroller.addEventListener(DomEvent.PointerDown, releasePinnedBlock, listening);
+    scroller.addEventListener(DomEvent.Wheel, releasePinnedBlock, listening);
+    scroller.addEventListener(DomEvent.Scroll, markScrolled, listening);
+    return () => {
+      scroller.removeEventListener(DomEvent.PointerDown, releasePinnedBlock, listening);
+      scroller.removeEventListener(DomEvent.Wheel, releasePinnedBlock, listening);
+      scroller.removeEventListener(DomEvent.Scroll, markScrolled, listening);
+    };
+  }, []);
+
   const scrollToBlock = useCallback((blockId: string) => {
-    const el = document.getElementById(`mobile-block-${blockId}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    pinnedBlockRef.current = blockId;
+    setActiveInView(blockId);
+    const block = document.getElementById(`mobile-block-${blockId}`);
+    if (!block) return;
+    const scrollWhenSettled = () => {
+      if (performance.now() - lastScrollAtRef.current < MOBILE_SCROLL_SETTLE_MS) {
+        requestAnimationFrame(scrollWhenSettled);
+        return;
+      }
+      block.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    scrollWhenSettled();
   }, []);
 
   const tabObsRef = useRef<IntersectionObserver | null>(null);
@@ -408,7 +444,7 @@ export function PaneMobile({
             bestId = id;
           }
         }
-        if (bestId) setActiveInView(bestId);
+        if (bestId && !pinnedBlockRef.current) setActiveInView(bestId);
       },
       { rootMargin: "0px 0px -50% 0px" },
     );
@@ -721,6 +757,7 @@ export function PaneMobile({
 
       <div
         className={`flex-1 overflow-y-auto sigint-scroll @container-[size] ${blocks.length === 1 ? "flex flex-col" : ""}`}
+        ref={scrollerRef}
       >
         {blocks.map((block) => {
           const meta = paneCatalog[block.primaryLeaf.paneType];

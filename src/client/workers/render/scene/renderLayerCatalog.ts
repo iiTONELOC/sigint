@@ -6,6 +6,7 @@ import { GeoLimit, type GeoMultiPolygon, type GeoRing } from "@shared/geo";
 import type { FlatMetrics } from "@/lib/geo/render/flatMap";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawFlatLandRing, drawProjectedLandRing } from "@/lib/geo/render/land";
+import { projectedRingPath, splitAntimeridianSegments, strokeOutlinePaths } from "@/lib/geo/render/polygon";
 import type { HorizonCircle, Projected, ProjFn } from "@/lib/geo/render/types";
 import {
   geographicToUnitVector,
@@ -159,6 +160,18 @@ type PreparedLandRing = Readonly<{
 type BackdropFrame = RenderBackdropOptions & Readonly<{
   geometry: CameraProjection;
 }>;
+
+function landAlpha(frame: BackdropFrame): number {
+  return frame.light ? BackdropAlpha.LightLand : BackdropAlpha.DarkLand;
+}
+
+function globeHorizon(geometry: CameraProjection): HorizonCircle {
+  return {
+    gcx: geometry.centerX,
+    gcy: geometry.centerY,
+    gr: geometry.globeRadius - SceneProjectionPolicy.HorizonInsetPixels,
+  };
+}
 
 function createLandRings(polygons: GeoMultiPolygon): PreparedLandRing[] {
   const rings: PreparedLandRing[] = [];
@@ -429,12 +442,7 @@ class RenderBackdrop {
       BackdropGeometry.ArcEnd,
     );
     context.clip();
-    const horizon = {
-      gcx: geometry.centerX,
-      gcy: geometry.centerY,
-      gr: radius - SceneProjectionPolicy.HorizonInsetPixels,
-    };
-    this.drawLand(frame, horizon);
+    this.drawLand(frame, globeHorizon(geometry));
     drawGrid(context, frame.geometry.project, {
       isFlat: false,
       accentColor: frame.colors.grid || frame.colors.accent,
@@ -444,10 +452,23 @@ class RenderBackdrop {
     });
   }
 
+  strokeCoastlines(): void {
+    const frame = this.frame;
+    if (!frame) return;
+    const horizon = globeHorizon(frame.geometry);
+    const paths = this.landRings.flatMap((ring) =>
+      frame.flat
+        ? splitAntimeridianSegments(ring.coordinates, frame.geometry.project)
+        : [projectedRingPath(ring.projected, horizon)],
+    );
+    strokeOutlinePaths(frame.context, paths, {
+      color: frame.colors[ThemeColorKey.Bright],
+      casing: frame.colors[ThemeColorKey.Background],
+    });
+  }
+
   private drawLand(frame: BackdropFrame, horizon: HorizonCircle): void {
-    const alpha = frame.light
-      ? BackdropAlpha.LightLand
-      : BackdropAlpha.DarkLand;
+    const alpha = landAlpha(frame);
     for (const ring of this.landRings) {
       if (frame.flat) {
         drawFlatLandRing(
@@ -651,6 +672,11 @@ export class RenderLayerCatalog {
       project,
       reducedMotion: options.reducedMotion,
       surgeColor: options.warningColor,
+      strokeOverImagery: () => {
+        this.backdrop.strokeCoastlines();
+        layers[Domain.CycloneWarnings].strokeAreas(options);
+        layers[Domain.Weather].strokeAreas(options);
+      },
     });
   }
 

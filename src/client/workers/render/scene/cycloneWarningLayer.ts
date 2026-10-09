@@ -44,6 +44,10 @@ function warningKindAt(
   );
 }
 
+function warningColor(style: CycloneWarningSceneStyle, kind: AreaKind): string {
+  return kind === AreaKind.Warning ? style.warningColor : style.watchColor;
+}
+
 export function cycloneWarningSceneIncludes(
   view: RenderSceneView,
   index: number,
@@ -76,10 +80,7 @@ export class CycloneWarningLayer extends SceneAreaLayer<CycloneWarningSceneFilte
     this.drawAreaRecords(style.context, (view, index) => {
       const kind = warningKindAt(view, index);
       return {
-        color:
-          kind === AreaKind.Warning
-            ? style.warningColor
-            : style.watchColor,
+        color: warningColor(style, kind),
         alpha: sceneAreaAlpha(
           kind,
           view.entityIds[index] === style.selectedId,
@@ -87,6 +88,11 @@ export class CycloneWarningLayer extends SceneAreaLayer<CycloneWarningSceneFilte
         ),
       };
     });
+  }
+
+  strokeAreas(style: CycloneWarningSceneStyle): void {
+    this.strokeAreaRecords(style.context, (view, index) =>
+      warningColor(style, warningKindAt(view, index)));
   }
 
   protected includes(

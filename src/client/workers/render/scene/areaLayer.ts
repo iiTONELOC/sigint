@@ -1,5 +1,6 @@
 import {
   drawSceneGeometry,
+  strokeSceneGeometry,
   type SceneAreaProjection,
 } from "@/workers/render/scene/areaGeometry";
 import {
@@ -200,6 +201,20 @@ export abstract class SceneAreaLayer<TFilter> extends SceneLayer<TFilter> {
       );
     }
     context.globalAlpha = 1;
+  }
+
+  protected strokeAreaRecords(
+    context: OffscreenCanvasRenderingContext2D,
+    color: (view: RenderSceneView, index: number) => string,
+  ): void {
+    const view = this.view;
+    const projection = this.areaProjection;
+    if (!view || !projection) return;
+    for (const index of this.includedIndices) {
+      const geometry = view.geometries[index];
+      if (geometry?.kind !== SceneGeometryKind.Polygon) continue;
+      strokeSceneGeometry(context, geometry.groups, projection, { color: color(view, index), casing: null });
+    }
   }
 
   private containingArea(x: number, y: number): SceneHit | null {

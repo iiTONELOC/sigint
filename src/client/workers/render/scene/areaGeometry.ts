@@ -1,6 +1,8 @@
 import {
   fillStrokePaths,
   projectedRingPath,
+  strokeOutlinePaths,
+  type PathOutline,
 } from "@/lib/geo/render/polygon";
 import type {
   HorizonCircle,
@@ -9,6 +11,7 @@ import type {
   RenderContext2D,
 } from "@/lib/geo/render/types";
 import type { GeoMultiPolygon } from "@shared/geo";
+
 
 export type SceneAreaProjection = Readonly<{
   project: ProjFn;
@@ -32,6 +35,17 @@ export function projectSceneGeometry(
     if (paths[0]?.length) polygons.push(paths);
   }
   return polygons;
+}
+
+export function strokeSceneGeometry(
+  context: RenderContext2D,
+  geometry: GeoMultiPolygon,
+  projection: SceneAreaProjection,
+  outline: PathOutline,
+): void {
+  for (const polygon of projectSceneGeometry(geometry, projection)) {
+    strokeOutlinePaths(context, polygon, outline);
+  }
 }
 
 export function drawSceneGeometry(

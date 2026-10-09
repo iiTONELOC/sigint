@@ -2,8 +2,11 @@ import { getLand } from "@/lib/geo/landService";
 import {
   POLYGON_POLICY,
   drawClippedPoly,
+  projectedRingPath,
   simpleDraw,
   splitAntimeridianSegments,
+  strokeOutlinePaths,
+  type PathOutline,
 } from "@/lib/geo/render/polygon";
 import type {
   HorizonCircle,
@@ -73,14 +76,39 @@ export function drawLand(
       continue;
     }
 
-    const points: Projected[] = [];
-    for (const coordinate of ring) {
-      const [longitude, latitude] = coordinate;
-      if (typeof longitude !== "number" || typeof latitude !== "number") {
-        continue;
-      }
-      points.push(proj(latitude, longitude));
-    }
-    drawProjectedLandRing(ctx, points, options.colors, alpha, options.horizon);
+    drawProjectedLandRing(ctx, projectRing(ring, proj), options.colors, alpha, options.horizon);
   }
+}
+
+function projectRing(
+  ring: readonly (readonly number[])[],
+  proj: ProjFn,
+): Projected[] {
+  const points: Projected[] = [];
+  for (const [longitude, latitude] of ring) {
+    if (typeof longitude !== "number" || typeof latitude !== "number") {
+      continue;
+    }
+    points.push(proj(latitude, longitude));
+  }
+  return points;
+}
+
+export type CoastOutline = PathOutline & Readonly<{
+  isFlat: boolean;
+  horizon: HorizonCircle;
+}>;
+
+export function strokeCoastlines(
+  ctx: RenderContext2D,
+  proj: ProjFn,
+  options: CoastOutline,
+): void {
+  const paths = getLand().flatMap((polygon) => {
+    const ring = polygon[0];
+    if (!ring) return [];
+    if (options.isFlat) return splitAntimeridianSegments(ring, proj);
+    return [projectedRingPath(projectRing(ring, proj), options.horizon)];
+  });
+  strokeOutlinePaths(ctx, paths, options);
 }

@@ -1,4 +1,5 @@
 import {
+  clipToRaster,
   drawGenesisMark,
   fillCategoryCone,
   GLASS_FILL_ALPHA,
@@ -8,11 +9,12 @@ import {
   paintWindRadiiBands,
   strokeArrivalLines,
   strokeIntensityTrack,
+  strokeSurgeAreas,
   WIND_BAND_RIM_ALPHA,
   type TrackVertex,
   type WindRadiiBand,
 } from "@/features/environmental/cyclones/render/cycloneGeometry";
-import { projectSceneGeometry } from "@/workers/render/scene/areaGeometry";
+import { projectSceneGeometry, type SceneAreaProjection } from "@/workers/render/scene/areaGeometry";
 import { StormRasterCache, stormRasterArea, visibleRasterSources } from "@/features/environmental/cyclones/data/radar";
 import type { ProjFn } from "@/lib/geo/render/types";
 import { strokeGeoPath } from "@/lib/geo/render/path";
@@ -168,7 +170,12 @@ export type CycloneSceneStyle = Readonly<{
   reducedMotion: boolean;
 }>;
 
-export type CycloneUnderlayStyle = Pick<CycloneSceneStyle, "context" | "project" | "surgeColor" | "reducedMotion">;
+export type CycloneUnderlayStyle = Pick<CycloneSceneStyle, "context" | "project" | "surgeColor" | "reducedMotion"> &
+  Readonly<{ strokeOverImagery: () => void }>;
+
+function underlayProjection(style: CycloneUnderlayStyle): SceneAreaProjection {
+  return { project: style.project, horizon: null };
+}
 
 type CycloneRecordSet = Readonly<{
   overlay: RenderCycloneOverlay;
@@ -565,11 +572,26 @@ export class CycloneLayer extends ScenePointLayer<
       sceneNumericAttribute(view, index, CycloneSceneAttribute.WindThresholdKt) === galeKt);
     const area = stormRasterArea(position.latitude, position.longitude, gale === undefined ? [] : windRadiusQuadrants(view, gale));
     const now = Date.now();
+    let painted = false;
     for (const source of sources) {
       this.rasters.request(view.entityIds[current] ?? "", source, area.bounds, now);
       const image = this.rasters.peek(source, area.bounds, now, !style.reducedMotion);
-      if (image && !paintRaster(style.context, style.project, image, area.circle)) this.rastersSharpening = true;
+      if (!image) continue;
+      painted = true;
+      if (!paintRaster(style.context, style.project, image, area.circle)) this.rastersSharpening = true;
     }
+    if (!painted) return;
+    style.context.save();
+    if (clipToRaster(style.context, style.project, area.circle)) {
+      style.strokeOverImagery();
+      if (records.overlay.showSurge) {
+        strokeSurgeAreas(style.context, underlayProjection(style), this.hazardRings(view, records, CycloneSceneRole.Surge), {
+          color: style.surgeColor,
+          casing: null,
+        });
+      }
+    }
+    style.context.restore();
   }
 
   private hazardRings(view: RenderSceneView, records: CycloneRecordSet, role: CycloneSceneRole) {
@@ -586,7 +608,7 @@ export class CycloneLayer extends ScenePointLayer<
     style: CycloneUnderlayStyle,
   ): void {
     const { overlay } = records;
-    const projection = { project: style.project, horizon: null };
+    const projection = underlayProjection(style);
     if (overlay.showWindChances) {
       const bands = (records.indices[CycloneSceneRole.WindChance] ?? []).flatMap((index) => {
         const geometry = view.geometries[index];

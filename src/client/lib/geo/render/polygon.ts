@@ -78,6 +78,62 @@ function appendPath(
   ctx.closePath();
 }
 
+function traceDrawablePaths(
+  ctx: RenderContext2D,
+  paths: readonly (readonly Pt[])[],
+): boolean {
+  const drawable = paths.filter(
+    (path) => path.length >= POLYGON_POLICY.minimumRingPoints,
+  );
+  if (drawable.length === 0) return false;
+  ctx.beginPath();
+  for (const path of drawable) appendPath(ctx, path);
+  return true;
+}
+
+function strokeTracedPath(ctx: RenderContext2D, strokeColor: string, alpha: number): void {
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = POLYGON_POLICY.strokeWidth;
+  ctx.globalAlpha = alpha;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+export const CASED_LINE_WIDTH = 1;
+export const CASING_EXTRA_WIDTH = 2;
+
+export function strokeCased(ctx: RenderContext2D, color: string, casing: string): void {
+  const width = ctx.lineWidth;
+  ctx.strokeStyle = casing;
+  ctx.lineWidth = width + CASING_EXTRA_WIDTH;
+  ctx.stroke();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+}
+
+export type PathOutline = Readonly<{
+  color: string;
+  casing: string | null;
+}>;
+
+export function strokeOutlinePaths(
+  ctx: RenderContext2D,
+  paths: readonly (readonly Pt[])[],
+  outline: PathOutline,
+): void {
+  if (!traceDrawablePaths(ctx, paths)) return;
+  ctx.globalAlpha = 1;
+  if (outline.casing === null) {
+    ctx.lineWidth = POLYGON_POLICY.strokeWidth;
+    ctx.strokeStyle = outline.color;
+    ctx.stroke();
+    return;
+  }
+  ctx.lineWidth = CASED_LINE_WIDTH;
+  strokeCased(ctx, outline.color, outline.casing);
+}
+
 export function fillStrokePaths(
   ctx: RenderContext2D,
   paths: readonly (readonly Pt[])[],
@@ -85,20 +141,11 @@ export function fillStrokePaths(
   strokeColor: string,
   alpha: number,
 ): void {
-  const drawable = paths.filter(
-    (path) => path.length >= POLYGON_POLICY.minimumRingPoints,
-  );
-  if (drawable.length === 0) return;
-  ctx.beginPath();
-  for (const path of drawable) appendPath(ctx, path);
+  if (!traceDrawablePaths(ctx, paths)) return;
   ctx.fillStyle = fillColor;
   ctx.globalAlpha = alpha;
   ctx.fill(PolygonFillRule.EvenOdd);
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = POLYGON_POLICY.strokeWidth;
-  ctx.globalAlpha = alpha + POLYGON_POLICY.strokeAlphaGain;
-  ctx.stroke();
-  ctx.globalAlpha = 1;
+  strokeTracedPath(ctx, strokeColor, alpha + POLYGON_POLICY.strokeAlphaGain);
 }
 
 export function fillStrokePath(
