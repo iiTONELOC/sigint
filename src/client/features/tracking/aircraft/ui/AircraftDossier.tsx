@@ -17,6 +17,7 @@ import { AircraftFlightPlan, delayChip, RouteNextFix } from "./AircraftFlightPla
 import { AircraftProfileChart } from "./AircraftProfileChart";
 import { AircraftStormProximity } from "./AircraftStormProximity";
 import {
+  DossierCard,
   DossierLinkGrid,
   DossierPositionRow,
   DossierSectionLabel,
@@ -198,7 +199,8 @@ export function AircraftDossier({
       {toolbar}
       <div className="flex-1 min-h-0 overflow-auto sigint-scroll p-3 flex flex-col gap-3">
       <div className="grid grid-cols-1 @min-[40rem]/dossier:grid-cols-2 gap-2 items-start @min-[40rem]/dossier:items-stretch">
-        <section className="sec identity min-w-0">
+        <section className="sec identity min-w-0 flex flex-col">
+          <DossierSectionLabel>AIRCRAFT</DossierSectionLabel>
           <AircraftIdentityTicket
             photo={photo}
             photoLoading={photoLoading}
@@ -227,7 +229,9 @@ export function AircraftDossier({
         {route && <AircraftFlightPlan route={route} />}
 
         <section className="sec route min-w-0 flex flex-col" aria-label="Route">
-          <div className="h-52 @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-52">
+          <DossierSectionLabel>ROUTE</DossierSectionLabel>
+          <DossierCard className="p-2 flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col">
             <AircraftRouteMap
               originCode={originCode}
               destCode={destCode}
@@ -266,6 +270,7 @@ export function AircraftDossier({
               />
             </div>
           )}
+          </DossierCard>
         </section>
 
         {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}

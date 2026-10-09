@@ -381,7 +381,7 @@ function handlePointerInput(
 
 function handlePinchInput(payload: PinchInput, surface: InputSurface): void {
   if (payload.phase === RenderInputPhase.Start) {
-    beginCameraPinch(_pointer, payload.distance);
+    beginCameraPinch(_pointer, payload);
   } else if (payload.phase === RenderInputPhase.Move) {
     moveCameraPinch(
       _camera,

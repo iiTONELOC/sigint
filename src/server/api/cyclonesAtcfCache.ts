@@ -301,7 +301,7 @@ export async function getCycloneModels(stormId: string): Promise<CycloneModelsRe
   return { models: value, fetchedAt };
 }
 
-export function __resetCycloneAtcfCacheForTests(): void {
+export function resetCycloneAtcfCache(): void {
   atcfCache.reset();
   modelsCache.reset();
   bdeckValidators.clear();

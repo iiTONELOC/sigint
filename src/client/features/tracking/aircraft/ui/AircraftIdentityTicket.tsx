@@ -211,7 +211,7 @@ export function AircraftIdentityTicket({
   );
 
   return (
-    <div className="relative bg-sig-panel border border-sig-border rounded-2xl overflow-hidden flex flex-col h-full">
+    <div className="relative bg-sig-panel border border-sig-border rounded-2xl overflow-hidden flex flex-col flex-1">
       <div className="h-1 bg-linear-to-r from-(--dossier-accent) via-sig-bright/40 to-(--dossier-accent)" />
 
       <div className="relative w-full bg-sig-bg overflow-hidden h-[12.4rem] min-h-[12.4rem] @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1">

@@ -112,7 +112,7 @@ export function stormRasterArea(lat: number, lon: number, galeRadiiNm: readonly 
   };
 }
 
-type RasterEntry = { image: RasterImage | null; group: string };
+type RasterEntry = { image: RasterImage | null; group: string; failedAt: number | null };
 
 export class StormRasterCache {
   private readonly entries = new Map<string, RasterEntry>();
@@ -120,35 +120,47 @@ export class StormRasterCache {
   request(stormId: string, source: RasterSource, bounds: RasterBounds, now: number): void {
     const group = `${stormId}:${source}`;
     const urls = new Set(loopTimes(source, now).map((timeMs) => rasterImageUrl(source, bounds, timeMs)));
+    const retryAfterMs = RASTER_SOURCE_METADATA[source].latestStepMs;
     for (const url of urls) {
-      if (!this.entries.has(url)) this.load(url, { bounds, source }, group);
+      const entry = this.entries.get(url);
+      if (!entry || (entry.failedAt !== null && now - entry.failedAt >= retryAfterMs)) this.load(url, { bounds, source }, group);
     }
     this.prune(group, urls);
   }
 
+  loaded(source: RasterSource, bounds: RasterBounds, now: number): boolean {
+    return this.slots(source, bounds, now).every((frame) => frame !== null);
+  }
+
   peek(source: RasterSource, bounds: RasterBounds, now: number, animate: boolean): RasterImage | null {
-    const slots = loopTimes(source, now)
-      .map((timeMs) => this.entries.get(rasterImageUrl(source, bounds, timeMs))?.image ?? null);
+    const slots = this.slots(source, bounds, now);
     const cycle = slots.length + RASTER_LATEST_HOLD_FRAMES;
     const slot = animate ? Math.min(Math.floor(now / RASTER_FRAME_MS) % cycle, slots.length - 1) : slots.length - 1;
     return slots.slice(0, slot + 1).findLast((frame) => frame !== null) ?? null;
   }
 
+  private slots(source: RasterSource, bounds: RasterBounds, now: number): (RasterImage | null)[] {
+    return loopTimes(source, now).map((timeMs) => this.entries.get(rasterImageUrl(source, bounds, timeMs))?.image ?? null);
+  }
+
   private load(url: string, target: Omit<RasterImage, "image">, group: string): void {
-    const entry: RasterEntry = { image: null, group };
+    const entry: RasterEntry = { image: null, group, failedAt: null };
     this.entries.set(url, entry);
+    const markFailed = () => {
+      entry.failedAt = Date.now();
+    };
     void fetch(url)
       .then((response) => (response.ok ? response.blob() : null))
       .then((blob) => (blob ? createImageBitmap(blob) : null))
       .then((image) => {
-        if (!image) return;
+        if (!image) return markFailed();
         if (this.entries.get(url) !== entry) {
           image.close();
           return;
         }
         entry.image = { ...target, image };
       })
-      .catch(() => undefined);
+      .catch(markFailed);
   }
 
   private prune(group: string, current: ReadonlySet<string>): void {

@@ -11,7 +11,7 @@ import {
   fetchCyclones,
 } from "../../../src/server/api/cyclonesCache";
 import {
-  __resetCycloneConeCacheForTests,
+  resetCycloneConeCache,
   getCycloneCone,
   parseKmlConeToGeoJSON,
   CONE_CACHE_TTL_MS,
@@ -87,7 +87,7 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
 
   beforeEach(() => {
     __resetCyclonesCacheForTests();
-    __resetCycloneConeCacheForTests();
+    resetCycloneConeCache();
     originalFetch = globalThis.fetch;
     fetchCount = {};
     kmzHandler = () => new Response(kmzBytes, { status: 200 });
@@ -144,7 +144,7 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
   test("KMZ fetch HTTP error → cone: null, no throw", async () => {
     kmzHandler = () => new Response("oops", { status: 503 });
     await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
-    __resetCycloneConeCacheForTests(); // drop the entry enrichment cached
+    resetCycloneConeCache(); // drop the entry enrichment cached
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).toBeNull();
   });
@@ -154,7 +154,7 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
       throw new Error("simulated network error");
     };
     await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
-    __resetCycloneConeCacheForTests();
+    resetCycloneConeCache();
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).toBeNull();
   });

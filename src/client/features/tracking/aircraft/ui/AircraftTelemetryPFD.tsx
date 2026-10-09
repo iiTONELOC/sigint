@@ -228,7 +228,7 @@ export function AircraftTelemetryPFD({ data }: Readonly<{ data: AircraftData }>)
   const emergency = aircraftEmergencyPresentation(data).active;
   const statRows = telemetryRows(buildTelemetryStats(data));
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex-1 flex flex-col gap-2">
       <div className="@container/gauges">
         <div className={AircraftTelemetryClassName.GaugeGrid}>
           <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
@@ -244,7 +244,7 @@ export function AircraftTelemetryPFD({ data }: Readonly<{ data: AircraftData }>)
         </div>
       </div>
 
-      <DossierCard className="p-3 flex flex-col gap-2">
+      <DossierCard className="p-3 flex-1 flex flex-col gap-2">
         <div className="flex items-start justify-between gap-3">
           <DetailField
             label={AircraftTelemetryLabel.State}

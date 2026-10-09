@@ -58,7 +58,7 @@ import type {
   SceneVisibilitySettings,
 } from "@/workers/render/scene/visibility";
 import { zoomScale } from "@/workers/render/workerMath";
-import type { SceneResolvedPosition } from "@/workers/render/scene/scenePosition";
+import { scenePositionFromView, type SceneResolvedPosition } from "@/workers/render/scene/scenePosition";
 import { CycloneScenePositionAccessor } from "@/workers/render/scene/cyclonePosition";
 import { Domain } from "@shared/domain/identity";
 import { sceneSchemaMatches } from "@shared/domain/pointSource";
@@ -565,17 +565,18 @@ export class CycloneLayer extends ScenePointLayer<
 
   private drawRasters(view: RenderSceneView, records: CycloneRecordSet, current: number, style: CycloneUnderlayStyle): void {
     const sources = visibleRasterSources(records.overlay);
-    const position = this.positionAt(view, current);
+    const position = scenePositionFromView(view, current);
     if (sources.length === 0 || !position) return;
     const galeKt = CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt;
     const gale = (records.indices[CycloneSceneRole.WindRadius] ?? []).find((index) =>
       sceneNumericAttribute(view, index, CycloneSceneAttribute.WindThresholdKt) === galeKt);
     const area = stormRasterArea(position.latitude, position.longitude, gale === undefined ? [] : windRadiusQuadrants(view, gale));
     const now = Date.now();
+    for (const source of sources) this.rasters.request(view.entityIds[current] ?? "", source, area.bounds, now);
+    const animate = !style.reducedMotion && sources.every((source) => this.rasters.loaded(source, area.bounds, now));
     let painted = false;
     for (const source of sources) {
-      this.rasters.request(view.entityIds[current] ?? "", source, area.bounds, now);
-      const image = this.rasters.peek(source, area.bounds, now, !style.reducedMotion);
+      const image = this.rasters.peek(source, area.bounds, now, animate);
       if (!image) continue;
       painted = true;
       if (!paintRaster(style.context, style.project, image, area.circle)) this.rastersSharpening = true;

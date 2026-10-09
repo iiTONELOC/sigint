@@ -27,6 +27,10 @@ type Props = FeatureDossierProps<Domain.Cyclones>;
 
 enum StormDossierClassName {
   Pair = "grid gap-3 grid-cols-1 @min-[45rem]/dossier:grid-cols-2 items-stretch [&>:last-child:nth-child(odd)]:col-span-full",
+  WindRow = "flex flex-wrap gap-3",
+  WindCell = "flex flex-[1_1_auto]",
+  ConeCell = "flex flex-[1000_1_0%] min-w-min",
+  Fill = "flex-1",
   Stretch = "min-w-0 flex flex-col",
   Card = "p-3 flex-1",
 }
@@ -132,18 +136,22 @@ export function CycloneDossier({ item, isolateMode, onLocate, onFocus, onSolo, o
               </DossierCard>
             </Section>
           )}
-          <div className={StormDossierClassName.Pair}>
+          <div className={StormDossierClassName.WindRow}>
             {windRadii && hasRadii && (
-              <Section title="WIND FIELD">
-                <DossierCard className={StormDossierClassName.Card}>
-                  <CycloneWindRose radii={windRadii} />
-                </DossierCard>
-              </Section>
+              <div className={StormDossierClassName.WindCell}>
+                <Section title="WIND FIELD" className={StormDossierClassName.Fill}>
+                  <DossierCard className={StormDossierClassName.Card}>
+                    <CycloneWindRose radii={windRadii} />
+                  </DossierCard>
+                </Section>
+              </div>
             )}
             {hasAssets && (
-              <Section title="IN THE CONE">
-                <CycloneAssets assets={assets} />
-              </Section>
+              <div className={StormDossierClassName.ConeCell}>
+                <Section title="IN THE CONE" className={StormDossierClassName.Fill}>
+                  <CycloneAssets assets={assets} />
+                </Section>
+              </div>
             )}
           </div>
           <div className={StormDossierClassName.Pair}>

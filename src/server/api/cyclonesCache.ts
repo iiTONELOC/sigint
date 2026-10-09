@@ -1,5 +1,9 @@
 import { anyActiveBasinInSeason } from "../../shared/cyclonesSeason";
 import { enrichStorms } from "./cyclonesForecastTrack";
+import { resetCycloneAtcfCache } from "./cyclonesAtcfCache";
+import { resetCycloneConeCache } from "./cyclonesConeCache";
+import { resetCycloneDossierCache } from "./cyclonesDossierCache";
+import { resetCycloneHazardsCache } from "./cyclonesHazards";
 import { FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
 import { fetchIfModified, type ValidatorStore } from "../lib/fetchIfModified";
 import { createLogger } from "../lib/logger";
@@ -16,7 +20,7 @@ import { ConfigField } from "../config";
 const logger = createLogger({ service: "nhc" });
 
 export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
-export const POLL_INTERVAL_MS = 30 * 60_000;
+export const POLL_INTERVAL_MS = 5 * 60_000;
 
 type CyclonesBody = {
   activeStorms: unknown[];
@@ -264,6 +268,10 @@ function refreshStormProducts(activeStorms: readonly unknown[]): void {
     const extracted = extractStormProducts(storm);
     if (extracted) stormProducts.set(extracted.id, extracted.products);
   }
+  resetCycloneAtcfCache();
+  resetCycloneConeCache();
+  resetCycloneDossierCache();
+  resetCycloneHazardsCache();
 }
 
 /** Return direct product URLs for one current storm. */

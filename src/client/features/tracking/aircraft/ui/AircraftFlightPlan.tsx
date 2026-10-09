@@ -197,7 +197,7 @@ export function AircraftFlightPlan({ route }: Readonly<{ route: AircraftRoute }>
   return (
     <section className="sec flightplan min-w-0 flex flex-col">
       <DossierSectionLabel>FLIGHT PLAN</DossierSectionLabel>
-      <DossierCard className="p-3 flex-1">
+      <DossierCard className="p-3 flex-1 flex flex-col justify-between">
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-3 items-center">
           <RouteEndpoint endpoint={route.origin} label={AircraftFlightPlanLabel.Depart} />
           <ArrowRight className="w-4 h-4 text-sig-dim" aria-hidden={true} />

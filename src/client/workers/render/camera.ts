@@ -431,27 +431,35 @@ export function moveCameraPointer(
   if (pointer.distance > CAMERA_POLICY.dragClickThresholdPx) {
     releaseCameraTarget(target);
   }
+  dragCamera(camera, viewport, flat, { deltaX, deltaY });
+  pointer.lastX = x;
+  pointer.lastY = y;
+  return true;
+}
 
+type CameraDrag = Readonly<{ deltaX: number; deltaY: number }>;
+
+function dragCamera(
+  camera: WorkerCameraState,
+  viewport: CameraViewport,
+  flat: boolean,
+  drag: CameraDrag,
+): void {
+  const { deltaX, deltaY } = drag;
   if (flat) {
     camera.panX += deltaX;
     camera.panY += deltaY;
     clampFlatPan(camera, viewport.width, viewport.height);
-  } else {
-    const zoom = camera.zoomGlobe || 1;
-    camera.rotY +=
-      (deltaX * CAMERA_POLICY.dragRadiansPerPixel) / zoom;
-    camera.rotX = clamp(
-      camera.rotX +
-        (deltaY * CAMERA_POLICY.dragRadiansPerPixel) / zoom,
-      -CAMERA_POLICY.pitchLimitRadians,
-      CAMERA_POLICY.pitchLimitRadians,
-    );
-    camera.velocityY =
-      (deltaX * CAMERA_POLICY.velocityRadiansPerPixel) / zoom;
+    return;
   }
-  pointer.lastX = x;
-  pointer.lastY = y;
-  return true;
+  const zoom = camera.zoomGlobe || 1;
+  camera.rotY += (deltaX * CAMERA_POLICY.dragRadiansPerPixel) / zoom;
+  camera.rotX = clamp(
+    camera.rotX + (deltaY * CAMERA_POLICY.dragRadiansPerPixel) / zoom,
+    -CAMERA_POLICY.pitchLimitRadians,
+    CAMERA_POLICY.pitchLimitRadians,
+  );
+  camera.velocityY = (deltaX * CAMERA_POLICY.velocityRadiansPerPixel) / zoom;
 }
 
 export function endCameraPointer(
@@ -480,10 +488,12 @@ export function cancelCameraPointer(pointer: WorkerPointerState): void {
 
 export function beginCameraPinch(
   pointer: WorkerPointerState,
-  distance: number,
+  movement: CameraPinchMovement,
 ): void {
   pointer.pinching = true;
-  pointer.pinchDistance = distance;
+  pointer.pinchDistance = movement.distance;
+  pointer.lastX = movement.centerX;
+  pointer.lastY = movement.centerY;
   pointer.active = false;
 }
 
@@ -497,14 +507,17 @@ export function moveCameraPinch(
 ): boolean {
   const { centerX, centerY, distance } = movement;
   if (!pointer.pinching) {
-    beginCameraPinch(pointer, distance);
+    beginCameraPinch(pointer, movement);
     return false;
   }
   if (pointer.pinchDistance <= 0 || distance <= 0) {
-    pointer.pinchDistance = distance;
+    beginCameraPinch(pointer, movement);
     return false;
   }
   releaseCameraTarget(target);
+  dragCamera(camera, viewport, flat, { deltaX: centerX - pointer.lastX, deltaY: centerY - pointer.lastY });
+  pointer.lastX = centerX;
+  pointer.lastY = centerY;
   const factor = distance / pointer.pinchDistance;
   if (flat) {
     const oldZoom = camera.zoomFlat;

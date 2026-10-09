@@ -461,9 +461,10 @@ async function fetchCycloneDossier(
 async function cycloneDossierForEntity(
   entityId: string,
 ): Promise<CycloneDossierBundle | null> {
-  const stormId = parseCycloneStormId(cycloneOwner.get(entityId)?.data.stormId);
+  const storm = cycloneOwner.get(entityId)?.data;
+  const stormId = parseCycloneStormId(storm?.stormId);
   if (!stormId) return null;
-  const key = `${CYCLONE_DOSSIER_CACHE_PREFIX}${stormId}`;
+  const key = `${CYCLONE_DOSSIER_CACHE_PREFIX}${stormId}:${storm?.advisoryNumber ?? ""}`;
   const cached = parseCycloneDossierCacheEntry(await store.get(key));
   if (cached && Date.now() - cached.fetchedAt < CYCLONE_DOSSIER_CACHE_FRESHNESS_MS) {
     return cached.bundle;

@@ -353,6 +353,7 @@ export function AircraftRouteMap({
       compactBorderRadius={true}
       drawForeground={drawForeground}
       drawOverlay={drawOverlay}
+      reserveMinimumHeight={true}
       resetKey={`${originCode}:${destCode}`}
     >
       {hud && (

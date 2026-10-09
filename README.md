@@ -51,7 +51,7 @@ See the [user guide](./docs/guide.md) for each part of the interface.
 
 ### Tropical Cyclone Tracking
 
-Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) feed (server-proxied every 30 min). For each active storm:
+Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `CurrentStorms.json`](https://www.nhc.noaa.gov/CurrentStorms.json) feed (server-proxied every 5 min). For each active storm:
 
 - Current position, max wind, pressure, motion, classification, basin
 - Estimated position between advisories along the forecast track
@@ -140,7 +140,7 @@ Browser refresh is how often the browser requests each layer.
 | Seismic  | [USGS](https://earthquake.usgs.gov/earthquakes/feed/v1.0/) (direct DataWorker fetch)                        | 420s            |
 | Fires    | [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) (server bulk feeds)                                     | 600s            |
 | Weather  | [NOAA](https://api.weather.gov/) (direct DataWorker fetch)                                                  | 300s            |
-| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone, advisory text products, ATCF model and best tracks, hazard products) | 25m             |
+| Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone, advisory text products, ATCF model and best tracks, hazard products) | 5m              |
 | Storm imagery | [NOAA nowCOAST](https://nowcoast.noaa.gov) GOES infrared and [NOAA MRMS](https://opengeo.ncep.noaa.gov) radar (direct browser fetch) | 5m satellite, 2m radar |
 | Aircraft dossier | [FlightAware](https://www.flightaware.com) schedule and filed route, [hexdb.io](https://hexdb.io) metadata, [Planespotters](https://www.planespotters.net) photos, FAA nav data for route fixes | On selection |
 | Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 15m             |

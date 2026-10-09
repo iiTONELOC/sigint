@@ -25,7 +25,6 @@ enum PointSourcePollInterval {
   SevenMinutesMs = 420_000,
   TenMinutesMs = 600_000,
   FifteenMinutesMs = 900_000,
-  TwentyFiveMinutesMs = 1_500_000,
 }
 
 export type PointSourceDefinition<
@@ -89,7 +88,7 @@ const POINT_SOURCE_POLICIES = {
     pointType: Domain.Cyclones,
     interactionPointTypes: [Domain.CyclonesForecast],
     cacheKey: CacheKey.Cyclones,
-    pollIntervalMs: PointSourcePollInterval.TwentyFiveMinutesMs,
+    pollIntervalMs: PointSourcePollInterval.FiveMinutesMs,
     sceneSchema: {
       attributeStride: CYCLONE_SCENE_ATTRIBUTE_COUNT,
       stringAttributeStride: CYCLONE_SCENE_STRING_ATTRIBUTE_COUNT,

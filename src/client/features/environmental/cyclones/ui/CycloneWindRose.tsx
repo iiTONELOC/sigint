@@ -153,9 +153,9 @@ export function CycloneWindRose({ radii }: { readonly radii: WindRadii }) {
   ).join(WIND_ROSE_SEPARATOR);
 
   return (
-    <div className="@container/rose h-full flex items-center">
-      <div className="flex flex-col @min-[18rem]/rose:flex-row items-center justify-center gap-4 size-full min-w-0">
-        <div className="w-full @min-[18rem]/rose:w-auto min-w-0 flex items-center justify-center">
+    <div className="h-full flex items-center">
+      <div className="flex flex-wrap items-center justify-center gap-4 size-full">
+        <div className="flex items-center justify-center">
         <div className={`relative aspect-square max-w-full ${CYCLONE_CHART_HEIGHT_CLASS}`}>
         <svg
           viewBox={`0 0 ${WindRoseGeometry.ViewBox} ${WindRoseGeometry.ViewBox}`}

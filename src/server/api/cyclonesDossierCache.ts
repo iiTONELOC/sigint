@@ -138,6 +138,6 @@ export async function getCycloneDossier(stormId: string): Promise<CycloneDossier
   return { dossier: value, fetchedAt };
 }
 
-export function __resetCycloneDossierCacheForTests(): void {
+export function resetCycloneDossierCache(): void {
   dossierCache.reset();
 }

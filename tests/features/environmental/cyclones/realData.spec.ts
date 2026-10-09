@@ -18,11 +18,11 @@ import {
   parseTrackKml,
   enrichStorms,
 } from "../../../../src/server/api/cyclonesForecastTrack";
-import { __resetCycloneConeCacheForTests } from "../../../../src/server/api/cyclonesConeCache";
+import { resetCycloneConeCache } from "../../../../src/server/api/cyclonesConeCache";
 import {
   getCycloneDossier,
   parseProductHtml,
-  __resetCycloneDossierCacheForTests,
+  resetCycloneDossierCache,
 } from "../../../../src/server/api/cyclonesDossierCache";
 import { unzipSingleEntryKmz } from "../../../../src/server/api/zipReader";
 import { CycloneDossierProductKind } from "@shared/domain/cyclones";
@@ -109,7 +109,7 @@ describe("fetchCyclones enriches forecast and cone before cache write", () => {
       throw new Error("unexpected fetch in test: " + u);
     }) as unknown as typeof fetch;
     __resetCyclonesCacheForTests();
-    __resetCycloneConeCacheForTests();
+    resetCycloneConeCache();
   });
 
   afterEach(() => {
@@ -134,7 +134,7 @@ describe("enrichStorms degrades gracefully", () => {
   let realFetch: typeof globalThis.fetch;
   beforeEach(() => {
     realFetch = globalThis.fetch;
-    __resetCycloneConeCacheForTests();
+    resetCycloneConeCache();
   });
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -192,8 +192,8 @@ describe("cyclone dossier with real text products", () => {
         throw new Error("unexpected fetch in test: " + u);
       }) as unknown as typeof fetch;
       __resetCyclonesCacheForTests();
-      __resetCycloneConeCacheForTests();
-      __resetCycloneDossierCacheForTests();
+      resetCycloneConeCache();
+      resetCycloneDossierCache();
       // Prime the per-storm product URL stash via a real poll.
       await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
     });

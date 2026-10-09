@@ -215,6 +215,6 @@ export async function fetchCycloneHazards(stormId: string): Promise<CycloneHazar
   return { threats, peakSurge, windChances, arrival };
 }
 
-export function __resetCycloneHazardsCacheForTests(): void {
+export function resetCycloneHazardsCache(): void {
   nationalKmlCache.reset();
 }

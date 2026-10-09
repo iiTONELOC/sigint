@@ -301,9 +301,10 @@ function strokeOverImagery(scene: CycloneMiniMapScene, colors: ThemeColors, outl
 
 function drawRasters(scene: CycloneMiniMapScene, request: RasterRequest): void {
   const now = Date.now();
+  for (const source of request.sources) request.cache.request(request.stormId, source, request.area.bounds, now);
+  const animate = request.animate && request.sources.every((source) => request.cache.loaded(source, request.area.bounds, now));
   const images = request.sources.flatMap((source) => {
-    request.cache.request(request.stormId, source, request.area.bounds, now);
-    const image = request.cache.peek(source, request.area.bounds, now, request.animate);
+    const image = request.cache.peek(source, request.area.bounds, now, animate);
     return image ? [image] : [];
   });
   for (const image of images) paintRaster(scene.context, scene.project, image, request.area.circle);
@@ -384,7 +385,7 @@ function CycloneForecastCanvas({ item, focus, models, overlay, hazards }: Cyclon
   const { reducedMotion } = useRenderGlobeState();
   const rasterCache = useMemo(() => new StormRasterCache(), []);
   const rasterSources = visibleRasterSources(overlay);
-  const rasterArea = rasterSources.length > 0 ? stormRasterArea(current.lat, current.lon, windRadii?.kt34 ?? []) : null;
+  const rasterArea = rasterSources.length > 0 ? stormRasterArea(item.lat, item.lon, windRadii?.kt34 ?? []) : null;
   const midLat = (minLat + maxLat) / 2;
   const midLon = (minLon + maxLon) / 2;
   const latitudeSpan = maxLat - minLat;

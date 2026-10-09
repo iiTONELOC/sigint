@@ -42,6 +42,6 @@ export async function getCycloneCone(stormId: string): Promise<CycloneConeResult
   return { cone: value, fetchedAt };
 }
 
-export function __resetCycloneConeCacheForTests(): void {
+export function resetCycloneConeCache(): void {
   coneCache.reset();
 }
