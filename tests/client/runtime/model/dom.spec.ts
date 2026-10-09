@@ -5,32 +5,26 @@ import {
   DomKey,
   DomVisibilityState,
   ServiceWorkerCache,
-  ServiceWorkerElementId,
-  ServiceWorkerLifecycleState,
-  ServiceWorkerMessage,
   ServiceWorkerPath,
   ServiceWorkerRequestMethod,
   ServiceWorkerRequestMode,
-  ServiceWorkerTiming,
 } from "@/runtime";
 
-function expectUniqueValues<T>(values: readonly T[]): void {
-  expect(new Set(values).size).toBe(values.length);
-}
+const RUNTIME_VOCABULARIES: readonly (readonly string[])[] = [
+  Object.values(DomEvent),
+  Object.values(DomInputType),
+  Object.values(DomKey),
+  Object.values(DomVisibilityState),
+  Object.values(ServiceWorkerCache),
+  Object.values(ServiceWorkerPath),
+  Object.values(ServiceWorkerRequestMethod),
+  Object.values(ServiceWorkerRequestMode),
+];
 
 describe("DOM runtime model", () => {
   test("owns unique browser runtime values", () => {
-    expectUniqueValues(Object.values(DomEvent));
-    expectUniqueValues(Object.values(DomInputType));
-    expectUniqueValues(Object.values(DomKey));
-    expectUniqueValues(Object.values(DomVisibilityState));
-    expectUniqueValues(Object.values(ServiceWorkerCache));
-    expectUniqueValues(Object.values(ServiceWorkerElementId));
-    expectUniqueValues(Object.values(ServiceWorkerLifecycleState));
-    expectUniqueValues(Object.values(ServiceWorkerMessage));
-    expectUniqueValues(Object.values(ServiceWorkerPath));
-    expectUniqueValues(Object.values(ServiceWorkerRequestMethod));
-    expectUniqueValues(Object.values(ServiceWorkerRequestMode));
-    expectUniqueValues(Object.values(ServiceWorkerTiming));
+    for (const values of RUNTIME_VOCABULARIES) {
+      expect(new Set(values).size).toBe(values.length);
+    }
   });
 });

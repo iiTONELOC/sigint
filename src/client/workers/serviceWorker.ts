@@ -3,7 +3,6 @@
 import {
   DomEvent,
   ServiceWorkerCache,
-  ServiceWorkerMessage,
   ServiceWorkerPath,
   ServiceWorkerRequestMethod,
   ServiceWorkerRequestMode,
@@ -16,22 +15,12 @@ declare const self: ServiceWorkerGlobalScope;
 const CACHE_NAME = `${ServiceWorkerCache.Prefix}${__SIGINT_BUILD_ID__}`;
 const PRECACHE_URLS = [...__SIGINT_PRECACHE_URLS__];
 
-type ActivationCommand = {
-  type: ServiceWorkerMessage.ActivateWaiting;
-};
-
-function isActivationCommand(value: unknown): value is ActivationCommand {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    value.type === ServiceWorkerMessage.ActivateWaiting
-  );
-}
-
 self.addEventListener(DomEvent.Install, (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -72,8 +61,4 @@ self.addEventListener(DomEvent.Fetch, (event) => {
       return fetch(request);
     }),
   );
-});
-
-self.addEventListener(DomEvent.Message, (event) => {
-  if (isActivationCommand(event.data)) self.skipWaiting();
 });

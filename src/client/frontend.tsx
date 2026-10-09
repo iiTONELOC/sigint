@@ -6,17 +6,10 @@ import { cacheInit } from "./lib/cache/storageService";
 import { initBaseline } from "./lib/correlation";
 import { initLand } from "./lib/geo/landService";
 import { initAirports } from "./lib/geo/airportService";
-import { registerSW, applyUpdate } from "./lib/runtime/swRegistration";
+import { registerSW } from "./lib/runtime/swRegistration";
 import { ensureAuthCookie } from "./lib/net/authService";
 import { registerRenderSurfaceElement } from "./render-surface/registration";
-import {
-  DomEvent,
-  DomElementTag,
-  ServiceWorkerClassName,
-  ServiceWorkerElementId,
-  ServiceWorkerTiming,
-  ServiceWorkerUpdateText,
-} from "./runtime";
+import { DomElementTag } from "./runtime";
 
 enum FrontendElementId {
   Root = "root",
@@ -99,38 +92,7 @@ async function streamNewsProvider(): Promise<void> {
   await newsProvider.refresh().catch(() => {});
 }
 
-registerSW({
-  onUpdate: () => {
-    if (document.getElementById(ServiceWorkerElementId.UpdateBanner)) return;
-
-    const bar = document.createElement(DomElementTag.Container);
-    bar.id = ServiceWorkerElementId.UpdateBanner;
-    bar.className = ServiceWorkerClassName.UpdateBanner;
-    bar.innerHTML = `
-      <div class="${ServiceWorkerClassName.UpdateInner}">
-        <span class="${ServiceWorkerClassName.UpdateDot}"></span>
-        <span class="${ServiceWorkerClassName.UpdateTitle}">${ServiceWorkerUpdateText.Title}</span>
-        <span class="${ServiceWorkerClassName.UpdateSubtitle}">${ServiceWorkerUpdateText.Subtitle}</span>
-        <button id="${ServiceWorkerElementId.ReloadUpdate}">${ServiceWorkerUpdateText.Reload}</button>
-        <button id="${ServiceWorkerElementId.DismissUpdate}">${ServiceWorkerUpdateText.Dismiss}</button>
-      </div>
-    `;
-    document.body.prepend(bar);
-
-    bar
-      .querySelector(`#${ServiceWorkerElementId.ReloadUpdate}`)
-      ?.addEventListener(DomEvent.Click, applyUpdate);
-    bar
-      .querySelector(`#${ServiceWorkerElementId.DismissUpdate}`)
-      ?.addEventListener(DomEvent.Click, () => {
-        bar.classList.add(ServiceWorkerClassName.DismissedUpdate);
-        setTimeout(
-          () => bar.remove(),
-          ServiceWorkerTiming.DismissAnimationMs,
-        );
-      });
-  },
-});
+registerSW();
 
 await cacheReady;
 await streamNewsProvider();

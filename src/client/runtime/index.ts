@@ -11,14 +11,10 @@ export {
   DomVisibilityState,
 } from "./model/dom";
 export {
+  SERVICE_WORKER_UPDATE_CHECK_MS,
+  SERVICE_WORKER_UPDATE_VIA_CACHE,
   ServiceWorkerCache,
-  ServiceWorkerClassName,
-  ServiceWorkerElementId,
-  ServiceWorkerLifecycleState,
-  ServiceWorkerMessage,
   ServiceWorkerPath,
   ServiceWorkerRequestMethod,
   ServiceWorkerRequestMode,
-  ServiceWorkerTiming,
-  ServiceWorkerUpdateText,
 } from "./model/serviceWorker";

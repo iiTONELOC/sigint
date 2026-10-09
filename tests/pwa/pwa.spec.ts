@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
 import {
   BUILD_ID_LENGTH,
   collectArtifactPaths,
@@ -82,14 +82,19 @@ describe("production service worker", () => {
     expect(source).not.toContain("cache.put(");
   });
 
-  test("activates only the waiting build through a typed command", async () => {
-    const source = await Bun.file(
+  test("a new build takes over as soon as it is cached and open pages reload once", async () => {
+    const worker = await Bun.file(
+      join(projectRoot, "src/client/workers/serviceWorker.ts"),
+    ).text();
+    const registration = await Bun.file(
       join(projectRoot, "src/client/lib/runtime/swRegistration.ts"),
     ).text();
 
-    expect(source).toContain("registration?.waiting?.postMessage");
-    expect(source).toContain("ServiceWorkerMessage.ActivateWaiting");
-    expect(source).not.toContain("controller?.postMessage");
+    expect(worker.indexOf("cache.addAll(PRECACHE_URLS)")).toBeLessThan(worker.indexOf("self.skipWaiting()"));
+    expect(worker).not.toContain("DomEvent.Message");
+    expect(registration).toContain("SERVICE_WORKER_UPDATE_VIA_CACHE");
+    expect(registration).toContain("window.location.reload()");
+    expect(registration).not.toContain("onUpdate");
   });
 
   test("checks on visibility, connectivity, and a named cadence", async () => {
@@ -99,7 +104,7 @@ describe("production service worker", () => {
 
     expect(source).toContain("DomEvent.VisibilityChange");
     expect(source).toContain("DomEvent.Online");
-    expect(source).toContain("ServiceWorkerTiming.UpdateCheckMilliseconds");
+    expect(source).toContain("SERVICE_WORKER_UPDATE_CHECK_MS");
     expect(source).toContain("updateCheck");
   });
 });

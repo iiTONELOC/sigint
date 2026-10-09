@@ -151,7 +151,7 @@ Lazy panes must not start expensive hidden work.
 
 The service worker owns application assets and update activation. It must not cache API responses as authoritative source data.
 
-The update command must target the waiting worker. It must not target the old active controller.
+A new worker activates as soon as it has cached the new build. Each open page reloads once when its controller changes, so updates need no user action.
 
 ## Security
 
