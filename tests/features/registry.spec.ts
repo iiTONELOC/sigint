@@ -34,6 +34,7 @@ describe("feature registry", () => {
       Domain.Weather,
       Domain.Cyclones,
       Domain.CyclonesForecast,
+      Domain.CyclonesPast,
       Domain.CyclonesWarning,
     ];
     expected.sort();

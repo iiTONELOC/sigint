@@ -15,12 +15,15 @@ import {
 } from "../_support/cyclone";
 import {
   cycloneForecastSceneId,
+  cyclonePastPointSceneId,
 } from "@shared/scene";
 import { Domain } from "@shared/domain/identity";
 import { sourceForPointType } from "@shared/domain/pointSource";
 import {
   cycloneForecastPoint,
+  isCycloneSourceEntity,
 } from "@/features/environmental/cyclones/data/forecastProjection";
+import { canonicalEntityId } from "@/features/base/dataPoints";
 import {
   DATA_WORKER_PROTOCOL_VERSION,
   DataWorkerMessageType,
@@ -186,5 +189,35 @@ describe("cyclone source reconciliation", () => {
       extended.data.pastTrack,
     );
     expect(patches[3]?.deletedIds).toEqual([initial.id]);
+  });
+
+  test("resolves a past track interaction to a point under its storm", async () => {
+    const storm = testCyclonePoint({ pastTrack: [TEST_CYCLONE_PAST_TRACK] });
+    const source = new CycloneSource({
+      fetchSnapshot: async () => ({
+        completeness: SourceCompleteness.Complete,
+        entities: [storm],
+        observedAt: TestTime.First,
+      }),
+    });
+    source.attach({
+      readCache: async () => null,
+      persistCache: () => undefined,
+      deleteCache: () => undefined,
+      publishStatus: () => undefined,
+      publishPatch: () => undefined,
+    });
+    await source.refresh();
+
+    const past = source.resolveEntity(
+      cyclonePastPointSceneId(storm.id, TEST_CYCLONE_PAST_TRACK.validTime),
+    );
+
+    expect(past?.type).toBe(Domain.CyclonesPast);
+    expect(isCycloneSourceEntity(past)).toBe(true);
+    expect(past?.lat).toBe(TEST_CYCLONE_PAST_TRACK.lat);
+    expect(past?.lon).toBe(TEST_CYCLONE_PAST_TRACK.lon);
+    expect(canonicalEntityId(past ?? storm)).toBe(storm.id);
+    expect(source.resolveEntity(cyclonePastPointSceneId(storm.id, "1999010100"))).toBeNull();
   });
 });

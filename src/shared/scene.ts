@@ -183,8 +183,8 @@ export function cycloneForecastSceneId(
   ].join(CycloneSceneText.Empty);
 }
 
-export function cyclonePastPointSceneId(parentId: string, index: number): string {
-  return cycloneChildSceneId(parentId, CycloneSceneIdToken.PastPoint, index);
+export function cyclonePastPointSceneId(parentId: string, validTime: string): string {
+  return cycloneChildSceneId(parentId, CycloneSceneIdToken.PastPoint, validTime);
 }
 
 export function cycloneHazardSceneId(parentId: string, role: CycloneSceneRole, index: number): string {

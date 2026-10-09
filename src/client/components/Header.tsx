@@ -183,6 +183,7 @@ function shouldShowLayerToggle(
   if (
     featureId === Domain.Aircraft ||
     featureId === Domain.CyclonesForecast ||
+    featureId === Domain.CyclonesPast ||
     featureId === Domain.CyclonesWarning
   ) {
     return false;

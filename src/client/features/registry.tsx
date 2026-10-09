@@ -9,6 +9,7 @@ import { firesFeature } from "./environmental/fires";
 import { weatherFeature } from "./environmental/weather";
 import { cycloneFeature } from "./environmental/cyclones/definition";
 import { cycloneForecastFeature } from "./environmental/cyclones/forecastDefinition";
+import { cyclonePastFeature } from "./environmental/cyclones/pastDefinition";
 import { cycloneWarningFeature } from "./environmental/cyclones/warningDefinition";
 
 export const featureRegistry: Readonly<Record<DataType, FeatureDefinition>> = {
@@ -20,6 +21,7 @@ export const featureRegistry: Readonly<Record<DataType, FeatureDefinition>> = {
   [Domain.Weather]: weatherFeature,
   [Domain.Cyclones]: cycloneFeature,
   [Domain.CyclonesForecast]: cycloneForecastFeature,
+  [Domain.CyclonesPast]: cyclonePastFeature,
   [Domain.CyclonesWarning]: cycloneWarningFeature,
 };
 

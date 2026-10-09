@@ -26,7 +26,7 @@ enum CycloneForecastText {
   NotIssued = "not issued",
 }
 
-enum CycloneForecastRowLabel {
+export enum CyclonePointRowLabel {
   Storm = "Storm",
   Basin = "Basin",
   Forecast = "Forecast",
@@ -34,6 +34,7 @@ enum CycloneForecastRowLabel {
   Pressure = "Pressure",
   Class = "Class",
   TrackError = "Track error",
+  Time = "Time",
 }
 
 export const NOW_LABEL = "NOW";
@@ -63,18 +64,18 @@ export const cycloneForecastFeature = defineFeature<
   TickerContent: CycloneForecastTickerContent,
 
   buildDetailRows: (data: CycloneForecastPointData) => {
-    const pressureRow: [CycloneForecastRowLabel, string][] =
+    const pressureRow: [CyclonePointRowLabel, string][] =
       data.minPressureMb == null
         ? []
-        : [[CycloneForecastRowLabel.Pressure, formatPressureMb(data.minPressureMb)]];
-    const rows: [CycloneForecastRowLabel, string][] = [
-      [CycloneForecastRowLabel.Storm, data.parentName],
-      [CycloneForecastRowLabel.Basin, BASIN_LABEL[data.parentBasin]],
-      [CycloneForecastRowLabel.Forecast, leadTime(data.fcstHour)],
-      [CycloneForecastRowLabel.Winds, formatKtMph(data.maxWindKt)],
+        : [[CyclonePointRowLabel.Pressure, formatPressureMb(data.minPressureMb)]];
+    const rows: [CyclonePointRowLabel, string][] = [
+      [CyclonePointRowLabel.Storm, data.parentName],
+      [CyclonePointRowLabel.Basin, BASIN_LABEL[data.parentBasin]],
+      [CyclonePointRowLabel.Forecast, leadTime(data.fcstHour)],
+      [CyclonePointRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,
-      [CycloneForecastRowLabel.Class, CYCLONE_CATEGORY_METADATA[data.category].label],
-      [CycloneForecastRowLabel.TrackError, trackErrorText(data.errorRadiusNm)],
+      [CyclonePointRowLabel.Class, CYCLONE_CATEGORY_METADATA[data.category].label],
+      [CyclonePointRowLabel.TrackError, trackErrorText(data.errorRadiusNm)],
     ];
     return rows.map(([label, value]) => [label.toUpperCase(), value]);
   },

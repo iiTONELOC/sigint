@@ -14,6 +14,7 @@ import {
 } from "@/workers/render/scene/cycloneLayer";
 import {
   cycloneForecastSceneId,
+  cyclonePastPointSceneId,
 } from "@shared/scene";
 import {
   SceneHitKind,
@@ -27,6 +28,7 @@ import {
 import { Domain } from "@shared/domain/identity";
 import {
   TEST_CYCLONE_FORECAST,
+  TEST_CYCLONE_PAST_TRACK,
   testCycloneScenePoint,
 } from "../_support/cyclone";
 
@@ -201,6 +203,26 @@ describe("cyclone scene layer", () => {
       latitude: TEST_CYCLONE_FORECAST.lat,
       longitude: TEST_CYCLONE_FORECAST.lon,
     });
+  });
+
+  test("uses past point interaction identity while the track is shown", () => {
+    const { layer, point } = projectedForecastLayer();
+    const pastId = cyclonePastPointSceneId(
+      point.id,
+      TEST_CYCLONE_PAST_TRACK.validTime,
+    );
+    const hit = layer.nearest(SceneHitKind.Point, 124, 76, 0.5, 10);
+    expect(hit?.sceneId).toBe(pastId);
+    expect(hit ? layer.interactionIdentity(hit) : null).toEqual({
+      source: Domain.Cyclones,
+      entityId: point.id,
+      interactionId: pastId,
+      pointType: Domain.CyclonesPast,
+    });
+    expect(layer.selectionAnchor(pastId)).not.toBeNull();
+
+    layer.project(frame(), filter(false), Date.parse(point.data.lastUpdate));
+    expect(layer.nearest(SceneHitKind.Point, 124, 76, 0.5, 10)).toBeNull();
   });
 
   test("draws the scene records", () => {

@@ -61,6 +61,7 @@ import { zoomScale } from "@/workers/render/workerMath";
 import { scenePositionFromView, type SceneResolvedPosition } from "@/workers/render/scene/scenePosition";
 import { CycloneScenePositionAccessor } from "@/workers/render/scene/cyclonePosition";
 import { Domain } from "@shared/domain/identity";
+import type { PointType } from "@shared/domain/pointType";
 import { sceneSchemaMatches } from "@shared/domain/pointSource";
 import type { GeoLineString } from "@shared/geo";
 import { GeoMeasurement } from "@shared/geo";
@@ -204,17 +205,22 @@ function roleAt(view: RenderSceneView, index: number): CycloneSceneRole | null {
   return cycloneRole(role);
 }
 
+const CYCLONE_ROLE_POINT_TYPES: ReadonlyMap<CycloneSceneRole | null, PointType> = new Map([
+  [CycloneSceneRole.Forecast, Domain.CyclonesForecast],
+  [CycloneSceneRole.PastPoint, Domain.CyclonesPast],
+]);
+
 function cycloneSelectionIdentity(
   role: CycloneSceneRole | null,
   sceneId: string,
   entityId: string,
 ): RenderSelectionIdentity {
-  const forecast = role === CycloneSceneRole.Forecast;
+  const pointType = CYCLONE_ROLE_POINT_TYPES.get(role) ?? Domain.Cyclones;
   return {
     source: Domain.Cyclones,
     entityId,
-    interactionId: forecast ? sceneId : entityId,
-    pointType: forecast ? Domain.CyclonesForecast : Domain.Cyclones,
+    interactionId: pointType === Domain.Cyclones ? entityId : sceneId,
+    pointType,
   };
 }
 
@@ -280,7 +286,7 @@ function glowAlphaSuffix(stop: CycloneGlowStop): string {
     .padStart(CycloneGlowAlphaFormat.HexWidth, CYCLONE_GLOW_ZERO);
 }
 
-const CYCLONE_POINT_TYPES: ReadonlySet<string> = new Set([Domain.Cyclones, Domain.CyclonesForecast]);
+const CYCLONE_POINT_TYPES: ReadonlySet<string> = new Set([Domain.Cyclones, ...CYCLONE_ROLE_POINT_TYPES.values()]);
 
 function baseRecordIsVisible(
   view: RenderSceneView,
@@ -368,7 +374,7 @@ export class CycloneLayer extends ScenePointLayer<
         return (
           this.recordIncludes(view, index, filter) &&
           (role === CycloneSceneRole.Current ||
-            (role === CycloneSceneRole.Forecast &&
+            ((role === CycloneSceneRole.Forecast || role === CycloneSceneRole.PastPoint) &&
               entityId !== null &&
               this.recordSets.get(entityId)?.overlay.showForecast === true))
         );
@@ -453,13 +459,18 @@ export class CycloneLayer extends ScenePointLayer<
     return role !== null && baseRecordIsVisible(view, index, role, filter);
   }
 
-  /** Per visible record: forecast points draw as faded dots; current eyes draw in `draw`. */
+  /** Per visible record: forecast points draw as faded dots; current eyes and past dots draw in `draw`. */
   protected drawRecord(
     view: RenderSceneView,
     index: number,
     style: CycloneSceneStyle,
   ): void {
-    if (roleAt(view, index) !== CycloneSceneRole.Forecast) return;
+    const role = roleAt(view, index);
+    if (role === CycloneSceneRole.PastPoint) {
+      this.drawPastSelection(view, index, style);
+      return;
+    }
+    if (role !== CycloneSceneRole.Forecast) return;
     const projection = this.projection.projection(index);
     const sceneId = view.sceneIds[index] ?? null;
     if (!projection || !sceneId) return;
@@ -499,6 +510,20 @@ export class CycloneLayer extends ScenePointLayer<
         style.context, projection.x, projection.y, radius, color, ringTime(style),
       );
     }
+  }
+
+  private drawPastSelection(
+    view: RenderSceneView,
+    index: number,
+    style: CycloneSceneStyle,
+  ): void {
+    const projection = this.projection.projection(index);
+    if (!projection || (view.sceneIds[index] ?? null) !== style.selectedId) return;
+    const color = windColor(sceneNumericAttribute(view, index, CycloneSceneAttribute.MaxWindKt));
+    style.context.globalAlpha = CYCLONE_CANVAS_OPAQUE_ALPHA;
+    drawSelectionRing(
+      style.context, projection.x, projection.y, CyclonePastPointStyle.Radius, color, ringTime(style),
+    );
   }
 
   private drawCurrent(

@@ -116,7 +116,7 @@ The React feature registry does not own source records or render records.
 | Cyclones | Moving | Path |
 | Cyclone warnings | Stationary | Polygon |
 
-Cyclone forecast points are interaction records from the cyclone source. They are not a separate source owner.
+Cyclone forecast points and past track points are interaction records from the cyclone source. They are not separate source owners.
 
 ## Aircraft
 

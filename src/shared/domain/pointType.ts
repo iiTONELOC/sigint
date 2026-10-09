@@ -9,4 +9,5 @@ export type PointType =
   | Domain.Weather
   | Domain.Cyclones
   | Domain.CyclonesForecast
+  | Domain.CyclonesPast
   | Domain.CyclonesWarning;

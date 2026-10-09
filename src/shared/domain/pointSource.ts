@@ -85,7 +85,7 @@ const POINT_SOURCE_POLICIES = {
   },
   [Domain.Cyclones]: {
     pointType: Domain.Cyclones,
-    interactionPointTypes: [Domain.CyclonesForecast],
+    interactionPointTypes: [Domain.CyclonesForecast, Domain.CyclonesPast],
     cacheKey: CacheKey.Cyclones,
     pollIntervalMs: PointSourcePollInterval.FiveMinutesMs,
     sceneSchema: {

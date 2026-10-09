@@ -17,6 +17,7 @@ import { FireDossier } from "@/features/environmental/fires/ui/FireDossier";
 import { WeatherDossier } from "@/features/environmental/weather/ui/WeatherDossier";
 import { CycloneDossier } from "@/features/environmental/cyclones/ui/CycloneDossier";
 import { CycloneForecastDossier } from "@/features/environmental/cyclones/ui/CycloneForecastDossier";
+import { CyclonePastDossier } from "@/features/environmental/cyclones/ui/CyclonePastDossier";
 
 function bindDossier<TType extends DataType>(
   DossierContent: ComponentType<FeatureDossierProps<TType>>,
@@ -36,6 +37,8 @@ const DOSSIER_RENDERERS = {
     bindDossier<Domain.Cyclones>(CycloneDossier),
   [Domain.CyclonesForecast]:
     bindDossier<Domain.CyclonesForecast>(CycloneForecastDossier),
+  [Domain.CyclonesPast]:
+    bindDossier<Domain.CyclonesPast>(CyclonePastDossier),
   [Domain.CyclonesWarning]:
     bindDossier<Domain.CyclonesWarning>(WeatherDossier),
   [Domain.Quakes]:

@@ -9,14 +9,16 @@ import {
 import {
   Category,
   SaffirSimpson,
+  atcfTimeMs,
   saffirSimpsonForWind,
   type CycloneForecastPointData,
   type ForecastPoint,
+  type PastTrackPoint,
 } from "@shared/domain/cyclones";
 import { isNhcBasin } from "@shared/cyclonesSeason";
 import { Domain } from "@shared/domain/identity";
 import { isRecord } from "@shared/geo";
-import { cycloneForecastSceneId } from "@shared/scene";
+import { cycloneForecastSceneId, cyclonePastPointSceneId } from "@shared/scene";
 import { isEnumValue, isNumberEnumValue } from "@shared/types/enum";
 
 /** Bounded UI projection for one forecast scene interaction. */
@@ -25,22 +27,33 @@ export type CycloneForecastPoint = Extract<
   { type: Domain.CyclonesForecast }
 >;
 
-function isForecastData(
-  value: unknown,
-): value is CycloneForecastPointData {
+export type CyclonePastPoint = Extract<
+  DataPoint,
+  { type: Domain.CyclonesPast }
+>;
+
+function isParentPointData(value: unknown): value is Readonly<Record<string, unknown>> {
   return (
     isRecord(value) &&
     typeof value.parentEntityId === "string" &&
     typeof value.parentName === "string" &&
     isNhcBasin(value.parentBasin) &&
-    typeof value.fcstHour === "number" &&
-    Number.isFinite(value.fcstHour) &&
     typeof value.validTime === "string" &&
     typeof value.maxWindKt === "number" &&
     Number.isFinite(value.maxWindKt) &&
     (value.minPressureMb === undefined ||
       (typeof value.minPressureMb === "number" &&
-        Number.isFinite(value.minPressureMb))) &&
+        Number.isFinite(value.minPressureMb)))
+  );
+}
+
+function isForecastData(
+  value: unknown,
+): value is CycloneForecastPointData {
+  return (
+    isParentPointData(value) &&
+    typeof value.fcstHour === "number" &&
+    Number.isFinite(value.fcstHour) &&
     isEnumValue(value.category, Category) &&
     isNumberEnumValue(value.saffirSimpson, SaffirSimpson) &&
     typeof value.errorRadiusNm === "number" &&
@@ -57,10 +70,51 @@ export function isCycloneForecastPoint(
   );
 }
 
+export function isCyclonePastPoint(
+  value: unknown,
+): value is CyclonePastPoint {
+  return (
+    hasPointShape(value, Domain.CyclonesPast) &&
+    isParentPointData(value.data)
+  );
+}
+
 export function isCycloneSourceEntity(
   value: unknown,
-): value is CyclonePoint | CycloneForecastPoint {
-  return isCyclonePoint(value) || isCycloneForecastPoint(value);
+): value is CyclonePoint | CycloneForecastPoint | CyclonePastPoint {
+  return isCyclonePoint(value) || isCycloneForecastPoint(value) || isCyclonePastPoint(value);
+}
+
+export function cyclonePastPoint(
+  cyclone: CyclonePoint,
+  point: PastTrackPoint,
+): CyclonePastPoint {
+  const timeMs = atcfTimeMs(point.validTime);
+  return {
+    id: cyclonePastPointSceneId(cyclone.id, point.validTime),
+    type: Domain.CyclonesPast,
+    lat: point.lat,
+    lon: point.lon,
+    ...(Number.isFinite(timeMs) ? { timestamp: new Date(timeMs).toISOString() } : {}),
+    data: {
+      parentEntityId: cyclone.id,
+      parentName: cyclone.data.name,
+      parentBasin: cyclone.data.basin,
+      validTime: point.validTime,
+      maxWindKt: point.vmaxKt,
+      ...(point.minPressureMb == null ? {} : { minPressureMb: point.minPressureMb }),
+    },
+  };
+}
+
+export function cyclonePastProjection(
+  cyclone: CyclonePoint,
+  sceneId: string,
+): CyclonePastPoint | null {
+  const point = cyclone.data.pastTrack?.find(
+    (past) => cyclonePastPointSceneId(cyclone.id, past.validTime) === sceneId,
+  );
+  return point ? cyclonePastPoint(cyclone, point) : null;
 }
 
 export function cycloneForecastPoint(

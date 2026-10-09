@@ -38,6 +38,7 @@ export function getColorMap(theme: Theme): FeatureColorMap {
     [Domain.Quakes]: layerColor(theme, Domain.Quakes),
     [Domain.Fires]: layerColor(theme, Domain.Fires),
     [Domain.CyclonesForecast]: cycloneColor,
+    [Domain.CyclonesPast]: cycloneColor,
     [Domain.CyclonesWarning]: cycloneColor,
   };
 }

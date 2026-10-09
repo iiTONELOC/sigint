@@ -441,6 +441,15 @@ export type CycloneForecastPointData = {
   errorRadiusNm: number;
 };
 
+export type CyclonePastPointData = {
+  parentEntityId: string;
+  parentName: string;
+  parentBasin: CycloneBasin;
+  validTime: string;
+  maxWindKt: number;
+  minPressureMb?: number;
+};
+
 export type CycloneWarningData = WeatherData &
   Readonly<{
     kind: AreaKind;

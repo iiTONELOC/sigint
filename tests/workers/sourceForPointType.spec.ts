@@ -44,6 +44,10 @@ describe("sourceForPointType", () => {
   test("forecast interactions resolve through the cyclone source", () => {
     expect(sourceForPointType(Domain.CyclonesForecast)).toBe(Domain.Cyclones);
   });
+
+  test("past track interactions resolve through the cyclone source", () => {
+    expect(sourceForPointType(Domain.CyclonesPast)).toBe(Domain.Cyclones);
+  });
 });
 
 describe("canonicalEntityId", () => {

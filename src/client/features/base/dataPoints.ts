@@ -9,10 +9,9 @@ import type { WeatherPoint } from "@shared/domain/weather";
 import type {
   CycloneData,
   CycloneForecastPointData,
+  CyclonePastPointData,
   CycloneWarningPoint,
 } from "@shared/domain/cyclones";
-
-// ── DataPoint union ──────────────────────────────────────────────────
 
 export type DataPoint =
   | ShipPoint
@@ -25,13 +24,15 @@ export type DataPoint =
       type: Domain.CyclonesForecast;
       data: CycloneForecastPointData;
     })
+  | (BasePoint & { type: Domain.CyclonesPast; data: CyclonePastPointData })
   | (BasePoint & { type: Domain.Cyclones; data: CycloneData })
   | CycloneWarningPoint;
 
 export type DataType = DataPoint["type"];
 
 export function canonicalEntityId(point: DataPoint): string {
-  return point.type === Domain.CyclonesForecast
+  return point.type === Domain.CyclonesForecast ||
+    point.type === Domain.CyclonesPast
     ? point.data.parentEntityId
     : point.id;
 }

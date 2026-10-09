@@ -6,7 +6,9 @@ import {
 } from "@shared/geo";
 import {
   cycloneForecastProjection,
+  cyclonePastProjection,
   type CycloneForecastPoint,
+  type CyclonePastPoint,
 } from "@/features/environmental/cyclones/data/forecastProjection";
 import {
   isCyclonePoint,
@@ -227,12 +229,13 @@ export class CycloneSource extends GeoDataSource<CyclonePoint> {
 
   resolveEntity(
     id: string,
-  ): CyclonePoint | CycloneForecastPoint | null {
+  ): CyclonePoint | CycloneForecastPoint | CyclonePastPoint | null {
     const cyclone = this.get(id);
     if (cyclone) return cyclone;
     for (const candidate of this.values()) {
-      const forecast = cycloneForecastProjection(candidate, id);
-      if (forecast) return forecast;
+      const projected = cycloneForecastProjection(candidate, id) ??
+        cyclonePastProjection(candidate, id);
+      if (projected) return projected;
     }
     return null;
   }

@@ -57,7 +57,7 @@ Active Atlantic, Eastern Pacific, and Central Pacific basins from the [NHC `Curr
 - Estimated position between advisories along the forecast track
 - Official NHC 5-day forecast cone (KMZ parsed server-side into a GeoJSON polygon)
 - Forecast track points (12h–120h)
-- Past track from the NHC best track, colored by intensity at each fix
+- Past track from the NHC best track, colored by intensity at each fix; select a fix to see its time, wind, class, and pressure
 - Model tracks from the NHC ATCF guidance
 - Hazards: wind speed probabilities, tropical-storm-force wind arrival times, peak storm surge, threats and potential impacts
 - Satellite infrared (NOAA GOES) and radar (NOAA MRMS) loops around the storm

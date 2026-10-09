@@ -25,5 +25,6 @@ export enum Domain {
   Quakes = "quakes",
   Fires = "fires",
   CyclonesForecast = "cyclones-forecast",
+  CyclonesPast = "cyclones-past",
   CyclonesWarning = "cyclones-warning",
 }

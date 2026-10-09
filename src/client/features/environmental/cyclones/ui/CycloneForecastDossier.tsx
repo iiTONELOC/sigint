@@ -50,13 +50,17 @@ enum ForecastDossierText {
   Passed = "passed",
 }
 
-function Stat({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
+export function Stat({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
   return (
     <div className={ForecastDossierClassName.Clip}>
       <DossierLabel>{label}</DossierLabel>
       <div className="text-(length:--sig-text-md) text-sig-bright font-mono mt-0.5 wrap-anywhere">{children}</div>
     </div>
   );
+}
+
+export function StatGrid({ children }: Readonly<{ children: ReactNode }>) {
+  return <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3">{children}</div>;
 }
 
 function badgeText(data: CycloneForecastPointData): string {
@@ -116,7 +120,7 @@ function PointStats({ data, parent, forecast }: Readonly<{
   const distanceKm = parent && forecast ? haversineKm(parent.lat, parent.lon, forecast.lat, forecast.lon) : null;
   const bearing = parent && forecast ? Math.round(bearingDegrees(parent.lat, parent.lon, forecast.lat, forecast.lon)) : null;
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3">
+    <StatGrid>
       <Stat label="WINDS">
         {formatKtMph(data.maxWindKt)}
         {windDelta ? <span className={windDelta > 0 ? "text-sig-danger ml-1.5" : "text-sig-quakes ml-1.5"}>{windDelta > 0 ? "+" : ""}{windDelta}</span> : null}
@@ -132,11 +136,11 @@ function PointStats({ data, parent, forecast }: Readonly<{
       {distanceKm !== null && data.fcstHour > 0 && (
         <Stat label="AVG MOTION">{formatKtShort(Math.round(kmToNm(distanceKm) / data.fcstHour))}</Stat>
       )}
-    </div>
+    </StatGrid>
   );
 }
 
-function ParentStrip({ parent, onOpen }: Readonly<{ parent: CyclonePoint; onOpen: () => void }>) {
+export function ParentStrip({ parent, onOpen }: Readonly<{ parent: CyclonePoint; onOpen: () => void }>) {
   const { data } = parent;
   return (
     <DossierCard className="p-3 flex flex-wrap items-center justify-between gap-3">

@@ -107,10 +107,9 @@ function forecastRecord(
 function pastPointRecord(
   cyclone: CyclonePoint,
   point: PastTrackPoint,
-  index: number,
 ): CycloneSceneRecord {
   return {
-    ...baseRecord(cyclone, cyclonePastPointSceneId(cyclone.id, index), CycloneSceneRole.PastPoint),
+    ...baseRecord(cyclone, cyclonePastPointSceneId(cyclone.id, point.validTime), CycloneSceneRole.PastPoint),
     position: linePoint(point.lat, point.lon),
     timestamp: point.validTime,
     maxWindKt: point.vmaxKt,
@@ -223,7 +222,7 @@ export class CycloneSceneRecordProjector {
         forecastRecord(cyclone, forecast),
       ),
     ];
-    records.push(...(cyclone.data.pastTrack ?? []).map((point, index) => pastPointRecord(cyclone, point, index)));
+    records.push(...(cyclone.data.pastTrack ?? []).map((point) => pastPointRecord(cyclone, point)));
     const cone = coneRecord(cyclone);
     if (cone) records.push(cone);
     this.appendWindRadiusRecords(records, cyclone);

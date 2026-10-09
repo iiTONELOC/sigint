@@ -64,8 +64,9 @@ describe("cyclone scene publication", () => {
     expect(command?.sceneIds).toEqual([
       point.id,
       cycloneForecastSceneId(point.data.stormId, 24),
-      cyclonePastPointSceneId(point.id, 0),
-      cyclonePastPointSceneId(point.id, 1),
+      ...(point.data.pastTrack ?? []).map((past) =>
+        cyclonePastPointSceneId(point.id, past.validTime),
+      ),
       cycloneWindRadiusSceneId(
         point.id,
         CYCLONE_CATEGORY_METADATA[Category.TropicalStorm].minimumWindKt,
