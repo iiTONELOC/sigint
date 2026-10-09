@@ -62,7 +62,7 @@ class ProbeSource extends WeatherAlertSource {
 
 describe("weather cache boundary", () => {
   test("accepts an alert whose position and geometry are in range", () => {
-    expect(parseWeatherCache([makeAlert()])).toHaveLength(1);
+    expect(parseWeatherCache([makeAlert()], Date.parse("2026-07-29T12:00:00Z"))).toHaveLength(1);
   });
 
   test("rejects an alert whose latitude is outside the sphere", () => {

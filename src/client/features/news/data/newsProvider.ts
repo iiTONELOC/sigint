@@ -129,7 +129,7 @@ class NewsProvider {
       const fallback = this.cache?.data ?? persisted?.data ?? [];
       this.snapshot = {
         items: fallback,
-        lastUpdatedAt: Date.now(),
+        lastUpdatedAt: this.cache?.timestamp ?? persisted?.timestamp ?? null,
         loading: false,
         error: error instanceof Error
           ? error

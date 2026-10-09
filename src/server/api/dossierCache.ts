@@ -8,6 +8,7 @@ import {
   type AircraftMetadataRecord,
 } from "./aircraftEnrichment";
 import {
+  AIRCRAFT_DOSSIER_REFRESH_MS,
   AircraftEventTime,
   AircraftFlightEvent,
   AircraftRouteLimit,
@@ -35,7 +36,7 @@ const AIRCRAFT_DOSSIER_PROVIDER_ENDPOINTS = {
 } satisfies Readonly<Record<AircraftRouteSource, string>>;
 
 const AIRCRAFT_DOSSIER_CACHE_TIME = Object.freeze({
-  enrichedMs: 5 * MS_PER_MINUTE,
+  enrichedMs: AIRCRAFT_DOSSIER_REFRESH_MS,
   standardMs: 30 * MS_PER_MINUTE,
   sweepMs: 10 * MS_PER_MINUTE,
 });
@@ -92,13 +93,21 @@ function setCached<T>(
   key: string,
   data: T,
   ttl: number = AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
+  receivedAt: number = Date.now(),
 ): void {
-  const receivedAt = Date.now();
   textCache.set(key, {
     data,
     receivedAt,
     expiresAt: receivedAt + ttl,
   });
+}
+
+export function routeReceivedAt(
+  freshRoute: AircraftRoute | null,
+  previous: Readonly<{ data: AircraftDossierBundle; receivedAt: number }> | null,
+  now: number,
+): number {
+  return freshRoute === null && previous?.data.route ? previous.receivedAt : now;
 }
 
 setInterval(() => {
@@ -614,7 +623,12 @@ export async function getAircraftDossier(
   };
 
   if (hasAircraftDossierEnrichment(aircraft, route)) {
-    setCached(cacheKey, dossier, AIRCRAFT_DOSSIER_CACHE_TIME.standardMs);
+    setCached(
+      cacheKey,
+      dossier,
+      AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
+      routeReceivedAt(route, fallbackEntry, Date.now()),
+    );
   }
   void refreshHexDbDossier(
     cacheKey,
@@ -636,7 +650,8 @@ async function refreshHexDbDossier(
     routeRequest,
   ]);
   if (!aircraft && !route) return;
-  const cached = getCachedEntry<AircraftDossierBundle>(cacheKey)?.data ?? foreground;
+  const entry = getCachedEntry<AircraftDossierBundle>(cacheKey);
+  const cached = entry?.data ?? foreground;
   const enriched: AircraftDossierBundle = {
     ...cached,
     aircraft: aircraft ?? cached.aircraft,
@@ -646,6 +661,7 @@ async function refreshHexDbDossier(
     cacheKey,
     enriched,
     AIRCRAFT_DOSSIER_CACHE_TIME.standardMs,
+    routeReceivedAt(entry?.data.route ? null : route, entry, Date.now()),
   );
 }
 

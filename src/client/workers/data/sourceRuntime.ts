@@ -25,6 +25,7 @@ export type PointSourceFetchSnapshot<TEntity extends DatasetEntity> = Readonly<{
   completeness: DatasetCompleteness;
   entities: readonly TEntity[];
   observedAt: number;
+  upstreamError?: string;
 }>;
 
 export type PointSourceSchedule = (
@@ -104,6 +105,11 @@ function errorMessage(value: unknown): string {
   return value instanceof Error
     ? value.message
     : SourceRuntimeError.UpdateFailed;
+}
+
+function refreshedStatus(size: number, upstreamError: string | undefined): SourceStatus {
+  if (size === 0) return SourceStatus.Empty;
+  return upstreamError ? SourceStatus.Cached : SourceStatus.Live;
 }
 
 function defaultSchedule(callback: () => void, delayMs: number): () => void {
@@ -201,9 +207,9 @@ export function createPointSourceRuntime<TEntity extends DatasetEntity>(
         entities: values(),
       });
       publishStatus(
-        store.size() === 0 ? SourceStatus.Empty : SourceStatus.Live,
+        refreshedStatus(store.size(), snapshot.upstreamError),
         false,
-        null,
+        snapshot.upstreamError ?? null,
       );
       return true;
     } catch (error) {

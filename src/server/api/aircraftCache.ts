@@ -131,6 +131,13 @@ export function finalizeSweep(
   state.current = new Map();
 }
 
+export function pruneExpiredAircraft(state: SweepState, now: number): void {
+  const oldestKept = now - AircraftSourcePolicy.MaxStaleMs;
+  for (const [key, value] of state.completed) {
+    if (cachedObservedAt(value) < oldestKept) state.completed.delete(key);
+  }
+}
+
 const sweepState: SweepState = createSweepState();
 let sourcePhase: SourcePhase = SourcePhase.Cold;
 let sourceCompleteness: SourceCompleteness = SourceCompleteness.Unknown;
@@ -577,6 +584,7 @@ function buildAircraftSourceState(now: number): SourceState {
 }
 
 export function getAircraftCache(now = Date.now()): AircraftCache {
+  pruneExpiredAircraft(sweepState, now);
   const hasSnapshot =
     sweepState.completed.size > 0 || sourceCompleteness !== SourceCompleteness.Unknown;
   return {

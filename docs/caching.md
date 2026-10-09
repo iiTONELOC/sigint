@@ -44,6 +44,8 @@ After a successful refresh, the source runtime persists the accepted source reco
 
 A failed refresh retains valid records. The source status reports the failure and the retained cache state.
 
+The weather cache parser drops alerts whose expiry time has passed, so alerts that expired while the app was closed do not appear on load.
+
 ## Cache key contract
 
 `src/shared/domain/cache.ts` owns the `CacheKey` enum. Main-thread cache
@@ -114,6 +116,8 @@ When live observations arrive before hydration finishes, the recorder preserves 
 The DataWorker owns the aircraft dossier service and its cache. The service uses a bounded entry policy and an age policy.
 
 React requests one dossier by entity identifier. React does not read the complete dossier cache.
+
+An open aircraft dossier requests the dossier again every 5 minutes. The server keeps the original fetch time of a route that it carries forward after a failed FlightAware request, so that route expires on schedule.
 
 ## Earthquake data
 

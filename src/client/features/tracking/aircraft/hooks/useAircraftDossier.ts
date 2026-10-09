@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type {
-  AircraftDossierBundle,
+import {
+  AIRCRAFT_DOSSIER_REFRESH_MS,
+  type AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import type { AircraftPoint } from "@shared/domain/aircraft";
 import {
@@ -22,16 +23,21 @@ export function useAircraftDossier(
   useEffect(() => {
     if (!client) return;
     let active = true;
-    client.getAircraftDossier(entityId).then(
-      (dossier) => {
-        if (active) setState({ entityId, dossier });
-      },
-      () => {
-        if (active) setState({ entityId, dossier: null });
-      },
-    );
+    const load = () => {
+      client.getAircraftDossier(entityId).then(
+        (dossier) => {
+          if (active) setState({ entityId, dossier });
+        },
+        () => {
+          if (active) setState((current) => current?.entityId === entityId ? current : { entityId, dossier: null });
+        },
+      );
+    };
+    load();
+    const refresh = setInterval(load, AIRCRAFT_DOSSIER_REFRESH_MS);
     return () => {
       active = false;
+      clearInterval(refresh);
     };
   }, [client, entityId, requestKey]);
 

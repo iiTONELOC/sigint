@@ -45,8 +45,14 @@ export function isWeatherPoint(value: unknown): value is WeatherPoint {
   );
 }
 
+function weatherAlertExpired(point: WeatherPoint, now: number): boolean {
+  const expiresAt = Date.parse(point.data.expires ?? "");
+  return Number.isFinite(expiresAt) && expiresAt <= now;
+}
+
 export function parseWeatherCache(
   value: unknown,
+  now = Date.now(),
 ): readonly WeatherPoint[] | null {
-  return parsePointList(value, isWeatherPoint);
+  return parsePointList(value, isWeatherPoint)?.filter((point) => !weatherAlertExpired(point, now)) ?? null;
 }

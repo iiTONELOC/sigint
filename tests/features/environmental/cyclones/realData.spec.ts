@@ -9,7 +9,7 @@ import {
 } from "bun:test";
 import { resolve } from "path";
 import {
-  computeAdvisoryHash,
+  computeStormsSignature,
   fetchCyclones,
   getCyclonesCache,
   __resetCyclonesCacheForTests,
@@ -76,17 +76,17 @@ describe("parseTrackKml with real TRACK.kmz", () => {
 
 // Advisory hash for the refresh-freeze fix.
 
-describe("computeAdvisoryHash with real shape (advNum)", () => {
+describe("computeStormsSignature with real shape (advNum)", () => {
   test("reads publicAdvisory.advNum and changes when a new advisory arrives", async () => {
     const cs = JSON.parse(await realText("CurrentStorms.json")) as {
       activeStorms: Record<string, unknown>[];
     };
-    const h8 = computeAdvisoryHash(cs.activeStorms);
+    const h8 = computeStormsSignature(cs.activeStorms);
     expect(h8).toContain("008"); // real adv number is on publicAdvisory.advNum
 
     const next = JSON.parse(JSON.stringify(cs)) as typeof cs;
     (next.activeStorms[0]!.publicAdvisory as { advNum: string }).advNum = "009";
-    const h9 = computeAdvisoryHash(next.activeStorms);
+    const h9 = computeStormsSignature(next.activeStorms);
     expect(h9).not.toBe(h8); // A new advisory refreshes the hash.
   });
 });

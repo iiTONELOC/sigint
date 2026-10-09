@@ -4,6 +4,15 @@ import { optionalFiniteNumber } from "../types/numbers";
 
 export const FIRE_LATEST_ROUTE = "/api/fires/latest";
 
+export function fireAcquisitionTimeMs(acquisitionDate: string, acquisitionTime: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(acquisitionDate)) return null;
+  if (!/^\d{4}$/.test(acquisitionTime)) return null;
+  const timestamp = Date.parse(
+    `${acquisitionDate}T${acquisitionTime.slice(0, 2)}:${acquisitionTime.slice(2)}:00Z`,
+  );
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 export enum FireDayNight {
   Day = "D",
   Night = "N",

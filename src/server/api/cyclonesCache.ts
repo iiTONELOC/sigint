@@ -15,6 +15,8 @@ import {
 } from "../lib/fixtureOverride";
 import { HttpHeader, HttpMediaType, HttpStatus, HttpUserAgent } from "@shared/http";
 import { Domain } from "@shared/domain/identity";
+import { isRecord } from "@shared/geo";
+import { optionalString } from "@shared/text";
 import { ConfigField } from "../config";
 
 const logger = createLogger({ service: "nhc" });
@@ -42,7 +44,7 @@ let cache: CyclonesCache = {
 
 const validators: ValidatorStore = new Map();
 
-let lastAdvisoryHash: string | null = null;
+let lastStormsSignature: string | null = null;
 
 enum NhcProductField {
   KmzFile = "kmzFile",
@@ -86,37 +88,14 @@ const NHC_HEADERS: Record<string, string> = {
   [HttpHeader.Accept]: HttpMediaType.Json,
 };
 
-/** Hash sorted storm IDs and advisory numbers. */
-export function computeAdvisoryHash(activeStorms: readonly unknown[]): string {
-  type AdvisorySignature = { id: string; advisoryNumber: string | number | null };
-  const signatures: AdvisorySignature[] = [];
-  for (const storm of activeStorms) {
-    if (!storm || typeof storm !== "object") continue;
-    const record = storm as Record<string, unknown>;
-    const id = typeof record.id === "string" ? record.id : null;
-    if (!id) continue;
-    const publicAdvisory = record.publicAdvisory;
-    const currentAdvisoryNumber =
-      publicAdvisory && typeof publicAdvisory === "object"
-        ? (publicAdvisory as Record<string, unknown>).advNum
-        : undefined;
-    const forecastTrack = record.forecastTrack;
-    const legacyAdvisoryNumber =
-      forecastTrack && typeof forecastTrack === "object"
-        ? (forecastTrack as Record<string, unknown>).advisoryNumber
-        : undefined;
-    const advisoryNumber = currentAdvisoryNumber ?? legacyAdvisoryNumber;
-    signatures.push({
-      id,
-      advisoryNumber:
-        typeof advisoryNumber === "string" ||
-        typeof advisoryNumber === "number"
-          ? advisoryNumber
-          : null,
-    });
-  }
-  signatures.sort((left, right) => left.id.localeCompare(right.id));
-  return JSON.stringify(signatures);
+function stormId(storm: unknown): string {
+  return isRecord(storm) ? optionalString(storm.id) ?? "" : "";
+}
+
+export function computeStormsSignature(activeStorms: readonly unknown[]): string {
+  const storms = activeStorms.filter((storm) => stormId(storm) !== "");
+  storms.sort((left, right) => stormId(left).localeCompare(stormId(right)));
+  return JSON.stringify(storms);
 }
 
 const cycloneFixtureOverride = new FixtureOverrideOwner(
@@ -206,13 +185,13 @@ async function processCyclonesResponse(response: Response): Promise<void> {
     logger.warn("🌀 NHC: malformed response (no activeStorms array)");
     return;
   }
-  const advisoryHash = computeAdvisoryHash(normalized.activeStorms);
-  if (advisoryHash === lastAdvisoryHash && cache.body !== null) {
+  const stormsSignature = computeStormsSignature(normalized.activeStorms);
+  if (stormsSignature === lastStormsSignature && cache.body !== null) {
     cache = { ...cache, fetchedAt: Date.now(), error: null };
-    logger.info("🌀 NHC: advisories unchanged; cache is fresh");
+    logger.info("🌀 NHC: storms unchanged; cache is fresh");
     return;
   }
-  lastAdvisoryHash = advisoryHash;
+  lastStormsSignature = stormsSignature;
   refreshStormProducts(normalized.activeStorms);
   await enrichStorms(normalized.activeStorms);
   cache = {
@@ -304,6 +283,6 @@ export function getCyclonesCache(): CyclonesCache {
 export function __resetCyclonesCacheForTests(): void {
   cache = { body: null, fetchedAt: 0, stormCount: 0, error: null };
   validators.clear();
-  lastAdvisoryHash = null;
+  lastStormsSignature = null;
   stormProducts.clear();
 }

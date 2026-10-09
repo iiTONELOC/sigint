@@ -154,10 +154,12 @@ do not fetch or parse provider records.
 
 ## Fires
 
-The server polls the keyless NASA FIRMS 24-hour VIIRS feeds in NOAA-20,
-S-NPP, and NOAA-21 failover order. The first nonempty feed supplies the
-snapshot. The server does not union the feeds, and it retains the last good
-cache when every feed fails or returns no records.
+The server polls the keyless NASA FIRMS 24-hour VIIRS feeds every 10 minutes
+in NOAA-20, S-NPP, and NOAA-21 failover order. It revalidates the current feed
+with a conditional request, so an unchanged feed is not downloaded again. The
+first nonempty feed supplies the snapshot. The server does not union the feeds.
+It retains the last good cache when every feed fails or returns no records, and
+it serves only detections from the last 24 hours.
 
 `src/shared/domain/fireDayNight.ts` owns the normalized Fire payload and
 confidence vocabulary. The DataWorker owns Fire cache hydration, refresh,

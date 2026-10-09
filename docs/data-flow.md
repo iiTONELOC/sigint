@@ -75,6 +75,8 @@ The source runtime performs these operations:
 
 The runtime deduplicates concurrent refresh requests. It retains valid records after a failed refresh.
 
+A server response can carry its own fetch time and an upstream error. The runtime uses the server fetch time as the source update time. An upstream error marks the source as cached with that error, while the runtime still applies the records in the response.
+
 ## Snapshot reconciliation
 
 A source snapshot declares whether it is complete or partial.
@@ -82,6 +84,7 @@ A source snapshot declares whether it is complete or partial.
 - A complete snapshot can delete records that are absent from the new snapshot.
 - A partial snapshot can add or update records. It cannot infer a deletion.
 - An explicit empty complete snapshot clears the source.
+- Aircraft and ship responses hold the server's complete current set. The server drops aircraft after 15 minutes and vessels after 1 hour without a report. The browser applies these responses as complete once the server has received data.
 - A failed refresh does not clear retained records.
 
 The `DatasetStore` indexes records by stable entity identifier. It rejects duplicate identifiers and non-increasing versions.
@@ -152,7 +155,11 @@ or dossier unmount cancels the worker-owned request. The result is not
 persisted.
 
 Tsunami alerts load when the Earthquake dossier mounts, refresh every five
-minutes, and refresh when the page becomes visible. They are not persisted.
+minutes, and refresh when the page becomes visible. They are not persisted. A
+failed check keeps the last alerts and reports the alert status as unknown.
+
+The waveform also refreshes every five minutes while its trace window ended less
+than five minutes ago, so a recent event fills in as station data arrives.
 React owns only the bounded loading and result state needed to render the
 dossier.
 
@@ -247,7 +254,7 @@ News articles are not geographic render records.
 The news provider performs these operations:
 
 1. Hydrate articles from cache.
-2. Refresh articles from the server.
+2. Refresh articles from the server on every boot, then every 10 minutes. A failed refresh keeps the last update time.
 3. Publish articles to React.
 4. Supply articles to the news pane and the correlation request.
 

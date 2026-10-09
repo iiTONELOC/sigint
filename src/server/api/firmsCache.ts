@@ -1,18 +1,20 @@
 import {
-  fetchWithTimeout,
   FETCH_TIMEOUT_LARGE_MS,
 } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
+import { fetchIfModified, type ValidatorStore } from "../lib/fetchIfModified";
 import { createGeoPoint, isNullIsland } from "@shared/geo";
-import type { FireRecord } from "@shared/domain/fireDayNight";
-import { MS_PER_MINUTE } from "@shared/time";
+import { fireAcquisitionTimeMs, type FireRecord } from "@shared/domain/fireDayNight";
+import { HttpStatus } from "@shared/http";
+import { MS_PER_DAY, MS_PER_MINUTE } from "@shared/time";
 
 const logger = createLogger({ service: "firms" });
 
 const FIRMS_BASE_URL = "https://firms.modaps.eosdis.nasa.gov";
-const FIRMS_POLL_INTERVAL_MS = 30 * MS_PER_MINUTE;
+const FIRMS_POLL_INTERVAL_MS = 10 * MS_PER_MINUTE;
+const FIRMS_FEED_WINDOW_MS = MS_PER_DAY;
 const FIRMS_RESPONSE_PREVIEW_LENGTH = 120;
 const FIRMS_DEFAULT_INSTRUMENT = "VIIRS";
 const COMPLEX_CELL_DEGREES = 0.02;
@@ -67,6 +69,17 @@ let cache: FirmsCache = {
   fireCount: 0,
   error: null,
 };
+let cachedFeed: FirmsFeed | null = null;
+const feedValidators: ValidatorStore = new Map();
+
+enum FirmsFetchKind {
+  Rows = "rows",
+  Unchanged = "unchanged",
+}
+
+type FirmsFetchResult =
+  | Readonly<{ kind: FirmsFetchKind.Rows; rows: FireRecord[] }>
+  | Readonly<{ kind: FirmsFetchKind.Unchanged }>;
 
 function columnIndex(
   header: readonly string[],
@@ -168,12 +181,13 @@ export function parseFirmsCsv(csv: string): FireRecord[] {
   return records;
 }
 
-async function fetchOneSource(feed: FirmsFeed): Promise<FireRecord[] | null> {
+async function fetchOneSource(feed: FirmsFeed): Promise<FirmsFetchResult | null> {
   try {
-    const response = await fetchWithTimeout(
-      FIRMS_BULK_FEED_URLS[feed],
-      FETCH_TIMEOUT_LARGE_MS,
-    );
+    if (cachedFeed !== feed) feedValidators.delete(feed);
+    const response = await fetchIfModified(FIRMS_BULK_FEED_URLS[feed], feed, feedValidators, {
+      timeoutMs: FETCH_TIMEOUT_LARGE_MS,
+    });
+    if (response.status === HttpStatus.NotModified) return { kind: FirmsFetchKind.Unchanged };
     if (!response.ok) {
       logger.warn(`🔥 FIRMS: ${feed} returned ${response.status}`);
       return null;
@@ -185,7 +199,7 @@ async function fetchOneSource(feed: FirmsFeed): Promise<FireRecord[] | null> {
       );
       return null;
     }
-    return parseFirmsCsv(body);
+    return { kind: FirmsFetchKind.Rows, rows: parseFirmsCsv(body) };
   } catch (error_) {
     logger.warn(
       `🔥 FIRMS: ${feed} fetch failed: ${errorMessage(error_, "unknown")}`,
@@ -268,19 +282,24 @@ function clusterFires(records: FireRecord[]): void {
   applyComplexSummaries(cells, parent, summaries);
 }
 
-async function fetchFirms(): Promise<void> {
+export async function fetchFirms(): Promise<void> {
   try {
     for (const feed of Object.values(FirmsFeed)) {
-      const rows = await fetchOneSource(feed);
-      if (rows && rows.length > 0) {
-        clusterFires(rows);
+      const result = await fetchOneSource(feed);
+      if (result?.kind === FirmsFetchKind.Unchanged && cachedFeed === feed) {
+        cache = { ...cache, fetchedAt: Date.now(), error: null };
+        return;
+      }
+      if (result?.kind === FirmsFetchKind.Rows && result.rows.length > 0) {
+        clusterFires(result.rows);
         cache = {
-          data: rows,
+          data: result.rows,
           fetchedAt: Date.now(),
-          fireCount: rows.length,
+          fireCount: result.rows.length,
           error: null,
         };
-        logger.info(`🔥 FIRMS: ${rows.length} hotspots loaded (${feed})`);
+        cachedFeed = feed;
+        logger.info(`🔥 FIRMS: ${result.rows.length} hotspots loaded (${feed})`);
         return;
       }
     }
@@ -308,15 +327,23 @@ export function stopFirmsPolling(): void {
   poller.stop();
 }
 
-export function getFirmsCache(): FirmsCache {
+function withinFeedWindow(record: FireRecord, now: number): boolean {
+  const acquiredAt = fireAcquisitionTimeMs(record.acqDate ?? "", record.acqTime ?? "");
+  return acquiredAt !== null && now - acquiredAt <= FIRMS_FEED_WINDOW_MS;
+}
+
+export function getFirmsCache(now = Date.now()): FirmsCache {
+  const data = cache.data?.filter((record) => withinFeedWindow(record, now)) ?? null;
   return {
-    data: cache.data,
+    data,
     fetchedAt: cache.fetchedAt,
-    fireCount: cache.fireCount,
+    fireCount: data?.length ?? 0,
     error: cache.error,
   };
 }
 
 export function __resetFirmsCacheForTests(): void {
   cache = { data: null, fetchedAt: 0, fireCount: 0, error: null };
+  cachedFeed = null;
+  feedValidators.clear();
 }

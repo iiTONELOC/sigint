@@ -94,6 +94,17 @@ describe("newsProvider.refresh()", () => {
     const snap = newsProvider.getSnapshot();
     expect(snap.error).not.toBeNull();
   });
+
+  test("a failed refresh keeps the time of the last successful update", async () => {
+    newsResponse = { ok: true, items: MOCK_ARTICLES };
+    await newsProvider.refresh();
+    const updatedAt = newsProvider.getSnapshot().lastUpdatedAt;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    newsResponse = { ok: false };
+    await newsProvider.refresh();
+    expect(newsProvider.getSnapshot().lastUpdatedAt).toBe(updatedAt);
+    expect(newsProvider.getSnapshot().error).not.toBeNull();
+  });
 });
 
 describe("newsProvider.getData()", () => {

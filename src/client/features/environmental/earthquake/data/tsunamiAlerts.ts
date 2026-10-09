@@ -4,8 +4,18 @@ import {
   type TsunamiAlert,
 } from "@shared/domain/earthquakes";
 import { NWS_ALERTS_TRANSPORT } from "@/workers/data/source-model/feeds";
+import {
+  SourceFetchError,
+  SourceFetchFailure,
+  type SourceFailureMessages,
+} from "@/workers/data/source-model/remoteSource";
 
 const TSUNAMI_EVENT_PREFIX = "tsunami";
+
+const TSUNAMI_FAILURE_MESSAGES = {
+  [SourceFetchFailure.Request]: "The tsunami alert request failed",
+  [SourceFetchFailure.Payload]: "The tsunami alert response format is invalid",
+} satisfies SourceFailureMessages;
 
 function levelOf(event: string): TsunamiLevel | null {
   const normalizedEvent = event.toLowerCase();
@@ -40,20 +50,20 @@ function toTsunamiAlert(value: unknown): TsunamiAlert | null {
 }
 
 function toTsunamiAlerts(json: unknown): TsunamiAlert[] {
-  if (!isRecord(json) || !Array.isArray(json.features)) return [];
+  if (!isRecord(json) || !Array.isArray(json.features)) {
+    throw new SourceFetchError(SourceFetchFailure.Payload, TSUNAMI_FAILURE_MESSAGES);
+  }
   return json.features
     .map(toTsunamiAlert)
     .filter((alert): alert is TsunamiAlert => alert !== null);
 }
 
 export async function fetchTsunamiAlerts(): Promise<TsunamiAlert[]> {
-  try {
-    const response = await fetch(NWS_ALERTS_TRANSPORT.url, {
-      headers: NWS_ALERTS_TRANSPORT.headers,
-    });
-    if (!response.ok) return [];
-    return toTsunamiAlerts(await response.json());
-  } catch {
-    return [];
+  const response = await fetch(NWS_ALERTS_TRANSPORT.url, {
+    headers: NWS_ALERTS_TRANSPORT.headers,
+  });
+  if (!response.ok) {
+    throw new SourceFetchError(SourceFetchFailure.Request, TSUNAMI_FAILURE_MESSAGES, response.status);
   }
+  return toTsunamiAlerts(await response.json());
 }

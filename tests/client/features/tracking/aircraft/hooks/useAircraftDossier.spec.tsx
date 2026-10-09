@@ -1,14 +1,17 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 import { act, useState } from "react";
 import type { AircraftPoint } from "@shared/domain/aircraft";
-import type {
-  AircraftDossierBundle,
+import {
+  AIRCRAFT_DOSSIER_REFRESH_MS,
+  type AircraftDossierBundle,
 } from "@shared/domain/aircraftDossier";
 import { Domain } from "@shared/domain/identity";
 import { renderHook } from "../../../../../support/react";
+import { flushReactUpdates } from "../../../../../support/react/wait";
 
 enum AircraftDossierHookFixture {
   EntityId = "aircraft-a",
+  OpenEntityId = "aircraft-b",
   InitialIcao24 = "abc123",
   RefreshedIcao24 = "def456",
 }
@@ -86,5 +89,24 @@ describe("useAircraftDossier", () => {
       await refreshGate.promise;
     });
     await waitFor(() => result.current.dossier === refreshedDossier);
+  });
+
+  test("re-requests an open dossier every refresh interval and stops when closed", async () => {
+    jest.useFakeTimers();
+    try {
+      const before = requestCount;
+      const { unmount } = renderHook(() => useAircraftDossier(AircraftDossierHookFixture.OpenEntityId, null));
+      await flushReactUpdates();
+      expect(requestCount).toBe(before + 1);
+      await act(async () => {
+        jest.advanceTimersByTime(AIRCRAFT_DOSSIER_REFRESH_MS);
+      });
+      expect(requestCount).toBe(before + 2);
+      unmount();
+      jest.advanceTimersByTime(AIRCRAFT_DOSSIER_REFRESH_MS);
+      expect(requestCount).toBe(before + 2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

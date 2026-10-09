@@ -22,9 +22,7 @@ enum GdeltEndpoint {
   LastUpdate = "https://data.gdeltproject.org/gdeltv2/lastupdate.txt",
 }
 
-enum GdeltPolling {
-  IntervalMinutes = 15,
-}
+const GDELT_CHECK_INTERVAL_MS = 5 * MS_PER_MINUTE;
 
 enum GdeltDateFormat {
   IsoReplacement = "$1-$2-$3T$4:$5:$6Z",
@@ -304,7 +302,7 @@ async function fetchGdelt(): Promise<void> {
 
 const poller = createPoller(
   fetchGdelt,
-  GdeltPolling.IntervalMinutes * MS_PER_MINUTE,
+  GDELT_CHECK_INTERVAL_MS,
 );
 
 export function startGdeltPolling(): void {

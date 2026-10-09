@@ -24,6 +24,7 @@ import {
   type PointSourceOptions,
 } from "@/workers/data/source-model/dataSource";
 import {
+  serverError,
   SourceFetchError,
   SourceFetchFailure,
   type SourceFailureMessages,
@@ -34,8 +35,10 @@ import { Domain } from "@shared/domain/identity";
 import {
   SHIPS_LATEST_ROUTE,
   type ShipPoint,
+  type ShipServerPayload,
 } from "@shared/domain/ships";
 import { SourceCompleteness } from "@shared/source";
+import type { DatasetCompleteness } from "@/workers/data/datasetStore";
 import { ShipSceneAttribute } from "@shared/scene";
 
 const SHIP_SOURCE_FAILURE_MESSAGES = {
@@ -43,7 +46,12 @@ const SHIP_SOURCE_FAILURE_MESSAGES = {
   [SourceFetchFailure.Payload]: "The ships response format is invalid",
 } satisfies SourceFailureMessages;
 
-/** The server states whether the AIS stream was connected and complete. */
+export function shipSnapshotCompleteness(payload: ShipServerPayload): DatasetCompleteness {
+  return payload.vesselCount === payload.vessels.length
+    ? SourceCompleteness.Complete
+    : SourceCompleteness.Partial;
+}
+
 async function fetchShipSnapshot(): Promise<
   PointSourceFetchSnapshot<ShipPoint>
 > {
@@ -55,21 +63,20 @@ async function fetchShipSnapshot(): Promise<
       response.status,
     );
   }
-  const payload = parseShipServerPayload(await response.json());
+  const raw: unknown = await response.json();
+  const payload = parseShipServerPayload(raw);
   if (!payload) {
     throw new SourceFetchError(
       SourceFetchFailure.Payload,
       SHIP_SOURCE_FAILURE_MESSAGES,
     );
   }
+  const upstreamError = serverError(raw);
   return {
-    completeness:
-      payload.connected &&
-      payload.vesselCount === payload.vessels.length
-        ? SourceCompleteness.Complete
-        : SourceCompleteness.Partial,
+    completeness: shipSnapshotCompleteness(payload),
     entities: decodeShipPoints(payload),
     observedAt: Date.now(),
+    ...(upstreamError ? { upstreamError } : {}),
   };
 }
 

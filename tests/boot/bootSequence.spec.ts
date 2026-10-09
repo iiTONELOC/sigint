@@ -73,8 +73,10 @@ describe("Boot sequence (frontend.tsx)", () => {
     expect(frontendSource).not.toContain("as any[]");
   });
 
-  // Only stale/missing providers refresh; fresh cache skips the network.
-  test("refresh is gated on staleness, not run unconditionally", () => {
-    expect(frontendSource).toContain("needsRefresh");
+  test("every boot shows the saved news, then refreshes it", () => {
+    expect(frontendSource).not.toContain("needsRefresh");
+    expect(frontendSource.indexOf("newsProvider.hydrate()")).toBeLessThan(
+      frontendSource.indexOf("newsProvider.refresh()"),
+    );
   });
 });

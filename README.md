@@ -142,8 +142,8 @@ Browser refresh is how often the browser requests each layer.
 | Weather  | [NOAA](https://api.weather.gov/) (direct DataWorker fetch)                                                  | 300s            |
 | Cyclones | [NHC](https://www.nhc.noaa.gov/CurrentStorms.json) (server-side; KMZ cone, advisory text products, ATCF model and best tracks, hazard products) | 5m              |
 | Storm imagery | [NOAA nowCOAST](https://nowcoast.noaa.gov) GOES infrared and [NOAA MRMS](https://opengeo.ncep.noaa.gov) radar (direct browser fetch) | 5m satellite, 2m radar |
-| Aircraft dossier | [FlightAware](https://www.flightaware.com) schedule and filed route, [hexdb.io](https://hexdb.io) metadata, [Planespotters](https://www.planespotters.net) photos, FAA nav data for route fixes | On selection |
-| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 15m             |
+| Aircraft dossier | [FlightAware](https://www.flightaware.com) schedule and filed route, [hexdb.io](https://hexdb.io) metadata, [Planespotters](https://www.planespotters.net) photos, FAA nav data for route fixes | On selection, then 5m while open |
+| Events   | [GDELT 2.0](https://www.gdeltproject.org/) (server-side)                                                    | 5m              |
 | News     | 6 RSS feeds (server-side)                                                                                   | 10m             |
 
 ## Testing

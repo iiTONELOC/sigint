@@ -1,5 +1,8 @@
 import { GeoLimit, isRecord, type GeoPoint } from "@shared/geo";
 import { isOptionalFiniteNumber } from "@shared/types/numbers";
+import { MS_PER_MINUTE } from "@shared/time";
+
+export const AIRCRAFT_DOSSIER_REFRESH_MS = 5 * MS_PER_MINUTE;
 
 const AIRCRAFT_ICAO24_PATTERN = /^[0-9a-f]{6}$/i;
 

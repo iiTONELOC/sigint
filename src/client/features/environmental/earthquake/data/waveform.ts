@@ -24,7 +24,6 @@ export type FetchWaveformOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
-/** The IRIS ASCII timeseries service is retired (410); dataselect serves miniSEED. */
 enum WaveformEndpoint {
   Dataselect = "https://service.earthscope.org/fdsnws/dataselect/1/query",
   Station = "https://service.earthscope.org/fdsnws/station/1/query",
@@ -148,16 +147,19 @@ function serviceTime(timestamp: number): string {
   return new Date(timestamp).toISOString().replace(/\.\d+Z$/, "");
 }
 
-function traceWindow(originTimeIso: string): TraceWindow | null {
+export function traceWindowEndMs(originTimeIso: string): number | null {
   const originTimestamp = Date.parse(originTimeIso);
   if (!Number.isFinite(originTimestamp)) return null;
-  const startTimestamp =
-    originTimestamp - WaveformPolicy.PreRollSeconds * MS_PER_SECOND;
+  return originTimestamp +
+    (WaveformPolicy.WindowSeconds - WaveformPolicy.PreRollSeconds) * MS_PER_SECOND;
+}
+
+function traceWindow(originTimeIso: string): TraceWindow | null {
+  const endTimestamp = traceWindowEndMs(originTimeIso);
+  if (endTimestamp === null) return null;
   return {
-    end: serviceTime(
-      startTimestamp + WaveformPolicy.WindowSeconds * MS_PER_SECOND,
-    ),
-    start: serviceTime(startTimestamp),
+    end: serviceTime(endTimestamp),
+    start: serviceTime(endTimestamp - WaveformPolicy.WindowSeconds * MS_PER_SECOND),
   };
 }
 
@@ -301,7 +303,6 @@ type TraceSearch = Readonly<{
   window: TraceWindow;
 }>;
 
-/** Try each channel once, nearest first; dataselect answers 204 when a channel has no data. */
 async function traceFirstRecorded(
   channels: readonly StationChannel[],
   search: TraceSearch,

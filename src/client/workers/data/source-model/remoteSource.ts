@@ -1,5 +1,6 @@
 import type { DatasetCompleteness, DatasetEntity } from "@/workers/data/datasetStore";
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
+import { isRecord } from "@shared/geo";
 
 export enum SourceFetchFailure {
   Request = "Request",
@@ -31,6 +32,16 @@ export class SourceFetchError extends Error {
     super(messages[failure]);
     this.name = SourceFetchError.name;
   }
+}
+
+export function serverFetchedAt(payload: unknown): number | null {
+  const value = isRecord(payload) ? payload.fetchedAt : undefined;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function serverError(payload: unknown): string | null {
+  const value = isRecord(payload) ? payload.error : undefined;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function request(
@@ -83,7 +94,8 @@ export abstract class RemoteSource<TEntity extends DatasetEntity> {
     const items = this.items(payload);
     if (!items) throw this.failure(SourceFetchFailure.Payload);
 
-    const observedAt = now();
+    const observedAt = serverFetchedAt(payload) ?? now();
+    const upstreamError = serverError(payload);
     const byId = new Map<string, TEntity>();
     for (const [index, item] of items.entries()) {
       const entity = this.toEntity(item, observedAt, index);
@@ -93,6 +105,7 @@ export abstract class RemoteSource<TEntity extends DatasetEntity> {
       completeness: this.completeness,
       entities: [...byId.values()],
       observedAt,
+      ...(upstreamError ? { upstreamError } : {}),
     };
   }
 }

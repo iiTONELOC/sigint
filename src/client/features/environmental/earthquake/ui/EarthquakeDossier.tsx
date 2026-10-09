@@ -32,8 +32,14 @@ import { Seismogram } from "./Seismogram";
 import { DepthProfile } from "./DepthProfile";
 import { TsunamiPlacard } from "./TsunamiPlacard";
 import { TsunamiPhysics } from "./TsunamiPhysics";
+import { traceWindowEndMs } from "../data/waveform";
 
-const TSUNAMI_REFRESH_INTERVAL_MS = 5 * 60_000;
+const DOSSIER_REFRESH_INTERVAL_MS = 5 * 60_000;
+
+enum EarthquakeDossierText {
+  TsunamiNoAlert = "monitored by NOAA · no active alert",
+  TsunamiCheckFailed = "NOAA alert check failed · status unknown",
+}
 
 type Props = FeatureDossierProps<Domain.Quakes>;
 
@@ -54,6 +60,7 @@ export function EarthquakeDossier({
     status: WaveformStatus.Loading,
   });
   const [tsunamiAlerts, setTsunamiAlerts] = useState<TsunamiAlert[]>([]);
+  const [tsunamiCheckFailed, setTsunamiCheckFailed] = useState(false);
 
   useEffect(() => {
     if (!originTimeIso) {
@@ -69,16 +76,29 @@ export function EarthquakeDossier({
     }
     let cancelled = false;
     setWaveformState({ status: WaveformStatus.Loading });
-    void client
-      .getEarthquakeWaveform({ latitude, longitude, originTimeIso })
-      .catch(() =>
-        waveformUnavailable(WaveformUnavailableReason.StationService),
-      )
-      .then((result) => {
-        if (!cancelled) setWaveformState(result);
-      });
+    const load = (): void => {
+      void client
+        .getEarthquakeWaveform({ latitude, longitude, originTimeIso })
+        .catch(() =>
+          waveformUnavailable(WaveformUnavailableReason.StationService),
+        )
+        .then((result) => {
+          if (!cancelled) setWaveformState(result);
+        });
+    };
+    load();
+    const windowEnd = traceWindowEndMs(originTimeIso);
+    const stillFilling = (): boolean =>
+      windowEnd !== null && Date.now() - windowEnd < DOSSIER_REFRESH_INTERVAL_MS;
+    const refresh = stillFilling()
+      ? setInterval(() => {
+          load();
+          if (!stillFilling()) clearInterval(refresh ?? undefined);
+        }, DOSSIER_REFRESH_INTERVAL_MS)
+      : null;
     return () => {
       cancelled = true;
+      if (refresh) clearInterval(refresh);
       client.cancelEarthquakeWaveform();
     };
   }, [latitude, longitude, originTimeIso]);
@@ -86,16 +106,24 @@ export function EarthquakeDossier({
   useEffect(() => {
     let mounted = true;
     const load = async (): Promise<void> => {
-      const client = getDataWorkerClient();
-      const alerts = client
-        ? await client.getTsunamiAlerts().catch(() => [])
-        : [];
-      if (mounted) setTsunamiAlerts([...alerts]);
+      try {
+        const client = getDataWorkerClient();
+        const alerts = client ? await client.getTsunamiAlerts() : null;
+        if (!mounted) return;
+        if (!alerts) {
+          setTsunamiCheckFailed(true);
+          return;
+        }
+        setTsunamiAlerts([...alerts]);
+        setTsunamiCheckFailed(false);
+      } catch {
+        if (mounted) setTsunamiCheckFailed(true);
+      }
     };
     void load();
     const interval = setInterval(() => {
       void load();
-    }, TSUNAMI_REFRESH_INTERVAL_MS);
+    }, DOSSIER_REFRESH_INTERVAL_MS);
     const onVisible = (): void => {
       if (document.visibilityState === DomVisibilityState.Visible) void load();
     };
@@ -150,7 +178,9 @@ export function EarthquakeDossier({
               <div className="flex items-center gap-2 rounded-[10px] border border-(--dossier-accent)/40 bg-(--dossier-accent)/8 px-3 py-2 text-(length:--sig-text-sm) text-(--dossier-accent)">
                 <span aria-hidden="true">🌊</span>
                 <span className="font-semibold tracking-wide">TSUNAMI-SOURCE REGION</span>
-                <span className="text-sig-dim text-(length:--sig-text-xs)">monitored by NOAA · no active alert</span>
+                <span className="text-sig-dim text-(length:--sig-text-xs)">
+                  {tsunamiCheckFailed ? EarthquakeDossierText.TsunamiCheckFailed : EarthquakeDossierText.TsunamiNoAlert}
+                </span>
               </div>
             ))}
 

@@ -174,21 +174,21 @@ export function createApiRoutes(deps: ApiDeps) {
       getGdeltCache,
       (c) => Boolean(c.data),
       EventApiMessage.Unavailable,
-      (c) => ({ data: c.data, fetchedAt: c.fetchedAt }),
+      (c) => ({ data: c.data, fetchedAt: c.fetchedAt, error: c.error }),
     ),
 
     [SHIPS_LATEST_ROUTE]: authedCachedGet(
       getAisCache,
       (c) => Boolean(c.data),
       SHIP_DATA_UNAVAILABLE_MESSAGE,
-      (c) => ({ data: c.data, vesselCount: c.vesselCount, connected: c.connected }),
+      (c) => ({ data: c.data, vesselCount: c.vesselCount, connected: c.connected, error: c.error }),
     ),
 
     [FIRE_LATEST_ROUTE]: authedCachedGet(
       getFirmsCache,
       (c) => Boolean(c.data),
       "No fire data available yet",
-      (c) => ({ data: c.data, fetchedAt: c.fetchedAt, fireCount: c.fireCount }),
+      (c) => ({ data: c.data, fetchedAt: c.fetchedAt, fireCount: c.fireCount, error: c.error }),
     ),
 
     [CycloneRoute.Latest]: authedCachedGet(

@@ -85,15 +85,6 @@ if (import.meta.hot) {
   createRoot(rootElement).render(app);
 }
 
-type HydrateResult = Awaited<ReturnType<typeof newsProvider.hydrate>>;
-
-function needsRefresh(result: HydrateResult): boolean {
-  return (
-    !result ||
-    (typeof result === "object" && "stale" in result && result.stale)
-  );
-}
-
 const authReady = ensureAuthCookie().catch(() => {});
 
 const backgroundReady = Promise.allSettled([
@@ -103,8 +94,7 @@ const backgroundReady = Promise.allSettled([
 ]);
 
 async function streamNewsProvider(): Promise<void> {
-  const hydrated = await newsProvider.hydrate().catch(() => null);
-  if (!needsRefresh(hydrated)) return;
+  await newsProvider.hydrate().catch(() => null);
   await authReady;
   await newsProvider.refresh().catch(() => {});
 }

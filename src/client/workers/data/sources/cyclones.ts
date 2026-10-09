@@ -16,6 +16,7 @@ import {
 import { fetchCurrentStorms } from "@/features/environmental/cyclones/data/parseNhc";
 import type {
   CycloneData,
+  CycloneHazards,
   ForecastPoint,
   ModelTrack,
   ModelTrackPoint,
@@ -137,6 +138,13 @@ function arraysEqual<T>(
   );
 }
 
+function hazardsEqual(
+  left: CycloneHazards | undefined,
+  right: CycloneHazards | undefined,
+): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
 function cycloneDataEqual(left: CycloneData, right: CycloneData): boolean {
   return (
     left.stormId === right.stormId &&
@@ -154,7 +162,8 @@ function cycloneDataEqual(left: CycloneData, right: CycloneData): boolean {
     geoPolygonGeometryEqual(left.officialCone, right.officialCone) &&
     windRadiiEqual(left.windRadii, right.windRadii) &&
     arraysEqual(left.pastTrack, right.pastTrack, pastTrackPointEqual) &&
-    arraysEqual(left.models, right.models, modelTrackEqual)
+    arraysEqual(left.models, right.models, modelTrackEqual) &&
+    hazardsEqual(left.hazards, right.hazards)
   );
 }
 

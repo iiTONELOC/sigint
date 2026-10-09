@@ -41,7 +41,8 @@ import {
   AircraftSceneFlag,
   AircraftSceneStringAttribute,
 } from "@shared/scene";
-import { parseSourceState, SourceCompleteness } from "@shared/source";
+import { parseSourceState, SourceCompleteness, type SourceState } from "@shared/source";
+import type { DatasetCompleteness } from "@/workers/data/datasetStore";
 
 const AIRCRAFT_SOURCE_FAILURE_MESSAGES = {
   [SourceFetchFailure.Request]: "The aircraft endpoint rejected the request",
@@ -56,7 +57,10 @@ function aircraftFlags(data: AircraftData): number {
   );
 }
 
-/** The server states the completeness and observation time of each sweep. */
+export function aircraftSnapshotCompleteness(source: SourceState): DatasetCompleteness {
+  return source.receivedAt === null ? SourceCompleteness.Partial : SourceCompleteness.Complete;
+}
+
 async function fetchAircraftSnapshot(): Promise<
   PointSourceFetchSnapshot<AircraftPoint>
 > {
@@ -84,9 +88,7 @@ async function fetchAircraftSnapshot(): Promise<
     );
   }
   return {
-    completeness: source.completeness === SourceCompleteness.Complete
-      ? SourceCompleteness.Complete
-      : SourceCompleteness.Partial,
+    completeness: aircraftSnapshotCompleteness(source),
     entities: parseAdsbResponse(payload, receivedAt),
     observedAt: source.observedAt ?? source.receivedAt ?? receivedAt,
   };

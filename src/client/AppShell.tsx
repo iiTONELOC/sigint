@@ -140,7 +140,7 @@ export function AppShell() {
       className="w-full h-full flex flex-col overflow-hidden"
       style={{
         paddingTop: "env(safe-area-inset-top)",
-        paddingBottom: "env(safe-area-inset-bottom)",
+        paddingBottom: chromeHidden ? TickerSafeAreaPadding.Collapsed : undefined,
         paddingLeft: "env(safe-area-inset-left)",
         paddingRight: "env(safe-area-inset-right)",
       }}

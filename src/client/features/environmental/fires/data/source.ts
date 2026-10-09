@@ -10,6 +10,7 @@ import {
 } from "@/workers/data/source-model/remoteSource";
 import {
   FIRE_LATEST_ROUTE,
+  fireAcquisitionTimeMs,
   parseFireData,
 } from "@shared/domain/fireDayNight";
 import { Domain } from "@shared/domain/identity";
@@ -47,12 +48,8 @@ function acquisitionTimestamp(
   acquisitionDate: string,
   acquisitionTime: string,
 ): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(acquisitionDate)) return null;
-  if (!/^\d{4}$/.test(acquisitionTime)) return null;
-  const timestamp = Date.parse(
-    `${acquisitionDate}T${acquisitionTime.slice(0, 2)}:${acquisitionTime.slice(2)}:00Z`,
-  );
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+  const timestamp = fireAcquisitionTimeMs(acquisitionDate, acquisitionTime);
+  return timestamp === null ? null : new Date(timestamp).toISOString();
 }
 
 function parseServerFire(value: unknown): FirePoint | null {

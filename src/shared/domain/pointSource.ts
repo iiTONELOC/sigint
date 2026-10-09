@@ -24,7 +24,6 @@ enum PointSourcePollInterval {
   FiveMinutesMs = 300_000,
   SevenMinutesMs = 420_000,
   TenMinutesMs = 600_000,
-  FifteenMinutesMs = 900_000,
 }
 
 export type PointSourceDefinition<
@@ -69,7 +68,7 @@ const POINT_SOURCE_POLICIES = {
   [Domain.Events]: {
     pointType: Domain.Events,
     cacheKey: CacheKey.Events,
-    pollIntervalMs: PointSourcePollInterval.FifteenMinutesMs,
+    pollIntervalMs: PointSourcePollInterval.FiveMinutesMs,
     sceneSchema: {
       attributeStride: 1,
       stringAttributeStride: 0,

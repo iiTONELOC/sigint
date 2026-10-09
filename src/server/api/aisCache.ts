@@ -76,6 +76,7 @@ let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let lastError: string | null = null;
 let messageCount = 0;
+let messagesAtLastCheck = 0;
 
 let configuredApiKey: string | undefined;
 
@@ -117,10 +118,7 @@ function connect(): void {
 
     ws.on("message", (raw: RawData) => {
       try {
-        const message = parseAisMessage(raw);
-        messageCount++;
-        if (messageCount === 1) logger.info("🚢 AIS: first message received");
-        handleAisMessage(message);
+        receiveAisMessage(parseAisMessage(raw));
       } catch {
         logger.warn("🚢 AIS: skipped a malformed message");
       }
@@ -235,13 +233,18 @@ export function handleShipStaticData(
   });
 }
 
-function handleAisMessage(value: unknown): void {
+export function receiveAisMessage(value: unknown, now = Date.now()): void {
+  messageCount++;
+  if (messageCount === 1) logger.info("🚢 AIS: first message received");
+  handleAisMessage(value, now);
+}
+
+function handleAisMessage(value: unknown, now: number): void {
   if (!isRecord(value) || !isRecord(value.MetaData)) return;
   const mmsi = optionalFiniteNumber(value.MetaData.MMSI);
   if (mmsi === undefined || !Number.isSafeInteger(mmsi) || mmsi <= 0) {
     return;
   }
-  const now = Date.now();
   if (value.MessageType === AisMessageType.PositionReport) {
     handlePositionReport(value, value.MetaData, mmsi, now);
   } else if (value.MessageType === AisMessageType.ShipStaticData) {
@@ -249,11 +252,21 @@ function handleAisMessage(value: unknown): void {
   }
 }
 
-function pruneStale(): void {
-  const cutoff = Date.now() - MAX_VESSEL_AGE_MS;
+function pruneStale(now: number): void {
+  const cutoff = now - MAX_VESSEL_AGE_MS;
   for (const [mmsi, vessel] of vessels) {
     if (vessel.lastSeen < cutoff) vessels.delete(mmsi);
   }
+}
+
+export function checkStreamHealth(now = Date.now()): void {
+  pruneStale(now);
+  const silent = messageCount === messagesAtLastCheck;
+  messagesAtLastCheck = messageCount;
+  if (!silent || wsConnection?.readyState !== WebSocket.OPEN) return;
+  lastError = "AIS stream went silent; reconnecting";
+  logger.warn(`🚢 AIS: ${lastError}`);
+  wsConnection.terminate();
 }
 
 export function startAisPolling(apiKey: string | undefined): void {
@@ -261,7 +274,7 @@ export function startAisPolling(apiKey: string | undefined): void {
   started = true;
   configuredApiKey = apiKey;
   connect();
-  pruneTimer = setInterval(pruneStale, PRUNE_INTERVAL_MS);
+  pruneTimer = setInterval(checkStreamHealth, PRUNE_INTERVAL_MS);
 }
 
 export function stopAisPolling(): void {
@@ -280,14 +293,15 @@ export function stopAisPolling(): void {
   }
 }
 
-export function getAisCache(): {
+export function getAisCache(now = Date.now()): {
   data: readonly AisVesselRecord[] | null;
   vesselCount: number;
   messageCount: number;
   error: string | null;
   connected: boolean;
 } {
-  const data = vessels.size > 0 ? Array.from(vessels.values()) : null;
+  pruneStale(now);
+  const data = messageCount > 0 ? Array.from(vessels.values()) : null;
   return {
     data,
     vesselCount: vessels.size,
@@ -301,4 +315,5 @@ export function __resetAisCacheForTests(): void {
   vessels.clear();
   lastError = null;
   messageCount = 0;
+  messagesAtLastCheck = 0;
 }
