@@ -143,13 +143,12 @@ describe("ShipDossier encyclopedia", () => {
     expect(sectionTitled(container, ShipFixtureText.Identity).querySelector("img")).toBeNull();
   });
 
-  test("asks with the MMSI and the name when the feed gave no IMO", async () => {
+  test("asks with the MMSI alone when the feed gave no IMO, never with the name", async () => {
     renderShip(undefined);
     await flushReactUpdates();
 
     expect(asked.map((params) => Object.fromEntries(params))).toEqual([{
       [EncyclopediaVesselQueryKey.Mmsi]: String(ShipFixture.Mmsi),
-      [EncyclopediaVesselQueryKey.Name]: ShipFixtureText.Name,
     }]);
   });
 });

@@ -50,7 +50,6 @@ enum EncyclopediaFixtureCount {
   OneLookup = 2,
   TwoLookups = 4,
   VesselLookup = 4,
-  NameLookup = 3,
 }
 
 enum RefusalFixture {
@@ -65,7 +64,6 @@ enum VesselFixture {
 enum VesselFixtureText {
   Entity = "Q104378621",
   Image = "Ever Given 2021.jpg",
-  Name = "EVER GIVEN",
   Title = "Ever Given",
   Url = "https://en.wikipedia.org/wiki/Ever_Given",
 }
@@ -319,13 +317,11 @@ describe("getAircraftTypeArticle", () => {
     expect(calls[calls.length - 1]).toContain(`deepcat:"IMO ${VesselFixture.Imo}"`);
   });
 
-  test("asks Wikidata by IMO, then MMSI, then the quoted name among ships", () => {
-    expect(vesselSearches({ imo: VesselFixture.Imo, mmsi: VesselFixture.Mmsi, name: VesselFixtureText.Name })).toEqual([
+  test("asks Wikidata by IMO, then MMSI, and by nothing else", () => {
+    expect(vesselSearches({ imo: VesselFixture.Imo, mmsi: VesselFixture.Mmsi })).toEqual([
       `haswbstatement:${WikidataProperty.Imo}=${VesselFixture.Imo}`,
       `haswbstatement:${WikidataProperty.Mmsi}=${VesselFixture.Mmsi}`,
-      `"${VesselFixtureText.Name}" haswbstatement:${WikidataProperty.Imo}`,
     ]);
-    expect(vesselSearches({ name: ` "${VesselFixtureText.Name}" ` })).toEqual([`"${VesselFixtureText.Name}" haswbstatement:${WikidataProperty.Imo}`]);
     expect(vesselSearches({})).toEqual([]);
   });
 
@@ -349,23 +345,11 @@ describe("getAircraftTypeArticle", () => {
     expect(calls.some((url) => url.includes("deepcat"))).toBe(false);
   });
 
-  test("finds a vessel by name as the last resort and asks nothing for an empty query", async () => {
-    serve((url) => {
-      if (url.includes("haswbstatement")) {
-        return Response.json(url.includes(`"${VesselFixtureText.Name}"`) ? VESSEL_SEARCH : { query: { search: [] } });
-      }
-      if (url.includes("wbgetentities")) return Response.json(VESSEL_ENTITY);
-      return Response.json(VESSEL_SUMMARY);
-    });
+  test("answers nothing and asks nothing for a vessel without an IMO or MMSI", async () => {
+    serve(() => Response.json(VESSEL_SEARCH));
 
-    const { article, photo } = await getVesselEncyclopedia({ name: VesselFixtureText.Name });
-    const empty = await getVesselEncyclopedia({});
-
-    expect(article?.title).toBe(VesselFixtureText.Title);
-    expect(photo).toBeNull();
-    expect(empty).toEqual({ article: null, photo: null });
-    expect(calls).toHaveLength(EncyclopediaFixtureCount.NameLookup);
-    expect(calls[0]).toContain(`"${VesselFixtureText.Name}" haswbstatement:${WikidataProperty.Imo}`);
+    expect(await getVesselEncyclopedia({})).toEqual({ article: null, photo: null });
+    expect(calls).toHaveLength(EncyclopediaFixtureCount.None);
   });
 
   test("answers null for an empty query without asking, and asks again after a reset", async () => {

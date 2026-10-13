@@ -177,8 +177,6 @@ export function vesselSearches(query: EncyclopediaVesselQuery): string[] {
   const searches: string[] = [];
   if (query.imo) searches.push(`haswbstatement:${WikidataProperty.Imo}=${query.imo}`);
   if (query.mmsi) searches.push(`haswbstatement:${WikidataProperty.Mmsi}=${query.mmsi}`);
-  const name = query.name?.replaceAll('"', "").trim();
-  if (name) searches.push(`"${name}" haswbstatement:${WikidataProperty.Imo}`);
   return searches;
 }
 

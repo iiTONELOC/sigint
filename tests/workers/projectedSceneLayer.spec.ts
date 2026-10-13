@@ -11,8 +11,9 @@ import {
   SceneDataCommandType,
 } from "@/workers/render/sceneProtocol";
 import { SceneGeometryKind } from "@shared/scene";
+import { AngleConversion } from "@shared/geo";
 
-function singleAircraftRebase() {
+function singleAircraftRebase(longitude = 20, latitude = 10) {
   return createSceneCommand({
     type: SceneDataCommandType.SourcePatch,
     source: Domain.Aircraft,
@@ -21,7 +22,7 @@ function singleAircraftRebase() {
     handles: new Uint32Array([1]),
     sceneIds: ["aircraft-marker-A1"],
     entityIds: ["A1"],
-    positions: new Float64Array([20, 10]),
+    positions: new Float64Array([longitude, latitude]),
     motionPositions: new Float64Array(),
     motionPositionStride: 0,
     unitVectors: new Float32Array([1, 0, 0]),
@@ -41,7 +42,27 @@ function singleAircraftRebase() {
   }, "session-a", 1);
 }
 
+function screenHeadingDegrees(latitude: number, headingDegrees: number): number {
+  const store = new SceneStore(Domain.Aircraft);
+  store.apply(singleAircraftRebase(0, latitude));
+  const layer = new ProjectedSceneLayer();
+  layer.project(store.view(), {
+    width: 200,
+    height: 200,
+    hitCellSize: 32,
+    cullMargin: 0,
+    flat: { centerX: 100, centerY: 100, mapWidth: 360, mapHeight: 180 },
+    globe: null,
+    includes: () => true,
+  });
+  return Math.round(layer.headingAngle(0, headingDegrees) / AngleConversion.RadiansPerDegree);
+}
+
 describe("projected scene layer", () => {
+  test("turns a compass heading into the direction it runs on the flat map", () => {
+    expect([screenHeadingDegrees(0, 45), screenHeadingDegrees(60, 45), screenHeadingDegrees(60, 90)]).toEqual([45, 63, 90]);
+  });
+
   test("projects active records and uses visible hit buckets", () => {
     const store = new SceneStore(Domain.Aircraft);
     store.apply(singleAircraftRebase());

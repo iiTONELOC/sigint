@@ -16,7 +16,7 @@ import {
 import {
   movingPositionAccessor,
 } from "@/workers/render/scene/movingScenePosition";
-import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
+import type { ProjectedSceneLayer } from "@/workers/render/scene/projectedLayer";
 import {
   sceneSourceIncludes,
   type EnabledSceneFilter,
@@ -24,7 +24,6 @@ import {
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { zoomScale } from "@/workers/render/workerMath";
 import { Domain } from "@shared/domain/identity";
-import { TurnDeg } from "@shared/geo";
 
 enum ShipMarkerSize {
   BaseSize = 2.5,
@@ -74,11 +73,12 @@ type ShipMarker = Readonly<{
 
 function markerAt(
   view: RenderSceneView,
-  projection: SceneProjection | null,
+  projected: ProjectedSceneLayer,
   index: number,
   style: ShipSceneStyle,
 ): ShipMarker | null {
   const entityId = view.entityIds[index];
+  const projection = projected.projection(index);
   if (!projection || !entityId) return null;
   const selected = entityId === style.selectedId;
   const alpha = Math.min(
@@ -97,12 +97,10 @@ function markerAt(
       ShipMarkerSize.BaseSize *
       zoomScale(style.zoomLevel) *
       (selected ? ShipMarkerSize.SelectedScale : 1),
-    angle:
-      ((view.attributes[
-        index * view.attributeStride + ShipSceneAttribute.Heading
-      ] ?? 0) *
-        Math.PI) /
-      TurnDeg.Half,
+    angle: projected.headingAngle(
+      index,
+      view.attributes[index * view.attributeStride + ShipSceneAttribute.Heading] ?? 0,
+    ),
     alpha: projection.depth * alpha,
     selected,
   };
@@ -189,7 +187,7 @@ export class ShipLayer extends ScenePointLayer<
     }
     const batches = new Map<number, ShipMarker[]>();
     for (const index of this.visibleIndices()) {
-      const marker = markerAt(view, this.projection.projection(index), index, style);
+      const marker = markerAt(view, this.projection, index, style);
       if (!marker) continue;
       if (marker.selected) {
         drawShip(style.context, marker, style);
@@ -214,7 +212,7 @@ export class ShipLayer extends ScenePointLayer<
   private drawDots(view: RenderSceneView, style: ShipSceneStyle): void {
     const batches: DotBatchSet = new Map();
     for (const index of this.visibleIndices()) {
-      const marker = markerAt(view, this.projection.projection(index), index, style);
+      const marker = markerAt(view, this.projection, index, style);
       if (!marker) continue;
       if (marker.selected) {
         drawShip(style.context, marker, style);
@@ -231,7 +229,7 @@ export class ShipLayer extends ScenePointLayer<
     index: number,
     style: ShipSceneStyle,
   ): void {
-    const marker = markerAt(view, this.projection.projection(index), index, style);
+    const marker = markerAt(view, this.projection, index, style);
     if (marker) drawShip(style.context, marker, style);
   }
 }

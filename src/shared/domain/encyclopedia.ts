@@ -40,7 +40,6 @@ export enum EncyclopediaTypeQueryKey {
 export enum EncyclopediaVesselQueryKey {
   Imo = "imo",
   Mmsi = "mmsi",
-  Name = "name",
 }
 
 export type EncyclopediaTypeQuery = Readonly<
@@ -50,7 +49,6 @@ export type EncyclopediaTypeQuery = Readonly<
 export type EncyclopediaVesselQuery = Readonly<{
   imo?: number;
   mmsi?: number;
-  name?: string;
 }>;
 
 export const ENCYCLOPEDIA_TYPE_QUERY_KEYS: readonly EncyclopediaTypeQueryKey[] =

@@ -6,7 +6,7 @@ import {
   AircraftSceneStringAttribute,
 } from "@shared/scene";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
-import type { SceneProjection } from "@/workers/render/scene/projectedLayer";
+import type { ProjectedSceneLayer } from "@/workers/render/scene/projectedLayer";
 import {
   RenderLayerOrder,
   ScenePointLayer,
@@ -34,7 +34,6 @@ import {
   SquawkBucket,
   SquawkStatus,
 } from "@shared/domain/aircraft";
-import { TurnDeg } from "@shared/geo";
 
 enum AircraftMarkerSize {
   Maximum = 4,
@@ -282,10 +281,11 @@ type AircraftMarker = Readonly<{
 
 function markerAt(
   view: RenderSceneView,
-  projection: SceneProjection | null,
+  projected: ProjectedSceneLayer,
   index: number,
   style: AircraftSceneStyle,
 ): AircraftMarker | null {
+  const projection = projected.projection(index);
   if (!projection) return null;
   const entityId = view.entityIds[index];
   if (!entityId) return null;
@@ -310,7 +310,7 @@ function markerAt(
     x: projection.x,
     y: projection.y,
     size: markerSize(flags, selected, style.zoomLevel),
-    angle: (heading * Math.PI) / TurnDeg.Half,
+    angle: projected.headingAngle(index, heading),
     color: markerColor(flags, squawk, style),
     alpha: emergency
       ? projection.depth
@@ -394,7 +394,7 @@ export class AircraftLayer extends ScenePointLayer<
     }
     const batches = new Map<string, AircraftMarker[]>();
     for (const index of this.visibleIndices()) {
-      const marker = markerAt(view, this.projection.projection(index), index, style);
+      const marker = markerAt(view, this.projection, index, style);
       if (!marker) continue;
       if (marker.selected) {
         drawMarker(style.context, marker, style.time);
@@ -420,7 +420,7 @@ export class AircraftLayer extends ScenePointLayer<
   private drawDots(view: RenderSceneView, style: AircraftSceneStyle): void {
     const batches: DotBatchSet = new Map();
     for (const index of this.visibleIndices()) {
-      const marker = markerAt(view, this.projection.projection(index), index, style);
+      const marker = markerAt(view, this.projection, index, style);
       if (!marker) continue;
       if (marker.selected) {
         drawMarker(style.context, marker, style.time);
@@ -437,7 +437,7 @@ export class AircraftLayer extends ScenePointLayer<
     index: number,
     style: AircraftSceneStyle,
   ): void {
-    const marker = markerAt(view, this.projection.projection(index), index, style);
+    const marker = markerAt(view, this.projection, index, style);
     if (marker) drawMarker(style.context, marker, style.time);
   }
 }

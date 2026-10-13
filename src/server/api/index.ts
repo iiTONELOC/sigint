@@ -48,7 +48,7 @@ enum ApiErrorMessage {
   MethodNotAllowed = "Method Not Allowed",
   InvalidStormId = "Invalid stormId",
   InvalidIcao24 = "Invalid ICAO24 hex code",
-  InvalidVessel = "Vessel query needs an IMO, MMSI or name",
+  InvalidVessel = "Vessel query needs an IMO or MMSI",
   InvalidQuery = "Invalid query",
   AircraftNotFound = "Aircraft not found",
 }
@@ -251,9 +251,8 @@ export function createApiRoutes(deps: ApiDeps) {
       const query: EncyclopediaVesselQuery = {
         imo: positiveInteger(params.get(EncyclopediaVesselQueryKey.Imo)),
         mmsi: positiveInteger(params.get(EncyclopediaVesselQueryKey.Mmsi)),
-        name: params.get(EncyclopediaVesselQueryKey.Name)?.trim() || undefined,
       };
-      if (!query.imo && !query.mmsi && !query.name) {
+      if (!query.imo && !query.mmsi) {
         return jsonError({ error: ApiErrorMessage.InvalidVessel }, HttpStatus.BadRequest);
       }
       return jsonResponse(req, await getVesselEncyclopedia(query));

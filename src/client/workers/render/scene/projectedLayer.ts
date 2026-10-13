@@ -1,4 +1,7 @@
 import {
+  advanceGeographicMotion,
+  advanceUnitMotion,
+  createGeographicMotion,
   geographicToUnitVector,
   type GlobeRotationMatrix,
 } from "@/lib/geo/unitSphere";
@@ -18,6 +21,11 @@ import { SCENE_POSITION_COUNT, ScenePositionOffset } from "@shared/scene";
 enum SceneLaneComponentCount {
   Pair = 2,
   Triple = 3,
+}
+
+enum HeadingProbe {
+  Meters = 1_000,
+  Seconds = 1,
 }
 
 enum ProjectionOffset {
@@ -150,6 +158,7 @@ export class ProjectedSceneLayer {
   private projected = new Float32Array(0);
   private resolvedPositions = new Float64Array(0);
   private rows = 0;
+  private frame: SceneProjectionFrame | null = null;
   private view: RenderSceneView | null = null;
   private visible: number[] = [];
 
@@ -165,6 +174,7 @@ export class ProjectedSceneLayer {
     time: number = Date.now(),
   ): void {
     this.view = view;
+    this.frame = frame;
     this.moving = this.positionAccessor !== null && motionIsVisible(frame.zoomLevel);
     if (this.projectionIsCurrent(frame)) return;
     this.lastRevision = frame.revision ?? null;
@@ -309,6 +319,31 @@ export class ProjectedSceneLayer {
       return null;
     }
     return { x, y, depth };
+  }
+
+  headingAngle(index: number, headingDegrees: number): number {
+    const fallback = headingDegrees * AngleConversion.RadiansPerDegree;
+    const frame = this.frame;
+    const origin = this.projection(index);
+    const offset = index * SceneLaneComponentCount.Pair;
+    const longitude = this.resolvedPositions[offset];
+    const latitude = this.resolvedPositions[offset + 1];
+    if (!frame || !origin || longitude === undefined || latitude === undefined) {
+      return fallback;
+    }
+    const motion = createGeographicMotion(latitude, longitude, headingDegrees, HeadingProbe.Meters);
+    const unit = advanceUnitMotion(motion, HeadingProbe.Seconds);
+    const target = this.projectRecord(frame, {
+      ...advanceGeographicMotion(motion, HeadingProbe.Seconds),
+      unitX: unit.x,
+      unitY: unit.y,
+      unitZ: unit.z,
+      interpolated: false,
+    });
+    if (!target || target.depth <= 0) return fallback;
+    const deltaX = target.x - origin.x;
+    const deltaY = target.y - origin.y;
+    return deltaX === 0 && deltaY === 0 ? fallback : Math.atan2(deltaX, -deltaY);
   }
 
   nearest(
