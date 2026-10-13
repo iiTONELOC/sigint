@@ -284,7 +284,7 @@ export function AircraftDossier({
           </DossierCard>
         </section>
 
-        <section className="sec telemetry-data min-w-0 flex flex-col">
+        <section className="sec telemetry-data min-w-0 flex flex-col @min-[40rem]/dossier:col-span-2">
           <DossierSectionLabel>TELEMETRY DATA</DossierSectionLabel>
           <AircraftTelemetryReadout data={acData} />
         </section>

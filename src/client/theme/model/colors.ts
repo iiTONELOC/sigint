@@ -51,7 +51,7 @@ export const themes: Readonly<Record<ResolvedThemeMode, Theme>> = {
       [ThemeColorKey.CycloneWarning]: "#ff1a6e",
       [ThemeColorKey.CycloneWatch]: "#ffb300",
       [ThemeColorKey.Text]: "#b0bec5",
-      [ThemeColorKey.Dim]: "#556070",
+      [ThemeColorKey.Dim]: "#768397",
       [ThemeColorKey.Bright]: "#e8eef4",
       [ThemeColorKey.Danger]: "#ff3333",
       [ThemeColorKey.Warning]: "#facc15",

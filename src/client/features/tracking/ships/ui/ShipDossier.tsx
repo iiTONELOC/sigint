@@ -120,19 +120,21 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
           </section>
 
           {article && (
-            <section className="min-w-0 flex flex-col" aria-label={ShipDossierLabel.Encyclopedia}>
+            <section className="min-w-0 flex flex-col order-4 @min-[40rem]/dossier:col-span-full" aria-label={ShipDossierLabel.Encyclopedia}>
               <DossierSectionLabel>{ShipDossierLabel.Encyclopedia}</DossierSectionLabel>
-              <DossierCard className="p-3 flex-1 flex flex-col gap-2">
+              <DossierCard className="p-3 flex-1 flex flex-col gap-2 @min-[40rem]/dossier:flex-row @min-[40rem]/dossier:gap-3">
                 {article.image && (
-                  <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="block aspect-video overflow-hidden rounded">
+                  <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="block aspect-video overflow-hidden rounded @min-[40rem]/dossier:basis-1/2 @min-[76rem]/dossier:basis-1/4 @min-[40rem]/dossier:shrink-0">
                     <CoverImage src={article.image.src} alt={article.title} />
                   </a>
                 )}
-                <div className="text-(length:--sig-text-md) text-sig-bright font-bold">{article.title}</div>
-                <p className="text-(length:--sig-text-sm) text-sig-text leading-snug line-clamp-6">{article.extract}</p>
-                <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="text-(length:--sig-text-xs) tracking-wider text-sig-accent">
-                  {ShipDossierLabel.ReadMore}
-                </a>
+                <div className="min-w-0 flex flex-col gap-2">
+                  <div className="text-(length:--sig-text-md) text-sig-bright font-bold">{article.title}</div>
+                  <p className="text-(length:--sig-text-sm) text-sig-text leading-snug line-clamp-6">{article.extract}</p>
+                  <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="text-(length:--sig-text-xs) tracking-wider text-sig-accent">
+                    {ShipDossierLabel.ReadMore}
+                  </a>
+                </div>
               </DossierCard>
             </section>
           )}

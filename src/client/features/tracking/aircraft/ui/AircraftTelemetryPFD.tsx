@@ -226,6 +226,7 @@ export function AircraftTelemetryGauges({ data }: Readonly<{ data: AircraftData 
   const altitude = data.altitude ?? 0;
   const fpm = aircraftVerticalSpeedFpm(data.verticalRate);
   return (
+    <DossierCard className="p-1.5 flex-1 flex flex-col justify-center">
     <div className="@container/gauges">
       <div className={AircraftTelemetryClassName.GaugeGrid}>
         <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
@@ -240,6 +241,7 @@ export function AircraftTelemetryGauges({ data }: Readonly<{ data: AircraftData 
         <div className={AircraftTelemetryClassName.GaugeTile}><VerticalSpeedIndicator feetPerMinute={fpm} /></div>
       </div>
     </div>
+    </DossierCard>
   );
 }
 
@@ -247,7 +249,7 @@ export function AircraftTelemetryReadout({ data }: Readonly<{ data: AircraftData
   const emergency = aircraftEmergencyPresentation(data).active;
   const statRows = telemetryRows(buildTelemetryStats(data));
   return (
-    <DossierCard className="p-3 flex-1 flex flex-col gap-2">
+    <DossierCard className="p-3 flex-1 flex flex-col gap-2 @min-[40rem]/dossier:grid @min-[40rem]/dossier:grid-cols-2 @min-[76rem]/dossier:grid-cols-4 @min-[40rem]/dossier:gap-x-6 @min-[40rem]/dossier:content-start">
       <div className="flex items-start justify-between gap-3">
         <DetailField
           label={AircraftTelemetryLabel.State}
@@ -267,7 +269,7 @@ export function AircraftTelemetryReadout({ data }: Readonly<{ data: AircraftData
         )}
       </div>
       {statRows.length > 0 && (
-        <div className="flex flex-col gap-2 pt-2 border-t border-sig-border/50">
+        <div className="flex flex-col gap-2 pt-2 border-t border-sig-border/50 @min-[40rem]/dossier:contents">
           {statRows.map(([a, b]) => (
             <div key={a.label} className="flex justify-between gap-4">
               <DetailField label={a.label} value={a.value} />

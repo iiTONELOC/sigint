@@ -1,5 +1,23 @@
 import type { GeoPoint } from "@shared/geo";
-import type { ProjFn, RenderContext2D } from "./types";
+import type { ProjFn, Projected, RenderContext2D } from "./types";
+
+export function geoPathLength(
+  project: ProjFn,
+  points: Iterable<GeoPoint>,
+): number {
+  let length = 0;
+  let previous: Projected | null = null;
+  for (const [longitude, latitude] of points) {
+    const point = project(latitude, longitude);
+    if (point.z <= 0) {
+      previous = null;
+      continue;
+    }
+    if (previous) length += Math.hypot(point.x - previous.x, point.y - previous.y);
+    previous = point;
+  }
+  return length;
+}
 
 /** Stroke a lon/lat polyline; the pen lifts where a point is behind the horizon. */
 export function strokeGeoPath(

@@ -11,7 +11,7 @@ import {
   type AircraftRouteWaypoint,
 } from "@shared/domain/aircraftDossier";
 import type { TrailPoint } from "@/lib/geo/trails/trailStore";
-import { strokeGeoPath } from "@/lib/geo/render/path";
+import { geoPathLength, strokeGeoPath } from "@/lib/geo/render/path";
 import { CanvasLineStyle, type Projected, type ProjFn } from "@/lib/geo/render/types";
 import type { CameraPosition } from "@/workers/render/camera";
 import { CAMERA_POLICY } from "@/workers/render/policy";
@@ -27,6 +27,10 @@ enum TrailRenderPolicy {
   MarkerAlphaBase = 0.4,
   MarkerAlphaSpan = 0.6,
   MarkerRadius = 3,
+  EstimateSpacing = 14,
+  EstimateRadius = 1.6,
+  EstimateAlpha = 0.8,
+  EstimateClearance = 18,
 }
 
 enum RouteRenderPolicy {
@@ -106,6 +110,33 @@ function projectTrail(
   return projected;
 }
 
+function drawEstimatedDots(
+  context: OffscreenCanvasRenderingContext2D,
+  anchor: TrailHitTarget,
+  head: TrailHitTarget,
+  color: string,
+): void {
+  const length = Math.hypot(head.x - anchor.x, head.y - anchor.y);
+  context.globalAlpha = TrailRenderPolicy.EstimateAlpha;
+  context.fillStyle = color;
+  for (
+    let distance = TrailRenderPolicy.EstimateSpacing;
+    distance < length - TrailRenderPolicy.EstimateClearance;
+    distance += TrailRenderPolicy.EstimateSpacing
+  ) {
+    const ratio = distance / length;
+    context.beginPath();
+    context.arc(
+      anchor.x + (head.x - anchor.x) * ratio,
+      anchor.y + (head.y - anchor.y) * ratio,
+      TrailRenderPolicy.EstimateRadius,
+      0,
+      FULL_CIRCLE_RADIANS,
+    );
+    context.fill();
+  }
+}
+
 function drawTrail(
   context: OffscreenCanvasRenderingContext2D,
   project: ProjFn,
@@ -152,6 +183,11 @@ function drawTrail(
     context.fill();
     hitTargets[trailPointKey(point.point)] = point;
   }
+  const head = projected.at(-1);
+  const anchor = projected.at(-2);
+  if (position?.interpolated && head && anchor) {
+    drawEstimatedDots(context, anchor, head, colors.bright);
+  }
   context.restore();
   return hitTargets;
 }
@@ -175,15 +211,17 @@ function drawRoute(
   context.strokeStyle = colors.cyclones || colors.accent;
   context.globalAlpha = RouteRenderPolicy.AheadAlpha;
   context.lineWidth = RouteRenderPolicy.AheadWidth;
+  const flown = routeGeoPoints(split.flown);
   context.setLineDash([
     RouteRenderPolicy.DashLength,
     RouteRenderPolicy.DashGap,
   ]);
+  context.lineDashOffset = geoPathLength(project, flown);
   strokeGeoPath(context, project, routeGeoPoints(split.remaining));
   context.setLineDash([]);
   context.globalAlpha = RouteRenderPolicy.FlownAlpha;
   context.lineWidth = RouteRenderPolicy.FlownWidth;
-  strokeGeoPath(context, project, routeGeoPoints(split.flown));
+  strokeGeoPath(context, project, flown);
 
   context.fillStyle = colors.bright;
   for (const [latitude, longitude] of route) {
