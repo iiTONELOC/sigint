@@ -31,20 +31,27 @@ export enum EncyclopediaRoute {
   Vessel = "/api/encyclopedia/vessel",
 }
 
-export enum EncyclopediaQuery {
+export enum EncyclopediaTypeQueryKey {
   Description = "description",
-  Imo = "imo",
   Manufacturer = "manufacturer",
   Model = "model",
 }
 
-export type EncyclopediaTypeKey = Exclude<EncyclopediaQuery, EncyclopediaQuery.Imo>;
+export enum EncyclopediaVesselQueryKey {
+  Imo = "imo",
+  Mmsi = "mmsi",
+  Name = "name",
+}
 
 export type EncyclopediaTypeQuery = Readonly<
-  Partial<Record<EncyclopediaTypeKey, string | undefined>>
+  Partial<Record<EncyclopediaTypeQueryKey, string | undefined>>
 >;
 
-export const ENCYCLOPEDIA_TYPE_QUERY_KEYS: readonly EncyclopediaTypeKey[] =
-  Object.values(EncyclopediaQuery).filter(
-    (key): key is EncyclopediaTypeKey => key !== EncyclopediaQuery.Imo,
-  );
+export type EncyclopediaVesselQuery = Readonly<{
+  imo?: number;
+  mmsi?: number;
+  name?: string;
+}>;
+
+export const ENCYCLOPEDIA_TYPE_QUERY_KEYS: readonly EncyclopediaTypeQueryKey[] =
+  Object.values(EncyclopediaTypeQueryKey);

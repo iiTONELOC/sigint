@@ -61,7 +61,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
     : null;
   const trail = recordedTrail.map((p) => ({ lat: p.lat, lon: p.lon }));
   const links = intelLinks(mmsi, imo);
-  const { article, photo } = useVesselEncyclopedia(imo);
+  const { article, photo } = useVesselEncyclopedia({ imo, mmsi, name: d.name });
 
   return (
     <div className="@container/dossier h-full flex flex-col [--dossier-accent:var(--sigint-ships)]">

@@ -6,12 +6,14 @@ import {
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errorMessage";
 import { HttpHeader, HttpUserAgent } from "@shared/http";
+import { positiveInteger } from "@shared/types/numbers";
 import {
   EncyclopediaRoute,
   type EncyclopediaArticle,
   type EncyclopediaPhoto,
   type EncyclopediaTypeQuery,
   type EncyclopediaVesselAnswer,
+  type EncyclopediaVesselQuery,
 } from "@shared/domain/encyclopedia";
 
 const logger = createLogger({ service: "encyclopedia" });
@@ -22,11 +24,18 @@ enum WikipediaEndpoint {
 }
 
 enum WikidataEndpoint {
-  Entity = "https://www.wikidata.org/w/api.php?action=wbgetentities&props=sitelinks&sitefilter=enwiki&format=json&ids=",
-  Search = "https://www.wikidata.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=haswbstatement:P458=",
+  Entity = "https://www.wikidata.org/w/api.php?action=wbgetentities&props=sitelinks|claims&sitefilter=enwiki&format=json&ids=",
+  Search = "https://www.wikidata.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=",
+}
+
+export enum WikidataProperty {
+  Image = "P18",
+  Imo = "P458",
+  Mmsi = "P587",
 }
 
 enum CommonsEndpoint {
+  File = "https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640&titles=",
   Photo = "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640",
 }
 
@@ -67,9 +76,13 @@ type SummaryResponse = Readonly<{
   thumbnail?: { source: string; width: number; height: number };
 }>;
 
+type EntityClaims = Record<string, ReadonlyArray<{ mainsnak?: { datavalue?: { value?: unknown } } }>>;
+
 type EntityResponse = Readonly<{
-  entities?: Record<string, { sitelinks?: { enwiki?: { title: string } } }>;
+  entities?: Record<string, { sitelinks?: { enwiki?: { title: string } }; claims?: EntityClaims }>;
 }>;
+
+type VesselEntity = Readonly<{ id: string; raw: EntityResponse }>;
 
 type CommonsImageInfo = Readonly<{
   thumburl?: string;
@@ -98,6 +111,11 @@ export function titleFromSearch(raw: SearchResponse): string | null {
 
 export function titleFromEntity(raw: EntityResponse, id: string): string | null {
   return raw.entities?.[id]?.sitelinks?.enwiki?.title ?? null;
+}
+
+export function claimFromEntity(raw: EntityResponse, id: string, property: WikidataProperty): string | null {
+  const value = raw.entities?.[id]?.claims?.[property]?.[0]?.mainsnak?.datavalue?.value;
+  return typeof value === "string" ? value : null;
 }
 
 export function articleFromSummary(raw: SummaryResponse): EncyclopediaArticle | null {
@@ -155,24 +173,47 @@ async function lookupArticle(query: string): Promise<EncyclopediaArticle | null>
   return title ? summaryArticle(title) : null;
 }
 
-async function lookupVesselArticle(imo: number): Promise<EncyclopediaArticle | null> {
-  const search = await fetchUpstream<SearchResponse>(`${WikidataEndpoint.Search}${imo}`);
-  const id = search ? titleFromSearch(search) : null;
-  if (!id) return null;
-  const entity = await fetchUpstream<EntityResponse>(`${WikidataEndpoint.Entity}${id}`);
-  const title = entity ? titleFromEntity(entity, id) : null;
-  return title ? summaryArticle(title) : null;
+export function vesselSearches(query: EncyclopediaVesselQuery): string[] {
+  const searches: string[] = [];
+  if (query.imo) searches.push(`haswbstatement:${WikidataProperty.Imo}=${query.imo}`);
+  if (query.mmsi) searches.push(`haswbstatement:${WikidataProperty.Mmsi}=${query.mmsi}`);
+  const name = query.name?.replaceAll('"', "").trim();
+  if (name) searches.push(`"${name}" haswbstatement:${WikidataProperty.Imo}`);
+  return searches;
 }
 
-async function lookupVesselPhoto(imo: number): Promise<EncyclopediaPhoto | null> {
-  const category = encodeURIComponent(`deepcat:"IMO ${imo}"`);
-  const url = `${CommonsEndpoint.Photo}&iiextmetadatafilter=${CommonsMetadata.Artist}|${CommonsMetadata.License}&gsrsearch=${category}`;
-  const found = await fetchUpstream<CommonsResponse>(url);
-  return found ? photoFromCommons(found) : null;
+async function findVesselEntity(query: EncyclopediaVesselQuery): Promise<VesselEntity | null> {
+  for (const search of vesselSearches(query)) {
+    const found = await fetchUpstream<SearchResponse>(`${WikidataEndpoint.Search}${encodeURIComponent(search)}`);
+    const id = found ? titleFromSearch(found) : null;
+    if (!id) continue;
+    const raw = await fetchUpstream<EntityResponse>(`${WikidataEndpoint.Entity}${id}`);
+    if (raw) return { id, raw };
+  }
+  return null;
 }
 
-async function lookupVessel(imo: number): Promise<EncyclopediaVesselAnswer> {
-  return { article: await lookupVesselArticle(imo), photo: await lookupVesselPhoto(imo) };
+function commonsPhoto(url: string): Promise<EncyclopediaPhoto | null> {
+  const filtered = `${url}&iiextmetadatafilter=${CommonsMetadata.Artist}|${CommonsMetadata.License}`;
+  return fetchUpstream<CommonsResponse>(filtered).then((found) => (found ? photoFromCommons(found) : null));
+}
+
+function lookupVesselPhoto(image: string | null, imo: number | undefined): Promise<EncyclopediaPhoto | null> {
+  if (image) return commonsPhoto(`${CommonsEndpoint.File}${encodeURIComponent(`File:${image}`)}`);
+  if (imo) return commonsPhoto(`${CommonsEndpoint.Photo}&gsrsearch=${encodeURIComponent(`deepcat:"IMO ${imo}"`)}`);
+  return Promise.resolve(null);
+}
+
+async function lookupVessel(query: EncyclopediaVesselQuery): Promise<EncyclopediaVesselAnswer> {
+  const entity = await findVesselEntity(query);
+  const claim = (property: WikidataProperty): string | null =>
+    entity ? claimFromEntity(entity.raw, entity.id, property) : null;
+  const title = entity ? titleFromEntity(entity.raw, entity.id) : null;
+  const imo = query.imo ?? positiveInteger(claim(WikidataProperty.Imo));
+  return {
+    article: title ? await summaryArticle(title) : null,
+    photo: await lookupVesselPhoto(claim(WikidataProperty.Image), imo),
+  };
 }
 
 function typeTokens(query: string): string[] {
@@ -239,8 +280,11 @@ export function getAircraftTypeArticle(
   return cached(key, () => lookupAircraftType(query));
 }
 
-export async function getVesselEncyclopedia(imo: number): Promise<EncyclopediaVesselAnswer> {
-  const answer = await cached(`${EncyclopediaRoute.Vessel}?${imo}`, () => lookupVessel(imo));
+export async function getVesselEncyclopedia(query: EncyclopediaVesselQuery): Promise<EncyclopediaVesselAnswer> {
+  const searches = vesselSearches(query);
+  if (searches.length === 0) return NO_VESSEL_ANSWER;
+  const key = `${EncyclopediaRoute.Vessel}?${searches.join("|")}`.toLowerCase();
+  const answer = await cached(key, () => lookupVessel(query));
   return answer ?? NO_VESSEL_ANSWER;
 }
 

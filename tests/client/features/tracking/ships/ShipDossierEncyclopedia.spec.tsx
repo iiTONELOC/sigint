@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { Domain } from "@shared/domain/identity";
+import { EncyclopediaVesselQueryKey } from "@shared/domain/encyclopedia";
 import { HttpStatus } from "@shared/http";
 import { installFetchMock, type RestoreFetch } from "../../../../support/network";
 import { flushReactUpdates, renderReact } from "../../../../support/react";
@@ -48,6 +49,7 @@ enum ShipFixtureText {
   Extract = "Ever Given is a container ship that blocked the Suez Canal in 2021.",
   Id = "ship-order",
   Name = "EVER GIVEN",
+  Origin = "https://sigint.test",
   Timestamp = "2026-10-12T00:00:00Z",
   Title = "Ever Given",
   Url = "https://en.wikipedia.org/wiki/Ever_Given",
@@ -66,7 +68,7 @@ function sectionTitled(container: HTMLDivElement, title: string): HTMLElement {
   return section;
 }
 
-function shipItem(imo: number): ShipDossierProps["item"] {
+function shipItem(imo: number | undefined): ShipDossierProps["item"] {
   return {
     id: ShipFixtureText.Id,
     type: Domain.Ships,
@@ -77,15 +79,18 @@ function shipItem(imo: number): ShipDossierProps["item"] {
 }
 
 let restoreFetch: RestoreFetch = () => undefined;
+let asked: URLSearchParams[] = [];
 
 function noop(): void {}
 
-function renderShip(imo: number): HTMLDivElement {
+function renderShip(imo: number | undefined): HTMLDivElement {
   restoreFetch = installFetchMock(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/api/encyclopedia/vessel") && url.endsWith(String(ShipFixture.Imo))) return Response.json(ANSWER);
-    if (url.includes("/api/encyclopedia/vessel")) return Response.json({ article: null, photo: null });
-    return new Response(null, { status: HttpStatus.ServiceUnavailable });
+    if (!url.includes("/api/encyclopedia/vessel")) return new Response(null, { status: HttpStatus.ServiceUnavailable });
+    const params = new URL(url, ShipFixtureText.Origin).searchParams;
+    asked.push(params);
+    if (params.get(EncyclopediaVesselQueryKey.Imo) === String(ShipFixture.Imo)) return Response.json(ANSWER);
+    return Response.json({ article: null, photo: null });
   });
   return renderReact(
     <ThemeProvider>
@@ -105,6 +110,7 @@ afterAll(() => {
 afterEach(() => {
   restoreFetch();
   __resetEncyclopediaArticlesForTests();
+  asked = [];
 });
 
 describe("ShipDossier encyclopedia", () => {
@@ -135,5 +141,15 @@ describe("ShipDossier encyclopedia", () => {
 
     expect(container.textContent).not.toContain(ShipFixtureText.Encyclopedia);
     expect(sectionTitled(container, ShipFixtureText.Identity).querySelector("img")).toBeNull();
+  });
+
+  test("asks with the MMSI and the name when the feed gave no IMO", async () => {
+    renderShip(undefined);
+    await flushReactUpdates();
+
+    expect(asked.map((params) => Object.fromEntries(params))).toEqual([{
+      [EncyclopediaVesselQueryKey.Mmsi]: String(ShipFixture.Mmsi),
+      [EncyclopediaVesselQueryKey.Name]: ShipFixtureText.Name,
+    }]);
   });
 });

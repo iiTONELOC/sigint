@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { useAircraftPhoto } from "@/features/tracking/aircraft/hooks/useAircraftPhoto";
 import { __resetEncyclopediaArticlesForTests } from "@/lib/net/encyclopedia";
-import { EncyclopediaQuery } from "@shared/domain/encyclopedia";
+import { EncyclopediaTypeQueryKey } from "@shared/domain/encyclopedia";
 import { HttpStatus } from "@shared/http";
 import { installFetchMock, type RestoreFetch } from "../../../../../support/network";
 import { flushReactUpdates, renderHook } from "../../../../../support/react";
@@ -76,7 +76,7 @@ describe("useAircraftPhoto", () => {
     await flushReactUpdates();
 
     expect(result.current.photo?.stock).toBe(true);
-    expect(stockRequests()[0]).toContain(`${EncyclopediaQuery.Description}=${encodeURIComponent(PhotoFixtureText.Description).replaceAll("%20", "+")}`);
+    expect(stockRequests()[0]).toContain(`${EncyclopediaTypeQueryKey.Description}=${encodeURIComponent(PhotoFixtureText.Description).replaceAll("%20", "+")}`);
     expect(result.current.photo?.src).toBe(PhotoFixtureText.StockImage);
     expect(result.current.photo?.link).toBe(PhotoFixtureText.StockUrl);
     expect(result.current.loading).toBe(false);

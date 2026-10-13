@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { __resetEncyclopediaArticlesForTests, fetchEncyclopedia } from "@/lib/net/encyclopedia";
 import {
-  EncyclopediaQuery,
+  EncyclopediaTypeQueryKey,
+  EncyclopediaVesselQueryKey,
   EncyclopediaRoute,
   type EncyclopediaTypeAnswer,
   type EncyclopediaVesselAnswer,
@@ -42,7 +43,7 @@ afterEach(() => {
 describe("fetchEncyclopedia", () => {
   test("asks the route once per query, skipping blank fields, and shares the answer", async () => {
     serve([]);
-    const query = { [EncyclopediaQuery.Description]: ArticleFixtureText.Description, [EncyclopediaQuery.Manufacturer]: undefined, [EncyclopediaQuery.Model]: "" };
+    const query = { [EncyclopediaTypeQueryKey.Description]: ArticleFixtureText.Description, [EncyclopediaTypeQueryKey.Manufacturer]: undefined, [EncyclopediaTypeQueryKey.Model]: "" };
 
     const [first, second] = await Promise.all([
       fetchEncyclopedia<EncyclopediaTypeAnswer>(EncyclopediaRoute.AircraftType, query),
@@ -52,12 +53,12 @@ describe("fetchEncyclopedia", () => {
     expect(first?.article?.title).toBe(ArticleFixtureText.Title);
     expect(second).toBe(first);
     expect(requested).toHaveLength(ArticleFixtureCount.One);
-    expect(requested[0]).toBe(`${EncyclopediaRoute.AircraftType}?${EncyclopediaQuery.Description}=${encodeURIComponent(ArticleFixtureText.Description).replaceAll("%20", "+")}`);
+    expect(requested[0]).toBe(`${EncyclopediaRoute.AircraftType}?${EncyclopediaTypeQueryKey.Description}=${encodeURIComponent(ArticleFixtureText.Description).replaceAll("%20", "+")}`);
   });
 
   test("does not remember a refused answer and asks again next time", async () => {
     serve([HttpStatus.ServiceUnavailable]);
-    const query = { [EncyclopediaQuery.Imo]: String(ArticleFixtureCount.One) };
+    const query = { [EncyclopediaVesselQueryKey.Imo]: String(ArticleFixtureCount.One) };
 
     expect(await fetchEncyclopedia<EncyclopediaVesselAnswer>(EncyclopediaRoute.Vessel, query)).toBeNull();
     expect((await fetchEncyclopedia<EncyclopediaVesselAnswer>(EncyclopediaRoute.Vessel, query))?.article?.title).toBe(ArticleFixtureText.Title);

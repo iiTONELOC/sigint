@@ -1,3 +1,4 @@
+import { positiveInteger } from "@shared/types/numbers";
 import type { AuthGuards } from "./auth";
 import type { SecurityHeaders } from "./securityHeaders";
 import { EventApiMessage, EventEndpoint } from "@shared/domain/events";
@@ -7,8 +8,9 @@ import { NEWS_LATEST_ROUTE } from "@shared/domain/newsSource";
 import { VIDEO_CHANNELS_ROUTE } from "@shared/domain/videoChannel";
 import {
   ENCYCLOPEDIA_TYPE_QUERY_KEYS,
-  EncyclopediaQuery,
+  EncyclopediaVesselQueryKey,
   EncyclopediaRoute,
+  type EncyclopediaVesselQuery,
 } from "@shared/domain/encyclopedia";
 import {
   AUTH_TOKEN_ROUTE,
@@ -46,7 +48,7 @@ enum ApiErrorMessage {
   MethodNotAllowed = "Method Not Allowed",
   InvalidStormId = "Invalid stormId",
   InvalidIcao24 = "Invalid ICAO24 hex code",
-  InvalidImo = "Invalid IMO number",
+  InvalidVessel = "Vessel query needs an IMO, MMSI or name",
   InvalidQuery = "Invalid query",
   AircraftNotFound = "Aircraft not found",
 }
@@ -245,11 +247,16 @@ export function createApiRoutes(deps: ApiDeps) {
     }),
 
     [EncyclopediaRoute.Vessel]: authedFnGet(async (req) => {
-      const imo = Number(new URL(req.url).searchParams.get(EncyclopediaQuery.Imo));
-      if (!Number.isInteger(imo) || imo <= 0) {
-        return jsonError({ error: ApiErrorMessage.InvalidImo }, HttpStatus.BadRequest);
+      const params = new URL(req.url).searchParams;
+      const query: EncyclopediaVesselQuery = {
+        imo: positiveInteger(params.get(EncyclopediaVesselQueryKey.Imo)),
+        mmsi: positiveInteger(params.get(EncyclopediaVesselQueryKey.Mmsi)),
+        name: params.get(EncyclopediaVesselQueryKey.Name)?.trim() || undefined,
+      };
+      if (!query.imo && !query.mmsi && !query.name) {
+        return jsonError({ error: ApiErrorMessage.InvalidVessel }, HttpStatus.BadRequest);
       }
-      return jsonResponse(req, await getVesselEncyclopedia(imo));
+      return jsonResponse(req, await getVesselEncyclopedia(query));
     }),
 
     [`${AircraftApiRoute.Dossier}/:icao24`]: authedFnGet(async (req) => {

@@ -1,3 +1,8 @@
+export function positiveInteger(text: string | null): number | undefined {
+  const value = Number(text);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 export const BYTES_PER_MEBIBYTE = 1_048_576;
 
 export function isOptionalFiniteNumber(
