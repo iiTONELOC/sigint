@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Domain } from "@shared/domain/identity";
-import { isMobileWidth } from "@/config/breakpoints";
 import { useDataContext } from "@/context/DataContext";
 import { useUI } from "@/context/UIContext";
 import type { DataType } from "@/features/base/dataPoints";
@@ -15,7 +14,11 @@ import {
 import { DataTableHeader } from "./components/DataTableHeader";
 import { DataTableRows } from "./components/DataTableRows";
 import { DataTableToolbar } from "./components/DataTableToolbar";
-import { DataTableCopy, DataTableVirtualization } from "./model/table";
+import {
+  DataTableClassName,
+  DataTableCopy,
+  DataTableVirtualization,
+} from "./model/table";
 import { compareDataTablePoints } from "./utils/sort";
 
 export function DataTablePane() {
@@ -43,7 +46,7 @@ export function DataTablePane() {
     }),
     [layers],
   );
-  const { prefixes, totals, itemCount } = useSourceTables({
+  const { prefixes, totals, itemCount, ready } = useSourceTables({
     sortKey,
     sortDirection,
     limit: sourcePrefixLimit,
@@ -119,11 +122,9 @@ export function DataTablePane() {
     handleZoom: handleZoomTo,
     handleKeyDown: handleRowKeyDown,
   } = useItemSelectHandlers(setSelected, setRevealId, selectAndZoom);
-  const isMobile =
-    typeof window !== "undefined" && isMobileWidth(window.innerWidth);
 
   return (
-    <div className="w-full h-full flex flex-col bg-sig-bg overflow-hidden">
+    <div className={`${DataTableClassName.Container} w-full h-full flex flex-col bg-sig-bg overflow-hidden`}>
       <DataTableToolbar
         featureCounts={totals}
         itemCount={itemCount}
@@ -131,7 +132,6 @@ export function DataTablePane() {
         typeFilter={typeFilter}
       />
       <DataTableHeader
-        isMobile={isMobile}
         onSort={handleSort}
         sortDirection={sortDirection}
         sortKey={sortKey}
@@ -142,7 +142,6 @@ export function DataTablePane() {
         className="flex-1 overflow-y-auto sigint-scroll"
       >
         <DataTableRows
-          isMobile={isMobile}
           offsetY={offsetY}
           onRowClick={handleRowClick}
           onRowKeyDown={handleRowKeyDown}
@@ -153,7 +152,7 @@ export function DataTablePane() {
         />
         {itemCount === 0 && (
           <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
-            {DataTableCopy.NoMatches}
+            {ready ? DataTableCopy.NoMatches : DataTableCopy.Loading}
           </div>
         )}
       </div>

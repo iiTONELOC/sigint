@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Domain } from "@shared/domain/identity";
+import { SourceStatus } from "@shared/domain/sourceStatus";
 import {
   getDataWorkerClient,
   type DataWorkerClient,
@@ -67,11 +68,12 @@ export function useSourceQuery<TId extends QueryableSourceId>(
 ): SourceResult<TId> | null {
   const client = useMemo(getDataWorkerClient, []);
   const snapshot = useSourceSnapshot(query ? source : null);
+  const loaded = snapshot !== null && snapshot.status !== SourceStatus.Loading;
   const queryKey = query ? JSON.stringify(query) : null;
   const [state, setState] = useState<QueryState<TId> | null>(null);
 
   useEffect(() => {
-    if (!client || !query || !queryKey || !snapshot) return;
+    if (!client || !query || !queryKey || !loaded) return;
     let cancelled = false;
     client
       .querySource({ source, query })
@@ -94,7 +96,7 @@ export function useSourceQuery<TId extends QueryableSourceId>(
     return () => {
       cancelled = true;
     };
-  }, [client, source, queryKey, snapshot?.version]);
+  }, [client, source, queryKey, loaded, snapshot?.version]);
 
   if (!queryKey || state?.key !== queryKey) return null;
   return state.result;

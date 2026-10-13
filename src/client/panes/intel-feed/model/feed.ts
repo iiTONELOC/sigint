@@ -54,6 +54,7 @@ export enum IntelFeedCopy {
   Unknown = "UNK",
   NoProducts = "No intel products",
   NoData = "No intel data available",
+  Loading = "Loading intel feed",
   CorrelationHint = "Correlations appear when multiple data sources show related activity",
   NoGeographicData = "Statistical observation. No geographic source data. Derived from regional baseline analysis.",
   OpenSource = "Open source",

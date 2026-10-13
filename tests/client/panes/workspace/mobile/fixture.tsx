@@ -1,7 +1,9 @@
 import { mock, type Mock } from "bun:test";
 import { Circle } from "lucide-react";
 import { DeviceType } from "@/layout-mode/model/layoutMode";
+import { MobileBlockActionLabel } from "@/panes/MobileBlockActions";
 import {
+  act,
   createElement,
   type ComponentType,
   type ReactElement,
@@ -88,26 +90,31 @@ enum MobileFixtureObserverMetric {
   Size = 100,
 }
 
-enum MobileFixtureRelativeIndex {
-  Last = -1,
-  Penultimate = -2,
-}
-
 enum MobileFixtureSelector {
+  RestoreButton = "button[title^='Restore ']",
+  ViewsButton = "[data-tour='views-btn']",
+  AddButton = '[data-tour="add-view"]',
   Block = "[data-block-id]",
   Button = "button",
+  OpenSheet = "dialog[open]",
+}
+
+enum MobileFixtureText {
+  CancelMove = "CANCEL",
 }
 
 enum MobileFixtureTestErrorMessage {
   BlockContentMissing = "The mobile block content did not render.",
-  BlockHeaderMissing = "The mobile block header did not render.",
   BlockMissing = "The expected mobile block did not render.",
   ButtonMissing = "The expected mobile pane action did not render.",
+  CollapsedBlockMissing = "The collapsed mobile block did not render.",
   HeightHandleMissing = "The mobile height handle did not render.",
   LeafHeaderMissing = "The mobile split-leaf header did not render.",
   ObserverMissing = "The mobile intersection observer did not observe the block.",
   PaneProbeMissing = "The expected mobile pane probe did not render.",
   PortalMissing = "The expected mobile pane menu did not render.",
+  SheetCloseMissing = "The mobile sheet close control did not render.",
+  TabMissing = "The expected mobile view tab did not render.",
   ToolbarMissing = "The mobile pane toolbar did not render.",
 }
 
@@ -119,6 +126,7 @@ type MobileFixtureEntry = Readonly<{
 
 type MobileFixtureOptions = Readonly<{
   availableTypes?: readonly PaneTypeValue[];
+  chrome?: ReactElement;
   chromeHidden?: boolean;
   layout: LayoutState;
   presets?: readonly LayoutPreset[];
@@ -127,6 +135,7 @@ type MobileFixtureOptions = Readonly<{
 
 type MobileFixtureState = Readonly<{
   availableTypes: PaneTypeValue[];
+  chrome: ReactElement | undefined;
   chromeHidden: boolean;
   layout: LayoutState;
   presets: LayoutPreset[];
@@ -232,6 +241,20 @@ mock.module("@/context/UIContext", () => ({
   }),
 }));
 
+const mobileDossierListeners = new Set<() => void>();
+
+mock.module("@/lib/runtime/layoutSignals", () => ({
+  onDossierOpenRequest: (listener: () => void) => {
+    mobileDossierListeners.add(listener);
+    return () => mobileDossierListeners.delete(listener);
+  },
+  onWatchLayoutRequest: () => () => undefined,
+  requestDossierOpen: () => undefined,
+  requestWatchLayout: () => undefined,
+  setDossierOpen: () => undefined,
+  useHasDossier: () => false,
+}));
+
 mock.module("@/layout-mode", () => ({
   DeviceType,
   hasTouchScreen: () => true,
@@ -266,6 +289,11 @@ class MobileFixtureIntersectionObserver implements IntersectionObserver {
   }
 
   emit(entry: MobileFixtureEntry): void {
+    mobileFixtureEntries.set(entry.target, entry);
+    this.report(entry);
+  }
+
+  private report(entry: MobileFixtureEntry): void {
     const rectangle = new DOMRect(
       MobileFixtureObserverMetric.HiddenRatio,
       entry.top,
@@ -299,6 +327,9 @@ class MobileFixtureIntersectionObserver implements IntersectionObserver {
 
   observe(target: Element): void {
     this.observed.add(target);
+    mobileFixtureObservations += 1;
+    const entry = mobileFixtureEntries.get(target);
+    if (entry) setTimeout(() => this.report(entry));
   }
 
   takeRecords(): IntersectionObserverEntry[] {
@@ -311,6 +342,8 @@ class MobileFixtureIntersectionObserver implements IntersectionObserver {
 }
 
 const mobileFixtureObservers = new Set<MobileFixtureIntersectionObserver>();
+const mobileFixtureEntries = new Map<Element, MobileFixtureEntry>();
+let mobileFixtureObservations: number = MobileFixtureCount.Empty;
 
 function installIntersectionObserver(): void {
   Object.defineProperty(
@@ -363,6 +396,7 @@ function fixtureCallbacks(): MobileFixtureCallbacks {
 function fixtureState(options: MobileFixtureOptions): MobileFixtureState {
   return {
     availableTypes: [...(options.availableTypes ?? [])],
+    chrome: options.chrome,
     chromeHidden: options.chromeHidden ?? false,
     layout: options.layout,
     presets: [...(options.presets ?? [])],
@@ -380,6 +414,7 @@ function mobileElement(
       allLeaves={collectLeaves(state.layout.root)}
       availableTypes={state.availableTypes}
       changePaneType={callbacks.changePaneType}
+      chrome={state.chrome}
       closePane={callbacks.closePane}
       insertPaneBeside={callbacks.insertPaneBeside}
       layout={state.layout}
@@ -402,7 +437,17 @@ function mobileElement(
 export function resetMobileFixture(): void {
   fixtureChromeHidden = false;
   mobileFixtureObservers.clear();
+  mobileFixtureEntries.clear();
+  mobileFixtureObservations = MobileFixtureCount.Empty;
   installIntersectionObserver();
+}
+
+export function mobileObservationCount(): number {
+  return mobileFixtureObservations;
+}
+
+export function emitDossierOpenRequest(): void {
+  for (const listener of mobileDossierListeners) listener();
 }
 
 export function mobileLeaf(
@@ -528,59 +573,6 @@ export function requireButtonWithText(
   return button;
 }
 
-export function requireBlockHeader(block: HTMLElement): HTMLElement {
-  const header = block.firstElementChild;
-  if (!(header instanceof HTMLElement)) {
-    throw new TypeError(MobileFixtureTestErrorMessage.BlockHeaderMissing);
-  }
-  return header;
-}
-
-export function blockHeaderButtons(
-  block: HTMLElement,
-): HTMLButtonElement[] {
-  return Array.from(
-    requireBlockHeader(block).querySelectorAll(MobileFixtureSelector.Button),
-  );
-}
-
-export function requireBlockMoveButton(
-  block: HTMLElement,
-): HTMLButtonElement {
-  const [button] = blockHeaderButtons(block);
-  return requireButton(button);
-}
-
-export function requireBlockTypeButton(
-  block: HTMLElement,
-  label: MobileFixtureLabel,
-): HTMLButtonElement {
-  return requireButtonWithText(label, requireBlockHeader(block));
-}
-
-export function requireBlockToggleButton(
-  block: HTMLElement,
-): HTMLButtonElement {
-  const button = blockHeaderButtons(block).at(
-    MobileFixtureRelativeIndex.Penultimate,
-  );
-  return requireButton(button);
-}
-
-export function requireSideSplitButton(
-  block: HTMLElement,
-): HTMLButtonElement {
-  const [, , button] = blockHeaderButtons(block);
-  return requireButton(button);
-}
-
-export function requireVerticalSplitButton(
-  block: HTMLElement,
-): HTMLButtonElement {
-  const [, , button] = blockHeaderButtons(block);
-  return requireButton(button);
-}
-
 export function requireLeafHeader(
   block: HTMLElement,
   label: MobileFixtureLabel,
@@ -611,11 +603,65 @@ export function requireLeafPopOutButton(
 }
 
 export function requireBlockContent(block: HTMLElement): HTMLElement {
-  const content = block.lastElementChild?.previousElementSibling;
+  const content = block.firstElementChild;
   if (!(content instanceof HTMLElement)) {
     throw new TypeError(MobileFixtureTestErrorMessage.BlockContentMissing);
   }
   return content;
+}
+
+export function requireCollapsedBlockButton(
+  block: HTMLElement,
+): HTMLButtonElement {
+  const button = block.firstElementChild;
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new TypeError(MobileFixtureTestErrorMessage.CollapsedBlockMissing);
+  }
+  return button;
+}
+
+export function requireViewTab(
+  toolbar: HTMLElement,
+  paneType: PaneTypeValue,
+): HTMLButtonElement {
+  const tab = toolbar.querySelector(`[data-tour="view-tab-${paneType}"]`);
+  if (!(tab instanceof HTMLButtonElement)) {
+    throw new TypeError(MobileFixtureTestErrorMessage.TabMissing);
+  }
+  return tab;
+}
+
+export function openBlockActions(
+  block: HTMLElement,
+  paneType: PaneTypeValue,
+): void {
+  const tab = requireViewTab(requireToolbar(block), paneType);
+  act(() => tab.click());
+  if (document.body.querySelector(MobileFixtureSelector.OpenSheet) === null) {
+    act(() => tab.click());
+  }
+}
+
+export function requireSheetAction(
+  label: MobileBlockActionLabel,
+): HTMLButtonElement {
+  return requireButtonWithText(label);
+}
+
+export function requireSheetCloseButton(): HTMLButtonElement {
+  const button = document.body.querySelector(
+    `button[aria-label="${MobileBlockActionLabel.CloseSheet}"]`,
+  );
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new TypeError(MobileFixtureTestErrorMessage.SheetCloseMissing);
+  }
+  return button;
+}
+
+export function requireCancelMoveButton(
+  toolbar: HTMLElement,
+): HTMLButtonElement {
+  return requireButtonWithText(MobileFixtureText.CancelMove, toolbar);
 }
 
 export function requireMoveZoneButtons(
@@ -645,32 +691,27 @@ export function requireToolbar(block: HTMLElement): HTMLElement {
 }
 
 export function requireAddButton(toolbar: HTMLElement): HTMLButtonElement {
-  const button = Array.from(
-    toolbar.querySelectorAll(MobileFixtureSelector.Button),
-  ).find(
-    (candidate) =>
-      (candidate.textContent?.trim().length ?? MobileFixtureCount.Empty) ===
-      MobileFixtureCount.Empty,
-  );
-  return requireButton(button);
+  const button = toolbar.querySelector(MobileFixtureSelector.AddButton);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new TypeError(MobileFixtureTestErrorMessage.ButtonMissing);
+  }
+  return button;
 }
 
 export function requireRestoreButton(
   toolbar: HTMLElement,
 ): HTMLButtonElement {
-  const [, button] = Array.from(
-    toolbar.querySelectorAll(MobileFixtureSelector.Button),
+  return requireButton(
+    toolbar.querySelector<HTMLButtonElement>(MobileFixtureSelector.RestoreButton) ?? undefined,
   );
-  return requireButton(button);
 }
 
 export function requireViewsButton(
   toolbar: HTMLElement,
 ): HTMLButtonElement {
-  const button = Array.from(
-    toolbar.querySelectorAll(MobileFixtureSelector.Button),
-  ).at(MobileFixtureRelativeIndex.Last);
-  return requireButton(button);
+  return requireButton(
+    toolbar.querySelector<HTMLButtonElement>(MobileFixtureSelector.ViewsButton) ?? undefined,
+  );
 }
 
 export function requirePortal(

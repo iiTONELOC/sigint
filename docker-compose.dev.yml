@@ -8,26 +8,13 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=5500
-      # Dev-only fixture overrides — empty default so the env var is
-      # passed through but doesn't activate the override unless set on
-      # the host. See README dev section for valid labels.
       - CYCLONES_FIXTURE=${CYCLONES_FIXTURE:-}
       - AIRCRAFT_FIXTURE=${AIRCRAFT_FIXTURE:-}
-    # Direct host port for the bun server. Caddy still terminates TLS on
-    # 443; this 5501 mapping is here so a sibling/remote box can hit the
-    # dev server over plain HTTP via SSH port-forward (`ssh -L
-    # 5501:localhost:5501 dev-host`) without dealing with Caddy's
-    # self-signed cert chain.
     ports:
       - "5501:5500"
     volumes:
       - ./src:/app/src
       - ./public:/app/public
-      # Mount tests/ so CYCLONES_FIXTURE / AIRCRAFT_FIXTURE resolve
-      # against the live fixture tree without an image rebuild. The
-      # override paths in cyclonesCache.ts / aircraftCache.ts read
-      # `tests/fixtures/<source>/<label>.json` relative to the process
-      # CWD (= /app inside the container).
       - ./tests:/app/tests
     command: bun --hot src/server/index.ts
     healthcheck:

@@ -12,7 +12,7 @@ import { useAircraftPhoto } from "../hooks/useAircraftPhoto";
 import { AircraftRouteMap } from "./AircraftRouteMap";
 import { RouteProgress } from "./RouteProgress";
 import { AircraftIdentityTicket } from "./AircraftIdentityTicket";
-import { AircraftTelemetryPFD } from "./AircraftTelemetryPFD";
+import { AircraftTelemetryGauges, AircraftTelemetryReadout } from "./AircraftTelemetryPFD";
 import { AircraftFlightPlan, delayChip, RouteNextFix } from "./AircraftFlightPlan";
 import { AircraftProfileChart } from "./AircraftProfileChart";
 import { AircraftStormProximity } from "./AircraftStormProximity";
@@ -122,6 +122,7 @@ export function AircraftDossier({
     registration: liveReg,
     model: liveModel,
     manufacturerName: liveMfr,
+    typeDescription,
     acType: liveAcType,
     categoryDescription,
     military: isMilitary,
@@ -129,8 +130,6 @@ export function AircraftDossier({
     mach,
     tas,
   } = acData;
-
-  const { photo, loading: photoLoading } = useAircraftPhoto(icao24, liveReg || undefined);
 
   const title = callsign?.trim() || icao24.toUpperCase();
   const toolbar = (
@@ -160,6 +159,15 @@ export function AircraftDossier({
   });
   const typeBadge = badge.typeBadge;
   const owner = dossier?.aircraft?.RegisteredOwners ?? badge.operator;
+  const { photo, loading: photoLoading } = useAircraftPhoto(
+    icao24,
+    liveReg || undefined,
+    {
+      description: typeDescription,
+      manufacturer: mfr || undefined,
+      model: typeFullName || displayModel || undefined,
+    },
+  );
   const { route } = dossier ?? {};
 
   const wake = wakeCategory(categoryDescription);
@@ -223,8 +231,11 @@ export function AircraftDossier({
 
         <section className="sec telemetry min-w-0 flex flex-col">
           <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
-          <AircraftTelemetryPFD data={acData} />
+          <AircraftTelemetryGauges data={acData} />
         </section>
+
+        {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}
+        <AircraftProfileChart trail={trail} />
 
         {route && <AircraftFlightPlan route={route} />}
 
@@ -273,8 +284,10 @@ export function AircraftDossier({
           </DossierCard>
         </section>
 
-        {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}
-        <AircraftProfileChart trail={trail} />
+        <section className="sec telemetry-data min-w-0 flex flex-col">
+          <DossierSectionLabel>TELEMETRY DATA</DossierSectionLabel>
+          <AircraftTelemetryReadout data={acData} />
+        </section>
       </div>
 
       <section className="intel">

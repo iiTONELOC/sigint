@@ -31,7 +31,6 @@ export enum MarkerGlowPolicy {
   MaximumGlowingMarkers = 500,
 }
 
-/** Dots that share a fill bucket: one path, one fill. */
 enum DotBucket {
   SizeStep = 0.25,
   AlphaStep = 0.02,

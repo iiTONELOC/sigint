@@ -1,3 +1,4 @@
+import { SequenceStep } from "@shared/scene";
 import type {
   RenderSearchSnapshot,
   RenderSelectionSnapshot,
@@ -9,10 +10,6 @@ import {
   type SceneInterestCommandBody,
 } from "@/workers/render/sceneProtocol";
 
-enum SceneInterestSequence {
-  Initial = 0,
-  Increment = 1,
-}
 
 export type SceneInterestPort = Readonly<{
   postMessage: (message: SceneInterestCommand) => void;
@@ -20,13 +17,13 @@ export type SceneInterestPort = Readonly<{
 
 export class SceneInterestPublisher {
   private port: SceneInterestPort | null = null;
-  private sequence = SceneInterestSequence.Initial;
+  private sequence = SequenceStep.Initial;
   private sessionId: string | null = null;
 
   connect(port: SceneInterestPort, sessionId: string): void {
     this.port = port;
     this.sessionId = sessionId;
-    this.sequence = SceneInterestSequence.Initial;
+    this.sequence = SequenceStep.Initial;
   }
 
   publishSelection(selection: RenderSelectionSnapshot): boolean {
@@ -45,7 +42,7 @@ export class SceneInterestPublisher {
 
   private publish(body: SceneInterestCommandBody): boolean {
     if (!this.port || !this.sessionId) return false;
-    this.sequence += SceneInterestSequence.Increment;
+    this.sequence += SequenceStep.Increment;
     this.port.postMessage(
       createSceneCommand(
         body,
@@ -59,6 +56,6 @@ export class SceneInterestPublisher {
   disconnect(): void {
     this.port = null;
     this.sessionId = null;
-    this.sequence = SceneInterestSequence.Initial;
+    this.sequence = SequenceStep.Initial;
   }
 }

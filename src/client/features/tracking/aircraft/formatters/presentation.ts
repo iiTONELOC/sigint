@@ -41,6 +41,10 @@ export enum AircraftLinkProvider {
   PlaneSpotters = "planespotters",
 }
 
+function labelEverySurface(label: string): Readonly<Record<AircraftLinkSurface, string>> {
+  return { [AircraftLinkSurface.Detail]: label, [AircraftLinkSurface.Dossier]: label };
+}
+
 export const AIRCRAFT_LINK_POLICIES: Readonly<
   Record<
     AircraftLinkProvider,
@@ -61,10 +65,7 @@ export const AIRCRAFT_LINK_POLICIES: Readonly<
     },
   },
   [AircraftLinkProvider.FlightAware]: {
-    labels: {
-      [AircraftLinkSurface.Detail]: "FlightAware",
-      [AircraftLinkSurface.Dossier]: "FlightAware",
-    },
+    labels: labelEverySurface("FlightAware"),
     buildUrl: ({ callsign }) => {
       const flight = callsign?.trim();
       return flight ? `https://flightaware.com/live/flight/${flight}` : null;

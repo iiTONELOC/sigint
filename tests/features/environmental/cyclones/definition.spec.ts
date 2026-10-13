@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { Wind } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
 import { type PointType } from "@shared/domain/pointType";
 import { CycloneBasin } from "@shared/cyclonesSeason";
@@ -14,6 +15,10 @@ import {
 import type { BasePoint } from "@/features/base/types";
 
 // ── Sample storm helper ────────────────────────────────────────────
+
+const SCALES = Object.values(SaffirSimpson).filter(
+  (value): value is SaffirSimpson => typeof value === "number",
+);
 
 function makeStorm(
   saffirSimpson: SaffirSimpson,
@@ -54,12 +59,12 @@ describe("cycloneFeature identity", () => {
     expect(cycloneFeature.label.length).toBeGreaterThan(0);
   });
 
-  test("provides an icon component", () => {
-    expect(cycloneFeature.icon).toBeDefined();
+  test("draws the wind icon", () => {
+    expect(cycloneFeature.icon).toBe(Wind);
   });
 });
 
-// ── matchesFilter — Saffir-Simpson minCategory gate ────────────────
+// ── matchesFilter, Saffir-Simpson minCategory gate ────────────────
 
 describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
   test("enabled: false rejects every storm", () => {
@@ -80,7 +85,7 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       enabled: true,
       minCategory: 0,
     };
-    for (const cat of [0, 1, 2, 3, 4, 5] as const) {
+    for (const cat of SCALES) {
       expect(
         CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(cat), filter),
       ).toBe(true);
@@ -133,7 +138,7 @@ describe("CYCLONE_UI_QUERIES.descriptor.matchesFilter", () => {
       enabled: true,
       minCategory: 5,
     };
-    for (const cat of [0, 1, 2, 3, 4] as const) {
+    for (const cat of SCALES.filter((scale) => scale !== SaffirSimpson.Cat5)) {
       expect(
         CYCLONE_UI_QUERIES.descriptor.matchesFilter(makeStorm(cat), filter),
       ).toBe(false);

@@ -49,7 +49,7 @@ export function AboutTab() {
                 href={metadata.url}
                 target={DomAnchorTarget.Blank}
                 rel={DomLinkRelation.NoopenerNoreferrer}
-                className="flex items-center gap-2 px-2.5 py-2 text-sm text-sig-text hover:bg-sig-accent/5 transition-colors group"
+                className="flex items-center gap-2 px-2.5 py-2 text-sm text-sig-text hover:bg-sig-accent/5 transition-colors group any-pointer-coarse:min-h-11"
               >
                 <div className={SettingsClassName.DataText}>
                   <span className="text-sig-bright">{source}</span>
@@ -73,7 +73,7 @@ export function AboutTab() {
           href={SettingsAboutCopy.AuthorUrl}
           target={DomAnchorTarget.Blank}
           rel={DomLinkRelation.NoopenerNoreferrer}
-          className="flex items-center gap-2 text-sm text-sig-accent hover:text-sig-bright transition-colors"
+          className="flex items-center gap-2 text-sm text-sig-accent hover:text-sig-bright transition-colors any-pointer-coarse:min-h-11"
         >
           {SettingsAboutCopy.AuthorName}
           <ExternalLink size={SettingsIconSize.Small} />

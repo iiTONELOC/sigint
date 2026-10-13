@@ -1,3 +1,4 @@
+import { UNKNOWN_TEXT } from "@shared/text";
 import { timingSafeEqual } from "crypto";
 import { isIP } from "net";
 import { HttpHeader, HttpStatus } from "@shared/http";
@@ -13,7 +14,6 @@ const DIRECT_CLIENT_IDENTITY = "direct";
 const TOKEN_ENCODING: BufferEncoding = "base64url";
 const TOKEN_PART_COUNT = 2;
 const TOKEN_PART_SEPARATOR = ".";
-const UNKNOWN_CLIENT_IDENTITY = "unknown";
 
 const AUTH_FAILURES = {
   InvalidCredentials: { body: { error: "Unauthorized" }, response: { status: HttpStatus.Unauthorized } },
@@ -37,10 +37,10 @@ export type AuthGuards = Readonly<{
 function getClientIp(req: Request, trustedProxyHops: number): string {
   if (trustedProxyHops === 0) return DIRECT_CLIENT_IDENTITY;
   const entries = req.headers.get(HttpHeader.XForwardedFor)?.split(",");
-  if (!entries || entries.length < trustedProxyHops) return UNKNOWN_CLIENT_IDENTITY;
+  if (!entries || entries.length < trustedProxyHops) return UNKNOWN_TEXT;
   // Subtract only configured hops because Dokku excludes the socket peer from XFF.
   const client = entries[entries.length - trustedProxyHops]?.trim();
-  return client && isIP(client) ? client : UNKNOWN_CLIENT_IDENTITY;
+  return client && isIP(client) ? client : UNKNOWN_TEXT;
 }
 
 const COOKIE_RE = new RegExp(

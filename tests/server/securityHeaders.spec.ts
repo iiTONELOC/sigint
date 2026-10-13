@@ -100,6 +100,17 @@ describe("withSecurityHeaders", () => {
     expect(csp).toContain("planespotters.net");
   });
 
+  test("CSP img-src allows Wikimedia stock photos", () => {
+    const csp = withSecurityHeaders(new Response("ok")).headers.get(
+      "Content-Security-Policy",
+    )!;
+    const imgSrc = csp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("img-src"));
+
+    expect(imgSrc).toContain("https://*.wikimedia.org");
+  });
+
   test("CSP allows client-side data source connections", () => {
     const csp = withSecurityHeaders(new Response("ok")).headers.get(
       "Content-Security-Policy",
@@ -107,7 +118,6 @@ describe("withSecurityHeaders", () => {
     expect(csp).toContain("connect-src");
     expect(csp).toContain("earthquake.usgs.gov");
     expect(csp).toContain("api.weather.gov");
-    expect(csp).toContain("iptv-org.github.io");
   });
 
   test("CSP restricts scripts to self only, no unsafe-eval, no unsafe-inline", () => {
@@ -169,48 +179,42 @@ describe("security headers on API responses", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
-  test("dossier 400 response has security headers", async () => {
+  test("dossier 400 and 405 responses carry the security headers", async () => {
     const cookie = await validCookie();
     const handler = (apiRoutes as any)["/api/dossier/aircraft/:icao24"];
-    const req = authedReq("/api/dossier/aircraft/ZZZZZZ", cookie);
-    Object.defineProperty(req, "method", { value: "GET", writable: true });
-    (req as any).params = { icao24: "ZZZZZZ" };
-    const res = await handler(req);
-    expect(res.status).toBe(400);
-    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
-  });
-
-  test("dossier 405 response has security headers", async () => {
-    const cookie = await validCookie();
-    const handler = (apiRoutes as any)["/api/dossier/aircraft/:icao24"];
-    const req = authedReq("/api/dossier/aircraft/abc123", cookie);
-    Object.defineProperty(req, "method", { value: "POST", writable: true });
-    (req as any).params = { icao24: "abc123" };
-    const res = await handler(req);
-    expect(res.status).toBe(405);
-    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    const cases: ReadonlyArray<readonly [string, string, number]> = [
+      ["GET", "ZZZZZZ", 400],
+      ["POST", "abc123", 405],
+    ];
+    for (const [method, icao24, status] of cases) {
+      const req = authedReq(`/api/dossier/aircraft/${icao24}`, cookie);
+      Object.defineProperty(req, "method", { value: method, writable: true });
+      (req as any).params = { icao24 };
+      const res = await handler(req);
+      expect([method, res.status, res.headers.get("X-Frame-Options")]).toEqual([method, status, "DENY"]);
+    }
   });
 });
 
-describe("CSP regression — no server-side-only sources in connect-src", () => {
-  test("hexdb.io not in connect-src (server-side only)", () => {
+describe("CSP regression: no server-side-only sources in connect-src", () => {
+  test("iptv-org not in connect-src (server-side only)", () => {
     const csp = withSecurityHeaders(new Response("ok")).headers.get(
       "Content-Security-Policy",
     )!;
-    const connectSrc = csp
-      .split(";")
-      .find((d) => d.trim().startsWith("connect-src"));
-    expect(connectSrc).not.toContain("hexdb.io");
+
+    expect(csp).not.toContain("iptv-org.github.io");
   });
 
-  test("planespotters API not in connect-src (server-side only)", () => {
+  test("server-side-only hosts are absent from connect-src", () => {
     const csp = withSecurityHeaders(new Response("ok")).headers.get(
       "Content-Security-Policy",
     )!;
     const connectSrc = csp
       .split(";")
-      .find((d) => d.trim().startsWith("connect-src"));
-    expect(connectSrc).not.toContain("api.planespotters.net");
+      .find((d) => d.trim().startsWith("connect-src")) ?? "";
+    for (const host of ["hexdb.io", "api.planespotters.net"]) {
+      expect([host, connectSrc.includes(host)]).toEqual([host, false]);
+    }
   });
 
   test("planespotters in img-src for photo rendering", () => {
@@ -223,17 +227,9 @@ describe("CSP regression — no server-side-only sources in connect-src", () => 
 });
 
 describe("dead route regression", () => {
-  test("no /api/aircraft/metadata/:icao24 route", () => {
-    expect(
-      (apiRoutes as any)["/api/aircraft/metadata/:icao24"],
-    ).toBeUndefined();
-  });
-
-  test("no /api/aircraft/metadata/batch route", () => {
-    expect((apiRoutes as any)["/api/aircraft/metadata/batch"]).toBeUndefined();
-  });
-
-  test("/api/aircraft/metadata/db/v1 has been removed", () => {
-    expect((apiRoutes as any)["/api/aircraft/metadata/db/v1"]).toBeUndefined();
+  test("the removed metadata routes stay removed", () => {
+    for (const route of ["/api/aircraft/metadata/:icao24", "/api/aircraft/metadata/batch", "/api/aircraft/metadata/db/v1"]) {
+      expect([route, (apiRoutes as any)[route]]).toEqual([route, undefined]);
+    }
   });
 });

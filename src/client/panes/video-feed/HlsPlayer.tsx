@@ -1,16 +1,41 @@
 import { useEffect, useRef, type RefObject } from "react";
 import Hls from "hls.js";
 import { DomEvent } from "@/runtime";
-import type { Channel, PlayerHandle } from "./videoFeedTypes";
+import type { Channel } from "@shared/domain/videoChannel";
+import type { PlayerHandle } from "./videoFeedTypes";
 
 enum HlsPlayerMetric {
-  BackBufferSeconds = 300,
-  BufferSeconds = 10,
-  LiveEdgeOffsetSeconds = 0.5,
+  DvrWindowSeconds = 300,
+  LiveToleranceSeconds = 3,
   LoadTimeoutMilliseconds = 15_000,
-  MaximumBufferSeconds = 30,
   NetworkRetryLimit = 2,
-  UnknownDurationSeconds = 10_000_000_000,
+}
+
+const PLAYBACK_EVENTS: readonly DomEvent[] = [
+  DomEvent.Pause,
+  DomEvent.Play,
+  DomEvent.Progress,
+  DomEvent.Seeked,
+  DomEvent.TimeUpdate,
+];
+
+export type LivePlayback = Readonly<{ delay: number; live: boolean }>;
+
+export function livePlayback(
+  edge: number | null,
+  time: number,
+  paused: boolean,
+): LivePlayback {
+  const delay = edge === null ? 0 : Math.max(0, edge - time);
+  return { delay, live: !paused && delay <= HlsPlayerMetric.LiveToleranceSeconds };
+}
+
+function liveEdge(video: HTMLVideoElement, hls: Hls | null): number | null {
+  const synced = hls?.liveSyncPosition;
+  if (typeof synced === "number") return synced;
+  return video.seekable.length > 0
+    ? video.seekable.end(video.seekable.length - 1)
+    : null;
 }
 
 type HlsPlayerProps = Readonly<{
@@ -19,6 +44,7 @@ type HlsPlayerProps = Readonly<{
   ccEnabled: boolean;
   onError: () => void;
   onLoaded: () => void;
+  onTick: () => void;
   playerRef: RefObject<PlayerHandle | null>;
 }>;
 
@@ -28,24 +54,22 @@ export function HlsPlayer({
   ccEnabled,
   onError,
   onLoaded,
+  onTick,
   playerRef,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const errorFired = useRef(false);
-  const userSeekedRef = useRef(false);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     playerRef.current = {
       get isLive() {
-        return !userSeekedRef.current;
+        return livePlayback(liveEdge(video, hlsRef.current), video.currentTime, video.paused).live;
       },
       get currentDelay() {
-        if (video.buffered.length === 0) return 0;
-        const bufEnd = video.buffered.end(video.buffered.length - 1);
-        return Math.max(0, bufEnd - video.currentTime);
+        return livePlayback(liveEdge(video, hlsRef.current), video.currentTime, video.paused).delay;
       },
       play() {
         video.play().catch(() => {});
@@ -55,19 +79,9 @@ export function HlsPlayer({
       },
       goLive() {
         const hls = hlsRef.current;
-        if (hls) {
-          hls.startLoad(-1);
-        }
-        if (video.buffered.length > 0) {
-          const liveEdge = video.buffered.end(video.buffered.length - 1);
-          video.currentTime =
-            liveEdge - HlsPlayerMetric.LiveEdgeOffsetSeconds;
-        } else if (Number.isFinite(video.duration)) {
-          video.currentTime = video.duration;
-        } else {
-          video.currentTime = HlsPlayerMetric.UnknownDurationSeconds;
-        }
-        userSeekedRef.current = false;
+        const edge = liveEdge(video, hls);
+        if (edge === null) hls?.startLoad(-1);
+        else video.currentTime = edge;
         video.play().catch(() => {});
       },
       get bufferRange(): [number, number] | null {
@@ -90,7 +104,6 @@ export function HlsPlayer({
       },
       seekTo(time: number) {
         video.currentTime = time;
-        userSeekedRef.current = true;
       },
       getVideoElement() {
         return video;
@@ -135,9 +148,9 @@ export function HlsPlayer({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        maxBufferLength: HlsPlayerMetric.BufferSeconds,
-        maxMaxBufferLength: HlsPlayerMetric.MaximumBufferSeconds,
-        backBufferLength: HlsPlayerMetric.BackBufferSeconds,
+        maxBufferLength: HlsPlayerMetric.DvrWindowSeconds,
+        maxMaxBufferLength: HlsPlayerMetric.DvrWindowSeconds,
+        backBufferLength: HlsPlayerMetric.DvrWindowSeconds,
         // Cross-origin streams must not send or accept cookies.
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
@@ -196,6 +209,15 @@ export function HlsPlayer({
 
     fireError();
   }, [channel.url, onError, onLoaded]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    for (const event of PLAYBACK_EVENTS) video.addEventListener(event, onTick);
+    return () => {
+      for (const event of PLAYBACK_EVENTS) video.removeEventListener(event, onTick);
+    };
+  }, [onTick]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;

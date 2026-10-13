@@ -1,3 +1,5 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
+
 export enum PaneType {
   Globe = "globe",
   DataTable = "data-table",
@@ -17,14 +19,6 @@ export enum PaneNodeType {
 export enum SplitDirection {
   Horizontal = "h",
   Vertical = "v",
-}
-
-export enum PaneDropZone {
-  Center = "center",
-  Top = "top",
-  Bottom = "bottom",
-  Left = "left",
-  Right = "right",
 }
 
 export enum PaneDragDataType {
@@ -70,6 +64,7 @@ export enum PaneWorkspaceMenuMetric {
 export const PANE_MOBILE_MINIMUM_HEIGHT = 160;
 
 export enum PaneMobileScreen {
+  Content = "content",
   Full = "full",
   Half = "half",
 }
@@ -97,8 +92,8 @@ export type PaneNodeTypeValue = `${PaneNodeType}`;
 export type PaneLeafNodeType = `${PaneNodeType.Leaf}`;
 export type PaneSplitNodeType = `${PaneNodeType.Split}`;
 export type SplitDirectionValue = `${SplitDirection}`;
-export type PaneDropZoneValue = `${PaneDropZone}`;
+export type PaneDropZoneValue = `${Placement}`;
 export type PaneEdgeDropZoneValue = Exclude<
   PaneDropZoneValue,
-  `${PaneDropZone.Center}`
+  `${Placement.Center}`
 >;

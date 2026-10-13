@@ -37,54 +37,28 @@ describe("RenderGlobeStateStore", () => {
 
   test("replays the retained snapshot when a worker connects", () => {
     const store = new RenderGlobeStateStore();
-    store.dispatch({
-      kind: RenderGlobeCommandKind.SetRotationEnabled,
-      enabled: true,
-    });
-    store.dispatch({
-      kind: RenderGlobeCommandKind.SetIsolation,
-      mode: IsolateMode.Focus,
-    });
-    store.dispatch({
-      kind: RenderGlobeCommandKind.SetReducedMotion,
-      reducedMotion: true,
-    });
     const theme = createRenderThemeFixture();
-    store.dispatch({
-      kind: RenderGlobeCommandKind.SetRenderTheme,
-      theme,
-    });
+    const retained: RenderGlobeCommand[] = [
+      { kind: RenderGlobeCommandKind.SetRotationEnabled, enabled: true },
+      { kind: RenderGlobeCommandKind.SetIsolation, mode: IsolateMode.Focus },
+      { kind: RenderGlobeCommandKind.SetReducedMotion, reducedMotion: true },
+      { kind: RenderGlobeCommandKind.SetRenderTheme, theme },
+    ];
+    for (const command of retained) store.dispatch(command);
     const sent: RenderGlobeCommand[] = [];
 
     const disconnect = store.connect((command) => {
       sent.push(command);
     });
 
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetProjection,
-      projection: RenderProjectionMode.Globe,
-    });
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetRotationEnabled,
-      enabled: true,
-    });
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetLayerVisibility,
-      layer: Domain.Ships,
-      visible: true,
-    });
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetIsolation,
-      mode: IsolateMode.Focus,
-    });
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetReducedMotion,
-      reducedMotion: true,
-    });
-    expect(sent).toContainEqual({
-      kind: RenderGlobeCommandKind.SetRenderTheme,
-      theme,
-    });
+    const replayed: RenderGlobeCommand[] = [
+      { kind: RenderGlobeCommandKind.SetProjection, projection: RenderProjectionMode.Globe },
+      { kind: RenderGlobeCommandKind.SetLayerVisibility, layer: Domain.Ships, visible: true },
+      ...retained,
+    ];
+    for (const command of replayed) {
+      expect(sent).toContainEqual(command);
+    }
     disconnect();
   });
 

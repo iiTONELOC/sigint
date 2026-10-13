@@ -37,9 +37,6 @@ export function diffAndApply<T extends DataPoint>(
     }
   }
 
-  // Same id-set. Build id→prior map for O(1) lookup, then copy mutable
-  // fields from each incoming record onto its prior counterpart. The
-  // prior array's own ordering is preserved (callers may rely on it).
   const priorById = new Map<string, T>();
   for (let i = 0; i < prior.length; i++) priorById.set(prior[i]!.id, prior[i]!);
   for (let i = 0; i < incoming.length; i++) {

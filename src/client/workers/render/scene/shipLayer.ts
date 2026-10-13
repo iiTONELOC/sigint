@@ -108,7 +108,6 @@ function markerAt(
   };
 }
 
-/** Add one ship hull to the current path. */
 function traceShip(
   context: OffscreenCanvasRenderingContext2D,
   marker: ShipMarker,

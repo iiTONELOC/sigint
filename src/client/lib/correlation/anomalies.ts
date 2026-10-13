@@ -1,6 +1,3 @@
-// ── Anomaly detection ──────────────────────────────────────────────
-// Compares current 6-hour activity in each country to its rolling
-// baseline. ≥3× and ≥3 events triggers an "Activity spike" anomaly.
 
 import type { RegionBaseline } from "./types";
 import { avgRate, recentCount } from "./baseline";

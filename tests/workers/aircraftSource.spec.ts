@@ -51,71 +51,53 @@ function aircraftTrailReader(): MovingSceneTrailReader {
   };
 }
 
+async function refreshTwice(): Promise<SceneSourcePatch[]> {
+  const scenePatches: SceneSourcePatch[] = [];
+  const binding = aircraftSceneBinding(aircraftTrailReader(), (command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) scenePatches.push(command);
+  });
+  const source = new AircraftSource({
+    fetchSnapshot: async () => ({
+      completeness: SourceCompleteness.Complete,
+      entities: [aircraft(90)],
+      observedAt: 10,
+    }),
+  });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => {
+      binding.publish(patch);
+    },
+  });
+  await source.refresh();
+  await source.refresh();
+  return scenePatches;
+}
+
 describe("AircraftSource", () => {
-  test("publishes a typed rebase and omits an unchanged refresh", async () => {
-    const scenePatches: SceneSourcePatch[] = [];
-    const binding = aircraftSceneBinding(
-      aircraftTrailReader(),
-      (command) => {
-        if (command.type === SceneDataCommandType.SourcePatch) {
-          scenePatches.push(command);
-        }
-      },
-    );
-    const source = new AircraftSource({
-      fetchSnapshot: async () => ({
-        completeness: SourceCompleteness.Complete,
-        entities: [aircraft(90)],
-        observedAt: 10,
-      }),
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => {
-        binding.publish(patch);
-      },
-    });
+  test("publishes a typed rebase on the first refresh", async () => {
+    const [rebase] = await refreshTwice();
 
-    await source.refresh();
-    await source.refresh();
+    expect(rebase?.kind).toBe(DatasetPatchKind.Rebase);
+    expect(Array.from(rebase?.handles ?? [])).toEqual([1]);
+    expect(Array.from(rebase?.attributes ?? [])).toEqual([90, 1, 0, 90, Math.fround(ktToMps(200))]);
+    expect(rebase?.motionPositions).toBeInstanceOf(Float64Array);
+    expect(Array.from(rebase?.motionPositions ?? [])).toEqual([-74.123456789012, 40.123456789012]);
+    expect(Array.from(rebase?.positions ?? [])).toEqual([20, 10]);
+    expect(Array.from(rebase?.timestamps ?? [])).toEqual([100]);
+    expect(Array.from(rebase?.stringAttributes ?? [])).toEqual([1]);
+    expect(rebase?.dictionaryValues).toEqual(["United States"]);
+  });
 
-    expect(scenePatches).toHaveLength(2);
-    expect(scenePatches[0]?.kind).toBe(DatasetPatchKind.Rebase);
-    expect(Array.from(scenePatches[0]?.handles ?? [])).toEqual([1]);
-    expect(Array.from(scenePatches[0]?.attributes ?? [])).toEqual([
-      90,
-      1,
-      0,
-      90,
-      Math.fround(ktToMps(200)),
-    ]);
-    expect(scenePatches[0]?.motionPositions).toBeInstanceOf(
-      Float64Array,
-    );
-    expect(
-      Array.from(scenePatches[0]?.motionPositions ?? []),
-    ).toEqual([
-      -74.123456789012,
-      40.123456789012,
-    ]);
-    expect(Array.from(scenePatches[0]?.positions ?? [])).toEqual([
-      20,
-      10,
-    ]);
-    expect(Array.from(scenePatches[0]?.timestamps ?? [])).toEqual([
-      100,
-    ]);
-    expect(
-      Array.from(scenePatches[0]?.stringAttributes ?? []),
-    ).toEqual([1]);
-    expect(scenePatches[0]?.dictionaryValues).toEqual([
-      "United States",
-    ]);
-    expect(scenePatches[1]?.kind).toBe(DatasetPatchKind.Patch);
-    expect(scenePatches[1]?.handles).toHaveLength(0);
+  test("omits an unchanged refresh", async () => {
+    const patches = await refreshTwice();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[1]?.kind).toBe(DatasetPatchKind.Patch);
+    expect(patches[1]?.handles).toHaveLength(0);
   });
 
   test("keeps the trail origin while current position and motion change", () => {

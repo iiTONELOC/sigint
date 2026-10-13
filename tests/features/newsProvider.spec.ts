@@ -22,7 +22,7 @@ const MOCK_ARTICLES: NewsArticle[] = [
   },
 ];
 
-// ── Fetch mock — handles auth cookie endpoint + news endpoint ───────
+// ── Fetch mock, handles auth cookie endpoint + news endpoint ───────
 
 let originalFetch: typeof globalThis.fetch;
 let newsResponse: { ok: boolean; items?: NewsArticle[]; error?: boolean };
@@ -151,7 +151,7 @@ describe("NewsArticle shape", () => {
   });
 });
 
-// ── mute() / unmute() — mirrors BaseProvider for frontend.tsx batch ──
+// ── mute() / unmute(), mirrors BaseProvider for frontend.tsx batch ──
 
 describe("newsProvider.mute() / unmute()", () => {
   test("mute() returns a restore token of type function", () => {

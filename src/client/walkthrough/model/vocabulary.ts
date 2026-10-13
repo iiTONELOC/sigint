@@ -15,14 +15,6 @@ export enum WalkthroughStepMode {
   Information = "info",
 }
 
-export enum WalkthroughPlacement {
-  Bottom = "bottom",
-  Center = "center",
-  Left = "left",
-  Right = "right",
-  Top = "top",
-}
-
 export enum WalkthroughRingColor {
   Accent = "accent",
   Danger = "danger",
@@ -62,7 +54,9 @@ export enum WalkthroughStepId {
 }
 
 export enum WalkthroughTourTarget {
+  AddView = "add-view",
   AircraftFilter = "aircraft-filter",
+  BlockActionSplitRight = "block-action-split-right",
   DetailClose = "detail-close",
   DetailDragHandle = "detail-drag-handle",
   GlobeControls = "globe-controls",
@@ -74,16 +68,15 @@ export enum WalkthroughTourTarget {
   Search = "search",
   SettingsButton = "settings-button",
   SplitDownButton = "split-down-btn",
-  SplitDownVideoFeed = "split-down-video-feed",
   SplitMenuAlertLog = "split-menu-alert-log",
   SplitMenuIntelFeed = "split-menu-intel-feed",
   SplitMenuVideoFeed = "split-menu-video-feed",
-  SplitRightAlertLog = "split-right-alert-log",
   SplitRightButton = "split-right-btn",
   Ticker = "ticker",
   VideoPresetButton = "video-preset-btn",
   VideoPresetInput = "video-preset-input",
   VideoPresetSaveButton = "video-preset-save-btn",
+  ViewTabAlertLog = "view-tab-alert-log",
   ViewsButton = "views-btn",
 }
 

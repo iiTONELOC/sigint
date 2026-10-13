@@ -21,6 +21,39 @@ enum MalformedSceneCommandType {
   LegacyData = "data",
 }
 
+function movingCommand() {
+  return createSceneCommand(
+    {
+      type: SceneDataCommandType.SourcePatch,
+      source: Domain.Aircraft,
+      sourceVersion: 1,
+      kind: DatasetPatchKind.Rebase,
+      handles: new Uint32Array([1]),
+      sceneIds: ["A1"],
+      entityIds: ["A1"],
+      positions: new Float64Array([10, 20]),
+      motionPositions: new Float64Array([10, 20]),
+      motionPositionStride: SCENE_POSITION_COUNT,
+      unitVectors: new Float32Array([1, 0, 0]),
+      timestamps: new Float64Array([1_000]),
+      attributes: new Float32Array([90]),
+      attributeStride: 1,
+      stringAttributes: new Uint32Array(),
+      stringAttributeStride: 0,
+      dictionaryStart: 0,
+      dictionaryValues: [],
+      geometryKinds: new Uint8Array([SceneGeometryKind.None]),
+      geometryCoordinates: new Float64Array(),
+      geometryPartEnds: new Uint32Array(),
+      geometryGroupEnds: new Uint32Array(),
+      geometryRecordEnds: new Uint32Array([0]),
+      deletedHandles: new Uint32Array(),
+    },
+    "session-1",
+    1,
+  );
+}
+
 describe("scene data protocol", () => {
   test("accepts a versioned transferable source patch", () => {
     const command = createSceneCommand(
@@ -65,57 +98,17 @@ describe("scene data protocol", () => {
   });
 
   test("rejects malformed motion-position and numeric lanes", () => {
-    const command = createSceneCommand(
-      {
-        type: SceneDataCommandType.SourcePatch,
-        source: Domain.Aircraft,
-        sourceVersion: 1,
-        kind: DatasetPatchKind.Rebase,
-        handles: new Uint32Array([1]),
-        sceneIds: ["A1"],
-        entityIds: ["A1"],
-        positions: new Float64Array([10, 20]),
-        motionPositions: new Float64Array([10, 20]),
-        motionPositionStride:
-          SCENE_POSITION_COUNT,
-        unitVectors: new Float32Array([1, 0, 0]),
-        timestamps: new Float64Array([1_000]),
-        attributes: new Float32Array([90]),
-        attributeStride: 1,
-        stringAttributes: new Uint32Array(),
-        stringAttributeStride: 0,
-        dictionaryStart: 0,
-        dictionaryValues: [],
-        geometryKinds: new Uint8Array([SceneGeometryKind.None]),
-        geometryCoordinates: new Float64Array(),
-        geometryPartEnds: new Uint32Array(),
-        geometryGroupEnds: new Uint32Array(),
-        geometryRecordEnds: new Uint32Array([0]),
-        deletedHandles: new Uint32Array(),
-      },
-      "session-1",
-      1,
-    );
+    const command = movingCommand();
+    const malformed = [
+      { motionPositionStride: 0 },
+      { motionPositions: new Float64Array([Number.POSITIVE_INFINITY, 20]) },
+      { attributes: new Float32Array([Number.NaN]) },
+      { unitVectors: new Float32Array([Number.NaN, 0, 0]) },
+    ];
 
-    expect(parseSceneDataCommand({
-      ...command,
-      motionPositionStride: 0,
-    })).toBeNull();
-    expect(parseSceneDataCommand({
-      ...command,
-      motionPositions: new Float64Array([
-        Number.POSITIVE_INFINITY,
-        20,
-      ]),
-    })).toBeNull();
-    expect(parseSceneDataCommand({
-      ...command,
-      attributes: new Float32Array([Number.NaN]),
-    })).toBeNull();
-    expect(parseSceneDataCommand({
-      ...command,
-      unitVectors: new Float32Array([Number.NaN, 0, 0]),
-    })).toBeNull();
+    for (const change of malformed) {
+      expect(parseSceneDataCommand({ ...command, ...change })).toBeNull();
+    }
   });
 
   test("rejects malformed buffers and legacy object arrays", () => {

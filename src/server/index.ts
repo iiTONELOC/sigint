@@ -1,3 +1,4 @@
+import { BYTES_PER_MEBIBYTE } from "@shared/types/numbers";
 import { serve } from "bun";
 import { join, resolve } from "path";
 import { createApiRoutes } from "./api";
@@ -15,7 +16,7 @@ export enum ServerMode {
 
 const CONFIG_ERROR_EXIT_CODE = 78;
 const PRODUCTION_IDLE_TIMEOUT_SECONDS = 30;
-const MAXIMUM_REQUEST_BODY_BYTES = 1_048_576;
+const MAXIMUM_REQUEST_BODY_BYTES = BYTES_PER_MEBIBYTE;
 
 const SERVER_STATIC_DIRECTORY = {
   [ServerMode.Development]: "../../public",

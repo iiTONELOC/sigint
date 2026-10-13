@@ -1,16 +1,20 @@
 import { describe, expect, it } from "bun:test";
 import {
-  applyCameraWheel,
-  beginCameraPointer,
   cameraSnapshot,
   createWorkerCameraState,
   createWorkerCameraTarget,
   createWorkerPointerState,
-  endCameraPointer,
   focusCamera,
-  moveCameraPointer,
-  stepCamera,
 } from "@/workers/render/camera";
+import {
+  applyCameraWheel,
+  beginCameraPointer,
+  endCameraPointer,
+  moveCameraPointer,
+} from "@/workers/render/cameraInput";
+import {
+  stepCamera,
+} from "@/workers/render/cameraStep";
 import { CAMERA_POLICY } from "@/workers/render/policy";
 import { RenderFocusKind } from "@/workers/render/protocol";
 

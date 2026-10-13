@@ -53,12 +53,12 @@ export type NewsItem = {
   description: string;
 };
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   const text = decodeHtmlEntities(html).replace(/<[^<>]*>/g, " ");
   return text.replace(/\s+/g, " ").trim();
 }
 
-function hashUrl(url: string): string {
+export function hashUrl(url: string): string {
   let hash = 0;
   for (let i = 0; i < url.length; i++) {
     hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
@@ -66,7 +66,7 @@ function hashUrl(url: string): string {
   return `NW${Math.abs(hash).toString(NewsHashPolicy.Radix)}`;
 }
 
-function extractTag(xml: string, tag: string): string {
+export function extractTag(xml: string, tag: string): string {
   const tagPattern = new RegExp(
     String.raw`<${tag}[^>]*>([\s\S]*?)</${tag}>`,
     NewsRegexFlag.CaseInsensitive,
@@ -84,7 +84,7 @@ function extractTag(xml: string, tag: string): string {
   return "";
 }
 
-function extractAttr(xml: string, tag: string, attr: string): string {
+export function extractAttr(xml: string, tag: string, attr: string): string {
   const attributePattern = new RegExp(
     String.raw`<${tag}[^>]*?${attr}\s*=\s*["']([^"']*)["']`,
     NewsRegexFlag.CaseInsensitive,
@@ -92,7 +92,7 @@ function extractAttr(xml: string, tag: string, attr: string): string {
   return attributePattern.exec(xml)?.[1] ?? "";
 }
 
-function parseRssItems(xml: string, sourceName: string): NewsItem[] {
+export function parseRssItems(xml: string, sourceName: string): NewsItem[] {
   const items: NewsItem[] = [];
   const isAtom =
     xml.includes(`<${NewsMarkupToken.Feed}`) &&
@@ -160,7 +160,7 @@ async function fetchFeed(
     }
     return parseRssItems(await res.text(), source);
   } catch (err) {
-    logger.warn(`📰 ${source}: ${errorMessage(err, "Unknown error")}`);
+    logger.warn(`📰 ${source}: ${errorMessage(err)}`);
     return [];
   }
 }

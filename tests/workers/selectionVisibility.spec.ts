@@ -76,24 +76,11 @@ describe("selectionIsVisible", () => {
     ).toBe(false);
   });
 
-  test("uses the aircraft layer as the aircraft authority", () => {
-    expect(
-      selectionIsVisible(
-        settings(aircraftSelection, {
-          aircraftEntityIsVisible: () => false,
-        }),
-      ),
-    ).toBe(false);
-  });
-
-  test("uses layer visibility for a non-aircraft selection", () => {
-    expect(
-      selectionIsVisible(
-        settings(shipSelection, {
-          sourceIsVisible: () => false,
-        }),
-      ),
-    ).toBe(false);
+  test("asks the aircraft layer for an aircraft and the source layer for anything else", () => {
+    expect(selectionIsVisible(settings(aircraftSelection, { aircraftEntityIsVisible: () => false }))).toBe(false);
+    expect(selectionIsVisible(settings(aircraftSelection, { sourceIsVisible: () => false }))).toBe(true);
+    expect(selectionIsVisible(settings(shipSelection, { sourceIsVisible: () => false }))).toBe(false);
+    expect(selectionIsVisible(settings(shipSelection, { aircraftEntityIsVisible: () => false }))).toBe(true);
   });
 
   test("accepts a selection that survives every active filter", () => {

@@ -1,9 +1,9 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   WalkthroughClickMode,
   WalkthroughPhase,
-  WalkthroughPlacement,
   WalkthroughRingColor,
   WalkthroughStepId,
   WalkthroughStepMode,
@@ -173,7 +173,7 @@ export function WalkthroughStepOverlay({
 }: WalkthroughStepOverlayProps) {
   const tooltip = useWalkthroughTooltip({ isMobile, step });
   const action = step.mode === WalkthroughStepMode.Action;
-  const centered = step.placement === WalkthroughPlacement.Center;
+  const centered = step.placement === Placement.Center;
   const showCutout = !action && !centered && tooltip.targetRect !== null;
   const showClickIndicator = shouldShowClickIndicator(
     step.id,

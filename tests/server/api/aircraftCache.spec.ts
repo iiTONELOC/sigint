@@ -13,7 +13,6 @@ import {
   AircraftSourcePolicy,
   TILE_RADIUS_NM,
   normalizeAdsbPayload,
-  parseRetryAfter,
   fetchTileWithRetry,
   getAircraftCache,
   createSweepState,
@@ -69,10 +68,6 @@ describe("constants", () => {
 
   test("aircraft requests retain the production rate-limit margin", () => {
     expect(AircraftSourcePolicy.RateLimitDelayMs).toBe(3_000);
-  });
-
-  test("rate-limit retries retain the default backoff", () => {
-    expect(AircraftSourcePolicy.RetryDefaultDelayMs).toBe(30_000);
   });
 
   test("TILE_RADIUS_NM is at the v3 server cap of 250 (verified probe)", () => {
@@ -178,22 +173,6 @@ describe("FixtureOverrideOwner", () => {
   });
 });
 
-// ── parseRetryAfter ──────────────────────────────────────────────
-
-describe("parseRetryAfter", () => {
-  test("parses a positive integer-seconds value", () => {
-    expect(parseRetryAfter("10")).toBe(10);
-    expect(parseRetryAfter("1")).toBe(1);
-  });
-
-  test("returns null for null / empty / zero / negative / non-numeric", () => {
-    expect(parseRetryAfter(null)).toBeNull();
-    expect(parseRetryAfter("")).toBeNull();
-    expect(parseRetryAfter("0")).toBeNull();
-    expect(parseRetryAfter("-5")).toBeNull();
-    expect(parseRetryAfter("abc")).toBeNull();
-  });
-});
 
 // ── fetchTileWithRetry ───────────────────────────────────────────
 

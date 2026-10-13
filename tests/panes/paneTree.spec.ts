@@ -153,17 +153,11 @@ describe("removeLeaf()", () => {
     expect(removeLeaf(l, l.id)).toBeNull();
   });
 
-  test("removing first child returns second", () => {
+  test("removing either child of a split returns the other", () => {
     const a = leaf("globe");
     const b = leaf("dossier");
     const tree = split("h", a, b);
     expect(removeLeaf(tree, a.id)).toBe(b);
-  });
-
-  test("removing second child returns first", () => {
-    const a = leaf("globe");
-    const b = leaf("dossier");
-    const tree = split("h", a, b);
     expect(removeLeaf(tree, b.id)).toBe(a);
   });
 

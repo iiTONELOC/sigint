@@ -319,7 +319,6 @@ function markerAt(
   };
 }
 
-/** Add one aircraft triangle to the current path. */
 function traceMarker(
   context: OffscreenCanvasRenderingContext2D,
   marker: AircraftMarker,

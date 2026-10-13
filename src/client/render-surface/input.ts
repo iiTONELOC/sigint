@@ -107,6 +107,8 @@ function pinchPayload(
 
 export class InputAdapter {
   private active = false;
+  private holding = false;
+  private holdTimer: ReturnType<typeof setTimeout> | undefined;
   private pinching = false;
   private lastTouchTime = 0;
   private lastPoint = { x: 0, y: 0 };
@@ -160,6 +162,7 @@ export class InputAdapter {
       this.onContextMenu,
     );
     window.removeEventListener(DomEvent.KeyDown, this.onKeyDown);
+    this.releaseHold();
     this.active = false;
     this.pinching = false;
     this.started = false;
@@ -226,7 +229,22 @@ export class InputAdapter {
       x: relative.x,
       y: relative.y,
     });
+    if ("touches" in event && this.options.scrollsPage()) this.startHold();
   };
+
+  private startHold(): void {
+    clearTimeout(this.holdTimer);
+    this.holdTimer = setTimeout(() => {
+      this.holding = this.active;
+    }, CAMERA_POLICY.touchHoldMs);
+  }
+
+  private releaseHold(): boolean {
+    clearTimeout(this.holdTimer);
+    const held = this.holding;
+    this.holding = false;
+    return held;
+  }
 
   private readonly onMove = (
     event: MouseEvent | TouchEvent,
@@ -266,6 +284,10 @@ export class InputAdapter {
   };
 
   private readonly onUp = (): void => {
+    if (this.releaseHold()) {
+      this.cancelPointer();
+      return;
+    }
     this.flushPointer();
     if (this.pinching) {
       this.pinching = false;
@@ -311,7 +333,11 @@ export class InputAdapter {
   };
 
   private readonly onTouchMove = (event: TouchEvent): void => {
-    if (event.touches.length < 2 && this.options.scrollsPage()) {
+    if (!event.cancelable) {
+      if (this.active || this.pinching) this.cancelPointer();
+      return;
+    }
+    if (event.touches.length < 2 && this.options.scrollsPage() && !this.holding) {
       this.releaseToPage(event);
       return;
     }
@@ -330,6 +356,7 @@ export class InputAdapter {
   }
 
   private readonly cancelPointer = (): void => {
+    this.releaseHold();
     this.active = false;
     this.pinching = false;
     this.flushPointer();

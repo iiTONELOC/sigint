@@ -1,5 +1,6 @@
 import {
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -21,10 +22,10 @@ import {
 } from "@/walkthrough";
 import { Bookmark } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
+import { DomEvent } from "@/runtime";
 
 import type {
   LayoutNode,
-  PaneType,
   LayoutState,
   LayoutPreset,
   LayoutPresetCatalog,
@@ -33,7 +34,6 @@ import {
   leaf,
   collectLeafTypes,
   leafCount,
-  hasDossierInTree,
   collectLeaves,
   defaultLayout,
   loadLayout,
@@ -44,6 +44,7 @@ import {
 } from "./paneTree";
 import {
   PaneType as PaneTypeId,
+  type PaneTypeValue,
   PaneWorkspaceIconMetric,
   type PaneEdgeDropZoneValue,
   type SplitDirectionValue,
@@ -78,7 +79,7 @@ enum PaneManagerToken {
   WalkthroughLayout = "alert-log,globe,video-feed",
 }
 
-function comparePaneTypes(left: PaneType, right: PaneType): number {
+function comparePaneTypes(left: PaneTypeValue, right: PaneTypeValue): number {
   return left.localeCompare(right);
 }
 
@@ -135,7 +136,7 @@ function usePaneLayoutActions(
     (
       leafId: string,
       direction: SplitDirectionValue,
-      newType: PaneType,
+      newType: PaneTypeValue,
     ) => {
       setLayout((current) =>
         splitPaneLayout(current, leafId, direction, newType),
@@ -147,7 +148,7 @@ function usePaneLayoutActions(
     setLayout((current) => closePaneLayout(current, leafId));
   }, [setLayout]);
   const minimizePane = useCallback(
-    (leafId: string, paneType: PaneType) => {
+    (leafId: string, paneType: PaneTypeValue) => {
       setLayout((current) =>
         minimizePaneLayout(current, leafId, paneType),
       );
@@ -161,7 +162,7 @@ function usePaneLayoutActions(
     setLayout((current) => resizePaneLayout(current, splitId, ratio));
   }, [setLayout]);
   const changePaneType = useCallback(
-    (leafId: string, newType: PaneType) => {
+    (leafId: string, newType: PaneTypeValue) => {
       setLayout((current) =>
         changePaneTypeInLayout(current, leafId, newType),
       );
@@ -206,12 +207,18 @@ function usePaneLayoutActions(
 }
 
 
-export function PaneManager() {
+type PaneManagerProps = Readonly<{
+  mobileChrome?: ReactNode;
+}>;
+
+export function PaneManager({ mobileChrome }: PaneManagerProps = {}) {
   const { activeCount, dataSources } = useDataContext();
 
   const isMobile = useIsMobileLayout();
 
   const [layout, setLayout] = useState<LayoutState>(defaultLayout);
+  const [maximizedLeafId, setMaximizedLeafId] = useState<string | null>(null);
+  const [fullscreenLeafId, setFullscreenLeafId] = useState<string | null>(null);
   const layoutLoaded = useRef(false);
   const isMobileRef = useRef(isMobile);
   isMobileRef.current = isMobile;
@@ -246,14 +253,40 @@ export function PaneManager() {
     persistLayout(layout, isMobileRef.current);
   }, [layout]);
 
+  const activeMaximizedLeafId = maximizedLeafId !== null &&
+    collectLeaves(layout.root).some((entry) => entry.id === maximizedLeafId)
+    ? maximizedLeafId
+    : null;
+  const soloLeafId = isMobile ? null : fullscreenLeafId ?? activeMaximizedLeafId;
+
   useEffect(() => {
-    const open = hasDossierInTree(layout.root);
-    setDossierOpen(open);
+    const synchronize = () => {
+      setFullscreenLeafId(
+        document.fullscreenElement
+          ?.closest<HTMLElement>("[data-pane-leaf-id]")?.dataset.paneLeafId ?? null,
+      );
+    };
+    document.addEventListener(DomEvent.FullscreenChange, synchronize);
+    return () =>
+      document.removeEventListener(DomEvent.FullscreenChange, synchronize);
+  }, []);
+
+  useEffect(() => {
+    const dossier = collectLeaves(layout.root).find(
+      (entry) => entry.paneType === PaneTypeId.Dossier,
+    );
+    setDossierOpen(
+      dossier !== undefined && (soloLeafId === null || soloLeafId === dossier.id),
+    );
     return () => setDossierOpen(false);
-  }, [layout.root]);
+  }, [layout.root, soloLeafId]);
 
   useEffect(() => {
     return onDossierOpenRequest(() => {
+      setMaximizedLeafId(null);
+      if (document.fullscreenElement && !isMobileRef.current) {
+        void document.exitFullscreen();
+      }
       setLayout(
         openDossierInLayout(
           layoutRef.current,
@@ -316,7 +349,7 @@ export function PaneManager() {
     return s;
   }, [layout.root, layout.minimized]);
 
-  const availableTypes = useMemo<PaneType[]>(
+  const availableTypes = useMemo<PaneTypeValue[]>(
     () =>
       Object.values(PaneTypeId).filter((paneType) => !openTypes.has(paneType)),
     [openTypes],
@@ -390,6 +423,7 @@ export function PaneManager() {
       <PaneBodyLayer root={layout.root}>
       <PaneMobile
         allLeaves={allLeaves}
+        chrome={mobileChrome}
         layout={layout}
         paneCatalog={PANE_CATALOG}
         closePane={closePane}
@@ -429,7 +463,7 @@ export function PaneManager() {
               key={m.id}
               onClick={() => restorePane(i)}
               aria-label={`Restore ${definition.label} pane`}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) bg-sig-accent/10 border border-sig-accent/40 hover:text-sig-bright hover:bg-sig-accent/15 transition-colors shrink-0"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-(length:--sig-text-sm) bg-sig-accent/10 border border-sig-accent/40 hover:text-sig-bright hover:bg-sig-accent/15 transition-colors shrink-0 touch-target"
               title={`Restore ${definition.label}`}
             >
               <Icon
@@ -446,7 +480,7 @@ export function PaneManager() {
             type={ButtonType.Button}
             data-tour="views-btn"
             onClick={() => setShowPresets((v) => !v)}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) border border-sig-border/50 hover:text-sig-accent transition-colors"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) border border-sig-border/50 hover:text-sig-accent transition-colors touch-target"
             title="Layout presets"
           >
             <Bookmark
@@ -476,9 +510,11 @@ export function PaneManager() {
           closePane={closePane}
           dataSources={dataSources}
           insertPaneBeside={insertPaneBeside}
+          maximizedLeafId={activeMaximizedLeafId}
           minimizePane={minimizePane}
           resizeSplit={resizeSplit}
           root={layout.root}
+          setMaximizedLeafId={setMaximizedLeafId}
           splitPane={splitPane}
           swapPanes={swapPanes}
         />

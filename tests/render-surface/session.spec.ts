@@ -27,58 +27,21 @@ describe("render surface session", () => {
       terminate: () => undefined,
     };
     const sender = createRenderCommandSender(endpoint, "session-a");
-
-    sender.send({ type: RenderMessageType.Dispose });
-    sender.send({
-      type: RenderMessageType.Viewport,
-      payload: {
-        width: 800,
-        height: 600,
-        devicePixelRatio: 2,
-        isMobile: false,
-      },
-    });
-    sender.send({
-      type: RenderMessageType.Selection,
-      payload: {
-        source: Domain.Aircraft,
-        entityId: "aircraft-a",
-        interactionId: "aircraft-a",
-        pointType: Domain.Aircraft,
-      },
-    });
-
-    expect(messages).toEqual([
-      {
-        type: RenderMessageType.Dispose,
-        protocolVersion: RenderProtocolVersion.Current,
-        sessionId: "session-a",
-        sequence: 1,
-      },
-      {
-        type: RenderMessageType.Viewport,
-        protocolVersion: RenderProtocolVersion.Current,
-        sessionId: "session-a",
-        sequence: 2,
-        payload: {
-          width: 800,
-          height: 600,
-          devicePixelRatio: 2,
-          isMobile: false,
-        },
-      },
+    const commands: Parameters<typeof sender.send>[0][] = [
+      { type: RenderMessageType.Dispose },
+      { type: RenderMessageType.Viewport, payload: { width: 800, height: 600, devicePixelRatio: 2, isMobile: false } },
       {
         type: RenderMessageType.Selection,
-        protocolVersion: RenderProtocolVersion.Current,
-        sessionId: "session-a",
-        sequence: 3,
-        payload: {
-          source: Domain.Aircraft,
-          entityId: "aircraft-a",
-          interactionId: "aircraft-a",
-          pointType: Domain.Aircraft,
-        },
+        payload: { source: Domain.Aircraft, entityId: "aircraft-a", interactionId: "aircraft-a", pointType: Domain.Aircraft },
       },
-    ]);
+    ];
+    for (const command of commands) sender.send(command);
+
+    expect(messages).toEqual(commands.map((command, index) => ({
+      ...command,
+      protocolVersion: RenderProtocolVersion.Current,
+      sessionId: "session-a",
+      sequence: index + 1,
+    })));
   });
 });

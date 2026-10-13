@@ -47,17 +47,16 @@ describe("relativeAge", () => {
     expect(relativeAge(Date.now() - 10_000)).toBe("LIVE");
   });
 
-  test("5 minutes ago", () => {
-    expect(relativeAge(Date.now() - 5 * 60_000)).toBe("5m");
+  test("formats minutes, hours and days, verbose with ago", () => {
+    const ages: ReadonlyArray<readonly [number, string]> = [
+      [5 * 60_000, "5m"],
+      [2 * 3600_000, "2h"],
+      [3 * 86400_000, "3d"],
+    ];
+    for (const [ago, label] of ages) {
+      expect([label, relativeAge(Date.now() - ago)]).toEqual([label, label]);
+    }
     expect(relativeAge(Date.now() - 5 * 60_000, AgeStyle.Verbose)).toBe("5m ago");
-  });
-
-  test("2 hours ago", () => {
-    expect(relativeAge(Date.now() - 2 * 3600_000)).toBe("2h");
-  });
-
-  test("3 days ago", () => {
-    expect(relativeAge(Date.now() - 3 * 86400_000)).toBe("3d");
   });
 
   test("accepts ISO string", () => {

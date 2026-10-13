@@ -97,10 +97,10 @@ describe("POST /api/auth/token", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════
-// AUTH ENFORCEMENT — EVERY PROTECTED ROUTE
+// AUTH ENFORCEMENT, EVERY PROTECTED ROUTE
 // ═════════════════════════════════════════════════════════════════════
 
-describe("auth enforcement — all protected routes reject without cookie", () => {
+describe("auth enforcement: all protected routes reject without cookie", () => {
   const protectedRoutes = [
     "/api/events/latest",
     "/api/ships/latest",
@@ -122,7 +122,7 @@ describe("auth enforcement — all protected routes reject without cookie", () =
     // the server-side enrichment migration (aircraftEnrichment.ts), the
     // route is gone and aircraft records arrive enriched in
     // /api/aircraft/states. Verifying the route is absent locks down
-    // the contract — re-introducing the client-side path would break
+    // the contract, re-introducing the client-side path would break
     // this assertion.
     expect((apiRoutes as Record<string, unknown>)["/api/aircraft/metadata/db/v1"]).toBeUndefined();
   });
@@ -137,7 +137,7 @@ describe("auth enforcement — all protected routes reject without cookie", () =
   });
 });
 
-describe("auth enforcement — tampered token rejected on all routes", () => {
+describe("auth enforcement: tampered token rejected on all routes", () => {
   const protectedRoutes = [
     "/api/events/latest",
     "/api/ships/latest",
@@ -178,7 +178,7 @@ describe("auth enforcement: valid token accepted", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════
-// INPUT VALIDATION — DOSSIER ENDPOINT
+// INPUT VALIDATION, DOSSIER ENDPOINT
 // ═════════════════════════════════════════════════════════════════════
 
 describe("dossier input validation", () => {
@@ -235,7 +235,7 @@ describe("dossier input validation", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════
-// PATH TRAVERSAL — safePath function
+// PATH TRAVERSAL, safePath function
 // ═════════════════════════════════════════════════════════════════════
 
 describe("path traversal prevention", () => {
@@ -253,33 +253,23 @@ describe("path traversal prevention", () => {
     expect(safePath(base, "/data/../../secret")).toBeNull();
   });
 
-  test("encoded traversal blocked", () => {
-    expect(safePath(base, "/%2e%2e/%2e%2e/etc/passwd")).toBeNull();
-    expect(safePath(base, "/..%252f..%252f..%252fetc/passwd")).toBeNull();
-  });
-
-  test("null byte injection blocked", () => {
-    expect(safePath(base, "/fonts.css\0.html")).toBeNull();
-    expect(safePath(base, "/data\0/secret")).toBeNull();
-  });
-
-  test("double-encoded traversal stays within base", () => {
-    // safePath decodes once: %252e%252e → %2e%2e (literal, no traversal)
-    // This is correct — the server only decodes once, preventing bypass
-    const result = safePath(base, "/%252e%252e/secret");
-    if (result !== null) {
-      const rel = relative(base, result);
-      expect(rel.startsWith("..")).toBe(false);
+  test("encoded traversal and null bytes are blocked", () => {
+    const blocked: readonly string[] = [
+      "/%2e%2e/%2e%2e/etc/passwd",
+      "/..%252f..%252f..%252fetc/passwd",
+      "/fonts.css\0.html",
+      "/data\0/secret",
+    ];
+    for (const requested of blocked) {
+      expect([requested, safePath(base, requested)]).toEqual([requested, null]);
     }
   });
 
-  test("backslash traversal blocked", () => {
-    // normalize converts backslash to forward slash on some platforms
-    const result = safePath(base, "/..\\..\\etc\\passwd");
-    // Should either be null (contains ..) or resolve within base
-    if (result !== null) {
-      const rel = relative(base, result);
-      expect(rel.startsWith("..")).toBe(false);
+  test("double-encoded and backslash paths are refused or stay inside the base", () => {
+    for (const requested of ["/%252e%252e/secret", "/..\\..\\etc\\passwd"]) {
+      const result = safePath(base, requested);
+      const insideBase = result === null || !relative(base, result).startsWith("..");
+      expect([requested, insideBase]).toEqual([requested, true]);
     }
   });
 });
@@ -327,7 +317,7 @@ describe("response security", () => {
 // COOKIE SECURITY (PROD vs DEV)
 // ═════════════════════════════════════════════════════════════════════
 
-describe("cookie security — production flags", () => {
+describe("cookie security: production flags", () => {
   test("production cookie includes Secure flag", () => {
     const { tokenCookieHeader: t } = mkRoutes({ isProduction: true });
     expect(t("test")).toContain("Secure");

@@ -14,6 +14,8 @@ import {
   type TableSortKeyValue,
 } from "@/workers/data/uiQuery";
 
+type DisabledSources = Partial<Record<QueryableSourceId, boolean>>;
+
 export type SourceTableOptions = Readonly<{
   sortKey: TableSortKeyValue;
   sortDirection: TableSortDirectionValue;
@@ -23,7 +25,7 @@ export type SourceTableOptions = Readonly<{
   /** Per-source threshold; sources absent from the record use zero. */
   minValues?: Partial<Record<QueryableSourceId, number>>;
   /** Sources the caller has switched off. */
-  disabled?: Partial<Record<QueryableSourceId, boolean>>;
+  disabled?: DisabledSources;
 }>;
 
 export type SourceTable = Readonly<{
@@ -31,14 +33,21 @@ export type SourceTable = Readonly<{
   prefixes: readonly (readonly DataPoint[])[];
   totals: Readonly<Partial<Record<DataType, number>>>;
   itemCount: number;
+  ready: boolean;
 }>;
+
+function isTableSource(
+  disabled: DisabledSources | undefined,
+  source: QueryableSourceId,
+): boolean {
+  return source !== Domain.CycloneWarnings && !disabled?.[source];
+}
 
 function tableQuery(
   options: SourceTableOptions,
   source: QueryableSourceId,
 ): PointUiQuery | null {
-  if (source === Domain.CycloneWarnings) return null;
-  if (options.disabled?.[source]) return null;
+  if (!isTableSource(options.disabled, source)) return null;
   return {
     kind: PointUiQueryKind.Table,
     minValue: options.minValues?.[source] ?? 0,
@@ -62,18 +71,22 @@ export function useSourceTables(options: SourceTableOptions): SourceTable {
     const prefixes: (readonly DataPoint[])[] = [];
     const totals: Partial<Record<DataType, number>> = {};
     let itemCount = 0;
+    let ready = true;
 
     for (const id of QUERYABLE_SOURCE_IDS) {
-      const result = results[id];
-      if (result?.kind !== PointUiQueryKind.Table) continue;
       const pointType = getPointSourceDefinition(id).pointType;
-      totals[pointType] = result.total;
-      if (options.pointType !== null && options.pointType !== pointType) {
+      const wanted =
+        options.pointType === null || options.pointType === pointType;
+      const result = results[id];
+      if (result?.kind !== PointUiQueryKind.Table) {
+        if (wanted && isTableSource(options.disabled, id)) ready = false;
         continue;
       }
+      totals[pointType] = result.total;
+      if (!wanted) continue;
       prefixes.push(result.items);
       itemCount += result.total;
     }
-    return { prefixes, totals, itemCount };
-  }, [results, options.pointType]);
+    return { prefixes, totals, itemCount, ready };
+  }, [results, options.pointType, options.disabled]);
 }

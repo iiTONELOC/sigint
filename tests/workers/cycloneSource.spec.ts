@@ -37,6 +37,42 @@ enum TestTime {
   Fourth = 4,
 }
 
+function completeSnapshot(entities: CyclonePoint[], observedAt: number): PointSourceFetchSnapshot<CyclonePoint> {
+  return { completeness: SourceCompleteness.Complete, entities, observedAt };
+}
+
+async function runCycloneSnapshots() {
+  const initial = testCyclonePoint({ forecast: [TEST_CYCLONE_FORECAST], pastTrack: [TEST_CYCLONE_PAST_TRACK] });
+  const extended = testCyclonePoint({
+    pastTrack: [TEST_CYCLONE_PAST_TRACK, { lat: 24.5, lon: -75.5, validTime: "2026-09-17T12:00:00Z", vmaxKt: 65 }],
+  });
+  const snapshots = [
+    completeSnapshot([initial], TestTime.First),
+    completeSnapshot([testCyclonePoint()], TestTime.Second),
+    completeSnapshot([extended], TestTime.Third),
+    completeSnapshot([], TestTime.Fourth),
+  ];
+  const patches: DatasetPatch<CyclonePoint>[] = [];
+  const source = new CycloneSource({
+    fetchSnapshot: async () => snapshots.shift() ?? completeSnapshot([], TestTime.Fourth),
+  });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => {
+      patches.push(patch);
+    },
+  });
+  await source.refresh();
+  const forecast = source.resolveEntity(cycloneForecastSceneId(initial.data.stormId, TEST_CYCLONE_FORECAST.fcstHour));
+  await source.refresh();
+  await source.refresh();
+  await source.refresh();
+  return { initial, extended, patches, forecast };
+}
+
 describe("cyclone source reconciliation", () => {
   test("owns forecast interactions under the cyclone source", () => {
     expect(sourceForPointType(Domain.CyclonesForecast)).toBe(
@@ -103,91 +139,20 @@ describe("cyclone source reconciliation", () => {
     expect(cyclonePointsEqual(retained, extended)).toBe(false);
   });
 
-  test("publishes retained updates and complete-source deletion", async () => {
-    const initial = testCyclonePoint({
-      forecast: [TEST_CYCLONE_FORECAST],
-      pastTrack: [TEST_CYCLONE_PAST_TRACK],
-    });
-    const extended = testCyclonePoint({
-      pastTrack: [
-        TEST_CYCLONE_PAST_TRACK,
-        {
-          lat: 24.5,
-          lon: -75.5,
-          validTime: "2026-09-17T12:00:00Z",
-          vmaxKt: 65,
-        },
-      ],
-    });
-    const snapshots: PointSourceFetchSnapshot<CyclonePoint>[] = [
-      {
-        completeness: SourceCompleteness.Complete,
-        entities: [initial],
-        observedAt: TestTime.First,
-      },
-      {
-        completeness: SourceCompleteness.Complete,
-        entities: [testCyclonePoint()],
-        observedAt: TestTime.Second,
-      },
-      {
-        completeness: SourceCompleteness.Complete,
-        entities: [extended],
-        observedAt: TestTime.Third,
-      },
-      {
-        completeness: SourceCompleteness.Complete,
-        entities: [],
-        observedAt: TestTime.Fourth,
-      },
-    ];
-    const patches: DatasetPatch<CyclonePoint>[] = [];
-    const source = new CycloneSource({
-      fetchSnapshot: async () => {
-        const snapshot = snapshots.shift();
-        expect(snapshot).toBeDefined();
-        return snapshot ?? {
-          completeness: SourceCompleteness.Complete,
-          entities: [],
-          observedAt: TestTime.Fourth,
-        };
-      },
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => {
-        patches.push(patch);
-      },
-    });
+  test("resolves a forecast child under its storm after the first refresh", async () => {
+    const { initial, forecast } = await runCycloneSnapshots();
 
-    await source.refresh();
-    const forecast = source.resolveEntity(
-      cycloneForecastSceneId(
-        initial.data.stormId,
-        TEST_CYCLONE_FORECAST.fcstHour,
-      ),
-    );
     expect(forecast?.type).toBe(Domain.CyclonesForecast);
-    expect(
-      forecast?.type === Domain.CyclonesForecast
-        ? forecast.data.parentEntityId
-        : null,
-    ).toBe(initial.id);
-    await source.refresh();
-    await source.refresh();
-    await source.refresh();
+    expect(forecast?.type === Domain.CyclonesForecast ? forecast.data.parentEntityId : null).toBe(initial.id);
+  });
+
+  test("publishes retained updates and complete-source deletion", async () => {
+    const { initial, extended, patches } = await runCycloneSnapshots();
 
     expect(patches[0]?.upserts).toEqual([initial]);
     expect(patches[1]?.upserts).toEqual([]);
-    expect(patches[2]?.upserts[0]?.data.forecast).toBe(
-      initial.data.forecast,
-    );
-    expect(patches[2]?.upserts[0]?.data.pastTrack).toEqual(
-      extended.data.pastTrack,
-    );
+    expect(patches[2]?.upserts[0]?.data.forecast).toBe(initial.data.forecast);
+    expect(patches[2]?.upserts[0]?.data.pastTrack).toEqual(extended.data.pastTrack);
     expect(patches[3]?.deletedIds).toEqual([initial.id]);
   });
 

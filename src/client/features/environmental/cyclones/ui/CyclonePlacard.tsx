@@ -6,7 +6,7 @@ import {
 } from "@shared/domain/cyclones";
 import { CycloneWarningFlags } from "./CycloneWarningFlags";
 import { EMPTY_TEXT, NO_VALUE, PARENTHETICAL } from "@shared/text";
-import { BASIN_LABEL } from "@shared/cyclonesSeason";
+import { basinLabel } from "@shared/cyclonesSeason";
 
 enum CycloneKicker {
   MajorHurricane = "HURRICANE · MAJOR",
@@ -90,7 +90,7 @@ export function CyclonePlacard({
             {data.name}
           </div>
           <div className="text-(length:--sig-text-xs) text-sig-dim font-mono truncate">
-            {data.stormId} · {BASIN_LABEL[data.basin]} · ADV {data.advisoryNumber || NO_VALUE}
+            {data.stormId} · {basinLabel(data.basin)} · ADV {data.advisoryNumber || NO_VALUE}
           </div>
         </div>
         <CycloneWarningFlags maxWindKt={data.maxWindKt} isHurricane={data.saffirSimpson !== SaffirSimpson.None} />
@@ -122,7 +122,7 @@ export function CyclonePlacard({
           <PlacardField label="STORM ID">
             <span className="font-mono">{data.stormId}</span>
           </PlacardField>
-          <PlacardField label="BASIN">{BASIN_LABEL[data.basin]}</PlacardField>
+          <PlacardField label="BASIN">{basinLabel(data.basin)}</PlacardField>
         </div>
       </div>
       <div className="relative flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-t border-(--dossier-accent)/20 bg-sig-bg/40 px-4 py-2 text-(length:--sig-text-xs) text-sig-dim">

@@ -20,7 +20,7 @@ type WalkthroughOption = Readonly<{
 }>;
 
 enum WalkthroughTabClassName {
-  LaunchButton = "flex items-center gap-2 px-3 py-2.5 rounded text-sm text-sig-text border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full",
+  LaunchButton = "flex items-center gap-2 px-3 py-2.5 rounded text-sm text-sig-text border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors w-full any-pointer-coarse:min-h-11",
   LaunchDescription = "text-xs text-sig-dim ml-2",
   LaunchText = "flex-1 text-left",
 }
@@ -129,7 +129,7 @@ export function WalkthroughTab({ onClose }: WalkthroughTabProps) {
               onClick={() => {
                 handleResetCompletion();
               }}
-              className="flex items-center gap-1 text-xs text-sig-dim hover:text-sig-accent transition-colors"
+              className="flex items-center gap-1 text-xs text-sig-dim hover:text-sig-accent transition-colors touch-target"
             >
               <RotateCcw size={SettingsIconSize.Tiny} />
               RESET

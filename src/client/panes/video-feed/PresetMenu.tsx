@@ -118,7 +118,7 @@ export function PresetMenu({
           onChange={(event) => setNewName(event.currentTarget.value)}
           placeholder="Preset name..."
           data-tour="video-preset-input"
-          className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) min-w-0 caret-sig-accent"
+          className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) any-pointer-coarse:text-base min-w-0 caret-sig-accent touch-target"
           onKeyDown={(event) => {
             if (event.key === DomKey.Enter) saveNewPreset();
           }}

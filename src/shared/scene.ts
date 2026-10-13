@@ -6,6 +6,11 @@ export enum SceneGeometryKind {
   Polyline = 2,
 }
 
+export enum SequenceStep {
+  Initial = 0,
+  Increment = 1,
+}
+
 export enum ScenePositionOffset {
   Longitude = 0,
   Latitude = 1,

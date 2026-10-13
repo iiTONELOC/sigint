@@ -31,7 +31,8 @@ type KeyGroupProps = Readonly<{
 }>;
 
 enum StorageClassName {
-  TransferButton = "flex items-center gap-1 px-2 py-1 rounded text-xs text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors",
+  ClearAllButton = "flex items-center gap-2 px-3 py-2 rounded text-sm w-full transition-all border any-pointer-coarse:min-h-11",
+  TransferButton = "flex items-center gap-1 px-2 py-1 rounded text-xs text-sig-dim border border-sig-border/50 hover:text-sig-accent hover:border-sig-accent/30 transition-colors touch-target",
 }
 
 function keyLabel(key: string): string {
@@ -61,7 +62,7 @@ function KeyGroup({ keys, label, onDelete, sizes }: KeyGroupProps) {
               onClick={() => {
                 onDelete(key);
               }}
-              className="p-1.5 rounded text-sig-dim hover:text-sig-danger transition-all shrink-0 min-w-8 min-h-8"
+              className="p-1.5 rounded text-sig-dim hover:text-sig-danger transition-all shrink-0 min-w-8 min-h-8 touch-target"
               title={`Clear ${keyLabel(key)}`}
             >
               <Trash2 size={SettingsIconSize.Storage} />
@@ -166,7 +167,7 @@ export function StorageTab({
           onClick={() => {
             onResetLayout();
           }}
-          className="flex items-center gap-2 px-3 py-2 rounded text-sm text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors w-full"
+          className="flex items-center gap-2 px-3 py-2 rounded text-sm text-sig-dim border border-sig-border/50 hover:text-sig-text hover:border-sig-border transition-colors w-full any-pointer-coarse:min-h-11"
         >
           <Layout size={SettingsIconSize.Standard} />
           <span className={SettingsClassName.ActionLabel}>RESET LAYOUT</span>
@@ -180,7 +181,7 @@ export function StorageTab({
           onClick={() => {
             onClearAll();
           }}
-          className={`flex items-center gap-2 px-3 py-2 rounded text-sm w-full transition-all border ${
+          className={`${StorageClassName.ClearAllButton} ${
             confirmClearAll
               ? "text-sig-danger border-sig-danger/40 bg-sig-danger/10"
               : "text-sig-dim border-sig-border/50 hover:text-sig-text hover:border-sig-border"

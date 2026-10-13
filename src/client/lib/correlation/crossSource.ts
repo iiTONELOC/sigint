@@ -1,6 +1,3 @@
-// ── Cross-source correlation rules ──────────────────────────────────
-// Spatial-temporal matching across data types using the 2° grid index.
-// Each rule is O(n). Query points check approximately nine neighboring cells.
 
 import {
   recordLatitude,
@@ -129,7 +126,6 @@ function correlateQuakeWithFires(
     const quakeTime = getTs(quake);
     if (now - quakeTime > CROSS_SOURCE_TIME_WINDOW) continue;
 
-    // A fire that predates the shock was not started by it.
     const nearby = queryNear(
       fireGrid,
       quake,

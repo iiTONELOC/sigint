@@ -1,4 +1,5 @@
-import { PaneDropZone, PaneDropZoneThreshold, type PaneDropZoneValue } from "../model/pane";
+import { Placement } from "@/layout-mode/model/layoutMode";
+import { PaneDropZoneThreshold, type PaneDropZoneValue } from "../model/pane";
 
 export type PaneDropBounds = Readonly<{
   height: number;
@@ -15,22 +16,22 @@ export function paneDropZoneForPoint(
   const x = (clientX - bounds.left) / bounds.width;
   const y = (clientY - bounds.top) / bounds.height;
   if (y < PaneDropZoneThreshold.Edge) {
-    return PaneDropZone.Top;
+    return Placement.Top;
   }
   if (
     y >
     PaneDropZoneThreshold.Full - PaneDropZoneThreshold.Edge
   ) {
-    return PaneDropZone.Bottom;
+    return Placement.Bottom;
   }
   if (x < PaneDropZoneThreshold.Edge) {
-    return PaneDropZone.Left;
+    return Placement.Left;
   }
   if (
     x >
     PaneDropZoneThreshold.Full - PaneDropZoneThreshold.Edge
   ) {
-    return PaneDropZone.Right;
+    return Placement.Right;
   }
-  return PaneDropZone.Center;
+  return Placement.Center;
 }

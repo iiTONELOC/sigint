@@ -1,3 +1,4 @@
+import { PulsingPointLayer } from "@/workers/render/scene/pulsingPointLayer";
 import { describe, expect, test } from "bun:test";
 import type {
   DotBatch,
@@ -5,9 +6,6 @@ import type {
   PulsingMarker,
 } from "@/workers/render/primitives/markerVisuals";
 import { IsolateMode } from "@/workers/render/protocol";
-import {
-  PulsingPointLayer,
-} from "@/workers/render/scene/sceneLayer";
 import type { EnabledSceneFilter } from "@/workers/render/scene/visibility";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
 import { SceneHitKind } from "@/workers/render/scene/projectedLayer";

@@ -31,67 +31,53 @@ function event(
   };
 }
 
+async function publishEvents(): Promise<SceneSourcePatch[]> {
+  let observedAt = TestInstant.EventSceneNow;
+  let entities = [event("event-a", observedAt, IntelSeverity.Concern)];
+  const scenePatches: SceneSourcePatch[] = [];
+  const binding = eventSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) scenePatches.push(command);
+  });
+  const source = new EventSource({
+    fetchSnapshot: async () => ({ completeness: SourceCompleteness.Partial, entities, observedAt }),
+  });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => {
+      binding.publish(patch);
+    },
+  });
+  await source.refresh();
+  observedAt += 1;
+  entities = [event("event-b", observedAt, IntelSeverity.Crisis)];
+  await source.refresh();
+  source.publishRebase();
+  observedAt = TestInstant.EventSceneNow + eventWindowDurationMs() + 2;
+  entities = [];
+  await source.refresh();
+  return scenePatches;
+}
+
 describe("event scene source", () => {
-  test("publishes patches and rebases through the shared scene path", async () => {
-    let observedAt = TestInstant.EventSceneNow;
-    let entities = [
-      event("event-a", observedAt, IntelSeverity.Concern),
-    ];
-    const scenePatches: SceneSourcePatch[] = [];
-    const binding = eventSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        scenePatches.push(command);
-      }
-    });
-    const source = new EventSource({
-      fetchSnapshot: async () => ({
-        completeness: SourceCompleteness.Partial,
-        entities,
-        observedAt,
-      }),
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => {
-        binding.publish(patch);
-      },
-    });
+  test("publishes a rebase, a patch and a rebase for two events", async () => {
+    const patches = await publishEvents();
 
-    await source.refresh();
-    observedAt += 1;
-    entities = [
-      event("event-b", observedAt, IntelSeverity.Crisis),
-    ];
-    await source.refresh();
-    source.publishRebase();
+    expect(patches.slice(0, 3).map((patch) => patch.kind)).toEqual([DatasetPatchKind.Rebase, DatasetPatchKind.Patch, DatasetPatchKind.Rebase]);
+    expect(patches[0]?.source).toBe(Domain.Events);
+    expect(patches[0]?.positions).toBeInstanceOf(Float64Array);
+    expect(patches[0]?.attributes[EventSceneAttribute.Severity]).toBe(IntelSeverity.Concern);
+    expect(patches[1]?.entityIds).toEqual(["event-b"]);
+    expect(patches[2]?.entityIds).toEqual(["event-a", "event-b"]);
+  });
 
-    expect(scenePatches).toHaveLength(3);
-    expect(scenePatches[0]?.kind).toBe(DatasetPatchKind.Rebase);
-    expect(scenePatches[0]?.source).toBe(Domain.Events);
-    expect(scenePatches[0]?.positions).toBeInstanceOf(Float64Array);
-    expect(
-      scenePatches[0]?.attributes[EventSceneAttribute.Severity],
-    ).toBe(IntelSeverity.Concern);
-    expect(scenePatches[1]?.kind).toBe(DatasetPatchKind.Patch);
-    expect(scenePatches[1]?.entityIds).toEqual(["event-b"]);
-    expect(scenePatches[2]?.kind).toBe(DatasetPatchKind.Rebase);
-    expect(scenePatches[2]?.entityIds).toEqual([
-      "event-a",
-      "event-b",
-    ]);
+  test("deletes both events once the window has passed", async () => {
+    const patches = await publishEvents();
 
-    observedAt =
-      TestInstant.EventSceneNow + eventWindowDurationMs() + 2;
-    entities = [];
-    await source.refresh();
-
-    expect(scenePatches[3]?.kind).toBe(DatasetPatchKind.Patch);
-    expect(Array.from(scenePatches[3]?.deletedHandles ?? [])).toEqual([
-      1,
-      2,
-    ]);
+    expect(patches).toHaveLength(4);
+    expect(patches[3]?.kind).toBe(DatasetPatchKind.Patch);
+    expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([1, 2]);
   });
 });

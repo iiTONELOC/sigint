@@ -40,8 +40,8 @@
   },
   "dis": {
     "gates": {
-      "test": "bun test",
-      "types": "bun run tsc --noEmit"
+      "test": ["bun", "test"],
+      "types": ["bun", "run", "tsc", "--noEmit"]
     }
   },
   "dependencies": {

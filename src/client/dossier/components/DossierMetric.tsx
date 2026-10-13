@@ -1,3 +1,4 @@
+import { UNKNOWN_TEXT } from "@shared/text";
 import { LocateFixed, type LucideIcon } from "lucide-react";
 import { formatLat, formatLon } from "@/geo";
 import {
@@ -6,8 +7,6 @@ import {
   type PositionedRecord,
 } from "@/workers/data/source-model/position";
 import type { ReactNode } from "react";
-
-const DOSSIER_UNKNOWN_VALUE = "unknown";
 
 export enum DossierMetricValueClass {
   Large = "text-(length:--sig-text-lg) text-sig-bright font-bold font-mono",
@@ -70,7 +69,7 @@ export function DossierRow({
   label,
   value,
 }: Readonly<{ label: string; value: string }>) {
-  if (!value || value.toLowerCase() === DOSSIER_UNKNOWN_VALUE) return null;
+  if (!value || value.toLowerCase() === UNKNOWN_TEXT) return null;
   return (
     <div className="flex justify-between text-xs gap-2">
       <span className="text-sig-accent shrink-0">{label}</span>

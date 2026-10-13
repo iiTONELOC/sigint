@@ -1,3 +1,4 @@
+import { SequenceStep } from "@shared/scene";
 import type {
   RenderSelectionIdentity,
   RenderSelectionSnapshot,
@@ -6,19 +7,15 @@ import {
   renderSelectionIdentitiesEqual,
 } from "@/workers/render/protocol";
 
-enum SelectionRevision {
-  Initial = 0,
-  Increment = 1,
-}
 
 export class RenderSelectionController {
   private identity: RenderSelectionIdentity | null = null;
-  private revision = SelectionRevision.Initial;
+  private revision = SequenceStep.Initial;
 
   set(next: RenderSelectionIdentity | null): boolean {
     if (renderSelectionIdentitiesEqual(this.identity, next)) return false;
     this.identity = next ? { ...next } : null;
-    this.revision += SelectionRevision.Increment;
+    this.revision += SequenceStep.Increment;
     return true;
   }
 

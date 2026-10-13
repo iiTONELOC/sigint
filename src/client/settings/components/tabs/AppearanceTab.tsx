@@ -53,7 +53,7 @@ type LayoutModeOption = Readonly<{
 enum AppearanceClassName {
   ColorInput = "w-8 h-8 rounded border-2 border-sig-border/40 bg-transparent p-0 cursor-pointer shrink-0",
   Option = "flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded border transition-all",
-  UnitOption = "flex-1 px-2 py-2 rounded border text-[10px] font-semibold tracking-wider transition-all",
+  UnitOption = "flex-1 px-2 py-2 rounded border text-[10px] font-semibold tracking-wider transition-all touch-target",
 }
 
 enum TickerSpeedLabel {
@@ -72,7 +72,7 @@ const THEME_OPTIONS: Readonly<Record<ThemeMode, ThemeOption>> = {
 const LAYOUT_MODE_OPTIONS: Readonly<Record<LayoutMode, LayoutModeOption>> = {
   [LayoutMode.Auto]: {
     description:
-      "Layout switches by phone orientation. Tablets use desktop layout.",
+      "Phones use the mobile layout. Tablets use desktop layout.",
     icon: MonitorSmartphone,
   },
   [LayoutMode.Mobile]: {

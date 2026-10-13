@@ -35,7 +35,7 @@ enum HeaderLabel {
   Show = "Show",
 }
 
-enum HeaderTourTarget {
+export enum HeaderTourTarget {
   AircraftFilter = "aircraft-filter",
   Brand = "header-brand",
   LayerToggles = "layer-toggles",
@@ -100,6 +100,12 @@ export type HeaderProps = {
   readonly searchSlot?: React.ReactNode;
 };
 
+enum TogglesClassName {
+  Fill = "w-full",
+  Grid = "grid grid-cols-4 gap-2",
+  Row = "flex flex-wrap items-center gap-0.5 sm:gap-1",
+}
+
 function LayerToggle({
   label,
   icon: Icon,
@@ -110,6 +116,7 @@ function LayerToggle({
   down,
   reason,
   iconStyle,
+  fill,
   onToggle,
 }: {
   readonly label: string;
@@ -121,6 +128,7 @@ function LayerToggle({
   readonly down: boolean;
   readonly reason: string | null;
   readonly iconStyle: FeatureIconStyle;
+  readonly fill: boolean;
   readonly onToggle: () => void;
 }) {
   const downText = reason
@@ -139,7 +147,7 @@ function LayerToggle({
         onClick={onToggle}
         aria-label={`Toggle ${label} layer`}
         aria-pressed={on}
-        className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sig-accent"
+        className={`flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 md:px-2 py-0.5 rounded tracking-wide transition-all font-semibold text-(length:--sig-text-btn) border shrink-0 touch-target justify-center sm:justify-start focus:outline-none focus-visible:ring-2 focus-visible:ring-sig-accent ${fill ? TogglesClassName.Fill : ""}`}
         style={{
           color: on ? color : "var(--sigint-dim)",
           background: on
@@ -198,6 +206,7 @@ function shouldShowLayerToggle(
 
 export function Toggles({
   countsVisible = false,
+  grid = false,
   layers,
   toggleLayer,
   counts,
@@ -206,7 +215,7 @@ export function Toggles({
   setAircraftFilter,
   availableCountries,
   searchSlot,
-}: Readonly<HeaderProps & { countsVisible?: boolean }>) {
+}: Readonly<HeaderProps & { countsVisible?: boolean; grid?: boolean }>) {
   const { theme } = useTheme();
   const colors = theme.colors;
   const colorMap = getColorMap(theme);
@@ -220,13 +229,13 @@ export function Toggles({
     <>
       {searchSlot && (
         <>
-          <div data-tour={HeaderTourTarget.Search}>{searchSlot}</div>
+          {searchSlot}
           <div className="w-px h-4 shrink-0 bg-sig-border/40 mx-0.5" />
         </>
       )}
       <div
         data-tour={HeaderTourTarget.LayerToggles}
-        className="flex flex-wrap items-center gap-0.5 sm:gap-1"
+        className={grid ? TogglesClassName.Grid : TogglesClassName.Row}
       >
         {featureList
           .filter((feature) =>
@@ -254,6 +263,7 @@ export function Toggles({
                 down={down}
                 reason={entry?.error ?? null}
                 iconStyle={feature.iconStyle}
+                fill={grid}
                 onToggle={() => toggleLayer(feature.id)}
               />
             );
@@ -265,6 +275,7 @@ export function Toggles({
             aircraftCount={counts[Domain.Aircraft] ?? 0}
             availableCountries={availableCountries}
             countVisible={countsVisible}
+            fill={grid}
         />
         </div>
       </div>
@@ -282,7 +293,7 @@ const LAYOUT_MODE_PRESENTATION: Readonly<
 > = {
   [LayoutMode.Auto]: {
     label: "AUTO",
-    tooltip: "Layout: Auto (viewport-based); click to force mobile",
+    tooltip: "Layout: Auto (by device); click to force mobile",
   },
   [LayoutMode.Mobile]: {
     label: "MOBILE",
@@ -294,7 +305,12 @@ const LAYOUT_MODE_PRESENTATION: Readonly<
   },
 };
 
-export function LayoutModeToggle() {
+enum LayoutModeClassName {
+  Label = "text-(length:--sig-text-xs) tracking-widest font-bold",
+  LabelDesktop = "text-[8px] tracking-widest font-bold hidden sm:inline",
+}
+
+export function LayoutModeToggle({ labelled = false }: Readonly<{ labelled?: boolean }> = {}) {
   const { mode, cycleMode, isMobile } = useLayoutMode();
   const Icon = isMobile ? Smartphone : Monitor;
   const isForced = mode !== LayoutMode.Auto;
@@ -320,8 +336,8 @@ export function LayoutModeToggle() {
           size={HeaderIconSize.Compact}
           strokeWidth={HeaderIconStrokeWidth.Standard}
         />
-        {isForced && (
-          <span className="text-[8px] tracking-widest font-bold hidden sm:inline">
+        {(isForced || labelled) && (
+          <span className={labelled ? LayoutModeClassName.Label : LayoutModeClassName.LabelDesktop}>
             {presentation.label}
           </span>
         )}
@@ -330,7 +346,9 @@ export function LayoutModeToggle() {
   );
 }
 
-export function HeaderBrand() {
+export function HeaderBrand({
+  subtitle = true,
+}: Readonly<{ subtitle?: boolean }>) {
   return (
     <div
       data-tour={HeaderTourTarget.Brand}
@@ -340,9 +358,11 @@ export function HeaderBrand() {
       <span className="font-bold tracking-[2px] sm:tracking-[2.5px] text-sig-bright text-(length:--sig-text-title)">
         SIGINT
       </span>
-      <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
-        OSINT LIVE FEED
-      </span>
+      {subtitle && (
+        <span className="font-light hidden md:inline text-sig-dim text-(length:--sig-text-subtitle)">
+          OSINT LIVE FEED
+        </span>
+      )}
     </div>
   );
 }

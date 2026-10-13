@@ -70,6 +70,7 @@ export function IntelFeedPane() {
     prefixes: rawPrefixes,
     totals: typeCounts,
     itemCount: rawItemCount,
+    ready: rawReady,
   } = useSourceTables({
     sortKey: TableSortKey.Age,
     sortDirection: TableSortDirection.Ascending,
@@ -148,6 +149,7 @@ export function IntelFeedPane() {
           <RawIntelFeed
             allowSelectionHighlight={!watchActive || isIntelActive}
             itemCount={rawItemCount}
+            ready={rawReady}
             onItemClick={handleItemClick}
             onZoomTo={handleZoomTo}
             selectedId={selectedCurrent?.id ?? null}

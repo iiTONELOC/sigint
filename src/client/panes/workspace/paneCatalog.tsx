@@ -18,8 +18,7 @@ import {
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LiveTrafficPane } from "@/panes/live-traffic/LiveTrafficPane";
-import type { PaneType } from "@/panes/paneTree";
-import { PaneMobileScreen, PaneType as PaneTypeId } from "./model/pane";
+import { PaneMobileScreen, PaneType as PaneTypeId, type PaneTypeValue } from "./model/pane";
 
 type PaneLoadingDefinition = Readonly<{
   icon?: LucideIcon;
@@ -38,7 +37,7 @@ export type PaneDefinition = Readonly<{
   persistent?: boolean;
 }>;
 
-export type PaneCatalog = Readonly<Record<PaneType, PaneDefinition>>;
+export type PaneCatalog = Readonly<Record<PaneTypeValue, PaneDefinition>>;
 
 enum PaneSkeletonClassName {
   Action = "h-5 w-5 bg-sig-dim/10 rounded",
@@ -92,7 +91,7 @@ function SkeletonHeader({
 }: Readonly<{
   icon: LucideIcon;
   loading: PaneLoadingDefinition;
-  paneType: PaneType;
+  paneType: PaneTypeValue;
 }>) {
   const isConsole = paneType === PaneTypeId.RawConsole;
   const hasTail = loading.tailClassName || paneType === PaneTypeId.VideoFeed;
@@ -162,7 +161,7 @@ function DossierSkeletonHeader({
 function SkeletonBody({
   loading,
   paneType,
-}: Readonly<{ loading: PaneLoadingDefinition; paneType: PaneType }>) {
+}: Readonly<{ loading: PaneLoadingDefinition; paneType: PaneTypeValue }>) {
   switch (paneType) {
     case PaneTypeId.AlertLog:
       return (
@@ -269,7 +268,7 @@ function SkeletonBody({
   }
 }
 
-export function PaneSkeleton({ paneType }: Readonly<{ paneType: PaneType }>) {
+export function PaneSkeleton({ paneType }: Readonly<{ paneType: PaneTypeValue }>) {
   const definition = PANE_CATALOG[paneType];
   const loading = definition.loading;
   if (!loading) return null;
@@ -295,7 +294,7 @@ type LazyPaneDefinition = Omit<PaneDefinition, "component"> &
   Readonly<{ loading: PaneLoadingDefinition }>;
 
 function defineLazyPane(
-  paneType: PaneType,
+  paneType: PaneTypeValue,
   definition: LazyPaneDefinition,
   load: PaneLoader,
 ): PaneDefinition {
@@ -349,7 +348,7 @@ export const PANE_CATALOG: PaneCatalog = {
     {
       icon: FileSearch,
       label: "DOSSIER",
-      mobileScreen: PaneMobileScreen.Full,
+      mobileScreen: PaneMobileScreen.Content,
       loading: { icon: Plane, itemCount: 3 },
     },
     async () => ({

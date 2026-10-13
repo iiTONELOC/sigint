@@ -8,9 +8,9 @@ import { mkTmpDir } from "../_support";
 // schema runtime expects, all rows ingested, and military flags
 // computed per all three classifyMilitary rules. Fixture covers:
 //   - civil baselines (B738, A320, Cessna)
-//   - rule 1 (typecode in MIL_TYPECODES — F35, REAP)
-//   - rule 2 (operator contains keyword — Royal Navy, RAF)
-//   - rule 3 (icao24 in 0xAE0000–0xAFFFFF — ae5000)
+//   - rule 1 (typecode in MIL_TYPECODES, F35, REAP)
+//   - rule 2 (operator contains keyword, Royal Navy, RAF)
+//   - rule 3 (icao24 in 0xAE0000–0xAFFFFF, ae5000)
 //   - boundaries (0xADFFFF below, 0xB00000 above)
 
 const FIXTURE_PATH = "tests/fixtures/aircraft/metadata-db-build.ndjson";
@@ -80,80 +80,28 @@ describe("scripts/build-aircraft-db: schema + row count", () => {
   });
 });
 
-describe("scripts/build-aircraft-db: military flag — three rules", () => {
-  test("rule 1 (typecode in MIL_TYPECODES) → military 1", async () => {
+describe("scripts/build-aircraft-db: military flag: three rules", () => {
+  test("flags military typecodes, military operators and the US military hex range, and nothing else", async () => {
     await buildAircraftDb(FIXTURE_PATH, dbPath);
     const db = new Database(dbPath, { readonly: true });
-    const f35 = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("abc100");
-    const reap = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("abc105");
+    const militaryOf = db.query<{ military: number }, [string]>(
+      "SELECT military FROM aircraft WHERE icao24 = ?",
+    );
+    const cases: ReadonlyArray<readonly [string, number]> = [
+      ["abc100", 1],
+      ["abc105", 1],
+      ["abc102", 1],
+      ["abc106", 1],
+      ["ae5000", 1],
+      ["adffff", 0],
+      ["b00000", 0],
+      ["abc101", 0],
+      ["abc103", 0],
+      ["abc104", 0],
+    ];
+    const flags = cases.map(([hex]): readonly [string, number | undefined] => [hex, militaryOf.get(hex)?.military]);
     db.close();
-    expect(f35?.military).toBe(1);
-    expect(reap?.military).toBe(1);
-  });
-
-  test("rule 2 (operator contains MIL keyword) → military 1", async () => {
-    await buildAircraftDb(FIXTURE_PATH, dbPath);
-    const db = new Database(dbPath, { readonly: true });
-    const seaking = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("abc102");
-    const rafvip = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("abc106");
-    db.close();
-    expect(seaking?.military).toBe(1);
-    expect(rafvip?.military).toBe(1);
-  });
-
-  test("rule 3 (US-mil hex range 0xAE0000–0xAFFFFF) → military 1", async () => {
-    await buildAircraftDb(FIXTURE_PATH, dbPath);
-    const db = new Database(dbPath, { readonly: true });
-    const inRange = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("ae5000");
-    const justBelow = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("adffff");
-    const justAbove = db
-      .query<{ military: number }, [string]>(
-        "SELECT military FROM aircraft WHERE icao24 = ?",
-      )
-      .get("b00000");
-    db.close();
-    expect(inRange?.military).toBe(1);
-    expect(justBelow?.military).toBe(0);
-    expect(justAbove?.military).toBe(0);
-  });
-
-  test("civilian rows (no rule matches) → military 0", async () => {
-    await buildAircraftDb(FIXTURE_PATH, dbPath);
-    const db = new Database(dbPath, { readonly: true });
-    const civilHexes = ["abc101", "abc103", "abc104"];
-    for (const hex of civilHexes) {
-      const row = db
-        .query<{ military: number }, [string]>(
-          "SELECT military FROM aircraft WHERE icao24 = ?",
-        )
-        .get(hex);
-      expect(row?.military).toBe(0);
-    }
-    db.close();
+    expect(flags).toEqual([...cases]);
   });
 });
 
@@ -209,7 +157,7 @@ describe("scripts/build-aircraft-db: column population", () => {
       )
       .get("ae5000");
     db.close();
-    // ae5000 fixture row has no tc/op/rg — all should be SQL NULL.
+    // ae5000 fixture row has no tc/op/rg, all should be SQL NULL.
     expect(row?.typecode).toBeNull();
     expect(row?.operator).toBeNull();
     expect(row?.registration).toBeNull();
@@ -256,7 +204,7 @@ describe("scripts/build-aircraft-db: failure modes", () => {
   test("re-running on an existing path overwrites the prior DB", async () => {
     await buildAircraftDb(FIXTURE_PATH, dbPath);
     expect(await Bun.file(dbPath).exists()).toBe(true);
-    // A second call must not throw "table already exists" — the build
+    // A second call must not throw "table already exists", the build
     // unlinks the prior file before opening a fresh connection.
     const second = await buildAircraftDb(FIXTURE_PATH, dbPath);
     expect(second.records).toBe(10);

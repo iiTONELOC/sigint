@@ -47,42 +47,28 @@ async function miniSeedResponse(): Promise<Response> {
   return new Response(await Bun.file(MINISEED_FIXTURE).arrayBuffer());
 }
 
-describe("earthquake waveform acquisition", () => {
-  test("uses EarthScope station and dataselect services and the nearest active station", async () => {
-    const requests: string[] = [];
-    const stations = [
-      stationRow({
-        network: "IU",
-        station: "FAR",
-        location: "00",
-        channel: "BHZ",
-        latitude: 18.1091,
-        longitude: -66.15,
-      }),
-      stationRow({
-        network: "PR",
-        station: "NEAR",
-        location: "00",
-        channel: "HHZ",
-        latitude: 18.477098,
-        longitude: -66.529495,
-      }),
-    ].join("\n");
-    const fetcher: WaveformFetcher = async (url) => {
-      requests.push(url);
-      const request = new URL(url);
-      if (request.pathname.includes("/station/")) {
-        return new Response(stations);
-      }
-      return miniSeedResponse();
-    };
+async function nearestStationRun() {
+  const requests: string[] = [];
+  const stations = [
+    stationRow({ network: "IU", station: "FAR", location: "00", channel: "BHZ", latitude: 18.1091, longitude: -66.15 }),
+    stationRow({ network: "PR", station: "NEAR", location: "00", channel: "HHZ", latitude: 18.477098, longitude: -66.529495 }),
+  ].join("\n");
+  const fetcher: WaveformFetcher = async (url) => {
+    requests.push(url);
+    return new URL(url).pathname.includes("/station/") ? new Response(stations) : miniSeedResponse();
+  };
+  const result = await fetchWaveform(
+    WaveformFixtureCoordinate.Latitude,
+    WaveformFixtureCoordinate.Longitude,
+    WaveformFixtureTime.Origin,
+    { fetcher },
+  );
+  return { result, requests };
+}
 
-    const result = await fetchWaveform(
-      WaveformFixtureCoordinate.Latitude,
-      WaveformFixtureCoordinate.Longitude,
-      WaveformFixtureTime.Origin,
-      { fetcher },
-    );
+describe("earthquake waveform acquisition", () => {
+  test("picks the nearest active station and decodes its trace", async () => {
+    const { result } = await nearestStationRun();
 
     expect(result.status).toBe(WaveformStatus.Ready);
     if (result.status !== WaveformStatus.Ready) return;
@@ -90,21 +76,18 @@ describe("earthquake waveform acquisition", () => {
     expect(result.waveform.sampleRate).toBe(40);
     expect(result.waveform.rawSamples).toHaveLength(2400);
     expect(result.waveform.samples).toHaveLength(600);
+  });
 
-    const stationRequest = requests[0];
-    const traceRequest = requests[1];
-    expect(stationRequest).toBeDefined();
-    expect(traceRequest).toBeDefined();
-    if (!stationRequest || !traceRequest) return;
+  test("asks the EarthScope station and dataselect services for the event window", async () => {
+    const { requests } = await nearestStationRun();
+    const [stationRequest, traceRequest] = requests;
+    if (!stationRequest || !traceRequest) throw new TypeError("the run must make a station and a trace request");
     const stationUrl = new URL(stationRequest);
     const traceUrl = new URL(traceRequest);
+
     expect(stationUrl.hostname).toBe("service.earthscope.org");
-    expect(stationUrl.searchParams.get("starttime")).toBe(
-      "2026-07-20T22:38:14",
-    );
-    expect(stationUrl.searchParams.get("endtime")).toBe(
-      "2026-07-20T22:42:14",
-    );
+    expect(stationUrl.searchParams.get("starttime")).toBe("2026-07-20T22:38:14");
+    expect(stationUrl.searchParams.get("endtime")).toBe("2026-07-20T22:42:14");
     expect(traceUrl.pathname).toBe("/fdsnws/dataselect/1/query");
     expect(traceUrl.searchParams.get("sta")).toBe("NEAR");
     expect(traceUrl.searchParams.get("endtime")).toBe("2026-07-20T22:42:14");

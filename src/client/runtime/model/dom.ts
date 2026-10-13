@@ -25,13 +25,18 @@ export enum DomEvent {
   Offline = "offline",
   Online = "online",
   PageHide = "pagehide",
+  Pause = "pause",
+  Play = "play",
   PointerCancel = "pointercancel",
   PointerDown = "pointerdown",
   PointerMove = "pointermove",
   PointerUp = "pointerup",
+  Progress = "progress",
   Resize = "resize",
   Scroll = "scroll",
+  Seeked = "seeked",
   StateChange = "statechange",
+  TimeUpdate = "timeupdate",
   TouchCancel = "touchcancel",
   TouchEnd = "touchend",
   TouchMove = "touchmove",
@@ -82,6 +87,12 @@ export enum DomScrollBehavior {
 export enum DomScrollBlock {
   Nearest = "nearest",
   Start = "start",
+}
+
+export enum DomPointerType {
+  Mouse = "mouse",
+  Pen = "pen",
+  Touch = "touch",
 }
 
 export enum DomKey {

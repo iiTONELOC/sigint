@@ -6,57 +6,21 @@ import {
   MeasurementFixtureCopy,
 } from "../fixtures";
 
-function expectSpeed(
-  mode: UnitMode,
-  full: MeasurementFixtureCopy,
-  short: MeasurementFixtureCopy,
-): void {
-  expect(
-    formatKtMph(
-      MeasurementFixtureConversionInput.Knots,
-      mode,
-    ),
-  ).toBe(full);
-  expect(
-    formatKtShort(
-      MeasurementFixtureConversionInput.Knots,
-      mode,
-    ),
-  ).toBe(short);
-}
-
 describe("speed formatters", () => {
-  test("formats both units", () => {
-    expectSpeed(
-      UnitMode.Both,
-      MeasurementFixtureCopy.SpeedBoth,
-      MeasurementFixtureCopy.SpeedShortBoth,
-    );
-  });
+  test("formats the full and the short speed for every unit mode", () => {
+    const cases: ReadonlyArray<readonly [UnitMode, MeasurementFixtureCopy, MeasurementFixtureCopy]> = [
+      [UnitMode.Both, MeasurementFixtureCopy.SpeedBoth, MeasurementFixtureCopy.SpeedShortBoth],
+      [UnitMode.Knots, MeasurementFixtureCopy.SpeedKnots, MeasurementFixtureCopy.SpeedShortKnots],
+      [UnitMode.MilesPerHour, MeasurementFixtureCopy.SpeedMilesPerHour, MeasurementFixtureCopy.SpeedShortMilesPerHour],
+      [UnitMode.KilometersPerHour, MeasurementFixtureCopy.SpeedKilometersPerHour, MeasurementFixtureCopy.SpeedShortKilometersPerHour],
+    ];
 
-  test("formats knots", () => {
-    expectSpeed(
-      UnitMode.Knots,
-      MeasurementFixtureCopy.SpeedKnots,
-      MeasurementFixtureCopy.SpeedShortKnots,
-    );
-  });
-
-  test("formats miles per hour", () => {
-    expectSpeed(
-      UnitMode.MilesPerHour,
-      MeasurementFixtureCopy.SpeedMilesPerHour,
-      MeasurementFixtureCopy.SpeedShortMilesPerHour,
-    );
-  });
-
-  test("formats kilometers per hour", () => {
-    expectSpeed(
-      UnitMode.KilometersPerHour,
-      MeasurementFixtureCopy
-        .SpeedKilometersPerHour,
-      MeasurementFixtureCopy
-        .SpeedShortKilometersPerHour,
-    );
+    for (const [mode, full, short] of cases) {
+      const formatted = [
+        formatKtMph(MeasurementFixtureConversionInput.Knots, mode),
+        formatKtShort(MeasurementFixtureConversionInput.Knots, mode),
+      ];
+      expect([mode, ...formatted]).toEqual([mode, full, short]);
+    }
   });
 });

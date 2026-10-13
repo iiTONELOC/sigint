@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { collectLeafTypes, type LayoutNode, type PaneType } from "@/panes/paneTree";
+import { collectLeafTypes, type LayoutNode } from "@/panes/paneTree";
+import type { PaneTypeValue } from "@/panes/workspace/model/pane";
 import {
   PANE_CATALOG,
   type PaneDefinition,
@@ -19,8 +20,8 @@ enum PaneBodyClassName {
 }
 
 type PaneBodyContextValue = Readonly<{
-  adopt: (paneType: PaneType, slot: HTMLElement) => void;
-  release: (paneType: PaneType) => void;
+  adopt: (paneType: PaneTypeValue, slot: HTMLElement) => void;
+  release: (paneType: PaneTypeValue) => void;
 }>;
 
 const PaneBodyContext = createContext<PaneBodyContextValue | null>(null);
@@ -32,7 +33,7 @@ type PaneBodyLayerProps = Readonly<{
 
 export function PaneBodyLayer({ children, root }: PaneBodyLayerProps) {
   const parkRef = useRef<HTMLDivElement | null>(null);
-  const hostsRef = useRef(new Map<PaneType, HTMLDivElement>());
+  const hostsRef = useRef(new Map<PaneTypeValue, HTMLDivElement>());
 
   const persistentTypes = useMemo(
     () =>
@@ -42,7 +43,7 @@ export function PaneBodyLayer({ children, root }: PaneBodyLayerProps) {
     [root],
   );
 
-  const hostFor = (paneType: PaneType): HTMLDivElement => {
+  const hostFor = (paneType: PaneTypeValue): HTMLDivElement => {
     const existing = hostsRef.current.get(paneType);
     if (existing) return existing;
     const host = document.createElement("div");
@@ -84,7 +85,7 @@ export function usePaneBodiesActive(): boolean {
 
 type PaneBodyProps = Readonly<{
   definition: PaneDefinition;
-  paneType: PaneType;
+  paneType: PaneTypeValue;
 }>;
 
 export function PaneBody({ definition, paneType }: PaneBodyProps) {

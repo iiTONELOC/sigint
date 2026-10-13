@@ -225,22 +225,13 @@ export function dispatchResizeKey(
   });
 }
 
-export function expectLastResize(
-  fixture: ResizeHandleFixture,
-  expectedRatio: ResizeExpectedRatio,
-): void {
-  expectResizeCallback(fixture.onResize, expectedRatio);
-}
+export type ResizeCall = Readonly<{ splitId: string; ratio: number }>;
 
-export function expectResizeCallback(
-  callback: Mock<ResizeCallback>,
-  expectedRatio: ResizeExpectedRatio,
-): void {
-  const lastCall = callback.mock.calls.at(-1);
+export function lastResize(fixture: ResizeHandleFixture): ResizeCall {
+  const lastCall = fixture.onResize.mock.calls.at(-1);
   if (lastCall === undefined) {
     throw new TypeError(ResizeTestErrorMessage.CallbackMissing);
   }
   const [splitId, ratio] = lastCall;
-  expect(splitId).toBe(ResizeFixtureSplitId.Primary);
-  expect(ratio).toBeCloseTo(expectedRatio);
+  return { splitId, ratio };
 }

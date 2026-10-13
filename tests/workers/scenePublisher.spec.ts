@@ -7,6 +7,43 @@ import {
 } from "@/workers/render/sceneProtocol";
 import { SceneGeometryKind } from "@shared/scene";
 
+type PublishedCommand = Parameters<ScenePublisher["publish"]>[0];
+
+const AIRCRAFT_PATCH: PublishedCommand = {
+  type: SceneDataCommandType.SourcePatch,
+  source: Domain.Aircraft,
+  sourceVersion: 1,
+  kind: DatasetPatchKind.Rebase,
+  handles: new Uint32Array([1]),
+  sceneIds: ["A1"],
+  entityIds: ["A1"],
+  positions: new Float64Array([20, 10]),
+  motionPositions: new Float64Array(),
+  motionPositionStride: 0,
+  unitVectors: new Float32Array([1, 0, 0]),
+  timestamps: new Float64Array([100]),
+  attributes: new Float32Array([90]),
+  attributeStride: 1,
+  stringAttributes: new Uint32Array(),
+  stringAttributeStride: 0,
+  dictionaryStart: 0,
+  dictionaryValues: [],
+  geometryKinds: new Uint8Array([SceneGeometryKind.None]),
+  geometryCoordinates: new Float64Array(),
+  geometryPartEnds: new Uint32Array(),
+  geometryGroupEnds: new Uint32Array(),
+  geometryRecordEnds: new Uint32Array([0]),
+  deletedHandles: new Uint32Array(),
+};
+
+const AIRCRAFT_SEARCH: PublishedCommand = {
+  type: SceneDataCommandType.SourceSearch,
+  source: Domain.Aircraft,
+  searchRevision: 1,
+  active: true,
+  handles: new Uint32Array([1]),
+};
+
 describe("scene publisher", () => {
   test("binds and transfers typed source patches in sequence", () => {
     const messages: unknown[] = [];
@@ -19,59 +56,14 @@ describe("scene publisher", () => {
       },
     }, "session-a");
 
-    publisher.publish({
-      type: SceneDataCommandType.SourcePatch,
-      source: Domain.Aircraft,
-      sourceVersion: 1,
-      kind: DatasetPatchKind.Rebase,
-      handles: new Uint32Array([1]),
-      sceneIds: ["A1"],
-      entityIds: ["A1"],
-      positions: new Float64Array([20, 10]),
-      motionPositions: new Float64Array(),
-      motionPositionStride: 0,
-      unitVectors: new Float32Array([1, 0, 0]),
-      timestamps: new Float64Array([100]),
-      attributes: new Float32Array([90]),
-      attributeStride: 1,
-      stringAttributes: new Uint32Array(),
-      stringAttributeStride: 0,
-      dictionaryStart: 0,
-      dictionaryValues: [],
-      geometryKinds: new Uint8Array([SceneGeometryKind.None]),
-      geometryCoordinates: new Float64Array(),
-      geometryPartEnds: new Uint32Array(),
-      geometryGroupEnds: new Uint32Array(),
-      geometryRecordEnds: new Uint32Array([0]),
-      deletedHandles: new Uint32Array(),
-    });
-    publisher.publish({
-      type: SceneDataCommandType.SourceSearch,
-      source: Domain.Aircraft,
-      searchRevision: 1,
-      active: true,
-      handles: new Uint32Array([1]),
-    });
+    publisher.publish(AIRCRAFT_PATCH);
+    publisher.publish(AIRCRAFT_SEARCH);
 
     expect(messages).toHaveLength(3);
-    expect(messages[0]).toMatchObject({
-      type: SceneDataCommandType.Bind,
-      sequence: 1,
-      sessionId: "session-a",
-    });
-    expect(messages[1]).toMatchObject({
-      type: SceneDataCommandType.SourcePatch,
-      source: Domain.Aircraft,
-      sequence: 2,
-      sessionId: "session-a",
-    });
+    expect(messages[0]).toMatchObject({ type: SceneDataCommandType.Bind, sequence: 1, sessionId: "session-a" });
+    expect(messages[1]).toMatchObject({ type: SceneDataCommandType.SourcePatch, source: Domain.Aircraft, sequence: 2, sessionId: "session-a" });
     expect(transfers[1]).toHaveLength(13);
-    expect(messages[2]).toMatchObject({
-      type: SceneDataCommandType.SourceSearch,
-      source: Domain.Aircraft,
-      sequence: 3,
-      sessionId: "session-a",
-    });
+    expect(messages[2]).toMatchObject({ type: SceneDataCommandType.SourceSearch, source: Domain.Aircraft, sequence: 3, sessionId: "session-a" });
     expect(transfers[2]).toHaveLength(1);
   });
 });

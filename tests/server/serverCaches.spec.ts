@@ -1,244 +1,127 @@
-import { describe, test, expect } from "bun:test";
-
-// ─────────────────────────────────────────────────────────────────────
-// Server cache modules use module-level state + fetch.
-// We replicate the pure parsing logic inline and test it directly.
-// This catches regressions in CSV/RSS/TSV parsers without needing
-// network mocks or module state management.
-// ─────────────────────────────────────────────────────────────────────
-
-// ═════════════════════════════════════════════════════════════════════
-// FIRMS CSV PARSER (from firmsCache.ts)
-// ═════════════════════════════════════════════════════════════════════
-
-// Test the REAL parser (header-driven; handles the keyless 13-col bulk file
-// and the keyed 14-col api/area CSV).
+import { describe, expect, test } from "bun:test";
+import { IntelSeverity } from "@shared/domain/correlation";
 import { parseFirmsCsv } from "../../src/server/api/firmsCache";
+import {
+  GdeltColumn,
+  GdeltRootCode,
+  buildHeadline,
+  goldsteinSeverity,
+  parseDateAdded,
+  parseExportCsv,
+} from "../../src/server/api/gdeltCache";
+import {
+  extractAttr,
+  extractTag,
+  hashUrl,
+  parseRssItems,
+  stripHtml,
+} from "../../src/server/api/newsCache";
+
+enum FirmsFixtureText {
+  BulkHeader = "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,confidence,version,bright_ti5,frp,daynight",
+  BulkRow = "15.27001,-10.23617,310.87,0.56,0.69,2026-06-15,0308,N20,nominal,2.0NRT,291.19,6.07,N",
+  Header = "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight",
+  InvalidRow = "abc,def,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N",
+  NullIslandRow = "0,0,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N",
+  PlainRow = "35.1,45.2,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N",
+  RowDay = "-10.5,120.3,310.2,0.8,0.9,2026-03-21,0145,N,VIIRS,high,2.0,285.0,88.3,D",
+  RowNight = "35.123,45.456,320.5,1.0,1.0,2026-03-21,0130,N,VIIRS,nominal,2.0,290.1,42.5,N",
+  ShortRow = "35.1,45.2",
+  WrongHeader = "name,value\nfoo,bar",
+}
+
+enum FirmsFixtureValue {
+  BulkBrightness = 310.87,
+  BulkBrightnessT31 = 291.19,
+  BulkFrp = 6.07,
+  BulkLatitude = 15.27001,
+  Frp = 42.5,
+  Latitude = 35.123,
+  Longitude = 45.456,
+}
+
+enum FixturePrecision {
+  Coarse = 1,
+  Fine = 4,
+  Standard = 3,
+}
+
+enum FixtureCount {
+  None = 0,
+  One = 1,
+  Two = 2,
+}
 
 describe("parseFirmsCsv", () => {
-  test("parses valid CSV with header", () => {
-    const csv = `latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight
-35.123,45.456,320.5,1.0,1.0,2026-03-21,0130,N,VIIRS,nominal,2.0,290.1,42.5,N
--10.5,120.3,310.2,0.8,0.9,2026-03-21,0145,N,VIIRS,high,2.0,285.0,88.3,D`;
-    const records = parseFirmsCsv(csv);
-    expect(records).toHaveLength(2);
-    expect(records[0]!.lat).toBeCloseTo(35.123, 3);
-    expect(records[0]!.lon).toBeCloseTo(45.456, 3);
-    expect(records[0]!.frp).toBeCloseTo(42.5, 1);
-    expect(records[1]!.daynight).toBe("D");
+  test("parses the keyed 14-column CSV", () => {
+    const records = parseFirmsCsv([FirmsFixtureText.Header, FirmsFixtureText.RowNight, FirmsFixtureText.RowDay].join("\n"));
+
+    expect(records).toHaveLength(FixtureCount.Two);
+    expect(records[0]?.lat).toBeCloseTo(FirmsFixtureValue.Latitude, FixturePrecision.Standard);
+    expect(records[0]?.lon).toBeCloseTo(FirmsFixtureValue.Longitude, FixturePrecision.Standard);
+    expect(records[0]?.frp).toBeCloseTo(FirmsFixtureValue.Frp, FixturePrecision.Coarse);
+    expect(records[1]?.daynight).toBe("D");
   });
 
-  test("parses the keyless 13-col bulk file (no instrument column)", () => {
-    const csv = `latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,confidence,version,bright_ti5,frp,daynight
-15.27001,-10.23617,310.87,0.56,0.69,2026-06-15,0308,N20,nominal,2.0NRT,291.19,6.07,N`;
-    const records = parseFirmsCsv(csv);
-    expect(records).toHaveLength(1);
-    expect(records[0]!.lat).toBeCloseTo(15.27001, 4);
-    expect(records[0]!.frp).toBeCloseTo(6.07, 2);
-    expect(records[0]!.brightness).toBeCloseTo(310.87, 2); // bright_ti4
-    expect(records[0]!.brightT31).toBeCloseTo(291.19, 2); // bright_ti5
-    expect(records[0]!.confidence).toBe("nominal");
-    expect(records[0]!.instrument).toBe("VIIRS"); // defaulted, absent in feed
+  test("parses the keyless 13-column bulk file and defaults the instrument", () => {
+    const records = parseFirmsCsv([FirmsFixtureText.BulkHeader, FirmsFixtureText.BulkRow].join("\n"));
+
+    expect(records).toHaveLength(FixtureCount.One);
+    expect(records[0]?.lat).toBeCloseTo(FirmsFixtureValue.BulkLatitude, FixturePrecision.Fine);
+    expect(records[0]?.frp).toBeCloseTo(FirmsFixtureValue.BulkFrp, FixturePrecision.Standard);
+    expect(records[0]?.brightness).toBeCloseTo(FirmsFixtureValue.BulkBrightness, FixturePrecision.Standard);
+    expect(records[0]?.brightT31).toBeCloseTo(FirmsFixtureValue.BulkBrightnessT31, FixturePrecision.Standard);
+    expect(records[0]?.confidence).toBe("nominal");
+    expect(records[0]?.instrument).toBe("VIIRS");
   });
 
-  test("returns empty for no header", () => {
-    expect(parseFirmsCsv("")).toEqual([]);
-    expect(parseFirmsCsv("just one line")).toEqual([]);
-  });
+  test("answers no records for a missing or wrong header, a short row, null island or invalid coordinates", () => {
+    const rejected: ReadonlyArray<readonly [string, string]> = [
+      ["empty", ""],
+      ["one line", "just one line"],
+      ["wrong header", FirmsFixtureText.WrongHeader],
+      ["short row", [FirmsFixtureText.Header, FirmsFixtureText.ShortRow].join("\n")],
+      ["null island", [FirmsFixtureText.Header, FirmsFixtureText.NullIslandRow].join("\n")],
+      ["invalid coordinates", [FirmsFixtureText.Header, FirmsFixtureText.InvalidRow].join("\n")],
+    ];
 
-  test("returns empty for wrong header", () => {
-    const csv = `name,value\nfoo,bar`;
-    expect(parseFirmsCsv(csv)).toEqual([]);
-  });
-
-  test("skips lines with too few columns", () => {
-    const csv = `latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight
-35.1,45.2`;
-    expect(parseFirmsCsv(csv)).toEqual([]);
-  });
-
-  test("skips null island (0,0)", () => {
-    const csv = `latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight
-0,0,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N`;
-    expect(parseFirmsCsv(csv)).toEqual([]);
-  });
-
-  test("skips invalid lat/lon", () => {
-    const csv = `latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight
-abc,def,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N`;
-    expect(parseFirmsCsv(csv)).toEqual([]);
-  });
-
-  test("handles empty lines gracefully", () => {
-    const csv = `latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight
-
-35.1,45.2,300,1,1,2026-03-21,0100,N,VIIRS,nom,2.0,280,10,N
-
-`;
-    expect(parseFirmsCsv(csv)).toHaveLength(1);
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════
-// NEWS RSS PARSER (from newsCache.ts)
-// ═════════════════════════════════════════════════════════════════════
-
-type NewsItem = {
-  id: string;
-  title: string;
-  url: string;
-  source: string;
-  publishedAt: string;
-  description: string;
-};
-
-function stripHtml(html: string): string {
-  let text = html
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  text = text.replace(/<[^>]+>/g, " ");
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function hashUrl(url: string): string {
-  let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
-  }
-  return `NW${Math.abs(hash).toString(36)}`;
-}
-
-function extractTag(xml: string, tag: string): string {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
-  const m = xml.match(re);
-  if (m?.[1]) {
-    const val = m[1].trim();
-    const cdata = val.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-    return cdata ? cdata[1]!.trim() : val;
-  }
-  return "";
-}
-
-function extractAttr(xml: string, tag: string, attr: string): string {
-  const re = new RegExp(`<${tag}[^>]*?${attr}\\s*=\\s*["']([^"']*)["']`, "i");
-  return xml.match(re)?.[1] ?? "";
-}
-
-function parseRssItems(xml: string, sourceName: string): NewsItem[] {
-  const items: NewsItem[] = [];
-  const isAtom = xml.includes("<feed") && xml.includes("<entry");
-  const parts = xml.split(isAtom ? "<entry" : "<item");
-  for (let i = 1; i < parts.length; i++) {
-    const chunk = parts[i]!;
-    const title = stripHtml(extractTag(chunk, "title"));
-    if (!title) continue;
-    let url = isAtom ? extractAttr(chunk, "link", "href") : "";
-    if (!url) url = stripHtml(extractTag(chunk, "link"));
-    if (!url) continue;
-    const dateStr =
-      extractTag(chunk, "pubDate") ||
-      extractTag(chunk, "published") ||
-      extractTag(chunk, "updated");
-    let publishedAt: string;
-    try {
-      publishedAt = dateStr
-        ? new Date(dateStr).toISOString()
-        : new Date().toISOString();
-    } catch {
-      publishedAt = new Date().toISOString();
+    for (const [name, csv] of rejected) {
+      expect([name, parseFirmsCsv(csv)]).toEqual([name, []]);
     }
-    const description = stripHtml(
-      extractTag(chunk, "description") ||
-        extractTag(chunk, "summary") ||
-        extractTag(chunk, "content"),
-    ).slice(0, 500);
-    items.push({
-      id: hashUrl(url),
-      title,
-      url,
-      source: sourceName,
-      publishedAt,
-      description,
-    });
-  }
-  return items;
+  });
+
+  test("ignores blank lines between rows", () => {
+    expect(parseFirmsCsv([FirmsFixtureText.Header, "", FirmsFixtureText.PlainRow, "", ""].join("\n"))).toHaveLength(FixtureCount.One);
+  });
+});
+
+enum NewsFixtureText {
+  AtomTitle = "Atom Article",
+  AtomUrl = "https://example.com/atom1",
+  CdataTitle = "CDATA Title",
+  Description = "First article description",
+  FirstUrl = "https://example.com/article1",
+  HashPrefix = "NW",
+  LongFiller = "x",
+  Source = "TestSource",
+  Title = "Breaking News",
+  UrlA = "https://example.com/a",
+  UrlB = "https://example.com/b",
 }
 
-describe("stripHtml", () => {
-  test("strips HTML tags", () => {
-    expect(stripHtml("<p>Hello <b>world</b></p>")).toBe("Hello world");
-  });
+enum NewsFixtureSize {
+  DescriptionCap = 500,
+  LongDescription = 1000,
+}
 
-  test("decodes HTML entities", () => {
-    expect(stripHtml("&amp;")).toBe("&");
-    expect(stripHtml("&quot;")).toBe('"');
-    expect(stripHtml("&#39;")).toBe("'");
-    expect(stripHtml("&nbsp;word")).toBe("word");
-  });
-
-  test("collapses whitespace", () => {
-    expect(stripHtml("  hello   world  ")).toBe("hello world");
-  });
-
-  test("handles empty string", () => {
-    expect(stripHtml("")).toBe("");
-  });
-});
-
-describe("hashUrl", () => {
-  test("returns consistent hash for same URL", () => {
-    const h1 = hashUrl("https://example.com/article");
-    const h2 = hashUrl("https://example.com/article");
-    expect(h1).toBe(h2);
-  });
-
-  test("returns different hash for different URLs", () => {
-    const h1 = hashUrl("https://example.com/a");
-    const h2 = hashUrl("https://example.com/b");
-    expect(h1).not.toBe(h2);
-  });
-
-  test("starts with NW prefix", () => {
-    expect(hashUrl("https://test.com")).toMatch(/^NW/);
-  });
-});
-
-describe("extractTag", () => {
-  test("extracts simple tag content", () => {
-    expect(extractTag("<title>Hello</title>", "title")).toBe("Hello");
-  });
-
-  test("extracts CDATA content", () => {
-    expect(extractTag("<title><![CDATA[Hello World]]></title>", "title")).toBe(
-      "Hello World",
-    );
-  });
-
-  test("returns empty for missing tag", () => {
-    expect(extractTag("<foo>bar</foo>", "title")).toBe("");
-  });
-
-  test("handles tag with attributes", () => {
-    expect(
-      extractTag('<link type="text">http://example.com</link>', "link"),
-    ).toBe("http://example.com");
-  });
-});
-
-describe("parseRssItems", () => {
-  test("parses RSS 2.0 feed", () => {
-    const xml = `<?xml version="1.0"?>
+const RSS_FEED = `<?xml version="1.0"?>
 <rss version="2.0">
 <channel>
 <item>
-  <title>Breaking News</title>
-  <link>https://example.com/article1</link>
+  <title>${NewsFixtureText.Title}</title>
+  <link>${NewsFixtureText.FirstUrl}</link>
   <pubDate>Mon, 21 Mar 2026 12:00:00 GMT</pubDate>
-  <description>First article description</description>
+  <description>${NewsFixtureText.Description}</description>
 </item>
 <item>
   <title>Second Story</title>
@@ -248,402 +131,237 @@ describe("parseRssItems", () => {
 </item>
 </channel>
 </rss>`;
-    const items = parseRssItems(xml, "TestSource");
-    expect(items).toHaveLength(2);
-    expect(items[0]!.title).toBe("Breaking News");
-    expect(items[0]!.url).toBe("https://example.com/article1");
-    expect(items[0]!.source).toBe("TestSource");
-    expect(items[0]!.description).toBe("First article description");
-  });
 
-  test("parses Atom feed", () => {
-    const xml = `<?xml version="1.0"?>
+const ATOM_FEED = `<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <entry>
-  <title>Atom Article</title>
-  <link href="https://example.com/atom1"/>
+  <title>${NewsFixtureText.AtomTitle}</title>
+  <link href="${NewsFixtureText.AtomUrl}"/>
   <published>2026-03-21T12:00:00Z</published>
   <summary>Atom summary</summary>
 </entry>
 </feed>`;
-    const items = parseRssItems(xml, "AtomSource");
-    expect(items).toHaveLength(1);
-    expect(items[0]!.title).toBe("Atom Article");
-    expect(items[0]!.url).toBe("https://example.com/atom1");
-  });
 
-  test("skips items without title", () => {
-    const xml = `<rss><channel><item><link>https://example.com/x</link></item></channel></rss>`;
-    expect(parseRssItems(xml, "Test")).toEqual([]);
-  });
-
-  test("skips items without URL", () => {
-    const xml = `<rss><channel><item><title>No Link</title></item></channel></rss>`;
-    expect(parseRssItems(xml, "Test")).toEqual([]);
-  });
-
-  test("handles CDATA in title and description", () => {
-    const xml = `<rss><channel><item>
-      <title><![CDATA[CDATA Title]]></title>
-      <link>https://example.com/cdata</link>
-      <description><![CDATA[<p>HTML in CDATA</p>]]></description>
-    </item></channel></rss>`;
-    const items = parseRssItems(xml, "Test");
-    expect(items).toHaveLength(1);
-    expect(items[0]!.title).toBe("CDATA Title");
-    expect(items[0]!.description).toBe("HTML in CDATA");
-  });
-
-  test("caps description at 500 chars", () => {
-    const longDesc = "x".repeat(1000);
-    const xml = `<rss><channel><item>
-      <title>Long</title>
-      <link>https://example.com/long</link>
-      <description>${longDesc}</description>
-    </item></channel></rss>`;
-    const items = parseRssItems(xml, "Test");
-    expect(items[0]!.description.length).toBeLessThanOrEqual(500);
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════
-// GDELT EXPORT PARSER (from gdeltCache.ts)
-// ═════════════════════════════════════════════════════════════════════
-
-const RELEVANT_ROOT_CODES = new Set([
-  "10",
-  "13",
-  "14",
-  "15",
-  "17",
-  "18",
-  "19",
-  "20",
-]);
-
-const COL = {
-  GlobalEventID: 0,
-  Actor1Name: 6,
-  Actor2Name: 16,
-  EventCode: 26,
-  EventBaseCode: 27,
-  EventRootCode: 28,
-  GoldsteinScale: 30,
-  NumMentions: 31,
-  AvgTone: 34,
-  ActionGeo_Type: 43,
-  ActionGeo_Fullname: 44,
-  ActionGeo_CountryCode: 45,
-  ActionGeo_Lat: 48,
-  ActionGeo_Long: 49,
-  SOURCEURL: 60,
-  DATEADDED: 59,
-} as const;
-
-function parseDateAdded(dateStr: string): string {
-  if (dateStr.length < 14) return new Date().toISOString();
-  const y = dateStr.slice(0, 4);
-  const m = dateStr.slice(4, 6);
-  const d = dateStr.slice(6, 8);
-  const h = dateStr.slice(8, 10);
-  const mn = dateStr.slice(10, 12);
-  const s = dateStr.slice(12, 14);
-  return new Date(`${y}-${m}-${d}T${h}:${mn}:${s}Z`).toISOString();
+function rssItem(body: string): string {
+  return `<rss><channel><item>${body}</item></channel></rss>`;
 }
 
-function goldsteinToSeverity(gs: number): {
-  severity: number;
-  category: string;
-} {
-  if (gs <= -7) return { severity: 5, category: "Crisis" };
-  if (gs <= -4) return { severity: 4, category: "Conflict" };
-  if (gs <= -2) return { severity: 3, category: "Tension" };
-  if (gs <= 0) return { severity: 2, category: "Concern" };
-  return { severity: 1, category: "Monitoring" };
-}
-
-function buildHeadline(
-  actor1: string,
-  actor2: string,
-  eventCode: string,
-): string {
-  const a1 = actor1 || "Unknown actor";
-  const a2 = actor2 ? ` → ${actor2}` : "";
-  return `${a1}${a2} [${eventCode}]`;
-}
-
-describe("parseDateAdded", () => {
-  test("parses YYYYMMDDHHMMSS format", () => {
-    const result = parseDateAdded("20260321143000");
-    expect(result).toBe("2026-03-21T14:30:00.000Z");
-  });
-
-  test("returns current time for short strings", () => {
-    const result = parseDateAdded("2026");
-    const parsed = new Date(result);
-    expect(parsed.getTime()).toBeGreaterThan(Date.now() - 5000);
-  });
-});
-
-describe("goldsteinToSeverity", () => {
-  test("crisis for -10", () => {
-    expect(goldsteinToSeverity(-10)).toEqual({
-      severity: 5,
-      category: "Crisis",
-    });
-  });
-
-  test("conflict for -5", () => {
-    expect(goldsteinToSeverity(-5)).toEqual({
-      severity: 4,
-      category: "Conflict",
-    });
-  });
-
-  test("tension for -3", () => {
-    expect(goldsteinToSeverity(-3)).toEqual({
-      severity: 3,
-      category: "Tension",
-    });
-  });
-
-  test("concern for -1", () => {
-    expect(goldsteinToSeverity(-1)).toEqual({
-      severity: 2,
-      category: "Concern",
-    });
-  });
-
-  test("monitoring for positive", () => {
-    expect(goldsteinToSeverity(5)).toEqual({
-      severity: 1,
-      category: "Monitoring",
-    });
-  });
-
-  test("crisis at boundary -7", () => {
-    expect(goldsteinToSeverity(-7).severity).toBe(5);
-  });
-
-  test("conflict at boundary -4", () => {
-    expect(goldsteinToSeverity(-4).severity).toBe(4);
-  });
-
-  test("tension at boundary -2", () => {
-    expect(goldsteinToSeverity(-2).severity).toBe(3);
-  });
-
-  test("concern at boundary 0", () => {
-    expect(goldsteinToSeverity(0).severity).toBe(2);
-  });
-});
-
-describe("buildHeadline", () => {
-  test("builds headline with both actors", () => {
-    expect(buildHeadline("USA", "IRAN", "190")).toBe("USA → IRAN [190]");
-  });
-
-  test("builds headline with one actor", () => {
-    expect(buildHeadline("PROTEST GROUP", "", "140")).toBe(
-      "PROTEST GROUP [140]",
-    );
-  });
-
-  test("uses Unknown actor for empty actor1", () => {
-    expect(buildHeadline("", "TARGET", "180")).toBe(
-      "Unknown actor → TARGET [180]",
-    );
-  });
-});
-
-// Build a GDELT-style tab-delimited line (61+ columns)
-function makeGdeltLine(overrides: Record<number, string> = {}): string {
-  const cols = new Array(61).fill("");
-  cols[COL.GlobalEventID] = overrides[COL.GlobalEventID] ?? "12345";
-  cols[COL.Actor1Name] = overrides[COL.Actor1Name] ?? "UNITED STATES";
-  cols[COL.Actor2Name] = overrides[COL.Actor2Name] ?? "IRAN";
-  cols[COL.EventCode] = overrides[COL.EventCode] ?? "190";
-  cols[COL.EventRootCode] = overrides[COL.EventRootCode] ?? "19"; // Fight
-  cols[COL.GoldsteinScale] = overrides[COL.GoldsteinScale] ?? "-8.0";
-  cols[COL.NumMentions] = overrides[COL.NumMentions] ?? "25";
-  cols[COL.AvgTone] = overrides[COL.AvgTone] ?? "-5.2";
-  cols[COL.ActionGeo_Fullname] =
-    overrides[COL.ActionGeo_Fullname] ?? "Baghdad, Iraq";
-  cols[COL.ActionGeo_CountryCode] =
-    overrides[COL.ActionGeo_CountryCode] ?? "IZ";
-  cols[COL.ActionGeo_Lat] = overrides[COL.ActionGeo_Lat] ?? "33.3";
-  cols[COL.ActionGeo_Long] = overrides[COL.ActionGeo_Long] ?? "44.4";
-  cols[COL.DATEADDED] = overrides[COL.DATEADDED] ?? "20260321120000";
-  cols[COL.SOURCEURL] =
-    overrides[COL.SOURCEURL] ?? "https://example.com/article";
-  return cols.join("\t");
-}
-
-// Replicate parseExportCsv logic
-type GdeltEvent = {
-  id: string;
-  lat: number;
-  lon: number;
-  timestamp: string;
-  headline: string;
-  actor1: string;
-  actor2: string;
-  eventCode: string;
-  goldstein: number;
-  tone: number;
-  mentions: number;
-  locationName: string;
-  countryCode: string;
-  sourceUrl: string;
-  severity: number;
-  category: string;
-};
-
-function parseExportCsv(csv: string): GdeltEvent[] {
-  const lines = csv.split("\n");
-  const events: GdeltEvent[] = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cols = line.split("\t");
-    if (cols.length < 58) continue;
-    const rootCode = cols[COL.EventRootCode]?.trim();
-    if (!rootCode || !RELEVANT_ROOT_CODES.has(rootCode)) continue;
-    const lat = parseFloat(cols[COL.ActionGeo_Lat] ?? "");
-    const lon = parseFloat(cols[COL.ActionGeo_Long] ?? "");
-    if (!isFinite(lat) || !isFinite(lon)) continue;
-    if (lat === 0 && lon === 0) continue;
-    const goldstein = parseFloat(cols[COL.GoldsteinScale] ?? "0");
-    const tone = parseFloat(cols[COL.AvgTone] ?? "0");
-    const mentions = parseInt(cols[COL.NumMentions] ?? "1", 10);
-    const { severity, category } = goldsteinToSeverity(
-      isFinite(goldstein) ? goldstein : 0,
-    );
-    const actor1 = cols[COL.Actor1Name]?.trim() ?? "";
-    const actor2 = cols[COL.Actor2Name]?.trim() ?? "";
-    const eventCode =
-      cols[COL.EventCode]?.trim() ?? cols[COL.EventRootCode]?.trim() ?? "";
-    events.push({
-      id: cols[COL.GlobalEventID]?.trim() ?? "",
-      lat,
-      lon,
-      timestamp: parseDateAdded(cols[COL.DATEADDED]?.trim() ?? ""),
-      headline: buildHeadline(actor1, actor2, eventCode),
-      actor1,
-      actor2,
-      eventCode,
-      goldstein: isFinite(goldstein) ? goldstein : 0,
-      tone: isFinite(tone) ? tone : 0,
-      mentions,
-      locationName: cols[COL.ActionGeo_Fullname]?.trim() ?? "",
-      countryCode: cols[COL.ActionGeo_CountryCode]?.trim() ?? "",
-      sourceUrl: cols[COL.SOURCEURL]?.trim() ?? "",
-      severity,
-      category,
-    });
-  }
-  return events;
-}
-
-describe("parseExportCsv", () => {
-  test("parses valid GDELT line", () => {
-    const csv = makeGdeltLine();
-    const events = parseExportCsv(csv);
-    expect(events).toHaveLength(1);
-    expect(events[0]!.lat).toBeCloseTo(33.3, 1);
-    expect(events[0]!.lon).toBeCloseTo(44.4, 1);
-    expect(events[0]!.actor1).toBe("UNITED STATES");
-    expect(events[0]!.actor2).toBe("IRAN");
-    expect(events[0]!.severity).toBe(5); // goldstein -8 → Crisis
-    expect(events[0]!.headline).toContain("UNITED STATES → IRAN");
-  });
-
-  test("filters non-relevant root codes", () => {
-    const csv = makeGdeltLine({ [COL.EventRootCode]: "01" }); // Yield — not relevant
-    expect(parseExportCsv(csv)).toEqual([]);
-  });
-
-  test("filters null island", () => {
-    const csv = makeGdeltLine({
-      [COL.ActionGeo_Lat]: "0",
-      [COL.ActionGeo_Long]: "0",
-    });
-    expect(parseExportCsv(csv)).toEqual([]);
-  });
-
-  test("filters invalid coordinates", () => {
-    const csv = makeGdeltLine({ [COL.ActionGeo_Lat]: "abc" });
-    expect(parseExportCsv(csv)).toEqual([]);
-  });
-
-  test("parses multiple lines", () => {
-    const lines = [
-      makeGdeltLine({ [COL.GlobalEventID]: "1" }),
-      makeGdeltLine({
-        [COL.GlobalEventID]: "2",
-        [COL.ActionGeo_Lat]: "10.5",
-        [COL.ActionGeo_Long]: "20.5",
-      }),
+describe("news feed parsers", () => {
+  test("stripHtml removes tags, decodes entities and collapses whitespace", () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["<p>Hello <b>world</b></p>", "Hello world"],
+      ["&amp; &quot; &#39; &nbsp;word", "& \" ' word"],
+      ["  hello   world  ", "hello world"],
+      ["", ""],
     ];
-    const events = parseExportCsv(lines.join("\n"));
-    expect(events).toHaveLength(2);
-    expect(events[0]!.id).toBe("1");
-    expect(events[1]!.id).toBe("2");
-  });
 
-  test("skips empty lines", () => {
-    const csv =
-      makeGdeltLine() + "\n\n" + makeGdeltLine({ [COL.GlobalEventID]: "2" });
-    const events = parseExportCsv(csv);
-    expect(events).toHaveLength(2);
-  });
-
-  test("skips short lines", () => {
-    const csv = "too\tfew\tcolumns";
-    expect(parseExportCsv(csv)).toEqual([]);
-  });
-
-  test("maps goldstein to correct severity", () => {
-    const crisis = parseExportCsv(
-      makeGdeltLine({ [COL.GoldsteinScale]: "-9" }),
-    );
-    expect(crisis[0]!.severity).toBe(5);
-    expect(crisis[0]!.category).toBe("Crisis");
-
-    const monitoring = parseExportCsv(
-      makeGdeltLine({ [COL.GoldsteinScale]: "3" }),
-    );
-    expect(monitoring[0]!.severity).toBe(1);
-    expect(monitoring[0]!.category).toBe("Monitoring");
-  });
-
-  test("all relevant CAMEO codes pass filter", () => {
-    for (const code of ["10", "13", "14", "15", "17", "18", "19", "20"]) {
-      const events = parseExportCsv(
-        makeGdeltLine({ [COL.EventRootCode]: code }),
-      );
-      expect(events).toHaveLength(1);
+    for (const [html, text] of cases) {
+      expect([html, stripHtml(html)]).toEqual([html, text]);
     }
   });
 
-  test("non-relevant CAMEO codes are filtered", () => {
-    for (const code of [
-      "01",
-      "02",
-      "03",
-      "04",
-      "05",
-      "06",
-      "07",
-      "08",
-      "09",
-      "11",
-      "12",
-      "16",
-    ]) {
-      const events = parseExportCsv(
-        makeGdeltLine({ [COL.EventRootCode]: code }),
-      );
-      expect(events).toHaveLength(0);
+  test("hashUrl is stable per URL, distinct across URLs and prefixed", () => {
+    expect(hashUrl(NewsFixtureText.UrlA)).toBe(hashUrl(NewsFixtureText.UrlA));
+    expect(hashUrl(NewsFixtureText.UrlA)).not.toBe(hashUrl(NewsFixtureText.UrlB));
+    expect(hashUrl(NewsFixtureText.UrlA).startsWith(NewsFixtureText.HashPrefix)).toBe(true);
+  });
+
+  test("extractTag reads plain, CDATA and attributed tags and answers empty for a missing one", () => {
+    const cases: ReadonlyArray<readonly [string, string, string]> = [
+      ["<title>Hello</title>", "title", "Hello"],
+      ["<title><![CDATA[Hello World]]></title>", "title", "Hello World"],
+      ['<link type="text">http://example.com</link>', "link", "http://example.com"],
+      ["<foo>bar</foo>", "title", ""],
+    ];
+
+    for (const [xml, tag, value] of cases) {
+      expect([xml, extractTag(xml, tag)]).toEqual([xml, value]);
     }
+    expect(extractAttr('<link rel="alternate" href="https://example.com/x"/>', "link", "href")).toBe("https://example.com/x");
+  });
+
+  test("parseRssItems reads RSS 2.0 and Atom feeds", () => {
+    const rss = parseRssItems(RSS_FEED, NewsFixtureText.Source);
+    const atom = parseRssItems(ATOM_FEED, NewsFixtureText.Source);
+
+    expect(rss).toHaveLength(FixtureCount.Two);
+    expect(rss[0]?.title).toBe(NewsFixtureText.Title);
+    expect(rss[0]?.url).toBe(NewsFixtureText.FirstUrl);
+    expect(rss[0]?.source).toBe(NewsFixtureText.Source);
+    expect(rss[0]?.description).toBe(NewsFixtureText.Description);
+    expect(rss[0]?.id).toBe(hashUrl(NewsFixtureText.FirstUrl));
+    expect(atom).toHaveLength(FixtureCount.One);
+    expect(atom[0]?.title).toBe(NewsFixtureText.AtomTitle);
+    expect(atom[0]?.url).toBe(NewsFixtureText.AtomUrl);
+  });
+
+  test("parseRssItems skips items without a title or a link", () => {
+    expect(parseRssItems(rssItem("<link>https://example.com/x</link>"), NewsFixtureText.Source)).toEqual([]);
+    expect(parseRssItems(rssItem("<title>No Link</title>"), NewsFixtureText.Source)).toEqual([]);
+  });
+
+  test("parseRssItems unwraps CDATA, strips markup and caps the description", () => {
+    const cdata = parseRssItems(
+      rssItem(`<title><![CDATA[${NewsFixtureText.CdataTitle}]]></title><link>https://example.com/cdata</link><description><![CDATA[<p>HTML in CDATA</p>]]></description>`),
+      NewsFixtureText.Source,
+    );
+    const long = parseRssItems(
+      rssItem(`<title>Long</title><link>https://example.com/long</link><description>${NewsFixtureText.LongFiller.repeat(NewsFixtureSize.LongDescription)}</description>`),
+      NewsFixtureText.Source,
+    );
+
+    expect(cdata[0]?.title).toBe(NewsFixtureText.CdataTitle);
+    expect(cdata[0]?.description).toBe("HTML in CDATA");
+    expect(long[0]?.description).toHaveLength(NewsFixtureSize.DescriptionCap);
+  });
+});
+
+enum GdeltFixtureText {
+  Actor1 = "UNITED STATES",
+  Actor2 = "IRAN",
+  CountryCode = "IZ",
+  DateAdded = "20260321120000",
+  DateAddedIso = "2026-03-21T12:00:00.000Z",
+  EventCode = "190",
+  Goldstein = "-8.0",
+  Latitude = "33.3",
+  Location = "Baghdad, Iraq",
+  Longitude = "44.4",
+  Mentions = "25",
+  ShortDate = "2026",
+  SourceDomain = "example.com",
+  SourceUrl = "https://www.example.com/article",
+  Tone = "-5.2",
+  UnknownActorHeadline = "Unknown actor → TARGET [180]",
+}
+
+enum GdeltFixtureValue {
+  Latitude = 33.3,
+  Longitude = 44.4,
+  OtherLatitude = 10.5,
+  OtherLongitude = 20.5,
+  RecentWindowMs = 5_000,
+  RootCodeCount = 20,
+  RootCodeWidth = 2,
+}
+
+const GDELT_COLUMN_COUNT = GdeltColumn.SourceUrl + 1;
+
+function gdeltLine(overrides: Partial<Record<GdeltColumn, string>> = {}): string {
+  const columns = new Array<string>(GDELT_COLUMN_COUNT).fill("");
+  const defaults: Partial<Record<GdeltColumn, string>> = {
+    [GdeltColumn.Actor1Name]: GdeltFixtureText.Actor1,
+    [GdeltColumn.Actor2Name]: GdeltFixtureText.Actor2,
+    [GdeltColumn.EventCode]: GdeltFixtureText.EventCode,
+    [GdeltColumn.EventRootCode]: GdeltRootCode.Fight,
+    [GdeltColumn.GoldsteinScale]: GdeltFixtureText.Goldstein,
+    [GdeltColumn.NumMentions]: GdeltFixtureText.Mentions,
+    [GdeltColumn.AverageTone]: GdeltFixtureText.Tone,
+    [GdeltColumn.ActionGeoFullName]: GdeltFixtureText.Location,
+    [GdeltColumn.ActionGeoCountryCode]: GdeltFixtureText.CountryCode,
+    [GdeltColumn.ActionGeoLatitude]: GdeltFixtureText.Latitude,
+    [GdeltColumn.ActionGeoLongitude]: GdeltFixtureText.Longitude,
+    [GdeltColumn.DateAdded]: GdeltFixtureText.DateAdded,
+    [GdeltColumn.SourceUrl]: GdeltFixtureText.SourceUrl,
+  };
+  for (const [column, value] of Object.entries({ ...defaults, ...overrides })) {
+    columns[Number(column)] = value;
+  }
+  return columns.join("\t");
+}
+
+const RELEVANT_ROOT_CODES = new Set<string>(Object.values(GdeltRootCode));
+const IRRELEVANT_ROOT_CODES = Array.from({ length: GdeltFixtureValue.RootCodeCount }, (_, index) =>
+  String(index + 1).padStart(GdeltFixtureValue.RootCodeWidth, "0"),
+).filter((code) => !RELEVANT_ROOT_CODES.has(code));
+
+describe("GDELT export parser", () => {
+  test("parseDateAdded reads the GDELT timestamp and falls back to now for a short value", () => {
+    expect(parseDateAdded(GdeltFixtureText.DateAdded)).toBe(GdeltFixtureText.DateAddedIso);
+    expect(new Date(parseDateAdded(GdeltFixtureText.ShortDate)).getTime()).toBeGreaterThan(Date.now() - GdeltFixtureValue.RecentWindowMs);
+  });
+
+  test("goldsteinSeverity maps the scale at and between its thresholds", () => {
+    const cases: ReadonlyArray<readonly [number, IntelSeverity]> = [
+      [-10, IntelSeverity.Crisis],
+      [-7, IntelSeverity.Crisis],
+      [-5, IntelSeverity.Conflict],
+      [-4, IntelSeverity.Conflict],
+      [-3, IntelSeverity.Tension],
+      [-2, IntelSeverity.Tension],
+      [-1, IntelSeverity.Concern],
+      [0, IntelSeverity.Concern],
+      [5, IntelSeverity.Monitoring],
+    ];
+
+    for (const [goldstein, severity] of cases) {
+      expect([goldstein, goldsteinSeverity(goldstein)]).toEqual([goldstein, severity]);
+    }
+  });
+
+  test("buildHeadline names both actors, one actor, or an unknown actor", () => {
+    expect(buildHeadline("USA", "IRAN", "190")).toBe("USA → IRAN [190]");
+    expect(buildHeadline("PROTEST GROUP", "", "140")).toBe("PROTEST GROUP [140]");
+    expect(buildHeadline("", "TARGET", "180")).toBe(GdeltFixtureText.UnknownActorHeadline);
+  });
+
+  test("parseExportCsv reads a relevant line into an event with its severity and source domain", () => {
+    const events = parseExportCsv(gdeltLine());
+    const event = events[0];
+
+    expect(events).toHaveLength(FixtureCount.One);
+    expect(event?.lat).toBeCloseTo(GdeltFixtureValue.Latitude, FixturePrecision.Coarse);
+    expect(event?.lon).toBeCloseTo(GdeltFixtureValue.Longitude, FixturePrecision.Coarse);
+    expect(event?.timestamp).toBe(GdeltFixtureText.DateAddedIso);
+    expect(event?.data.actor1).toBe(GdeltFixtureText.Actor1);
+    expect(event?.data.actor2).toBe(GdeltFixtureText.Actor2);
+    expect(event?.data.severity).toBe(IntelSeverity.Crisis);
+    expect(event?.data.category).toBe(IntelSeverity[IntelSeverity.Crisis]);
+    expect(event?.data.headline).toBe(buildHeadline(GdeltFixtureText.Actor1, GdeltFixtureText.Actor2, GdeltFixtureText.EventCode));
+    expect(event?.data.source).toBe(GdeltFixtureText.SourceDomain);
+    expect(event?.data.sourceCountry).toBe(GdeltFixtureText.CountryCode);
+    expect(event?.data.locationName).toBe(GdeltFixtureText.Location);
+  });
+
+  test("parseExportCsv keeps every relevant root code and drops every other one", () => {
+    for (const code of RELEVANT_ROOT_CODES) {
+      expect([code, parseExportCsv(gdeltLine({ [GdeltColumn.EventRootCode]: code })).length]).toEqual([code, FixtureCount.One]);
+    }
+    for (const code of IRRELEVANT_ROOT_CODES) {
+      expect([code, parseExportCsv(gdeltLine({ [GdeltColumn.EventRootCode]: code }))]).toEqual([code, []]);
+    }
+  });
+
+  test("parseExportCsv drops null island, invalid coordinates and short lines", () => {
+    const rejected: ReadonlyArray<readonly [string, string]> = [
+      ["null island", gdeltLine({ [GdeltColumn.ActionGeoLatitude]: "0", [GdeltColumn.ActionGeoLongitude]: "0" })],
+      ["invalid latitude", gdeltLine({ [GdeltColumn.ActionGeoLatitude]: "abc" })],
+      ["short line", "too\tfew\tcolumns"],
+    ];
+
+    for (const [name, csv] of rejected) {
+      expect([name, parseExportCsv(csv)]).toEqual([name, []]);
+    }
+  });
+
+  test("parseExportCsv reads several lines and ignores blank ones", () => {
+    const second = gdeltLine({
+      [GdeltColumn.ActionGeoLatitude]: String(GdeltFixtureValue.OtherLatitude),
+      [GdeltColumn.ActionGeoLongitude]: String(GdeltFixtureValue.OtherLongitude),
+    });
+    const events = parseExportCsv([gdeltLine(), "", second].join("\n"));
+
+    expect(events).toHaveLength(FixtureCount.Two);
+    expect(events[1]?.lat).toBeCloseTo(GdeltFixtureValue.OtherLatitude, FixturePrecision.Coarse);
+  });
+
+  test("parseExportCsv names the category after the severity of the Goldstein scale", () => {
+    const crisis = parseExportCsv(gdeltLine({ [GdeltColumn.GoldsteinScale]: "-9" }))[0];
+    const monitoring = parseExportCsv(gdeltLine({ [GdeltColumn.GoldsteinScale]: "3" }))[0];
+
+    expect(crisis?.data.severity).toBe(IntelSeverity.Crisis);
+    expect(crisis?.data.category).toBe(IntelSeverity[IntelSeverity.Crisis]);
+    expect(monitoring?.data.severity).toBe(IntelSeverity.Monitoring);
+    expect(monitoring?.data.category).toBe(IntelSeverity[IntelSeverity.Monitoring]);
   });
 });

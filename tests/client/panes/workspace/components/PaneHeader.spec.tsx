@@ -134,32 +134,21 @@ function renderHeader() {
 }
 
 describe("PaneHeader", () => {
-  test("runs the desktop pane controls", () => {
+  test("labels every desktop pane control", () => {
     const fixture = renderHeader();
-    const {
-      close,
-      fullscreen,
-      maximize,
-      minimize,
-      splitHorizontal,
-      splitVertical,
-    } = requirePaneHeaderControls(fixture.container);
+    const controls = requirePaneHeaderControls(fixture.container);
+    const buttons = [controls.splitHorizontal, controls.splitVertical, controls.maximize, controls.fullscreen, controls.minimize, controls.close];
+
+    expect(buttons.every((button) => (button?.getAttribute("aria-label")?.length ?? 0) > 0)).toBe(true);
+  });
+
+  test("fires one callback per desktop pane control", () => {
+    const fixture = renderHeader();
+    const { close, fullscreen, maximize, minimize, splitHorizontal, splitVertical } = requirePaneHeaderControls(fixture.container);
     if (close === undefined) {
       throw new TypeError(PaneHeaderTestErrorMessage.ButtonMissing);
     }
 
-    expect(
-      [
-        splitHorizontal,
-        splitVertical,
-        maximize,
-        fullscreen,
-        minimize,
-        close,
-      ].every(
-        (button) => (button.getAttribute("aria-label")?.length ?? 0) > 0,
-      ),
-    ).toBe(true);
     act(() => {
       splitHorizontal.click();
       splitVertical.click();
@@ -169,24 +158,9 @@ describe("PaneHeader", () => {
       close.click();
     });
 
-    expect(fixture.onSplitH).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
-    expect(fixture.onSplitV).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
-    expect(fixture.onMinimize).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
-    expect(fixture.onToggleMaximize).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
-    expect(fixture.onToggleFullscreen).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
-    expect(fixture.onClose).toHaveBeenCalledTimes(
-      PaneHeaderFixtureCount.Single,
-    );
+    for (const callback of [fixture.onSplitH, fixture.onSplitV, fixture.onToggleMaximize, fixture.onToggleFullscreen, fixture.onMinimize, fixture.onClose]) {
+      expect(callback).toHaveBeenCalledTimes(PaneHeaderFixtureCount.Single);
+    }
   });
 
   test("changes the pane type through the label menu", async () => {

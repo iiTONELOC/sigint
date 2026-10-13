@@ -10,12 +10,15 @@ export enum DeviceType {
   Desktop = "desktop",
 }
 
-export enum ViewportOrientation {
-  Portrait = "portrait",
-  Landscape = "landscape",
-}
-
 export enum PanelSide {
   Left = "left",
   Right = "right",
+}
+
+export enum Placement {
+  Bottom = "bottom",
+  Center = "center",
+  Left = "left",
+  Right = "right",
+  Top = "top",
 }

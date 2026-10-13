@@ -190,7 +190,6 @@ export function shipNavigationMetadata(
     : SHIP_NAVIGATION_METADATA[AisNavigationStatus.NotDefined];
 }
 
-/** AIS groups vessel types by decade; the decade's first code names it. */
 enum AisShipTypeBlock {
   SpanCodes = 10,
 }

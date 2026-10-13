@@ -53,7 +53,6 @@ export function LayoutPresetMenu({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      // Don't close during walkthrough save-preset step
       if (stepId === WalkthroughStepId.SavePreset) return;
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         const toggle = (e.target as HTMLElement).closest(
@@ -138,7 +137,7 @@ export function LayoutPresetMenu({
           onChange={(e) => setNewName(e.target.value)}
           placeholder="Preset name..."
           data-tour="preset-input"
-          className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) min-w-0 caret-sig-accent"
+          className="flex-1 bg-transparent outline-none text-sig-bright text-(length:--sig-text-md) any-pointer-coarse:text-base min-w-0 caret-sig-accent touch-target"
           onKeyDown={(e) => {
             if (e.key === DomKey.Enter) saveNewPreset();
           }}

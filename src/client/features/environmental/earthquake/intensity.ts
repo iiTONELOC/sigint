@@ -18,8 +18,8 @@ export enum MmiCssColor {
 }
 
 enum MmiLevelBoundary {
-  Minimum = 1,
-  Maximum = 10,
+  Lowest = 1,
+  Highest = 10,
 }
 
 enum MmiDepthBoundaryKilometers {
@@ -119,8 +119,8 @@ export function mmiScale(): readonly MmiBand[] {
 export function mmiBand(level: number): MmiBand {
   const rounded = clamp(
     Math.round(level),
-    MmiLevelBoundary.Minimum,
-    MmiLevelBoundary.Maximum,
+    MmiLevelBoundary.Lowest,
+    MmiLevelBoundary.Highest,
   );
   return mmiScale().find((band) => rounded >= band.level) ??
     mmiBandDefinition(MmiBandId.NotFelt);
@@ -145,8 +145,8 @@ function estimateMmi(
     depthPenalty;
   return clamp(
     estimate,
-    MmiLevelBoundary.Minimum,
-    MmiLevelBoundary.Maximum,
+    MmiLevelBoundary.Lowest,
+    MmiLevelBoundary.Highest,
   );
 }
 

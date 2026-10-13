@@ -46,7 +46,7 @@ export function NewsFeedsTab() {
             onClick={() => {
               handleClearCache();
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-danger hover:border-sig-danger/30 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold tracking-wider text-sig-dim border border-sig-border/50 hover:text-sig-danger hover:border-sig-danger/30 transition-colors any-pointer-coarse:min-h-11"
           >
             <Trash2 size={SettingsIconSize.Small} />
             CLEAR NEWS CACHE

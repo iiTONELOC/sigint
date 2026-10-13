@@ -67,16 +67,15 @@ afterAll(async () => {
 // Enrichment re-exports for caller compat.)
 
 describe("classifyMilitary: typecode rule", () => {
-  test("known mil typecode (F35) → true", () => {
-    expect(classifyMilitary("a1b2c3", "F35")).toBe(true);
-  });
-
-  test("typecode case-insensitive (b52 → B52 in set)", () => {
-    expect(classifyMilitary("a1b2c3", "b52")).toBe(true);
-  });
-
-  test("civil typecode (B738) → false", () => {
-    expect(classifyMilitary("a1b2c3", "B738")).toBe(false);
+  test("matches a military typecode in any case and not a civil one", () => {
+    const cases: ReadonlyArray<readonly [string, boolean]> = [
+      ["F35", true],
+      ["b52", true],
+      ["B738", false],
+    ];
+    for (const [typecode, military] of cases) {
+      expect([typecode, classifyMilitary("a1b2c3", typecode)]).toEqual([typecode, military]);
+    }
   });
 
   test("missing typecode falls through to other rules", () => {
@@ -111,24 +110,17 @@ describe("classifyMilitary: operator rule", () => {
 });
 
 describe("classifyMilitary: US-mil hex range rule", () => {
-  test("0xAE0000 (low boundary) → true", () => {
-    expect(classifyMilitary("ae0000")).toBe(true);
-  });
-
-  test("0xAEFFFF (mid range) → true", () => {
-    expect(classifyMilitary("aeffff")).toBe(true);
-  });
-
-  test("0xAFFFFF (high boundary) → true", () => {
-    expect(classifyMilitary("afffff")).toBe(true);
-  });
-
-  test("0xADFFFF (just below low) → false", () => {
-    expect(classifyMilitary("adffff")).toBe(false);
-  });
-
-  test("0xB00000 (just above high) → false", () => {
-    expect(classifyMilitary("b00000")).toBe(false);
+  test("covers 0xAE0000 through 0xAFFFFF inclusive and nothing beside it", () => {
+    const cases: ReadonlyArray<readonly [string, boolean]> = [
+      ["ae0000", true],
+      ["aeffff", true],
+      ["afffff", true],
+      ["adffff", false],
+      ["b00000", false],
+    ];
+    for (const [hex, military] of cases) {
+      expect([hex, classifyMilitary(hex)]).toEqual([hex, military]);
+    }
   });
 
   test("any of the three rules wins (OR semantics)", () => {
@@ -325,27 +317,23 @@ describe("aircraft DB freshness check", () => {
     expect(msg).toMatch(/last built \d{4}-\d{2}-\d{2}T/);
   });
 
-  test("DB at exact 90-day boundary → warn fires (>=, not >)", async () => {
+  test("warns at exactly 90 days with the day count, and stays quiet at 89 days and when freshly built", async () => {
     await setMtimeDaysAgoAsync(freshDbPath, 90);
     await loadMetadataDb(freshDbPath);
-    expect(findWarnMatching("ac-db.sqlite is ")).toBeDefined();
+    expect(findWarnMatching("ac-db.sqlite is ")?.message).toMatch(/ac-db\.sqlite is 90 days old/);
+
+    for (const days of [89, 0]) {
+      captured.length = 0;
+      __resetMetadataDbCacheForTests();
+      await setMtimeDaysAgoAsync(freshDbPath, days);
+      await loadMetadataDb(freshDbPath);
+      expect([days, findWarnMatching("ac-db.sqlite is ")]).toEqual([days, undefined]);
+    }
   });
 
-  test("DB at 89 days → no freshness warn", async () => {
-    await setMtimeDaysAgoAsync(freshDbPath, 89);
-    await loadMetadataDb(freshDbPath);
-    expect(findWarnMatching("ac-db.sqlite is ")).toBeUndefined();
-  });
-
-  test("DB freshly built (mtime = now) → no freshness warn", async () => {
-    await setMtimeDaysAgoAsync(freshDbPath, 0);
-    await loadMetadataDb(freshDbPath);
-    expect(findWarnMatching("ac-db.sqlite is ")).toBeUndefined();
-  });
-
-  test("missing DB file → falls through to existing skip path, no freshness warn", async () => {
+  test("a missing DB file is reported as not found, never as stale", async () => {
     await loadMetadataDb("tests/fixtures/aircraft/does-not-exist.sqlite");
-    expect(findWarnMatching("enrichment DB not found")).toBeDefined();
+    expect(findWarnMatching("enrichment DB not found")?.message).toContain("does-not-exist.sqlite");
     expect(findWarnMatching("days old")).toBeUndefined();
   });
 });

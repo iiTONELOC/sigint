@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { DomEvent } from "@/runtime";
+import { touchEvent } from "../support/touch";
 import {
   InputAdapter,
   SurfaceControlKey,
 } from "@/render-surface/input";
+import { CAMERA_POLICY } from "@/workers/render/policy";
 import {
   RenderCameraKey,
   RenderInputKind,
@@ -15,16 +17,7 @@ enum TouchTestPoint {
   X = 20,
   Y = 30,
   ScrolledY = 90,
-}
-
-type TouchPoint = Readonly<{ clientX: number; clientY: number }>;
-
-function touchEvent(type: DomEvent, points: readonly TouchPoint[]): Event {
-  const event = new Event(type, { cancelable: true });
-  Object.defineProperty(event, "touches", {
-    value: { length: points.length, item: (index: number) => points[index] ?? null },
-  });
-  return event;
+  SecondX = 120,
 }
 
 function phases(sent: readonly RenderInputPayload[]): (RenderInputPhase | null)[] {
@@ -93,6 +86,61 @@ describe("InputAdapter", () => {
     sent.length = 0;
     canvas.dispatchEvent(touchEvent(DomEvent.TouchStart, [press]));
     canvas.dispatchEvent(touchEvent(DomEvent.TouchMove, [{ clientX: TouchTestPoint.X, clientY: TouchTestPoint.ScrolledY }]));
+    expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.Cancel]);
+
+    adapter.stop();
+  });
+
+  test("moves the globe after a one-finger hold without selecting on release", () => {
+    jest.useFakeTimers();
+    const canvas = document.createElement("canvas");
+    const sent: RenderInputPayload[] = [];
+    const adapter = new InputAdapter({
+      canvas,
+      sendInput: (payload) => sent.push(payload),
+      onMiddleClick: () => undefined,
+      scrollsPage: () => true,
+    });
+    const press = { clientX: TouchTestPoint.X, clientY: TouchTestPoint.Y };
+    const drag = touchEvent(DomEvent.TouchMove, [{ clientX: TouchTestPoint.X, clientY: TouchTestPoint.ScrolledY }]);
+    adapter.start();
+
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchStart, [press]));
+    jest.advanceTimersByTime(CAMERA_POLICY.touchHoldMs);
+    canvas.dispatchEvent(drag);
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchEnd, []));
+    expect(drag.defaultPrevented).toBe(true);
+    expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.Move, RenderInputPhase.Cancel]);
+
+    sent.length = 0;
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchStart, [press]));
+    jest.advanceTimersByTime(CAMERA_POLICY.touchHoldMs);
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchEnd, []));
+    expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.Cancel]);
+
+    adapter.stop();
+    jest.useRealTimers();
+  });
+
+  test("leaves a pinch to the page once the page scroll has started", () => {
+    const canvas = document.createElement("canvas");
+    const sent: RenderInputPayload[] = [];
+    const adapter = new InputAdapter({
+      canvas,
+      sendInput: (payload) => sent.push(payload),
+      onMiddleClick: () => undefined,
+      scrollsPage: () => true,
+    });
+    const fingers = [
+      { clientX: TouchTestPoint.X, clientY: TouchTestPoint.Y },
+      { clientX: TouchTestPoint.SecondX, clientY: TouchTestPoint.Y },
+    ];
+    adapter.start();
+
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchStart, fingers));
+    canvas.dispatchEvent(touchEvent(DomEvent.TouchMove, fingers, false));
+
+    expect(sent.map((payload) => payload.kind)).toEqual([RenderInputKind.Pinch, RenderInputKind.Pointer]);
     expect(phases(sent)).toEqual([RenderInputPhase.Start, RenderInputPhase.Cancel]);
 
     adapter.stop();

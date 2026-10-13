@@ -286,14 +286,7 @@ describe("createDataWorkerClient", () => {
     const client = createDataWorkerClient(harness.transport);
     const pending = client.querySource({
       source: Domain.Earthquake,
-      query: {
-        kind: "table",
-      minValue: 3,
-      sortKey: "value1",
-      sortDirection: "desc",
-      offset: 0,
-        limit: 20,
-      },
+      query: { kind: "table", minValue: 3, sortKey: "value1", sortDirection: "desc", offset: 0, limit: 20 },
     });
     const command = latestCommand(harness);
     if (command.type !== DataWorkerMessageType.QuerySource) {
@@ -301,27 +294,16 @@ describe("createDataWorkerClient", () => {
     }
     expect(command.query.kind).toBe("table");
 
-    harness.emit(
-      event(command.requestId, {
-        type: DataWorkerMessageType.SourceQuery,
-        source: Domain.Earthquake,
-        sourceVersion: 8,
-        result: {
-          kind: "table",
-          total: 1,
-          items: [
-            {
-              id: "Qone",
-              type: Domain.Quakes,
-              lon: -80,
-              lat: 30,
-              timestamp: "2026-07-21T12:00:00.000Z",
-              data: { magnitude: 4 },
-            },
-          ],
-        },
-      }),
-    );
+    harness.emit(event(command.requestId, {
+      type: DataWorkerMessageType.SourceQuery,
+      source: Domain.Earthquake,
+      sourceVersion: 8,
+      result: {
+        kind: "table",
+        total: 1,
+        items: [{ id: "Qone", type: Domain.Quakes, lon: -80, lat: 30, timestamp: "2026-07-21T12:00:00.000Z", data: { magnitude: 4 } }],
+      },
+    }));
 
     const result = await pending;
     expect(result.source).toBe(Domain.Earthquake);
@@ -329,16 +311,7 @@ describe("createDataWorkerClient", () => {
     expect(result.result).toEqual({
       kind: "table",
       total: 1,
-      items: [
-        {
-          id: "Qone",
-          type: Domain.Quakes,
-          lon: -80,
-          lat: 30,
-          timestamp: "2026-07-21T12:00:00.000Z",
-          data: { magnitude: 4 },
-        },
-      ],
+      items: [{ id: "Qone", type: Domain.Quakes, lon: -80, lat: 30, timestamp: "2026-07-21T12:00:00.000Z", data: { magnitude: 4 } }],
     });
   });
 

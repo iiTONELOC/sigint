@@ -1,3 +1,4 @@
+import { SequenceStep } from "@shared/scene";
 import type { DataPoint } from "@/features/base/dataPoints";
 import type {
   DataWorkerEnvelope,
@@ -15,9 +16,6 @@ import {
 import type { PointUiQuery } from "@/workers/data/uiQuery";
 import type { RenderSearchSnapshot } from "@/workers/render/protocol";
 
-enum CatalogSearchRevision {
-  Initial = 0,
-}
 
 export enum SourceCatalogErrorKind {
   DuplicateSource = "The source is already registered",
@@ -67,7 +65,7 @@ export class SourceCatalog {
     QueryableSourceId,
     SourceRegistration
   >();
-  private searchRevision = CatalogSearchRevision.Initial;
+  private searchRevision = SequenceStep.Initial;
   private searchText: string | null = null;
 
   register<TId extends QueryableSourceId>(
@@ -154,7 +152,7 @@ export class SourceCatalog {
   }
 
   refreshRenderSearch(source: QueryableSourceId): void {
-    if (this.searchRevision === CatalogSearchRevision.Initial) return;
+    if (this.searchRevision === SequenceStep.Initial) return;
     const registration = this.registration(source);
     registration.render.publishSearch(
       this.searchText
@@ -166,7 +164,7 @@ export class SourceCatalog {
   }
 
   resetRenderSearch(): void {
-    this.searchRevision = CatalogSearchRevision.Initial;
+    this.searchRevision = SequenceStep.Initial;
     this.searchText = null;
   }
 

@@ -4,12 +4,11 @@ const STATIC_CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' https://www.planespotters.net https://*.planespotters.net https://*.plnspttrs.net data: blob:",
+  "img-src 'self' https://www.planespotters.net https://*.planespotters.net https://*.plnspttrs.net https://*.wikimedia.org data: blob:",
   [
     "connect-src 'self'",
     "https://earthquake.usgs.gov",
     "https://api.weather.gov",
-    "https://iptv-org.github.io",
     "https:",
   ].join(" "),
   "media-src 'self' https: blob:",

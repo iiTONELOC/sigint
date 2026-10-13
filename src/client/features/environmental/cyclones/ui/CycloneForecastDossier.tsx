@@ -17,7 +17,7 @@ import {
   type CycloneForecastPointData,
   type ForecastPoint,
 } from "@shared/domain/cyclones";
-import { BASIN_LABEL } from "@shared/cyclonesSeason";
+import { basinLabel } from "@shared/cyclonesSeason";
 import {
   DossierCard,
   DossierLabel,
@@ -147,10 +147,10 @@ export function ParentStrip({ parent, onOpen }: Readonly<{ parent: CyclonePoint;
       <div className={ForecastDossierClassName.Clip}>
         <DossierLabel>PART OF</DossierLabel>
         <div className="text-(length:--sig-text-md) text-sig-bright truncate">
-          {data.name} · {BASIN_LABEL[data.basin]} · {data.stormId} · {categoryShort(data.maxWindKt)} · {formatKtShort(data.maxWindKt)} now
+          {data.name} · {basinLabel(data.basin)} · {data.stormId} · {categoryShort(data.maxWindKt)} · {formatKtShort(data.maxWindKt)} now
         </div>
       </div>
-      <button type="button" onClick={onOpen} className="text-(length:--sig-text-md) text-sig-accent hover:text-sig-bright cursor-pointer">
+      <button type="button" onClick={onOpen} className="text-(length:--sig-text-md) text-sig-accent hover:text-sig-bright cursor-pointer touch-target">
         {ForecastDossierText.OpenStorm}
       </button>
     </DossierCard>

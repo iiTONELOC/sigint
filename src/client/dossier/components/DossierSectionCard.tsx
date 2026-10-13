@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { ChevronRight, ExternalLink } from "lucide-react";
+import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
 
 const DOSSIER_HEADING_ACCENT = "var(--dossier-accent, var(--sigint-warn))";
 
@@ -60,7 +61,7 @@ export function DossierCollapsibleSection({
   return (
     <details open={defaultOpen} className="group">
       <summary
-        className="flex items-center gap-1 cursor-pointer list-none select-none text-sm tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold min-h-7"
+        className="flex items-center gap-1 cursor-pointer list-none select-none text-sm tracking-widest mb-1.5 border-b border-sig-grid/40 pb-0.5 font-mono font-semibold min-h-7 any-pointer-coarse:min-h-11"
         style={{ color: DOSSIER_HEADING_ACCENT }}
       >
         <ChevronRight
@@ -81,9 +82,9 @@ export function DossierLinkRow({
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between text-sm text-sig-accent hover:text-sig-bright transition-colors py-0.5"
+      target={DomAnchorTarget.Blank}
+      rel={DomLinkRelation.NoopenerNoreferrer}
+      className="flex items-center justify-between text-sm text-sig-accent hover:text-sig-bright transition-colors py-0.5 any-pointer-coarse:min-h-11"
     >
       <span>{label}</span>
       <ExternalLink className="w-3 h-3 shrink-0" aria-hidden="true" />
@@ -102,9 +103,9 @@ export function DossierLinkGrid({
         <a
           key={label}
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors"
+          target={DomAnchorTarget.Blank}
+          rel={DomLinkRelation.NoopenerNoreferrer}
+          className="flex items-center justify-between gap-2 bg-sig-panel border border-sig-border rounded-lg px-2.5 py-2 text-(length:--sig-text-sm) text-sig-accent hover:border-sig-accent/40 transition-colors any-pointer-coarse:min-h-11"
         >
           <span className="truncate">{label}</span>
           <ExternalLink className="w-3 h-3 shrink-0 text-sig-dim" aria-hidden={true} />

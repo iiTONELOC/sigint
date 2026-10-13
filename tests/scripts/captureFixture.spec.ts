@@ -44,7 +44,7 @@ describe("scripts/capture-fixture: SOURCES allowlist", () => {
   });
 });
 
-// ── sanitizeLabel — A04 path-injection guard ────────────────────────
+// ── sanitizeLabel, A04 path-injection guard ────────────────────────
 
 describe("scripts/capture-fixture: sanitizeLabel()", () => {
   test("accepts plain alphanumeric and dash labels", () => {
@@ -59,32 +59,25 @@ describe("scripts/capture-fixture: sanitizeLabel()", () => {
     expect(sanitizeLabel(max64)).toBe(max64);
   });
 
-  test("rejects path traversal sequences", () => {
-    expect(sanitizeLabel("../etc/passwd")).toBeNull();
-    expect(sanitizeLabel("..")).toBeNull();
-    expect(sanitizeLabel("/absolute/path")).toBeNull();
-    expect(sanitizeLabel("foo/bar")).toBeNull();
-    expect(sanitizeLabel("foo\\bar")).toBeNull();
-  });
-
-  test("rejects whitespace and shell-special characters", () => {
-    expect(sanitizeLabel("with spaces")).toBeNull();
-    expect(sanitizeLabel("foo;bar")).toBeNull();
-    expect(sanitizeLabel("foo$bar")).toBeNull();
-    expect(sanitizeLabel("foo`bar")).toBeNull();
-    expect(sanitizeLabel("foo|bar")).toBeNull();
-  });
-
-  test("rejects empty input and over-length input", () => {
-    expect(sanitizeLabel("")).toBeNull();
-    expect(sanitizeLabel("a".repeat(65))).toBeNull();
-  });
-
-  test("rejects labels starting with a dash", () => {
-    expect(sanitizeLabel("-leading-dash")).toBeNull();
-  });
-
-  test("rejects null bytes", () => {
-    expect(sanitizeLabel("foo\0bar")).toBeNull();
+  test("rejects traversal, separators, whitespace, shell characters, a leading dash, null bytes, empty and over-length input", () => {
+    const rejected: readonly string[] = [
+      "../etc/passwd",
+      "..",
+      "/absolute/path",
+      "foo/bar",
+      "foo\\bar",
+      "with spaces",
+      "foo;bar",
+      "foo$bar",
+      "foo`bar",
+      "foo|bar",
+      "",
+      "a".repeat(65),
+      "-leading-dash",
+      "foo\0bar",
+    ];
+    for (const label of rejected) {
+      expect([label, sanitizeLabel(label)]).toEqual([label, null]);
+    }
   });
 });

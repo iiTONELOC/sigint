@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { parseAtcfAdeck } from "../../../src/server/api/cyclonesAtcfCache";
 
-// ── parseAtcfAdeck — spaghetti init selection ────────────────────────
+// ── parseAtcfAdeck, spaghetti init selection ────────────────────────
 // Regression for the silent "empty spaghetti" bug: a storm's a-deck ends with
 // a sparse tail cycle (only CARQ / a lone late model). Keying on the absolute
 // newest init returned [] even though full OFCL/GFS/ECMWF guidance existed a
@@ -23,7 +23,7 @@ function track(init: string, model: string): string[] {
   );
 }
 
-describe("parseAtcfAdeck — guidance-init selection", () => {
+describe("parseAtcfAdeck: guidance-init selection", () => {
   test("picks the latest init that carries real guidance, not a sparse tail", () => {
     const rich = "2024101018"; // OFCL + EMXI + UKMI present
     const tail = "2024101100"; // only one lone model (the sparse tail)
@@ -74,7 +74,7 @@ describe("parseAtcfAdeck — guidance-init selection", () => {
       ...track("2024101018", "OFCL"),
       ...track("2024101018", "EMXI"),
       ...track("2024101018", "UKMI"),
-      row("2024101018", "HWFI", 0, "295N", "775W"), // single point — dropped
+      row("2024101018", "HWFI", 0, "295N", "775W"), // single point, dropped
     ];
     const tracks = parseAtcfAdeck(lines.join("\n"));
     expect(tracks.map((t) => t.model)).not.toContain("HWFI");

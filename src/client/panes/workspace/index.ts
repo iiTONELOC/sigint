@@ -1,5 +1,4 @@
 export {
-  PaneDropZone,
   PaneDropZoneThreshold,
   PaneDragDataType,
   PaneDragEffect,

@@ -35,7 +35,7 @@ export type AircraftMetadataRecord = {
   military: boolean;
 };
 
-const DEFAULT_DB_PATH = "src/server/data/ac-db.sqlite";
+export const AIRCRAFT_DB_PATH = "src/server/data/ac-db.sqlite";
 
 const SELECT_SQL = `
   SELECT
@@ -76,11 +76,9 @@ function metadataRecord(
   };
 }
 
-let metadataDbPath: string = DEFAULT_DB_PATH;
+let metadataDbPath: string = AIRCRAFT_DB_PATH;
 let cachedDb: Database | null = null;
 let cachedSelect: Statement<DbRow, [string]> | null = null;
-// After the SQLite file is confirmed missing, skip later checks. This retains
-// the previous warning-once behavior.
 let dbMissing = false;
 
 async function initializeDb(): Promise<void> {
@@ -93,9 +91,6 @@ async function initializeDb(): Promise<void> {
     dbMissing = true;
     return;
   }
-  // Freshness check via Bun.file.lastModified (epoch ms). Best-effort:
-  // If lastModified is 0 or unreadable, skip the warning. The open below
-  // will surface any real I/O error.
   const mtimeMs = file.lastModified;
   if (mtimeMs > 0) {
     const ageMs = Date.now() - mtimeMs;
@@ -119,7 +114,7 @@ async function initializeDb(): Promise<void> {
 }
 
 export async function loadMetadataDb(
-  path: string = DEFAULT_DB_PATH,
+  path: string = AIRCRAFT_DB_PATH,
 ): Promise<void> {
   if (path !== metadataDbPath) {
     if (cachedDb) cachedDb.close();
@@ -150,7 +145,7 @@ export function __resetMetadataDbCacheForTests(): void {
   cachedDb = null;
   cachedSelect = null;
   dbMissing = false;
-  metadataDbPath = DEFAULT_DB_PATH;
+  metadataDbPath = AIRCRAFT_DB_PATH;
 }
 
 export function enrichRecord(rec: unknown): Record<string, unknown> {
@@ -168,16 +163,12 @@ export function enrichRecord(rec: unknown): Record<string, unknown> {
   const row = hex && cachedSelect ? (cachedSelect.get(hex) ?? null) : null;
   const metadata = row ? metadataRecord(hex, row) : null;
 
-  // originCountry derives from the ICAO 24-bit registration block. It behaves
-  // the same on DB hits and misses and remains empty when the hex is unmapped.
   const originCountry = countryFromIcao24(hex);
 
   // Recon depends only on the hex, so it behaves the same on hits and misses.
   const recon = classifyRecon(hex);
 
   if (!metadata) {
-    // With no DB row, use the live typecode and hex range. This retains
-    // military detection while the operator remains unavailable.
     return {
       ...r,
       acType: "Unknown",

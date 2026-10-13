@@ -12,7 +12,6 @@ import {
 export type ShipUiQuery = PointUiQuery;
 export type ShipUiQueryResult = PointUiQueryResult<ShipPoint>;
 
-/** Below this a vessel is moored or drifting, not traffic worth reporting. */
 const MINIMUM_MOVING_SPEED_KNOTS = 0.5;
 
 export const SHIP_UI_QUERIES = createPointUiQueries<ShipPoint>({
@@ -25,7 +24,6 @@ export const SHIP_UI_QUERIES = createPointUiQueries<ShipPoint>({
   value2: (point) => shipPresentation(point.data, point.id).detailRank,
   includeInTable: (point, minValue) =>
     shipPresentation(point.data, point.id).detailRank >= minValue,
-  // Ships have no threshold control; the layer switch is the whole filter.
   matchesFilter: (_point, filter) => filter === true,
   includeInTicker: (point) =>
     shipPresentation(point.data, point.id).detailRank >= MINIMUM_MOVING_SPEED_KNOTS,

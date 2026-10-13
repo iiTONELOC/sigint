@@ -154,8 +154,6 @@ function HighlightedJson({ json }: { readonly json: string }) {
   );
 }
 
-// ── Component ───────────────────────────────────────────────────────
-
 export function RawConsolePane() {
   const { counts, activeCount } = useDataContext();
   const { selectedCurrent } = useUI();
@@ -170,7 +168,6 @@ export function RawConsolePane() {
     }
   }, [selectedCurrent]);
 
-  // Display version truncates long strings for readability
   const displayJsonStr = useMemo(() => {
     if (!selectedCurrent) return null;
     try {
@@ -229,7 +226,7 @@ export function RawConsolePane() {
         <button
           type={ButtonType.Button}
           onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors"
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-transparent border border-sig-border/50 hover:text-sig-accent transition-colors touch-target"
           title="Copy to clipboard"
         >
           {copied ? (
@@ -255,7 +252,7 @@ export function RawConsolePane() {
             ? `// Selected: ${selectedCurrent.type}, ${selectedCurrent.id}`
             : "// No entity selected, showing system status"}
         </div>
-        <pre className="text-(length:--sig-text-sm) font-mono whitespace-pre leading-relaxed overflow-x-auto">
+        <pre className="text-(length:--sig-text-sm) font-mono whitespace-pre-wrap wrap-break-word leading-relaxed">
           <HighlightedJson json={displayStr} />
         </pre>
       </div>

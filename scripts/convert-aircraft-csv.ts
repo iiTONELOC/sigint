@@ -4,10 +4,10 @@ import { gunzip } from "zlib";
 import { promisify } from "util";
 import { resolve } from "path";
 import { AircraftDatabaseField } from "./build-aircraft-db";
+import { BYTES_PER_MEBIBYTE } from "../src/shared/types/numbers";
 
 const gunzipAsync = promisify(gunzip);
 const CSV_FIELD_SEPARATOR = ",";
-const BYTES_PER_MEBIBYTE = 1_048_576;
 const SURROUNDING_QUOTE_PATTERN = /^['"]|['"]$/g;
 
 export enum AircraftCsvQuote {

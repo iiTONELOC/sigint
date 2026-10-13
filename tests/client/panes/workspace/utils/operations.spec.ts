@@ -1,6 +1,6 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { describe, expect, test } from "bun:test";
 import {
-  PaneDropZone,
   PaneLayoutRatio,
   PaneNodeType,
   PaneType,
@@ -10,6 +10,7 @@ import {
 import {
   changePaneTypeInLayout,
   closePaneLayout,
+  createWatchLayout,
   insertPaneBesideInLayout,
   minimizePaneLayout,
   openDossierInLayout,
@@ -29,6 +30,7 @@ import {
   type LeafNode,
   type SplitNode,
 } from "@/panes/paneTree";
+import { collectMobileBlocks } from "@/panes/workspace/utils/mobile";
 
 enum PaneFixtureCount {
   Empty = 0,
@@ -318,7 +320,7 @@ describe("swapPanesInLayout", () => {
 
 describe("insertPaneBesideInLayout", () => {
   function paneOrder(
-    zone: PaneDropZone.Left | PaneDropZone.Right,
+    zone: Placement.Left | Placement.Right,
   ): readonly PaneTypeValue[] {
     const globe = leaf(PaneType.Globe);
     const dossier = leaf(PaneType.Dossier);
@@ -345,11 +347,11 @@ describe("insertPaneBesideInLayout", () => {
   }
 
   test("inserts left and right in source order", () => {
-    expect(paneOrder(PaneDropZone.Left)).toEqual([
+    expect(paneOrder(Placement.Left)).toEqual([
       PaneType.Globe,
       PaneType.DataTable,
     ]);
-    expect(paneOrder(PaneDropZone.Right)).toEqual([
+    expect(paneOrder(Placement.Right)).toEqual([
       PaneType.DataTable,
       PaneType.Globe,
     ]);
@@ -362,7 +364,7 @@ describe("insertPaneBesideInLayout", () => {
       layout(split(SplitDirection.Horizontal, globe, dossier)),
       globe.id,
       dossier.id,
-      PaneDropZone.Top,
+      Placement.Top,
     );
     const root = requireSplit(result.root);
 
@@ -378,7 +380,7 @@ describe("insertPaneBesideInLayout", () => {
       layout(split(SplitDirection.Horizontal, globe, dossier)),
       globe.id,
       dossier.id,
-      PaneDropZone.Bottom,
+      Placement.Bottom,
     );
     const root = requireSplit(result.root);
 
@@ -395,7 +397,7 @@ describe("insertPaneBesideInLayout", () => {
         initial,
         globe.id,
         globe.id,
-        PaneDropZone.Left,
+        Placement.Left,
       ),
     ).toBe(initial);
   });
@@ -454,5 +456,20 @@ describe("openDossierInLayout", () => {
     expect(requireSplit(result.root).direction).toBe(
       SplitDirection.Vertical,
     );
+  });
+});
+
+describe("createWatchLayout", () => {
+  test("keeps the dossier under the globe on mobile", () => {
+    const result = createWatchLayout(layout(leaf(PaneType.Globe)), {
+      availableWidth: DossierFixtureWidth.Wide,
+      isMobile: true,
+    });
+
+    expect(collectMobileBlocks(result.root).map((block) => block.primaryLeaf.paneType)).toEqual([
+      PaneType.Globe,
+      PaneType.Dossier,
+      PaneType.AlertLog,
+    ]);
   });
 });

@@ -36,7 +36,7 @@ enum HazardClassName {
   Meter = "flex gap-0.5 min-w-0",
   Segment = "h-1.5 flex-1 rounded-sm",
   Row = "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 items-baseline",
-  Disclosure = "cursor-pointer list-none select-none",
+  Disclosure = "cursor-pointer list-none select-none any-pointer-coarse:min-h-11",
   Chevron = "size-3 shrink-0 text-sig-dim transition-transform group-open:rotate-90",
 }
 

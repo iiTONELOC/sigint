@@ -16,7 +16,6 @@ export enum EarthquakeCopy {
   UnknownLocation = "Unknown location",
 }
 
-/** Magnitude floors. */
 const EARTHQUAKE_SEVERITY_BANDS = intelSeverityBands({
   crisis: 6,
   conflict: 5,

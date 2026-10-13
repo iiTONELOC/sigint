@@ -12,8 +12,6 @@ import {
   aircraftTablePresentation,
 } from "../formatters/presentation";
 
-/** A squawk the controller escalated: it leads the ticker whatever else is
- *  newer, and it stays in the feed even while the aircraft is on the ground. */
 function isSquawkingEmergency(point: AircraftPoint): boolean {
   return squawkStatusFor(point.data.squawk) !== SquawkStatus.Normal;
 }

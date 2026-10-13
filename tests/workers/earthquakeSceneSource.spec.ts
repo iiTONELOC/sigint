@@ -53,6 +53,70 @@ function point(
   };
 }
 
+async function publishIncrementalQuakes() {
+  let entities = [point("Qone", 0, 0, 2)];
+  let observedAt = EarthquakeTestInstant.SceneNow;
+  const patches: SceneSourcePatch[] = [];
+  const searches: SceneSourceSearch[] = [];
+  const binding = earthquakeSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) patches.push(command);
+    else searches.push(command);
+  });
+  const source = new EarthquakeSource({ fetchPoints: async () => entities, now: () => observedAt });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => {
+      binding.publish(patch);
+    },
+  });
+  await source.refresh();
+  binding.publishSearch(["Qone"], 1, true);
+  observedAt += 1;
+  entities = [point("Qtwo", 90, 0, 5)];
+  await source.refresh();
+  source.publishRebase();
+  return { patches, searches };
+}
+
+async function hydrateQuakesThenEmpty() {
+  const cached = point("Qcached", -80, 30, 2);
+  const live = point("Qlive", -81, 31, 4);
+  const snapshots: DataWorkerSourceSnapshot[] = [];
+  const patches: SceneSourcePatch[] = [];
+  const persisted: Array<PointSourceCacheSnapshot<EarthquakePoint>> = [];
+  let fetchCount = 0;
+  let currentTime = EarthquakeTestInstant.SceneNow;
+  const binding = earthquakeSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) patches.push(command);
+  });
+  const source = new EarthquakeSource({
+    fetchPoints: async () => {
+      fetchCount += 1;
+      return fetchCount === 1 ? [live] : [];
+    },
+    now: () => currentTime,
+    schedule: () => () => undefined,
+  });
+  source.attach({
+    readCache: async () => ({ schema: PointSourceCacheSchema.Current, timestamp: EarthquakeTestInstant.Cache, version: 1, entities: [cached] }),
+    deleteCache: () => undefined,
+    persistCache: (_key, snapshot) => {
+      persisted.push(snapshot as PointSourceCacheSnapshot<EarthquakePoint>);
+    },
+    publishStatus: (snapshot) => snapshots.push(snapshot),
+    publishPatch: (patch) => binding.publish(patch),
+  });
+  await source.hydrate();
+  await source.start();
+  const afterStart = { values: source.values(), live: source.get("Qlive"), status: snapshots.at(-1)?.status };
+  currentTime += MS_PER_DAY;
+  await source.refresh();
+  return { live, afterStart, source, patches, snapshots, persisted };
+}
+
 describe("earthquake scene source", () => {
   test("validates the complete feed without truncation", async () => {
     const features = Array.from(
@@ -94,114 +158,38 @@ describe("earthquake scene source", () => {
     );
   });
 
-  test("publishes incremental scene patches, search handles, and reconnect", async () => {
-    let entities = [point("Qone", 0, 0, 2)];
-    let observedAt = EarthquakeTestInstant.SceneNow;
-    const patches: SceneSourcePatch[] = [];
-    const searches: SceneSourceSearch[] = [];
-    const binding = earthquakeSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        patches.push(command);
-      } else {
-        searches.push(command);
-      }
-    });
-    const source = new EarthquakeSource({
-      fetchPoints: async () => entities,
-      now: () => observedAt,
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => {
-        binding.publish(patch);
-      },
-    });
+  test("publishes the first quake with its position, magnitude and timestamp", async () => {
+    const { patches } = await publishIncrementalQuakes();
 
-    await source.refresh();
-    binding.publishSearch(["Qone"], 1, true);
+    expect(patches[0]?.source).toBe(Domain.Earthquake);
+    expect(Array.from(patches[0]?.positions ?? [])).toEqual([0, 0]);
+    expect(patches[0]?.attributes[EarthquakeSceneAttribute.Magnitude]).toBe(2);
+    expect(Array.from(patches[0]?.timestamps ?? [])).toEqual([Date.parse("2026-07-21T12:00:00.000Z")]);
+  });
 
-    observedAt += 1;
-    entities = [point("Qtwo", 90, 0, 5)];
-    await source.refresh();
-    source.publishRebase();
+  test("publishes search handles, the deletion and the rebase", async () => {
+    const { patches, searches } = await publishIncrementalQuakes();
 
     expect(patches).toHaveLength(3);
-    expect(patches[0]?.source).toBe(Domain.Earthquake);
-    expect(Array.from(patches[0]?.positions ?? [])).toEqual([
-      0,
-      0,
-    ]);
-    expect(
-      patches[0]?.attributes[EarthquakeSceneAttribute.Magnitude],
-    ).toBe(2);
-    expect(Array.from(patches[0]?.timestamps ?? [])).toEqual([
-      Date.parse("2026-07-21T12:00:00.000Z"),
-    ]);
     expect(Array.from(searches[0]?.handles ?? [])).toEqual([1]);
-    expect(Array.from(patches[1]?.deletedHandles ?? [])).toEqual([
-      1,
-    ]);
+    expect(Array.from(patches[1]?.deletedHandles ?? [])).toEqual([1]);
     expect(patches[2]?.entityIds).toEqual(["Qtwo"]);
   });
 
-  test("hydrates cache, replaces it, and accepts a complete empty snapshot", async () => {
-    const cached = point("Qcached", -80, 30, 2);
-    const live = point("Qlive", -81, 31, 4);
-    const snapshots: DataWorkerSourceSnapshot[] = [];
-    const patches: SceneSourcePatch[] = [];
-    const persisted: Array<
-      PointSourceCacheSnapshot<EarthquakePoint>
-    > = [];
-    let fetchCount = 0;
-    let currentTime = EarthquakeTestInstant.SceneNow;
-    const binding = earthquakeSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        patches.push(command);
-      }
-    });
-    const source = new EarthquakeSource({
-      fetchPoints: async () => {
-        fetchCount += 1;
-        return fetchCount === 1 ? [live] : [];
-      },
-      now: () => currentTime,
-      schedule: () => () => undefined,
-    });
-    source.attach({
-      readCache: async () => ({
-        schema: PointSourceCacheSchema.Current,
-        timestamp: EarthquakeTestInstant.Cache,
-        version: 1,
-        entities: [cached],
-      }),
-      deleteCache: () => undefined,
-      persistCache: (_key, snapshot) => {
-        persisted.push(
-          snapshot as PointSourceCacheSnapshot<EarthquakePoint>,
-        );
-      },
-      publishStatus: (snapshot) => snapshots.push(snapshot),
-      publishPatch: (patch) => binding.publish(patch),
-    });
+  test("replaces the cached snapshot with the live one on start", async () => {
+    const { live, afterStart } = await hydrateQuakesThenEmpty();
 
-    await source.hydrate();
-    await source.start();
+    expect(afterStart.values).toEqual([live]);
+    expect(afterStart.live).toEqual(live);
+    expect(afterStart.status).toBe(SourceStatus.Live);
+  });
 
-    expect(source.values()).toEqual([live]);
-    expect(source.get("Qlive")).toEqual(live);
-    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Live);
-
-    currentTime += MS_PER_DAY;
-    await source.refresh();
+  test("accepts a complete empty snapshot, deletes the live handle and persists the empty set", async () => {
+    const { source, patches, snapshots, persisted } = await hydrateQuakesThenEmpty();
 
     expect(source.values()).toEqual([]);
     expect(source.get("Qlive")).toBeNull();
-    expect(Array.from(patches.at(-1)?.deletedHandles ?? [])).toEqual([
-      2,
-    ]);
+    expect(Array.from(patches.at(-1)?.deletedHandles ?? [])).toEqual([2]);
     expect(snapshots.at(-1)?.status).toBe(SourceStatus.Empty);
     expect(persisted.at(-1)?.entities).toEqual([]);
   });

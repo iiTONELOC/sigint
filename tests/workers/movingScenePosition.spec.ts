@@ -90,26 +90,17 @@ function movingAccessor(
   });
 }
 
-function expectMaximumAgeBoundary(
-  source: Domain.Aircraft | Domain.Ships,
-): void {
+function maximumAgeBoundary(source: Domain.Aircraft | Domain.Ships) {
   const view = movingView();
   const accessor = movingAccessor(source);
   const maximumAge = TRAIL_POLICY[source].maxExtrapolationMs;
-  const atMaximum = accessor.resolveView(
-    view,
-    0,
-    1_000 + maximumAge,
-  );
-  const afterMaximum = accessor.resolveView(
-    view,
-    0,
-    1_000 + maximumAge + 1,
-  );
-
-  expect(atMaximum).toMatchObject({ interpolated: true });
-  expect(afterMaximum).toEqual(atMaximum);
+  return {
+    atMaximum: accessor.resolveView(view, 0, 1_000 + maximumAge),
+    afterMaximum: accessor.resolveView(view, 0, 1_000 + maximumAge + 1),
+  };
 }
+
+const MOVING_SOURCES: ReadonlyArray<Domain.Aircraft | Domain.Ships> = [Domain.Aircraft, Domain.Ships];
 
 describe("MovingScenePositionAccessor", () => {
   test("advances geographic and unit positions inside the main age window", () => {
@@ -166,8 +157,11 @@ describe("MovingScenePositionAccessor", () => {
   });
 
   test("holds active aircraft and ships at their maximum projection", () => {
-    expectMaximumAgeBoundary(Domain.Aircraft);
-    expectMaximumAgeBoundary(Domain.Ships);
+    for (const source of MOVING_SOURCES) {
+      const { atMaximum, afterMaximum } = maximumAgeBoundary(source);
+      expect([source, atMaximum]).toMatchObject([source, { interpolated: true }]);
+      expect(afterMaximum).toEqual(atMaximum);
+    }
   });
 
   test("refreshes cached motion after a patch or handle reuse", () => {

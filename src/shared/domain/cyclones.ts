@@ -59,19 +59,24 @@ export type CycloneCategoryMetadata = Readonly<{
   saffirSimpson: SaffirSimpson;
 }>;
 
+enum CategoryColor {
+  Depression = "#8fd3ff",
+  Storm = "#4ad2ff",
+}
+
 export const CYCLONE_CATEGORY_METADATA: Readonly<
   Record<Category, CycloneCategoryMetadata>
 > = {
-  [Category.TropicalDepression]: { color: "#8fd3ff", label: "Tropical Depression", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
-  [Category.TropicalStorm]: { color: "#4ad2ff", label: "Tropical Storm", minimumWindKt: 34, saffirSimpson: SaffirSimpson.None },
+  [Category.TropicalDepression]: { color: CategoryColor.Depression, label: "Tropical Depression", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
+  [Category.TropicalStorm]: { color: CategoryColor.Storm, label: "Tropical Storm", minimumWindKt: 34, saffirSimpson: SaffirSimpson.None },
   [Category.Hurricane1]: { color: "#ffd24a", label: "Hurricane Cat 1", minimumWindKt: 64, saffirSimpson: SaffirSimpson.Cat1 },
   [Category.Hurricane2]: { color: "#ffb142", label: "Hurricane Cat 2", minimumWindKt: 83, saffirSimpson: SaffirSimpson.Cat2 },
   [Category.Hurricane3]: { color: "#ff8c42", label: "Hurricane Cat 3 (major)", minimumWindKt: 96, saffirSimpson: SaffirSimpson.Cat3 },
   [Category.Hurricane4]: { color: "#ff5d5d", label: "Hurricane Cat 4 (major)", minimumWindKt: 113, saffirSimpson: SaffirSimpson.Cat4 },
   [Category.Hurricane5]: { color: "#ff5dff", label: "Hurricane Cat 5 (major)", minimumWindKt: 137, saffirSimpson: SaffirSimpson.Cat5 },
-  [Category.SubtropicalDepression]: { color: "#8fd3ff", label: "Subtropical Depression", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
-  [Category.SubtropicalStorm]: { color: "#4ad2ff", label: "Subtropical Storm", minimumWindKt: 34, saffirSimpson: SaffirSimpson.None },
-  [Category.PostTropical]: { color: "#8fd3ff", label: "Post-Tropical", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
+  [Category.SubtropicalDepression]: { color: CategoryColor.Depression, label: "Subtropical Depression", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
+  [Category.SubtropicalStorm]: { color: CategoryColor.Storm, label: "Subtropical Storm", minimumWindKt: 34, saffirSimpson: SaffirSimpson.None },
+  [Category.PostTropical]: { color: CategoryColor.Depression, label: "Post-Tropical", minimumWindKt: 0, saffirSimpson: SaffirSimpson.None },
 };
 
 export const CYCLONE_STRONG_WIND_RADIUS_KT = 50;

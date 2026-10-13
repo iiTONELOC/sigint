@@ -4,6 +4,12 @@ import { EventApiMessage, EventEndpoint } from "@shared/domain/events";
 import { AircraftApiRoute } from "@shared/domain/aircraft";
 import { FIRE_LATEST_ROUTE } from "@shared/domain/fireDayNight";
 import { NEWS_LATEST_ROUTE } from "@shared/domain/newsSource";
+import { VIDEO_CHANNELS_ROUTE } from "@shared/domain/videoChannel";
+import {
+  ENCYCLOPEDIA_TYPE_QUERY_KEYS,
+  EncyclopediaQuery,
+  EncyclopediaRoute,
+} from "@shared/domain/encyclopedia";
 import {
   AUTH_TOKEN_ROUTE,
   HttpContentCoding,
@@ -16,6 +22,8 @@ import { getGdeltCache } from "./gdeltCache";
 import { getAisCache } from "./aisCache";
 import { getFirmsCache } from "./firmsCache";
 import { getNewsCache } from "./newsCache";
+import { getVideoChannelCache } from "./videoChannelCache";
+import { getAircraftTypeArticle, getVesselEncyclopedia } from "./encyclopediaCache";
 import { getCyclonesCache } from "./cyclonesCache";
 import { getAircraftCache } from "./aircraftCache";
 import {
@@ -38,6 +46,8 @@ enum ApiErrorMessage {
   MethodNotAllowed = "Method Not Allowed",
   InvalidStormId = "Invalid stormId",
   InvalidIcao24 = "Invalid ICAO24 hex code",
+  InvalidImo = "Invalid IMO number",
+  InvalidQuery = "Invalid query",
   AircraftNotFound = "Aircraft not found",
 }
 
@@ -215,6 +225,32 @@ export function createApiRoutes(deps: ApiDeps) {
       "No news data available yet",
       (c) => ({ items: c.items, fetchedAt: c.fetchedAt, itemCount: c.itemCount }),
     ),
+
+    [VIDEO_CHANNELS_ROUTE]: authedCachedGet(
+      getVideoChannelCache,
+      (c) => c.channelCount > 0,
+      "No video channels available yet",
+      (c) => ({ channels: c.catalog, probed: c.probed, fetchedAt: c.fetchedAt }),
+    ),
+
+    [EncyclopediaRoute.AircraftType]: authedFnGet(async (req) => {
+      const params = new URL(req.url).searchParams;
+      const query = Object.fromEntries(
+        ENCYCLOPEDIA_TYPE_QUERY_KEYS.map((key) => [key, params.get(key)?.trim() ?? ""]),
+      );
+      if (!Object.values(query).some(Boolean)) {
+        return jsonError({ error: ApiErrorMessage.InvalidQuery }, HttpStatus.BadRequest);
+      }
+      return jsonResponse(req, { article: await getAircraftTypeArticle(query) });
+    }),
+
+    [EncyclopediaRoute.Vessel]: authedFnGet(async (req) => {
+      const imo = Number(new URL(req.url).searchParams.get(EncyclopediaQuery.Imo));
+      if (!Number.isInteger(imo) || imo <= 0) {
+        return jsonError({ error: ApiErrorMessage.InvalidImo }, HttpStatus.BadRequest);
+      }
+      return jsonResponse(req, await getVesselEncyclopedia(imo));
+    }),
 
     [`${AircraftApiRoute.Dossier}/:icao24`]: authedFnGet(async (req) => {
       const { icao24 = "" } = req.params ?? {};

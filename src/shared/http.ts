@@ -1,6 +1,7 @@
 export enum HttpHeader {
   Accept = "Accept",
   AcceptEncoding = "accept-encoding",
+  AccessControlAllowOrigin = "access-control-allow-origin",
   CacheControl = "Cache-Control",
   Cookie = "cookie",
   ContentEncoding = "Content-Encoding",
@@ -9,6 +10,7 @@ export enum HttpHeader {
   IfModifiedSince = "If-Modified-Since",
   IfNoneMatch = "If-None-Match",
   LastModified = "last-modified",
+  Origin = "Origin",
   RetryAfter = "retry-after",
   ServiceWorkerAllowed = "Service-Worker-Allowed",
   SetCookie = "Set-Cookie",

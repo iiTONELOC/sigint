@@ -57,7 +57,7 @@ export function DossierToggleButton({
       aria-label={ariaLabel ?? label}
       aria-pressed={toggle ? active : undefined}
       onClick={onClick}
-      className={`flex items-center gap-1 min-w-0 px-1.5 py-1 rounded text-[11px] font-mono tracking-wider transition-colors border shrink-0 ${dossierToggleClassName(active, dossierTone)}`}
+      className={`flex items-center gap-1 min-w-0 px-1.5 py-1 rounded text-[11px] font-mono tracking-wider transition-colors border shrink-0 touch-target ${dossierToggleClassName(active, dossierTone)}`}
     >
       <Icon className="w-3 h-3 shrink-0" aria-hidden />
       <span className="truncate">{label}</span>

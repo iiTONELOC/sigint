@@ -1,3 +1,5 @@
+export const BYTES_PER_MEBIBYTE = 1_048_576;
+
 export function isOptionalFiniteNumber(
   value: unknown,
 ): value is number | undefined {

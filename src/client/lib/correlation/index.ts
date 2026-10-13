@@ -293,6 +293,10 @@ type ScoreContext = Readonly<{
 
 type Scoring = { score: number; factors: string[] };
 
+function scoringFrom(score: number, factors: string[] = []): Scoring {
+  return { score, factors };
+}
+
 function finishAlert(
   item: DataPoint,
   label: string,
@@ -326,7 +330,7 @@ function scoreAircraft(
   const squawk = item.data.squawk ?? "";
   if (!isEnumValue(squawk, SquawkCode)) return null;
 
-  const scoring: Scoring = { score: 0, factors: [] };
+  const scoring = scoringFrom(0);
   if (squawk === SquawkCode.RadioFailure) {
     scoring.score += AIRCRAFT_SCORES.radioFailure;
     scoring.factors.push("Radio failure squawk");
@@ -372,10 +376,10 @@ function scoreEvent(
   const severity = item.data.severity ?? 0;
   if (severity < EVENT_SCORES.minSeverity) return null;
 
-  const scoring: Scoring = {
-    score: bandValue(severity, EVENT_SEVERITY_SCORES, EVENT_SCORES.minSeverity),
-    factors: [`Severity ${severity}/5`],
-  };
+  const scoring = scoringFrom(
+    bandValue(severity, EVENT_SEVERITY_SCORES, EVENT_SCORES.minSeverity),
+    [`Severity ${severity}/5`],
+  );
 
   const ratio = regionElevated(context.baseline, getCountry(item));
   if (ratio !== null) {
@@ -404,10 +408,10 @@ function scoreQuake(
   const magnitude = item.data.magnitude ?? 0;
   if (magnitude < QUAKE_SCORES.minMagnitude) return null;
 
-  const scoring: Scoring = {
-    score: bandValue(magnitude, QUAKE_MAGNITUDE_SCORES, EVENT_SCORES.minSeverity),
-    factors: [`M${magnitude.toFixed(1)}`],
-  };
+  const scoring = scoringFrom(
+    bandValue(magnitude, QUAKE_MAGNITUDE_SCORES, EVENT_SCORES.minSeverity),
+    [`M${magnitude.toFixed(1)}`],
+  );
 
   const tsunami = item.data.tsunami === true;
   if (tsunami) {
@@ -447,10 +451,10 @@ function scoreFire(
   const power = item.data.frp ?? 0;
   if (power < FIRE_SCORES.minPower) return null;
 
-  const scoring: Scoring = {
-    score: bandValue(power, FIRE_POWER_SCORES, EVENT_SCORES.minSeverity),
-    factors: [`FRP ${power.toFixed(0)} MW`],
-  };
+  const scoring = scoringFrom(
+    bandValue(power, FIRE_POWER_SCORES, EVENT_SCORES.minSeverity),
+    [`FRP ${power.toFixed(0)} MW`],
+  );
   addCorrelated(
     scoring,
     context,
@@ -478,13 +482,10 @@ function scoreWeather(
     return null;
   }
 
-  const scoring: Scoring = {
-    score:
-      severity === WeatherSeverity.Extreme
-        ? WEATHER_SCORES.extreme
-        : WEATHER_SCORES.severe,
-    factors: [`${severity} severity`],
-  };
+  const scoring = scoringFrom(
+    severity === WeatherSeverity.Extreme ? WEATHER_SCORES.extreme : WEATHER_SCORES.severe,
+    [`${severity} severity`],
+  );
   addCorrelated(
     scoring,
     context,

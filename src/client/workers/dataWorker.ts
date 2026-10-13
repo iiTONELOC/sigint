@@ -154,11 +154,6 @@ function publishSource(snapshot: DataWorkerSourceSnapshot): void {
   rebaseCorrelation(snapshot.source);
 }
 
-/**
- * Every source rebases to the correlation worker on its own status publish, so
- * correlation input never travels through React. The port guard also keeps
- * this inert while the owners are still being constructed.
- */
 function rebaseCorrelation(source: string): void {
   if (!correlationPort || !correlationSessionId) return;
   if (!sourceCatalog.has(source)) return;
@@ -399,10 +394,6 @@ function envelopeFor(requestId: number | null): DataWorkerEnvelope {
   };
 }
 
-/**
- * Every queryable source answers through its own bound codec, so these
- * handlers carry no per-source branching.
- */
 function handleGetSourceEntity(
   command: CommandOf<DataWorkerMessageType.GetSourceEntity>,
 ): void {

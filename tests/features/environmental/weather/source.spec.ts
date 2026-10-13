@@ -60,19 +60,52 @@ class ProbeSource extends WeatherAlertSource {
   }
 }
 
+function widenedAlert(): WeatherPoint {
+  return makeAlert({
+    geometry: {
+      type: GeoJsonGeometryType.MultiPolygon,
+      coordinates: [ALERT_GEOMETRY.coordinates, [[[-96, 34], [-95, 34], [-95, 35], [-96, 34]]]],
+    },
+  });
+}
+
+async function publishWeather(): Promise<SceneSourcePatch[]> {
+  let entities: readonly WeatherPoint[] = [makeAlert()];
+  let observedAt = 1;
+  const patches: SceneSourcePatch[] = [];
+  const binding = weatherSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) patches.push(command);
+  });
+  const source = new WeatherAlertSource({
+    fetchSnapshot: async () => ({ completeness: SourceCompleteness.Complete, entities, observedAt }),
+  });
+  source.attach({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    deleteCache: () => undefined,
+    publishStatus: () => undefined,
+    publishPatch: (patch) => binding.publish(patch),
+  });
+  await source.refresh();
+  observedAt += 1;
+  entities = [widenedAlert()];
+  await source.refresh();
+  source.publishRebase();
+  observedAt += 1;
+  entities = [];
+  await source.refresh();
+  return patches;
+}
+
 describe("weather cache boundary", () => {
   test("accepts an alert whose position and geometry are in range", () => {
     expect(parseWeatherCache([makeAlert()], Date.parse("2026-07-29T12:00:00Z"))).toHaveLength(1);
   });
 
-  test("rejects an alert whose latitude is outside the sphere", () => {
-    const alert = { ...makeAlert(), position: [-97.5, 500] };
-    expect(parseWeatherCache([alert])).toBeNull();
-  });
-
-  test("rejects an alert whose longitude is outside the sphere", () => {
-    const alert = { ...makeAlert(), position: [-400, 35.5] };
-    expect(parseWeatherCache([alert])).toBeNull();
+  test("rejects an alert whose latitude or longitude is outside the sphere", () => {
+    for (const position of [[-97.5, 500], [-400, 35.5]]) {
+      expect([position, parseWeatherCache([{ ...makeAlert(), position }])]).toEqual([position, null]);
+    }
   });
 
   test("rejects geometry that names a polygon but carries no ring", () => {
@@ -183,72 +216,21 @@ describe("weather source policy", () => {
 });
 
 describe("weather scene publication", () => {
-  test("publishes geometry patch, reconnect, and delete semantics", async () => {
-    let entities: readonly WeatherPoint[] = [makeAlert()];
-    let observedAt = 1;
-    const patches: SceneSourcePatch[] = [];
-    const binding = weatherSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        patches.push(command);
-      }
-    });
-    const source = new WeatherAlertSource({
-      fetchSnapshot: async () => ({
-        completeness: SourceCompleteness.Complete,
-        entities,
-        observedAt,
-      }),
-    });
-    source.attach({
-      readCache: async () => null,
-      persistCache: () => undefined,
-      deleteCache: () => undefined,
-      publishStatus: () => undefined,
-      publishPatch: (patch) => binding.publish(patch),
-    });
+  test("publishes the alert geometry with its severity", async () => {
+    const patches = await publishWeather();
 
-    await source.refresh();
-    observedAt += 1;
-    entities = [
-      makeAlert({
-        geometry: {
-          type: GeoJsonGeometryType.MultiPolygon,
-          coordinates: [
-            ALERT_GEOMETRY.coordinates,
-            [
-              [
-                [-96, 34],
-                [-95, 34],
-                [-95, 35],
-                [-96, 34],
-              ],
-            ],
-          ],
-        },
-      }),
-    ];
-    await source.refresh();
-    source.publishRebase();
-    observedAt += 1;
-    entities = [];
-    await source.refresh();
-
-    expect(patches).toHaveLength(4);
     expect(patches[0]?.kind).toBe(DatasetPatchKind.Rebase);
     expect(patches[0]?.source).toBe(Domain.Weather);
-    expect(Array.from(patches[0]?.geometryPartEnds ?? [])).toEqual([
-      4,
-    ]);
-    expect(
-      patches[0]?.attributes[WeatherSceneAttribute.Severity],
-    ).toBeGreaterThan(0);
-    expect(Array.from(patches[1]?.geometryGroupEnds ?? [])).toEqual([
-      1,
-      2,
-    ]);
+    expect(Array.from(patches[0]?.geometryPartEnds ?? [])).toEqual([4]);
+    expect(patches[0]?.attributes[WeatherSceneAttribute.Severity]).toBeGreaterThan(0);
+  });
+
+  test("publishes the widened geometry, the rebase and the deletion", async () => {
+    const patches = await publishWeather();
+
+    expect(patches).toHaveLength(4);
+    expect(Array.from(patches[1]?.geometryGroupEnds ?? [])).toEqual([1, 2]);
     expect(patches[2]?.kind).toBe(DatasetPatchKind.Rebase);
-    expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([
-      1,
-    ]);
+    expect(Array.from(patches[3]?.deletedHandles ?? [])).toEqual([1]);
   });
 });

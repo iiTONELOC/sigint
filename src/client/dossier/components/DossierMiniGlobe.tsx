@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { useTheme, type ThemeColors } from "@/theme";
+import { DomEvent, DomPointerType } from "@/runtime";
+import { CAMERA_POLICY } from "@/workers/render/policy";
 import { enrichLand, getLand } from "@/lib/geo/landService";
 import { drawGrid } from "@/lib/geo/render/grid";
 import { drawLand } from "@/lib/geo/render/land";
 import { CanvasLineStyle, type ProjFn } from "@/lib/geo/render/types";
 import { projectGeographicPoint } from "@/lib/geo/unitSphere";
 import { ButtonType } from "@/lib/ui/button";
-import { DomEvent } from "@/runtime";
 import { AngleConversion, TurnDeg } from "@shared/geo";
 
 export type DossierMiniGlobeCamera = Readonly<{
@@ -31,6 +39,18 @@ export type DossierMiniGlobeOverlay = (
   scene: DossierMiniGlobeDrawContext,
 ) => void;
 
+type DossierMiniGlobePoint = Readonly<{ x: number; y: number }>;
+
+type DossierMiniGlobeHold = {
+  holding: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
+};
+
+function touchPoint(event: TouchEvent): DossierMiniGlobePoint | null {
+  const touch = event.touches.item(0);
+  return touch ? { x: touch.clientX, y: touch.clientY } : null;
+}
+
 export type DossierMiniGlobeProps = Readonly<{
   ariaLabel: string;
   camera: DossierMiniGlobeCamera;
@@ -40,7 +60,6 @@ export type DossierMiniGlobeProps = Readonly<{
   drawOverlay: DossierMiniGlobeOverlay;
   redrawEveryMs?: number;
   reserveMinimumHeight?: boolean;
-  resetKey: string;
 }>;
 
 export const DOSSIER_MINI_GLOBE_ZOOM_BUTTON_CLASS_NAME =
@@ -90,20 +109,17 @@ export function DossierMiniGlobe({
   drawOverlay,
   redrawEveryMs,
   reserveMinimumHeight = false,
-  resetKey,
 }: DossierMiniGlobeProps) {
   const { theme } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const panRef = useRef({ latitude: 0, longitude: 0 });
   const radiusRef = useRef(1);
+  const pointerRef = useRef<DossierMiniGlobePoint | null>(null);
+  const holdRef = useRef<DossierMiniGlobeHold>({ holding: false, timer: undefined });
+  const drawRef = useRef<() => void>(() => undefined);
   const initialZoom = 1;
   const [land, setLand] = useState(() => getLand());
   const [zoom, setZoom] = useState(initialZoom);
-
-  useEffect(() => {
-    panRef.current = { latitude: 0, longitude: 0 };
-    setZoom(initialZoom);
-  }, [initialZoom, resetKey]);
 
   useEffect(() => {
     if (land.length === 0) enrichLand((polygons) => setLand(polygons));
@@ -152,41 +168,14 @@ export function DossierMiniGlobe({
       );
     };
 
-    let lastPointer: Readonly<{ x: number; y: number }> | null = null;
-    const onPointerDown = (event: PointerEvent): void => {
-      lastPointer = { x: event.clientX, y: event.clientY };
-      canvas.setPointerCapture?.(event.pointerId);
-    };
-    const onPointerMove = (event: PointerEvent): void => {
-      if (!lastPointer) return;
-      const radius = radiusRef.current || 1;
-      panRef.current.longitude += (event.clientX - lastPointer.x) / radius;
-      const nextLatitude =
-        panRef.current.latitude + (event.clientY - lastPointer.y) / radius;
-      panRef.current.latitude = Math.max(-1.2, Math.min(1.2, nextLatitude));
-      lastPointer = { x: event.clientX, y: event.clientY };
-      draw();
-    };
-    const onPointerUp = (event: PointerEvent): void => {
-      lastPointer = null;
-      canvas.releasePointerCapture?.(event.pointerId);
-    };
-
+    drawRef.current = draw;
     draw();
     const redrawTimer = redrawEveryMs ? setInterval(draw, redrawEveryMs) : undefined;
     const resizeObserver = new ResizeObserver(draw);
     resizeObserver.observe(canvas);
-    canvas.addEventListener(DomEvent.PointerDown, onPointerDown);
-    canvas.addEventListener(DomEvent.PointerMove, onPointerMove);
-    canvas.addEventListener(DomEvent.PointerUp, onPointerUp);
-    canvas.addEventListener(DomEvent.PointerCancel, onPointerUp);
     return () => {
       clearInterval(redrawTimer);
       resizeObserver.disconnect();
-      canvas.removeEventListener(DomEvent.PointerDown, onPointerDown);
-      canvas.removeEventListener(DomEvent.PointerMove, onPointerMove);
-      canvas.removeEventListener(DomEvent.PointerUp, onPointerUp);
-      canvas.removeEventListener(DomEvent.PointerCancel, onPointerUp);
     };
   }, [
     camera.centerLatitude,
@@ -201,6 +190,80 @@ export function DossierMiniGlobe({
     zoom,
   ]);
 
+  const panTo = useCallback((next: DossierMiniGlobePoint): void => {
+    const lastPointer = pointerRef.current;
+    if (!lastPointer) return;
+    const radius = radiusRef.current || 1;
+    panRef.current.longitude += (next.x - lastPointer.x) / radius;
+    const nextLatitude =
+      panRef.current.latitude + (next.y - lastPointer.y) / radius;
+    panRef.current.latitude = Math.max(
+      -CAMERA_POLICY.pitchLimitRadians,
+      Math.min(CAMERA_POLICY.pitchLimitRadians, nextLatitude),
+    );
+    pointerRef.current = next;
+    drawRef.current();
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const hold = holdRef.current;
+    const release = (): void => {
+      clearTimeout(hold.timer);
+      hold.holding = false;
+      pointerRef.current = null;
+    };
+    const onTouchStart = (event: TouchEvent): void => {
+      const start = touchPoint(event);
+      if (!start || event.touches.length > 1) return;
+      clearTimeout(hold.timer);
+      hold.holding = false;
+      pointerRef.current = start;
+      hold.timer = setTimeout(() => {
+        hold.holding = pointerRef.current !== null;
+      }, CAMERA_POLICY.touchHoldMs);
+    };
+    const onTouchMove = (event: TouchEvent): void => {
+      const next = touchPoint(event);
+      const lastPointer = pointerRef.current;
+      if (!next || !lastPointer) return;
+      if (hold.holding) {
+        event.preventDefault();
+        panTo(next);
+        return;
+      }
+      const travelled = Math.hypot(next.x - lastPointer.x, next.y - lastPointer.y);
+      if (travelled > CAMERA_POLICY.dragClickThresholdPx) release();
+    };
+    canvas.addEventListener(DomEvent.TouchStart, onTouchStart, { passive: true });
+    canvas.addEventListener(DomEvent.TouchMove, onTouchMove, { passive: false });
+    canvas.addEventListener(DomEvent.TouchEnd, release);
+    canvas.addEventListener(DomEvent.TouchCancel, release);
+    return () => {
+      canvas.removeEventListener(DomEvent.TouchStart, onTouchStart);
+      canvas.removeEventListener(DomEvent.TouchMove, onTouchMove);
+      canvas.removeEventListener(DomEvent.TouchEnd, release);
+      canvas.removeEventListener(DomEvent.TouchCancel, release);
+      release();
+    };
+  }, [panTo]);
+
+  const onPointerDown = (event: PointerEvent<HTMLCanvasElement>): void => {
+    if (event.pointerType === DomPointerType.Touch) return;
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLCanvasElement>): void => {
+    if (event.pointerType === DomPointerType.Touch) return;
+    panTo({ x: event.clientX, y: event.clientY });
+  };
+  const onPointerUp = (event: PointerEvent<HTMLCanvasElement>): void => {
+    if (event.pointerType === DomPointerType.Touch) return;
+    pointerRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
   const borderRadius = compactBorderRadius ? "rounded" : "rounded-[10px]";
   const minimumHeight = reserveMinimumHeight ? "min-h-48" : "";
   const zoomFactor = 1.4;
@@ -208,8 +271,12 @@ export function DossierMiniGlobe({
     <div className={`relative w-full h-full ${minimumHeight}`}>
       <canvas
         ref={canvasRef}
-        className={`absolute inset-0 w-full h-full block ${borderRadius} border border-sig-border touch-none cursor-grab active:cursor-grabbing`}
+        className={`absolute inset-0 w-full h-full block ${borderRadius} border border-sig-border touch-pan-y cursor-grab active:cursor-grabbing`}
         aria-label={ariaLabel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
       />
       {children}
       <div className="absolute top-1.5 right-1.5 flex flex-col gap-1">

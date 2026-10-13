@@ -15,12 +15,10 @@ import {
   DataTableCoordinate,
   DataTableCopy,
   DataTableIconSize,
-  dataTableGridClass,
 } from "../model/table";
 import { dataPointTablePresentation } from "../utils/sort";
 
 type DataTableRowsProps = Readonly<{
-  isMobile: boolean;
   offsetY: number;
   onRowClick: (item: DataPoint) => void;
   onRowKeyDown: (item: DataPoint, event: KeyboardEvent) => void;
@@ -31,7 +29,6 @@ type DataTableRowsProps = Readonly<{
 }>;
 
 export function DataTableRows({
-  isMobile,
   offsetY,
   onRowClick,
   onRowKeyDown,
@@ -41,7 +38,6 @@ export function DataTableRows({
   visibleItems,
 }: DataTableRowsProps) {
   const styleAttributes = useDataTableStylesheet(totalHeight, offsetY);
-  const gridClass = dataTableGridClass(isMobile);
 
   return (
     <table className="w-full">
@@ -60,7 +56,7 @@ export function DataTableRows({
               tabIndex={0}
               onClick={() => onRowClick(item)}
               onKeyDown={(event) => onRowKeyDown(item, event)}
-              className={`${DataTableClassName.RowBase} ${gridClass} ${
+              className={`${DataTableClassName.RowBase} ${DataTableClassName.Grid} ${
                 selected
                   ? DataTableClassName.SelectedRow
                   : DataTableClassName.DefaultRow
@@ -81,42 +77,36 @@ export function DataTableRows({
               <td className="truncate text-sig-bright text-(length:--sig-text-md)">
                 {presentation.name}
               </td>
-              {!isMobile && (
-                <td className="truncate text-sig-text text-(length:--sig-text-sm)">
-                  {presentation.classification}
-                </td>
-              )}
+              <td className={`${DataTableClassName.WideOnly} truncate text-sig-text text-(length:--sig-text-sm)`}>
+                {presentation.classification}
+              </td>
               <td className="text-right truncate text-sig-dim text-(length:--sig-text-sm)">
                 {presentation.detail}
               </td>
               <td className={DataTableClassName.CoordinateCell}>
                 {recordLatitude(item).toFixed(DataTableCoordinate.Precision)}
               </td>
-              {!isMobile && (
-                <td className={DataTableClassName.CoordinateCell}>
-                  {recordLongitude(item).toFixed(
-                    DataTableCoordinate.Precision,
-                  )}
-                </td>
-              )}
+              <td className={`${DataTableClassName.WideOnly} ${DataTableClassName.CoordinateCell}`}>
+                {recordLongitude(item).toFixed(
+                  DataTableCoordinate.Precision,
+                )}
+              </td>
               <td className="text-right text-sig-dim text-(length:--sig-text-sm)">
                 {relativeAge(item.timestamp)}
               </td>
-              {!isMobile && (
-                <td className="flex justify-center">
-                  <button
-                    type={ButtonType.Button}
-                    onClick={(event) => onZoomTo(item, event)}
-                    className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
-                    title={DataTableCopy.ZoomToGlobe}
-                  >
-                    <Locate
-                      size={DataTableIconSize.Control}
-                      strokeWidth={IconStrokeWidth.Standard}
-                    />
-                  </button>
-                </td>
-              )}
+              <td className={DataTableClassName.WideOnlyActions}>
+                <button
+                  type={ButtonType.Button}
+                  onClick={(event) => onZoomTo(item, event)}
+                  className="p-0.5 rounded text-sig-dim bg-transparent border-none hover:text-sig-accent transition-colors"
+                  title={DataTableCopy.ZoomToGlobe}
+                >
+                  <Locate
+                    size={DataTableIconSize.Control}
+                    strokeWidth={IconStrokeWidth.Standard}
+                  />
+                </button>
+              </td>
             </tr>
           );
         })}

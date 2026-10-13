@@ -7,6 +7,7 @@ import {
 } from "bun:test";
 import { act } from "react";
 import type { DataPoint } from "@/features/base/dataPoints";
+import { LayoutModeProvider } from "@/layout-mode";
 import { Domain } from "@shared/domain/identity";
 import {
   renderReact,
@@ -24,8 +25,10 @@ enum SearchFixtureCoordinate {
 }
 
 enum SearchFixtureSelector {
+  CloseButton = "button[title='Close']",
   Input = "input[type='text']",
   OpenButton = "button[title='Search (Ctrl+K)']",
+  TourTarget = "[data-tour='search']",
 }
 
 enum SearchFixtureText {
@@ -140,13 +143,60 @@ beforeEach(() => {
 });
 
 describe("Search", () => {
+  test("reports when it opens and closes", () => {
+    const onOpenChange = mock((_open: boolean) => undefined);
+    renderReact(
+      <LayoutModeProvider>
+        <Search
+          onCommit={mock(() => undefined)}
+          onOpenChange={onOpenChange}
+          onSelect={mock(() => undefined)}
+          onZoomTo={mock(() => undefined)}
+        />
+      </LayoutModeProvider>,
+    );
+
+    openSearch();
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    const close = document.querySelector(SearchFixtureSelector.CloseButton);
+    act(() => {
+      if (close instanceof HTMLButtonElement) close.click();
+    });
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  test("carries the search tour target collapsed, open, and committed", async () => {
+    renderReact(
+      <LayoutModeProvider>
+        <Search
+          onCommit={mock(() => undefined)}
+          onSelect={mock(() => undefined)}
+          onZoomTo={mock(() => undefined)}
+        />
+      </LayoutModeProvider>,
+    );
+    const target = () => document.querySelector(SearchFixtureSelector.TourTarget);
+
+    expect(target()?.matches(SearchFixtureSelector.OpenButton)).toBe(true);
+    await enterQuery(openSearch());
+    expect(target()?.querySelector(SearchFixtureSelector.Input) instanceof HTMLInputElement).toBe(true);
+    act(() => {
+      resultButton(SearchFixtureText.EventPrimary)?.click();
+    });
+
+    expect(target()?.textContent).toContain(SearchFixtureText.Query);
+  });
+
   test("renders production result presentation in score order", async () => {
     renderReact(
-      <Search
-        onCommit={mock(() => undefined)}
-        onSelect={mock(() => undefined)}
-        onZoomTo={mock(() => undefined)}
-      />,
+      <LayoutModeProvider>
+        <Search
+          onCommit={mock(() => undefined)}
+          onSelect={mock(() => undefined)}
+          onZoomTo={mock(() => undefined)}
+        />
+      </LayoutModeProvider>,
     );
 
     await enterQuery(openSearch());
@@ -166,11 +216,13 @@ describe("Search", () => {
     const onSelect = mock((_item: DataPoint) => undefined);
     const onZoomTo = mock((_item: DataPoint) => undefined);
     renderReact(
-      <Search
-        onCommit={onCommit}
-        onSelect={onSelect}
-        onZoomTo={onZoomTo}
-      />,
+      <LayoutModeProvider>
+        <Search
+          onCommit={onCommit}
+          onSelect={onSelect}
+          onZoomTo={onZoomTo}
+        />
+      </LayoutModeProvider>,
     );
 
     await enterQuery(openSearch());

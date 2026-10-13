@@ -3,68 +3,72 @@ import {
   ACTIVE_BASINS,
   CycloneBasin,
   anyActiveBasinInSeason,
+  basinLabel,
   shouldShowCyclonesToggle,
 } from "@shared/cyclonesSeason";
 
-// All dates are UTC — the helper reads `getUTCMonth() / getUTCDate()`
-// so dyno-vs-laptop TZ skew can't drift the boundary.
-const utc = (year: number, month: number, day: number): Date =>
-  new Date(Date.UTC(year, month - 1, day));
+enum SeasonFixtureYear {
+  Current = 2026,
+}
 
-// ── ACTIVE_BASINS + anyActiveBasinInSeason ────────────────────────
+enum SeasonFixtureCount {
+  None = 0,
+  One = 1,
+  Several = 3,
+}
 
-describe("ACTIVE_BASINS + anyActiveBasinInSeason", () => {
-  test("ACTIVE_BASINS lists exactly AL/EP/CP today (NHC-only scope)", () => {
+const utc = (month: number, day: number): Date =>
+  new Date(Date.UTC(SeasonFixtureYear.Current, month - 1, day));
+
+const IN_SEASON = utc(8, 15);
+const OUT_OF_SEASON = utc(2, 1);
+
+describe("ACTIVE_BASINS and anyActiveBasinInSeason", () => {
+  test("ACTIVE_BASINS lists exactly the Atlantic, Eastern Pacific and Central Pacific", () => {
     expect([...ACTIVE_BASINS].sort()).toEqual([
       CycloneBasin.Atlantic,
       CycloneBasin.CentralPacific,
-      CycloneBasin.EasternPacific,
+      CycloneBasin.EastPacific,
     ]);
   });
 
-  test("anyActiveBasinInSeason matches the Northern-Hemi window since AL/EP/CP share it", () => {
-    expect(anyActiveBasinInSeason(utc(2026, 1, 15))).toBe(false); // mid-winter
-    expect(anyActiveBasinInSeason(utc(2026, 5, 14))).toBe(false); // one day before window
-    expect(anyActiveBasinInSeason(utc(2026, 5, 15))).toBe(true); // boundary in
-    expect(anyActiveBasinInSeason(utc(2026, 8, 1))).toBe(true); // peak
-    expect(anyActiveBasinInSeason(utc(2026, 12, 15))).toBe(true); // boundary in
-    expect(anyActiveBasinInSeason(utc(2026, 12, 16))).toBe(false); // one day after window
+  test("names every basin from its member name", () => {
+    expect(Object.values(CycloneBasin).map(basinLabel)).toEqual(["Atlantic", "East Pacific", "Central Pacific"]);
+  });
+
+  test("anyActiveBasinInSeason follows the shared Northern Hemisphere window, boundaries inclusive", () => {
+    const cases: ReadonlyArray<readonly [Date, boolean]> = [
+      [utc(1, 15), false],
+      [utc(5, 14), false],
+      [utc(5, 15), true],
+      [utc(8, 1), true],
+      [utc(12, 15), true],
+      [utc(12, 16), false],
+    ];
+
+    for (const [date, inSeason] of cases) {
+      expect([date.toISOString(), anyActiveBasinInSeason(date)]).toEqual([date.toISOString(), inSeason]);
+    }
   });
 });
 
-// ── shouldShowCyclonesToggle — UI visibility predicate ───────────
-
 describe("shouldShowCyclonesToggle", () => {
-  const inSeason = utc(2026, 8, 15); // peak Atlantic
-  const outOfSeason = utc(2026, 2, 1); // mid-winter, all NH basins shut
+  test("shows the toggle in season, or whenever a storm exists, and hides it otherwise", () => {
+    const cases: ReadonlyArray<readonly [number, Date, boolean]> = [
+      [SeasonFixtureCount.None, OUT_OF_SEASON, false],
+      [SeasonFixtureCount.One, OUT_OF_SEASON, true],
+      [SeasonFixtureCount.None, IN_SEASON, true],
+      [SeasonFixtureCount.Several, IN_SEASON, true],
+      [SeasonFixtureCount.None, utc(5, 15), true],
+      [SeasonFixtureCount.None, utc(5, 14), false],
+    ];
 
-  test("out of season + no storms → toggle hidden", () => {
-    expect(shouldShowCyclonesToggle(0, outOfSeason)).toBe(false);
+    for (const [storms, date, visible] of cases) {
+      expect([storms, date.toISOString(), shouldShowCyclonesToggle(storms, date)]).toEqual([storms, date.toISOString(), visible]);
+    }
   });
 
-  test("out of season + 1 storm → toggle visible (rare late-season carry-over)", () => {
-    expect(shouldShowCyclonesToggle(1, outOfSeason)).toBe(true);
-  });
-
-  test("in season + no storms → toggle visible (a storm could appear any moment)", () => {
-    expect(shouldShowCyclonesToggle(0, inSeason)).toBe(true);
-  });
-
-  test("in season + storms → toggle visible", () => {
-    expect(shouldShowCyclonesToggle(3, inSeason)).toBe(true);
-  });
-
-  test("season-boundary day (May 15) + no storms → toggle visible", () => {
-    expect(shouldShowCyclonesToggle(0, utc(2026, 5, 15))).toBe(true);
-  });
-
-  test("one day before season (May 14) + no storms → toggle hidden", () => {
-    expect(shouldShowCyclonesToggle(0, utc(2026, 5, 14))).toBe(false);
-  });
-
-  test("default `now` (no second arg) wires the live wall clock", () => {
-    // Storm count > 0 wins regardless of date — verifies the parameter
-    // is optional without tripping a TypeError.
-    expect(shouldShowCyclonesToggle(1)).toBe(true);
+  test("reads the live clock when no date is given", () => {
+    expect(shouldShowCyclonesToggle(SeasonFixtureCount.One)).toBe(true);
   });
 });

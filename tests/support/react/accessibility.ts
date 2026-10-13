@@ -1,5 +1,3 @@
-import { expect } from "bun:test";
-
 enum ReactAriaAttribute {
   Busy = "aria-busy",
   Label = "aria-label",
@@ -13,16 +11,13 @@ enum ReactElementSelector {
   Status = "output",
 }
 
-/** Verify the native busy status for a rendered React surface. */
-export function expectBusyStatus(
-  container: ParentNode,
-  accessibleName: string,
-): void {
-  const status = container.querySelector(ReactElementSelector.Status);
+export type BusyStatus = Readonly<{ label: string | null; busy: boolean }>;
 
-  expect(status).not.toBeNull();
-  expect(status?.getAttribute(ReactAriaAttribute.Label)).toBe(accessibleName);
-  expect(status?.getAttribute(ReactAriaAttribute.Busy)).toBe(
-    ReactAriaValue.True,
-  );
+export function busyStatus(container: ParentNode): BusyStatus | null {
+  const status = container.querySelector(ReactElementSelector.Status);
+  if (!status) return null;
+  return {
+    label: status.getAttribute(ReactAriaAttribute.Label),
+    busy: status.getAttribute(ReactAriaAttribute.Busy) === ReactAriaValue.True,
+  };
 }

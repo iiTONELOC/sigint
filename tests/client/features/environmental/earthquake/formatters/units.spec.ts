@@ -6,45 +6,17 @@ import {
   MeasurementFixtureCopy,
 } from "../../../../measurements/fixtures";
 
-function expectDistance(
-  mode: UnitMode,
-  expected: MeasurementFixtureCopy,
-): void {
-  expect(
-    formatKmMi(
-      MeasurementFixtureConversionInput
-        .DistanceKilometers,
-      mode,
-    ),
-  ).toBe(expected);
-}
-
 describe("earthquake distance formatter", () => {
-  test("formats both units", () => {
-    expectDistance(
-      UnitMode.Both,
-      MeasurementFixtureCopy.DistanceBoth,
-    );
-  });
+  test("formats the distance for every unit mode", () => {
+    const cases: ReadonlyArray<readonly [UnitMode, MeasurementFixtureCopy]> = [
+      [UnitMode.Both, MeasurementFixtureCopy.DistanceBoth],
+      [UnitMode.MilesPerHour, MeasurementFixtureCopy.DistanceImperial],
+      [UnitMode.Knots, MeasurementFixtureCopy.DistanceMetric],
+      [UnitMode.KilometersPerHour, MeasurementFixtureCopy.DistanceMetric],
+    ];
 
-  test("formats imperial units", () => {
-    expectDistance(
-      UnitMode.MilesPerHour,
-      MeasurementFixtureCopy.DistanceImperial,
-    );
-  });
-
-  test("formats metric units for knots", () => {
-    expectDistance(
-      UnitMode.Knots,
-      MeasurementFixtureCopy.DistanceMetric,
-    );
-  });
-
-  test("formats metric units for kilometers per hour", () => {
-    expectDistance(
-      UnitMode.KilometersPerHour,
-      MeasurementFixtureCopy.DistanceMetric,
-    );
+    for (const [mode, copy] of cases) {
+      expect([mode, formatKmMi(MeasurementFixtureConversionInput.DistanceKilometers, mode)]).toEqual([mode, copy]);
+    }
   });
 });

@@ -4,6 +4,7 @@ import {
   useRef,
   useCallback,
   type ReactNode,
+  useReducer,
 } from "react";
 import {
   Tv,
@@ -24,10 +25,10 @@ import {
 } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
 import { cn } from "@/lib/ui/utils";
+import { useBrowserFullscreen } from "@/lib/runtime/fullscreen";
 import { DomEvent, DomInputType } from "@/runtime";
+import type { Channel, ChannelCatalog } from "@shared/domain/videoChannel";
 import type {
-  Channel,
-  ChannelCatalog,
   GridLayout,
   SlotState,
   PlayerHandle,
@@ -38,7 +39,6 @@ import { ChannelPicker } from "./ChannelPicker";
 enum VideoSlotMetric {
   ControlIconSize = 18,
   EmptyIconSize = 28,
-  LiveDelayThresholdSeconds = 2,
   MicroIconSize = 8,
   MinimumSeekRangeSeconds = 0.5,
   SmallIconSize = 12,
@@ -141,26 +141,6 @@ function formatDelay(seconds: number): string {
     : `-${remainingSeconds}s`;
 }
 
-function toggleFullscreen(
-  slot: HTMLDivElement | null,
-  video: HTMLVideoElement | null,
-): void {
-  if (
-    video &&
-    "webkitEnterFullscreen" in video &&
-    typeof video.webkitEnterFullscreen === "function"
-  ) {
-    video.webkitEnterFullscreen();
-    return;
-  }
-  if (!slot) return;
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-    return;
-  }
-  slot.requestFullscreen().catch(() => {});
-}
-
 export function VideoSlot({
   slot,
   slotIndex,
@@ -191,6 +171,8 @@ export function VideoSlot({
   const [showPicker, setShowPicker] = useState(false);
   const [ccEnabled, setCcEnabled] = useState(false);
   const [localPaused, setLocalPaused] = useState(false);
+  const [dragValue, setDragValue] = useState<number | null>(null);
+  const [, tick] = useReducer((count: number) => count + 1, 0);
   const pickerRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
@@ -211,11 +193,16 @@ export function VideoSlot({
     return () => document.removeEventListener(DomEvent.MouseDown, handler);
   }, [showPicker]);
 
-  const handleFullscreen = useCallback(() => {
-    toggleFullscreen(
-      slotRef.current,
-      playerRef.current?.getVideoElement() ?? null,
-    );
+  const slotFullscreen = useBrowserFullscreen(slotRef);
+  const handleNativeFullscreen = useCallback(() => {
+    const video = playerRef.current?.getVideoElement();
+    if (
+      video &&
+      "webkitEnterFullscreen" in video &&
+      typeof video.webkitEnterFullscreen === "function"
+    ) {
+      video.webkitEnterFullscreen();
+    }
   }, []);
 
   const handleTogglePause = useCallback(() => {
@@ -237,12 +224,11 @@ export function VideoSlot({
     setLocalPaused(false);
   }, []);
 
-  const handleSeek = useCallback(
-    (time: number) => {
-      playerRef.current?.seekTo(time);
-    },
-    [],
-  );
+  const commitSeek = useCallback(() => {
+    if (dragValue === null) return;
+    playerRef.current?.seekTo(dragValue);
+    setDragValue(null);
+  }, [dragValue]);
 
   const handleChannelSelect = useCallback(
     (channel: Channel) => {
@@ -347,9 +333,7 @@ export function VideoSlot({
     rangeEnd - rangeStart > VideoSlotMetric.MinimumSeekRangeSeconds;
   const seekTime = Math.max(rangeStart, Math.min(rangeEnd, currentTime));
 
-  const showBar =
-    localPaused ||
-    (!isLive && delay > VideoSlotMetric.LiveDelayThresholdSeconds);
+  const showBar = localPaused || !isLive;
 
   return (
     <div
@@ -372,6 +356,7 @@ export function VideoSlot({
         ccEnabled={ccEnabled}
         onError={handlePlayerError}
         onLoaded={handlePlayerLoaded}
+        onTick={tick}
         playerRef={playerRef}
       />
 
@@ -397,14 +382,15 @@ export function VideoSlot({
               {localPaused ? "PAUSED" : formatDelay(delay)}
             </span>
             <input
-              key={`${rangeStart}:${rangeEnd}`}
               type={DomInputType.Range}
               aria-label="Seek video"
               min={rangeStart}
               max={rangeEnd}
-              defaultValue={seekTime}
+              value={dragValue ?? seekTime}
               step="any"
-              onInput={(event) => handleSeek(event.currentTarget.valueAsNumber)}
+              onChange={(event) => setDragValue(event.currentTarget.valueAsNumber)}
+              onPointerUp={commitSeek}
+              onKeyUp={commitSeek}
               className="video-seek flex-1 cursor-pointer accent-sig-warn"
             />
             <button
@@ -485,7 +471,10 @@ export function VideoSlot({
             </VideoControlButton>
           )}
 
-          <VideoControlButton onClick={handleFullscreen} title="Fullscreen">
+          <VideoControlButton
+            onClick={slotFullscreen.toggle ?? handleNativeFullscreen}
+            title="Fullscreen"
+          >
             <Maximize size={VideoSlotMetric.ControlIconSize} />
           </VideoControlButton>
 

@@ -53,16 +53,10 @@ describe("verifyToken()", () => {
     expect(await auth.verifyToken(token)).toBe(true);
   });
 
-  test("rejects null", async () => {
-    expect(await auth.verifyToken(null)).toBe(false);
-  });
-
-  test("rejects empty string", async () => {
-    expect(await auth.verifyToken("")).toBe(false);
-  });
-
-  test("rejects malformed token (no dot)", async () => {
-    expect(await auth.verifyToken("nodothere")).toBe(false);
+  test("rejects a null, empty or dotless token", async () => {
+    for (const token of [null, "", "nodothere"]) {
+      expect([token, await auth.verifyToken(token)]).toEqual([token, false]);
+    }
   });
 
   test("rejects tampered payload", async () => {
@@ -108,20 +102,11 @@ describe("verifyToken()", () => {
 });
 
 describe("tokenCookieHeader()", () => {
-  test("includes HttpOnly flag", () => {
-    expect(auth.tokenCookieHeader("test-token")).toContain("HttpOnly");
-  });
-
-  test("includes SameSite=Strict", () => {
-    expect(auth.tokenCookieHeader("test-token")).toContain("SameSite=Strict");
-  });
-
-  test("includes Path=/api", () => {
-    expect(auth.tokenCookieHeader("test-token")).toContain("Path=/api");
-  });
-
-  test("includes Max-Age", () => {
-    expect(auth.tokenCookieHeader("test-token")).toContain("Max-Age=");
+  test("carries HttpOnly, SameSite=Strict, Path=/api and Max-Age", () => {
+    const header = auth.tokenCookieHeader("test-token");
+    for (const attribute of ["HttpOnly", "SameSite=Strict", "Path=/api", "Max-Age="]) {
+      expect([attribute, header.includes(attribute)]).toEqual([attribute, true]);
+    }
   });
 
   test("includes token value", () => {

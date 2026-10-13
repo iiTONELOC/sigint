@@ -1,87 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import { DeviceType, LayoutMode, ViewportOrientation } from "@/layout-mode/model/layoutMode";
+import { DeviceType, LayoutMode } from "@/layout-mode/model/layoutMode";
 import {
   nextLayoutMode,
   parseLayoutMode,
   usesMobileLayout,
-  viewportOrientation,
 } from "@/layout-mode/utils/layout";
-
-enum LayoutFixtureDimension {
-  Narrow = 390,
-  Wide = 844,
-}
 
 enum LayoutFixtureInvalidValue {
   Empty = "",
 }
 
-describe("viewportOrientation", () => {
-  test("classifies portrait and landscape dimensions", () => {
-    expect(
-      viewportOrientation(
-        LayoutFixtureDimension.Narrow,
-        LayoutFixtureDimension.Wide,
-      ),
-    ).toBe(ViewportOrientation.Portrait);
-    expect(
-      viewportOrientation(
-        LayoutFixtureDimension.Wide,
-        LayoutFixtureDimension.Narrow,
-      ),
-    ).toBe(ViewportOrientation.Landscape);
-  });
-});
 describe("usesMobileLayout", () => {
-  test("uses phone orientation in auto mode", () => {
-    expect(
-      usesMobileLayout(
-        LayoutMode.Auto,
-        DeviceType.Phone,
-        ViewportOrientation.Portrait,
-      ),
-    ).toBe(true);
-    expect(
-      usesMobileLayout(
-        LayoutMode.Auto,
-        DeviceType.Phone,
-        ViewportOrientation.Landscape,
-      ),
-    ).toBe(false);
+  test("uses the mobile layout for phones in auto mode", () => {
+    expect(usesMobileLayout(LayoutMode.Auto, DeviceType.Phone)).toBe(true);
   });
 
   test("uses desktop layout for tablets and desktops in auto mode", () => {
-    expect(
-      usesMobileLayout(
-        LayoutMode.Auto,
-        DeviceType.Tablet,
-        ViewportOrientation.Portrait,
-      ),
-    ).toBe(false);
-    expect(
-      usesMobileLayout(
-        LayoutMode.Auto,
-        DeviceType.Desktop,
-        ViewportOrientation.Portrait,
-      ),
-    ).toBe(false);
+    expect(usesMobileLayout(LayoutMode.Auto, DeviceType.Tablet)).toBe(false);
+    expect(usesMobileLayout(LayoutMode.Auto, DeviceType.Desktop)).toBe(false);
   });
 
-  test("forced modes override device and orientation", () => {
-    expect(
-      usesMobileLayout(
-        LayoutMode.Mobile,
-        DeviceType.Desktop,
-        ViewportOrientation.Landscape,
-      ),
-    ).toBe(true);
-    expect(
-      usesMobileLayout(
-        LayoutMode.Desktop,
-        DeviceType.Phone,
-        ViewportOrientation.Portrait,
-      ),
-    ).toBe(false);
+  test("forced modes override the device", () => {
+    expect(usesMobileLayout(LayoutMode.Mobile, DeviceType.Desktop)).toBe(true);
+    expect(usesMobileLayout(LayoutMode.Desktop, DeviceType.Phone)).toBe(false);
   });
 });
 

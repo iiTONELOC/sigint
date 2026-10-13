@@ -72,7 +72,6 @@ function computePosition(
     },
   };
 
-  // Try preferred placement first, then flip if it goes off-screen
   const order: TooltipPlacementValue[] = [placement];
   const opposites: Record<TooltipPlacementValue, TooltipPlacementValue> = {
     [TooltipPlacement.Top]: TooltipPlacement.Bottom,
@@ -103,7 +102,6 @@ function computePosition(
     }
   }
 
-  // Fallback: clamp to viewport
   const pos = positions[placement]!;
   return {
     x: Math.max(
@@ -142,7 +140,6 @@ export function Tooltip({
 
   const show = useCallback(() => {
     if (disabled) return;
-    // Skip tooltips on touch devices and narrow viewports (mobile)
     if (window.matchMedia("(pointer: coarse)").matches) return;
     if (isMobileWidth(window.innerWidth)) return;
     timerRef.current = setTimeout(() => {
@@ -159,7 +156,6 @@ export function Tooltip({
     setPosition(null);
   }, []);
 
-  // Position the tooltip once it's visible and rendered
   useEffect(() => {
     if (!visible) return;
     const trigger = triggerRef.current;
@@ -172,7 +168,6 @@ export function Tooltip({
     setPosition({ x, y });
   }, [visible, placement]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

@@ -1,6 +1,3 @@
-// ── News linking ────────────────────────────────────────────────────
-// Matches RSS article titles/descriptions against country names from
-// active clusters and anomalies. Caps at 3 articles per country.
 
 import type { NewsArticle } from "@/features/news";
 import type { Cluster } from "./clusters";

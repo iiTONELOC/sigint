@@ -1,8 +1,8 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import {
   useState,
   useRef,
   useEffect,
-  type MouseEvent as ReactMouseEvent,
   type MouseEventHandler,
 } from "react";
 import {
@@ -25,20 +25,15 @@ import { DeviceType, useLayoutMode } from "@/layout-mode";
 import { DomEvent } from "@/runtime";
 import { ButtonType } from "@/lib/ui/button";
 import { cn } from "@/lib/ui/utils";
-import { FULL_WIDTH_ONLY, type PaneType } from "./paneTree";
 import { SplitMenu } from "./SplitMenu";
 import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
-import type { MobileBlock } from "@/panes/workspace/utils/mobile";
 import {
   PaneDragDataType,
   PaneDragEffect,
-  PaneDropZone,
-  PaneNodeType,
   PaneType as PaneTypeId,
+  type PaneTypeValue,
   PaneWorkspaceIconMetric,
-  SplitDirection,
   type PaneDropZoneValue,
-  type SplitDirectionValue,
 } from "@/panes/workspace/model/pane";
 
 enum PaneHeaderClassName {
@@ -82,7 +77,7 @@ type PaneHeaderProps = {
   readonly label: string;
   readonly icon: LucideIcon;
   readonly leafId: string;
-  readonly paneType?: PaneType;
+  readonly paneType?: PaneTypeValue;
   readonly statusSlot?: React.ReactNode;
   readonly onSplitH?: (e: React.MouseEvent) => void;
   readonly onSplitV?: (e: React.MouseEvent) => void;
@@ -91,7 +86,7 @@ type PaneHeaderProps = {
   readonly onToggleFullscreen?: () => void;
   readonly onPopOut?: () => void;
   readonly onClose?: () => void;
-  readonly onChangePaneType?: (id: PaneType) => void;
+  readonly onChangePaneType?: (id: PaneTypeValue) => void;
   readonly paneCatalog?: PaneCatalog;
   readonly onDragStart?: (leafId: string) => void;
   readonly onDragEnd?: () => void;
@@ -130,21 +125,11 @@ type PaneControlButtonProps = Readonly<{
 
 type PaneControlConfiguration = Readonly<Omit<PaneControlButtonProps, "label">>;
 
-function splitRightTourId(
-  isPhone: boolean,
-  paneType: PaneType | undefined,
+function splitTourId(
+  paneType: PaneTypeValue | undefined,
+  tourId: string,
 ): string | undefined {
-  if (!paneType) return undefined;
-  if (isPhone) return `split-right-${paneType}`;
-  return paneType === PaneTypeId.Globe ? "split-right-btn" : undefined;
-}
-
-function splitDownTourId(
-  isPhone: boolean,
-  paneType: PaneType | undefined,
-): string | undefined {
-  if (paneType === PaneTypeId.Globe) return "split-down-btn";
-  return isPhone && paneType ? `split-down-${paneType}` : undefined;
+  return paneType === PaneTypeId.Globe ? tourId : undefined;
 }
 
 function PaneControlButton({
@@ -200,11 +185,11 @@ function PaneHeaderControls({
   const controls: Readonly<Partial<Record<PaneHeaderCopy, PaneControlConfiguration>>> = {
     [PaneHeaderCopy.SplitRight]: {
       icon: Columns2, onClick: onSplitH,
-      tourId: splitRightTourId(isPhone, paneType),
+      tourId: splitTourId(paneType, "split-right-btn"),
     },
     [PaneHeaderCopy.SplitDown]: {
       icon: Rows2, onClick: onSplitV,
-      tourId: splitDownTourId(isPhone, paneType),
+      tourId: splitTourId(paneType, "split-down-btn"),
     },
     [PaneHeaderCopy.PopOut]: {
       icon: Maximize2, onClick: onPopOut,
@@ -363,7 +348,7 @@ export function PaneHeader({
         onClick={() => {
           if (hasSwitch) setShowMenu((v) => !v);
         }}
-        className={`flex items-center gap-1 bg-transparent border-none p-0 ${hasSwitch ? "cursor-pointer" : "cursor-default"} group`}
+        className={`flex items-center gap-1 bg-transparent border-none p-0 ${hasSwitch ? "cursor-pointer" : "cursor-default"} group touch-target`}
       >
         <Icon
           size={PaneWorkspaceIconMetric.ToolbarSize}
@@ -428,112 +413,6 @@ export function PaneHeader({
   );
 }
 
-type MobilePaneHeaderProps = Readonly<{
-  availableTypes: readonly PaneType[];
-  block: MobileBlock;
-  changePaneType: (leafId: string, paneType: PaneType) => void;
-  closePane: (leafId: string) => void;
-  isMinimized: boolean;
-  moveSourceLeafId: string | null;
-  onGripClick: (leafId: string) => void;
-  paneCatalog: PaneCatalog;
-  requestSplit: (
-    leafId: string,
-    direction: SplitDirectionValue,
-    event: ReactMouseEvent,
-  ) => void;
-  toggleMinimize: (blockId: string) => void;
-  totalLeafCount: number;
-}>;
-
-function mobilePaneHeaderConfiguration(
-  props: MobilePaneHeaderProps,
-) {
-  const leaf = props.block.primaryLeaf;
-  let label = "SPLIT";
-  let paneType: PaneType | undefined;
-  let onSplitH: ((event: ReactMouseEvent) => void) | undefined;
-  let onSplitV: ((event: ReactMouseEvent) => void) | undefined;
-  let onMinimize: (() => void) | undefined;
-  let onClose: (() => void) | undefined;
-  let onChangePaneType: ((paneType: PaneType) => void) | undefined;
-
-  if (!props.moveSourceLeafId) {
-    onMinimize = () => props.toggleMinimize(props.block.id);
-  }
-
-  if (props.block.node.type === PaneNodeType.Leaf) {
-    label = props.paneCatalog[leaf.paneType].label;
-    paneType = leaf.paneType;
-    onChangePaneType = (nextPaneType) =>
-      props.changePaneType(leaf.id, nextPaneType);
-
-    if (props.availableTypes.length > 0 && !props.moveSourceLeafId) {
-      onSplitV = (event) =>
-        props.requestSplit(leaf.id, SplitDirection.Vertical, event);
-      if (!FULL_WIDTH_ONLY.has(leaf.paneType)) {
-        onSplitH = (event) =>
-          props.requestSplit(leaf.id, SplitDirection.Horizontal, event);
-      }
-    }
-
-    if (props.totalLeafCount > 1 && !props.moveSourceLeafId) {
-      onClose = () => props.closePane(leaf.id);
-    }
-  }
-
-  return {
-    label,
-    paneType,
-    onSplitH,
-    onSplitV,
-    onMinimize,
-    onClose,
-    onChangePaneType,
-  };
-}
-
-export function MobilePaneHeader({
-  availableTypes,
-  block,
-  changePaneType,
-  closePane,
-  isMinimized,
-  moveSourceLeafId,
-  onGripClick,
-  paneCatalog,
-  requestSplit,
-  toggleMinimize,
-  totalLeafCount,
-}: MobilePaneHeaderProps) {
-  const leaf = block.primaryLeaf;
-  const definition = paneCatalog[leaf.paneType];
-  const configuration = mobilePaneHeaderConfiguration({
-    availableTypes,
-    block,
-    changePaneType,
-    closePane,
-    isMinimized,
-    moveSourceLeafId,
-    onGripClick,
-    paneCatalog,
-    requestSplit,
-    toggleMinimize,
-    totalLeafCount,
-  });
-  return (
-    <PaneHeader
-      isFullscreen={false}
-      isMinimized={isMinimized}
-      icon={definition.icon}
-      leafId={leaf.id}
-      paneCatalog={paneCatalog}
-      onGripClick={() => onGripClick(leaf.id)}
-      {...configuration}
-    />
-  );
-}
-
 type MobilePaneMoveOverlayProps = Readonly<{
   active: boolean;
   allowBeside: boolean;
@@ -552,7 +431,7 @@ export function MobilePaneMoveOverlay({
     <div className="absolute inset-0 z-(--layer-pane-overlay) grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
       <button
         type={ButtonType.Button}
-        onClick={() => onMoveAction(blockId, PaneDropZone.Top)}
+        onClick={() => onMoveAction(blockId, Placement.Top)}
         className={cn(
           MobilePaneControlClassName.MoveZoneFullWidth,
           MobilePaneControlClassName.MoveZone,
@@ -563,7 +442,7 @@ export function MobilePaneMoveOverlay({
       {allowBeside && (
         <button
           type={ButtonType.Button}
-          onClick={() => onMoveAction(blockId, PaneDropZone.Left)}
+          onClick={() => onMoveAction(blockId, Placement.Left)}
           className={MobilePaneControlClassName.MoveZone}
         >
           ← LEFT
@@ -571,7 +450,7 @@ export function MobilePaneMoveOverlay({
       )}
       <button
         type={ButtonType.Button}
-        onClick={() => onMoveAction(blockId, PaneDropZone.Center)}
+        onClick={() => onMoveAction(blockId, Placement.Center)}
         className={cn(
           MobilePaneControlClassName.SwapZone,
           !allowBeside && MobilePaneControlClassName.MoveZoneFullWidth,
@@ -582,7 +461,7 @@ export function MobilePaneMoveOverlay({
       {allowBeside && (
         <button
           type={ButtonType.Button}
-          onClick={() => onMoveAction(blockId, PaneDropZone.Right)}
+          onClick={() => onMoveAction(blockId, Placement.Right)}
           className={MobilePaneControlClassName.MoveZone}
         >
           RIGHT →
@@ -590,7 +469,7 @@ export function MobilePaneMoveOverlay({
       )}
       <button
         type={ButtonType.Button}
-        onClick={() => onMoveAction(blockId, PaneDropZone.Bottom)}
+        onClick={() => onMoveAction(blockId, Placement.Bottom)}
         className={cn(
           MobilePaneControlClassName.MoveZoneFullWidth,
           MobilePaneControlClassName.MoveZone,

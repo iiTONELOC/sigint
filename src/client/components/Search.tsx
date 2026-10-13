@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Search as SearchIcon, X } from "lucide-react";
-import { isMobileWidth } from "@/config/breakpoints";
+import { useIsMobileLayout } from "@/layout-mode";
+import { HeaderTourTarget } from "./Header";
 import { getColorMap, useTheme } from "@/theme";
 import { featureRegistry } from "@/features/registry";
 import { FeaturePresentationText } from "@/features/base/presentation";
@@ -34,7 +35,12 @@ enum SearchColorSuffix {
 }
 
 enum SearchClassName {
-  ResultButton = "w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30",
+  Box = "flex items-center gap-1.5 rounded px-2 py-0.5 bg-sig-panel border border-sig-accent/45",
+  BoxDesktop = "min-w-45",
+  BoxPhone = "w-full",
+  Root = "relative z-(--layer-search)",
+  RootPhone = "relative z-(--layer-search) w-full",
+  ResultButton = "w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors border-none border-b border-sig-border/30 any-pointer-coarse:min-h-11",
   ActiveResult = "bg-sig-accent/10",
   InactiveResult = "bg-transparent",
 }
@@ -76,10 +82,12 @@ type SearchProps = {
   readonly onSelect: (item: DataPoint) => void;
   readonly onZoomTo: (item: DataPoint) => void;
   readonly onCommit: (text: string | null) => void;
+  readonly onOpenChange?: (open: boolean) => void;
 };
 
-export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
+export function Search({ onSelect, onZoomTo, onCommit, onOpenChange }: SearchProps) {
   const { theme } = useTheme();
+  const isMobileLayout = useIsMobileLayout();
   const C = theme.colors;
   const colorMap = getColorMap(theme);
 
@@ -92,6 +100,10 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const normalizedQuery = query.trim();
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [onOpenChange, open]);
   const live = useSourceSearch(normalizedQuery || null);
   const committed = useSourceSearch(committedQuery);
 
@@ -175,7 +187,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
       // On mobile, scroll back to the top of the pane column so the user
       // sees the globe zoom. The scroll container is the overflow-y-auto
       // parent of [data-pane-id] elements.
-      if (isMobileWidth(window.innerWidth)) {
+      if (isMobileLayout) {
         requestAnimationFrame(() => {
           const firstPane =
             document.querySelector<HTMLElement>("[data-pane-id]");
@@ -186,11 +198,9 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
         });
       }
     },
-    [onSelect, onZoomTo, commitFilter],
+    [onSelect, onZoomTo, commitFilter, isMobileLayout],
   );
 
-  // The ref callback fires when the input mounts into the DOM.
-  // which is still within the same user gesture microtask on iOS Safari.
   const inputRefCallback = useCallback((el: HTMLInputElement | null) => {
     if (el && pendingFocusRef.current) {
       pendingFocusRef.current = false;
@@ -249,11 +259,11 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
 
   if (!open && committedQuery) {
     return (
-      <div className="flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-sig-accent/10 border border-sig-accent/30">
+      <div data-tour={HeaderTourTarget.Search} className="flex items-center gap-0.5 rounded px-1.5 py-0.5 bg-sig-accent/10 border border-sig-accent/30">
         <button
           type={ButtonType.Button}
           onClick={openSearch}
-          className="flex items-center gap-1 bg-transparent border-none p-0 text-sig-accent text-(length:--sig-text-btn)"
+          className="flex items-center gap-1 bg-transparent border-none p-0 text-sig-accent text-(length:--sig-text-btn) touch-target"
           title="Edit search"
         >
           <SearchIcon
@@ -285,21 +295,26 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
       <button
         type={ButtonType.Button}
         onClick={openSearch}
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border"
+        data-tour={HeaderTourTarget.Search}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border touch-target"
         title="Search (Ctrl+K)"
       >
         <SearchIcon
           size={SearchIconSize.Control}
           strokeWidth={SearchIconStroke.Standard}
         />
-        <span className="hidden sm:inline">SEARCH</span>
+        {!isMobileLayout && <span className="hidden sm:inline">SEARCH</span>}
       </button>
     );
   }
 
   return (
-    <div ref={containerRef} className="relative z-(--layer-search)">
-      <div className="flex items-center gap-1.5 rounded px-2 py-0.5 bg-sig-panel border border-sig-accent/45 min-w-45">
+    <div
+      ref={containerRef}
+      data-tour={HeaderTourTarget.Search}
+      className={isMobileLayout ? SearchClassName.RootPhone : SearchClassName.Root}
+    >
+      <div className={`${SearchClassName.Box} ${isMobileLayout ? SearchClassName.BoxPhone : SearchClassName.BoxDesktop}`}>
         <SearchIcon
           size={SearchIconSize.Control}
           strokeWidth={SearchIconStroke.Standard}
@@ -312,7 +327,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="callsign, type..."
-          className="bg-transparent outline-none flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) caret-sig-accent"
+          className="bg-transparent outline-none flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) any-pointer-coarse:text-base caret-sig-accent touch-target"
         />
         {normalizedQuery && matchingCount > 0 && (
           <span className="shrink-0 tracking-wider text-sig-accent text-(length:--sig-text-sm)">
@@ -323,7 +338,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
           type={ButtonType.Button}
           title="Close"
           onClick={closeDropdown}
-          className="shrink-0 text-sig-dim bg-transparent border-none p-0"
+          className="shrink-0 text-sig-dim bg-transparent border-none p-0 touch-target"
         >
           <X
             size={SearchIconSize.Control}
@@ -339,7 +354,7 @@ export function Search({ onSelect, onZoomTo, onCommit }: SearchProps) {
             ref={dropdownRef}
             className="fixed z-(--layer-menu) rounded overflow-hidden overflow-y-auto sigint-scroll bg-sig-panel/96 border border-sig-border backdrop-blur-md max-h-80"
             style={
-              isMobileWidth(window.innerWidth)
+              isMobileLayout
                 ? {
                     top:
                       containerRef.current.getBoundingClientRect().bottom +

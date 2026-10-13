@@ -1,6 +1,6 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { describe, expect, test } from "bun:test";
 import {
-  PaneDropZone,
   paneDropZoneForPoint,
   type PaneDropBounds,
 } from "@/panes/workspace";
@@ -40,21 +40,21 @@ describe("paneDropZoneForPoint", () => {
   test("classifies every edge zone", () => {
     expect(
       zoneAt(PaneDropPosition.Center, PaneDropPosition.Start),
-    ).toBe(PaneDropZone.Top);
+    ).toBe(Placement.Top);
     expect(
       zoneAt(PaneDropPosition.Center, PaneDropPosition.End),
-    ).toBe(PaneDropZone.Bottom);
+    ).toBe(Placement.Bottom);
     expect(
       zoneAt(PaneDropPosition.Start, PaneDropPosition.Center),
-    ).toBe(PaneDropZone.Left);
+    ).toBe(Placement.Left);
     expect(
       zoneAt(PaneDropPosition.End, PaneDropPosition.Center),
-    ).toBe(PaneDropZone.Right);
+    ).toBe(Placement.Right);
   });
 
   test("classifies the center zone", () => {
     expect(
       zoneAt(PaneDropPosition.Center, PaneDropPosition.Center),
-    ).toBe(PaneDropZone.Center);
+    ).toBe(Placement.Center);
   });
 });

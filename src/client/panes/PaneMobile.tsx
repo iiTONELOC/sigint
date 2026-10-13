@@ -1,23 +1,28 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { Bookmark, ChevronRight, Plus } from "lucide-react";
+import { Placement } from "@/layout-mode/model/layoutMode";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  type ReactNode,
+} from "react";
+import { Bookmark, ChevronRight, Ellipsis, Plus } from "lucide-react";
 import type {
-  PaneType,
   LeafNode,
   LayoutNode,
   LayoutState,
   LayoutPreset,
 } from "./paneTree";
 import { useUI } from "@/context/UIContext";
+import { onDossierOpenRequest } from "@/lib/runtime/layoutSignals";
 import { DomEvent } from "@/runtime";
 import { cn } from "@/lib/ui/utils";
 import { ButtonType } from "@/lib/ui/button";
 import { ResizeHandle } from "./ResizeHandle";
 import { LayoutPresetMenu } from "./LayoutPresetMenu";
-import {
-  MobilePaneHeader,
-  MobilePaneMoveOverlay,
-  PaneHeader,
-} from "./PaneHeader";
+import { MobileBlockActions } from "./MobileBlockActions";
+import { MobilePaneMoveOverlay, PaneHeader } from "./PaneHeader";
 import { SplitMenu } from "./SplitMenu";
 import type { PaneCatalog } from "@/panes/workspace/paneCatalog";
 import {
@@ -38,11 +43,12 @@ import {
 } from "@/panes/workspace/utils/mobile";
 import {
   PANE_MOBILE_MINIMUM_HEIGHT,
-  PaneDropZone,
+  PaneLayoutRatio,
   PaneMobileRatio,
   PaneMobileScreen,
   PaneNodeType,
   PaneType as PaneTypeId,
+  type PaneTypeValue,
   PaneWorkspaceIconMetric,
   SplitDirection,
   type PaneDropZoneValue,
@@ -53,19 +59,27 @@ import {
 enum PaneMobileClassName {
   Accent = "text-sig-accent",
   AccentIcon = "text-sig-accent shrink-0",
-  Block = "border-b border-sig-border/40",
-  BlockFlex = "flex-1 flex flex-col",
+  ActionButton = "flex items-center justify-center px-2 py-1.5 min-h-8 min-w-8 rounded text-sig-dim hover:text-sig-accent transition-colors shrink-0 touch-target",
+  Bar = "shrink-0 z-(--layer-floating) flex items-center flex-wrap gap-x-3 gap-y-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/95 backdrop-blur-sm",
+  Block = "border-b border-sig-border/40 overflow-clip",
+  BlockFlex = "flex-1 min-h-0 flex flex-col",
   BlockMoveSource = "ring-2 ring-sig-accent/70 shadow-[0_0_12px_rgba(0,212,240,0.15)]",
   BodyNoSelect = "select-none",
+  CancelMove = "flex items-center px-2 py-1.5 min-h-8 rounded text-sig-danger text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors shrink-0 touch-target",
+  CollapsedBlock = "w-full flex items-center gap-2 px-3 py-2 min-h-11 text-left text-sig-dim hover:text-sig-accent transition-colors touch-target",
+  CollapsedLabel = "tracking-wider text-(length:--sig-text-sm) font-semibold",
   FillContent = "flex-1 min-h-0",
+  Tabs = "flex items-center flex-wrap gap-1 grow min-w-0",
 }
 
 const MOBILE_SCREEN_CLASS: Readonly<Record<PaneMobileScreen, string>> = {
+  [PaneMobileScreen.Content]: "min-h-[100cqh] flex flex-col",
   [PaneMobileScreen.Full]: "h-[100cqh] flex flex-col",
   [PaneMobileScreen.Half]: "h-[50cqh] flex flex-col",
 };
 
 const MOBILE_SCROLL_SETTLE_MS = 100;
+const PANE_MOBILE_CANCEL_MOVE_LABEL = "CANCEL MOVE";
 
 enum PaneMobileGridMetric {
   SeparatorPx = 6,
@@ -77,18 +91,19 @@ enum PaneMobileMenuMetric {
 
 type PaneMobileProps = {
   readonly allLeaves: LeafNode[];
+  readonly chrome?: ReactNode;
   readonly layout: LayoutState;
   readonly paneCatalog: PaneCatalog;
   readonly closePane: (leafId: string) => void;
-  readonly changePaneType: (leafId: string, newType: PaneType) => void;
+  readonly changePaneType: (leafId: string, newType: PaneTypeValue) => void;
   readonly restorePane: (idx: number) => void;
   readonly splitPane: (
     leafId: string,
     dir: SplitDirectionValue,
-    newType: PaneType,
+    newType: PaneTypeValue,
   ) => void;
   readonly resizeSplit: (splitId: string, ratio: number) => void;
-  readonly availableTypes: PaneType[];
+  readonly availableTypes: PaneTypeValue[];
   readonly leafCount: number;
   readonly swapPanes: (sourceLeafId: string, targetLeafId: string) => void;
   readonly insertPaneBeside: (
@@ -106,6 +121,7 @@ type PaneMobileProps = {
 
 export function PaneMobile({
   allLeaves,
+  chrome,
   layout,
   paneCatalog,
   closePane,
@@ -134,23 +150,7 @@ export function PaneMobile({
   );
 
   const prevBlockIdsRef = useRef(new Set(blocks.map((b) => b.id)));
-  useEffect(() => {
-    const currentIds = new Set(blocks.map((b) => b.id));
-    const prevIds = prevBlockIdsRef.current;
-    prevBlockIdsRef.current = currentIds;
-
-    let addedId: string | undefined;
-    for (const id of currentIds) {
-      if (!prevIds.has(id)) addedId = id;
-    }
-    if (addedId === undefined) return;
-    const blockId = addedId;
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`mobile-block-${blockId}`);
-      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
-  }, [blocks]);
-
+  const revealAddedRef = useRef(false);
   const blockMap = useMemo(() => {
     const m = new Map<string, MobileBlock>();
     for (const b of blocks) m.set(b.id, b);
@@ -186,39 +186,34 @@ export function PaneMobile({
   }, []);
 
   const [visibleSet, setVisibleSet] = useState<Set<string>>(new Set());
-  const observerRef = useRef<IntersectionObserver | null>(null);
   const paneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        setVisibleSet((prev) => {
-          const next = new Set(prev);
-          for (const entry of entries) {
-            const id = (entry.target as HTMLElement).dataset.blockId;
-            if (!id) continue;
-            if (entry.isIntersecting) next.add(id);
-            else next.delete(id);
-          }
-          return next;
-        });
-      },
-      { rootMargin: "200px 0px" },
-    );
-    return () => observerRef.current?.disconnect();
-  }, []);
+  const [visibilityObserver] = useState(() => new IntersectionObserver(
+    (entries) => {
+      setVisibleSet((prev) => {
+        const next = new Set(prev);
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.blockId;
+          if (!id) continue;
+          if (entry.isIntersecting) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+    },
+    { rootMargin: "200px 0px" },
+  ));
 
-  const setBlockRef = useCallback((id: string, el: HTMLDivElement | null) => {
-    const obs = observerRef.current;
-    const prev = paneRefs.current.get(id);
-    if (prev && obs) obs.unobserve(prev);
-    if (el) {
-      paneRefs.current.set(id, el);
-      if (obs) obs.observe(el);
-    } else {
+  const observeBlock = useCallback((el: HTMLDivElement | null) => {
+    const id = el?.dataset.blockId;
+    if (!el || !id) return undefined;
+    paneRefs.current.set(id, el);
+    visibilityObserver.observe(el);
+    return () => {
+      visibilityObserver.unobserve(el);
       paneRefs.current.delete(id);
-    }
-  }, []);
+    };
+  }, [visibilityObserver]);
 
   const handleHeightDrag = useCallback(
     (blockId: string, e: React.PointerEvent) => {
@@ -272,7 +267,8 @@ export function PaneMobile({
       const tgtLeafId = targetBlock.primaryLeaf.id;
       if (moveSourceLeafId === tgtLeafId) return;
 
-      if (zone === PaneDropZone.Center) {
+      revealAddedRef.current = true;
+      if (zone === Placement.Center) {
         swapPanes(moveSourceLeafId, tgtLeafId);
       } else {
         insertPaneBeside(moveSourceLeafId, tgtLeafId, zone);
@@ -286,25 +282,28 @@ export function PaneMobile({
   const [activeInView, setActiveInView] = useState<string | null>(
     blocks[0]?.id ?? null,
   );
+  const activeBlock = activeInView ? blockMap.get(activeInView) : undefined;
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  const handleSplit = useCallback(
+    (leafId: string, direction: SplitDirectionValue, type: PaneTypeValue) => {
+      revealAddedRef.current = true;
+      splitPane(leafId, direction, type);
+    },
+    [splitPane],
+  );
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addDropRef = useRef<HTMLDivElement>(null);
 
   const handleAddPane = useCallback(
-    (type: PaneType) => {
-      const lastBlock = blocks.at(-1);
-      const activeBlock = activeInView
-        ? blockMap.get(activeInView)
-        : lastBlock;
-      const target = activeBlock ?? lastBlock;
-      if (target) {
-        const leafId = target.primaryLeaf.id;
-        splitPane(leafId, SplitDirection.Vertical, type);
-      }
+    (type: PaneTypeValue) => {
+      const target = activeBlock ?? blocks.at(-1);
+      if (target) handleSplit(target.primaryLeaf.id, SplitDirection.Vertical, type);
       setAddMenuOpen(false);
     },
-    [blocks, blockMap, activeInView, splitPane],
+    [blocks, activeBlock, handleSplit],
   );
 
   useEffect(() => {
@@ -326,58 +325,6 @@ export function PaneMobile({
       document.removeEventListener(DomEvent.TouchStart, onDown, true);
     };
   }, [addMenuOpen]);
-
-  const [splitMenu, setSplitMenu] = useState<{
-    leafId: string;
-    dir: SplitDirectionValue;
-    top: number;
-    left: number;
-  } | null>(null);
-  const splitMenuRef = useRef<HTMLDivElement>(null);
-
-  const requestSplit = useCallback(
-    (
-      leafId: string,
-      direction: SplitDirectionValue,
-      event: React.MouseEvent,
-    ) => {
-      const onlyType =
-        availableTypes.length === 1 ? availableTypes[0] : undefined;
-      if (onlyType) {
-        splitPane(leafId, direction, onlyType);
-        return;
-      }
-      const rectangle = event.currentTarget.getBoundingClientRect();
-      setSplitMenu((current) =>
-        current?.leafId === leafId && current.dir === direction
-          ? null
-          : {
-              leafId,
-              dir: direction,
-              top: rectangle.bottom + PaneMobileMenuMetric.OffsetPx,
-              left: rectangle.left,
-            },
-      );
-    },
-    [availableTypes, splitPane],
-  );
-
-  useEffect(() => {
-    if (!splitMenu) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (
-        splitMenuRef.current &&
-        !splitMenuRef.current.contains(e.target as Node)
-      )
-        setSplitMenu(null);
-    };
-    document.addEventListener(DomEvent.MouseDown, handler);
-    document.addEventListener(DomEvent.TouchStart, handler);
-    return () => {
-      document.removeEventListener(DomEvent.MouseDown, handler);
-      document.removeEventListener(DomEvent.TouchStart, handler);
-    };
-  }, [splitMenu]);
 
   const pinnedBlockRef = useRef<string | null>(null);
   const lastScrollAtRef = useRef(0);
@@ -417,6 +364,44 @@ export function PaneMobile({
     };
     scrollWhenSettled();
   }, []);
+
+  useEffect(() => {
+    const currentIds = new Set(blocks.map((b) => b.id));
+    const prevIds = prevBlockIdsRef.current;
+    prevBlockIdsRef.current = currentIds;
+    const revealAdded = revealAddedRef.current;
+    revealAddedRef.current = false;
+
+    let addedId: string | undefined;
+    for (const id of currentIds) {
+      if (!prevIds.has(id)) addedId = id;
+    }
+    if (addedId === undefined || !revealAdded) return;
+    scrollToBlock(addedId);
+  }, [blocks, scrollToBlock]);
+
+  const dossierBlockId = useMemo(() => {
+    const dossier = allLeaves.find((lf) => lf.paneType === PaneTypeId.Dossier);
+    return dossier ? blocks.find((b) => b.leafIds.includes(dossier.id))?.id : undefined;
+  }, [allLeaves, blocks]);
+
+  const revealDossierRef = useRef(false);
+  const revealDossier = useCallback(() => {
+    const scroller = scrollerRef.current;
+    const block = dossierBlockId ? document.getElementById(`mobile-block-${dossierBlockId}`) : null;
+    revealDossierRef.current = !block;
+    if (!scroller || !block) return;
+    const offset = block.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    scroller.scrollTo({
+      top: scroller.scrollTop + offset - scroller.clientHeight * PaneLayoutRatio.Equal,
+      behavior: "smooth",
+    });
+  }, [dossierBlockId]);
+
+  useEffect(() => onDossierOpenRequest(revealDossier), [revealDossier]);
+  useEffect(() => {
+    if (revealDossierRef.current) revealDossier();
+  }, [revealDossier]);
 
   const tabObsRef = useRef<IntersectionObserver | null>(null);
 
@@ -517,7 +502,7 @@ export function PaneMobile({
                     insertPaneBeside(
                       lf.id,
                       siblingLeafId,
-                      PaneDropZone.Bottom,
+                      Placement.Bottom,
                     )
                 : undefined
             }
@@ -613,107 +598,11 @@ export function PaneMobile({
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
-      {splitMenu && (
-        <SplitMenu
-          ref={splitMenuRef}
-          types={availableTypes}
-          catalog={paneCatalog}
-          top={splitMenu.top}
-          left={splitMenu.left}
-          wtMenu
-          className="fixed z-(--layer-menu) rounded overflow-hidden bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48"
-          onSelect={(type) => {
-            splitPane(splitMenu.leafId, splitMenu.dir, type);
-            setSplitMenu(null);
-          }}
-        />
-      )}
-
       {!chromeHidden && (
-        <div className="shrink-0 sticky top-0 z-(--layer-floating) flex items-center flex-wrap gap-1 px-2 py-1 border-b border-sig-border/50 bg-sig-panel/95 backdrop-blur-sm">
-          {blocks.map((block) => {
-            const meta = paneCatalog[block.primaryLeaf.paneType];
-            const Icon = meta.icon;
-            const isActive = activeInView === block.id;
-            const isMinimized = minimizedBlocks.has(block.id);
-            return (
-              <button
-                type={ButtonType.Button}
-                key={block.id}
-                onClick={() => {
-                  if (isMinimized) toggleMinimize(block.id);
-                  scrollToBlock(block.id);
-                }}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors min-h-8 ${
-                  mobileTabClassName(isActive, isMinimized)
-                }`}
-              >
-                <Icon
-                  size={PaneWorkspaceIconMetric.MediumSize}
-                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                />
-                <span>
-                  {block.node.type === PaneNodeType.Leaf
-                    ? meta.label
-                    : mobileBlockLabel(block, allLeaves, paneCatalog)}
-                </span>
-              </button>
-            );
-          })}
-
-          {layout.minimized.map((m, i) => {
-            const meta = paneCatalog[m.paneType];
-            const Icon = meta.icon;
-            return (
-              <button
-                type={ButtonType.Button}
-                key={m.id}
-                onClick={() => restorePane(i)}
-                className="flex items-center gap-1 px-2 py-1.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 opacity-50 min-h-8"
-                title={`Restore ${meta.label}`}
-              >
-                <Icon
-                  size={PaneWorkspaceIconMetric.MediumSize}
-                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-                />
-                {meta.label}
-              </button>
-            );
-          })}
-
-          {availableTypes.length > 0 && (
-            <button
-              type={ButtonType.Button}
-              ref={addBtnRef}
-              onClick={() => setAddMenuOpen((o) => !o)}
-              className="flex items-center justify-center px-2 py-1.5 min-h-8 min-w-8 rounded text-sig-dim hover:text-sig-accent transition-colors shrink-0"
-              title="Add pane"
-            >
-              <Plus
-                size={PaneWorkspaceIconMetric.LargeSize}
-                strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
-              />
-            </button>
-          )}
-
-          {addMenuOpen &&
-            addBtnRef.current && (
-              <SplitMenu
-                ref={addDropRef}
-                types={availableTypes}
-                catalog={paneCatalog}
-                top={
-                  addBtnRef.current.getBoundingClientRect().bottom +
-                  PaneMobileMenuMetric.OffsetPx
-                }
-                left={addBtnRef.current.getBoundingClientRect().left}
-                onSelect={handleAddPane}
-                className="fixed z-(--layer-menu) rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48 py-1"
-              />
-            )}
-
+        <div className={PaneMobileClassName.Bar}>
+          {chrome}
           {presets && onLoadPreset && (
-            <div className="relative ml-auto shrink-0">
+            <div className="relative shrink-0">
               <button
                 type={ButtonType.Button}
                 data-tour="views-btn"
@@ -721,7 +610,7 @@ export function PaneMobile({
                   e.stopPropagation();
                   setShowPresets((v) => !v);
                 }}
-                className="flex items-center gap-1 px-2 py-1.5 min-h-8 rounded text-sig-dim text-(length:--sig-text-sm) hover:text-sig-accent transition-colors"
+                className="flex items-center gap-1 px-2 py-1.5 min-h-8 rounded text-sig-dim text-(length:--sig-text-sm) hover:text-sig-accent transition-colors touch-target"
                 title="Layout presets"
               >
                 <Bookmark
@@ -752,6 +641,113 @@ export function PaneMobile({
               )}
             </div>
           )}
+          <div className={PaneMobileClassName.Tabs}>
+          {blocks.map((block) => {
+            const meta = paneCatalog[block.primaryLeaf.paneType];
+            const Icon = meta.icon;
+            const isActive = activeInView === block.id;
+            const isMinimized = minimizedBlocks.has(block.id);
+            return (
+              <button
+                type={ButtonType.Button}
+                key={block.id}
+                data-tour={`view-tab-${block.primaryLeaf.paneType}`}
+                aria-haspopup={isActive ? "dialog" : undefined}
+                aria-expanded={isActive ? actionsOpen : undefined}
+                onClick={() => {
+                  if (isMinimized) toggleMinimize(block.id);
+                  if (isActive && !isMinimized && !moveSourceLeafId) {
+                    setActionsOpen(true);
+                    return;
+                  }
+                  scrollToBlock(block.id);
+                }}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded text-(length:--sig-text-sm) tracking-wide font-semibold transition-colors min-h-8 touch-target ${
+                  mobileTabClassName(isActive, isMinimized)
+                }`}
+              >
+                {isActive ? (
+                  <Ellipsis
+                    size={PaneWorkspaceIconMetric.MediumSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
+                ) : (
+                  <Icon
+                    size={PaneWorkspaceIconMetric.MediumSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
+                )}
+                <span>{mobileBlockLabel(block, allLeaves, paneCatalog)}</span>
+              </button>
+            );
+          })}
+
+          {layout.minimized.map((m, i) => {
+            const meta = paneCatalog[m.paneType];
+            const Icon = meta.icon;
+            return (
+              <button
+                type={ButtonType.Button}
+                key={m.id}
+                onClick={() => {
+                  revealAddedRef.current = true;
+                  restorePane(i);
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 rounded text-sig-dim text-(length:--sig-text-sm) bg-sig-panel/80 opacity-50 min-h-8 touch-target"
+                title={`Restore ${meta.label}`}
+              >
+                <Icon
+                  size={PaneWorkspaceIconMetric.MediumSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
+                {meta.label}
+              </button>
+            );
+          })}
+
+          {moveSourceLeafId ? (
+            <button
+              type={ButtonType.Button}
+              onClick={() => setMoveSourceLeafId(null)}
+              className={PaneMobileClassName.CancelMove}
+            >
+              {PANE_MOBILE_CANCEL_MOVE_LABEL}
+            </button>
+          ) : (
+            availableTypes.length > 0 && (
+              <button
+                type={ButtonType.Button}
+                ref={addBtnRef}
+                onClick={() => setAddMenuOpen((o) => !o)}
+                data-tour="add-view"
+                className={PaneMobileClassName.ActionButton}
+                title="Add pane"
+              >
+                <Plus
+                  size={PaneWorkspaceIconMetric.LargeSize}
+                  strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                />
+              </button>
+            )
+          )}
+
+          {addMenuOpen &&
+            addBtnRef.current && (
+              <SplitMenu
+                ref={addDropRef}
+                types={availableTypes}
+                catalog={paneCatalog}
+                top={
+                  addBtnRef.current.getBoundingClientRect().bottom +
+                  PaneMobileMenuMetric.OffsetPx
+                }
+                left={addBtnRef.current.getBoundingClientRect().left}
+                onSelect={handleAddPane}
+                className="fixed z-(--layer-menu) rounded bg-sig-panel/96 border border-sig-border backdrop-blur-md min-w-48 py-1"
+              />
+            )}
+
+          </div>
         </div>
       )}
 
@@ -761,9 +757,14 @@ export function PaneMobile({
       >
         {blocks.map((block) => {
           const meta = paneCatalog[block.primaryLeaf.paneType];
+          const Icon = meta.icon;
+          const screen = dossierBlockId && block.primaryLeaf.paneType === PaneTypeId.Globe
+            ? PaneMobileScreen.Half
+            : meta.mobileScreen;
+          const growsToContent = screen === PaneMobileScreen.Content;
           const resizedHeight = heights[block.id];
-          const useFlexFill = blocks.length === 1 && resizedHeight === undefined;
-          const isVisible = visibleSet.has(block.id);
+          const useFlexFill = blocks.length === 1 && resizedHeight === undefined && !growsToContent;
+          const isVisible = growsToContent || visibleSet.has(block.id);
           const isMinimized = minimizedBlocks.has(block.id);
           const isMoveSource = isMoveSourceBlock(block, moveSourceLeafId);
           const isMoveTarget = isMoveTargetBlock(block, moveSourceLeafId);
@@ -783,29 +784,35 @@ export function PaneMobile({
                   ? "globe-pane"
                   : undefined
               }
-              ref={(el) => setBlockRef(block.id, el)}
+              ref={observeBlock}
               className={cn(
                 PaneMobileClassName.Block,
                 useFlexFill && PaneMobileClassName.BlockFlex,
-                !useFlexFill && !isMinimized && resizedHeight === undefined && MOBILE_SCREEN_CLASS[meta.mobileScreen],
+                !useFlexFill && !isMinimized && resizedHeight === undefined && MOBILE_SCREEN_CLASS[screen],
                 isMoveSource && PaneMobileClassName.BlockMoveSource,
               )}
             >
-              <MobilePaneHeader
-                availableTypes={availableTypes}
-                block={block}
-                changePaneType={changePaneType}
-                closePane={closePane}
-                isMinimized={isMinimized}
-                moveSourceLeafId={moveSourceLeafId}
-                onGripClick={handleGripTap}
-                paneCatalog={paneCatalog}
-                requestSplit={requestSplit}
-                toggleMinimize={toggleMinimize}
-                totalLeafCount={totalLeafCount}
-              />
-
-              {!isMinimized && (
+              {isMinimized ? (
+                <button
+                  type={ButtonType.Button}
+                  onClick={() => toggleMinimize(block.id)}
+                  aria-expanded={false}
+                  className={PaneMobileClassName.CollapsedBlock}
+                >
+                  <Icon
+                    size={PaneWorkspaceIconMetric.MediumSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                  />
+                  <span className={PaneMobileClassName.CollapsedLabel}>
+                    {mobileBlockLabel(block, allLeaves, paneCatalog)}
+                  </span>
+                  <ChevronRight
+                    size={PaneWorkspaceIconMetric.CompactSize}
+                    strokeWidth={PaneWorkspaceIconMetric.StandardStroke}
+                    className="ml-auto"
+                  />
+                </button>
+              ) : (
                 <>
                   <div
                     className={cn("relative overflow-hidden", resizedHeight === undefined && PaneMobileClassName.FillContent)}
@@ -825,12 +832,14 @@ export function PaneMobile({
                     />
                   </div>
 
-                  <div
-                    className="touch-resize relative shrink-0 h-6 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
-                    onPointerDown={(e) => handleHeightDrag(block.id, e)}
-                  >
-                    <div className="w-10 h-1 rounded-full bg-sig-dim/40" />
-                  </div>
+                  {!growsToContent && (
+                    <div
+                      className="touch-resize relative shrink-0 h-6 bg-sig-border/20 flex items-center justify-center cursor-row-resize touch-none active:bg-sig-accent/30 transition-colors"
+                      onPointerDown={(e) => handleHeightDrag(block.id, e)}
+                    >
+                      <div className="w-10 h-1 rounded-full bg-sig-dim/40" />
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -839,6 +848,23 @@ export function PaneMobile({
 
         {blocks.length > 1 && <div className="h-16" />}
       </div>
+
+      {actionsOpen && activeBlock && (
+        <MobileBlockActions
+          availableTypes={availableTypes}
+          block={activeBlock}
+          isMinimized={minimizedBlocks.has(activeBlock.id)}
+          label={mobileBlockLabel(activeBlock, allLeaves, paneCatalog)}
+          onChangePaneType={changePaneType}
+          onClosePane={closePane}
+          onDismiss={() => setActionsOpen(false)}
+          onMove={handleGripTap}
+          onSplit={handleSplit}
+          onToggleMinimize={toggleMinimize}
+          paneCatalog={paneCatalog}
+          totalLeafCount={totalLeafCount}
+        />
+      )}
     </div>
   );
 }

@@ -72,6 +72,42 @@ function serviceUnavailable(): Error {
   );
 }
 
+async function hydrateFiresThenEmpty() {
+  const cached = point("FI-cached", -80, 30, 10);
+  const live = point("FI-live", -81, 31, 40);
+  const snapshots: DataWorkerSourceSnapshot[] = [];
+  const patches: SceneSourcePatch[] = [];
+  const persisted: Array<PointSourceCacheSnapshot<FirePoint>> = [];
+  let fetchCount = 0;
+  let currentTime = FireTestInstant.SceneNow;
+  const binding = fireSceneBinding((command) => {
+    if (command.type === SceneDataCommandType.SourcePatch) patches.push(command);
+  });
+  const source = new FireSource({
+    fetchPoints: async () => {
+      fetchCount += 1;
+      return fetchCount === 1 ? [live] : [];
+    },
+    now: () => currentTime,
+    schedule: () => () => undefined,
+  });
+  source.attach({
+    readCache: async () => ({ schema: PointSourceCacheSchema.Current, timestamp: FireTestInstant.Cache, version: 1, entities: [cached] }),
+    deleteCache: () => undefined,
+    persistCache: (_key, snapshot) => {
+      persisted.push(snapshot as PointSourceCacheSnapshot<FirePoint>);
+    },
+    publishStatus: (snapshot) => snapshots.push(snapshot),
+    publishPatch: (patch) => binding.publish(patch),
+  });
+  await source.hydrate();
+  await source.start();
+  const afterStart = { values: source.values(), live: source.get("FI-live"), status: snapshots.at(-1)?.status };
+  currentTime += MS_PER_DAY;
+  await source.refresh();
+  return { live, afterStart, source, patches, snapshots, persisted };
+}
+
 describe("fire scene source", () => {
   test("validates the complete feed without truncation", async () => {
     const minutesPerDay = HOURS_PER_DAY * MINUTES_PER_HOUR;
@@ -198,59 +234,20 @@ describe("fire scene source", () => {
     expect(patches[2]?.entityIds).toEqual(["FI-two"]);
   });
 
-  test("hydrates, replaces, and accepts a complete empty snapshot", async () => {
-    const cached = point("FI-cached", -80, 30, 10);
-    const live = point("FI-live", -81, 31, 40);
-    const snapshots: DataWorkerSourceSnapshot[] = [];
-    const patches: SceneSourcePatch[] = [];
-    const persisted: Array<PointSourceCacheSnapshot<FirePoint>> = [];
-    let fetchCount = 0;
-    let currentTime = FireTestInstant.SceneNow;
-    const binding = fireSceneBinding((command) => {
-      if (command.type === SceneDataCommandType.SourcePatch) {
-        patches.push(command);
-      }
-    });
-    const source = new FireSource({
-      fetchPoints: async () => {
-        fetchCount += 1;
-        return fetchCount === 1 ? [live] : [];
-      },
-      now: () => currentTime,
-      schedule: () => () => undefined,
-    });
-    source.attach({
-      readCache: async () => ({
-        schema: PointSourceCacheSchema.Current,
-        timestamp: FireTestInstant.Cache,
-        version: 1,
-        entities: [cached],
-      }),
-      deleteCache: () => undefined,
-      persistCache: (_key, snapshot) => {
-        persisted.push(
-          snapshot as PointSourceCacheSnapshot<FirePoint>,
-        );
-      },
-      publishStatus: (snapshot) => snapshots.push(snapshot),
-      publishPatch: (patch) => binding.publish(patch),
-    });
+  test("replaces the cached snapshot with the live one on start", async () => {
+    const { live, afterStart } = await hydrateFiresThenEmpty();
 
-    await source.hydrate();
-    await source.start();
+    expect(afterStart.values).toEqual([live]);
+    expect(afterStart.live).toEqual(live);
+    expect(afterStart.status).toBe(SourceStatus.Live);
+  });
 
-    expect(source.values()).toEqual([live]);
-    expect(source.get("FI-live")).toEqual(live);
-    expect(snapshots.at(-1)?.status).toBe(SourceStatus.Live);
-
-    currentTime += MS_PER_DAY;
-    await source.refresh();
+  test("accepts a complete empty snapshot, deletes the live handle and persists the empty set", async () => {
+    const { source, patches, snapshots, persisted } = await hydrateFiresThenEmpty();
 
     expect(source.values()).toEqual([]);
     expect(source.get("FI-live")).toBeNull();
-    expect(Array.from(patches.at(-1)?.deletedHandles ?? [])).toEqual([
-      2,
-    ]);
+    expect(Array.from(patches.at(-1)?.deletedHandles ?? [])).toEqual([2]);
     expect(snapshots.at(-1)?.status).toBe(SourceStatus.Empty);
     expect(persisted.at(-1)?.entities).toEqual([]);
   });

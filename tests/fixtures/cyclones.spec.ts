@@ -5,7 +5,7 @@ import { readdirSync } from "fs";
 // ── Cyclone fixture GUARD ────────────────────────────────────────────
 // The prior cyclone fixtures FABRICATED an inline `forecast: [...]` array
 // (and `forecastTrack.advisoryNumber`) that real NHC CurrentStorms.json
-// does NOT contain — forecast positions live only inside the storm's
+// does NOT contain, forecast positions live only inside the storm's
 // TRACK.kmz. Tests written against that fabricated shape were green on the
 // bug and red on a correct implementation. This guard locks the fabrication
 // out permanently and asserts the REAL captured shape instead.
@@ -27,14 +27,14 @@ async function loadJson(path: string): Promise<Payload> {
 // ── Guard: dev fixtures carry REAL forecast (not fabricated numbers) ─────
 //
 // The original bug FABRICATED a forecast array with made-up positions/winds.
-// The fix is not "no inline forecast" — the dev fixtures (this dir) ARE the
+// The fix is not "no inline forecast", the dev fixtures (this dir) ARE the
 // client-facing post-parse shape and legitimately inline a forecast so the
 // dossier renders. The guard instead requires that inline forecast to be REAL-
 // shaped (every required field present and numeric), and that the raw-wire
 // captures (cyclones-real/, asserted in the second describe) still match NHC's
-// real CurrentStorms.json — which carries NO inline forecast.
+// real CurrentStorms.json, which carries NO inline forecast.
 
-describe("cyclone dev fixtures — real forecast shape", () => {
+describe("cyclone dev fixtures: real forecast shape", () => {
   const jsonFixtures = readdirSync(FIXTURE_DIR).filter((f) =>
     f.endsWith(".json"),
   );
@@ -50,7 +50,7 @@ describe("cyclone dev fixtures — real forecast shape", () => {
         const forecast = (s as { forecast?: unknown }).forecast;
         if (!Array.isArray(forecast)) continue; // out-of-season / no forecast is fine
         for (const fp of forecast as Array<Record<string, unknown>>) {
-          // Every NHC forecast point carries these — a fabricated/partial point
+          // Every NHC forecast point carries these, a fabricated/partial point
           // (the original bug) would be missing one.
           expect(typeof fp.fcstHour).toBe("number");
           expect(typeof fp.latitude).toBe("number");
@@ -72,13 +72,13 @@ describe("cyclone dev fixtures — real forecast shape", () => {
 
 // ── Real captures carry the REAL NHC shape ──────────────────────────
 
-describe("cyclones-real/ — real NHC CurrentStorms.json shape", () => {
+describe("cyclones-real/: real NHC CurrentStorms.json shape", () => {
   test("CurrentStorms.json parses and has activeStorms", async () => {
     const json = await loadJson(resolve(REAL_DIR, "CurrentStorms.json"));
     expect(Array.isArray(json.activeStorms)).toBe(true);
   });
 
-  test("each real storm carries advNum on publicAdvisory and KMZ urls — but NO inline forecast", async () => {
+  test("each real storm carries advNum on publicAdvisory and KMZ urls: but NO inline forecast", async () => {
     const json = await loadJson(resolve(REAL_DIR, "CurrentStorms.json"));
     expect((json.activeStorms ?? []).length).toBeGreaterThan(0);
     for (const s of json.activeStorms ?? []) {
@@ -86,8 +86,8 @@ describe("cyclones-real/ — real NHC CurrentStorms.json shape", () => {
       expect(typeof pa?.advNum).toBe("string");
       const ft = s.forecastTrack as Record<string, unknown> | undefined;
       const tc = s.trackCone as Record<string, unknown> | undefined;
-      expect(typeof ft?.kmzFile).toBe("string"); // TRACK.kmz — holds forecast pts
-      expect(typeof tc?.kmzFile).toBe("string"); // CONE.kmz — holds the cone
+      expect(typeof ft?.kmzFile).toBe("string"); // TRACK.kmz, holds forecast pts
+      expect(typeof tc?.kmzFile).toBe("string"); // CONE.kmz, holds the cone
       // The smoking gun: real payloads do NOT inline forecast points.
       expect(Object.hasOwn(s, "forecast")).toBe(false);
     }

@@ -368,8 +368,8 @@ describe("alert deduplication", () => {
     expect(iraqAlerts.length).toBeLessThan(5);
     // Collapsed alert should have count > 1
     const collapsed = iraqAlerts.find((a) => a.count > 1);
-    expect(collapsed).toBeDefined();
-    expect(collapsed!.label).toContain("similar");
+    expect(collapsed?.count).toBeGreaterThan(1);
+    expect(collapsed?.label).toContain("similar");
   });
 
   test("events in different countries are NOT collapsed", () => {
@@ -494,8 +494,7 @@ describe("baseline tracking", () => {
       makeEvent({ country: "Syria" }),
     ];
     const result = computeCorrelations(events, []);
-    expect(result.baseline.countries["Iraq"]).toBeDefined();
-    expect(result.baseline.countries["Syria"]).toBeDefined();
+    expect(Object.keys(result.baseline.countries).sort()).toEqual(["Iraq", "Syria"]);
   });
 
   test("Unknown and Global countries are not tracked", () => {

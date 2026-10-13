@@ -19,7 +19,7 @@ import {
 
 // Real capture: EP01 2026 (Amanda). The cone KMZ URL is read out of the
 // real CurrentStorms.json (trackCone.kmzFile), so derive it from that fixture
-// rather than hardcoding — keeps the mock honest against the real payload.
+// rather than hardcoding, keeps the mock honest against the real payload.
 const REAL_CS = "tests/fixtures/cyclones-real/CurrentStorms.json";
 const REAL_CONE_KMZ = "tests/fixtures/cyclones-real/ep012026-cone.kmz";
 const STORM_ID = "EP012026";
@@ -58,16 +58,16 @@ describe("parseKmlConeToGeoJSON", () => {
     expect(polygon!.coordinates[0]![0]).toEqual([-90.0, 22.4]);
   });
 
-  test("returns null when KML has no <Polygon>", () => {
-    const kml = `<?xml version="1.0"?><kml><Document/></kml>`;
-    expect(parseKmlConeToGeoJSON(kml)).toBeNull();
-  });
-
-  test("returns null when ring has fewer than 4 vertices", () => {
-    const kml = `<?xml?><kml><Polygon><outerBoundaryIs><LinearRing>
+  test("returns null without a Polygon or with a ring of fewer than four vertices", () => {
+    const rejected: ReadonlyArray<readonly [string, string]> = [
+      ["no polygon", `<?xml version="1.0"?><kml><Document/></kml>`],
+      ["short ring", `<?xml?><kml><Polygon><outerBoundaryIs><LinearRing>
 <coordinates>-90,22,0 -82,28,0 -90,22,0</coordinates>
-</LinearRing></outerBoundaryIs></Polygon></kml>`;
-    expect(parseKmlConeToGeoJSON(kml)).toBeNull();
+</LinearRing></outerBoundaryIs></Polygon></kml>`],
+    ];
+    for (const [name, kml] of rejected) {
+      expect([name, parseKmlConeToGeoJSON(kml)]).toEqual([name, null]);
+    }
   });
 
   test("throws on malformed coordinate values", () => {
@@ -80,7 +80,7 @@ describe("parseKmlConeToGeoJSON", () => {
 
 // ── End-to-end cache ───────────────────────────────────────────────
 
-describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
+describe("getCycloneCone: KMZ fetch + cache + fallback", () => {
   let originalFetch: typeof globalThis.fetch;
   let fetchCount: Record<string, number>;
   let kmzHandler: () => Response | Promise<Response>;
@@ -136,7 +136,7 @@ describe("getCycloneCone — KMZ fetch + cache + fallback", () => {
   });
 
   test("storm not registered in cyclonesCache → cone: null", async () => {
-    // Don't call fetchCyclones — stormProducts is empty.
+    // Don't call fetchCyclones, stormProducts is empty.
     const result = await getCycloneCone(STORM_ID);
     expect(result.cone).toBeNull();
   });

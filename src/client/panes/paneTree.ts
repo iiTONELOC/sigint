@@ -15,14 +15,10 @@ import {
   type SplitDirectionValue,
 } from "@/panes/workspace/model/pane";
 
-// ── Types ────────────────────────────────────────────────────────────
-
-export type PaneType = PaneTypeValue;
-
 export type LeafNode = {
   type: PaneLeafNodeType;
   id: string;
-  paneType: PaneType;
+  paneType: PaneTypeValue;
 };
 
 export type SplitNode = {
@@ -39,7 +35,7 @@ export type LayoutState = {
   root: LayoutNode;
   minimized: {
     id: string;
-    paneType: PaneType;
+    paneType: PaneTypeValue;
     dir: SplitDirectionValue;
     ratio: number;
     wasSecond: boolean;
@@ -52,7 +48,7 @@ export type LayoutPresetCatalog = Readonly<Record<string, LayoutPreset>>;
 
 // On mobile these stay full-width: children go below only (no side-by-side
 // h-split, no left/right insert). Enforced in the mobile UI + auto-split logic.
-export const FULL_WIDTH_ONLY: ReadonlySet<PaneType> = new Set([
+export const FULL_WIDTH_ONLY: ReadonlySet<PaneTypeValue> = new Set([
   PaneTypeId.Globe,
   PaneTypeId.VideoFeed,
 ]);
@@ -60,7 +56,7 @@ export const FULL_WIDTH_ONLY: ReadonlySet<PaneType> = new Set([
 /** Force a vertical split when the anchor must stay full-width on mobile. */
 export function mobileSplitDir(
   dir: SplitDirectionValue,
-  anchorType: PaneType,
+  anchorType: PaneTypeValue,
   isMobile: boolean,
 ): SplitDirectionValue {
   return isMobile && FULL_WIDTH_ONLY.has(anchorType)
@@ -94,15 +90,13 @@ export function normalizeMobileLayout(layout: LayoutState): LayoutState {
   return { ...layout, root: normalizeMobileNode(layout.root) };
 }
 
-// ── Tree helpers ─────────────────────────────────────────────────────
-
 let _idC = PaneIdSequence.Start;
 export function uid(): string {
   _idC += PaneIdSequence.Step;
   return `${PaneIdToken.NodePrefix}${Date.now()}${PaneIdToken.SegmentSeparator}${_idC}`;
 }
 
-export function leaf(paneType: PaneType): LeafNode {
+export function leaf(paneType: PaneTypeValue): LeafNode {
   return { type: PaneNodeType.Leaf, id: uid(), paneType };
 }
 
@@ -121,7 +115,7 @@ export function split(
   };
 }
 
-export function collectLeafTypes(node: LayoutNode): Set<PaneType> {
+export function collectLeafTypes(node: LayoutNode): Set<PaneTypeValue> {
   if (node.type === PaneNodeType.Leaf) return new Set([node.paneType]);
   const s = collectLeafTypes(node.children[0]);
   for (const t of collectLeafTypes(node.children[1])) s.add(t);
@@ -243,8 +237,6 @@ export function collectLeaves(node: LayoutNode): LeafNode[] {
   ];
 }
 
-// ── Persistence ──────────────────────────────────────────────────────
-
 function layoutKey(mobile: boolean): string {
   return mobile ? CacheKey.LayoutMobile : CacheKey.LayoutDesktop;
 }
@@ -290,12 +282,10 @@ function parseLayout(cached: LayoutState | null): LayoutState | null {
 
 export async function loadLayout(mobile: boolean): Promise<LayoutState> {
   try {
-    // Try the device-specific key first
     const cached = await cacheGet<LayoutState>(layoutKey(mobile));
     const parsed = parseLayout(cached);
     if (parsed) return parsed;
 
-    // Fall back to legacy key (migrates existing users)
     const legacy = await cacheGet<LayoutState>(
       CacheKey.LayoutLegacy,
     );
@@ -311,7 +301,6 @@ export function persistLayout(layout: LayoutState, mobile: boolean) {
   cacheSet(layoutKey(mobile), layout);
 }
 
-// Named presets follow user intent across device-specific live layouts.
 function indexPresets(presets: readonly LayoutPreset[]): LayoutPresetCatalog {
   const catalog: Record<string, LayoutPreset> = Object.create(null);
   for (const preset of presets) {
@@ -327,7 +316,6 @@ export async function loadPresets(): Promise<LayoutPresetCatalog> {
   );
   if (shared) return indexPresets(shared);
 
-  // Merge deprecated stores when the shared store is absent.
   const lists = await Promise.all([
     cacheGet<LayoutPreset[]>(
       CacheKey.LayoutPresetsDesktopLegacy,

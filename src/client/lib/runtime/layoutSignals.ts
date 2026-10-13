@@ -23,8 +23,6 @@ export function useHasDossier(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-// ── Request dossier open (cross-component event) ─────────────────
-
 const dossierRequestListeners = new Set<() => void>();
 
 export function requestDossierOpen() {

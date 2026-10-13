@@ -449,7 +449,7 @@ function CycloneForecastCanvas({ item, focus, models, overlay, hazards }: Cyclon
       drawOverlay={drawOverlay}
       {...(rasterArea ? { redrawEveryMs: RASTER_FRAME_MS } : {})}
       reserveMinimumHeight={true}
-      resetKey={`${current.lat}:${current.lon}`}
+      key={item.id}
     >
       <div className="absolute bottom-1.5 left-1.5 flex flex-col gap-px rounded bg-sig-bg/70 backdrop-blur-sm px-1.5 py-1 text-(length:--sig-text-xs) leading-tight">
         {SAFFIR_LEGEND.map((band) => (

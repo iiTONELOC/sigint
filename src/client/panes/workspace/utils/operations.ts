@@ -1,5 +1,5 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import {
-  PaneDropZone,
   PaneLayoutRatio,
   PaneNodeType,
   PaneSearchIndex,
@@ -203,7 +203,7 @@ export function createWatchLayout(
     next,
     openTypes,
     {
-      anchorType: PaneType.Globe,
+      anchorType: context.isMobile ? PaneType.Dossier : PaneType.Globe,
       direction: SplitDirection.Vertical,
       paneType: PaneType.AlertLog,
       ratio: PaneLayoutRatio.WatchAlerts,
@@ -401,15 +401,15 @@ function splitDirectionFor(
   zone: PaneEdgeDropZoneValue,
 ): SplitDirectionValue {
   return (
-    zone === PaneDropZone.Left ||
-    zone === PaneDropZone.Right
+    zone === Placement.Left ||
+    zone === Placement.Right
   )
     ? SplitDirection.Horizontal
     : SplitDirection.Vertical;
 }
 
 function sourcePrecedesTarget(zone: PaneEdgeDropZoneValue): boolean {
-  return zone === PaneDropZone.Left || zone === PaneDropZone.Top;
+  return zone === Placement.Left || zone === Placement.Top;
 }
 
 export function insertPaneBesideInLayout(

@@ -34,7 +34,7 @@ function storm(maxWindKt: number, forecast: ForecastPoint[]): CycloneData {
   return {
     stormId: "EP012026",
     name: "Amanda",
-    basin: CycloneBasin.EasternPacific,
+    basin: CycloneBasin.EastPacific,
     classification: Category.TropicalStorm,
     saffirSimpson: SaffirSimpson.None,
     maxWindKt,

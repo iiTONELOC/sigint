@@ -15,7 +15,7 @@ import {
   CYCLONE_CATEGORY_METADATA,
   type CycloneForecastPointData,
 } from "@shared/domain/cyclones";
-import { BASIN_LABEL } from "@shared/cyclonesSeason";
+import { basinLabel } from "@shared/cyclonesSeason";
 import { CycloneForecastTickerContent } from "./ui/CycloneForecastTickerContent";
 import { BLANK_SEPARATOR } from "@shared/text";
 
@@ -70,7 +70,7 @@ export const cycloneForecastFeature = defineFeature<
         : [[CyclonePointRowLabel.Pressure, formatPressureMb(data.minPressureMb)]];
     const rows: [CyclonePointRowLabel, string][] = [
       [CyclonePointRowLabel.Storm, data.parentName],
-      [CyclonePointRowLabel.Basin, BASIN_LABEL[data.parentBasin]],
+      [CyclonePointRowLabel.Basin, basinLabel(data.parentBasin)],
       [CyclonePointRowLabel.Forecast, leadTime(data.fcstHour)],
       [CyclonePointRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,

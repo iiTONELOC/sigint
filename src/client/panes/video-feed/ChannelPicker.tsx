@@ -9,7 +9,7 @@ import { Search, X, Tv } from "lucide-react";
 import { ButtonType } from "@/lib/ui/button";
 import { DomInputType } from "@/runtime";
 import { useVirtualScroll } from "@/virtual-scroll";
-import type { Channel, ChannelCatalog } from "./videoFeedTypes";
+import type { Channel, ChannelCatalog } from "@shared/domain/videoChannel";
 import { getRegion, RegionKey } from "./videoFeedTypes";
 
 enum ChannelPickerMetric {
@@ -103,7 +103,7 @@ function ChannelPickerView(
           value={search}
           onChange={(event) => setSearch(event.currentTarget.value)}
           placeholder="Search channels..."
-          className="bg-transparent flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) caret-sig-accent"
+          className="bg-transparent flex-1 min-w-0 text-sig-bright text-(length:--sig-text-md) any-pointer-coarse:text-base caret-sig-accent touch-target"
           autoFocus
         />
         <span className="text-sig-dim text-(length:--sig-text-sm) shrink-0">
@@ -113,7 +113,7 @@ function ChannelPickerView(
           type={ButtonType.Button}
           title="Close channel picker"
           onClick={onClose}
-          className="text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors p-0"
+          className="text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors p-0 touch-target"
         >
           <X
             size={ChannelPickerMetric.IconSize}
@@ -127,7 +127,7 @@ function ChannelPickerView(
             type={ButtonType.Button}
             key={regionKey}
             onClick={() => setRegion(regionKey)}
-            className={`px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wider font-semibold shrink-0 transition-colors border ${
+            className={`px-1.5 py-0.5 rounded text-(length:--sig-text-sm) tracking-wider font-semibold shrink-0 transition-colors border touch-target ${
               region === regionKey
                 ? "text-sig-accent bg-sig-accent/10 border-sig-accent/30"
                 : "text-sig-dim bg-transparent border-sig-border/40 hover:text-sig-bright"

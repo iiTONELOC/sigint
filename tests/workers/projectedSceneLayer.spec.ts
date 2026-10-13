@@ -12,35 +12,39 @@ import {
 } from "@/workers/render/sceneProtocol";
 import { SceneGeometryKind } from "@shared/scene";
 
+function singleAircraftRebase() {
+  return createSceneCommand({
+    type: SceneDataCommandType.SourcePatch,
+    source: Domain.Aircraft,
+    sourceVersion: 1,
+    kind: DatasetPatchKind.Rebase,
+    handles: new Uint32Array([1]),
+    sceneIds: ["aircraft-marker-A1"],
+    entityIds: ["A1"],
+    positions: new Float64Array([20, 10]),
+    motionPositions: new Float64Array(),
+    motionPositionStride: 0,
+    unitVectors: new Float32Array([1, 0, 0]),
+    timestamps: new Float64Array([1_000]),
+    attributes: new Float32Array([90, 0, 0]),
+    attributeStride: 3,
+    stringAttributes: new Uint32Array(),
+    stringAttributeStride: 0,
+    dictionaryStart: 0,
+    dictionaryValues: [],
+    geometryKinds: new Uint8Array([SceneGeometryKind.None]),
+    geometryCoordinates: new Float64Array(),
+    geometryPartEnds: new Uint32Array(),
+    geometryGroupEnds: new Uint32Array(),
+    geometryRecordEnds: new Uint32Array([0]),
+    deletedHandles: new Uint32Array(),
+  }, "session-a", 1);
+}
+
 describe("projected scene layer", () => {
   test("projects active records and uses visible hit buckets", () => {
     const store = new SceneStore(Domain.Aircraft);
-    store.apply(createSceneCommand({
-      type: SceneDataCommandType.SourcePatch,
-      source: Domain.Aircraft,
-      sourceVersion: 1,
-      kind: DatasetPatchKind.Rebase,
-      handles: new Uint32Array([1]),
-      sceneIds: ["aircraft-marker-A1"],
-      entityIds: ["A1"],
-      positions: new Float64Array([20, 10]),
-      motionPositions: new Float64Array(),
-      motionPositionStride: 0,
-      unitVectors: new Float32Array([1, 0, 0]),
-      timestamps: new Float64Array([1_000]),
-      attributes: new Float32Array([90, 0, 0]),
-      attributeStride: 3,
-      stringAttributes: new Uint32Array(),
-      stringAttributeStride: 0,
-      dictionaryStart: 0,
-      dictionaryValues: [],
-      geometryKinds: new Uint8Array([SceneGeometryKind.None]),
-      geometryCoordinates: new Float64Array(),
-      geometryPartEnds: new Uint32Array(),
-      geometryGroupEnds: new Uint32Array(),
-      geometryRecordEnds: new Uint32Array([0]),
-      deletedHandles: new Uint32Array(),
-    }, "session-a", 1));
+    store.apply(singleAircraftRebase());
 
     const layer = new ProjectedSceneLayer();
     layer.project(store.view(), {
@@ -48,12 +52,7 @@ describe("projected scene layer", () => {
       height: 200,
       hitCellSize: 32,
       cullMargin: 0,
-      flat: {
-        centerX: 100,
-        centerY: 100,
-        mapWidth: 360,
-        mapHeight: 180,
-      },
+      flat: { centerX: 100, centerY: 100, mapWidth: 360, mapHeight: 180 },
       globe: null,
       includes: () => true,
     });

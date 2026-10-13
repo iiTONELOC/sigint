@@ -1,6 +1,3 @@
-// One owner for the named-entity decode that the news feed and NHC bulletin
-// parsers each repeated. Covers the handful of entities that appear in those
-// plain-text payloads; not a full HTML entity table.
 
 const ENTITIES: ReadonlyArray<readonly [string, string]> = [
   ["&amp;", "&"],

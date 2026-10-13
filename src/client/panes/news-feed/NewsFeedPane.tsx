@@ -11,8 +11,6 @@ import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
 import { NewsSource } from "@shared/domain/newsSource";
 import { isEnumValue } from "@shared/types/enum";
 
-// ── Constants ───────────────────────────────────────────────────────
-
 enum NewsFeedMetric {
   RowHeight = 72,
   Overscan = 6,
@@ -38,8 +36,6 @@ function newsSourceLabel(source: string): string {
     .replace(NewsSourceSuffix.Google, "")
     .replace(NewsSourceSuffix.World, "");
 }
-
-// ── State persistence ───────────────────────────────────────────────
 
 type SavedNewsState = {
   selectedId: string | null;
@@ -67,8 +63,6 @@ function saveNewsState(state: SavedNewsState): void {
   cacheSet(CacheKey.NewsState, state);
 }
 
-// ── Component ───────────────────────────────────────────────────────
-
 export function NewsFeedPane() {
   const { newsArticles: articles } = useDataContext();
 
@@ -92,7 +86,6 @@ export function NewsFeedPane() {
     setRestored(true);
   }, [articles, savedId, restored]);
 
-  // Persist state on changes
   const updateSourceFilter = useCallback(
     (f: NewsSource | null) => {
       setSourceFilter(f);
@@ -109,13 +102,11 @@ export function NewsFeedPane() {
     [sourceFilter],
   );
 
-  // ── Filtered list ──────────────────────────────────────────────
   const filtered = useMemo(() => {
     if (!sourceFilter) return articles;
     return articles.filter((a) => a.source === sourceFilter);
   }, [articles, sourceFilter]);
 
-  // ── Source counts ──────────────────────────────────────────────
   const sourceCounts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const a of articles) {
@@ -124,7 +115,6 @@ export function NewsFeedPane() {
     return c;
   }, [articles]);
 
-  // ── Virtual scroll ─────────────────────────────────────────────
   const { scrollRef, totalHeight, offsetY, startIdx, endIdx, onScroll } =
     useVirtualScroll({
       itemCount: filtered.length,
@@ -137,7 +127,6 @@ export function NewsFeedPane() {
     [filtered, startIdx, endIdx],
   );
 
-  // ── Detail view ────────────────────────────────────────────────
   if (selected) {
     return (
       <div className={NewsFeedClassName.Root}>
@@ -207,7 +196,6 @@ export function NewsFeedPane() {
     );
   }
 
-  // ── List view ──────────────────────────────────────────────────
   return (
     <div className={NewsFeedClassName.Root}>
       {/* Filter bar */}

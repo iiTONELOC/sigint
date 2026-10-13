@@ -224,3 +224,10 @@ describe("parseAdsbResponse", () => {
     );
   });
 });
+
+describe("parseAdsbResponse type description", () => {
+  test("desc → typeDescription, absent when the feed has none", () => {
+    expect(aircraftData(SAMPLE_AIRCRAFT)?.typeDescription).toBe(SAMPLE_AIRCRAFT.desc);
+    expect(aircraftData(GROUND_AIRCRAFT)?.typeDescription).toBeUndefined();
+  });
+});

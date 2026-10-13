@@ -1,10 +1,10 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { PaneType } from "@/panes/workspace";
 import type {
   WalkthroughCompletionCheck,
   WalkthroughStep,
 } from "./types";
 import {
-  WalkthroughPlacement,
   WalkthroughRingColor,
   WalkthroughSelector,
   WalkthroughStepId,
@@ -60,7 +60,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Aircraft Filters",
       description:
         "Filter by flight status, aircraft type, squawk code, and country of origin.",
-      placement: WalkthroughPlacement.Bottom,
+      placement: Placement.Bottom,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -71,7 +71,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "You're Ready",
       description:
         "That is the full tour. Relaunch it from Settings, Walkthrough. Happy hunting.",
-      placement: WalkthroughPlacement.Bottom,
+      placement: Placement.Bottom,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -82,7 +82,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Enter Focus Mode",
       description:
         "Click empty space outside the globe to hide all chrome and go fullscreen.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (
         _types,
@@ -100,7 +100,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Exit Focus Mode",
       description:
         "Click empty space outside the globe to restore all controls. This mode is useful for presentations and briefings.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (
         _types,
@@ -118,7 +118,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Globe Controls",
       description:
         "Toggle flat or globe projection. Enable auto-rotation. FLAT view shows a full equirectangular map.",
-      placement: WalkthroughPlacement.Bottom,
+      placement: Placement.Bottom,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -129,7 +129,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Deselect",
       description:
         "Click empty space outside the globe to deselect. The detail panel will close.",
-      placement: WalkthroughPlacement.Right,
+      placement: Placement.Right,
       mode: WalkthroughStepMode.Action,
       completionCheck: selectionCleared,
     },
@@ -141,7 +141,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Move the Detail Panel",
       description:
         "Grab the drag handle at the top of the detail panel and drag it out of the way.",
-      placement: WalkthroughPlacement.Right,
+      placement: Placement.Right,
       mode: WalkthroughStepMode.Information,
       buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.DetailDragHandle),
     },
@@ -155,14 +155,14 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
     mobileOverrides: {
       description:
         "Tap any point on the globe to select it. A detail panel will slide up from the bottom.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
     },
     step: {
       targetSelector: walkthroughTourSelector(WalkthroughTourTarget.GlobePane),
       title: "Select a Target",
       description:
         "Click any point on the globe to select it. A detail panel will appear.",
-      placement: WalkthroughPlacement.Right,
+      placement: Placement.Right,
       mode: WalkthroughStepMode.Action,
       completionCheck: (_types, _count, _presets, selectedId) =>
         selectedId !== null,
@@ -173,14 +173,14 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
     mobileEssentialOrder: 1,
     mobileOverrides: {
       buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.LayerToggles),
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
     },
     step: {
       targetSelector: walkthroughTourSelector(WalkthroughTourTarget.LayerToggles),
       title: "Data Layers",
       description:
         "Toggle layers on and off: aircraft, vessels, seismic, fires, weather, and GDELT events. Each layer is color-coded.",
-      placement: WalkthroughPlacement.Bottom,
+      placement: Placement.Bottom,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -191,7 +191,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "You're All Set",
       description:
         "You built a layout with live video, alerts, and intel. Explore the globe, track targets, and customize your workspace. Restart the tour from Settings.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -202,7 +202,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Detail Panel",
       description:
         "The detail panel shows information about the selected point. Swipe it up to expand or down to shrink. Tap the close button now.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: selectionCleared,
       buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.DetailClose),
@@ -221,7 +221,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Save Your Layout",
       description:
         "Click VIEWS, type a name, and click the save icon. Your layout is now a reusable preset.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (_types, _count, presetCount) =>
         presetCount >= WalkthroughCompletionCount.Required,
@@ -242,7 +242,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Save Video Channels",
       description:
         "Click the bookmark icon on the video pane, type a name, and save. Your channel selections are now a reusable preset.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (
         _types,
@@ -267,7 +267,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Global Search",
       description:
         "Search across all data: callsigns, vessel names, and locations. Results filter the globe in real time. Try it or press NEXT.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Information,
       buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.Search),
     },
@@ -279,7 +279,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Settings",
       description:
         "Manage the theme, layer colors, ticker speed, data transfer, and storage.",
-      placement: WalkthroughPlacement.Left,
+      placement: Placement.Left,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -287,11 +287,13 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
     desktopEssentialOrder: 9,
     mobileEssentialOrder: 5,
     mobileOverrides: {
+      targetSelector: WalkthroughSelector.None,
       title: "Add VIDEO FEED",
       description:
-        "Tap the split-down button in the globe pane header, then select VIDEO FEED from the menu.",
+        "Tap the + button in the view tabs, then select VIDEO FEED from the list.",
       completionCheck: (types) => types.has(PaneType.VideoFeed),
       expectedPaneType: PaneType.VideoFeed,
+      buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.AddView),
       highlightSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitMenuVideoFeed),
       highlightColor: WalkthroughRingColor.Warning,
     },
@@ -299,8 +301,8 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       targetSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitDownButton),
       title: "Add Another: Split Down",
       description:
-        'Click the highlighted "Split down" button, then select ALERTS.',
-      placement: WalkthroughPlacement.Center,
+        "Click the highlighted \"Split down\" button, then select ALERTS.",
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (types, count) =>
         types.has(PaneType.VideoFeed) &&
@@ -315,15 +317,15 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
   [WalkthroughStepId.SplitDownAlerts]: {
     mobileEssentialOrder: 7,
     step: {
-      targetSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitDownVideoFeed),
+      targetSelector: WalkthroughSelector.None,
       title: "Add ALERTS",
       description:
-        "Tap the split-down button on the VIDEO FEED pane header, then select ALERTS from the menu.",
-      placement: WalkthroughPlacement.Center,
+        "Tap the + button again, then select ALERTS from the list.",
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (types) => types.has(PaneType.AlertLog),
       expectedPaneType: PaneType.AlertLog,
-      buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitDownVideoFeed),
+      buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.AddView),
       highlightSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitMenuAlertLog),
       highlightColor: WalkthroughRingColor.Danger,
     },
@@ -334,8 +336,8 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       targetSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitRightButton),
       title: "Add a Pane: Split Right",
       description:
-        'Click the highlighted "Split right" button, then select VIDEO FEED from the menu.',
-      placement: WalkthroughPlacement.Center,
+        "Click the highlighted \"Split right\" button, then select VIDEO FEED from the menu.",
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (types) => types.has(PaneType.VideoFeed),
       expectedPaneType: PaneType.VideoFeed,
@@ -349,13 +351,14 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       targetSelector: WalkthroughSelector.None,
       title: "Add INTEL FEED",
       description:
-        "Tap the split-right button in the ALERTS pane header, then select INTEL FEED from the menu.",
-      placement: WalkthroughPlacement.Center,
+        "Tap the ALERTS tab, tap it again for its actions, choose ADD A VIEW BESIDE, then INTEL FEED.",
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Action,
       completionCheck: (types) => types.has(PaneType.IntelFeed),
       expectedPaneType: PaneType.IntelFeed,
-      buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitRightAlertLog),
-      highlightSelector: walkthroughTourSelector(WalkthroughTourTarget.SplitMenuIntelFeed),
+      buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.ViewTabAlertLog),
+      highlightSelector: walkthroughTourSelector(WalkthroughTourTarget.BlockActionSplitRight),
+      tertiarySelector: walkthroughTourSelector(WalkthroughTourTarget.SplitMenuIntelFeed),
     },
   },
   [WalkthroughStepId.Ticker]: {
@@ -365,7 +368,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Live Feed",
       description:
         "The scrolling ticker shows the latest activity from all sources. Click an item to select it and zoom on the globe.",
-      placement: WalkthroughPlacement.Top,
+      placement: Placement.Top,
       mode: WalkthroughStepMode.Information,
     },
   },
@@ -376,7 +379,7 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
       title: "Watch Mode",
       description:
         "Auto-tour through alerts and intel products. The globe cycles through high-priority events every 8 seconds. Try WATCH in the globe controls.",
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
       mode: WalkthroughStepMode.Information,
       buttonSelector: walkthroughTourSelector(WalkthroughTourTarget.GlobeControls),
     },
@@ -385,14 +388,14 @@ const WALKTHROUGH_STEP_CATALOG: Readonly<
     desktopEssentialOrder: 0,
     mobileEssentialOrder: 0,
     mobileOverrides: {
-      placement: WalkthroughPlacement.Center,
+      placement: Placement.Center,
     },
     step: {
       targetSelector: walkthroughTourSelector(WalkthroughTourTarget.HeaderBrand),
       title: "Welcome to SIGINT",
       description:
         "Real-time global intelligence dashboard with live aircraft, vessel, seismic, fire, weather, and event tracking.",
-      placement: WalkthroughPlacement.Bottom,
+      placement: Placement.Bottom,
       mode: WalkthroughStepMode.Information,
     },
   },

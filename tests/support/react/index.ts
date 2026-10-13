@@ -1,4 +1,4 @@
-export { expectBusyStatus } from "./accessibility";
+export { busyStatus } from "./accessibility";
 export { configureReactTestEnvironment } from "./environment";
 export { withExpectedReactError } from "./errors";
 export {

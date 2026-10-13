@@ -2,10 +2,11 @@
 
 import { Database } from "bun:sqlite";
 import { unlink } from "fs/promises";
+import { AIRCRAFT_DB_PATH } from "../src/server/api/aircraftEnrichment";
 import { classifyMilitary } from "../src/server/data/militaryRules";
 
 const DEFAULT_INPUT = "src/server/data/ac-db.ndjson";
-const DEFAULT_OUTPUT = "src/server/data/ac-db.sqlite";
+const DEFAULT_OUTPUT = AIRCRAFT_DB_PATH;
 
 export enum AircraftDatabaseField {
   Icao24 = "i",

@@ -1,7 +1,5 @@
 import { Component, type ReactNode, type ErrorInfo } from "react";
 
-// ── Types ────────────────────────────────────────────────────────────
-
 type ErrorBoundaryProps = {
   /** Changing this unique key forces a remount and reset. */
   readonly name: string;
@@ -16,8 +14,6 @@ type ErrorBoundaryState = {
   error: Error | null;
   errorCount: number;
 };
-
-// ── Default fallback ─────────────────────────────────────────────────
 
 function DefaultFallback({
   error,
@@ -52,8 +48,6 @@ function DefaultFallback({
   );
 }
 
-// ── ErrorBoundary ────────────────────────────────────────────────────
-
 export class ErrorBoundary extends Component<
   ErrorBoundaryProps,
   ErrorBoundaryState
@@ -77,7 +71,6 @@ export class ErrorBoundary extends Component<
     const { error, errorCount } = this.state;
     const autoRetryMs = this.props.autoRetryMs ?? 5000;
 
-    // Set up auto-retry when error first appears
     if (error && !prevState.error && autoRetryMs > 0 && errorCount < 3) {
       this.clearRetryTimer();
       this.retryTimer = setTimeout(() => this.reset(), autoRetryMs);

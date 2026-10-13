@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
+import { fetchEncyclopedia } from "@/lib/net/encyclopedia";
+import {
+  EncyclopediaRoute,
+  type EncyclopediaTypeAnswer,
+  type EncyclopediaTypeQuery,
+} from "@shared/domain/encyclopedia";
 
-const API = "https://api.planespotters.net/pub/photos/hex";
+const API = "https://api.planespotters.net/pub/photos";
+
+enum SpotterLookup {
+  Hex = "hex",
+  Registration = "reg",
+}
 
 export type AircraftPhoto = Readonly<{
   src: string;
@@ -8,6 +19,7 @@ export type AircraftPhoto = Readonly<{
   photographer: string;
   width: number;
   height: number;
+  stock: boolean;
 }>;
 
 type PsPhoto = {
@@ -18,27 +30,44 @@ type PsPhoto = {
 };
 
 async function fetchPhoto(
-  icao24: string,
-  registration: string | undefined,
+  lookup: SpotterLookup,
+  key: string,
   signal: AbortSignal,
 ): Promise<AircraftPhoto | null> {
-  const query = registration
-    ? `?reg=${encodeURIComponent(registration)}`
-    : "";
-  const url = `${API}/${icao24.toUpperCase()}${query}`;
+  try {
+    const res = await fetch(`${API}/${lookup}/${encodeURIComponent(key)}`, { signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { photos?: PsPhoto[] };
+    const first = data.photos?.[0];
+    if (!first) return null;
+    const thumb = first.thumbnail_large ?? first.thumbnail;
+    return {
+      src: thumb.src,
+      link: first.link,
+      photographer: first.photographer,
+      width: thumb.size.width,
+      height: thumb.size.height,
+      stock: false,
+    };
+  } catch {
+    return null;
+  }
+}
 
-  const res = await fetch(url, { signal });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { photos?: PsPhoto[] };
-  const first = data.photos?.[0];
-  if (!first) return null;
-  const thumb = first.thumbnail_large ?? first.thumbnail;
+async function fetchStockPhoto(
+  stock: EncyclopediaTypeQuery,
+): Promise<AircraftPhoto | null> {
+  if (!Object.values(stock).some(Boolean)) return null;
+  const answer = await fetchEncyclopedia<EncyclopediaTypeAnswer>(EncyclopediaRoute.AircraftType, stock);
+  const article = answer?.article;
+  if (!article?.image) return null;
   return {
-    src: thumb.src,
-    link: first.link,
-    photographer: first.photographer,
-    width: thumb.size.width,
-    height: thumb.size.height,
+    src: article.image.src,
+    link: article.url,
+    photographer: article.title,
+    width: article.image.width,
+    height: article.image.height,
+    stock: true,
   };
 }
 
@@ -50,7 +79,9 @@ export type AircraftPhotoState = {
 export function useAircraftPhoto(
   icao24: string,
   reg?: string,
+  stock: EncyclopediaTypeQuery = {},
 ): AircraftPhotoState {
+  const { description, manufacturer, model } = stock;
   const [photo, setPhoto] = useState<AircraftPhoto | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,29 +92,26 @@ export function useAircraftPhoto(
       return;
     }
     const controller = new AbortController();
+    const { signal } = controller;
     setPhoto(null);
     setLoading(true);
     (async () => {
-      try {
-        let result = await fetchPhoto(icao24, undefined, controller.signal);
-        if (!result && reg) {
-          result = await fetchPhoto(icao24, reg, controller.signal);
-        }
-        if (!controller.signal.aborted) {
-          setPhoto(result);
-          setLoading(false);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setPhoto(null);
-          setLoading(false);
-        }
+      let result = await fetchPhoto(SpotterLookup.Hex, icao24.toUpperCase(), signal);
+      if (!result && reg && !signal.aborted) {
+        result = await fetchPhoto(SpotterLookup.Registration, reg, signal);
+      }
+      if (!result && !signal.aborted) {
+        result = await fetchStockPhoto({ description, manufacturer, model });
+      }
+      if (!signal.aborted) {
+        setPhoto(result);
+        setLoading(false);
       }
     })();
     return () => {
       controller.abort();
     };
-  }, [icao24, reg]);
+  }, [icao24, reg, description, manufacturer, model]);
 
   return { photo, loading };
 }

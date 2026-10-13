@@ -1,6 +1,6 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import type { PaneType } from "@/panes/workspace";
 import {
-  WalkthroughPlacement,
   WalkthroughRingColor,
   WalkthroughStepId,
   WalkthroughStepMode,
@@ -25,7 +25,7 @@ export type WalkthroughStep = Readonly<{
   highlightSelector?: string;
   id: WalkthroughStepId;
   mode: WalkthroughStepMode;
-  placement: WalkthroughPlacement;
+  placement: Placement;
   quaternarySelector?: string;
   targetSelector: string;
   tertiarySelector?: string;

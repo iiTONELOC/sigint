@@ -1,4 +1,4 @@
-import { DeviceType, LayoutMode, ViewportOrientation } from "../model/layoutMode";
+import { DeviceType, LayoutMode } from "../model/layoutMode";
 import { isEnumValue } from "@shared/types/enum";
 
 export function parseLayoutMode(value: unknown): LayoutMode | null {
@@ -12,19 +12,9 @@ export function nextLayoutMode(mode: LayoutMode): LayoutMode {
   return modes[nextIndex] ?? LayoutMode.Auto;
 }
 
-export function viewportOrientation(
-  width: number,
-  height: number,
-): ViewportOrientation {
-  return height >= width
-    ? ViewportOrientation.Portrait
-    : ViewportOrientation.Landscape;
-}
-
 export function usesMobileLayout(
   mode: LayoutMode,
   deviceType: DeviceType,
-  orientation: ViewportOrientation,
 ): boolean {
   if (mode === LayoutMode.Mobile) {
     return true;
@@ -32,8 +22,5 @@ export function usesMobileLayout(
   if (mode === LayoutMode.Desktop) {
     return false;
   }
-  return (
-    deviceType === DeviceType.Phone &&
-    orientation === ViewportOrientation.Portrait
-  );
+  return deviceType === DeviceType.Phone;
 }

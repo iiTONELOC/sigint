@@ -1,3 +1,4 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import {
   beforeEach,
   describe,
@@ -6,11 +7,11 @@ import {
 } from "bun:test";
 import { act } from "react";
 import {
-  PaneDropZone,
   PaneType,
   SplitDirection,
   type PaneTypeValue,
 } from "@/panes/workspace/model/pane";
+import { MobileBlockActionLabel } from "@/panes/MobileBlockActions";
 import { flushReactUpdates } from "../../../../support/react";
 import {
   MobileFixtureLabel,
@@ -18,16 +19,20 @@ import {
   mobileLayout,
   mobileLeaf,
   mobileSplit,
+  openBlockActions,
   renderMobileFixture,
-  requireBlockMoveButton,
+  requireCancelMoveButton,
   requireLeafHeader,
   requireLeafPopOutButton,
   requireMobileBlock,
   requireMoveZoneButtons,
+  requireSheetAction,
+  requireToolbar,
   resetMobileFixture,
 } from "./fixture";
 
 enum MobileMovementExpectedCount {
+  NoZones = 0,
   FullWidthZones = 3,
   AllZones = 5,
 }
@@ -61,9 +66,9 @@ function movableLayout(
   );
 }
 
-function enterBlockMoveMode(): HTMLElement {
-  const source = requireMobileBlock(MobileFixtureNodeId.DataTable);
-  act(() => requireBlockMoveButton(source).click());
+function enterBlockMoveMode(sourceType: PaneTypeValue): HTMLElement {
+  openBlockActions(requireMobileBlock(MobileFixtureNodeId.DataTable), sourceType);
+  act(() => requireSheetAction(MobileBlockActionLabel.Move).click());
   return requireMobileBlock(MobileFixtureNodeId.Dossier);
 }
 
@@ -85,10 +90,9 @@ function requireAllMoveControls(target: HTMLElement): AllMoveControls {
 describe("PaneMobile block movement", () => {
   test("swaps a full-width pane without side insertion actions", async () => {
     const fixture = renderMobileFixture({
-      chromeHidden: true,
       layout: movableLayout(PaneType.Globe, PaneType.DataTable),
     });
-    const target = enterBlockMoveMode();
+    const target = enterBlockMoveMode(PaneType.Globe);
     const controls = requireMoveZoneButtons(target);
     const [, swap] = controls;
 
@@ -109,10 +113,9 @@ describe("PaneMobile block movement", () => {
 
   test("maps side actions to side insertion zones", async () => {
     const fixture = renderMobileFixture({
-      chromeHidden: true,
       layout: movableLayout(PaneType.DataTable, PaneType.Dossier),
     });
-    let controls = requireAllMoveControls(enterBlockMoveMode());
+    let controls = requireAllMoveControls(enterBlockMoveMode(PaneType.DataTable));
 
     act(() => controls.left.click());
     await flushReactUpdates();
@@ -120,26 +123,25 @@ describe("PaneMobile block movement", () => {
     expect(fixture.callbacks.insertPaneBeside).toHaveBeenCalledWith(
       MobileFixtureNodeId.DataTable,
       MobileFixtureNodeId.Dossier,
-      PaneDropZone.Left,
+      Placement.Left,
     );
 
-    controls = requireAllMoveControls(enterBlockMoveMode());
+    controls = requireAllMoveControls(enterBlockMoveMode(PaneType.DataTable));
     act(() => controls.right.click());
     await flushReactUpdates();
 
     expect(fixture.callbacks.insertPaneBeside).toHaveBeenCalledWith(
       MobileFixtureNodeId.DataTable,
       MobileFixtureNodeId.Dossier,
-      PaneDropZone.Right,
+      Placement.Right,
     );
   });
 
   test("maps vertical actions to vertical insertion zones", async () => {
     const fixture = renderMobileFixture({
-      chromeHidden: true,
       layout: movableLayout(PaneType.DataTable, PaneType.Dossier),
     });
-    let controls = requireAllMoveControls(enterBlockMoveMode());
+    let controls = requireAllMoveControls(enterBlockMoveMode(PaneType.DataTable));
 
     act(() => controls.above.click());
     await flushReactUpdates();
@@ -147,17 +149,36 @@ describe("PaneMobile block movement", () => {
     expect(fixture.callbacks.insertPaneBeside).toHaveBeenCalledWith(
       MobileFixtureNodeId.DataTable,
       MobileFixtureNodeId.Dossier,
-      PaneDropZone.Top,
+      Placement.Top,
     );
 
-    controls = requireAllMoveControls(enterBlockMoveMode());
+    controls = requireAllMoveControls(enterBlockMoveMode(PaneType.DataTable));
     act(() => controls.below.click());
     await flushReactUpdates();
 
     expect(fixture.callbacks.insertPaneBeside).toHaveBeenCalledWith(
       MobileFixtureNodeId.DataTable,
       MobileFixtureNodeId.Dossier,
-      PaneDropZone.Bottom,
+      Placement.Bottom,
+    );
+  });
+});
+
+describe("PaneMobile move cancellation", () => {
+  test("cancels a move from the tab strip", async () => {
+    renderMobileFixture({
+      layout: movableLayout(PaneType.DataTable, PaneType.Dossier),
+    });
+    const target = enterBlockMoveMode(PaneType.DataTable);
+    expect(requireMoveZoneButtons(target)).toHaveLength(
+      MobileMovementExpectedCount.AllZones,
+    );
+
+    act(() => requireCancelMoveButton(requireToolbar(target)).click());
+    await flushReactUpdates();
+
+    expect(requireMoveZoneButtons(target)).toHaveLength(
+      MobileMovementExpectedCount.NoZones,
     );
   });
 });
@@ -190,7 +211,7 @@ describe("PaneMobile split-leaf movement", () => {
     expect(fixture.callbacks.insertPaneBeside).toHaveBeenCalledWith(
       MobileFixtureNodeId.Globe,
       MobileFixtureNodeId.DataTable,
-      PaneDropZone.Bottom,
+      Placement.Bottom,
     );
   });
 });

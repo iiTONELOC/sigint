@@ -15,6 +15,7 @@ type RawIntelFeedProps = Readonly<{
   itemCount: number;
   onItemClick: (item: DataPoint) => void;
   onZoomTo: (item: DataPoint, event: MouseEvent) => void;
+  ready: boolean;
   selectedId: string | null;
   styleAttributes: IntelFeedStyleAttributes;
   visibleItems: readonly DataPoint[];
@@ -25,6 +26,7 @@ export function RawIntelFeed({
   itemCount,
   onItemClick,
   onZoomTo,
+  ready,
   selectedId,
   styleAttributes,
   visibleItems,
@@ -128,7 +130,7 @@ export function RawIntelFeed({
       </div>
       {itemCount === 0 && (
         <div className="flex items-center justify-center h-full text-sig-dim text-(length:--sig-text-md)">
-          {IntelFeedCopy.NoData}
+          {ready ? IntelFeedCopy.NoData : IntelFeedCopy.Loading}
         </div>
       )}
     </>

@@ -19,6 +19,7 @@ enum AircraftVisibilityField {
 }
 
 enum AircraftFilterClassName {
+  Fill = "w-full",
   AircraftRoleActive = "bg-sig-aircraft/15 border-sig-aircraft text-sig-aircraft",
   AircraftRoleInactive = "bg-sig-panel/30 border-sig-aircraft/40 text-sig-aircraft",
   BrightRoleActive = "bg-sig-bright/15 border-sig-bright text-sig-bright",
@@ -103,6 +104,7 @@ type AircraftFilterControlProps = Readonly<{
   aircraftCount: number;
   availableCountries: readonly string[];
   countVisible?: boolean;
+  readonly fill?: boolean;
 }>;
 
 function toggledArrayValue<T>(
@@ -120,6 +122,7 @@ export function AircraftFilterControl({
   aircraftCount,
   availableCountries,
   countVisible = false,
+  fill = false,
 }: AircraftFilterControlProps) {
   const [open, setOpen] = useState(false);
   const disclosureId = useId();
@@ -178,6 +181,7 @@ export function AircraftFilterControl({
         aria-label="Aircraft filters"
         className={cn(
           "touch-target flex shrink-0 items-center justify-center gap-1.5 rounded border px-1 py-0.5 text-(length:--sig-text-btn) font-semibold tracking-wide transition-colors sm:justify-start sm:px-1.5 md:px-2",
+          fill && AircraftFilterClassName.Fill,
           aircraftFilter.enabled
             ? AircraftFilterClassName.AircraftRoleActive
             : AircraftFilterClassName.Inactive,

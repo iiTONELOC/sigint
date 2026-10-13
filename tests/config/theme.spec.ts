@@ -28,12 +28,7 @@ function contrast(c1: string, c2: string): number {
 }
 
 describe("theme config", () => {
-  test("dark and light themes exist", () => {
-    expect(themes.dark).toBeDefined();
-    expect(themes.light).toBeDefined();
-  });
-
-  test("both themes have all required color keys", () => {
+  test("both themes carry every required color key", () => {
     const requiredKeys = [
       "bg",
       "panel",
@@ -57,9 +52,9 @@ describe("theme config", () => {
       "danger",
       "warn",
     ];
-    for (const key of requiredKeys) {
-      expect((themes.dark.colors as any)[key]).toBeDefined();
-      expect((themes.light.colors as any)[key]).toBeDefined();
+    for (const [name, theme] of Object.entries(themes)) {
+      const missing = requiredKeys.filter((key) => !(key in theme.colors));
+      expect([name, missing]).toEqual([name, []]);
     }
   });
 

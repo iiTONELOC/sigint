@@ -31,14 +31,10 @@ enum HitCellOffset {
   Next = 1,
 }
 
-enum ProjectionScale {
-  Half = 2,
-}
-
-/** Records bucket by 10 degree cell so a frame skips whole cells before any math. */
 enum GeoCell {
   SizeDegrees = 10,
   Columns = 36,
+  CenterFraction = 0.5,
   /** Half diagonal of a cell, for stationary records. */
   StaticSlackDegrees = 7.2,
   /** Half diagonal plus the farthest a moving record extrapolates. */
@@ -104,15 +100,14 @@ function cellCenter(cell: number): readonly [latitude: number, longitude: number
   const row = Math.floor(cell / GeoCell.Columns);
   const column = cell % GeoCell.Columns;
   return [
-    GeoLimit.MinLatitude + (row + 1 / ProjectionScale.Half) * GeoCell.SizeDegrees,
-    GeoLimit.MinLongitude + (column + 1 / ProjectionScale.Half) * GeoCell.SizeDegrees,
+    GeoLimit.MinLatitude + (row + GeoCell.CenterFraction) * GeoCell.SizeDegrees,
+    GeoLimit.MinLongitude + (column + GeoCell.CenterFraction) * GeoCell.SizeDegrees,
   ];
 }
 
-/** The lat/lon window a flat frame shows, plus the cull margin. */
 function flatBounds(frame: SceneProjectionFrame, flat: FlatSceneProjection): CellBounds {
-  const degreesPerPixelX = TurnDeg.Half / (flat.mapWidth / ProjectionScale.Half);
-  const degreesPerPixelY = TurnDeg.Quarter / (flat.mapHeight / ProjectionScale.Half);
+  const degreesPerPixelX = TurnDeg.Full / flat.mapWidth;
+  const degreesPerPixelY = TurnDeg.Half / flat.mapHeight;
   return {
     minLongitude: (-frame.cullMargin - flat.centerX) * degreesPerPixelX,
     maxLongitude: (frame.width + frame.cullMargin - flat.centerX) * degreesPerPixelX,
@@ -394,14 +389,8 @@ export class ProjectedSceneLayer {
     latitude: number,
   ): SceneProjection {
     return {
-      x:
-        flat.centerX +
-        (longitude / TurnDeg.Half) *
-          (flat.mapWidth / ProjectionScale.Half),
-      y:
-        flat.centerY -
-        (latitude / TurnDeg.Quarter) *
-          (flat.mapHeight / ProjectionScale.Half),
+      x: flat.centerX + longitude * (flat.mapWidth / TurnDeg.Full),
+      y: flat.centerY - latitude * (flat.mapHeight / TurnDeg.Half),
       depth: 1,
     };
   }

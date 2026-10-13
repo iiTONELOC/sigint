@@ -5,6 +5,7 @@ export {
   DomInputType,
   DomKey,
   DomLinkRelation,
+  DomPointerType,
   DomScrollBehavior,
   DomScrollBlock,
   DomTableScope,

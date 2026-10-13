@@ -55,6 +55,7 @@ type AdsbAircraft = Readonly<{
   registration?: string;
   manufacturerName?: string;
   model?: string;
+  desc?: string;
   operator?: string;
   operatorIcao?: string;
   categoryDescription?: string;
@@ -117,6 +118,7 @@ function isAdsbAircraft(value: unknown): value is AdsbAircraft {
     isOptionalString(value.registration) &&
     isOptionalString(value.manufacturerName) &&
     isOptionalString(value.model) &&
+    isOptionalString(value.desc) &&
     isOptionalString(value.operator) &&
     isOptionalString(value.operatorIcao) &&
     isOptionalString(value.categoryDescription) &&
@@ -161,6 +163,7 @@ function isAircraftData(value: unknown): value is AircraftData {
     isOptionalString(value.originCountry) &&
     isOptionalFiniteNumber(value.verticalRate) &&
     isOptionalString(value.manufacturerName) &&
+    isOptionalString(value.typeDescription) &&
     isOptionalString(value.categoryDescription) &&
     isOptionalString(value.squawk) &&
     isOptionalBoolean(value.military) &&
@@ -204,6 +207,7 @@ function canonicalAircraftData(value: unknown): AircraftData | null {
     originCountry: value.originCountry,
     verticalRate: value.verticalRate,
     manufacturerName: value.manufacturerName,
+    typeDescription: value.typeDescription,
     categoryDescription: value.categoryDescription,
     squawk: value.squawk,
     military: value.military,
@@ -264,6 +268,7 @@ function toAircraftData(
     registration: aircraft.registration,
     manufacturerName: aircraft.manufacturerName,
     model: aircraft.model,
+    typeDescription: aircraft.desc,
     operator: aircraft.operator,
     operatorIcao: aircraft.operatorIcao,
     categoryDescription: aircraft.categoryDescription,

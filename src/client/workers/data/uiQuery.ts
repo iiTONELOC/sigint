@@ -471,10 +471,6 @@ function compareTable<TPoint extends TimestampedPoint>(
   return pointAge(left, now) - pointAge(right, now);
 }
 
-/**
- * The newest eligible points, escalated ones first. priorityCount lets the
- * caller merge pages from several sources without re-testing each point.
- */
 function runTickerQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
   query: Extract<PointUiQuery, { kind: TickerQueryKind }>,
@@ -495,7 +491,6 @@ function runTickerQuery<TPoint extends TimestampedPoint>(
   };
 }
 
-/** Distinct facet values ranked by how many points carry them. */
 function runFacetQuery<TPoint extends TimestampedPoint>(
   points: readonly TPoint[],
   query: Extract<PointUiQuery, { kind: FacetQueryKind }>,
@@ -597,8 +592,6 @@ export function runPointUiQuery<TPoint extends TimestampedPoint>(
     ),
   };
 }
-
-// ── Per-source bindings ─────────────────────────────────────────────
 
 export type PointUiQueries<TPoint extends TimestampedPoint> = Readonly<{
   descriptor: PointUiQueryDescriptor<TPoint>;

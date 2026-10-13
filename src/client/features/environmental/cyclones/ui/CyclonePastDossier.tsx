@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { History } from "lucide-react";
 import { Domain } from "@shared/domain/identity";
-import { BASIN_LABEL } from "@shared/cyclonesSeason";
+import { basinLabel } from "@shared/cyclonesSeason";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import { useSourceEntity } from "@/features/base/useFreshEntity";
 import { useUI } from "@/context/UIContext";
@@ -29,7 +29,7 @@ export function CyclonePastDossier({ item, isolateMode, onLocate, onFocus, onSol
       <DossierToolbar
         icon={History}
         title={pastPointName(data, item.timestamp)}
-        subtitle={`${BASIN_LABEL[data.parentBasin]} · ${PAST_POINT_LABEL.toLowerCase()}`}
+        subtitle={`${basinLabel(data.parentBasin)} · ${PAST_POINT_LABEL.toLowerCase()}`}
         badge={categoryShort(data.maxWindKt)}
         isolateMode={isolateMode}
         onLocate={onLocate}

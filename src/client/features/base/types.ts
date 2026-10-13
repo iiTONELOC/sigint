@@ -1,7 +1,5 @@
 import { type PointType } from "@shared/domain/pointType";
 
-// ── Base point shape ─────────────────────────────────────────────────
-
 export type BasePoint = {
   id: string;
   type: PointType;

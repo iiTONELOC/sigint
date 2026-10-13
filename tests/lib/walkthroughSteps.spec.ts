@@ -1,3 +1,4 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { describe, expect, test } from "bun:test";
 import { PaneType } from "@/panes/workspace";
 import {
@@ -5,7 +6,6 @@ import {
   ESSENTIAL_STEPS,
   MOBILE_ADVANCED_STEPS,
   MOBILE_ESSENTIAL_STEPS,
-  WalkthroughPlacement,
   WalkthroughRingColor,
   WalkthroughSelector,
   WalkthroughStepId,
@@ -32,7 +32,7 @@ function requiredStep(
 }
 
 function expectValidCatalog(steps: readonly WalkthroughStep[]): void {
-  const placements = Object.values(WalkthroughPlacement);
+  const placements = Object.values(Placement);
   const modes = Object.values(WalkthroughStepMode);
   for (const step of steps) {
     expect(step.title.length).toBeGreaterThan(0);
@@ -185,6 +185,28 @@ describe("walkthrough targets", () => {
     expect(alert.highlightColor).toBe(WalkthroughRingColor.Danger);
     expect(video.buttonColor).toBe(WalkthroughRingColor.Magenta);
     expect(video.highlightColor).toBe(WalkthroughRingColor.Magenta);
+  });
+
+  test("teach the phone to add views from the tabs and the view actions", () => {
+    const addVideo = requiredStep(MOBILE_ESSENTIAL_STEPS, WalkthroughStepId.SplitDown);
+    const addAlerts = requiredStep(MOBILE_ESSENTIAL_STEPS, WalkthroughStepId.SplitDownAlerts);
+    const addIntel = requiredStep(MOBILE_ESSENTIAL_STEPS, WalkthroughStepId.SplitRightAlerts);
+    expect(addVideo.targetSelector).toBe(WalkthroughSelector.None);
+    expect(addVideo.buttonSelector).toBe(
+      walkthroughTourSelector(WalkthroughTourTarget.AddView),
+    );
+    expect(addAlerts.buttonSelector).toBe(
+      walkthroughTourSelector(WalkthroughTourTarget.AddView),
+    );
+    expect(addIntel.buttonSelector).toBe(
+      walkthroughTourSelector(WalkthroughTourTarget.ViewTabAlertLog),
+    );
+    expect(addIntel.highlightSelector).toBe(
+      walkthroughTourSelector(WalkthroughTourTarget.BlockActionSplitRight),
+    );
+    expect(addIntel.tertiarySelector).toBe(
+      walkthroughTourSelector(WalkthroughTourTarget.SplitMenuIntelFeed),
+    );
   });
 
   test("keep the advanced relaunch guidance in Settings", () => {

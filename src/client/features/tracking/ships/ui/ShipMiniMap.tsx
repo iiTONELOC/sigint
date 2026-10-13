@@ -165,7 +165,6 @@ export function ShipMiniMap({
       ariaLabel="Vessel position and track over coastline"
       camera={camera}
       drawOverlay={drawOverlay}
-      resetKey={`${lat}:${lon}`}
     />
   );
 }

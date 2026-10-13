@@ -8,7 +8,7 @@ import {
 import { formatKtMph } from "@/measurements";
 import { formatTime } from "@/time";
 import type { CyclonePastPointData } from "@shared/domain/cyclones";
-import { BASIN_LABEL } from "@shared/cyclonesSeason";
+import { basinLabel } from "@shared/cyclonesSeason";
 import { BLANK_SEPARATOR } from "@shared/text";
 import { categoryShort } from "./classification";
 import { CyclonePointRowLabel } from "./forecastDefinition";
@@ -47,7 +47,7 @@ export const cyclonePastFeature = defineFeature<
       timestamp ? [[CyclonePointRowLabel.Time, formatTime(timestamp)]] : [];
     const rows: [CyclonePointRowLabel, string][] = [
       [CyclonePointRowLabel.Storm, data.parentName],
-      [CyclonePointRowLabel.Basin, BASIN_LABEL[data.parentBasin]],
+      [CyclonePointRowLabel.Basin, basinLabel(data.parentBasin)],
       ...timeRow,
       [CyclonePointRowLabel.Winds, formatKtMph(data.maxWindKt)],
       ...pressureRow,

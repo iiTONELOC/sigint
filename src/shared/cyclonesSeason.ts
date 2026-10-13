@@ -1,14 +1,17 @@
+import { spacedWords } from "./text";
+
 export enum CycloneBasin {
   Atlantic = "AL",
-  EasternPacific = "EP",
+  EastPacific = "EP",
   CentralPacific = "CP",
 }
 
-export const BASIN_LABEL: Readonly<Record<CycloneBasin, string>> = {
-  [CycloneBasin.Atlantic]: "Atlantic",
-  [CycloneBasin.EasternPacific]: "East Pacific",
-  [CycloneBasin.CentralPacific]: "Central Pacific",
-};
+const BASIN_MEMBERS: ReadonlyArray<readonly [string, CycloneBasin]> = Object.entries(CycloneBasin);
+
+export function basinLabel(basin: CycloneBasin): string {
+  const member = BASIN_MEMBERS.find(([, value]) => value === basin);
+  return spacedWords(member ? member[0] : basin);
+}
 
 const MONTH_DAY_RADIX = 100;
 const NHC_SEASON_START = 515;

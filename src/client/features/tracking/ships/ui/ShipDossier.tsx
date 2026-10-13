@@ -2,9 +2,10 @@ import { Ship } from "lucide-react";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import {
   DetailField, DossierCard, DossierLabel, DossierLinkGrid, DossierPositionRow,
-  DossierSectionLabel, DossierStatCell, DossierToolbar, useDossierFocus,
+  CoverImage, DossierSectionLabel, DossierStatCell, DossierToolbar, PhotoCredit, useDossierFocus,
   type DossierLink,
 } from "@/dossier";
+import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
 import { AgeStyle, relativeAge } from "@/time";
 import { useTrail } from "@/features/base/useTrail";
 import { Domain } from "@shared/domain/identity";
@@ -18,9 +19,15 @@ import { VesselSilhouette } from "./VesselSilhouette";
 import { EcdisScope } from "./EcdisScope";
 import { RateOfTurn } from "./RateOfTurn";
 import { ShipMiniMap } from "./ShipMiniMap";
+import { useVesselEncyclopedia } from "../hooks/useVesselEncyclopedia";
 
 enum ShipDossierClassName {
   Monospace = "font-mono",
+}
+
+enum ShipDossierLabel {
+  Encyclopedia = "ENCYCLOPEDIA",
+  ReadMore = "READ ON WIKIPEDIA",
 }
 
 type Props = FeatureDossierProps<Domain.Ships>;
@@ -54,6 +61,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
     : null;
   const trail = recordedTrail.map((p) => ({ lat: p.lat, lon: p.lon }));
   const links = intelLinks(mmsi, imo);
+  const { article, photo } = useVesselEncyclopedia(imo);
 
   return (
     <div className="@container/dossier h-full flex flex-col [--dossier-accent:var(--sigint-ships)]">
@@ -75,6 +83,12 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
             <DossierSectionLabel>IDENTITY</DossierSectionLabel>
             <DossierCard className="relative overflow-hidden flex-1">
               <div className="h-1 bg-(--dossier-accent)" />
+              {photo && (
+                <a href={photo.link} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="relative block aspect-video overflow-hidden bg-sig-bg">
+                  <CoverImage src={photo.src} alt={presentation.name} />
+                  <PhotoCredit credit={photo.credit} license={photo.license} />
+                </a>
+              )}
               <div className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -104,6 +118,24 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
               </div>
             </DossierCard>
           </section>
+
+          {article && (
+            <section className="min-w-0 flex flex-col" aria-label={ShipDossierLabel.Encyclopedia}>
+              <DossierSectionLabel>{ShipDossierLabel.Encyclopedia}</DossierSectionLabel>
+              <DossierCard className="p-3 flex-1 flex flex-col gap-2">
+                {article.image && (
+                  <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="block aspect-video overflow-hidden rounded">
+                    <CoverImage src={article.image.src} alt={article.title} />
+                  </a>
+                )}
+                <div className="text-(length:--sig-text-md) text-sig-bright font-bold">{article.title}</div>
+                <p className="text-(length:--sig-text-sm) text-sig-text leading-snug line-clamp-6">{article.extract}</p>
+                <a href={article.url} target={DomAnchorTarget.Blank} rel={DomLinkRelation.NoopenerNoreferrer} className="text-(length:--sig-text-xs) tracking-wider text-sig-accent">
+                  {ShipDossierLabel.ReadMore}
+                </a>
+              </DossierCard>
+            </section>
+          )}
 
           <section className="min-w-0 flex flex-col order-2 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-1 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-start-2 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
             <DossierSectionLabel>NAVIGATION</DossierSectionLabel>
@@ -141,7 +173,7 @@ export function ShipDossier({ item, isolateMode, onLocate, onFocus, onSolo, onCl
           <section className="min-w-0 flex flex-col order-3 @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:col-start-2 @min-[40rem]/dossier:row-start-2 @min-[76rem]/dossier:col-span-2 @min-[76rem]/dossier:col-start-3 @min-[76rem]/dossier:row-start-1 @min-[76rem]/dossier:row-span-2">
             <DossierSectionLabel>CHART</DossierSectionLabel>
             <div className="aspect-4/3 @min-[40rem]/dossier:aspect-auto @min-[40rem]/dossier:h-auto @min-[40rem]/dossier:flex-1 @min-[40rem]/dossier:min-h-64">
-              <ShipMiniMap lat={recordLatitude(item)} lon={recordLongitude(item)} heading={heading} cog={cog} sog={sog} trail={trail} />
+              <ShipMiniMap key={item.id} lat={recordLatitude(item)} lon={recordLongitude(item)} heading={heading} cog={cog} sog={sog} trail={trail} />
             </div>
             <DossierPositionRow item={item} className="mt-2" />
           </section>

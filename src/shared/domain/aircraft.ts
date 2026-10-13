@@ -42,6 +42,7 @@ export type AircraftData = {
   originCountry?: string;
   verticalRate?: number;
   manufacturerName?: string;
+  typeDescription?: string;
   categoryDescription?: string;
   squawk?: string;
   military?: boolean;

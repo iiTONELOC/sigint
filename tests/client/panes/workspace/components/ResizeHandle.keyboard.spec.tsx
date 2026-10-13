@@ -4,9 +4,10 @@ import { PaneResizeMetric, PANE_RESIZE_AXIS_POLICY } from "@/panes/workspace/mod
 import { DomInputType, DomKey } from "@/runtime";
 import {
   dispatchResizeKey,
-  expectLastResize,
+  lastResize,
   renderResizeHandle,
   ResizeExpectedRatio,
+  ResizeFixtureSplitId,
 } from "./ResizeHandle.fixture";
 
 enum ResizeAriaAttribute {
@@ -47,36 +48,31 @@ describe("ResizeHandle keyboard interaction", () => {
     );
   });
 
-  test("supports horizontal arrow and boundary keys", () => {
-    const fixture = renderResizeHandle(SplitDirection.Horizontal);
+  test("moves the split with the arrows of its axis and jumps to its bounds with Home and End", () => {
+    const axes: ReadonlyArray<readonly [SplitDirection, ReadonlyArray<readonly [DomKey, ResizeExpectedRatio]>]> = [
+      [SplitDirection.Horizontal, [
+        [DomKey.ArrowRight, ResizeExpectedRatio.Increased],
+        [DomKey.ArrowLeft, ResizeExpectedRatio.Decreased],
+        [DomKey.Home, ResizeExpectedRatio.HorizontalMinimum],
+        [DomKey.End, ResizeExpectedRatio.HorizontalMaximum],
+      ]],
+      [SplitDirection.Vertical, [
+        [DomKey.ArrowDown, ResizeExpectedRatio.Increased],
+        [DomKey.ArrowUp, ResizeExpectedRatio.Decreased],
+        [DomKey.Home, ResizeExpectedRatio.VerticalMinimum],
+        [DomKey.End, ResizeExpectedRatio.VerticalMaximum],
+      ]],
+    ];
 
-    dispatchResizeKey(fixture.control, DomKey.ArrowRight);
-    expectLastResize(fixture, ResizeExpectedRatio.Increased);
-
-    dispatchResizeKey(fixture.control, DomKey.ArrowLeft);
-    expectLastResize(fixture, ResizeExpectedRatio.Decreased);
-
-    dispatchResizeKey(fixture.control, DomKey.Home);
-    expectLastResize(fixture, ResizeExpectedRatio.HorizontalMinimum);
-
-    dispatchResizeKey(fixture.control, DomKey.End);
-    expectLastResize(fixture, ResizeExpectedRatio.HorizontalMaximum);
-  });
-
-  test("supports vertical arrow and boundary keys", () => {
-    const fixture = renderResizeHandle(SplitDirection.Vertical);
-
-    dispatchResizeKey(fixture.control, DomKey.ArrowDown);
-    expectLastResize(fixture, ResizeExpectedRatio.Increased);
-
-    dispatchResizeKey(fixture.control, DomKey.ArrowUp);
-    expectLastResize(fixture, ResizeExpectedRatio.Decreased);
-
-    dispatchResizeKey(fixture.control, DomKey.Home);
-    expectLastResize(fixture, ResizeExpectedRatio.VerticalMinimum);
-
-    dispatchResizeKey(fixture.control, DomKey.End);
-    expectLastResize(fixture, ResizeExpectedRatio.VerticalMaximum);
+    for (const [direction, keys] of axes) {
+      const fixture = renderResizeHandle(direction);
+      for (const [key, ratio] of keys) {
+        dispatchResizeKey(fixture.control, key);
+        const resize = lastResize(fixture);
+        expect([direction, key, resize.splitId]).toEqual([direction, key, ResizeFixtureSplitId.Primary]);
+        expect(resize.ratio).toBeCloseTo(ratio);
+      }
+    }
   });
 
   test("ignores keys that do not apply to the split", () => {

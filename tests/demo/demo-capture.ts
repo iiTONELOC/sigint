@@ -1,9 +1,9 @@
 /**
- * SIGINT demo capture — screenshots + a short video, dark AND light.
+ * SIGINT demo capture, screenshots + a short video, dark AND light.
  *
  * The video tells the "flexible workspace" story: start on the globe, select a
  * target, DRAG its detail panel, then split into a video feed (4 curated
- * channels) and an intel pane — driven with real Playwright mouse drags against
+ * channels) and an intel pane, driven with real Playwright mouse drags against
  * the app's data-tour="..." handles. Fresh context per theme so the build is
  * shown from scratch (a saved profile would hide it).
  *
@@ -15,11 +15,11 @@
  * read right for the replayed moment.
  *
  * Selectors are verified against source. The one // VERIFY left is the search
- * target in selectTarget() — it depends on whatever is live at capture time.
+ * target in selectTarget(), it depends on whatever is live at capture time.
  */
 import { chromium, type Browser, type Page } from "playwright";
-import { mkdir, rename, readdir } from "node:fs/promises";
-import path from "node:path";
+import { mkdir, rename, readdir } from "fs/promises";
+import path from "path";
 
 const DEMO_URL =
   process.env.DEMO_URL ??
@@ -28,8 +28,10 @@ const DEMO_URL =
 const CHANNELS = ["CBS Miami", "OAN Encore", "Newsmax2", "ABC News"];
 const OUT = "demo";
 const VIEWPORT = { width: 1680, height: 1050 };
-const THEMES = ["dark", "light"] as const;
-type Theme = (typeof THEMES)[number];
+enum Theme {
+  Dark = "dark",
+  Light = "light",
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -134,7 +136,7 @@ async function capturePass(browser: Browser, theme: Theme) {
   // 1) Globe overview
   await shot(page, theme, "01-globe");
 
-  // 2) Select a target, then DRAG its detail panel — panes are movable
+  // 2) Select a target, then DRAG its detail panel, panes are movable
   await selectTarget(page);
   await shot(page, theme, "02-detail");
   await dragBy(page, '[data-tour="detail-drag-handle"]', 300, 180);
@@ -169,7 +171,7 @@ async function capturePass(browser: Browser, theme: Theme) {
 
 async function main() {
   const browser = await chromium.launch();
-  for (const theme of THEMES) await capturePass(browser, theme);
+  for (const theme of Object.values(Theme)) await capturePass(browser, theme);
   await browser.close();
   console.log("\n✅ done →", OUT);
 }

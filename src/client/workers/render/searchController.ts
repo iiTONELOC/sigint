@@ -1,3 +1,4 @@
+import { SequenceStep } from "@shared/scene";
 import type {
   RenderSearchSnapshot,
   RenderSelectionIdentity,
@@ -5,10 +6,6 @@ import type {
 } from "@/workers/render/protocol";
 import type { RenderSourceId } from "@shared/source";
 
-enum SearchRevision {
-  Initial = 0,
-  Increment = 1,
-}
 
 enum SearchTextLength {
   Empty = 0,
@@ -25,7 +22,7 @@ export type RenderSearchUpdate = Readonly<{
 }>;
 
 export class RenderSearchController {
-  private revision = SearchRevision.Initial;
+  private revision = SequenceStep.Initial;
   private text: string | null = null;
   private stashed: RenderSearchSelectionState | null = null;
 
@@ -33,7 +30,7 @@ export class RenderSearchController {
     const normalized = this.normalize(text);
     if (normalized === this.text) return null;
     this.text = normalized;
-    this.revision += SearchRevision.Increment;
+    this.revision += SequenceStep.Increment;
     const restore = normalized === null ? this.takeStashed() : null;
     return {
       search: {
@@ -45,7 +42,7 @@ export class RenderSearchController {
   }
 
   snapshot(): RenderSearchSnapshot | null {
-    if (this.revision === SearchRevision.Initial) return null;
+    if (this.revision === SequenceStep.Initial) return null;
     return {
       revision: this.revision,
       text: this.text,

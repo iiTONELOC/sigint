@@ -2,11 +2,10 @@ import {
   FULL_WIDTH_ONLY,
   type LayoutNode,
   type LeafNode,
-  type PaneType,
   type SplitNode,
 } from "../../paneTree";
 import type { PaneCatalog } from "../paneCatalog";
-import { PaneNodeType, SplitDirection } from "../model/pane";
+import { PaneNodeType, SplitDirection, type PaneTypeValue } from "../model/pane";
 
 enum MobileSplitTrack {
   Collapsed = "36px",
@@ -76,7 +75,7 @@ export function mobileTabClassName(
 export function moveSourcePaneType(
   leaves: readonly LeafNode[],
   sourceLeafId: string | null,
-): PaneType | undefined {
+): PaneTypeValue | undefined {
   return sourceLeafId === null
     ? undefined
     : leaves.find((leaf) => leaf.id === sourceLeafId)?.paneType;
@@ -97,8 +96,8 @@ export function isMoveTargetBlock(
 }
 
 export function allowsBesideMove(
-  sourceType: PaneType | undefined,
-  targetType: PaneType,
+  sourceType: PaneTypeValue | undefined,
+  targetType: PaneTypeValue,
 ): boolean {
   return sourceType !== undefined &&
     !FULL_WIDTH_ONLY.has(sourceType) &&

@@ -98,6 +98,36 @@ function settings(
   };
 }
 
+const MOVING_FRAME = {
+  width: 200,
+  height: 200,
+  hitCellSize: 32,
+  cullMargin: 0,
+  flat: { centerX: 100, centerY: 100, mapWidth: 360, mapHeight: 180 },
+  globe: null,
+};
+
+function movingAircraftView() {
+  const rawUnit = geographicToUnitVector(10, 20);
+  return {
+    capacity: 1,
+    active: new Uint8Array([1]),
+    sceneIds: ["moving-aircraft"],
+    entityIds: ["moving-aircraft"],
+    positions: new Float64Array([20, 10]),
+    motionPositions: new Float64Array([0, 0]),
+    motionPositionStride: SCENE_POSITION_COUNT,
+    unitVectors: new Float32Array([rawUnit.x, rawUnit.y, rawUnit.z]),
+    timestamps: new Float64Array([1_000]),
+    attributes: new Float32Array([90, 0, AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal], 90, 1_000]),
+    attributeStride: getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride,
+    stringAttributes: new Uint32Array([0]),
+    stringAttributeStride: getPointSourceDefinition(Domain.Aircraft).sceneSchema.stringAttributeStride,
+    dictionary: [],
+    geometries: [null],
+  } satisfies RenderSceneView;
+}
+
 describe("aircraft scene layer", () => {
   test("owns scene storage, projection, and hit resolution", () => {
     const layer = new AircraftLayer();
@@ -129,73 +159,14 @@ describe("aircraft scene layer", () => {
   });
 
   test("projects an unselected aircraft and resolves one moving position", () => {
-    const rawUnit = geographicToUnitVector(10, 20);
-    const moving = {
-      capacity: 1,
-      active: new Uint8Array([1]),
-      sceneIds: ["moving-aircraft"],
-      entityIds: ["moving-aircraft"],
-      positions: new Float64Array([20, 10]),
-      motionPositions: new Float64Array([0, 0]),
-      motionPositionStride:
-        SCENE_POSITION_COUNT,
-      unitVectors: new Float32Array([
-        rawUnit.x,
-        rawUnit.y,
-        rawUnit.z,
-      ]),
-      timestamps: new Float64Array([1_000]),
-      attributes: new Float32Array([
-        90,
-        0,
-        AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal],
-        90,
-        1_000,
-      ]),
-      attributeStride:
-        getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride,
-      stringAttributes: new Uint32Array([0]),
-      stringAttributeStride:
-        getPointSourceDefinition(Domain.Aircraft).sceneSchema.stringAttributeStride,
-      dictionary: [],
-      geometries: [null],
-    } satisfies RenderSceneView;
     const layer = new AircraftLayer();
     const time = 1_000 + MS_PER_SECOND;
-    const expected = advanceGeographicMotion(
-      createGeographicMotion(0, 0, 90, 1_000),
-      1,
-    );
-    layer.apply(sceneRebaseCommand(Domain.Aircraft, moving));
-    layer.project(
-      {
-        width: 200,
-        height: 200,
-        hitCellSize: 32,
-        cullMargin: 0,
-        flat: {
-          centerX: 100,
-          centerY: 100,
-          mapWidth: 360,
-          mapHeight: 180,
-        },
-        globe: null,
-      },
-      settings(),
-      time,
-    );
+    const expected = advanceGeographicMotion(createGeographicMotion(0, 0, 90, 1_000), 1);
+    layer.apply(sceneRebaseCommand(Domain.Aircraft, movingAircraftView()));
+    layer.project(MOVING_FRAME, settings(), time);
 
-    const hit = layer.nearest(
-      SceneHitKind.Point,
-      100 + expected.longitude,
-      100 - expected.latitude,
-      10,
-      10,
-    );
-    const target = layer.selectionTarget(
-      "moving-aircraft",
-      time,
-    );
+    const hit = layer.nearest(SceneHitKind.Point, 100 + expected.longitude, 100 - expected.latitude, 10, 10);
+    const target = layer.selectionTarget("moving-aircraft", time);
     expect(hit?.latitude).toBeCloseTo(expected.latitude);
     expect(hit?.longitude).toBeCloseTo(expected.longitude);
     expect(target?.latitude).toBeCloseTo(expected.latitude);

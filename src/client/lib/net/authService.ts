@@ -22,7 +22,6 @@ async function refreshCookie(): Promise<void> {
     if (!res.ok) {
       throw new AuthServiceError(res.status);
     }
-    // Allow Set-Cookie processing before retries.
     await new Promise((r) => setTimeout(r, 0));
   })();
   try {

@@ -1,3 +1,4 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import {
   type CSSProperties,
   type DragEvent,
@@ -11,6 +12,7 @@ import {
 import { Satellite } from "lucide-react";
 import { isSourceDelivering } from "@shared/domain/sourceStatus";
 import type { SourceStatusEntry } from "@/lib/net/sourceHealth";
+import { useBrowserFullscreen } from "@/lib/runtime/fullscreen";
 import { PaneHeader } from "@/panes/PaneHeader";
 import { ResizeHandle } from "@/panes/ResizeHandle";
 import { SplitMenu } from "@/panes/SplitMenu";
@@ -18,14 +20,13 @@ import {
   leafCount,
   type LayoutNode,
   type LeafNode,
-  type PaneType,
   type SplitNode,
 } from "@/panes/paneTree";
 import {
   PaneDragEffect,
-  PaneDropZone,
   PaneNodeType,
   PaneType as PaneTypeId,
+  type PaneTypeValue,
   PaneWorkspaceIconMetric,
   PaneWorkspaceMenuMetric,
   SplitDirection,
@@ -75,8 +76,8 @@ enum DesktopPaneMetric {
 
 type DesktopPaneTreeProps = Readonly<{
   activeCount: number;
-  availableTypes: PaneType[];
-  changePaneType: (leafId: string, newType: PaneType) => void;
+  availableTypes: PaneTypeValue[];
+  changePaneType: (leafId: string, newType: PaneTypeValue) => void;
   closePane: (leafId: string) => void;
   dataSources: readonly SourceStatusEntry[];
   insertPaneBeside: (
@@ -84,13 +85,15 @@ type DesktopPaneTreeProps = Readonly<{
     targetLeafId: string,
     zone: PaneEdgeDropZoneValue,
   ) => void;
-  minimizePane: (leafId: string, paneType: PaneType) => void;
+  maximizedLeafId: string | null;
+  minimizePane: (leafId: string, paneType: PaneTypeValue) => void;
   resizeSplit: (splitId: string, ratio: number) => void;
   root: LayoutNode;
+  setMaximizedLeafId: (leafId: string | null) => void;
   splitPane: (
     leafId: string,
     direction: SplitDirectionValue,
-    newType: PaneType,
+    newType: PaneTypeValue,
   ) => void;
   swapPanes: (sourceLeafId: string, targetLeafId: string) => void;
 }>;
@@ -104,7 +107,7 @@ type SplitMenuState = Readonly<{
 
 type DesktopPaneContext = Readonly<{
   activeCount: number;
-  availableTypes: PaneType[];
+  availableTypes: PaneTypeValue[];
   canClose: boolean;
   changePaneType: DesktopPaneTreeProps["changePaneType"];
   clearDrag: () => void;
@@ -147,34 +150,6 @@ type DesktopPaneDragHandlers = Readonly<{
   onDrop?: (event: DragEvent<HTMLDivElement>) => void;
 }>;
 
-function useBrowserFullscreen(
-  paneRef: RefObject<HTMLDivElement | null>,
-) {
-  const [active, setActive] = useState(false);
-  const synchronize = useCallback(() => {
-    setActive(document.fullscreenElement === paneRef.current);
-  }, [paneRef]);
-  const toggle = useCallback(() => {
-    const pane = paneRef.current;
-    if (!pane) {
-      return;
-    }
-    const operation = document.fullscreenElement === pane
-      ? document.exitFullscreen()
-      : pane.requestFullscreen();
-    void operation.catch(synchronize);
-  }, [paneRef, synchronize]);
-
-  useEffect(() => {
-    document.addEventListener(DomEvent.FullscreenChange, synchronize);
-    synchronize();
-    return () =>
-      document.removeEventListener(DomEvent.FullscreenChange, synchronize);
-  }, [synchronize]);
-
-  return { active, toggle };
-}
-
 function containsLeafId(node: LayoutNode, leafId: string): boolean {
   return node.type === PaneNodeType.Leaf
     ? node.id === leafId
@@ -184,15 +159,15 @@ function containsLeafId(node: LayoutNode, leafId: string): boolean {
 
 function ghostClassName(zone: PaneDropZoneValue): DesktopPaneClassName {
   switch (zone) {
-    case PaneDropZone.Center:
+    case Placement.Center:
       return DesktopPaneClassName.GhostCenter;
-    case PaneDropZone.Left:
+    case Placement.Left:
       return DesktopPaneClassName.GhostLeft;
-    case PaneDropZone.Right:
+    case Placement.Right:
       return DesktopPaneClassName.GhostRight;
-    case PaneDropZone.Top:
+    case Placement.Top:
       return DesktopPaneClassName.GhostTop;
-    case PaneDropZone.Bottom:
+    case Placement.Bottom:
       return DesktopPaneClassName.GhostBottom;
     default:
       throw new TypeError(DesktopPaneErrorMessage.UnsupportedDropZone);
@@ -201,15 +176,15 @@ function ghostClassName(zone: PaneDropZoneValue): DesktopPaneClassName {
 
 function ghostLabel(zone: PaneDropZoneValue): DesktopPaneCopy {
   switch (zone) {
-    case PaneDropZone.Center:
+    case Placement.Center:
       return DesktopPaneCopy.Swap;
-    case PaneDropZone.Left:
+    case Placement.Left:
       return DesktopPaneCopy.InsertLeft;
-    case PaneDropZone.Right:
+    case Placement.Right:
       return DesktopPaneCopy.InsertRight;
-    case PaneDropZone.Top:
+    case Placement.Top:
       return DesktopPaneCopy.InsertTop;
-    case PaneDropZone.Bottom:
+    case Placement.Bottom:
       return DesktopPaneCopy.InsertBottom;
     default:
       throw new TypeError(DesktopPaneErrorMessage.UnsupportedDropZone);
@@ -262,7 +237,7 @@ function useTouchPaneDrag(options: TouchDragOptions): void {
         options.dragTargetId &&
         options.dropZone
       ) {
-        if (options.dropZone === PaneDropZone.Center) {
+        if (options.dropZone === Placement.Center) {
           options.swapPanes(options.dragSourceId, options.dragTargetId);
         } else {
           options.insertPaneBeside(
@@ -609,9 +584,11 @@ export function DesktopPaneTree({
   closePane,
   dataSources,
   insertPaneBeside,
+  maximizedLeafId,
   minimizePane,
   resizeSplit,
   root,
+  setMaximizedLeafId,
   splitPane,
   swapPanes,
 }: DesktopPaneTreeProps) {
@@ -619,10 +596,7 @@ export function DesktopPaneTree({
   const [dragTargetId, setDragTargetId] = useState<string | null>(null);
   const [dropZone, setDropZone] = useState<PaneDropZoneValue | null>(null);
   const [splitMenu, setSplitMenu] = useState<SplitMenuState | null>(null);
-  const [maximizedLeafId, setMaximizedLeafId] = useState<string | null>(null);
   const splitMenuRef = useRef<HTMLDivElement>(null);
-  const activeMaximizedLeafId = maximizedLeafId !== null &&
-    containsLeafId(root, maximizedLeafId) ? maximizedLeafId : null;
 
   const clearDrag = useCallback(() => {
     setDragSourceId(null);
@@ -639,7 +613,7 @@ export function DesktopPaneTree({
   const dropOnPane = useCallback(
     (targetLeafId: string) => {
       if (dragSourceId && dragSourceId !== targetLeafId && dropZone) {
-        if (dropZone === PaneDropZone.Center) {
+        if (dropZone === Placement.Center) {
           swapPanes(dragSourceId, targetLeafId);
         } else {
           insertPaneBeside(dragSourceId, targetLeafId, dropZone);
@@ -701,7 +675,7 @@ export function DesktopPaneTree({
     dropOnPane,
     dropZone,
     insertPaneBeside,
-    maximizedLeafId: activeMaximizedLeafId,
+    maximizedLeafId,
     minimizePane,
     openSplitMenu,
     resizeSplit,

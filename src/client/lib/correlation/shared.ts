@@ -1,6 +1,3 @@
-// ── Correlation shared helpers ──────────────────────────────────────
-// Pure utilities used across rule modules: country extraction, timestamp
-// parsing, the 2 degree spatial grid, and the correlation policy numbers.
 
 import {
   recordLatitude,
@@ -11,8 +8,6 @@ import { Domain } from "@shared/domain/identity";
 import { GeoLimit, TurnDeg } from "@shared/geo";
 import { MS_PER_HOUR } from "@shared/time";
 import { EMPTY_TEXT } from "@shared/text";
-
-// ── Correlation policy ─────────────────────────────────────────────
 
 /** One baseline bucket per hour across a rolling week. */
 export { HOURS_PER_WEEK as BASELINE_BUCKETS } from "@shared/time";
@@ -32,8 +27,6 @@ export const CLUSTER_TIME_WINDOW =
   CorrelationWindowHours.Cluster * MS_PER_HOUR;
 export const CROSS_SOURCE_TIME_WINDOW =
   CorrelationWindowHours.CrossSource * MS_PER_HOUR;
-
-// ── Country / timestamp helpers ────────────────────────────────────
 
 export enum CorrelationRegion {
   Global = "Global",
@@ -75,8 +68,6 @@ export function getCountry(item: DataPoint): string {
 export function getTs(item: DataPoint): number {
   return item.timestamp ? new Date(item.timestamp).getTime() : Date.now();
 }
-
-// ── 2 degree spatial grid (matches lib/spatialIndex.ts cell size) ──
 
 export enum CorrelationGridDeg {
   Cell = 2,

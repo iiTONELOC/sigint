@@ -20,7 +20,7 @@ enum AdvisoryCopy {
 enum AdvisoryClassName {
   Body = "text-(length:--sig-text-xs) text-sig-text whitespace-pre-wrap wrap-anywhere font-mono",
   Status = "text-(length:--sig-text-xs) text-sig-text",
-  Tab = "text-(length:--sig-text-xs) tracking-wider px-2 py-0.5 rounded border cursor-pointer",
+  Tab = "text-(length:--sig-text-xs) tracking-wider px-2 py-0.5 rounded border cursor-pointer touch-target",
   TabOn = "border-(--dossier-accent) text-(--dossier-accent)",
   TabOff = "border-sig-border text-sig-dim hover:text-sig-bright",
 }

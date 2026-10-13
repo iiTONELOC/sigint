@@ -112,7 +112,6 @@ const defaultSink: LogSink = {
     try {
       await Bun.write(Bun.stderr, chunk);
     } catch {
-      // best-effort
     }
   },
 };
@@ -129,7 +128,6 @@ export function createLogger(options: LoggerOptions): Logger {
   ): void {
     if (!shouldEmit(minLevel, level)) return;
 
-    // Extract errors before recursive redaction removes the class name.
     const { remaining, errorClass, errorMessage } = fields
       ? extractError(fields)
       : { remaining: {} };
@@ -152,11 +150,9 @@ export function createLogger(options: LoggerOptions): Logger {
       const result = sink.write(bytes);
       if (result instanceof Promise) {
         result.catch(() => {
-          // best-effort
         });
       }
     } catch {
-      // best-effort
     }
   }
 

@@ -4,14 +4,19 @@ export const CARRIAGE_RETURN = "\r";
 export const LINE_BREAK = "\n";
 export const PARAGRAPH_BREAK = `${LINE_BREAK}${LINE_BREAK}`;
 export const SEMICOLON_SEPARATOR = ";";
+export const UNKNOWN_TEXT = "unknown";
 
 export const PARAGRAPH_SPLIT = /\n{2,}/;
 export const REPEATED_SPACES = / {2,}/g;
 export const PARENTHETICAL = /\s?\(\w+\)/;
 const CAMEL_BOUNDARY = /([a-z])([A-Z])/g;
 
+export function spacedWords(value: string): string {
+  return value.replace(CAMEL_BOUNDARY, "$1 $2");
+}
+
 export function spacedUpperCase(value: string): string {
-  return value.replace(CAMEL_BOUNDARY, "$1 $2").toUpperCase();
+  return spacedWords(value).toUpperCase();
 }
 
 const EM_DASH_CODE_POINT = 0x2014;

@@ -16,8 +16,8 @@ enum WindsockTiming {
 }
 
 enum WindsockFraction {
-  Minimum = 0,
-  Maximum = 1,
+  Slack = 0,
+  Full = 1,
 }
 
 const WINDSOCK_FULL_EXTENSION_MULTIPLIER = 2;
@@ -58,8 +58,8 @@ function windFraction(maxWindKt: number): number {
     CYCLONE_CATEGORY_METADATA[Category.Hurricane1].minimumWindKt *
     WINDSOCK_FULL_EXTENSION_MULTIPLIER;
   return Math.min(
-    WindsockFraction.Maximum,
-    Math.max(WindsockFraction.Minimum, maxWindKt / fullExtensionKnots),
+    WindsockFraction.Full,
+    Math.max(WindsockFraction.Slack, maxWindKt / fullExtensionKnots),
   );
 }
 

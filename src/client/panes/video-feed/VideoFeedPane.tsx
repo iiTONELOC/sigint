@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { setVideoPresetCount, useWalkthroughActive } from "@/walkthrough";
+import { useBrowserFullscreen } from "@/lib/runtime/fullscreen";
 import { ButtonType } from "@/lib/ui/button";
 import {
   Square,
@@ -12,9 +13,8 @@ import {
   Fullscreen,
   type LucideIcon,
 } from "lucide-react";
+import type { Channel, ChannelCatalog } from "@shared/domain/videoChannel";
 import type {
-  Channel,
-  ChannelCatalog,
   GridLayout,
   Preset,
   PresetCatalog,
@@ -26,8 +26,8 @@ import { fetchNewsChannels } from "./channelService";
 import {
   saveState,
   loadState,
-  loadPresets,
-  savePresets,
+  loadVideoPresets,
+  saveVideoPresets,
   restoreChannels,
   buildSavedState,
   addPreset,
@@ -69,7 +69,7 @@ export function VideoFeedPane() {
   const [presets, setPresets] = useState<PresetCatalog>({});
 
   useEffect(() => {
-    loadPresets().then(setPresets);
+    loadVideoPresets().then(setPresets);
   }, []);
 
   useEffect(() => {
@@ -103,15 +103,7 @@ export function VideoFeedPane() {
     setPromotedSlotIndex(null);
   }, []);
 
-  const handlePaneFullscreen = useCallback(() => {
-    const paneElement = paneRef.current;
-    if (!paneElement) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      paneElement.requestFullscreen().catch(() => {});
-    }
-  }, []);
+  const paneFullscreen = useBrowserFullscreen(paneRef);
 
   useEffect(() => {
     fetchNewsChannels().then((loadedChannels) => {
@@ -234,7 +226,7 @@ export function VideoFeedPane() {
 
   const persistPresets = useCallback((updated: PresetCatalog) => {
     setPresets(updated);
-    savePresets(updated);
+    saveVideoPresets(updated);
   }, []);
 
   const handleSavePreset = useCallback(
@@ -364,18 +356,22 @@ export function VideoFeedPane() {
             `${channelList.length} ch`
           )}
         </span>
-        <div className={VideoFeedControlClassName.Divider} />
-        <button
-          type={ButtonType.Button}
-          onClick={handlePaneFullscreen}
-          className="p-1.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
-          title="Fullscreen pane"
-        >
-          <Fullscreen
-            size={VideoFeedIconMetric.ToolbarSize}
-            strokeWidth={VideoFeedIconMetric.StrokeWidth}
-          />
-        </button>
+        {paneFullscreen.toggle && (
+          <>
+            <div className={VideoFeedControlClassName.Divider} />
+            <button
+              type={ButtonType.Button}
+              onClick={paneFullscreen.toggle}
+              className="p-1.5 touch-target flex items-center justify-center rounded text-sig-dim bg-transparent border-none hover:text-sig-bright transition-colors"
+              title="Fullscreen pane"
+            >
+              <Fullscreen
+                size={VideoFeedIconMetric.ToolbarSize}
+                strokeWidth={VideoFeedIconMetric.StrokeWidth}
+              />
+            </button>
+          </>
+        )}
         {showPresets && (
           <PresetMenu
             presets={presets}

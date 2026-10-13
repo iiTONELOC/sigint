@@ -1,4 +1,5 @@
-import { WalkthroughPlacement, WalkthroughStepId } from "../model/vocabulary";
+import { Placement } from "@/layout-mode/model/layoutMode";
+import { WalkthroughStepId } from "../model/vocabulary";
 
 export type WalkthroughRect = Readonly<{
   height: number;
@@ -244,7 +245,7 @@ function clampedCandidate(
 
 export function computeWalkthroughTooltipPosition(
   target: WalkthroughRect | null,
-  placement: WalkthroughPlacement,
+  placement: Placement,
   tooltipWidth: number,
   tooltipHeight: number,
   stepId: WalkthroughStepId,
@@ -269,7 +270,7 @@ export function computeWalkthroughTooltipPosition(
 
   const obstacles = collectObstacles(target, selectors);
   const directional =
-    placement !== WalkthroughPlacement.Center && target
+    placement !== Placement.Center && target
       ? directionalCandidates(target, tooltipWidth, tooltipHeight)
       : [];
   const candidates = [

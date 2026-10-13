@@ -1,6 +1,6 @@
+import { Placement } from "@/layout-mode/model/layoutMode";
 import { describe, expect, test } from "bun:test";
 import {
-  PaneDropZone,
   PaneDragDataType,
   PaneDragEffect,
   PaneIdSequence,
@@ -26,103 +26,48 @@ enum PaneModelCount {
   Eight = 8,
 }
 
-function expectUniqueNumbers(
-  values: readonly number[],
-  expectedCount: PaneModelCount,
-): void {
-  expect(values).toHaveLength(expectedCount);
-  expect(new Set(values).size).toBe(expectedCount);
+type Distinct = Readonly<{ length: number; unique: number }>;
+
+function distinct(values: ReadonlyArray<string | number>): Distinct {
+  return { length: values.length, unique: new Set(values).size };
 }
 
-function expectUniqueStrings(
-  values: readonly string[],
-  expectedCount: PaneModelCount,
-): void {
-  expect(values).toHaveLength(expectedCount);
-  expect(new Set(values).size).toBe(expectedCount);
+function counted(count: PaneModelCount): Distinct {
+  return { length: count, unique: count };
+}
+
+function numbersOf(members: Record<string, string | number>): number[] {
+  return Object.values(members).filter((value): value is number => typeof value === "number");
 }
 
 describe("pane workspace model", () => {
-  test("owns eight unique pane identities", () => {
-    expectUniqueStrings(
-      Object.values(PaneType),
-      PaneModelCount.Eight,
-    );
+  test("owns distinct identities for panes, nodes, directions and drop zones", () => {
+    expect(distinct(Object.values(PaneType))).toEqual(counted(PaneModelCount.Eight));
+    expect(distinct(Object.values(PaneNodeType))).toEqual(counted(PaneModelCount.Two));
+    expect(distinct(Object.values(SplitDirection))).toEqual(counted(PaneModelCount.Two));
+    expect(distinct(Object.values(Placement))).toEqual(counted(PaneModelCount.Five));
   });
 
-  test("owns unique node and direction identities", () => {
-    expectUniqueStrings(
-      Object.values(PaneNodeType),
-      PaneModelCount.Two,
-    );
-    expectUniqueStrings(
-      Object.values(SplitDirection),
-      PaneModelCount.Two,
-    );
+  test("owns distinct layout ratios and workspace metrics", () => {
+    expect(distinct(numbersOf(PaneLayoutRatio))).toEqual(counted(PaneModelCount.Five));
+    expect(distinct(numbersOf(PaneWorkspaceIconMetric))).toEqual(counted(PaneModelCount.Eight));
+    expect(distinct(numbersOf(PaneWorkspaceMenuMetric))).toEqual(counted(PaneModelCount.One));
   });
 
-  test("owns five unique drop zones", () => {
-    expectUniqueStrings(
-      Object.values(PaneDropZone),
-      PaneModelCount.Five,
-    );
+  test("owns the mobile pane height policy once", () => {
+    expect(distinct(Object.values(PaneMobileScreen))).toEqual(counted(PaneModelCount.Three));
+    expect(distinct(numbersOf(PaneMobileRatio))).toEqual(counted(PaneModelCount.One));
   });
 
-  test("owns unique layout ratios", () => {
-    const ratios = Object.values(PaneLayoutRatio).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expect(ratios).toHaveLength(PaneModelCount.Five);
-    expect(new Set(ratios).size).toBe(PaneModelCount.Five);
+  test("owns the pane tree identity and shape values once", () => {
+    expect(distinct(numbersOf(PaneIdSequence))).toEqual(counted(PaneModelCount.Two));
+    expect(distinct(numbersOf(PaneTreeArity))).toEqual(counted(PaneModelCount.One));
+    expect(distinct(Object.values(PaneIdToken))).toEqual(counted(PaneModelCount.Two));
+    expect(distinct(Object.values(PaneDragDataType))).toEqual(counted(PaneModelCount.One));
+    expect(distinct(Object.values(PaneDragEffect))).toEqual(counted(PaneModelCount.One));
   });
 
-  test("owns unique workspace icon metrics", () => {
-    const metrics = Object.values(PaneWorkspaceIconMetric).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expectUniqueNumbers(metrics, PaneModelCount.Eight);
-    const menuMetrics = Object.values(PaneWorkspaceMenuMetric).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expectUniqueNumbers(menuMetrics, PaneModelCount.One);
-  });
-
-  test("owns unique mobile pane height policy", () => {
-    const screens = Object.values(PaneMobileScreen);
-    const ratios = Object.values(PaneMobileRatio).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expect(new Set(screens).size).toBe(PaneModelCount.Two);
-    expectUniqueNumbers(ratios, PaneModelCount.One);
-  });
-
-  test("owns pane tree identity and shape values", () => {
-    const sequence = Object.values(PaneIdSequence).filter(
-      (value): value is number => typeof value === "number",
-    );
-    const arity = Object.values(PaneTreeArity).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expectUniqueNumbers(sequence, PaneModelCount.Two);
-    expectUniqueNumbers(arity, PaneModelCount.One);
-    expectUniqueStrings(
-      Object.values(PaneIdToken),
-      PaneModelCount.Two,
-    );
-    expectUniqueStrings(
-      Object.values(PaneDragDataType),
-      PaneModelCount.One,
-    );
-    expectUniqueStrings(
-      Object.values(PaneDragEffect),
-      PaneModelCount.One,
-    );
-  });
-
-  test("owns unique resize control policy", () => {
-    const metrics = Object.values(PaneResizeMetric).filter(
-      (value): value is number => typeof value === "number",
-    );
-    expectUniqueNumbers(metrics, PaneModelCount.Seven);
+  test("owns the resize control policy once", () => {
+    expect(distinct(numbersOf(PaneResizeMetric))).toEqual(counted(PaneModelCount.Seven));
   });
 });

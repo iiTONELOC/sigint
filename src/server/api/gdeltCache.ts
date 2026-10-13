@@ -37,7 +37,7 @@ enum GdeltCopy {
   TargetSeparator = " → ",
 }
 
-enum GdeltColumn {
+export enum GdeltColumn {
   Actor1Name = 6,
   Actor2Name = 16,
   EventCode = 26,
@@ -53,7 +53,7 @@ enum GdeltColumn {
   SourceUrl = 60,
 }
 
-enum GdeltRootCode {
+export enum GdeltRootCode {
   Demand = "10",
   Threaten = "13",
   Protest = "14",
@@ -95,14 +95,14 @@ const RELEVANT_ROOT_CODES: ReadonlySet<string> = new Set(
   Object.values(GdeltRootCode),
 );
 
-function parseDateAdded(value: string): string {
+export function parseDateAdded(value: string): string {
   if (!GDELT_DATE_PATTERN.test(value)) return new Date().toISOString();
   return new Date(
     value.replace(GDELT_DATE_PATTERN, GdeltDateFormat.IsoReplacement),
   ).toISOString();
 }
 
-function goldsteinSeverity(goldstein: number): IntelSeverity {
+export function goldsteinSeverity(goldstein: number): IntelSeverity {
   if (goldstein <= GdeltGoldsteinThreshold.Crisis) {
     return IntelSeverity.Crisis;
   }
@@ -118,7 +118,7 @@ function goldsteinSeverity(goldstein: number): IntelSeverity {
   return IntelSeverity.Monitoring;
 }
 
-function buildHeadline(
+export function buildHeadline(
   actor1: string,
   actor2: string,
   eventCode: string,
@@ -146,7 +146,7 @@ function sourceDomain(sourceUrl: string): string | undefined {
     : undefined;
 }
 
-function parseExportCsv(csv: string): GdeltEvent[] {
+export function parseExportCsv(csv: string): GdeltEvent[] {
   const events: GdeltEvent[] = [];
 
   for (const line of csv.split("\n")) {

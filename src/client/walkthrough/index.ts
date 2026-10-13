@@ -8,7 +8,6 @@ export {
   WalkthroughClickMode,
   WalkthroughLaunchMode,
   WalkthroughPhase,
-  WalkthroughPlacement,
   WalkthroughRingColor,
   WalkthroughSelector,
   WalkthroughStepId,

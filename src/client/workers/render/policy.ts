@@ -73,6 +73,7 @@ export type CameraPolicy = Readonly<{
   targetPositionStopRadians: number;
   targetZoomStop: number;
   syntheticMouseSuppressionMs: number;
+  touchHoldMs: number;
   velocityRadiansPerPixel: number;
   wheelZoomRate: number;
 }>;
@@ -121,6 +122,7 @@ export const CAMERA_POLICY: CameraPolicy = {
   syntheticMouseSuppressionMs: 1_000,
   targetPositionStopRadians: 0.001,
   targetZoomStop: 0.01,
+  touchHoldMs: 500,
   velocityRadiansPerPixel: 0.001,
   wheelZoomRate: 0.0015,
 };

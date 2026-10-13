@@ -32,3 +32,4 @@ export {
   type DossierMiniGlobeCamera,
   type DossierMiniGlobeDrawContext,
 } from "./components/DossierMiniGlobe";
+export { CoverImage, PhotoCredit } from "./components/DossierPhoto";

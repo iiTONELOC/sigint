@@ -16,7 +16,7 @@ import {
 } from "@shared/domain/aircraftDossier";
 import { GeoMeasurement, haversineKm } from "@shared/geo";
 import { MINUTES_PER_HOUR, SECONDS_PER_MINUTE } from "@shared/time";
-import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
+import { EMPTY_TEXT, NO_VALUE, spacedUpperCase } from "@shared/text";
 import {
   DossierCard,
   DossierInfoRow,
@@ -37,7 +37,6 @@ enum AircraftFlightPlanLabel {
   Arrive = "ARRIVE",
   Depart = "DEPART",
   Estimated = " est",
-  OnTime = "ON TIME",
 }
 
 enum AircraftFlightPlanClassName {
@@ -48,12 +47,7 @@ enum AircraftFlightPlanClassName {
 
 const SECONDS_PER_HOUR = MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 
-const EVENT_LABELS: Readonly<Record<AircraftFlightEvent, string>> = {
-  [AircraftFlightEvent.GateOut]: "GATE OUT",
-  [AircraftFlightEvent.Takeoff]: "TAKEOFF",
-  [AircraftFlightEvent.Landing]: "LANDING",
-  [AircraftFlightEvent.GateIn]: "GATE IN",
-};
+const ON_TIME_CHIP: AircraftChip = { label: "ON TIME", tone: AircraftChipTone.OnTime };
 
 function delayTone(minutes: number): AircraftChipTone {
   if (minutes <= AircraftDelayMinutes.WarningMaximum) return AircraftChipTone.Warning;
@@ -64,7 +58,7 @@ function delayTone(minutes: number): AircraftChipTone {
 
 export function delayChip(delaySeconds: number | undefined): AircraftChip {
   if (delaySeconds === undefined || delaySeconds <= AIRCRAFT_MINIMUM_LATE_SECONDS) {
-    return { label: AircraftFlightPlanLabel.OnTime, tone: AircraftChipTone.OnTime };
+    return ON_TIME_CHIP;
   }
   return {
     label: `+${formatDuration(delaySeconds)}`,
@@ -106,7 +100,7 @@ function TimetableRow({
   const chip = delay === undefined ? null : delayChip(delay);
   return (
     <>
-      <span className={AircraftFlightPlanClassName.RowLabel}>{EVENT_LABELS[event]}</span>
+      <span className={AircraftFlightPlanClassName.RowLabel}>{spacedUpperCase(event)}</span>
       <span>{scheduled === undefined ? NO_VALUE : formatClockTime(scheduled, false)}</span>
       <span className="text-sig-bright">{observedText(times)}</span>
       <span className={chip ? `${AircraftFlightPlanClassName.Chip} text-center ${chip.tone}` : EMPTY_TEXT}>
@@ -183,7 +177,7 @@ function FiledRoute({ filedRoute }: Readonly<{ filedRoute: string }>) {
           .map((waypoint, index) => (
             <span
               key={`${waypoint}-${index}`}
-              className={`${AircraftFlightPlanClassName.Chip} text-sig-text bg-sig-bg/60 border-sig-border`}
+              className={`${AircraftFlightPlanClassName.Chip} ${AircraftChipTone.Neutral}`}
             >
               {waypoint}
             </span>

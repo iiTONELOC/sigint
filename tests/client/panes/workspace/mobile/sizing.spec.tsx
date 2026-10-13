@@ -13,6 +13,7 @@ import {
   SplitDirection,
 } from "@/panes/workspace/model/pane";
 import { DomEvent } from "@/runtime";
+import { MobileBlockActionLabel } from "@/panes/MobileBlockActions";
 import { flushReactUpdates } from "../../../../support/react";
 import {
   MobileFixtureLabel,
@@ -22,15 +23,18 @@ import {
   mobileLayout,
   mobileLeaf,
   mobileSplit,
+  openBlockActions,
   paneProbeElement,
   renderMobileFixture,
-  requireBlockToggleButton,
   requireButtonWithText,
+  requireCollapsedBlockButton,
   requireHeightHandle,
   requireLeafHeader,
   requireLeafMinimizeButton,
+  requireBlockContent,
   requireMobileBlock,
   requirePaneProbe,
+  requireSheetAction,
   resetMobileFixture,
 } from "./fixture";
 
@@ -44,8 +48,10 @@ enum MobileSizingMetric {
 }
 
 enum MobileScreenClass {
+  Content = "min-h-[100cqh]",
   Full = "h-[100cqh]",
   Half = "h-[50cqh]",
+  LoneFill = "flex-1 min-h-0",
 }
 
 type MobileSizingPointerEventName =
@@ -91,11 +97,72 @@ function maximumHeight(): number {
 }
 
 describe("PaneMobile block sizing", () => {
+  test("lets a lone block shrink to the column", () => {
+    renderMobileFixture({
+      chromeHidden: true,
+      layout: mobileLayout(mobileLeaf(MobileFixtureNodeId.Globe, PaneType.Globe)),
+    });
+
+    expect(requireMobileBlock(MobileFixtureNodeId.Globe).className).toContain(MobileScreenClass.LoneFill);
+  });
+
   test("opens the globe one screen tall and a table half a screen tall", () => {
     renderMobileFixture({ chromeHidden: true, layout: twoBlockLayout() });
 
     expect(requireMobileBlock(MobileFixtureNodeId.Globe).className).toContain(MobileScreenClass.Full);
     expect(requireMobileBlock(MobileFixtureNodeId.DataTable).className).toContain(MobileScreenClass.Half);
+  });
+
+  test("shows the globe half a screen tall while a dossier is open", () => {
+    renderMobileFixture({
+      chromeHidden: true,
+      layout: mobileLayout(
+        mobileSplit(
+          MobileFixtureNodeId.Root,
+          SplitDirection.Vertical,
+          mobileLeaf(MobileFixtureNodeId.Globe, PaneType.Globe),
+          mobileLeaf(MobileFixtureNodeId.Dossier, PaneType.Dossier),
+        ),
+      ),
+    });
+
+    expect(requireMobileBlock(MobileFixtureNodeId.Globe).className).toContain(MobileScreenClass.Half);
+  });
+
+  test("grows the dossier to its content with no height handle", () => {
+    renderMobileFixture({
+      chromeHidden: true,
+      layout: mobileLayout(
+        mobileSplit(
+          MobileFixtureNodeId.Root,
+          SplitDirection.Vertical,
+          mobileLeaf(MobileFixtureNodeId.Globe, PaneType.Globe),
+          mobileLeaf(MobileFixtureNodeId.Dossier, PaneType.Dossier),
+        ),
+      ),
+    });
+    const dossier = requireMobileBlock(MobileFixtureNodeId.Dossier);
+
+    expect(dossier.classList.contains(MobileScreenClass.Content)).toBe(true);
+    expect(dossier.classList.contains(MobileScreenClass.Full)).toBe(false);
+    expect(dossier.lastElementChild === requireBlockContent(dossier)).toBe(true);
+  });
+
+  test("keeps the dossier body mounted while it is off screen", async () => {
+    renderMobileFixture({
+      chromeHidden: true,
+      layout: mobileLayout(
+        mobileSplit(
+          MobileFixtureNodeId.Root,
+          SplitDirection.Vertical,
+          mobileLeaf(MobileFixtureNodeId.Globe, PaneType.Globe),
+          mobileLeaf(MobileFixtureNodeId.Dossier, PaneType.Dossier),
+        ),
+      ),
+    });
+    await flushReactUpdates();
+
+    expect(paneProbeElement(PaneType.Dossier) !== null).toBe(true);
   });
 
   test("clamps height dragging to the floor and the viewport share", async () => {
@@ -125,11 +192,8 @@ describe("PaneMobile block sizing", () => {
     expect(blockContentHeight(globe)).toBe(maximumHeight());
   });
 
-  test("collapses and expands a complete block", async () => {
-    const fixture = renderMobileFixture({
-      chromeHidden: true,
-      layout: twoBlockLayout(),
-    });
+  test("collapses a block from its actions and expands it from its row", async () => {
+    const fixture = renderMobileFixture({ layout: twoBlockLayout() });
     const globe = requireMobileBlock(MobileFixtureNodeId.Globe);
     fixture.rerender({});
     await flushReactUpdates();
@@ -143,12 +207,16 @@ describe("PaneMobile block sizing", () => {
     await flushReactUpdates();
     requirePaneProbe(PaneType.Globe);
 
-    act(() => requireBlockToggleButton(globe).click());
+    openBlockActions(globe, PaneType.Globe);
+    act(() => requireSheetAction(MobileBlockActionLabel.Minimize).click());
     await flushReactUpdates();
 
     expect(paneProbeElement(PaneType.Globe)).toBeNull();
+    expect(requireCollapsedBlockButton(globe).textContent).toContain(
+      MobileFixtureLabel.Globe,
+    );
 
-    act(() => requireBlockToggleButton(globe).click());
+    act(() => requireCollapsedBlockButton(globe).click());
     await flushReactUpdates();
 
     expect(paneProbeElement(PaneType.Globe)).not.toBeNull();

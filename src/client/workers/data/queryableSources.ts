@@ -94,11 +94,6 @@ type QueryableSourceCodecs = {
   [TId in QueryableSourceId]: QueryableSourceCodec<TId>;
 };
 
-/**
- * Binds one source's queries to its command and event shapes. The reply names
- * the source beside the payload rather than correlating the two, so this stays
- * generic and no source needs a builder of its own.
- */
 function codecFor<TId extends QueryableSourceId>(
   source: TId,
   queries: PointUiQueries<QueryableSourceEntities[TId]>,

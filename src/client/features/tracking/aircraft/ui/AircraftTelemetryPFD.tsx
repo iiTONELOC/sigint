@@ -55,8 +55,8 @@ enum AircraftWindPrefix {
 }
 
 enum AircraftDriftSide {
-  Left = "L",
-  Right = "R",
+  Port = "L",
+  Starboard = "R",
 }
 
 type TelemetryStat = Readonly<{
@@ -90,7 +90,7 @@ function windComponents(
   return {
     head,
     cross: Math.round(Math.abs(cross)),
-    side: cross >= 0 ? AircraftDriftSide.Right : AircraftDriftSide.Left,
+    side: cross >= 0 ? AircraftDriftSide.Starboard : AircraftDriftSide.Port,
   };
 }
 
@@ -116,8 +116,8 @@ function driftText(data: AircraftData): string | null {
   while (difference < -TurnDeg.Half) difference += TurnDeg.Full;
   if (Math.abs(difference) < 1) return "0°";
   const side = difference > 0
-    ? AircraftDriftSide.Right
-    : AircraftDriftSide.Left;
+    ? AircraftDriftSide.Starboard
+    : AircraftDriftSide.Port;
   return `${Math.abs(Math.round(difference))}° ${side}`;
 }
 
@@ -220,66 +220,68 @@ function telemetryRows(
   return rows;
 }
 
-export function AircraftTelemetryPFD({ data }: Readonly<{ data: AircraftData }>) {
+export function AircraftTelemetryGauges({ data }: Readonly<{ data: AircraftData }>) {
   const speed = data.speed ?? 0;
   const heading = data.heading ?? 0;
   const altitude = data.altitude ?? 0;
   const fpm = aircraftVerticalSpeedFpm(data.verticalRate);
+  return (
+    <div className="@container/gauges">
+      <div className={AircraftTelemetryClassName.GaugeGrid}>
+        <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
+        <div className={AircraftTelemetryClassName.GaugeTile}><AttitudeIndicator bankDegrees={data.roll} flightPathDegrees={aircraftFlightPath(data)} /></div>
+        <div className={AircraftTelemetryClassName.GaugeTile}>
+          <Altimeter feet={altitude} selectedFeet={data.navAltitudeMcp ?? data.navAltitudeFms} />
+        </div>
+        <div className={AircraftTelemetryClassName.GaugeTile}>
+          <TurnCoordinator bankDegrees={data.roll} turnRateDegreesPerSecond={data.trackRate} airspeedKnots={data.tas ?? speed} />
+        </div>
+        <div className={AircraftTelemetryClassName.GaugeTile}><HeadingHSI heading={heading} selectedHeading={data.navHeading} /></div>
+        <div className={AircraftTelemetryClassName.GaugeTile}><VerticalSpeedIndicator feetPerMinute={fpm} /></div>
+      </div>
+    </div>
+  );
+}
+
+export function AircraftTelemetryReadout({ data }: Readonly<{ data: AircraftData }>) {
   const emergency = aircraftEmergencyPresentation(data).active;
   const statRows = telemetryRows(buildTelemetryStats(data));
   return (
-    <div className="flex-1 flex flex-col gap-2">
-      <div className="@container/gauges">
-        <div className={AircraftTelemetryClassName.GaugeGrid}>
-          <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
-          <div className={AircraftTelemetryClassName.GaugeTile}><AttitudeIndicator bankDegrees={data.roll} flightPathDegrees={aircraftFlightPath(data)} /></div>
-          <div className={AircraftTelemetryClassName.GaugeTile}>
-            <Altimeter feet={altitude} selectedFeet={data.navAltitudeMcp ?? data.navAltitudeFms} />
-          </div>
-          <div className={AircraftTelemetryClassName.GaugeTile}>
-            <TurnCoordinator bankDegrees={data.roll} turnRateDegreesPerSecond={data.trackRate} airspeedKnots={data.tas ?? speed} />
-          </div>
-          <div className={AircraftTelemetryClassName.GaugeTile}><HeadingHSI heading={heading} selectedHeading={data.navHeading} /></div>
-          <div className={AircraftTelemetryClassName.GaugeTile}><VerticalSpeedIndicator feetPerMinute={fpm} /></div>
-        </div>
-      </div>
-
-      <DossierCard className="p-3 flex-1 flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
+    <DossierCard className="p-3 flex-1 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-3">
+        <DetailField
+          label={AircraftTelemetryLabel.State}
+          value={
+            data.onGround
+              ? AircraftFlightStatusLabel.OnGround
+              : AircraftFlightStatusLabel.Airborne
+          }
+        />
+        {data.squawk && (
           <DetailField
-            label={AircraftTelemetryLabel.State}
-            value={
-              data.onGround
-                ? AircraftFlightStatusLabel.OnGround
-                : AircraftFlightStatusLabel.Airborne
-            }
+            label={AircraftTelemetryLabel.Squawk}
+            value={data.squawk}
+            align={PanelSide.Right}
+            valueClass={emergency ? "text-sig-danger" : EMPTY_TEXT}
           />
-          {data.squawk && (
-            <DetailField
-              label={AircraftTelemetryLabel.Squawk}
-              value={data.squawk}
-              align={PanelSide.Right}
-              valueClass={emergency ? "text-sig-danger" : EMPTY_TEXT}
-            />
-          )}
-        </div>
-        {statRows.length > 0 && (
-          <div className="flex flex-col gap-2 pt-2 border-t border-sig-border/50">
-            {statRows.map(([a, b]) => (
-              <div key={a.label} className="flex justify-between gap-4">
-                <DetailField label={a.label} value={a.value} />
-                {b && (
-                  <DetailField
-                    label={b.label}
-                    value={b.value}
-                    align={PanelSide.Right}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
         )}
-      </DossierCard>
-    </div>
+      </div>
+      {statRows.length > 0 && (
+        <div className="flex flex-col gap-2 pt-2 border-t border-sig-border/50">
+          {statRows.map(([a, b]) => (
+            <div key={a.label} className="flex justify-between gap-4">
+              <DetailField label={a.label} value={a.value} />
+              {b && (
+                <DetailField
+                  label={b.label}
+                  value={b.value}
+                  align={PanelSide.Right}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </DossierCard>
   );
 }

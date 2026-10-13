@@ -74,9 +74,9 @@ export function AppShell() {
   } = useUI();
 
   const isMobileLayout = useIsMobileLayout();
-  const ShellHeader = isMobileLayout ? MobileHeader : Header;
 
   const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [walkthroughMode, setWalkthroughMode] =
     useState(WalkthroughLaunchMode.Both);
 
@@ -125,6 +125,15 @@ export function AppShell() {
     });
   }, [isMobileLayout]);
 
+  const searchSlot = (
+    <Search
+      onSelect={handleSearchSelect}
+      onZoomTo={handleSearchZoomTo}
+      onCommit={handleSearchCommit}
+      onOpenChange={setSearchOpen}
+    />
+  );
+
   const cycleTickerMode = () => {
     setTickerMode((prev) => {
       const next = isMobileLayout
@@ -147,8 +156,8 @@ export function AppShell() {
     >
       <ConnectionStatus />
 
-      {!chromeHidden && (
-        <ShellHeader
+      {!chromeHidden && !isMobileLayout && (
+        <Header
           layers={layers}
           toggleLayer={toggleLayer}
           counts={counts}
@@ -156,18 +165,28 @@ export function AppShell() {
           aircraftFilter={aircraftFilter}
           setAircraftFilter={setAircraftFilter}
           availableCountries={availableCountries}
-          searchSlot={
-            <Search
-              onSelect={handleSearchSelect}
-              onZoomTo={handleSearchZoomTo}
-              onCommit={handleSearchCommit}
-            />
-          }
+          searchSlot={searchSlot}
         />
       )}
 
       <div className="flex-1 relative overflow-hidden">
-        <PaneManager />
+        <PaneManager
+          mobileChrome={
+            isMobileLayout ? (
+              <MobileHeader
+                layers={layers}
+                toggleLayer={toggleLayer}
+                counts={counts}
+                dataSources={dataSources}
+                aircraftFilter={aircraftFilter}
+                setAircraftFilter={setAircraftFilter}
+                availableCountries={availableCountries}
+                searchSlot={searchSlot}
+                searchOpen={searchOpen}
+              />
+            ) : null
+          }
+        />
       </div>
 
       {!chromeHidden && (
@@ -185,7 +204,7 @@ export function AppShell() {
               }}
             >
               <div className="tracking-wider mb-0.5 flex items-center gap-1.5 text-sig-dim text-(length:--sig-text-md)">
-                <span className="text-sig-danger animate-[pulse_1.5s_infinite] hidden md:inline">
+                <span className="text-sig-danger animate-walkthrough-pulse hidden md:inline">
                   ●
                 </span>
                 <span className="hidden md:inline">LIVE FEED</span>
@@ -212,7 +231,7 @@ export function AppShell() {
             <button
               type={ButtonType.Button}
               title="Show live feed"
-              className={`w-full shrink-0 ${TickerClassName.Surface} cursor-pointer hover:bg-sig-accent/5 transition-colors`}
+              className={`w-full shrink-0 ${TickerClassName.Surface} cursor-pointer hover:bg-sig-accent/5 transition-colors touch-target`}
               style={{
                 paddingBottom: TickerSafeAreaPadding.Collapsed,
               }}

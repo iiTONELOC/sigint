@@ -1,8 +1,7 @@
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { CacheKey } from "@shared/domain/cache";
+import type { Channel, ChannelCatalog } from "@shared/domain/videoChannel";
 import type {
-  Channel,
-  ChannelCatalog,
   GridLayout,
   SlotState,
   SavedSlot,
@@ -59,7 +58,7 @@ function nextPresetKey(
   return key;
 }
 
-export async function loadPresets(): Promise<PresetCatalog> {
+export async function loadVideoPresets(): Promise<PresetCatalog> {
   const storedPresets =
     (await cacheGet<Preset[]>(CacheKey.VideoPresets)) ?? [];
   const presets: Record<string, Preset> = Object.create(null);
@@ -76,7 +75,7 @@ export function addPreset(
   return { ...presets, [nextPresetKey(presets, preset.name)]: preset };
 }
 
-export function savePresets(presets: PresetCatalog): void {
+export function saveVideoPresets(presets: PresetCatalog): void {
   cacheSet(CacheKey.VideoPresets, Object.values(presets));
 }
 

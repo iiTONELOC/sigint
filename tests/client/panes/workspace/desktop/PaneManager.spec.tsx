@@ -15,7 +15,7 @@ import { Circle } from "lucide-react";
 import { TooltipPlacement } from "@/components/Tooltip";
 import { CacheKey } from "@shared/domain/cache";
 import { DeviceType } from "@/layout-mode";
-import { PaneNodeType, PaneType, SplitDirection } from "@/panes/workspace/model/pane";
+import { PaneNodeType, PaneType, SplitDirection, type PaneTypeValue } from "@/panes/workspace/model/pane";
 import type {
   PaneCatalog,
   PaneDefinition,
@@ -26,7 +26,6 @@ import type {
   LayoutPreset,
   LayoutState,
   LeafNode,
-  PaneType as PaneTypeValue,
 } from "@/panes/paneTree";
 import {
   flushReactUpdates,
@@ -61,6 +60,7 @@ enum DesktopFixtureProperty {
   ClientX = "clientX",
   ClientY = "clientY",
   DataTransfer = "dataTransfer",
+  FullscreenEnabled = "fullscreenEnabled",
   Touches = "touches",
 }
 
@@ -70,6 +70,7 @@ enum DesktopFixtureModule {
 
 enum DesktopLeafId {
   DataTable = "desktop-data-table",
+  Dossier = "desktop-dossier",
   Globe = "desktop-globe",
 }
 
@@ -136,6 +137,7 @@ class SignalSlot<TArguments extends readonly unknown[]> {
 }
 
 const cacheValues = new Map<string, unknown>();
+const dossierShown = { value: false };
 const dossierSignal = new SignalSlot<readonly []>();
 const resetSignal = new SignalSlot<readonly []>();
 const undoSignal = new SignalSlot<readonly [string]>();
@@ -205,7 +207,9 @@ mock.module("@/lib/runtime/layoutSignals", () => ({
     watchSignal.register(listener),
   requestDossierOpen: noop,
   requestWatchLayout: noop,
-  setDossierOpen: noop,
+  setDossierOpen: (open: boolean) => {
+    dossierShown.value = open;
+  },
   useHasDossier: () => false,
 }));
 
@@ -242,6 +246,10 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  Object.defineProperty(document, DesktopFixtureProperty.FullscreenEnabled, {
+    configurable: true,
+    value: true,
+  });
   cacheValues.clear();
   dossierSignal.reset();
   resetSignal.reset();
@@ -750,5 +758,46 @@ describe("PaneManager desktop signals", () => {
     );
 
     expect(paneProbeElement(PaneType.Globe)).toBe(globeBefore);
+  });
+});
+
+describe("PaneManager desktop dossier visibility", () => {
+  test("reports the dossier hidden while the globe is maximized", async () => {
+    await renderManager(
+      twoPaneLayout(
+        DesktopLeafId.Globe,
+        PaneType.Globe,
+        DesktopLeafId.Dossier,
+        PaneType.Dossier,
+      ),
+    );
+    expect(dossierShown.value).toBe(true);
+
+    act(() => requirePaneHeaderControls(requireLeaf(DesktopLeafId.Globe)).maximize.click());
+    await flushReactUpdates();
+    expect(dossierShown.value).toBe(false);
+
+    act(() => requirePaneHeaderControls(requireLeaf(DesktopLeafId.Globe)).maximize.click());
+    await flushReactUpdates();
+    expect(dossierShown.value).toBe(true);
+  });
+
+  test("restores the layout when the dossier is requested from a maximized globe", async () => {
+    await renderManager(
+      twoPaneLayout(
+        DesktopLeafId.Globe,
+        PaneType.Globe,
+        DesktopLeafId.Dossier,
+        PaneType.Dossier,
+      ),
+    );
+    act(() => requirePaneHeaderControls(requireLeaf(DesktopLeafId.Globe)).maximize.click());
+    await flushReactUpdates();
+    expect(leafIsHidden(DesktopLeafId.Dossier)).toBe(true);
+
+    act(() => dossierSignal.emit());
+    await flushReactUpdates();
+
+    expect(leafIsHidden(DesktopLeafId.Dossier)).toBe(false);
   });
 });

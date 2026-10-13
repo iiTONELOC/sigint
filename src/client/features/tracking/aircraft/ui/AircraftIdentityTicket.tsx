@@ -1,13 +1,14 @@
-import { Camera } from "lucide-react";
 import { Barcode } from "@/components/Barcode";
-import { DetailField } from "@/dossier";
+import { CoverImage, DetailField, PhotoCredit } from "@/dossier";
 import { PanelSide } from "@/layout-mode";
+import { DomAnchorTarget, DomLinkRelation } from "@/runtime";
 import type { AircraftPhoto as AircraftPhotoData } from "../hooks/useAircraftPhoto";
 import { NO_VALUE } from "@shared/text";
 
 export enum AircraftChipTone {
   Critical = "text-sig-danger border-sig-danger/40 bg-sig-danger/10",
   Late = "text-sig-fires border-sig-fires/40 bg-sig-fires/10",
+  Neutral = "text-sig-text border-sig-border bg-sig-bg/60",
   OnTime = "text-sig-quakes border-sig-quakes/40 bg-sig-quakes/10",
   Warning = "text-sig-warn border-sig-warn/40 bg-sig-warn/10",
 }
@@ -16,6 +17,10 @@ export type AircraftChip = Readonly<{
   label: string;
   tone: AircraftChipTone;
 }>;
+
+enum AircraftTicketLabel {
+  StockPhoto = "STOCK PHOTO",
+}
 
 enum AircraftPhotoPlateGeometry {
   CenterX = 100,
@@ -112,16 +117,11 @@ function AircraftPhoto({
     return (
       <a
         href={photo.link}
-        target="_blank"
-        rel="noopener noreferrer"
+        target={DomAnchorTarget.Blank}
+        rel={DomLinkRelation.NoopenerNoreferrer}
         className="absolute inset-0 block"
       >
-        <img
-          src={photo.src}
-          alt={fallbackText}
-          className="w-full h-full object-cover"
-          onError={onError}
-        />
+        <CoverImage src={photo.src} alt={fallbackText} onError={onError} />
       </a>
     );
   }
@@ -225,10 +225,10 @@ export function AircraftIdentityTicket({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/4 bg-linear-to-t from-sig-panel via-sig-panel/85 to-transparent" />
         <div className="absolute top-2 right-2">{badges}</div>
         {hasPhoto && photo?.photographer && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 text-(length:--sig-text-xs) text-sig-bright/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
-            <Camera className="w-3 h-3 shrink-0" aria-hidden />
-            <span className="truncate max-w-40">{photo.photographer}</span>
-          </div>
+          <PhotoCredit
+            credit={photo.photographer}
+            prefix={photo.stock ? AircraftTicketLabel.StockPhoto : undefined}
+          />
         )}
         <div className="absolute inset-x-0 bottom-0 px-4 pb-3">{identity}</div>
       </div>

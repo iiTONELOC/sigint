@@ -48,7 +48,6 @@ enum Steim {
   TopNibbleShift = 30,
 }
 
-/** Word slots in the first frame that hold the integration constants. */
 enum SteimConstantWord {
   Forward = 1,
   Reverse = 2,
@@ -63,7 +62,12 @@ enum SteimCode {
   Steim1OneWord = 3,
 }
 
-/** Steim2 packings by (nibble code, top two payload bits): [count, bits]. */
+const STEIM1_PACKING: Readonly<Partial<Record<SteimCode, readonly [number, number]>>> = {
+  [SteimCode.FourBytes]: [4, 8],
+  [SteimCode.Steim1TwoHalves]: [2, 16],
+  [SteimCode.Steim1OneWord]: [1, 32],
+};
+
 const STEIM2_PACKING: Readonly<Record<number, readonly [number, number]>> = {
   0x21: [1, 30],
   0x22: [2, 15],
@@ -93,20 +97,22 @@ function pushFields(target: number[], word: number, count: number, bits: number)
   }
 }
 
+function pushPacking(target: number[], word: number, packing: readonly [number, number] | undefined): void {
+  if (packing) pushFields(target, word, packing[0], packing[1]);
+}
+
 function pushDifferences(
   target: number[],
   word: number,
   code: number,
   encoding: SampleEncoding,
 ): void {
-  if (code === SteimCode.FourBytes) return pushFields(target, word, 4, 8);
+  if (code === SteimCode.FourBytes) return pushPacking(target, word, STEIM1_PACKING[SteimCode.FourBytes]);
   if (encoding === SampleEncoding.Steim1) {
-    if (code === SteimCode.Steim1TwoHalves) pushFields(target, word, 2, 16);
-    else pushFields(target, word, 1, 32);
-    return;
+    const steim1 = code === SteimCode.Steim1TwoHalves ? SteimCode.Steim1TwoHalves : SteimCode.Steim1OneWord;
+    return pushPacking(target, word, STEIM1_PACKING[steim1]);
   }
-  const packing = STEIM2_PACKING[(code << 4) | (word >>> Steim.TopNibbleShift)];
-  if (packing) pushFields(target, word, packing[0], packing[1]);
+  pushPacking(target, word, STEIM2_PACKING[(code << 4) | (word >>> Steim.TopNibbleShift)]);
 }
 
 type SteimFrame = Readonly<{
@@ -116,7 +122,6 @@ type SteimFrame = Readonly<{
   skipConstants: boolean;
 }>;
 
-/** Append one frame's differences; the first frame skips its two constants. */
 function readFrame(view: DataView, frame: SteimFrame, target: number[]): void {
   const nibbles = view.getUint32(frame.start, frame.little);
   for (let word = 1; word < Steim.WordsPerFrame; word++) {

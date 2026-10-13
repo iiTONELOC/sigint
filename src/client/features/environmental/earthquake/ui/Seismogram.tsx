@@ -146,7 +146,7 @@ export function Seismogram({
         <button
           type="button"
           onClick={toggleAudio}
-          className="flex items-center gap-1 min-h-9 px-1.5 -ml-1.5 rounded cursor-pointer text-(--dossier-accent) transition-colors hover:text-sig-bright"
+          className="flex items-center gap-1 min-h-9 px-1.5 -ml-1.5 rounded cursor-pointer text-(--dossier-accent) transition-colors hover:text-sig-bright touch-target"
           aria-label={playing ? "Stop quake audio" : "Listen to the quake"}
         >
           {playing ? (

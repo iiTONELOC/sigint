@@ -5,6 +5,7 @@ import {
   test,
 } from "bun:test";
 import { act } from "react";
+import { MobileBlockActionLabel } from "@/panes/MobileBlockActions";
 import {
   PaneLayoutRatio,
   PaneType,
@@ -20,30 +21,25 @@ import {
   MobileFixtureIndex,
   MobileFixtureLabel,
   MobileFixtureNodeId,
-  blockHeaderButtons,
   buttonWithText,
   emitMobileIntersection,
   fixturePreset,
   mobileLayout,
   mobileLeaf,
   mobileSplit,
+  openBlockActions,
   renderMobileFixture,
   requireAddButton,
-  requireBlockTypeButton,
   requireButtonWithText,
   requireMobileBlock,
   requirePortal,
   requireRestoreButton,
-  requireSideSplitButton,
+  requireSheetAction,
+  requireSheetCloseButton,
   requireToolbar,
-  requireVerticalSplitButton,
   requireViewsButton,
   resetMobileFixture,
 } from "./fixture";
-
-enum MobileMenuExpectedCount {
-  FullWidthControls = 4,
-}
 
 enum MobileMenuObserverTop {
   Second = 20,
@@ -65,28 +61,25 @@ function singlePaneLayout(
   return mobileLayout(mobileLeaf(id, paneType));
 }
 
-describe("PaneMobile split and type menus", () => {
-  test("selects a type for a side-by-side split", async () => {
+describe("PaneMobile view actions", () => {
+  test("adds a view beside the active view", async () => {
     const fixture = renderMobileFixture({
       availableTypes: [PaneType.Dossier, PaneType.AlertLog],
-      chromeHidden: true,
       layout: singlePaneLayout(
         MobileFixtureNodeId.DataTable,
         PaneType.DataTable,
       ),
     });
-    const block = requireMobileBlock(MobileFixtureNodeId.DataTable);
 
-    act(() => requireSideSplitButton(block).click());
+    openBlockActions(
+      requireMobileBlock(MobileFixtureNodeId.DataTable),
+      PaneType.DataTable,
+    );
+    act(() => requireSheetAction(MobileBlockActionLabel.AddBeside).click());
     await waitForReact(
       () => buttonWithText(MobileFixtureLabel.Dossier) !== null,
     );
-    act(() => {
-      requireButtonWithText(
-        MobileFixtureLabel.Dossier,
-        requirePortal(fixture.rendered.container),
-      ).click();
-    });
+    act(() => requireButtonWithText(MobileFixtureLabel.Dossier).click());
     await flushReactUpdates();
 
     expect(fixture.callbacks.splitPane).toHaveBeenCalledWith(
@@ -94,23 +87,25 @@ describe("PaneMobile split and type menus", () => {
       SplitDirection.Horizontal,
       PaneType.Dossier,
     );
+    expect(buttonWithText(MobileBlockActionLabel.AddBeside)).toBeNull();
   });
 
-  test("keeps a full-width pane vertical when one type is available", async () => {
+  test("keeps a full-width view vertical and splits at once with one type", async () => {
     const fixture = renderMobileFixture({
       availableTypes: [PaneType.AlertLog],
-      chromeHidden: true,
       layout: singlePaneLayout(
         MobileFixtureNodeId.Globe,
         PaneType.Globe,
       ),
     });
-    const block = requireMobileBlock(MobileFixtureNodeId.Globe);
 
-    expect(blockHeaderButtons(block)).toHaveLength(
-      MobileMenuExpectedCount.FullWidthControls,
+    openBlockActions(
+      requireMobileBlock(MobileFixtureNodeId.Globe),
+      PaneType.Globe,
     );
-    act(() => requireVerticalSplitButton(block).click());
+
+    expect(buttonWithText(MobileBlockActionLabel.AddBeside)).toBeNull();
+    act(() => requireSheetAction(MobileBlockActionLabel.AddBelow).click());
     await flushReactUpdates();
 
     expect(fixture.callbacks.splitPane).toHaveBeenCalledWith(
@@ -120,37 +115,65 @@ describe("PaneMobile split and type menus", () => {
     );
   });
 
-  test("changes the selected leaf through its type menu", async () => {
+  test("changes the active view through its actions", async () => {
     const fixture = renderMobileFixture({
-      chromeHidden: true,
       layout: singlePaneLayout(
         MobileFixtureNodeId.DataTable,
         PaneType.DataTable,
       ),
     });
-    const block = requireMobileBlock(MobileFixtureNodeId.DataTable);
 
-    act(() => {
-      requireBlockTypeButton(
-        block,
-        MobileFixtureLabel.DataTable,
-      ).click();
-    });
+    openBlockActions(
+      requireMobileBlock(MobileFixtureNodeId.DataTable),
+      PaneType.DataTable,
+    );
+    act(() => requireSheetAction(MobileBlockActionLabel.ChangeView).click());
     await waitForReact(
       () => buttonWithText(MobileFixtureLabel.AlertLog) !== null,
     );
-    act(() => {
-      requireButtonWithText(
-        MobileFixtureLabel.AlertLog,
-        requirePortal(fixture.rendered.container),
-      ).click();
-    });
+    act(() => requireButtonWithText(MobileFixtureLabel.AlertLog).click());
     await flushReactUpdates();
 
     expect(fixture.callbacks.changePaneType).toHaveBeenCalledWith(
       MobileFixtureNodeId.DataTable,
       PaneType.AlertLog,
     );
+  });
+
+  test("renders the actions sheet on the document body", () => {
+    renderMobileFixture({
+      layout: singlePaneLayout(
+        MobileFixtureNodeId.DataTable,
+        PaneType.DataTable,
+      ),
+    });
+
+    openBlockActions(
+      requireMobileBlock(MobileFixtureNodeId.DataTable),
+      PaneType.DataTable,
+    );
+    const sheet = requireSheetAction(MobileBlockActionLabel.ChangeView).closest("dialog");
+
+    expect(sheet?.parentElement?.parentElement === document.body).toBe(true);
+  });
+
+  test("closes the actions sheet from its backdrop", async () => {
+    renderMobileFixture({
+      layout: singlePaneLayout(
+        MobileFixtureNodeId.DataTable,
+        PaneType.DataTable,
+      ),
+    });
+
+    openBlockActions(
+      requireMobileBlock(MobileFixtureNodeId.DataTable),
+      PaneType.DataTable,
+    );
+    requireSheetAction(MobileBlockActionLabel.ChangeView);
+    act(() => requireSheetCloseButton().click());
+    await flushReactUpdates();
+
+    expect(buttonWithText(MobileBlockActionLabel.ChangeView)).toBeNull();
   });
 });
 

@@ -2,28 +2,32 @@
 // Owns the transferred canvas and all Canvas2D drawing.
 import { CAMERA_POLICY } from "./render/policy";
 import {
+  cameraSnapshot,
+  createWorkerCameraState,
+  createWorkerCameraTarget,
+  createWorkerPointerState,
+  createCameraProjection,
+  focusCamera,
+  lockCamera,
+  type CameraClick,
+  type CameraPosition,
+  type CameraViewport,
+} from "./render/camera";
+import {
   applyCameraKey,
   applyCameraWheel,
   beginCameraPinch,
   beginCameraPointer,
   cameraContainsPoint,
-  cameraSnapshot,
   cancelCameraPointer,
-  createWorkerCameraState,
-  createWorkerCameraTarget,
-  createWorkerPointerState,
-  createCameraProjection,
   endCameraPinch,
   endCameraPointer,
-  focusCamera,
-  lockCamera,
   moveCameraPinch,
   moveCameraPointer,
+} from "./render/cameraInput";
+import {
   stepCamera,
-  type CameraClick,
-  type CameraPosition,
-  type CameraViewport,
-} from "./render/camera";
+} from "./render/cameraStep";
 import {
   RenderCursor,
   RenderFocusKind,

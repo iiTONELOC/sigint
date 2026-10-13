@@ -19,7 +19,7 @@ export function GlobeVisualization(
     <div className="relative w-full h-full">
       <RenderSurfaceHost
         ref={setHost}
-        className="block w-full h-full"
+        className="block w-full h-full select-none"
         touchMode={isMobileLayout ? SurfaceTouchMode.PageScroll : SurfaceTouchMode.Globe}
       />
       <TrailTooltip state={tooltip} />

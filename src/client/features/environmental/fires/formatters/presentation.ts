@@ -33,7 +33,6 @@ enum FireUnit {
   Megawatt = "MW",
 }
 
-/** Radiative power floors in megawatts. */
 const FIRE_SEVERITY_BANDS = intelSeverityBands({
   crisis: 100,
   conflict: 50,

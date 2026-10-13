@@ -105,7 +105,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 key={tab}
                 type={ButtonType.Button}
                 onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 text-[10px] sm:text-xs font-semibold tracking-wider transition-colors border-b-2 -mb-px whitespace-nowrap ${
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 text-[10px] sm:text-xs font-semibold tracking-wider transition-colors border-b-2 -mb-px whitespace-nowrap touch-target ${
                   active
                     ? "text-sig-accent border-sig-accent"
                     : "text-sig-dim border-transparent hover:text-sig-text"

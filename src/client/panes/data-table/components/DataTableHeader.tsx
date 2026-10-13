@@ -9,16 +9,15 @@ import {
   TableSortKey,
 } from "@/workers/data/uiQuery";
 import {
+  DATA_TABLE_COLUMNS,
   DataTableAriaSort,
   DataTableClassName,
   DataTableCopy,
   DataTableIconSize,
-  dataTableColumns,
-  dataTableGridClass,
+  dataTableCellClass,
 } from "../model/table";
 
 type DataTableHeaderProps = Readonly<{
-  isMobile: boolean;
   onSort: (key: TableSortKey) => void;
   sortDirection: TableSortDirection;
   sortKey: TableSortKey;
@@ -35,17 +34,15 @@ function ariaSort(
 }
 
 export function DataTableHeader({
-  isMobile,
   onSort,
   sortDirection,
   sortKey,
 }: DataTableHeaderProps) {
-  const gridClass = dataTableGridClass(isMobile);
   return (
     <table className="shrink-0 w-full border-b border-sig-border/40 bg-sig-panel/40 select-none">
       <thead>
-        <tr className={`grid items-center px-2 py-1 ${gridClass}`}>
-          {dataTableColumns(isMobile).map(([key, metadata]) => {
+        <tr className={`grid items-center px-2 py-1 ${DataTableClassName.Grid}`}>
+          {Array.from(DATA_TABLE_COLUMNS.entries()).map(([key, metadata]) => {
             const active = sortKey === key;
             const ascending =
               active && sortDirection === TableSortDirection.Ascending;
@@ -56,17 +53,17 @@ export function DataTableHeader({
                 key={key}
                 scope={DomTableScope.Column}
                 aria-sort={ariaSort(active, ascending)}
-                className={
+                className={`${
                   rightAligned
                     ? DataTableClassName.RightAligned
                     : DataTableClassName.LeftAligned
-                }
+                } ${dataTableCellClass(metadata.wideOnly)}`}
               >
                 <Tooltip content={metadata.tooltip} placement="bottom">
                   <button
                     type={ButtonType.Button}
                     onClick={() => onSort(key)}
-                    className={`w-full flex items-center gap-0.5 bg-transparent border-none p-0 tracking-wider text-(length:--sig-text-sm) font-semibold transition-colors ${
+                    className={`${DataTableClassName.SortButton} ${
                       active
                         ? DataTableClassName.ActiveSort
                         : DataTableClassName.InactiveSort
@@ -101,12 +98,11 @@ export function DataTableHeader({
               </th>
             );
           })}
-          {!isMobile && (
-            <th
-              scope={DomTableScope.Column}
-              aria-label={DataTableCopy.Actions}
-            />
-          )}
+          <th
+            scope={DomTableScope.Column}
+            aria-label={DataTableCopy.Actions}
+            className={DataTableClassName.WideOnly}
+          />
         </tr>
       </thead>
     </table>

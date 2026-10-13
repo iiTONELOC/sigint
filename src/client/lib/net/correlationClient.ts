@@ -27,10 +27,6 @@ export type CorrelationClient = Readonly<{
   terminate(): void;
 }>;
 
-/**
- * Without the worker there is no data port either, so this correlates news
- * against an empty record set rather than silently reporting a stale one.
- */
 function inlineCompute(
   news: NewsArticle[],
   baseline: RegionBaseline,
@@ -42,7 +38,6 @@ function inlineFallback(): CorrelationClient {
   return Object.freeze({
     request: inlineCompute,
     terminate() {
-      /* no-op */
     },
   });
 }
@@ -133,7 +128,6 @@ export function createCorrelationClient(): CorrelationClient {
       try {
         worker.terminate();
       } catch {
-        /* worker may already be terminated */
       }
       pending.clear();
     },

@@ -5,6 +5,7 @@ import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
 import {
   fetchWithTimeout,
   FETCH_TIMEOUT_LARGE_MS,
+  retryDelayMs,
 } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
 import { errorMessage } from "../lib/errorMessage";
@@ -32,7 +33,6 @@ export enum AircraftSourcePolicy {
   FreshMs = 600_000,
   MaxStaleMs = 900_000,
   RateLimitDelayMs = 3_000,
-  RetryDefaultDelayMs = 30_000,
   MaximumRequestDelayMs = 24_000,
 }
 
@@ -173,15 +173,6 @@ function remainingRequestDelay(startedAt: number, finishedAt: number, gapMs: num
   return Math.max(0, gapMs - elapsedMs);
 }
 
-/** Parse an HTTP `Retry-After` header value (integer seconds form only;
- *  RFC 7231 also allows a date form, which is rejected).
- *  Returns the positive integer or null if missing/invalid. */
-export function parseRetryAfter(header: string | null): number | null {
-  if (!header) return null;
-  const n = Number.parseInt(header, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 export function buildFirstSweepOrder(
   tiles: readonly AircraftTile[],
 ): AircraftTile[] {
@@ -273,15 +264,9 @@ async function attemptTileFetch(
   }
 
   if (response.status === HttpStatus.TooManyRequests) {
-    const retryAfterSec = parseRetryAfter(
-      response.headers.get(HttpHeader.RetryAfter),
-    );
     return {
       kind: AircraftTileResultKind.RateLimited,
-      waitMs:
-        retryAfterSec === null
-          ? AircraftSourcePolicy.RetryDefaultDelayMs
-          : retryAfterSec * MS_PER_SECOND,
+      waitMs: retryDelayMs(response),
     };
   }
 

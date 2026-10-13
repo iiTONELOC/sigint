@@ -39,8 +39,8 @@ enum WeatherMarkerScale {
 }
 
 enum WeatherMarkerGeometry {
-  Vertical = 1.2,
-  Horizontal = 0.8,
+  HeightRatio = 1.2,
+  WidthRatio = 0.8,
 }
 
 export type WeatherSceneFilter = EnabledSceneFilter;
@@ -179,20 +179,20 @@ export class WeatherLayer extends SceneAreaLayer<WeatherSceneFilter> {
           context.beginPath();
           context.moveTo(
             projection.x,
-            projection.y - radius * WeatherMarkerGeometry.Vertical,
+            projection.y - radius * WeatherMarkerGeometry.HeightRatio,
           );
           context.lineTo(
             projection.x +
-              radius * WeatherMarkerGeometry.Horizontal,
+              radius * WeatherMarkerGeometry.WidthRatio,
             projection.y,
           );
           context.lineTo(
             projection.x,
-            projection.y + radius * WeatherMarkerGeometry.Vertical,
+            projection.y + radius * WeatherMarkerGeometry.HeightRatio,
           );
           context.lineTo(
             projection.x -
-              radius * WeatherMarkerGeometry.Horizontal,
+              radius * WeatherMarkerGeometry.WidthRatio,
             projection.y,
           );
           context.closePath();
