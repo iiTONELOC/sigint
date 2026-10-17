@@ -2,7 +2,7 @@ import { positiveInteger } from "@shared/types/numbers";
 import type { AuthGuards } from "./auth";
 import type { SecurityHeaders } from "./securityHeaders";
 import { EventApiMessage, EventEndpoint } from "@shared/domain/events";
-import { AircraftApiRoute } from "@shared/domain/aircraft";
+import { AIRCRAFT_WATCH_QUERY, AircraftApiRoute } from "@shared/domain/aircraft";
 import { FIRE_LATEST_ROUTE } from "@shared/domain/fireDayNight";
 import { NEWS_LATEST_ROUTE } from "@shared/domain/newsSource";
 import { VIDEO_CHANNELS_ROUTE } from "@shared/domain/videoChannel";
@@ -27,7 +27,8 @@ import { getNewsCache } from "./newsCache";
 import { getVideoChannelCache } from "./videoChannelCache";
 import { getAircraftTypeArticle, getVesselEncyclopedia } from "./encyclopediaCache";
 import { getCyclonesCache } from "./cyclonesCache";
-import { getAircraftCache } from "./aircraftCache";
+import { AircraftSourcePolicy, getAircraftCache } from "./aircraftCache";
+import { firstWatchResult, watchAircraft } from "./aircraftWatch";
 import {
   getAircraftDossier,
   isValidCallsign,
@@ -211,6 +212,13 @@ export function createApiRoutes(deps: ApiDeps) {
     ),
 
     [AircraftApiRoute.States]: authedGet(async (req) => {
+      const watch = normalizeIcao24(
+        new URL(req.url).searchParams.get(AIRCRAFT_WATCH_QUERY) ?? undefined,
+      );
+      if (watch) {
+        watchAircraft(watch);
+        await firstWatchResult(watch, AircraftSourcePolicy.MaximumRequestDelayMs);
+      }
       const cache = getAircraftCache();
       return jsonResponse(req, {
         ac: cache.body?.ac ?? [],

@@ -6,6 +6,7 @@ import {
   AirspeedIndicator,
   Altimeter,
   AttitudeIndicator,
+  InstrumentReport,
   VerticalSpeedIndicator,
 } from "./instruments/FlightInstruments";
 import { formatKtShort } from "@/measurements";
@@ -220,28 +221,44 @@ function telemetryRows(
   return rows;
 }
 
-export function AircraftTelemetryGauges({ data }: Readonly<{ data: AircraftData }>) {
+type AircraftTelemetryGaugesProps = Readonly<{
+  data: AircraftData;
+  subject: string;
+  observedAt: number | null;
+  turnDegreesPerSecond: number;
+  speedKnotsPerSecond: number;
+}>;
+
+export function AircraftTelemetryGauges({
+  data,
+  subject,
+  observedAt,
+  turnDegreesPerSecond,
+  speedKnotsPerSecond,
+}: AircraftTelemetryGaugesProps) {
   const speed = data.speed ?? 0;
   const heading = data.heading ?? 0;
   const altitude = data.altitude ?? 0;
   const fpm = aircraftVerticalSpeedFpm(data.verticalRate);
   return (
+    <InstrumentReport value={{ subject, observedAt }}>
     <DossierCard className="p-1.5 flex-1 flex flex-col justify-center">
     <div className="@container/gauges">
       <div className={AircraftTelemetryClassName.GaugeGrid}>
-        <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} /></div>
+        <div className={AircraftTelemetryClassName.GaugeTile}><AirspeedIndicator knots={speed} knotsPerSecond={speedKnotsPerSecond} /></div>
         <div className={AircraftTelemetryClassName.GaugeTile}><AttitudeIndicator bankDegrees={data.roll} flightPathDegrees={aircraftFlightPath(data)} /></div>
         <div className={AircraftTelemetryClassName.GaugeTile}>
-          <Altimeter feet={altitude} selectedFeet={data.navAltitudeMcp ?? data.navAltitudeFms} />
+          <Altimeter feet={altitude} feetPerMinute={fpm} selectedFeet={data.navAltitudeMcp ?? data.navAltitudeFms} />
         </div>
         <div className={AircraftTelemetryClassName.GaugeTile}>
-          <TurnCoordinator bankDegrees={data.roll} turnRateDegreesPerSecond={data.trackRate} airspeedKnots={data.tas ?? speed} />
+          <TurnCoordinator bankDegrees={data.roll} turnRateDegreesPerSecond={turnDegreesPerSecond} airspeedKnots={data.tas ?? speed} />
         </div>
-        <div className={AircraftTelemetryClassName.GaugeTile}><HeadingHSI heading={heading} selectedHeading={data.navHeading} /></div>
+        <div className={AircraftTelemetryClassName.GaugeTile}><HeadingHSI heading={heading} selectedHeading={data.navHeading} turnRateDegreesPerSecond={turnDegreesPerSecond} /></div>
         <div className={AircraftTelemetryClassName.GaugeTile}><VerticalSpeedIndicator feetPerMinute={fpm} /></div>
       </div>
     </div>
     </DossierCard>
+    </InstrumentReport>
   );
 }
 

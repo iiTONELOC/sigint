@@ -1,7 +1,7 @@
 import type { DataPoint } from "@/features/base/dataPoints";
 import { DetailField } from "@/dossier";
 import { PanelSide } from "@/layout-mode/model/layoutMode";
-import type { AircraftData } from "@shared/domain/aircraft";
+import { AircraftWatchPolicy, type AircraftData } from "@shared/domain/aircraft";
 import {
   aircraftBadgePresentation,
   aircraftEmergencyPresentation,
@@ -11,11 +11,7 @@ import {
 import { EMPTY_TEXT, NO_VALUE } from "@shared/text";
 import { formatKtShort } from "@/measurements";
 
-enum AircraftSummaryValue {
-  CriticalDescentFeetPerMinute = -2_000,
-  DescentFeetPerMinute = -50,
-  ClimbFeetPerMinute = 50,
-}
+const CRITICAL_DESCENT_FEET_PER_MINUTE = -2_000;
 
 enum AircraftSummaryClassName {
   AccentText = "text-sig-accent",
@@ -24,13 +20,13 @@ enum AircraftSummaryClassName {
 }
 
 function vsClass(fpm: number): string {
-  if (fpm <= AircraftSummaryValue.CriticalDescentFeetPerMinute) {
+  if (fpm <= CRITICAL_DESCENT_FEET_PER_MINUTE) {
     return AircraftSummaryClassName.DangerText;
   }
-  if (fpm < AircraftSummaryValue.DescentFeetPerMinute) {
+  if (fpm < -AircraftWatchPolicy.LevelFeetPerMinute) {
     return AircraftSummaryClassName.AccentText;
   }
-  if (fpm > AircraftSummaryValue.ClimbFeetPerMinute) {
+  if (fpm > AircraftWatchPolicy.LevelFeetPerMinute) {
     return AircraftSummaryClassName.QuakeText;
   }
   return EMPTY_TEXT;

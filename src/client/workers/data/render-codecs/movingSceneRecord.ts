@@ -1,6 +1,7 @@
 import type {
   TrackSource,
   TrailPoint,
+  TrailTurn,
 } from "@/lib/geo/trails/trailStore";
 import type {
   DatasetEntity,
@@ -39,6 +40,7 @@ export type MovingSceneRecord<
 export type MovingSceneMotion = Readonly<{
   directionDegrees: number;
   speedMetersPerSecond: number;
+  turn?: TrailTurn;
 }>;
 
 export function movingSceneRecords<
@@ -89,6 +91,10 @@ export function writeMovingSceneAttributes<
     trailPoint ? motion.directionDegrees : 0;
   target[offset + MovingSceneAttribute.SpeedMetersPerSecond] =
     trailPoint ? motion.speedMetersPerSecond : 0;
+  target[offset + MovingSceneAttribute.TurnDegreesPerSecond] =
+    trailPoint ? motion.turn?.degreesPerSecond ?? 0 : 0;
+  target[offset + MovingSceneAttribute.ReportGapSeconds] =
+    trailPoint ? motion.turn?.seconds ?? 0 : 0;
 }
 
 export type MovingSceneSpec<

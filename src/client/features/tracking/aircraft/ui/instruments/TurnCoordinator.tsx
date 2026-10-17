@@ -1,8 +1,8 @@
+import { STANDARD_TURN_DEGREES_PER_SECOND } from "@shared/domain/aircraft";
 import { coordinatedBankDegrees } from "../../utils/isa";
 import { DialClassName, DialFrame, DialGeometry, polar, useEasedValue } from "./FlightInstruments";
 
 enum TurnScale {
-  StandardRateDegreesPerSecond = 3,
   StandardRateMarkDegrees = 20,
   MaximumSymbolDegrees = 40,
   MarkLength = 14,
@@ -63,7 +63,7 @@ function clamp(value: number, limit: number): number {
 function symbolRotation(turnRate: number | undefined): number {
   if (turnRate === undefined) return 0;
   return clamp(
-    (turnRate / TurnScale.StandardRateDegreesPerSecond) * TurnScale.StandardRateMarkDegrees,
+    (turnRate / STANDARD_TURN_DEGREES_PER_SECOND) * TurnScale.StandardRateMarkDegrees,
     TurnScale.MaximumSymbolDegrees,
   );
 }

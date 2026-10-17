@@ -1,7 +1,9 @@
 import { firstNumber } from "../../shared/types/numbers";
 import { MS_PER_SECOND } from "../../shared/time";
 import { Domain } from "@shared/domain/identity";
+import { AIRCRAFT_SLOT_MS } from "@shared/domain/aircraft";
 import { enrichRecord, loadMetadataDb } from "./aircraftEnrichment";
+import { nextDueWatch, recordWatchResult } from "./aircraftWatch";
 import {
   fetchWithTimeout,
   FETCH_TIMEOUT_LARGE_MS,
@@ -29,10 +31,12 @@ const logger = createLogger({ service: "aircraft" });
 
 export const ADSB_FI_BASE_URL = "https://opendata.adsb.fi/api/v3";
 
+const ADSB_FI_HEX_URL = "https://opendata.adsb.fi/api/v2/hex";
+
 export enum AircraftSourcePolicy {
   FreshMs = 600_000,
   MaxStaleMs = 900_000,
-  RateLimitDelayMs = 3_000,
+  RateLimitDelayMs = AIRCRAFT_SLOT_MS,
   MaximumRequestDelayMs = 24_000,
 }
 
@@ -243,12 +247,10 @@ function failedTile(
   return { kind: AircraftTileResultKind.Failed, error: { code, message } };
 }
 
-async function attemptTileFetch(
-  lat: number,
-  lon: number,
+async function attemptFetch(
+  url: string,
+  label: string,
 ): Promise<TileAttemptResult> {
-  const label = `tile [${lat},${lon}]`;
-  const url = `${ADSB_FI_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`;
   let response: Response;
   try {
     response = await fetchWithTimeout(url, FETCH_TIMEOUT_LARGE_MS, {
@@ -294,29 +296,45 @@ async function attemptTileFetch(
   }
 }
 
-/** Retry one rate limit; preserve every failure as a typed result. */
-export async function fetchTileWithRetry(
-  lat: number,
-  lon: number,
-  sleep: SleepFn = defaultSleep,
+async function fetchWithRetry(
+  url: string,
+  label: string,
+  sleep: SleepFn,
 ): Promise<AircraftTileResult> {
-  const first = await attemptTileFetch(lat, lon);
+  const first = await attemptFetch(url, label);
   if (first.kind !== AircraftTileResultKind.RateLimited) return first;
 
   logger.info(
-    `✈️  aircraft: rate-limited tile [${lat},${lon}], waiting ${Math.round(
+    `✈️  aircraft: rate-limited ${label}, waiting ${Math.round(
       first.waitMs / MS_PER_SECOND,
     )}s and retrying`,
   );
   await sleep(first.waitMs);
 
-  const second = await attemptTileFetch(lat, lon);
+  const second = await attemptFetch(url, label);
   if (second.kind === AircraftTileResultKind.Complete) return { ...second, rateLimited: true };
   if (second.kind !== AircraftTileResultKind.RateLimited) return second;
 
-  const message = `Rate limited twice for tile [${lat},${lon}]`;
+  const message = `Rate limited twice for ${label}`;
   logger.info(`✈️  aircraft: ${message}`);
   return failedTile(SourceErrorCode.RateLimited, message);
+}
+
+/** Retry one rate limit; preserve every failure as a typed result. */
+export function fetchTileWithRetry(
+  lat: number,
+  lon: number,
+  sleep: SleepFn = defaultSleep,
+): Promise<AircraftTileResult> {
+  return fetchWithRetry(
+    `${ADSB_FI_BASE_URL}/lat/${lat}/lon/${lon}/dist/${TILE_RADIUS_NM}`,
+    `tile [${lat},${lon}]`,
+    sleep,
+  );
+}
+
+function fetchAircraftHex(hex: string, sleep: SleepFn): Promise<AircraftTileResult> {
+  return fetchWithRetry(`${ADSB_FI_HEX_URL}/${hex}`, `hex ${hex}`, sleep);
 }
 
 function setFixtureFailure(message: string): void {
@@ -368,6 +386,14 @@ function recordTileSuccess(
   sourceCompleteness = SourceCompleteness.Partial;
   if (observedAt === null) return observedSoFar;
   return Math.max(observedSoFar ?? observedAt, observedAt);
+}
+
+function ingestWatchRecords(hex: string, records: readonly unknown[]): void {
+  recordWatchResult(hex, records);
+  const receivedAt = Date.now();
+  if (ingestTile(sweepState, records.map(enrichRecord), receivedAt) === null) return;
+  sourceSequence++;
+  lastReceivedAt = receivedAt;
 }
 
 function recordTileFailure(error: SourceError): void {
@@ -433,6 +459,25 @@ function slowerGap(gapMs: number): number {
   return next;
 }
 
+let requestSlot = 0;
+
+async function pollDueWatch(
+  { sleep, now }: Pick<SweepTiming, "sleep" | "now">,
+  gapMs: number,
+): Promise<number> {
+  const hex = nextDueWatch(requestSlot);
+  if (hex === null) return gapMs;
+  requestSlot++;
+  const startedAt = now();
+  const result = await fetchAircraftHex(hex, sleep);
+  ingestWatchRecords(hex, result.kind === AircraftTileResultKind.Complete ? result.records : []);
+  const limited = wasRateLimited(result);
+  const nextGapMs = limited ? slowerGap(gapMs) : gapMs;
+  const delayMs = limited ? nextGapMs : remainingRequestDelay(startedAt, now(), nextGapMs);
+  if (delayMs > 0) await sleep(delayMs);
+  return nextGapMs;
+}
+
 async function sweepTiles(
   tiles: readonly AircraftTile[],
   { fetchFn, sleep, now, signal }: SweepTiming,
@@ -441,6 +486,8 @@ async function sweepTiles(
   let gapMs: number = AircraftSourcePolicy.RateLimitDelayMs;
   for (const [index, [latitude, longitude]] of tiles.entries()) {
     if (signal?.aborted) break;
+    gapMs = await pollDueWatch({ sleep, now }, gapMs);
+    requestSlot++;
     const requestStartedAt = now();
     const result = await fetchFn(latitude, longitude);
     if (result.kind === AircraftTileResultKind.Complete) {

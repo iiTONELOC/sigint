@@ -1,5 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AngleConversion, TurnDeg } from "@shared/geo";
+import { MS_PER_SECOND, SECONDS_PER_MINUTE } from "@shared/time";
+import { Domain } from "@shared/domain/identity";
+import { AIRCRAFT_GLIDE_MAXIMUM_MS, AIRCRAFT_TURN_WINDOW_MS } from "@shared/domain/aircraft";
+import { TRAIL_POLICY } from "@/lib/geo/trails/trailStore";
 import { formatKtShort } from "@/measurements";
 import { RenderMediaQuery } from "@/render-surface/reducedMotion";
 
@@ -110,37 +114,161 @@ enum InstrumentText {
 }
 
 const ROUND_LINE_CAP = "round";
-const EASE_DURATION_MS = 900;
-const EASE_OUT_POWER = 3;
+
+enum NeedleMotion {
+  SpinDurationMs = 900,
+  SpinEasePower = 3,
+}
+
+export type InstrumentMotion = Readonly<{
+  period?: number;
+  ratePerSecond?: number;
+  horizonMs?: number;
+  maximumCorrectionPerSecond?: number;
+}>;
+
+type NeedleState = {
+  value: number;
+  target: number;
+  reportedAt: number | null;
+  correction: number;
+  correctedAt: number;
+  correctionMs: number;
+  subject: string | null;
+};
+
+type NeedleDrive = Readonly<{
+  period: number | undefined;
+  ratePerSecond: number;
+  horizonMs: number;
+  maximumCorrectionPerSecond: number;
+}>;
+
+type InstrumentReportValue = Readonly<{
+  subject: string | null;
+  observedAt: number | null;
+}>;
+
+const InstrumentReportContext = createContext<InstrumentReportValue>({ subject: null, observedAt: null });
+export const InstrumentReport = InstrumentReportContext.Provider;
+
+const NEEDLE_EXTRAPOLATION_MS = TRAIL_POLICY[Domain.Aircraft].maxExtrapolationMs;
 
 function prefersReducedMotion(): boolean {
   return globalThis.matchMedia?.(RenderMediaQuery.ReducedMotion).matches ?? false;
 }
 
-export function useEasedValue(target: number, period?: number): number {
+function shortestDelta(raw: number, period: number | undefined): number {
+  return period === undefined ? raw : raw - period * Math.round(raw / period);
+}
+
+function needleGoal(needle: NeedleState, drive: NeedleDrive, now: number): number {
+  const reportedAt = needle.reportedAt ?? now;
+  const elapsedMs = Math.min(Math.max(0, now - reportedAt), drive.horizonMs);
+  return needle.target + (drive.ratePerSecond * elapsedMs) / MS_PER_SECOND;
+}
+
+function settleCorrection(needle: NeedleState, drive: NeedleDrive, now: number): void {
+  needle.correction = shortestDelta(needle.value - needleGoal(needle, drive, now), drive.period);
+  needle.correctedAt = now;
+  needle.correctionMs = Math.max(
+    AIRCRAFT_GLIDE_MAXIMUM_MS,
+    (Math.abs(needle.correction) / drive.maximumCorrectionPerSecond) * MS_PER_SECOND,
+  );
+}
+
+function needleAt(needle: NeedleState, drive: NeedleDrive, now: number): number {
+  const remaining = Math.max(0, 1 - (now - needle.correctedAt) / needle.correctionMs);
+  return needleGoal(needle, drive, now) + needle.correction * remaining;
+}
+
+function needleMoving(needle: NeedleState, drive: NeedleDrive, now: number): boolean {
+  const correcting = needle.correction !== 0 && now - needle.correctedAt < needle.correctionMs;
+  const extrapolating = drive.ratePerSecond !== 0 && now - (needle.reportedAt ?? now) < drive.horizonMs;
+  return correcting || extrapolating;
+}
+
+function spinNeedle(
+  needle: NeedleState,
+  drive: NeedleDrive,
+  show: (value: number) => void,
+  then: () => () => void,
+): () => void {
+  const from = needle.value;
+  const start = performance.now();
+  const delta = shortestDelta(needleGoal(needle, drive, start) - from, drive.period);
+  let frame = 0;
+  let stopNext = () => {};
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - start) / NeedleMotion.SpinDurationMs);
+    needle.value = from + delta * (1 - (1 - progress) ** NeedleMotion.SpinEasePower);
+    show(needle.value);
+    if (progress < 1) frame = requestAnimationFrame(step);
+    else stopNext = then();
+  };
+  frame = requestAnimationFrame(step);
+  return () => {
+    cancelAnimationFrame(frame);
+    stopNext();
+  };
+}
+
+function followNeedle(needle: NeedleState, drive: NeedleDrive, show: (value: number) => void): () => void {
+  let frame = 0;
+  const step = (now: number) => {
+    needle.value = needleAt(needle, drive, now);
+    show(needle.value);
+    if (needleMoving(needle, drive, now)) frame = requestAnimationFrame(step);
+  };
+  frame = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(frame);
+}
+
+export function useEasedValue(target: number, motion: InstrumentMotion = {}): number {
+  const { subject, observedAt } = useContext(InstrumentReportContext);
   const [value, setValue] = useState(target);
-  const valueRef = useRef(target);
+  const needleRef = useRef<NeedleState>({
+    value: target,
+    target,
+    reportedAt: null,
+    correction: 0,
+    correctedAt: 0,
+    correctionMs: AIRCRAFT_GLIDE_MAXIMUM_MS,
+    subject,
+  });
+  const {
+    period,
+    ratePerSecond = 0,
+    horizonMs = NEEDLE_EXTRAPOLATION_MS,
+    maximumCorrectionPerSecond = Number.POSITIVE_INFINITY,
+  } = motion;
   useEffect(() => {
-    const from = valueRef.current;
-    const raw = target - from;
-    const delta = period === undefined ? raw : raw - period * Math.round(raw / period);
-    if (delta === 0 || prefersReducedMotion() || typeof requestAnimationFrame !== "function") {
-      valueRef.current = target;
+    const needle = needleRef.current;
+    const now = performance.now();
+    const switched = needle.subject !== subject;
+    const first = needle.reportedAt === null;
+    needle.reportedAt = observedAt === null ? now : now - Math.max(0, Date.now() - observedAt);
+    needle.target = target;
+    needle.subject = subject;
+    if (prefersReducedMotion() || typeof requestAnimationFrame !== "function") {
+      needle.value = target;
       setValue(target);
       return;
     }
-    const start = performance.now();
-    let frame = 0;
-    const step = (now: number) => {
-      const progress = Math.min(1, (now - start) / EASE_DURATION_MS);
-      const next = from + delta * (1 - (1 - progress) ** EASE_OUT_POWER);
-      valueRef.current = next;
-      setValue(next);
-      if (progress < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [target, period]);
+    const drive = { period, ratePerSecond, horizonMs, maximumCorrectionPerSecond };
+    if (switched) {
+      return spinNeedle(needle, drive, setValue, () => {
+        settleCorrection(needle, drive, performance.now());
+        return followNeedle(needle, drive, setValue);
+      });
+    }
+    if (first) {
+      needle.value = needleGoal(needle, drive, now);
+      setValue(needle.value);
+    }
+    settleCorrection(needle, drive, now);
+    return followNeedle(needle, drive, setValue);
+  }, [target, subject, observedAt, period, ratePerSecond, horizonMs, maximumCorrectionPerSecond]);
   return value;
 }
 
@@ -252,8 +380,8 @@ function scaleLabels(count: number, label: (index: number) => string): string[] 
   return Array.from({ length: count }, (_, index) => label(index));
 }
 
-export function AirspeedIndicator({ knots }: Readonly<{ knots: number }>) {
-  const shown = useEasedValue(knots);
+export function AirspeedIndicator({ knots, knotsPerSecond }: Readonly<{ knots: number; knotsPerSecond: number }>) {
+  const shown = useEasedValue(knots, { ratePerSecond: knotsPerSecond, horizonMs: AIRCRAFT_TURN_WINDOW_MS });
   const angle = AirspeedScale.StartDegrees +
     (clamp(shown, 0, AirspeedScale.MaximumKnots) / AirspeedScale.MaximumKnots) * AirspeedScale.SweepDegrees;
   return (
@@ -266,7 +394,7 @@ export function AirspeedIndicator({ knots }: Readonly<{ knots: number }>) {
         labels={scaleLabels(AirspeedScale.Divisions + 1, String)}
       />
       <Needle angle={angle} radius={DialGeometry.ScaleRadius - DialGeometry.MinorTickLength} />
-      <Readout text={formatKtShort(Math.round(knots))} />
+      <Readout text={formatKtShort(Math.round(shown))} />
       <Hub />
     </DialFrame>
   );
@@ -297,8 +425,10 @@ function TenThousandsPointer({ angle }: Readonly<{ angle: number }>) {
   );
 }
 
-export function Altimeter({ feet, selectedFeet }: Readonly<{ feet: number; selectedFeet: number | undefined }>) {
-  const shown = useEasedValue(feet);
+type AltimeterProps = Readonly<{ feet: number; feetPerMinute: number; selectedFeet: number | undefined }>;
+
+export function Altimeter({ feet, feetPerMinute, selectedFeet }: AltimeterProps) {
+  const shown = useEasedValue(feet, { ratePerSecond: feetPerMinute / SECONDS_PER_MINUTE });
   const longAngle = handAngle(shown, AltimeterScale.FeetPerRevolution);
   const shortAngle = handAngle(shown, AltimeterScale.FeetPerShortHandRevolution);
   const tenThousandsAngle = handAngle(shown, AltimeterScale.FeetPerTenThousandsRevolution);
@@ -316,7 +446,7 @@ export function Altimeter({ feet, selectedFeet }: Readonly<{ feet: number; selec
       <TenThousandsPointer angle={tenThousandsAngle} />
       <Needle angle={shortAngle} radius={AltimeterScale.ShortHandRadius} width={AltimeterScale.ShortHandWidth} />
       <Needle angle={longAngle} radius={AltimeterScale.LongHandRadius} />
-      <Readout text={Math.round(feet).toLocaleString()} />
+      <Readout text={Math.round(shown).toLocaleString()} />
       <Hub />
     </DialFrame>
   );

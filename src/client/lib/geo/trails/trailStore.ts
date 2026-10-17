@@ -1,8 +1,9 @@
 import { Domain } from "@shared/domain/identity";
-import { isRecord } from "@shared/geo";
+import { isRecord, shortestTurnDegrees } from "@shared/geo";
 import {
   MS_PER_HOUR,
   MS_PER_MINUTE,
+  MS_PER_SECOND,
 } from "@shared/time";
 import { isOptionalFiniteNumber } from "@shared/types/numbers";
 
@@ -46,6 +47,56 @@ export type TrailEntry = {
   heading: number;
   speedMps: number;
 };
+
+export type TrailTurn = Readonly<{
+  degreesPerSecond: number;
+  seconds: number;
+}>;
+
+function straightTurn(seconds: number): TrailTurn {
+  return { degreesPerSecond: 0, seconds };
+}
+
+type RecentReports = Readonly<{
+  last: TrailPoint;
+  previous: TrailPoint;
+  seconds: number;
+}>;
+
+function recentReports(
+  points: readonly TrailPoint[] | undefined,
+  maximumGapMs: number,
+): RecentReports | null {
+  const last = points?.at(-1);
+  const previous = points?.at(-2);
+  if (!last || !previous) return null;
+  const gapMs = last.ts - previous.ts;
+  if (gapMs <= 0 || gapMs > maximumGapMs) return null;
+  return { last, previous, seconds: gapMs / MS_PER_SECOND };
+}
+
+export function trailTurn(
+  points: readonly TrailPoint[] | undefined,
+  maximumGapMs: number,
+): TrailTurn {
+  const reports = recentReports(points, maximumGapMs);
+  if (!reports) return straightTurn(0);
+  if (reports.last.heading === undefined || reports.previous.heading === undefined) {
+    return straightTurn(reports.seconds);
+  }
+  const change = shortestTurnDegrees(reports.last.heading - reports.previous.heading);
+  if (Math.round(change) === 0) return straightTurn(reports.seconds);
+  return { degreesPerSecond: change / reports.seconds, seconds: reports.seconds };
+}
+
+export function trailSpeedRate(
+  points: readonly TrailPoint[] | undefined,
+  maximumGapMs: number,
+): number {
+  const reports = recentReports(points, maximumGapMs);
+  if (reports?.last.speed === undefined || reports.previous.speed === undefined) return 0;
+  return (reports.last.speed - reports.previous.speed) / reports.seconds;
+}
 
 export type TrailObservation = {
   id: string;

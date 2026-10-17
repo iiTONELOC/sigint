@@ -6,12 +6,12 @@ import {
   useEffect,
   useCallback,
 } from "react";
+import { createPortal } from "react-dom";
 import { Domain } from "@shared/domain/identity";
 import {
   Eye,
   Crosshair,
   GripHorizontal,
-  ExternalLink,
   FileSearch,
   LocateFixed,
   type LucideIcon,
@@ -27,6 +27,7 @@ import type { DataPoint } from "@/features/base/dataPoints";
 import { featureIconProps, type FeatureDefinition } from "@/features/base/presentation";
 import { featureRegistry } from "@/features/registry";
 import { isHttpUrl } from "@/dossier/detail-panel/utils/httpUrl";
+import { DossierLinkGrid } from "@/dossier";
 import { CycloneDossierBody } from "@/features/environmental/cyclones/ui/CycloneDossier";
 import { ButtonType } from "@/lib/ui/button";
 import {
@@ -60,7 +61,6 @@ enum DetailPanelLabel {
 enum DetailPanelIconSize {
   Action = 12,
   Drag = 14,
-  ExternalLink = 9,
   Feature = 16,
   Mode = 11,
 }
@@ -80,11 +80,12 @@ enum DetailPanelScrollPx {
 
 enum DetailPanelClassName {
   DesktopPanel = "w-72 min-h-0 rounded-md backdrop-blur-sm z-(--layer-tooltip) bg-sig-panel/94 border border-sig-border p-3.5 overflow-y-auto sigint-scroll pointer-events-auto",
+  Divider = "mt-1.5 pt-1.5 border-t border-sig-border",
   HeaderRow = "flex items-center gap-1.5",
   SummaryRow = "flex justify-between mb-1.5",
-  SummaryRowLabel = "uppercase tracking-wide text-sig-accent text-xs",
+  SummaryRowLabel = "uppercase tracking-wide text-sig-accent text-(length:--sig-text-xs)",
   SummaryRowList = "pt-2.5 border-t border-sig-border",
-  SummaryRowValue = "text-right max-w-38.75 wrap-break-word text-sig-bright text-xs",
+  SummaryRowValue = "text-right max-w-38.75 wrap-break-word text-sig-bright text-(length:--sig-text-sm)",
 }
 
 export function DetailPanel({
@@ -147,7 +148,7 @@ export function DetailPanel({
   );
 
   if (isMobileLayout) {
-    return (
+    return createPortal(
       <div className="fixed inset-x-0 bottom-0 z-(--layer-tooltip) pointer-events-none">
         <div
           ref={sheet.sheetRef}
@@ -201,7 +202,8 @@ export function DetailPanel({
             />
           </div>
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
@@ -276,7 +278,7 @@ function ModeButton({
       type={ButtonType.Button}
       onClick={onClick}
       title={label}
-      className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-[10px] tracking-wide min-h-9 touch-target ${
+      className={`flex items-center gap-1 px-2 py-1 rounded transition-all text-(length:--sig-text-btn) tracking-wide min-h-9 touch-target ${
         active
           ? "border"
           : "text-sig-bright border border-sig-border hover:border-sig-grid/40"
@@ -353,7 +355,7 @@ function PanelBody({
 
       {/* Coordinates */}
       {!TYPES_WITH_OWN_COORDINATES.has(item.type) && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-xs">
+        <div className="mt-1.5 pt-1.5 border-t border-sig-border text-sig-bright text-(length:--sig-text-sm)">
           {formatLat(recordLatitude(item))}, {formatLon(recordLongitude(item))}
         </div>
       )}
@@ -362,11 +364,11 @@ function PanelBody({
 
       {/* Open in Dossier button */}
       {onOpenDossier && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border">
+        <div className={DetailPanelClassName.Divider}>
           <button
             type={ButtonType.Button}
             onClick={onOpenDossier}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-xs tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15 any-pointer-coarse:min-h-11"
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-sig-accent text-(length:--sig-text-btn) tracking-wider font-semibold border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15 any-pointer-coarse:min-h-11"
           >
             <FileSearch
               size={DetailPanelIconSize.Action}
@@ -379,19 +381,8 @@ function PanelBody({
 
       {/* Intel links */}
       {linkRows.length > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-sig-border grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1">
-          {linkRows.map(([label, url]) => (
-            <a
-              key={label}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1 px-1.5 py-0.5 rounded text-sig-accent text-xs tracking-wide border border-sig-accent/30 bg-sig-accent/5 transition-all hover:bg-sig-accent/15 min-w-0 truncate"
-            >
-              {label}
-              <ExternalLink size={DetailPanelIconSize.ExternalLink} />
-            </a>
-          ))}
+        <div className={DetailPanelClassName.Divider}>
+          <DossierLinkGrid links={linkRows} />
         </div>
       )}
     </>

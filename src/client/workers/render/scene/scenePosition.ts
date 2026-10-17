@@ -16,6 +16,7 @@ export type SceneResolvedPosition = Readonly<{
   unitY: number;
   unitZ: number;
   interpolated: boolean;
+  headingDegrees?: number;
 }>;
 
 export type ScenePositionAccessor = Readonly<{

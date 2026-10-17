@@ -141,7 +141,7 @@ function ProfileStrip({ samples, series, time, focus, onHover }: ProfileStripPro
         <path d={seriesPath(samples, series, range, time)} className={`fill-none ${series.lineClass}`} strokeWidth={1.5} vectorEffect={NON_SCALING_STROKE} />
         <line x1={focusX} x2={focusX} y1={0} y2={ProfileChartGeometry.Height} className="stroke-sig-bright/50" vectorEffect={NON_SCALING_STROKE} />
       </svg>
-      <div className={`flex items-baseline gap-2 order-first @min-[40rem]/dossier:order-none @min-[40rem]/dossier:flex-col @min-[40rem]/dossier:justify-center @min-[40rem]/dossier:items-start @min-[40rem]/dossier:gap-0 ${ProfileChartClassName.Readout}`}>
+      <div className={`flex items-baseline gap-2 order-first @min-[40rem]/dossier:order-0 @min-[40rem]/dossier:flex-col @min-[40rem]/dossier:justify-center @min-[40rem]/dossier:items-start @min-[40rem]/dossier:gap-0 ${ProfileChartClassName.Readout}`}>
         <DossierLabel>{series.label}</DossierLabel>
         <span className={series.textClass}>{series.format(series.value(focus))}</span>
         <span className={`ml-auto text-sig-dim ${ProfileChartClassName.NarrowOnly}`}>
@@ -161,7 +161,7 @@ function TimeAxis({ time }: Readonly<{ time: TimeSpan }>) {
     <div className={ProfileChartClassName.Row}>
       <span className={ProfileChartClassName.WideOnly} />
       <div className="flex justify-between">
-        {labels.map((label) => <DossierLabel key={label}>{label}</DossierLabel>)}
+        {labels.map((label, index) => <DossierLabel key={index}>{label}</DossierLabel>)}
       </div>
       <span className={ProfileChartClassName.WideOnly} />
     </div>

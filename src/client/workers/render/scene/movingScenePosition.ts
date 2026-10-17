@@ -6,12 +6,24 @@ import {
   getPointSourceDefinition,
   motionAttributeOffsetForSource,
 } from "@shared/domain/pointSource";
+import { Domain } from "@shared/domain/identity";
+import {
+  AIRCRAFT_GLIDE_MAXIMUM_MS,
+  STANDARD_TURN_DEGREES_PER_SECOND,
+} from "@shared/domain/aircraft";
 import {
   advanceGeographicMotion,
   advanceUnitMotion,
   createGeographicMotion,
+  geographicToUnitVector,
   type GeographicMotion,
 } from "@/lib/geo/unitSphere";
+import {
+  DEGREES_TO_RADIANS,
+  METERS_PER_KM,
+  haversineKm,
+  shortestTurnDegrees,
+} from "@shared/geo";
 import {
   MOVING_SCENE_ATTRIBUTE_COUNT,
   SCENE_POSITION_COUNT,
@@ -34,6 +46,7 @@ export type MovingScenePositionOptions = Readonly<{
   attributeOffset: number;
   attributeStride: number;
   maximumAgeMs: number;
+  glides?: boolean;
 }>;
 
 type SceneMotionInput = Readonly<{
@@ -43,10 +56,153 @@ type SceneMotionInput = Readonly<{
   sceneId: string;
   speedMetersPerSecond: number;
   timestamp: number;
+  turnDegreesPerSecond: number;
+  reportGapSeconds: number;
 }>;
 
-type CachedSceneMotion = SceneMotionInput &
-  Readonly<{ motion: GeographicMotion }>;
+type DrawnState = {
+  latitude: number;
+  longitude: number;
+  headingDegrees: number;
+};
+
+type CachedSceneMotion = SceneMotionInput & {
+  readonly motion: GeographicMotion;
+  glideFrom: DrawnState | null;
+  glideStartedAt: number;
+  glideMs: number | null;
+  drawn: DrawnState | null;
+};
+
+function sameInput(cached: CachedSceneMotion, input: SceneMotionInput): boolean {
+  return (
+    cached.sceneId === input.sceneId &&
+    cached.timestamp === input.timestamp &&
+    cached.latitude === input.latitude &&
+    cached.longitude === input.longitude &&
+    cached.directionDegrees === input.directionDegrees &&
+    cached.speedMetersPerSecond === input.speedMetersPerSecond &&
+    cached.turnDegreesPerSecond === input.turnDegreesPerSecond &&
+    cached.reportGapSeconds === input.reportGapSeconds
+  );
+}
+
+function resolvedAt(
+  latitude: number,
+  longitude: number,
+  headingDegrees: number | undefined,
+): SceneResolvedPosition {
+  const unit = geographicToUnitVector(latitude, longitude);
+  return {
+    latitude,
+    longitude,
+    unitX: unit.x,
+    unitY: unit.y,
+    unitZ: unit.z,
+    interpolated: true,
+    headingDegrees,
+  };
+}
+
+function advanceMotion(
+  motion: GeographicMotion,
+  elapsedSeconds: number,
+  headingDegrees: number | undefined,
+): SceneResolvedPosition {
+  const geographic = advanceGeographicMotion(motion, elapsedSeconds);
+  const unit = advanceUnitMotion(motion, elapsedSeconds);
+  return {
+    latitude: geographic.latitude,
+    longitude: geographic.longitude,
+    unitX: unit.x,
+    unitY: unit.y,
+    unitZ: unit.z,
+    interpolated: true,
+    headingDegrees,
+  };
+}
+
+function advanceTurn(
+  input: CachedSceneMotion,
+  elapsedSeconds: number,
+): SceneResolvedPosition {
+  const turnSeconds = Math.min(elapsedSeconds, input.reportGapSeconds);
+  const turnDegrees = input.turnDegreesPerSecond * turnSeconds;
+  const halfTurnRadians = (turnDegrees * DEGREES_TO_RADIANS) / 2;
+  const chordScale = halfTurnRadians === 0 ? 1 : Math.sin(halfTurnRadians) / halfTurnRadians;
+  const headingDegrees = input.directionDegrees + turnDegrees;
+  const arc = createGeographicMotion(
+    input.latitude,
+    input.longitude,
+    input.directionDegrees + turnDegrees / 2,
+    input.speedMetersPerSecond * chordScale,
+  );
+  const straightSeconds = elapsedSeconds - turnSeconds;
+  if (straightSeconds <= 0) return advanceMotion(arc, turnSeconds, headingDegrees);
+  const end = advanceGeographicMotion(arc, turnSeconds);
+  const straight = createGeographicMotion(
+    end.latitude,
+    end.longitude,
+    headingDegrees,
+    input.speedMetersPerSecond,
+  );
+  return advanceMotion(straight, straightSeconds, headingDegrees);
+}
+
+function glideDurationMs(
+  from: DrawnState,
+  target: SceneResolvedPosition,
+  targetHeading: number,
+  speedMetersPerSecond: number,
+): number {
+  const turnMs =
+    (Math.abs(shortestTurnDegrees(targetHeading - from.headingDegrees)) /
+      STANDARD_TURN_DEGREES_PER_SECOND) *
+    MS_PER_SECOND;
+  const correctionMeters =
+    haversineKm(from.latitude, from.longitude, target.latitude, target.longitude) * METERS_PER_KM;
+  const correctionMs = (correctionMeters / speedMetersPerSecond) * MS_PER_SECOND;
+  return Math.min(Math.max(turnMs, correctionMs), AIRCRAFT_GLIDE_MAXIMUM_MS);
+}
+
+function glided(
+  cached: CachedSceneMotion,
+  target: SceneResolvedPosition,
+  time: number,
+): SceneResolvedPosition {
+  const from = cached.glideFrom;
+  if (!from) return target;
+  const targetHeading = target.headingDegrees ?? cached.directionDegrees;
+  cached.glideMs ??= glideDurationMs(from, target, targetHeading, cached.speedMetersPerSecond);
+  const elapsedMs = time - cached.glideStartedAt;
+  if (elapsedMs >= cached.glideMs) {
+    cached.glideFrom = null;
+    return target;
+  }
+  const eased = (1 - Math.cos(Math.PI * (elapsedMs / cached.glideMs))) / 2;
+  const turn = shortestTurnDegrees(targetHeading - from.headingDegrees);
+  const turnRate = Math.max(
+    STANDARD_TURN_DEGREES_PER_SECOND,
+    Math.abs(turn) / (cached.glideMs / MS_PER_SECOND),
+  );
+  const maximumTurn = (turnRate * elapsedMs) / MS_PER_SECOND;
+  return resolvedAt(
+    from.latitude + (target.latitude - from.latitude) * eased,
+    shortestTurnDegrees(from.longitude + shortestTurnDegrees(target.longitude - from.longitude) * eased),
+    from.headingDegrees + Math.max(-maximumTurn, Math.min(maximumTurn, turn)),
+  );
+}
+
+function rememberDrawn(cached: CachedSceneMotion, position: SceneResolvedPosition): void {
+  const headingDegrees = position.headingDegrees ?? cached.directionDegrees;
+  if (!cached.drawn) {
+    cached.drawn = { latitude: position.latitude, longitude: position.longitude, headingDegrees };
+    return;
+  }
+  cached.drawn.latitude = position.latitude;
+  cached.drawn.longitude = position.longitude;
+  cached.drawn.headingDegrees = headingDegrees;
+}
 
 export class MovingScenePositionAccessor
   implements ScenePositionAccessor
@@ -66,11 +222,9 @@ export class MovingScenePositionAccessor
     const raw = scenePositionFromRecord(record);
     const input = this.recordInput(record);
     if (!input) return raw;
-    const elapsedSeconds = this.interpolationSeconds(input, time);
-    if (elapsedSeconds === null) return raw;
-    const cached = this.cachedMotion(input, this.recordCache);
+    const cached = this.cachedMotion(input, this.recordCache, time);
     this.recordCache = cached;
-    return this.advance(cached.motion, elapsedSeconds);
+    return this.resolveCached(cached, raw, time);
   }
 
   resolveView(
@@ -82,14 +236,13 @@ export class MovingScenePositionAccessor
     if (!raw) return null;
     const input = this.viewInput(view, index);
     if (!input) return raw;
-    const elapsedSeconds = this.interpolationSeconds(input, time);
-    if (elapsedSeconds === null) return raw;
     const cached = this.cachedMotion(
       input,
       this.viewCache[index] ?? null,
+      time,
     );
     this.viewCache[index] = cached;
-    return this.advance(cached.motion, elapsedSeconds);
+    return this.resolveCached(cached, raw, time);
   }
 
   hasFrameMotion(view: RenderSceneView): boolean {
@@ -110,6 +263,30 @@ export class MovingScenePositionAccessor
     );
   }
 
+  private resolveCached(
+    cached: CachedSceneMotion,
+    raw: SceneResolvedPosition,
+    time: number,
+  ): SceneResolvedPosition {
+    const target = this.target(cached, raw, time);
+    const position = this.options.glides ? glided(cached, target, time) : target;
+    if (this.options.glides) rememberDrawn(cached, position);
+    return position;
+  }
+
+  private target(
+    cached: CachedSceneMotion,
+    raw: SceneResolvedPosition,
+    time: number,
+  ): SceneResolvedPosition {
+    const elapsedSeconds = this.interpolationSeconds(cached, time);
+    if (elapsedSeconds === null) return raw;
+    if (cached.turnDegreesPerSecond === 0 || cached.reportGapSeconds === 0) {
+      return advanceMotion(cached.motion, elapsedSeconds, undefined);
+    }
+    return advanceTurn(cached, elapsedSeconds);
+  }
+
   private interpolationSeconds(
     input: SceneMotionInput,
     time: number,
@@ -127,53 +304,29 @@ export class MovingScenePositionAccessor
     );
   }
 
-  private advance(
-    motion: GeographicMotion,
-    elapsedSeconds: number,
-  ): SceneResolvedPosition {
-    const geographic = advanceGeographicMotion(
-      motion,
-      elapsedSeconds,
-    );
-    const unit = advanceUnitMotion(motion, elapsedSeconds);
-    return {
-      latitude: geographic.latitude,
-      longitude: geographic.longitude,
-      unitX: unit.x,
-      unitY: unit.y,
-      unitZ: unit.z,
-      interpolated: true,
-    };
-  }
-
   private cachedMotion(
     input: SceneMotionInput,
     cached: CachedSceneMotion | null,
+    time: number,
   ): CachedSceneMotion {
-    if (
+    if (cached && sameInput(cached, input)) return cached;
+    const continues =
       cached?.sceneId === input.sceneId &&
-      cached.timestamp === input.timestamp &&
-      cached.latitude === input.latitude &&
-      cached.longitude === input.longitude &&
-      cached.directionDegrees === input.directionDegrees &&
-      cached.speedMetersPerSecond === input.speedMetersPerSecond
-    ) {
-      return cached;
-    }
-    const motion = createGeographicMotion(
-      input.latitude,
-      input.longitude,
-      input.directionDegrees,
-      input.speedMetersPerSecond,
-    );
+      cached.speedMetersPerSecond > 0 &&
+      input.speedMetersPerSecond > 0 &&
+      input.reportGapSeconds > 0;
     return {
-      sceneId: input.sceneId,
-      timestamp: input.timestamp,
-      latitude: input.latitude,
-      longitude: input.longitude,
-      directionDegrees: input.directionDegrees,
-      speedMetersPerSecond: input.speedMetersPerSecond,
-      motion,
+      ...input,
+      motion: createGeographicMotion(
+        input.latitude,
+        input.longitude,
+        input.directionDegrees,
+        input.speedMetersPerSecond,
+      ),
+      glideFrom: continues ? cached.drawn : null,
+      glideStartedAt: time,
+      glideMs: null,
+      drawn: null,
     };
   }
 
@@ -264,6 +417,8 @@ export class MovingScenePositionAccessor
       sceneId,
       speedMetersPerSecond,
       timestamp,
+      turnDegreesPerSecond: attributes[offset + MovingSceneAttribute.TurnDegreesPerSecond] ?? 0,
+      reportGapSeconds: attributes[offset + MovingSceneAttribute.ReportGapSeconds] ?? 0,
     };
   }
 
@@ -297,5 +452,6 @@ export function movingPositionAccessor(
     attributeStride:
       getPointSourceDefinition(source).sceneSchema.attributeStride,
     maximumAgeMs: TRAIL_POLICY[source].maxExtrapolationMs,
+    glides: source === Domain.Aircraft,
   });
 }

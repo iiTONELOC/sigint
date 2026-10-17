@@ -296,7 +296,7 @@ export function Search({ onSelect, onZoomTo, onCommit, onOpenChange }: SearchPro
         type={ButtonType.Button}
         onClick={openSearch}
         data-tour={HeaderTourTarget.Search}
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border touch-target"
+        className="flex items-center justify-center gap-1 px-1.5 py-0.5 rounded tracking-wide font-semibold transition-all text-sig-dim text-(length:--sig-text-btn) bg-transparent border border-sig-border touch-target"
         title="Search (Ctrl+K)"
       >
         <SearchIcon

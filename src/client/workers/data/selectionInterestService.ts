@@ -8,6 +8,7 @@ import type {
   AircraftRouteWaypoint,
 } from "@shared/domain/aircraftDossier";
 import type {
+  RenderSelectionIdentity,
   RenderSelectionSnapshot,
 } from "@/workers/render/protocol";
 import {
@@ -49,6 +50,10 @@ export class SelectionInterestService {
   connect(): void {
     this.selected = null;
     this.selectedRoute = null;
+  }
+
+  selectedIdentity(): RenderSelectionIdentity | null {
+    return this.selected?.identity ?? null;
   }
 
   update(selection: RenderSelectionSnapshot): boolean {

@@ -58,6 +58,10 @@ export enum TurnDeg {
   Full = 360,
 }
 
+export function shortestTurnDegrees(degrees: number): number {
+  return degrees - TurnDeg.Full * Math.round(degrees / TurnDeg.Full);
+}
+
 export enum GeoMeasurement {
   NauticalMilesPerDegree = 60,
   FeetPerFlightLevel = 100,

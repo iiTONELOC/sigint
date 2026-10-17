@@ -7,6 +7,27 @@ export enum AircraftApiRoute {
   States = "/api/aircraft/states",
 }
 
+export const AIRCRAFT_WATCH_QUERY = "watch";
+
+export const AIRCRAFT_SLOT_MS = 3_000;
+
+export const STANDARD_TURN_DEGREES_PER_SECOND = 3;
+
+export enum AircraftWatchPolicy {
+  LevelFeetPerMinute = 50,
+  DynamicSlots = 5,
+  SteadySlots = 15,
+}
+
+export const AIRCRAFT_TURN_WINDOW_MS = AIRCRAFT_SLOT_MS * AircraftWatchPolicy.SteadySlots;
+
+export const AIRCRAFT_GLIDE_MAXIMUM_MS = AIRCRAFT_SLOT_MS * AircraftWatchPolicy.DynamicSlots;
+
+export function reportedHeadingDegrees(track: unknown, trueHeading: unknown): number | null {
+  if (typeof track === "number" && Number.isFinite(track)) return track;
+  return typeof trueHeading === "number" && Number.isFinite(trueHeading) ? trueHeading : null;
+}
+
 export type AircraftData = {
   model?: string;
   acType?: string;

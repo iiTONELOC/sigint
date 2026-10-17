@@ -292,6 +292,7 @@ function markerAt(
 
   const attributeOffset = index * view.attributeStride;
   const heading =
+    projected.resolvedHeading(index) ??
     view.attributes[
       attributeOffset + AircraftSceneAttribute.Heading
     ] ?? 0;

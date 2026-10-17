@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Database,
@@ -63,7 +64,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     return () => document.removeEventListener(DomEvent.KeyDown, handleKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-(--layer-modal) flex items-center justify-center overscroll-none touch-none">
       <button
         type={ButtonType.Button}
@@ -154,6 +155,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           {activeTab === SettingsTab.About && <AboutTab />}
         </div>
       </dialog>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -58,10 +58,12 @@ export enum ShipSceneAttribute {
 export enum MovingSceneAttribute {
   DirectionDegrees = 0,
   SpeedMetersPerSecond = 1,
+  TurnDegreesPerSecond = 2,
+  ReportGapSeconds = 3,
 }
 
 export const MOVING_SCENE_ATTRIBUTE_COUNT =
-  MovingSceneAttribute.SpeedMetersPerSecond + 1;
+  MovingSceneAttribute.ReportGapSeconds + 1;
 
 export const AIRCRAFT_MOTION_ATTRIBUTE_OFFSET =
   AircraftSceneAttribute.Squawk + 1;

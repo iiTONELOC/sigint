@@ -1,5 +1,9 @@
 import { AngleConversion, TurnDeg } from "@shared/geo";
 import { cardinalCompassPointForDegrees } from "@shared/domain/compass";
+import {
+  AIRCRAFT_TURN_WINDOW_MS,
+  STANDARD_TURN_DEGREES_PER_SECOND,
+} from "@shared/domain/aircraft";
 import { useEasedValue } from "./FlightInstruments";
 
 enum HeadingScaleGeometry {
@@ -74,6 +78,7 @@ type Props = {
   readonly heading: number;
   /** flight-director selected heading (nav_heading), if transmitted. */
   readonly selectedHeading?: number;
+  readonly turnRateDegreesPerSecond?: number;
 };
 
 const HEADING_MARKS = Array.from(
@@ -86,11 +91,16 @@ function cardinal(d: number): string {
     String(d / HeadingMarkGeometry.StepDegrees);
 }
 
-export function HeadingHSI({ heading, selectedHeading }: Props) {
+export function HeadingHSI({ heading, selectedHeading, turnRateDegreesPerSecond = 0 }: Props) {
   const card = (
     (Math.round(heading) % TurnDeg.Full) + TurnDeg.Full
   ) % TurnDeg.Full;
-  const shownCard = useEasedValue(card, TurnDeg.Full);
+  const shownCard = useEasedValue(card, {
+    period: TurnDeg.Full,
+    ratePerSecond: turnRateDegreesPerSecond,
+    horizonMs: AIRCRAFT_TURN_WINDOW_MS,
+    maximumCorrectionPerSecond: STANDARD_TURN_DEGREES_PER_SECOND,
+  });
   const center = HeadingScaleGeometry.Center;
   const radius = HeadingScaleGeometry.Radius;
 
@@ -213,7 +223,7 @@ export function HeadingHSI({ heading, selectedHeading }: Props) {
           fontSize={HeadingTextGeometry.CardinalFontSize}
           fontWeight={HeadingTextGeometry.DigitalFontWeight}
         >
-          {`${String(card).padStart(HeadingTextGeometry.PadLength, "0")}°`}
+          {`${String(((Math.round(shownCard) % TurnDeg.Full) + TurnDeg.Full) % TurnDeg.Full).padStart(HeadingTextGeometry.PadLength, "0")}°`}
         </text>
       </svg>
   );

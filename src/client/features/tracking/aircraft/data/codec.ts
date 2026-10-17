@@ -1,6 +1,7 @@
 import { AircraftDataLabel } from "../formatters/presentation";
 import { parsePoints } from "@/features/base/pointCodec";
 import {
+  reportedHeadingDegrees,
   type AircraftData,
   type AircraftPoint,
 } from "@shared/domain/aircraft";
@@ -239,7 +240,7 @@ function toAircraftData(
     acType: aircraft.acType ?? AircraftDataLabel.Unknown,
     altitude: onGround ? 0 : firstNumber(aircraft.alt_baro),
     speed: aircraft.gs ?? 0,
-    heading: firstNumber(aircraft.track, aircraft.true_heading),
+    heading: reportedHeadingDegrees(aircraft.track, aircraft.true_heading) ?? 0,
     verticalRate: aircraft.baro_rate === undefined
       ? undefined
       : feetPerMinuteToMetersPerSecond(aircraft.baro_rate),

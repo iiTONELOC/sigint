@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Plane } from "lucide-react";
 import type { FeatureDossierProps } from "@/features/base/presentation";
 import { useTrail } from "@/features/base/useTrail";
+import { trailSpeedRate, trailTurn } from "@/lib/geo/trails/trailStore";
+import { AIRCRAFT_TURN_WINDOW_MS } from "@shared/domain/aircraft";
 import { useAircraftDossier } from "../hooks/useAircraftDossier";
 import { Domain } from "@shared/domain/identity";
 import {
@@ -196,6 +198,8 @@ export function AircraftDossier({
   const arrival = route ? routeArrivalTime(route) : undefined;
   const latitude = recordLatitude(item);
   const longitude = recordLongitude(item);
+  const reportedTime = item.timestamp ? Date.parse(item.timestamp) : Number.NaN;
+  const observedAt = Number.isFinite(reportedTime) ? reportedTime : null;
 
   const links = aircraftExternalLinks(
     { ...acData, registration: reg },
@@ -231,7 +235,13 @@ export function AircraftDossier({
 
         <section className="sec telemetry min-w-0 flex flex-col">
           <DossierSectionLabel>LIVE TELEMETRY</DossierSectionLabel>
-          <AircraftTelemetryGauges data={acData} />
+          <AircraftTelemetryGauges
+            data={acData}
+            subject={item.id}
+            observedAt={observedAt}
+            turnDegreesPerSecond={trailTurn(recordedTrail, AIRCRAFT_TURN_WINDOW_MS).degreesPerSecond}
+            speedKnotsPerSecond={trailSpeedRate(recordedTrail, AIRCRAFT_TURN_WINDOW_MS)}
+          />
         </section>
 
         {isRecon && <AircraftStormProximity latitude={latitude} longitude={longitude} />}

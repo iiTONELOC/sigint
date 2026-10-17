@@ -1,8 +1,10 @@
 import { Domain } from "@shared/domain/identity";
+import { normalizeIcao24 } from "@shared/domain/aircraftDossier";
 import type { DataPoint } from "@/features/base/dataPoints";
 import {
   aircraftSceneBinding,
   AircraftSource,
+  fetchAircraftSnapshot,
 } from "@/workers/data/sources/aircraft";
 import {
   shipSceneBinding,
@@ -185,7 +187,28 @@ const shipScene = shipSceneBinding(
   trailRecorder,
   publishScene,
 );
+function selectedAircraftHex(): string | null {
+  const identity = selectionInterest.selectedIdentity();
+  if (identity?.source !== Domain.Aircraft) return null;
+  return normalizeIcao24(aircraftOwner.get(identity.entityId)?.data.icao24);
+}
+
+let sentWatchHex: string | null = null;
+
+function fetchWatchedAircraft() {
+  sentWatchHex = selectedAircraftHex();
+  return fetchAircraftSnapshot(sentWatchHex);
+}
+
+async function refreshForSelection(): Promise<void> {
+  const watchHex = selectedAircraftHex();
+  if (watchHex === null || watchHex === sentWatchHex) return;
+  await aircraftOwner.refresh();
+  if (sentWatchHex !== watchHex) await aircraftOwner.refresh();
+}
+
 const aircraftOwner = new AircraftSource({
+  fetchSnapshot: fetchWatchedAircraft,
   patchObservers: [
     new ObservedTrailBinding(
       Domain.Aircraft,
@@ -353,7 +376,7 @@ function handleConnectRender(
     const interest = parseSceneInterestCommand(event.data);
     if (!interest || !interestState.accept(interest)) return;
     if (interest.type === SceneInterestCommandType.Selection) {
-      selectionInterest.update(interest.selection);
+      if (selectionInterest.update(interest.selection)) void refreshForSelection();
       return;
     }
     sourceCatalog.setRenderSearch(interest.search);

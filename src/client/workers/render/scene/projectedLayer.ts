@@ -157,6 +157,7 @@ export class ProjectedSceneLayer {
   private readonly positionAccessor: ScenePositionAccessor | null;
   private projected = new Float32Array(0);
   private resolvedPositions = new Float64Array(0);
+  private resolvedHeadings = new Float64Array(0);
   private rows = 0;
   private frame: SceneProjectionFrame | null = null;
   private view: RenderSceneView | null = null;
@@ -321,6 +322,11 @@ export class ProjectedSceneLayer {
     return { x, y, depth };
   }
 
+  resolvedHeading(index: number): number | null {
+    const heading = this.resolvedHeadings[index];
+    return heading === undefined || Number.isNaN(heading) ? null : heading;
+  }
+
   headingAngle(index: number, headingDegrees: number): number {
     const fallback = headingDegrees * AngleConversion.RadiansPerDegree;
     const frame = this.frame;
@@ -377,6 +383,9 @@ export class ProjectedSceneLayer {
       capacity * SceneLaneComponentCount.Pair;
     if (this.resolvedPositions.length < resolvedRequired) {
       this.resolvedPositions = new Float64Array(resolvedRequired);
+    }
+    if (this.resolvedHeadings.length < capacity) {
+      this.resolvedHeadings = new Float64Array(capacity);
     }
   }
 
@@ -484,6 +493,7 @@ export class ProjectedSceneLayer {
     const offset = index * SceneLaneComponentCount.Pair;
     this.resolvedPositions[offset] = position.longitude;
     this.resolvedPositions[offset + 1] = position.latitude;
+    this.resolvedHeadings[index] = position.headingDegrees ?? Number.NaN;
   }
 
   private addHitCandidate(index: number, x: number, y: number): void {

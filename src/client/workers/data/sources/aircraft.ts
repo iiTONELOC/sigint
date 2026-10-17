@@ -4,6 +4,8 @@ import {
   parseAircraftCache,
 } from "@/features/tracking/aircraft/data/codec";
 import { authenticatedFetch } from "@/lib/net/authService";
+import { trailTurn } from "@/lib/geo/trails/trailStore";
+import type { TrailRecorder } from "@/workers/data/trails/trailRecorder";
 import { ktToMps } from "@/measurements";
 import type {
   SceneBinding,
@@ -27,6 +29,8 @@ import {
 } from "@/workers/data/source-model/remoteSource";
 import type { PointSourceFetchSnapshot } from "@/workers/data/sourceRuntime";
 import {
+  AIRCRAFT_TURN_WINDOW_MS,
+  AIRCRAFT_WATCH_QUERY,
   AircraftApiRoute,
   squawkStatusFor,
   type AircraftData,
@@ -61,10 +65,16 @@ export function aircraftSnapshotCompleteness(source: SourceState): DatasetComple
   return source.receivedAt === null ? SourceCompleteness.Partial : SourceCompleteness.Complete;
 }
 
-async function fetchAircraftSnapshot(): Promise<
-  PointSourceFetchSnapshot<AircraftPoint>
-> {
-  const response = await authenticatedFetch(AircraftApiRoute.States);
+function aircraftStatesUrl(watchHex: string | null): string {
+  if (watchHex === null) return AircraftApiRoute.States;
+  const query = new URLSearchParams({ [AIRCRAFT_WATCH_QUERY]: watchHex });
+  return `${AircraftApiRoute.States}?${query.toString()}`;
+}
+
+export async function fetchAircraftSnapshot(
+  watchHex: string | null = null,
+): Promise<PointSourceFetchSnapshot<AircraftPoint>> {
+  const response = await authenticatedFetch(aircraftStatesUrl(watchHex));
   if (!response.ok) {
     throw new SourceFetchError(
       SourceFetchFailure.Request,
@@ -113,7 +123,7 @@ export class AircraftSource extends MovingPointSource<
 }
 
 export function aircraftSceneBinding(
-  trails: MovingSceneTrailReader,
+  trails: MovingSceneTrailReader & Pick<TrailRecorder, "get">,
   publishScene: SceneCommandPublisher,
 ): SceneBinding<AircraftPoint, MovingSceneRecord<AircraftPoint>> {
   return movingSceneBinding(publishScene, {
@@ -122,6 +132,7 @@ export function aircraftSceneBinding(
     motion: (point) => ({
       directionDegrees: point.data.heading ?? 0,
       speedMetersPerSecond: ktToMps(point.data.speed ?? 0),
+      turn: trailTurn(trails.get(point.id)?.points, AIRCRAFT_TURN_WINDOW_MS),
     }),
     writeAttributes: (point, target, offset) => {
       target[offset + AircraftSceneAttribute.Heading] =
