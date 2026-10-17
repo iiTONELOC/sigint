@@ -198,6 +198,7 @@ export async function probeManifest(url: string): Promise<boolean> {
       headers: { [HttpHeader.Origin]: VideoProbeOrigin.Value },
     });
     if (!response.ok || !response.headers.get(HttpHeader.AccessControlAllowOrigin)) {
+      await response.body?.cancel().catch(() => undefined);
       return false;
     }
     return (await readManifestHead(response)).includes(VideoManifestToken.Header);
