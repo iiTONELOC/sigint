@@ -10,10 +10,6 @@ export type Channel = {
 
 export type ChannelCatalog = Readonly<Record<string, Channel>>;
 
-export enum VideoChannelPolling {
-  IntervalMs = 21_600_000,
-}
-
 export const VIDEO_CHANNELS_ROUTE = "/api/video/channels";
 
 const FEATURED_NAMES: readonly string[] = [

@@ -1,44 +1,24 @@
-import { mkdir } from "fs/promises";
-import { dirname } from "path";
+import { resolve } from "path";
 import {
-  FETCH_TIMEOUT_LARGE_MS,
   FETCH_TIMEOUT_STANDARD_MS,
-  fetchJson,
   fetchWithTimeout,
 } from "../lib/fetchWithTimeout";
 import { createLogger } from "../lib/logger";
-import { createPoller } from "../lib/poller";
 import { errorMessage } from "../lib/errorMessage";
-import { HttpHeader } from "@shared/http";
+import { gunzipText, HttpHeader } from "@shared/http";
 import {
   checkFeatured,
-  VideoChannelPolling,
   type Channel,
   type ChannelCatalog,
 } from "@shared/domain/videoChannel";
 
 const logger = createLogger({ service: "video" });
 
-enum VideoChannelSource {
-  Channels = "https://iptv-org.github.io/api/channels.json",
-  Streams = "https://iptv-org.github.io/api/streams.json",
-}
+export const VIDEO_CHANNELS_PATH = resolve(import.meta.dir, "../data/video-channels.json.gz");
 
 enum VideoChannelCategory {
   General = "general",
   News = "news",
-}
-
-enum VideoChannelError {
-  ListsUnavailable = "iptv-org channel lists unavailable",
-}
-
-enum VideoProbePolicy {
-  Workers = 32,
-}
-
-enum VideoChannelStore {
-  Path = ".cache/video-channels.json",
 }
 
 enum VideoProbeOrigin {
@@ -67,11 +47,6 @@ export type ChannelCandidate = Readonly<{
 }>;
 
 export type StreamProbe = (url: string) => Promise<boolean>;
-
-export type StoredCatalog = Readonly<{
-  catalog: ChannelCatalog;
-  fetchedAt: number;
-}>;
 
 type VideoChannelCache = Readonly<{
   catalog: ChannelCatalog;
@@ -207,93 +182,22 @@ export async function probeManifest(url: string): Promise<boolean> {
   }
 }
 
-export async function readStoredCatalog(
-  path: string,
-  now: number,
-  ttlMs: number,
-): Promise<StoredCatalog | null> {
+export async function loadVideoChannels(path = VIDEO_CHANNELS_PATH): Promise<void> {
   try {
     const file = Bun.file(path);
-    if (!(await file.exists())) return null;
-    const stored = (await file.json()) as StoredCatalog;
-    return now - stored.fetchedAt <= ttlMs ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function writeStoredCatalog(
-  path: string,
-  stored: StoredCatalog,
-): Promise<void> {
-  try {
-    await mkdir(dirname(path), { recursive: true });
-    await Bun.write(path, JSON.stringify(stored));
+    const catalog = JSON.parse(await gunzipText(file.stream())) as ChannelCatalog;
+    cache = {
+      catalog,
+      probed: true,
+      fetchedAt: file.lastModified,
+      channelCount: Object.keys(catalog).length,
+      error: null,
+    };
+    logger.info(`📺 Video: ${cache.channelCount} channels from the static list`);
   } catch (err) {
-    logger.warn(`📺 Video: store not written: ${errorMessage(err)}`);
+    cache = { ...EMPTY_VIDEO_CHANNEL_CACHE, error: errorMessage(err) };
+    logger.warn(`📺 Video: static list unavailable: ${cache.error}`);
   }
-}
-
-function probedCache(stored: StoredCatalog): VideoChannelCache {
-  return {
-    catalog: stored.catalog,
-    probed: true,
-    fetchedAt: stored.fetchedAt,
-    channelCount: Object.keys(stored.catalog).length,
-    error: null,
-  };
-}
-
-async function restoreStoredCatalog(): Promise<void> {
-  if (cache.probed) return;
-  const stored = await readStoredCatalog(
-    VideoChannelStore.Path,
-    Date.now(),
-    VideoChannelPolling.IntervalMs,
-  );
-  if (stored) cache = probedCache(stored);
-}
-
-async function fetchAllChannels(): Promise<void> {
-  try {
-    await restoreStoredCatalog();
-    const [channels, streams] = await Promise.all([
-      fetchJson<RawChannel[]>(VideoChannelSource.Channels, FETCH_TIMEOUT_LARGE_MS),
-      fetchJson<RawStream[]>(VideoChannelSource.Streams, FETCH_TIMEOUT_LARGE_MS),
-    ]);
-    if (!channels || !streams) {
-      cache = { ...cache, error: VideoChannelError.ListsUnavailable };
-      return;
-    }
-    const candidates = selectNewsChannels(channels, streamUrlsByChannel(streams));
-    if (!cache.probed) {
-      cache = {
-        catalog: unprobedCatalog(candidates),
-        probed: false,
-        fetchedAt: Date.now(),
-        channelCount: candidates.length,
-        error: null,
-      };
-    }
-    const catalog = await probedCatalog(candidates, probeManifest, VideoProbePolicy.Workers);
-    const stored: StoredCatalog = { catalog, fetchedAt: Date.now() };
-    cache = probedCache(stored);
-    await writeStoredCatalog(VideoChannelStore.Path, stored);
-    logger.info(`📺 Video: ${cache.channelCount} live channels of ${candidates.length}`);
-  } catch (err) {
-    cache = { ...cache, error: errorMessage(err) };
-    logger.warn(`📺 Video: ${cache.error}`);
-  }
-}
-
-const poller = createPoller(fetchAllChannels, VideoChannelPolling.IntervalMs);
-
-export function startVideoChannelPolling(): void {
-  poller.start();
-}
-
-export function stopVideoChannelPolling(): void {
-  poller.stop();
 }
 
 export function getVideoChannelCache(): VideoChannelCache {

@@ -2,7 +2,7 @@ import { startGdeltPolling, stopGdeltPolling } from "./api/gdeltCache";
 import { startAisPolling, stopAisPolling } from "./api/aisCache";
 import { startFirmsPolling, stopFirmsPolling } from "./api/firmsCache";
 import { startNewsPolling, stopNewsPolling } from "./api/newsCache";
-import { startVideoChannelPolling, stopVideoChannelPolling } from "./api/videoChannelCache";
+import { loadVideoChannels } from "./api/videoChannelCache";
 import { startCyclonesPolling, stopCyclonesPolling } from "./api/cyclonesCache";
 import { startAircraftPolling, stopAircraftPolling } from "./api/aircraftCache";
 import { ConfigField, type ServerConfig } from "./config";
@@ -16,7 +16,6 @@ function stopAllPolling(): void {
   stopAisPolling();
   stopFirmsPolling();
   stopNewsPolling();
-  stopVideoChannelPolling();
   stopCyclonesPolling();
   stopAircraftPolling();
 }
@@ -32,7 +31,7 @@ export function startAllPolling(config: ServerConfig): void {
   startAisPolling(config.aisstreamApiKey);
   startFirmsPolling();
   startNewsPolling();
-  startVideoChannelPolling();
+  void loadVideoChannels();
   startCyclonesPolling({
     enabled: config.fixtureOverridesEnabled,
     label: process.env[ConfigField.CyclonesFixture],
