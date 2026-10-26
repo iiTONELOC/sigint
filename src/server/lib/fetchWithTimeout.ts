@@ -1,9 +1,37 @@
-import { HttpHeader, HttpStatus } from "@shared/http";
+import { HttpHeader, HttpProtocol, HttpStatus } from "@shared/http";
 import { MS_PER_SECOND } from "@shared/time";
 
 export const FETCH_TIMEOUT_STANDARD_MS = 8_000;
 export const FETCH_TIMEOUT_LARGE_MS = 30_000;
 export const FETCH_TIMEOUT_FLIGHTAWARE_MS = 2_500;
+export const TRUSTED_UPSTREAM_REQUEST: RequestInit = Object.freeze({
+  redirect: "error",
+});
+const EXPLICIT_URL_PORT_PATTERN =
+  /^(?:[a-z][a-z0-9+.-]*):\/\/(?:[^/?#@]*@)?(?:\[[^\]]+\]|[^:/?#]+):\d*(?:[/?#]|$)/i;
+
+function hasExplicitPort(value: string): boolean {
+  return EXPLICIT_URL_PORT_PATTERN.test(value);
+}
+
+export function trustedUpstreamUrl(
+  value: string,
+  allowedOrigins: ReadonlySet<string>,
+): string | null {
+  if (!URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (
+    url.protocol !== HttpProtocol.Https ||
+    url.username !== "" ||
+    url.password !== "" ||
+    hasExplicitPort(value) ||
+    url.port !== "" ||
+    url.hash !== ""
+  ) {
+    return null;
+  }
+  return allowedOrigins.has(url.origin) ? url.href : null;
+}
 
 export enum UpstreamRetryPolicy {
   DefaultDelayMs = 30_000,

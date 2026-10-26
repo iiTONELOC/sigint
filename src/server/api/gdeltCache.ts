@@ -4,10 +4,13 @@ import {
   type GdeltEvent,
 } from "@shared/domain/events";
 import { MS_PER_MINUTE } from "@shared/time";
+import { HttpProtocol } from "@shared/http";
 import {
   FETCH_TIMEOUT_LARGE_MS,
   FETCH_TIMEOUT_STANDARD_MS,
+  TRUSTED_UPSTREAM_REQUEST,
   fetchWithTimeout,
+  trustedUpstreamUrl,
 } from "../lib/fetchWithTimeout";
 import { createGeoPoint, isNullIsland } from "@shared/geo";
 import { createLogger } from "../lib/logger";
@@ -23,6 +26,10 @@ enum GdeltEndpoint {
 }
 
 const GDELT_CHECK_INTERVAL_MS = 5 * MS_PER_MINUTE;
+const GDELT_EXPORT_HOST = new URL(GdeltEndpoint.LastUpdate).hostname;
+const GDELT_EXPORT_ORIGINS: ReadonlySet<string> = new Set([
+  new URL(GdeltEndpoint.LastUpdate).origin,
+]);
 
 enum GdeltDateFormat {
   IsoReplacement = "$1-$2-$3T$4:$5:$6Z",
@@ -94,6 +101,23 @@ const WWW_PREFIX_PATTERN = /^www\./;
 const RELEVANT_ROOT_CODES: ReadonlySet<string> = new Set(
   Object.values(GdeltRootCode),
 );
+
+export function parseGdeltExportUrl(value: string): string | null {
+  if (!URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (
+    url.hostname !== GDELT_EXPORT_HOST ||
+    (url.protocol !== HttpProtocol.Http &&
+      url.protocol !== HttpProtocol.Https) ||
+    url.search !== "" ||
+    !url.pathname.endsWith(GdeltArchive.ExportMarker)
+  ) {
+    return null;
+  }
+  const schemeEnd = value.indexOf(":");
+  const secureValue = `${HttpProtocol.Https}${value.slice(schemeEnd + 1)}`;
+  return trustedUpstreamUrl(secureValue, GDELT_EXPORT_ORIGINS);
+}
 
 export function parseDateAdded(value: string): string {
   if (!GDELT_DATE_PATTERN.test(value)) return new Date().toISOString();
@@ -256,7 +280,9 @@ async function fetchGdelt(): Promise<void> {
       return;
     }
 
-    const exportUrl = exportLine.split(" ").pop()?.trim();
+    const exportUrl = parseGdeltExportUrl(
+      exportLine.split(" ").pop()?.trim() ?? "",
+    );
     if (!exportUrl) {
       recordFailure(GdeltDiagnostic.InvalidExportUrl);
       return;
@@ -266,6 +292,7 @@ async function fetchGdelt(): Promise<void> {
     const exportResponse = await fetchWithTimeout(
       exportUrl,
       FETCH_TIMEOUT_LARGE_MS,
+      TRUSTED_UPSTREAM_REQUEST,
     );
     if (!exportResponse.ok) {
       recordFailure(GdeltDiagnostic.ExportRequest, {

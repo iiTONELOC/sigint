@@ -4,7 +4,10 @@ import { resetCycloneAtcfCache } from "./cyclonesAtcfCache";
 import { resetCycloneConeCache } from "./cyclonesConeCache";
 import { resetCycloneDossierCache } from "./cyclonesDossierCache";
 import { resetCycloneHazardsCache } from "./cyclonesHazards";
-import { FETCH_TIMEOUT_LARGE_MS } from "../lib/fetchWithTimeout";
+import {
+  FETCH_TIMEOUT_LARGE_MS,
+  trustedUpstreamUrl,
+} from "../lib/fetchWithTimeout";
 import { fetchIfModified, type ValidatorStore } from "../lib/fetchIfModified";
 import { createLogger } from "../lib/logger";
 import { createPoller } from "../lib/poller";
@@ -21,8 +24,16 @@ import { ConfigField } from "../config";
 
 const logger = createLogger({ service: "nhc" });
 
-export const NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
+enum NhcOrigin {
+  Products = "https://www.nhc.noaa.gov",
+  Models = "https://ftp.nhc.noaa.gov",
+}
+
+export const NHC_URL = `${NhcOrigin.Products}/CurrentStorms.json`;
 export const POLL_INTERVAL_MS = 5 * 60_000;
+const NHC_PRODUCT_ORIGINS: ReadonlySet<string> = new Set(
+  Object.values(NhcOrigin),
+);
 
 type CyclonesBody = {
   activeStorms: unknown[];
@@ -220,6 +231,17 @@ function readNestedString(
   return typeof value === "string" ? value : undefined;
 }
 
+function readNestedProductUrl(
+  record: Record<string, unknown>,
+  path: string,
+  key: string,
+): string | undefined {
+  const value = readNestedString(record, path, key);
+  return value
+    ? trustedUpstreamUrl(value, NHC_PRODUCT_ORIGINS) ?? undefined
+    : undefined;
+}
+
 function extractStormProducts(
   storm: unknown,
 ): { id: string; products: StormProducts } | null {
@@ -230,12 +252,12 @@ function extractStormProducts(
   return {
     id: rawId.toUpperCase(),
     products: {
-      advisoryUrl: readNestedString(record, "publicAdvisory", NhcProductField.Url),
-      discussionUrl: readNestedString(record, "forecastDiscussion", NhcProductField.Url),
-      windProbsUrl: readNestedString(record, "windSpeedProbabilities", NhcProductField.Url),
-      conekmzUrl: readNestedString(record, "trackCone", NhcProductField.KmzFile),
-      trackKmzUrl: readNestedString(record, "forecastTrack", NhcProductField.KmzFile),
-      modelsUrl: readNestedString(record, "modelGuidance", NhcProductField.Url),
+      advisoryUrl: readNestedProductUrl(record, "publicAdvisory", NhcProductField.Url),
+      discussionUrl: readNestedProductUrl(record, "forecastDiscussion", NhcProductField.Url),
+      windProbsUrl: readNestedProductUrl(record, "windSpeedProbabilities", NhcProductField.Url),
+      conekmzUrl: readNestedProductUrl(record, "trackCone", NhcProductField.KmzFile),
+      trackKmzUrl: readNestedProductUrl(record, "forecastTrack", NhcProductField.KmzFile),
+      modelsUrl: readNestedProductUrl(record, "modelGuidance", NhcProductField.Url),
       analysisInit: readNestedString(record, "windRadii", NhcProductField.ValidTime),
     },
   };

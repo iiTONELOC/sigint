@@ -184,14 +184,21 @@ function reqWithXff(xff: string): Request {
   });
 }
 
-describe("Dokku nginx client IP extraction", () => {
+describe("trusted proxy client IP extraction", () => {
   test("direct requests cannot choose a bucket with X-Real-IP", () => {
     const guards = mkAuth(testConfig({ trustedProxyHops: 0, rateLimitPerMinute: 1 }));
     const request = (ip: string) => new Request("http://localhost/api/test", {
       headers: { "x-real-ip": ip },
     });
-    expect(guards.guardRateLimit(request("203.0.113.1"))).toBeNull();
-    expect(guards.guardRateLimit(request("203.0.113.2"))?.status).toBe(429);
+    expect(
+      guards.guardRateLimit(request("203.0.113.1"), "198.51.100.1"),
+    ).toBeNull();
+    expect(
+      guards.guardRateLimit(request("203.0.113.2"), "198.51.100.2"),
+    ).toBeNull();
+    expect(
+      guards.guardRateLimit(request("203.0.113.3"), "198.51.100.1")?.status,
+    ).toBe(429);
   });
 
   test("invalid forwarded addresses share the unknown bucket", () => {
@@ -201,8 +208,16 @@ describe("Dokku nginx client IP extraction", () => {
   });
   test("trustedProxyHops=0 ignores XFF entirely (direct mode)", () => {
     const a = mkAuth(testConfig({ trustedProxyHops: 0, rateLimitPerMinute: 1 }));
-    expect(a.guardRateLimit(reqWithXff("203.0.113.10"))).toBeNull();
-    const blocked = a.guardRateLimit(reqWithXff("198.51.100.10"));
+    expect(
+      a.guardRateLimit(reqWithXff("203.0.113.10"), "192.0.2.1"),
+    ).toBeNull();
+    expect(
+      a.guardRateLimit(reqWithXff("198.51.100.10"), "192.0.2.2"),
+    ).toBeNull();
+    const blocked = a.guardRateLimit(
+      reqWithXff("198.51.100.11"),
+      "192.0.2.1",
+    );
     expect(blocked).not.toBeNull();
     expect(blocked!.status).toBe(429);
   });

@@ -7,6 +7,7 @@ import {
   buildHeadline,
   goldsteinSeverity,
   parseDateAdded,
+  parseGdeltExportUrl,
   parseExportCsv,
 } from "../../src/server/api/gdeltCache";
 import {
@@ -233,6 +234,8 @@ enum GdeltFixtureText {
   SourceUrl = "https://www.example.com/article",
   Tone = "-5.2",
   UnknownActorHeadline = "Unknown actor → TARGET [180]",
+  ExportHttp = "http://data.gdeltproject.org/gdeltv2/20261026174500.export.CSV.zip",
+  ExportHttps = "https://data.gdeltproject.org/gdeltv2/20261026174500.export.CSV.zip",
 }
 
 enum GdeltFixtureValue {
@@ -276,6 +279,22 @@ const IRRELEVANT_ROOT_CODES = Array.from({ length: GdeltFixtureValue.RootCodeCou
 ).filter((code) => !RELEVANT_ROOT_CODES.has(code));
 
 describe("GDELT export parser", () => {
+  test("upgrades the exact GDELT export origin and rejects other destinations", () => {
+    expect(parseGdeltExportUrl(GdeltFixtureText.ExportHttp)).toBe(
+      GdeltFixtureText.ExportHttps,
+    );
+    for (const url of [
+      "https://127.0.0.1/gdeltv2/file.export.CSV.zip",
+      "https://data.gdeltproject.org.evil.example/file.export.CSV.zip",
+      "https://user@data.gdeltproject.org/gdeltv2/file.export.CSV.zip",
+      "https://data.gdeltproject.org:443/gdeltv2/file.export.CSV.zip",
+      "https://data.gdeltproject.org:8443/gdeltv2/file.export.CSV.zip",
+      "https://data.gdeltproject.org/gdeltv2/file.mentions.CSV.zip",
+    ]) {
+      expect([url, parseGdeltExportUrl(url)]).toEqual([url, null]);
+    }
+  });
+
   test("parseDateAdded reads the GDELT timestamp and falls back to now for a short value", () => {
     expect(parseDateAdded(GdeltFixtureText.DateAdded)).toBe(GdeltFixtureText.DateAddedIso);
     expect(new Date(parseDateAdded(GdeltFixtureText.ShortDate)).getTime()).toBeGreaterThan(Date.now() - GdeltFixtureValue.RecentWindowMs);

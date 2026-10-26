@@ -87,6 +87,8 @@ describe("ShipSource", () => {
       45,
       90,
       Math.fround(ktToMps(10)),
+      0,
+      0,
     ]);
     expect(Array.from(patches[0]?.motionPositions ?? [])).toEqual([
       -74,
@@ -124,6 +126,8 @@ describe("ShipSource", () => {
       45,
       45,
       Math.fround(ktToMps(10)),
+      0,
+      0,
     ]);
     expect(Array.from(patches[0]?.motionPositions ?? [])).toEqual([
       -74,

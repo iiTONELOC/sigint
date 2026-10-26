@@ -10,7 +10,6 @@ const TOKEN_TTL_MS = 30 * MS_PER_MINUTE;
 const RATE_WINDOW_MS = MS_PER_MINUTE;
 const COOKIE_NAME = "sigint_token";
 const CLEANUP_THRESHOLD = 1000;
-const DIRECT_CLIENT_IDENTITY = "direct";
 const TOKEN_ENCODING: BufferEncoding = "base64url";
 const TOKEN_PART_COUNT = 2;
 const TOKEN_PART_SEPARATOR = ".";
@@ -30,15 +29,22 @@ export type AuthGuards = Readonly<{
   verifyToken(token: string | null): Promise<boolean>;
   tokenCookieHeader(token: string): string;
   expireOldCookieHeader(): string;
-  guardRateLimit(req: Request): Response | null;
-  guardAuth(req: Request): Promise<Response | null>;
+  guardRateLimit(req: Request, directClientIp?: string | null): Response | null;
+  guardAuth(req: Request, directClientIp?: string | null): Promise<Response | null>;
 }>;
 
-function getClientIp(req: Request, trustedProxyHops: number): string {
-  if (trustedProxyHops === 0) return DIRECT_CLIENT_IDENTITY;
+function getClientIp(
+  req: Request,
+  trustedProxyHops: number,
+  directClientIp?: string | null,
+): string {
+  if (trustedProxyHops === 0) {
+    return directClientIp && isIP(directClientIp)
+      ? directClientIp
+      : UNKNOWN_TEXT;
+  }
   const entries = req.headers.get(HttpHeader.XForwardedFor)?.split(",");
   if (!entries || entries.length < trustedProxyHops) return UNKNOWN_TEXT;
-  // Subtract only configured hops because Dokku excludes the socket peer from XFF.
   const client = entries[entries.length - trustedProxyHops]?.trim();
   return client && isIP(client) ? client : UNKNOWN_TEXT;
 }
@@ -167,16 +173,22 @@ export function createAuthGuards(
     return true;
   }
 
-  function guardRateLimit(req: Request): Response | null {
-    const ip = getClientIp(req, config.trustedProxyHops);
+  function guardRateLimit(
+    req: Request,
+    directClientIp?: string | null,
+  ): Response | null {
+    const ip = getClientIp(req, config.trustedProxyHops, directClientIp);
     if (!checkRateLimit(ip)) {
       return authFailureResponse(AUTH_FAILURES.RateLimitedClient);
     }
     return null;
   }
 
-  async function guardAuth(req: Request): Promise<Response | null> {
-    const rateLimited = guardRateLimit(req);
+  async function guardAuth(
+    req: Request,
+    directClientIp?: string | null,
+  ): Promise<Response | null> {
+    const rateLimited = guardRateLimit(req, directClientIp);
     if (rateLimited) return rateLimited;
     const token = getTokenFromCookie(req);
     if (!(await verifyToken(token))) {

@@ -42,6 +42,7 @@ import {
 } from "@shared/domain/ships";
 import { gzip } from "zlib";
 import { promisify } from "util";
+import type { Server } from "bun";
 
 const gzipAsync = promisify(gzip);
 
@@ -103,12 +104,23 @@ export function createApiRoutes(deps: ApiDeps) {
     Readonly<{
       params?: Readonly<Record<string, string | undefined>>;
     }>;
-  type Handler = (req: RouteRequest) => Promise<Response>;
+  type RouteServer = Pick<Server<undefined>, "requestIP">;
+  type Handler = (
+    req: RouteRequest,
+    server?: RouteServer,
+  ) => Promise<Response>;
+
+  function directClientIp(
+    req: Request,
+    server: RouteServer | undefined,
+  ): string | null {
+    return server?.requestIP(req)?.address ?? null;
+  }
 
   function authedGet(handler: (req: Request) => Promise<Response>) {
     return {
-      async GET(req: Request) {
-        const blocked = await guardAuth(req);
+      async GET(req: Request, server?: RouteServer) {
+        const blocked = await guardAuth(req, directClientIp(req, server));
         if (blocked) return blocked;
         return handler(req);
       },
@@ -135,8 +147,8 @@ export function createApiRoutes(deps: ApiDeps) {
   }
 
   function authedFnGet(handler: Handler): Handler {
-    return async (req) => {
-      const blocked = await guardAuth(req);
+    return async (req, server) => {
+      const blocked = await guardAuth(req, directClientIp(req, server));
       if (blocked) return blocked;
       if (req.method !== HttpMethod.Get) {
         return withSecurityHeaders(
@@ -166,8 +178,8 @@ export function createApiRoutes(deps: ApiDeps) {
 
   return {
     [AUTH_TOKEN_ROUTE]: {
-      async GET(req: Request) {
-        const blocked = guardRateLimit(req);
+      async GET(req: Request, server?: RouteServer) {
+        const blocked = guardRateLimit(req, directClientIp(req, server));
         if (blocked) return blocked;
 
         const token = await generateToken();

@@ -28,6 +28,11 @@ export enum HttpMethod {
   Get = "GET",
 }
 
+export enum HttpProtocol {
+  Http = "http:",
+  Https = "https:",
+}
+
 export enum HttpStatus {
   Ok = 200,
   NotModified = 304,

@@ -88,8 +88,15 @@ export async function unzipSingleEntryKmz(bytes: Uint8Array): Promise<string> {
 }
 
 /** Fetch a KMZ and decode its first entry; null on a non-2xx response. */
-export async function fetchKmz(url: string): Promise<string | null> {
-  const response = await fetchWithTimeout(url, FETCH_TIMEOUT_STANDARD_MS);
+export async function fetchKmz(
+  url: string,
+  init?: RequestInit,
+): Promise<string | null> {
+  const response = await fetchWithTimeout(
+    url,
+    FETCH_TIMEOUT_STANDARD_MS,
+    init,
+  );
   if (!response.ok) return null;
   return unzipSingleEntryKmz(new Uint8Array(await response.arrayBuffer()));
 }

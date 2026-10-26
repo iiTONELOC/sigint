@@ -10,3 +10,4 @@ services:
       dockerfile: Dockerfile.e2e
     environment:
       - NODE_ENV=test
+    shm_size: 1gb

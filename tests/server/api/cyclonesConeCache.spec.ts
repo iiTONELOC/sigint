@@ -16,6 +16,7 @@ import {
   parseKmlConeToGeoJSON,
   CONE_CACHE_TTL_MS,
 } from "../../../src/server/api/cyclonesConeCache";
+import { getCycloneDossier } from "../../../src/server/api/cyclonesDossierCache";
 
 // Real capture: EP01 2026 (Amanda). The cone KMZ URL is read out of the
 // real CurrentStorms.json (trackCone.kmzFile), so derive it from that fixture
@@ -83,6 +84,7 @@ describe("parseKmlConeToGeoJSON", () => {
 describe("getCycloneCone: KMZ fetch + cache + fallback", () => {
   let originalFetch: typeof globalThis.fetch;
   let fetchCount: Record<string, number>;
+  let fetchInit: Record<string, RequestInit | undefined>;
   let kmzHandler: () => Response | Promise<Response>;
 
   beforeEach(() => {
@@ -90,8 +92,9 @@ describe("getCycloneCone: KMZ fetch + cache + fallback", () => {
     resetCycloneConeCache();
     originalFetch = globalThis.fetch;
     fetchCount = {};
+    fetchInit = {};
     kmzHandler = () => new Response(kmzBytes, { status: 200 });
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
           ? input
@@ -99,6 +102,7 @@ describe("getCycloneCone: KMZ fetch + cache + fallback", () => {
             ? input.href
             : input.url;
       fetchCount[url] = (fetchCount[url] ?? 0) + 1;
+      fetchInit[url] = init;
       if (url.endsWith("/CurrentStorms.json")) {
         return new Response(currentStormsBody, { status: 200 });
       }
@@ -121,6 +125,37 @@ describe("getCycloneCone: KMZ fetch + cache + fallback", () => {
     expect(result.cone!.type).toBe(GeoJsonGeometryType.Polygon);
     // Real NHC cone is a many-hundred-vertex polygon, not a 4-point stub.
     expect(result.cone!.coordinates[0]!.length).toBeGreaterThan(300);
+    expect(fetchInit[coneKmzUrl]?.redirect).toBe("error");
+  });
+
+  test("rejects response-provided product URLs outside NHC origins", async () => {
+    const blockedUrls = [
+      "https://127.0.0.1/TRACK.kmz",
+      "https://attacker.invalid/CONE.kmz",
+      "https://user@www.nhc.noaa.gov/public.html",
+      "https://www.nhc.noaa.gov:443/discussion.html",
+      "https://www.nhc.noaa.gov:8443/discussion.html",
+      "http://www.nhc.noaa.gov/wind.html",
+      "https://ftp.nhc.noaa.gov.evil.example/models.dat.gz",
+    ];
+    currentStormsBody = JSON.stringify({
+      activeStorms: [{
+        id: STORM_ID,
+        forecastTrack: { kmzFile: blockedUrls[0] },
+        trackCone: { kmzFile: blockedUrls[1] },
+        publicAdvisory: { url: blockedUrls[2] },
+        forecastDiscussion: { url: blockedUrls[3] },
+        windSpeedProbabilities: { url: blockedUrls[4] },
+        modelGuidance: { url: blockedUrls[5] },
+      }],
+    });
+
+    await fetchCyclones(new Date(Date.UTC(2026, 5, 4)));
+    await getCycloneDossier(STORM_ID);
+
+    for (const url of blockedUrls) {
+      expect([url, fetchCount[url] ?? 0]).toEqual([url, 0]);
+    }
   });
 
   test("cache returns within TTL without re-fetching", async () => {

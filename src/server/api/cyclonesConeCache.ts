@@ -4,6 +4,7 @@ import { kmlOuterRings } from "../lib/kml";
 import { getStormProducts } from "./cyclonesCache";
 import { fetchKmz } from "./zipReader";
 import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
+import { TRUSTED_UPSTREAM_REQUEST } from "../lib/fetchWithTimeout";
 
 export const CONE_CACHE_TTL_MS = 60 * 60_000;
 
@@ -18,7 +19,10 @@ async function fetchConeForStorm(stormId: string): Promise<GeoJsonPolygon | null
   const products = getStormProducts(stormId);
   if (!products?.conekmzUrl) return null;
   try {
-    const kml = await fetchKmz(products.conekmzUrl);
+    const kml = await fetchKmz(
+      products.conekmzUrl,
+      TRUSTED_UPSTREAM_REQUEST,
+    );
     return kml === null ? null : parseKmlConeToGeoJSON(kml);
   } catch {
     return null;

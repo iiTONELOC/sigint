@@ -78,6 +78,18 @@ const ALLOWED_LINE_SUBSTRINGS = [
   // catches them, but they are never fetched live.
   '"https://www.nhc.noaa.gov/archive/2024/al14/',
   '"https://www.nhc.noaa.gov/storm_graphics/api/AL142024_013adv_CONE.kmz"',
+  '"https://user@www.nhc.noaa.gov/public.html"',
+  '"https://www.nhc.noaa.gov:443/discussion.html"',
+  '"https://www.nhc.noaa.gov:8443/discussion.html"',
+  '"http://www.nhc.noaa.gov/wind.html"',
+  '"https://ftp.nhc.noaa.gov.evil.example/models.dat.gz"',
+  '"http://data.gdeltproject.org/gdeltv2/20261026174500.export.CSV.zip"',
+  '"https://data.gdeltproject.org/gdeltv2/20261026174500.export.CSV.zip"',
+  '"https://data.gdeltproject.org.evil.example/file.export.CSV.zip"',
+  '"https://user@data.gdeltproject.org/gdeltv2/file.export.CSV.zip"',
+  '"https://data.gdeltproject.org:443/gdeltv2/file.export.CSV.zip"',
+  '"https://data.gdeltproject.org:8443/gdeltv2/file.export.CSV.zip"',
+  '"https://data.gdeltproject.org/gdeltv2/file.mentions.CSV.zip"',
 ];
 
 const SPEC_EXT_RE = /\.spec\.tsx?$/;

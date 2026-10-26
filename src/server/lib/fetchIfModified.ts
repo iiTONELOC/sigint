@@ -6,7 +6,11 @@ export type ResponseValidators = { lastModified: string | null; etag: string | n
 /** Validators remembered per key (a storm id, a feed URL). */
 export type ValidatorStore = Map<string, ResponseValidators>;
 
-type ConditionalFetchOptions = { timeoutMs?: number; headers?: Record<string, string> };
+type ConditionalFetchOptions = {
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+  init?: Omit<RequestInit, "headers">;
+};
 
 /** Fetch with the stored validators for `key`; remember the new ones on a 2xx. */
 export async function fetchIfModified(
@@ -20,7 +24,9 @@ export async function fetchIfModified(
   if (known?.lastModified) headers[HttpHeader.IfModifiedSince] = known.lastModified;
   if (known?.etag) headers[HttpHeader.IfNoneMatch] = known.etag;
   const response = await fetchWithTimeout(
-    url, options.timeoutMs ?? FETCH_TIMEOUT_STANDARD_MS, { headers },
+    url,
+    options.timeoutMs ?? FETCH_TIMEOUT_STANDARD_MS,
+    { ...options.init, headers },
   );
   if (response.ok) {
     store.set(key, {

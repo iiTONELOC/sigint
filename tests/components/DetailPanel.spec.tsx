@@ -73,7 +73,8 @@ function renderPanel(mobile: boolean): DetailPanelSurfaces {
   );
   return {
     card: container.querySelector(DetailPanelFixtureSelector.Card) !== null,
-    sheet: container.querySelector(DetailPanelFixtureSelector.Sheet) !== null,
+    sheet:
+      document.body.querySelector(DetailPanelFixtureSelector.Sheet) !== null,
   };
 }
 

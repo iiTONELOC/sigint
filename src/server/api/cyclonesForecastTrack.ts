@@ -8,6 +8,7 @@ import { createLogger } from "../lib/logger";
 import { createGeoPoint } from "@shared/geo";
 import type { CycloneCoordinates, NhcForecastPoint } from "@shared/domain/cyclones";
 import { BLANK_SEPARATOR } from "@shared/text";
+import { TRUSTED_UPSTREAM_REQUEST } from "../lib/fetchWithTimeout";
 
 const logger = createLogger({ service: "nhc" });
 
@@ -99,7 +100,7 @@ async function fetchForecastTrack(stormId: string): Promise<NhcForecastPoint[]> 
   const url = products?.trackKmzUrl;
   if (!url) return [];
   try {
-    const kml = await fetchKmz(url);
+    const kml = await fetchKmz(url, TRUSTED_UPSTREAM_REQUEST);
     return kml === null ? [] : parseTrackKml(kml);
   } catch {
     return [];

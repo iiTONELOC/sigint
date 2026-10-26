@@ -28,7 +28,7 @@ enum PlaywrightTestServer {
   ApplicationUrl = "http://localhost:5500",
   Command = "bun run start",
   RateLimitPerMinute = "10000",
-  Secret = "test-secret-do-not-use-in-prod-0123456789abcdef",
+  SecretsDirectory = "tests/fixtures/playwright-secrets",
 }
 
 enum PlaywrightProfileValue {
@@ -58,7 +58,7 @@ export default defineConfig({
     timeout: PlaywrightTimeMs.Standard,
     env: {
       PORT: new URL(PlaywrightTestServer.ApplicationUrl).port,
-      SIGINT_SERVER_SECRET: PlaywrightTestServer.Secret,
+      SECRETS_DIR: PlaywrightTestServer.SecretsDirectory,
       SIGINT_RATE_LIMIT_PER_MINUTE: PlaywrightTestServer.RateLimitPerMinute,
     },
   },

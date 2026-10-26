@@ -1,4 +1,5 @@
 import { fetchIfModified, type ValidatorStore } from "../lib/fetchIfModified";
+import { TRUSTED_UPSTREAM_REQUEST } from "../lib/fetchWithTimeout";
 import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
 import { getStormProducts } from "./cyclonesCache";
 import { CompassPoint } from "@shared/domain/compass";
@@ -276,7 +277,14 @@ async function fetchModelsForStorm(
   const products = getStormProducts(stormId);
   const url = products?.modelsUrl ?? `${ATCF_ADECK_BASE}/a${stormId.toLowerCase()}.dat.gz`;
   try {
-    const response = await fetchIfModified(url, stormId, adeckValidators);
+    const response = await fetchIfModified(
+      url,
+      stormId,
+      adeckValidators,
+      products?.modelsUrl
+        ? { init: TRUSTED_UPSTREAM_REQUEST }
+        : {},
+    );
     if (response.status === HttpStatus.NotModified && previous) return previous;
     if (!response.ok || !response.body) return previous ?? [];
     return parseAtcfAdeck(await gunzipText(response.body), products?.analysisInit);

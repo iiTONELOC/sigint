@@ -12,9 +12,10 @@ import {
   aircraftSceneBinding,
   AircraftSource,
 } from "@/workers/data/sources/aircraft";
-import type {
-  MovingSceneTrailReader,
-} from "@/workers/data/render-codecs/movingSceneRecord";
+import {
+  createTrailRecorder,
+  type TrailRecorder,
+} from "@/workers/data/trails/trailRecorder";
 
 function aircraft(
   heading: number,
@@ -38,22 +39,25 @@ function aircraft(
   };
 }
 
-function aircraftTrailReader(): MovingSceneTrailReader {
-  return {
-    lastPoint: (source, id) =>
-      source === Domain.Aircraft && id === "Aabc123"
-        ? {
-            lat: 40.123456789012,
-            lon: -74.123456789012,
-            ts: 100,
-          }
-        : null,
-  };
+function aircraftTrailRecorder(withTrail = true): TrailRecorder {
+  const recorder = createTrailRecorder({
+    readCache: async () => null,
+    persistCache: () => undefined,
+    now: () => 100,
+  });
+  if (!withTrail) return recorder;
+  recorder.observe(Domain.Aircraft, [{
+    id: "Aabc123",
+    lat: 40.123456789012,
+    lon: -74.123456789012,
+    observedAt: 100,
+  }]);
+  return recorder;
 }
 
 async function refreshTwice(): Promise<SceneSourcePatch[]> {
   const scenePatches: SceneSourcePatch[] = [];
-  const binding = aircraftSceneBinding(aircraftTrailReader(), (command) => {
+  const binding = aircraftSceneBinding(aircraftTrailRecorder(), (command) => {
     if (command.type === SceneDataCommandType.SourcePatch) scenePatches.push(command);
   });
   const source = new AircraftSource({
@@ -83,7 +87,15 @@ describe("AircraftSource", () => {
 
     expect(rebase?.kind).toBe(DatasetPatchKind.Rebase);
     expect(Array.from(rebase?.handles ?? [])).toEqual([1]);
-    expect(Array.from(rebase?.attributes ?? [])).toEqual([90, 1, 0, 90, Math.fround(ktToMps(200))]);
+    expect(Array.from(rebase?.attributes ?? [])).toEqual([
+      90,
+      1,
+      0,
+      90,
+      Math.fround(ktToMps(200)),
+      0,
+      0,
+    ]);
     expect(rebase?.motionPositions).toBeInstanceOf(Float64Array);
     expect(Array.from(rebase?.motionPositions ?? [])).toEqual([-74.123456789012, 40.123456789012]);
     expect(Array.from(rebase?.positions ?? [])).toEqual([20, 10]);
@@ -103,7 +115,7 @@ describe("AircraftSource", () => {
   test("keeps the trail origin while current position and motion change", () => {
     const patches: SceneSourcePatch[] = [];
     const binding = aircraftSceneBinding(
-      aircraftTrailReader(),
+      aircraftTrailRecorder(),
       (command) => {
         if (command.type === SceneDataCommandType.SourcePatch) {
           patches.push(command);
@@ -130,6 +142,8 @@ describe("AircraftSource", () => {
       0,
       180,
       Math.fround(ktToMps(250)),
+      0,
+      0,
     ]);
     expect(Array.from(patches[1]?.positions ?? [])).toEqual([
       20.0001,
@@ -147,7 +161,7 @@ describe("AircraftSource", () => {
   test("uses raw aircraft position when no trail point exists", () => {
     const patches: SceneSourcePatch[] = [];
     const binding = aircraftSceneBinding(
-      { lastPoint: () => null },
+      aircraftTrailRecorder(false),
       (command) => {
         if (command.type === SceneDataCommandType.SourcePatch) {
           patches.push(command);
@@ -165,6 +179,8 @@ describe("AircraftSource", () => {
     expect(Array.from(patches[0]?.attributes ?? [])).toEqual([
       90,
       1,
+      0,
+      0,
       0,
       0,
       0,

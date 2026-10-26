@@ -1,5 +1,9 @@
 import { getStormProducts } from "./cyclonesCache";
-import { fetchWithTimeout, FETCH_TIMEOUT_STANDARD_MS } from "../lib/fetchWithTimeout";
+import {
+  FETCH_TIMEOUT_STANDARD_MS,
+  TRUSTED_UPSTREAM_REQUEST,
+  fetchWithTimeout,
+} from "../lib/fetchWithTimeout";
 import { createPerKeyCache, PURGE_INTERVAL_MS } from "../lib/perKeyCache";
 import { decodeHtmlEntities } from "../lib/htmlEntities";
 import {
@@ -102,7 +106,11 @@ async function fetchProduct(
 ): Promise<CycloneDossierProductBody | undefined> {
   if (!url) return undefined;
   try {
-    const response = await fetchWithTimeout(url, FETCH_TIMEOUT_STANDARD_MS);
+    const response = await fetchWithTimeout(
+      url,
+      FETCH_TIMEOUT_STANDARD_MS,
+      TRUSTED_UPSTREAM_REQUEST,
+    );
     if (!response.ok) return undefined;
     return parseProductHtml(await response.text(), productKind) ?? undefined;
   } catch {

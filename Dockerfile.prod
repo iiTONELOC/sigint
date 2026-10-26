@@ -1,7 +1,7 @@
-# syntax=docker/dockerfile:1
-FROM oven/bun@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS base
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS base
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates
 
 FROM base AS builder
 
@@ -21,11 +21,8 @@ COPY postbuild.ts .
 RUN bun run build && rm src/server/data/ac-db.ndjson
 
 FROM base AS runtime
-RUN if getent group 710 >/dev/null || getent passwd 710 >/dev/null; then \
-      echo "UID/GID 710 is taken in the base image" >&2; exit 1; \
-    fi \
- && groupadd --system --gid 710 sigint \
- && useradd --system --uid 710 --gid sigint --home-dir /app --shell /usr/sbin/nologin sigint
+RUN addgroup -S -g 710 sigint \
+ && adduser -S -D -H -u 710 -G sigint -s /sbin/nologin sigint
 
 COPY package.json app.json ./
 COPY --from=builder /app/node_modules/ws ./node_modules/ws

@@ -11,6 +11,7 @@ import {
 import {
   AIRCRAFT_SCENE_SQUAWK_CODES,
   SCENE_POSITION_COUNT,
+  AircraftSceneAttribute,
   AircraftSceneFlag,
 } from "@shared/scene";
 import type { RenderSceneView } from "@/workers/render/sceneStore";
@@ -33,6 +34,26 @@ import {
   sceneSearchCommand,
 } from "../_support/scene";
 
+function sceneAttributes() {
+  const stride =
+    getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride;
+  const attributes = new Float32Array(3 * stride);
+  attributes[AircraftSceneAttribute.Heading] = 10;
+  attributes[AircraftSceneAttribute.Squawk] =
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Emergency];
+  attributes[stride + AircraftSceneAttribute.Heading] = 20;
+  attributes[stride + AircraftSceneAttribute.Flags] =
+    AircraftSceneFlag.Military + AircraftSceneFlag.OnGround;
+  attributes[stride + AircraftSceneAttribute.Squawk] =
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal];
+  attributes[2 * stride + AircraftSceneAttribute.Heading] = 30;
+  attributes[2 * stride + AircraftSceneAttribute.Flags] =
+    AircraftSceneFlag.Military + AircraftSceneFlag.Recon;
+  attributes[2 * stride + AircraftSceneAttribute.Squawk] =
+    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Hijack];
+  return attributes;
+}
+
 const view = {
   capacity: 3,
   active: new Uint8Array([1, 1, 1]),
@@ -44,25 +65,7 @@ const view = {
     SCENE_POSITION_COUNT,
   unitVectors: new Float32Array(9),
   timestamps: new Float64Array(3),
-  attributes: new Float32Array([
-    10,
-    0,
-    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Emergency],
-    0,
-    0,
-    20,
-    AircraftSceneFlag.Military +
-      AircraftSceneFlag.OnGround,
-    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Normal],
-    0,
-    0,
-    30,
-    AircraftSceneFlag.Military +
-      AircraftSceneFlag.Recon,
-    AIRCRAFT_SCENE_SQUAWK_CODES[SquawkStatus.Hijack],
-    0,
-    0,
-  ]),
+  attributes: sceneAttributes(),
   attributeStride:
     getPointSourceDefinition(Domain.Aircraft).sceneSchema.attributeStride,
   stringAttributes: new Uint32Array([1, 2, 1]),

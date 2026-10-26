@@ -8,6 +8,7 @@ import {
   fetchJson,
   parseRetryAfter,
   retryDelayMs,
+  trustedUpstreamUrl,
 } from "../../src/server/lib/fetchWithTimeout";
 import { installFetchMock, type RestoreFetch } from "../support/network";
 
@@ -24,6 +25,7 @@ enum InvalidRetryAfter {
 }
 
 enum FetchFixtureText {
+  Origin = "https://upstream.test",
   Url = "https://upstream.test/data",
   Value = "answer",
 }
@@ -57,6 +59,26 @@ describe("retryDelayMs", () => {
     const told = new Response(null, { headers: { [HttpHeader.RetryAfter]: String(RetryAfterFixture.Ten) } });
     expect(retryDelayMs(told)).toBe(RetryAfterFixture.Ten * MS_PER_SECOND);
     expect(retryDelayMs(new Response(null))).toBe(UpstreamRetryPolicy.DefaultDelayMs);
+  });
+});
+
+describe("trustedUpstreamUrl", () => {
+  const origins: ReadonlySet<string> = new Set([FetchFixtureText.Origin]);
+
+  test("accepts only credential-free HTTPS URLs on an approved origin", () => {
+    expect(trustedUpstreamUrl(FetchFixtureText.Url, origins)).toBe(
+      FetchFixtureText.Url,
+    );
+    for (const url of [
+      "http://upstream.test/data",
+      "https://upstream.test.evil.example/data",
+      "https://user@upstream.test/data",
+      "https://upstream.test:443/data",
+      "https://upstream.test:8443/data",
+      "https://upstream.test/data#fragment",
+    ]) {
+      expect([url, trustedUpstreamUrl(url, origins)]).toEqual([url, null]);
+    }
   });
 });
 
