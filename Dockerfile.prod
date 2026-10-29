@@ -22,7 +22,8 @@ RUN bun run build && rm src/server/data/ac-db.ndjson
 
 FROM base AS runtime
 RUN addgroup -S -g 710 sigint \
- && adduser -S -D -H -u 710 -G sigint -s /sbin/nologin sigint
+ && adduser -S -D -H -u 710 -G sigint -s /sbin/nologin sigint \
+ && : > /etc/machine-id
 
 COPY package.json app.json ./
 COPY --from=builder /app/node_modules/ws ./node_modules/ws
