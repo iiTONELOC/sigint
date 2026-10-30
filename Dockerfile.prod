@@ -20,10 +20,17 @@ COPY postbuild.ts .
 
 RUN bun run build && rm src/server/data/ac-db.ndjson
 
-FROM base AS runtime
-RUN addgroup -S -g 710 sigint \
- && adduser -S -D -H -u 710 -G sigint -s /sbin/nologin sigint \
- && : > /etc/machine-id
+FROM base AS bun-runtime
+ADD --checksum=sha256:bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip /tmp/bun.zip
+RUN unzip -q /tmp/bun.zip -d /tmp \
+ && mkdir -p /out/usr/local/bin /out/etc \
+ && cp /tmp/bun-linux-x64/bun /out/usr/local/bin/bun \
+ && chmod 0755 /out/usr/local/bin/bun \
+ && : > /out/etc/machine-id
+
+FROM cgr.dev/chainguard/glibc-dynamic@sha256:709673274b417a48f56374da8a7633ef7b2f5b27e34612ce98a335737318cc94 AS runtime
+WORKDIR /app
+COPY --from=bun-runtime /out/ /
 
 COPY package.json app.json ./
 COPY --from=builder /app/node_modules/ws ./node_modules/ws
@@ -38,4 +45,5 @@ USER 710:710
 
 ENV NODE_ENV=production
 
-CMD ["bun", "src/server/index.prod.ts"]
+ENTRYPOINT ["/usr/local/bin/bun"]
+CMD ["src/server/index.prod.ts"]
